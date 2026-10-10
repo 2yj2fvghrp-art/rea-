@@ -21,15 +21,25 @@ export async function verifyGhidraEntryAliases({
     new URL("../../tests/conformance/ghidra/entry-aliases.c", import.meta.url),
   );
   const path = join(workspace, "entry-aliases");
-  const prefix = process.platform === "darwin" ? "_" : "";
   try {
-    await exec(compiler, ["-O0", "-g", "-fno-inline", source, "-o", path], {
-      env,
-      timeout: 30000,
-    });
+    // Mach-O function-start metadata would promote the interior control label.
+    await exec(
+      compiler,
+      [
+        "-O0",
+        "-g",
+        "-fno-inline",
+        ...(process.platform === "darwin" ? ["-Wl,-no_function_starts"] : []),
+        source,
+        "-o",
+        path,
+      ],
+      { env, timeout: 30000 },
+    );
     const bytes = await readFile(path);
     await call("close_binary");
-    await call("open_binary", { path, provider_id: "ghidra" });
+    const imported = await call("open_binary", { path, provider_id: "ghidra" });
+    const prefix = imported.format === "mach-o" ? "_" : "";
     const names = await call("list_names");
     const alias = names.find(
       ({ value }) => value === `${prefix}rea_entry_alias`,
