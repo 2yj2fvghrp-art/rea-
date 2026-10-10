@@ -2,9 +2,12 @@ import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { expect, it } from "vitest";
 
+import { parseEvidence } from "../../../src/domain/evidence.js";
+import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 it("analyzes direct returns after deep source without exhausting the default process stack", async () => {
@@ -13,32 +16,39 @@ it("analyzes direct returns after deep source without exhausting the default pro
     join(root, "app.js"),
     `export function render() { object${".property".repeat(20_000)}; function nested() { return "nested"; } class Inner { method() { return "method"; } } return "ready"; }`,
   );
-  const service = new URL(
-    "../../../dist/application/javascript/JavaScriptApplicationService.js",
-    import.meta.url,
-  ).href;
-  const script = `
-    import { analyzeJavaScriptApplication } from ${JSON.stringify(service)};
-    const result = await analyzeJavaScriptApplication({ input_path: ${JSON.stringify(root)}, format: "directory" });
-    if (!result.ok) throw result.error;
-    const nodes = result.value.normalized_result.semantic_graph.nodes;
-    console.log(JSON.stringify(nodes.filter(node => node.kind === "return-site").map(node => node.function_node_id)));
-  `;
-  const { stdout, stderr } = await promisify(execFile)(
+  const entrypoint = fileURLToPath(
+    new URL("../../../scripts/rea.mjs", import.meta.url),
+  );
+  const { stdout } = await promisify(execFile)(
     process.execPath,
-    ["--input-type=module", "-e", script],
+    [
+      entrypoint,
+      "analyze-javascript-application",
+      root,
+      "--artifact-format",
+      "directory",
+      "--format",
+      "json",
+    ],
     {
       timeout: 10_000,
+      maxBuffer: 16 * 1024 * 1024,
       // Bound the child heap while retaining Node's default stack size.
       env: {
         HOME: root,
+        USERPROFILE: root,
         TMPDIR: root,
         NODE_OPTIONS: "--max-old-space-size=768",
       },
     },
   );
-  expect(stderr).toBe("");
-  const owners: unknown = JSON.parse(stdout);
+  const evidence = parseEvidence(JSON.parse(stdout));
+  const result = javascriptApplicationAnalysisResultSchema.parse(
+    evidence.normalized_result,
+  );
+  const owners = result.semantic_graph.nodes
+    .filter((node) => node.kind === "return-site")
+    .map((node) => node.function_node_id);
   expect(owners).toHaveLength(3);
-  expect(new Set(Array.isArray(owners) ? owners : []).size).toBe(3);
+  expect(new Set(owners).size).toBe(3);
 });
