@@ -7,7 +7,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import { createElectronEvidence } from "../../../src/application/javascript/ElectronEvidence.js";
 import { createElectronActiveEvidence } from "../../../src/application/javascript/ElectronActiveEvidence.js";
-import { analyzeJavaScriptApplication } from "../../../src/application/javascript/JavaScriptApplicationService.js";
+import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import { reconcileJavaScriptRuntimeEvidence } from "../../../src/application/javascript/JavaScriptRuntimeReconciliationService.js";
 import { createEvidence } from "../../../src/domain/evidence.js";
 import {
@@ -186,6 +186,40 @@ it("matches renderer, frame, script bytes, and worker without claiming execution
   );
 });
 
+it("keeps static load states unknown when one scoped capture omits scripts", async () => {
+  const fixture = await applicationFixture();
+  const staticEvidence = await analyzeFixture(fixture);
+  const result = reconcileInput({
+    static_layers: [{ role: "application", analysis: staticEvidence }],
+    runtime_observations: [
+      electronRuntimeEvidence(fixture, SOURCE, {
+        includeWorker: false,
+        targetId: "target-complete",
+      }),
+      electronRuntimeEvidence(fixture, SOURCE, {
+        includeWorker: false,
+        scriptsUnavailable: true,
+        targetId: "target-incomplete",
+      }),
+    ],
+  });
+
+  expect(
+    result.runtime_captures.map(
+      ({ scripts_complete_within_scope }) => scripts_complete_within_scope,
+    ),
+  ).toEqual(expect.arrayContaining([false, true]));
+  expect(result.summary.static_not_observed).toBe(0);
+  expect(result.static_load_states).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        status: "unknown",
+        reason: "static-or-runtime-coverage-incomplete",
+      }),
+    ]),
+  );
+});
+
 it("reports a captured digest disagreement instead of accepting a path match", async () => {
   const fixture = await applicationFixture();
   const staticEvidence = await analyzeFixture(fixture);
@@ -316,7 +350,7 @@ it("imports an operator-provided cache layer through an explicit file mapping", 
   const application = await applicationFixture();
   const cache = await createTestTempDirectory("rea-runtime-cache-static-");
   const runtimeCache = await createTestTempDirectory("rea-runtime-cache-live-");
-  const cacheSource = "export const cachedFeature = 'fixture';\n";
+  const cacheSource = SOURCE;
   await mkdir(join(cache, "mapped"));
   await Promise.all([
     writeFile(join(cache, "mapped", "chunk.js"), cacheSource),
@@ -373,6 +407,16 @@ it("imports an operator-provided cache layer through an explicit file mapping", 
     status: "unknown",
     reason: "layer-outside-runtime-scope",
   });
+  const sharedFile = result.graph.nodes.find(
+    ({ observations }) =>
+      observations.some(({ properties }) => properties.path === "app.js") &&
+      observations.some(
+        ({ properties }) => properties.path === "mapped/chunk.js",
+      ),
+  );
+  expect(
+    sharedFile?.observations.map(({ properties }) => properties.path),
+  ).toEqual(expect.arrayContaining(["app.js", "mapped/chunk.js"]));
 });
 
 const applicationFixture = async (): Promise<string> => {
@@ -410,6 +454,7 @@ const electronRuntimeEvidence = (
     readonly targetId?: string;
     readonly sourceIncluded?: boolean;
     readonly workersUnavailable?: boolean;
+    readonly scriptsUnavailable?: boolean;
   } = {},
 ) => {
   const scriptFile = options.scriptFile ?? "app.js";
@@ -445,15 +490,7 @@ const electronRuntimeEvidence = (
         ended_at: "2026-07-15T00:00:00.100Z",
         observation_ms: 100,
       },
-      completeness: options.workersUnavailable
-        ? {
-            ...completeCapture(),
-            status: "attach_limited" as const,
-            conditions: ["attach_limited" as const],
-            attach_limited_sections: ["workers" as const],
-            unavailable_sections: ["workers" as const],
-          }
-        : completeCapture(),
+      completeness: captureCompleteness(options),
       frames: [
         {
           frame_id: "frame-main",
@@ -522,3 +559,21 @@ const completeCapture = () => ({
     total: 0,
   },
 });
+
+const captureCompleteness = (options: {
+  readonly workersUnavailable?: boolean;
+  readonly scriptsUnavailable?: boolean;
+}) => {
+  const unavailableSections = [
+    ...(options.scriptsUnavailable ? (["scripts"] as const) : []),
+    ...(options.workersUnavailable ? (["workers"] as const) : []),
+  ];
+  if (unavailableSections.length === 0) return completeCapture();
+  return {
+    ...completeCapture(),
+    status: "attach_limited" as const,
+    conditions: ["attach_limited" as const],
+    attach_limited_sections: unavailableSections,
+    unavailable_sections: unavailableSections,
+  };
+};

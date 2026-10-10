@@ -59,6 +59,7 @@ import { JavaScriptRecoveryService } from "../application/javascript/JavaScriptR
 import type { JavaScriptRecoveryPort } from "../application/javascript/JavaScriptRecoveryPort.js";
 import { createJavaScriptRecoveryProvider } from "../composition/javascriptRecovery.js";
 import { registerElectronTools } from "./registerElectronTools.js";
+import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { registerEnhancedTools } from "./registerEnhancedTools.js";
 import { registerJavaScriptRuntimeObservationTools } from "./registerJavaScriptRuntimeObservationTools.js";
 import { registerManagedTools } from "./registerManagedTools.js";
@@ -214,6 +215,7 @@ export const createServer = (
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const javascriptRecovery =
     options.javascriptRecovery ?? createJavaScriptRecoveryProvider(environment);
+  const artifactResources = new ArtifactResourceScope();
   const firmwareAnalysis = new FirmwareAnalysisService(
     options.firmwareAnalysis ?? createFirmwareAnalysisProvider(environment),
   );
@@ -250,6 +252,7 @@ export const createServer = (
       evmInterface.close(),
       webSourceLocation.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
+      artifactResources.close(),
       firmwareAnalysis.close(),
       options.browserScenarioCapture?.close?.() ?? Promise.resolve(),
     ])
@@ -290,6 +293,7 @@ export const createServer = (
     recordEvidence,
     recordEvidenceWithUnknown,
     withAdmittedAnalysis: analysisAdmission,
+    artifactResources,
   };
   registerBinaryAnalysisTools(toolContext);
   const previousOnclose = server.server.onclose;
@@ -508,6 +512,7 @@ const createSessionRecorders = (
 });
 
 interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
+  readonly artifactResources: ArtifactResourceScope;
   readonly server: EvidenceMcpServer;
   readonly session: BinarySessionPort | undefined;
   readonly options: CreateServerOptions;
@@ -578,9 +583,10 @@ const registerObservationTools = ({
   recordEvidence,
   recordEvidenceWithUnknown,
   withAdmittedAnalysis,
+  artifactResources,
 }: ServerToolContext): void => {
   const common = { logger, recordEvidence, withAdmittedAnalysis };
-  registerWebScriptTool(server, common);
+  registerWebScriptTool(server, { ...common, artifactResources });
   registerBrowserTools(server, {
     ...common,
     browser: options.browserObservation,
@@ -593,6 +599,7 @@ const registerObservationTools = ({
   });
   registerElectronTools(server, {
     ...common,
+    artifactResources,
     evidenceById,
     electron: options.electronObservation,
     electronActive: options.electronActiveObservation,
