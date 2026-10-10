@@ -32,10 +32,15 @@ it("bounds long-lived launcher output while keeping the bridge usable", async ()
     );
   });
 
-  await client.close();
+  const closed = await client.close();
+  if (!closed.ok) throw closed.error;
   const directory = diagnosticLauncher.directories[0] ?? "";
   await expect(access(directory)).rejects.toMatchObject({ code: "ENOENT" });
-  expect(diagnosticLauncher.processes[0]?.exitCode).not.toBeNull();
+  expect(diagnosticLauncher.processes.length).toBe(1);
+  const child = diagnosticLauncher.processes[0];
+  if (child === undefined)
+    throw new Error("Hopper fixture process was not launched");
+  expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
 });
 
 it("reports observed and retained output when capture cuts a token", async () => {
@@ -81,8 +86,13 @@ it("reports observed and retained output when capture cuts a token", async () =>
     ),
   ).toBe(true);
 
-  await client.close();
+  const closed = await client.close();
+  if (!closed.ok) throw closed.error;
   const directory = diagnosticLauncher.directories[0] ?? "";
   await expect(access(directory)).rejects.toMatchObject({ code: "ENOENT" });
-  expect(diagnosticLauncher.processes[0]?.exitCode).not.toBeNull();
+  expect(diagnosticLauncher.processes.length).toBe(1);
+  const child = diagnosticLauncher.processes[0];
+  if (child === undefined)
+    throw new Error("Hopper fixture process was not launched");
+  expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
 });
