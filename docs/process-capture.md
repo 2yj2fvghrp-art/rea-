@@ -205,9 +205,10 @@ keeps the existing terminal kill. Descendants are not signalled during
 finalization; owned-process cleanup handles them afterwards.
 
 `exit.reason` keeps the initiating deadline (`timeout` or `idle_timeout`).
-`exit.code` is `null` for every deadline exit: it is not the target's observed
-exit code, and the observed signal stays in `exit.signal`. `exit.finalization`
-records what was observed and is absent when no finalization was attempted:
+`exit.code` is `null` for every deadline exit; the code of an exit observed
+during finalization is `exit.finalization.exit_code`, and the observed signal
+stays in `exit.signal`. `exit.finalization` records what was observed and is
+absent when no finalization was attempted:
 
 ```json
 {
@@ -217,6 +218,7 @@ records what was observed and is absent when no finalization was attempted:
   "finalization": {
     "requested_ms": 1500,
     "elapsed_ms": 12,
+    "exit_code": 0,
     "signals": [
       { "signal": "SIGTERM", "sent_at_ms": 0, "delivery": "signaled" }
     ]
@@ -240,6 +242,12 @@ records what was observed and is absent when no finalization was attempted:
 - `elapsed_ms` is when REA observed the exit, relative to the start of
   finalization, or `null` when no exit was observed. The PTY layer can deliver the
   exit slightly after the operating system ended the process.
+- `exit_code` is the code the PTY reported when the exit was observed during
+  finalization and was not caused by a signal (`exit.signal` is `0`); a
+  finalizer that exits with `3` records `3`, one that exits cleanly records `0`.
+  It is `null` when no exit was observed or the target ended on a signal, and it
+  is never inferred. A target that exited on its own near the deadline is
+  recorded the same way.
 - The observed signal stays in `exit.signal`; `exit.code` is `null` for every
   deadline exit. The record does not attribute an exit to a particular signal,
   and a `SIGKILL` from a scenario event next to the escalation cannot be told

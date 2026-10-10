@@ -42,5 +42,7 @@ A timed-out target that must write a final report needs `finalization_ms`: REA
 sends SIGTERM to the captured root, keeps observing, and sends SIGKILL once
 only if the target has not exited by the end of the interval.
 `exit.finalization.signals` lists each attempt with its delivery result; the
-observed exit signal stays in `exit.signal`, and `exit.code` is null for every
-deadline exit.
+observed exit signal stays in `exit.signal`, `exit.code` is null for every
+deadline exit, and the code of a finalizer that exited on its own is in
+`exit.finalization.exit_code` (null on a signal exit or when no exit was
+observed).
