@@ -2,9 +2,12 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect } from "vitest";
+import { z } from "zod";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+
+const failureMessageSchema = z.object({ message: z.string() });
 
 const unsupportedHostOutput = {
   error: "Import failed",
@@ -80,7 +83,11 @@ describe("compiled reference-source import preflight failures", () => {
         const directory = await createTestTempDirectory(
           "rea-reference-cli-status-",
         );
-        const root = join(directory, "input");
+        // Exercise JSON escaping on POSIX too; Windows paths already need it.
+        const root = join(
+          directory,
+          process.platform === "win32" ? "input" : "input\\escaped",
+        );
         if (scenario.rootKind === "regular-file")
           await writeFile(root, "inert input\n");
         const result = await cli.run({
@@ -118,10 +125,15 @@ describe("compiled reference-source import preflight failures", () => {
         } else {
           expect(result.json).toMatchObject(invalidRootOutput);
         }
-        expect(JSON.stringify(result.json)).toContain(
+        const message = (
+          scenario.fullOutput
+            ? z.object({ data: failureMessageSchema }).parse(result.json).data
+            : failureMessageSchema.parse(result.json)
+        ).message;
+        expect(message).toContain(
           "Check that the path exists, is readable, and points to a directory.",
         );
-        expect(JSON.stringify(result.json)).toContain(root);
+        expect(message).toContain(root);
         expect.soft(result.exitCode).toBe(1);
         if (scenario.logging) {
           const records: unknown[] = result.stderr
@@ -169,10 +181,9 @@ describe("compiled reference-source import preflight failures", () => {
           category: "execution_failure",
           message: expect.stringContaining("EACCES: permission denied"),
         });
-        expect(JSON.stringify(result.json)).toContain(root);
-        expect(JSON.stringify(result.json)).toContain(
-          "Check directory permissions and try again.",
-        );
+        const { message } = failureMessageSchema.parse(result.json);
+        expect(message).toContain(root);
+        expect(message).toContain("Check directory permissions and try again.");
         expect(result.exitCode).toBe(1);
       } finally {
         await chmod(parent, 0o700);
