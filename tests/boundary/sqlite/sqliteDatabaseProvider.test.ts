@@ -45,6 +45,9 @@ const createFixture = async (wal = false) => {
   return { workspace, database };
 };
 
+const expectPrivateRootRemoved = (path: string) =>
+  expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
+
 it("inspects committed WAL schema and rows while preserving every source artifact", async () => {
   const { database } = await createFixture(true);
   const paths = [database.path, database.walPath, `${database.path}-shm`];
@@ -385,7 +388,7 @@ nativeTest(
         { signal: controller.signal },
       ),
     ).toMatchObject({ ok: false, error: { _tag: "AnalysisCancelledError" } });
-    await expect(access(ownedRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expectPrivateRootRemoved(ownedRoot);
   },
 );
 
@@ -505,6 +508,6 @@ nativeTest(
     if (pid === undefined) throw new Error("SQLite worker not acquired");
     const acquiredPid = pid;
     expect(() => process.kill(acquiredPid, 0)).toThrow();
-    await expect(access(ownedRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expectPrivateRootRemoved(ownedRoot);
   },
 );

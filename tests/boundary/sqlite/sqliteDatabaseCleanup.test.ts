@@ -16,6 +16,17 @@ import {
   removeTestWorkspace,
 } from "../../support/workspace/workspaceFixture.js";
 
+const createUnavailableProvider = (
+  createRuntime: SqliteDatabaseProvider["createRuntime"],
+) =>
+  new SqliteDatabaseProvider(
+    {},
+    () => {
+      throw new Error("SQLite worker deliberately unavailable");
+    },
+    createRuntime,
+  );
+
 const cleanupFixture = async () => {
   const workspace = await createTestWorkspace("rea-sqlite-cleanup-");
   const database = createSqliteDatabaseFixture(workspace.root);
@@ -23,24 +34,18 @@ const cleanupFixture = async () => {
   const roots: PrivateRuntimeRoot[] = [];
   let removalAllowed = false;
   let attempts = 0;
-  const provider = new SqliteDatabaseProvider(
-    {},
-    () => {
-      throw new Error("SQLite worker deliberately unavailable");
-    },
-    async () => {
-      const root = await PrivateRuntimeRoot.create({ parent: workspace.root });
-      roots.push(root);
-      return {
-        path: root.path,
-        close: async () => {
-          attempts += 1;
-          if (!removalAllowed) throw new Error("snapshot removal denied");
-          await root.close();
-        },
-      };
-    },
-  );
+  const provider = createUnavailableProvider(async () => {
+    const root = await PrivateRuntimeRoot.create({ parent: workspace.root });
+    roots.push(root);
+    return {
+      path: root.path,
+      close: async () => {
+        attempts += 1;
+        if (!removalAllowed) throw new Error("snapshot removal denied");
+        await root.close();
+      },
+    };
+  });
   onTestFinished(async () => {
     await Promise.all(roots.map((root) => root.close()));
     await removeTestWorkspace(workspace.root);
@@ -112,25 +117,19 @@ it("waits for concurrent acquisitions and releases only owners whose cleanup suc
   const release = createDeferred<void>();
   const roots: PrivateRuntimeRoot[] = [];
   const allowed = new Set<PrivateRuntimeRoot>();
-  const provider = new SqliteDatabaseProvider(
-    {},
-    () => {
-      throw new Error("SQLite worker deliberately unavailable");
-    },
-    async () => {
-      const root = await PrivateRuntimeRoot.create({ parent: workspace.root });
-      roots.push(root);
-      if (roots.length === 2) acquired.resolve();
-      await release.promise;
-      return {
-        path: root.path,
-        close: async () => {
-          if (!allowed.has(root)) throw new Error("snapshot removal denied");
-          await root.close();
-        },
-      };
-    },
-  );
+  const provider = createUnavailableProvider(async () => {
+    const root = await PrivateRuntimeRoot.create({ parent: workspace.root });
+    roots.push(root);
+    if (roots.length === 2) acquired.resolve();
+    await release.promise;
+    return {
+      path: root.path,
+      close: async () => {
+        if (!allowed.has(root)) throw new Error("snapshot removal denied");
+        await root.close();
+      },
+    };
+  });
   onTestFinished(async () => {
     release.resolve();
     roots.forEach((root) => allowed.add(root));
