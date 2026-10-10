@@ -40,6 +40,7 @@ await Promise.all([
 ]);
 const environment = {
   PATH: process.env.PATH ?? "",
+  HOME: account,
   USERPROFILE: account,
   DSH_HOME: profile,
   DSH_AGENTS_HOME: join(account, ".agents"),
