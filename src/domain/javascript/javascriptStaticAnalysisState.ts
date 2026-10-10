@@ -23,6 +23,7 @@ export interface JavaScriptModuleRange {
   readonly start: number;
   readonly end: number;
   readonly key: string;
+  readonly runtime: string;
   readonly requireName: string | null;
 }
 
@@ -47,6 +48,8 @@ export interface JavaScriptAnalysisAccumulator {
   readonly utilityProcesses: LocatedJavaScriptFinding<ElectronUtilityProcessFinding>[];
   readonly nativeAddonBindings: LocatedJavaScriptFinding<ElectronNativeAddonBindingFinding>[];
   readonly moduleRangeIndex: JavaScriptModuleRangeIndex;
+  /** `preload` attributes of audio and video elements, which are not scripts. */
+  readonly mediaElementPreloads: WeakSet<t.Node>;
   readonly seen: Set<string>;
   visitedNodes: number;
   unknownFindings: number;
@@ -111,6 +114,7 @@ export const createJavaScriptAnalysisAccumulator = (
   utilityProcesses: [],
   nativeAddonBindings: [],
   moduleRangeIndex: new JavaScriptModuleRangeIndex(sourceLength),
+  mediaElementPreloads: new WeakSet(),
   seen: new Set(),
   visitedNodes: 0,
   unknownFindings: 0,

@@ -114,6 +114,12 @@ from launch, must be ordered, and must fall within `timeout_ms`. Inputs marked
 Environment overrides are recorded in the scenario commitment; inherited
 values are not copied into Evidence.
 
+Terminal dimensions must satisfy `columns × (rows + scrollback) ≤ 1,000,000`.
+Every scheduled resize uses the same selected scrollback and must fit this
+working-buffer budget. REA rejects oversized scenarios before launching the
+command; it never clamps the requested dimensions. This limit is independent
+of `limits.output_bytes`, which bounds retained terminal observations.
+
 The capture contains raw PTY output chunks and rendered terminal states,
 interaction dispatch outcomes, exit reason, sampled process-tree observations,
 and settlement status. When filesystem paths are selected, REA records
@@ -187,6 +193,10 @@ Every capture requires `truncation_details`, with separate accounting for:
   input, so raw omissions also limit rendered coverage.
 - `filesystem_before` and `filesystem_after`: file-count/depth limits,
   enumeration failures, whole-file hash budget and bytes successfully hashed.
+  Directory names are read incrementally within the remaining entry capacity.
+  When a directory exceeds that capacity, the retained subset follows filesystem
+  enumeration order and is then sorted; it is explicitly incomplete and cannot
+  establish that an omitted path is absent.
   Each retained regular file without a digest has an aliased path, size,
   remaining budget and reason: `file_bytes_budget`,
   `file_changed_or_short_read`, or `file_unavailable`. Its `system_code` is

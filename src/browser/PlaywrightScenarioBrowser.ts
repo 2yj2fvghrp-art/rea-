@@ -97,6 +97,9 @@ export class PlaywrightScenarioBrowserCleanupOwner {
     try {
       await eventFinalization;
     } catch (cause: unknown) {
+      // A failed finalization stays failed: the memoized attempt rejects on
+      // every retry so cleanup can never report success for unfinalized
+      // events.
       failures.push(cause);
     }
     if (!this.#browserClosed) {
@@ -380,6 +383,7 @@ const openAttachedScenarioBrowser = async (
   environment: BrowserScenario["environment"],
   launcher: ScenarioBrowserLauncher,
   signal: AbortSignal | undefined,
+  retainCleanup: ((close: () => Promise<unknown>) => void) | undefined,
 ): Promise<OpenedScenarioBrowser> => {
   const lease = await acquireAttachedScenario(browserRequest, signal);
   let cleanupOwner: PlaywrightScenarioBrowserCleanupOwner | undefined;
@@ -431,7 +435,13 @@ const openAttachedScenarioBrowser = async (
       throw cause;
     }
     const cleanup = cleanupOwner;
-    return failBrowserScenarioOperation(() => cleanup.close(), cause);
+    const close = () => cleanup.close();
+    try {
+      return await failBrowserScenarioOperation(close, cause);
+    } catch (failure: unknown) {
+      if (failure !== cause) retainCleanup?.(close);
+      throw failure;
+    }
   }
 };
 
@@ -442,6 +452,7 @@ export const openPlaywrightScenarioBrowser = async (
   options: {
     readonly launcher?: ScenarioBrowserLauncher;
     readonly signal?: AbortSignal | undefined;
+    readonly retainCleanup?: (close: () => Promise<unknown>) => void;
   } = {},
 ): Promise<OpenedScenarioBrowser> => {
   const launcher = options.launcher ?? chromium;
@@ -451,6 +462,7 @@ export const openPlaywrightScenarioBrowser = async (
       scenario.environment,
       launcher,
       options.signal,
+      options.retainCleanup,
     );
 
   const profilePath = await mkdtemp(join(tmpdir(), "rea-browser-scenario-"));
@@ -478,11 +490,16 @@ export const openPlaywrightScenarioBrowser = async (
       timeout: 0,
     });
   } catch (cause: unknown) {
-    return failBrowserScenarioOperation(
-      () => rm(profilePath, { recursive: true, force: true, maxRetries: 3 }),
-      cause,
-      ["browser_profile"],
-    );
+    const cleanup = () =>
+      rm(profilePath, { recursive: true, force: true, maxRetries: 3 });
+    try {
+      return await failBrowserScenarioOperation(cleanup, cause, [
+        "browser_profile",
+      ]);
+    } catch (failure: unknown) {
+      if (failure !== cause) options.retainCleanup?.(cleanup);
+      throw failure;
+    }
   }
   const cleanup = new PlaywrightScenarioBrowserCleanupOwner({
     closeBrowser: () => context.close(),
@@ -502,6 +519,12 @@ export const openPlaywrightScenarioBrowser = async (
       cleanup,
     };
   } catch (cause: unknown) {
-    return failBrowserScenarioOperation(() => cleanup.close(), cause);
+    const close = () => cleanup.close();
+    try {
+      return await failBrowserScenarioOperation(close, cause);
+    } catch (failure: unknown) {
+      if (failure !== cause) options.retainCleanup?.(close);
+      throw failure;
+    }
   }
 };
