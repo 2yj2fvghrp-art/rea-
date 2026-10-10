@@ -2,7 +2,6 @@ import { readClientPolicyBlock } from "./GeminiClientSettings.js";
 import { readClientConfigurationFiles } from "./ClientConfigurationFiles.js";
 import {
   clientRegistrationEntry,
-  effectiveClientServer,
   clientConfigurationValuesEqual,
   clientServerListedDisabled,
   clientServerPath,
@@ -17,7 +16,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import writeFileAtomic from "write-file-atomic";
-import { z } from "zod";
+import { clientRegistrationEnvironment } from "./ClientRegistrationEnvironment.js";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { npxRegistrationCommand } from "./ClientRegistrationIdentity.js";
@@ -337,27 +336,17 @@ const clientConfigurationDesired = (
   parsed?: ClientConfigurationDocument,
 ) => {
   const format = parsed?.dialect ?? client.format ?? "json";
-  const environmentKey =
-    format === "opencode" || format === "opencode_v2" ? "environment" : "env";
-  const existing = z
-    .object({ [environmentKey]: z.record(z.string(), z.string()).optional() })
-    .safeParse(
-      parsed === undefined
-        ? undefined
-        : effectiveClientServer(parsed, PRODUCT_IDENTITY.mcpServerKey),
-    );
   // Preserve explicitly configured server settings, never the ambient process
   // environment. Newly discovered provider paths win only for their own keys.
-  const environment = Object.fromEntries(
-    Object.entries({
-      ...(existing.success ? existing.data[environmentKey] : {}),
-      ...providerEnvironment,
-    }).sort(([left], [right]) => left.localeCompare(right)),
+  const environment = clientRegistrationEnvironment(
+    parsed,
+    providerEnvironment,
   );
+  if (!environment.ok) throw environment.error;
   const registration = clientRegistrationEntry(
     format,
     command.length === 0 ? [PRODUCT_IDENTITY.cliBinary, "mcp"] : command,
-    environment,
+    environment.value,
   );
   return {
     ...registration,

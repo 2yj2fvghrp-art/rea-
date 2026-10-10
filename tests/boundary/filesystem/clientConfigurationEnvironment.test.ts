@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 
@@ -14,6 +14,7 @@ import {
   inspectClientConfiguration,
 } from "../../../src/application/SetupClientConfiguration.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 
 it.each([
   ["cursor", "json", "mcpServers", "env"],
@@ -106,3 +107,75 @@ it("retains legacy OpenCode environment when migrating into a native server tabl
     await configureClientConfiguration(client, {}, ["rea", "mcp"]),
   ).toEqual({ status: "unchanged" });
 });
+
+it.each([
+  [
+    "non-string member",
+    { REA_MCP_INPUT_SCHEMA_PROFILE: "compact", PORT: 8080 },
+    "env.PORT",
+  ],
+  [
+    "boolean member",
+    { REA_MCP_INPUT_SCHEMA_PROFILE: "compact", FLAG: true },
+    "env.FLAG",
+  ],
+  [
+    "null member",
+    { REA_MCP_INPUT_SCHEMA_PROFILE: "compact", VALUE: null },
+    "env.VALUE",
+  ],
+  ["array", [], "env"],
+  ["string", "not-a-map", "env"],
+  ["null map", null, "env"],
+  [
+    "empty profile",
+    { REA_MCP_INPUT_SCHEMA_PROFILE: "" },
+    "REA_MCP_INPUT_SCHEMA_PROFILE",
+  ],
+  [
+    "invalid profile",
+    { REA_MCP_INPUT_SCHEMA_PROFILE: "bogus" },
+    "REA_MCP_INPUT_SCHEMA_PROFILE",
+  ],
+  [
+    "invalid response budget",
+    { REA_MCP_MAX_RESPONSE_BYTES: "1" },
+    "REA_MCP_MAX_RESPONSE_BYTES",
+  ],
+] as const)(
+  "refuses %s before changing the configuration",
+  async (_name, env, setting) => {
+    const home = await createTestTempDirectory("rea-invalid-environment-");
+    const directory = join(home, ".cursor");
+    const configPath = join(directory, "mcp.json");
+    await mkdir(directory);
+    const original = JSON.stringify({
+      mcpServers: { rea: { command: "rea", args: ["mcp"], env } },
+    });
+    await writeFile(configPath, original);
+    const client = { name: "cursor", format: "json", configPath } as const;
+    expect(
+      await inspectClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({
+      status: "invalid",
+      remediation: expect.stringContaining(setting),
+    });
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toEqual({ status: "failed", reason: "readback" });
+    expect(await clientConfigurationAligned(client, {}, ["rea", "mcp"])).toBe(
+      false,
+    );
+    const statuses = await readClientRegistrationStatuses(home, "rea", {
+      environment: {},
+    });
+    expect(statuses.find(({ client }) => client === "cursor")).toMatchObject({
+      state: "invalid",
+      remediation: expect.stringContaining(setting),
+    });
+    expect(await readFile(configPath, "utf8")).toBe(original);
+    await expect(access(`${configPath}.rea.backup`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);

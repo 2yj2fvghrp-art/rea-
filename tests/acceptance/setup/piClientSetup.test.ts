@@ -11,6 +11,70 @@ import { COMPACT_INPUT_SCHEMA_BUDGET_BYTES } from "../../../src/config/mcpInputS
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
+for (const profile of ["", "bogus"])
+  cliTest(
+    `setup and doctor refuse an invalid retained schema profile ${JSON.stringify(profile)}`,
+    async ({ cli }) => {
+      const home = await createTestTempDirectory("rea-pi-invalid-profile-cli-");
+      const agent = join(home, ".pi", "agent");
+      const config = join(agent, "mcp.json");
+      const original = JSON.stringify({
+        mcpServers: {
+          rea: {
+            type: "stdio",
+            command: "rea",
+            args: ["mcp"],
+            env: { REA_MCP_INPUT_SCHEMA_PROFILE: profile },
+          },
+        },
+      });
+      await mkdir(agent, { recursive: true });
+      await writeFile(config, original);
+      const environment = {
+        HOME: home,
+        USERPROFILE: home,
+        HOPPER_LAUNCHER_PATH: join(home, "unconfigured-hopper"),
+      };
+      const setup = await cli.run({
+        arguments: [
+          "setup",
+          "--client",
+          "pi",
+          "--skill=false",
+          "--yes",
+          "--json",
+        ],
+        cwd: home,
+        environment,
+      });
+      expect(setup.exitCode).toBe(1);
+      expect(setup.json).toMatchObject({
+        status: "needs_human",
+        plannedActions: [],
+        appliedActions: [],
+        remediation: expect.stringContaining("REA_MCP_INPUT_SCHEMA_PROFILE"),
+      });
+      const doctor = await cli.run({
+        arguments: ["doctor", "--client", "pi", "--json"],
+        cwd: home,
+        environment,
+      });
+      expect(doctor.exitCode).toBe(1);
+      expect(doctor.json).toMatchObject({
+        healthy: false,
+        identity: {
+          registrations: expect.arrayContaining([
+            expect.objectContaining({ client: "pi", state: "invalid" }),
+          ]),
+        },
+      });
+      expect(await readFile(config, "utf8")).toBe(original);
+      await expect(readFile(`${config}.rea.backup`)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
 cliTest(
   "setup preserves a configured compact catalog through CLI migration and MCP startup",
   async ({ cli }) => {
@@ -46,6 +110,24 @@ cliTest(
       "--yes",
       "--json",
     ];
+    const planned = await cli.run({
+      arguments: [...arguments_, "--dry-run"],
+      cwd: home,
+      environment,
+    });
+    expect(planned.exitCode).toBe(0);
+    expect(planned.json).toMatchObject({
+      plannedActions: [
+        expect.objectContaining({
+          id: "configure_client:pi",
+          detail: expect.stringContaining(
+            "Existing server environment overrides are retained",
+          ),
+        }),
+      ],
+      appliedActions: [],
+    });
+    expect(await readFile(config, "utf8")).toBe(original);
     const applied = await cli.run({
       arguments: arguments_,
       cwd: home,
