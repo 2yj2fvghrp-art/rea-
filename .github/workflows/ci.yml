@@ -148,6 +148,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sqlite-runtime:
+    name: SQLite runtime compatibility (Node ${{ matrix.node }})
+    needs: [changes, build]
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The pinned Node 24 toolchain is covered by the full test shards.
+        node: [22.23.1, 26.11.1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: rea-dist
+          path: dist
+      - name: Generate test artifacts from the downloaded runtime
+        run: |
+          node scripts/generate-mcp-tool-catalog.mjs
+          node scripts/generate-skill-metadata.mjs
+          node scripts/generate-product-catalog.mjs
+          node scripts/generate-completion-ledger.mjs
+      - name: Verify SQLite inspection and cleanup on supported runtimes
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          src/application/sqlite/SqliteDatabaseService.test.ts
+          tests/acceptance/sqliteDatabaseCli.test.ts
+          tests/boundary/sqlite/sqliteDatabaseCleanup.test.ts
+          tests/boundary/sqlite/sqliteDatabaseDescriptorCleanup.test.ts
+          tests/boundary/sqlite/sqliteDatabaseInspection.test.ts
+          tests/boundary/sqlite/sqliteDatabaseProvider.test.ts
+          tests/boundary/sqlite/sqliteDatabaseSnapshot.test.ts
+          tests/boundary/mcp/serverLifecycleMcp.test.ts
+
   test:
     name: Test (coverage + timing)
     needs: [changes, test-shard]

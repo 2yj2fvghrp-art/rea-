@@ -4,6 +4,8 @@ import {
   type ExecutionOptions,
 } from "../application/AnalysisProvider.js";
 import type { SqliteDatabasePort } from "../application/sqlite/SqliteDatabasePort.js";
+import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import type {
   AnalysisCapturedOutput,
   AnalysisError,
@@ -45,6 +47,7 @@ interface PendingSnapshotCleanup {
 /** Inspect a provider-owned copy through a cancellable SQLite child, without source writes. */
 export class SqliteDatabaseProvider implements SqliteDatabasePort {
   readonly #active = new Set<Promise<SqliteOutcome>>();
+  readonly #artifactResources = new ArtifactResourceScope();
   readonly #pendingCleanup = new Map<
     SqliteRuntimeRoot,
     PendingSnapshotCleanup
@@ -66,7 +69,21 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
     options?: ExecutionOptions,
   ): Promise<SqliteOutcome> {
     if (this.#closed) return err(new AnalysisCancelledError(operation));
-    const inspection = this.#inspect(input, options);
+    const inspection = this.#artifactResources
+      .run(() => this.#inspect(input, options))
+      .catch((cause: unknown) =>
+        err(
+          selectedFailure(
+            sqliteDatabaseFailure(
+              cause,
+              input.path,
+              "artifact-read",
+              options?.signal,
+            ),
+            options?.signal,
+          ),
+        ),
+      );
     this.#active.add(inspection);
     try {
       return await inspection;
@@ -75,12 +92,43 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
     }
   }
 
-  /** Await active inspections and retry retained roots; failed closes remain retryable. */
+  /** Await inspections and retry retained descriptors, workers, and snapshot roots. */
   close(): Promise<void> {
     this.#closed = true;
     this.#closePromise ??= Promise.allSettled(this.#active)
       .then(async () => {
+        let descriptorFailure: AnalysisError | undefined;
+        try {
+          await this.#artifactResources.close();
+        } catch (cause: unknown) {
+          const cleanup = ArtifactReaderFailure.cleanupObservation(
+            cause,
+            "SQLite artifact descriptors",
+          );
+          descriptorFailure = new ProviderCleanupError(
+            SQLITE_PROVIDER_IDENTITY.id,
+            cleanup.resources,
+            { reason: cleanup.reason },
+            { operation, cause },
+          );
+        }
         const cleaned = await this.#retryCleanup();
+        if (descriptorFailure !== undefined && !cleaned.ok)
+          throw new ProviderCleanupError(
+            SQLITE_PROVIDER_IDENTITY.id,
+            [
+              ...descriptorFailure.cleanupResources,
+              ...cleaned.error.cleanupResources,
+            ],
+            {
+              failures: [
+                projectAnalysisError(descriptorFailure),
+                projectAnalysisError(cleaned.error),
+              ],
+            },
+            { operation },
+          );
+        if (descriptorFailure !== undefined) throw descriptorFailure;
         if (!cleaned.ok) throw cleaned.error;
       })
       .catch((cause: unknown) => {
@@ -170,6 +218,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
       const snapshot = await captureSqliteDatabaseSnapshot(
         input.path,
         root.path,
+        this.#artifactResources,
         options?.signal,
       );
       phase = "worker";
@@ -178,6 +227,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
         root: root.path,
         snapshotPath: snapshot.snapshotPath,
         environment: this.environment,
+        resourceScope: this.#artifactResources,
         ...(this.launcher === undefined ? {} : { launcher: this.launcher }),
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         captured: (output) => {
@@ -201,7 +251,12 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
     } catch (cause: unknown) {
       if (cause instanceof OwnedCommandFailure)
         processOwner = cause.cleanupOwner;
-      const failure = sqliteDatabaseFailure(cause, input.path, phase);
+      const failure = sqliteDatabaseFailure(
+        cause,
+        input.path,
+        phase,
+        options?.signal,
+      );
       retainedOutput ??= failure.capturedOutput;
       result = err(selectedFailure(failure, options?.signal, retainedOutput));
     }

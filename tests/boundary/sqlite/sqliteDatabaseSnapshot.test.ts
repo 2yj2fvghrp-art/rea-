@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it, onTestFinished } from "vitest";
+import { ArtifactResourceScope } from "../../../src/artifacts/ArtifactResourceScope.js";
 import type { StableArtifactFileSystem } from "../../../src/artifacts/readStableArtifact.js";
 import { captureSqliteDatabaseSnapshot } from "../../../src/sqlite/SqliteDatabaseSnapshot.js";
 import { inspectSqliteDatabaseSnapshot } from "../../../src/sqlite/SqliteDatabaseInspection.js";
@@ -27,18 +28,20 @@ const fixture = async (wal = false) => {
   const workspace = await createTestWorkspace("rea-sqlite-snapshot-race-");
   const database = createSqliteDatabaseFixture(workspace.root, wal);
   if (!wal) database.close();
+  const resourceScope = new ArtifactResourceScope();
   onTestFinished(async () => {
+    await resourceScope.close();
     if (wal) database.close();
     await removeTestWorkspace(workspace.root);
   });
   const root = await workspace.mkdir("private");
-  return { workspace, database, root };
+  return { workspace, database, root, resourceScope };
 };
 
 it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE).each(["PERSIST", "TRUNCATE"])(
   "inspects a committed %s journal without modifying the source file set",
   async (mode) => {
-    const { database, root } = await fixture();
+    const { database, root, resourceScope } = await fixture();
     const writer = new DatabaseSync(database.path);
     try {
       writer.exec(
@@ -50,7 +53,11 @@ it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE).each(["PERSIST", "TRUNCATE"])(
     const journalPath = `${database.path}-journal`;
     const before = await readFile(journalPath);
     const beforeStat = await lstat(journalPath, { bigint: true });
-    const snapshot = await captureSqliteDatabaseSnapshot(database.path, root);
+    const snapshot = await captureSqliteDatabaseSnapshot(
+      database.path,
+      root,
+      resourceScope,
+    );
     const result = inspectSqliteDatabaseSnapshot(snapshot.snapshotPath, {
       path: database.path,
       table: "records",
@@ -80,7 +87,7 @@ it.runIf(process.platform !== "win32").each([
 ])(
   "reports an observed %s change during acquisition as changed evidence: %s",
   async (member, change) => {
-    const { database, workspace, root } = await fixture(true);
+    const { database, workspace, root, resourceScope } = await fixture(true);
     const replacement = await workspace.write("replacement", "");
     const selectedPath =
       member === "database" ? database.path : database.walPath;
@@ -100,6 +107,7 @@ it.runIf(process.platform !== "win32").each([
       await captureSqliteDatabaseSnapshot(
         database.path,
         root,
+        resourceScope,
         undefined,
         fileSystem,
       );
@@ -116,7 +124,7 @@ it.runIf(process.platform !== "win32").each([
 );
 
 it("refuses an active journal even before SQLite writes its magic header", async () => {
-  const { database, root } = await fixture();
+  const { database, root, resourceScope } = await fixture();
   const writer = new DatabaseSync(database.path);
   try {
     writer.exec(
@@ -128,7 +136,7 @@ it("refuses an active journal even before SQLite writes its magic header", async
     expect(journal.subarray(8, 28).some((byte) => byte !== 0)).toBe(true);
     const original = await readFile(database.path);
     await expect(
-      captureSqliteDatabaseSnapshot(database.path, root),
+      captureSqliteDatabaseSnapshot(database.path, root, resourceScope),
     ).rejects.toMatchObject({
       reason: "format",
       message: expect.stringContaining("recovery"),
@@ -142,21 +150,21 @@ it("refuses an active journal even before SQLite writes its magic header", async
 });
 
 it("refuses an incomplete zeroed journal header", async () => {
-  const { database, root } = await fixture();
+  const { database, root, resourceScope } = await fixture();
   await writeFile(`${database.path}-journal`, Buffer.alloc(27));
   await expect(
-    captureSqliteDatabaseSnapshot(database.path, root),
+    captureSqliteDatabaseSnapshot(database.path, root, resourceScope),
   ).rejects.toMatchObject({ reason: "format" });
 });
 
 it.runIf(process.platform !== "win32")(
   "refuses a journal symlink even when its target is empty",
   async () => {
-    const { database, workspace, root } = await fixture();
+    const { database, workspace, root, resourceScope } = await fixture();
     const empty = await workspace.write("empty-journal", "");
     await symlink(empty, `${database.path}-journal`);
     await expect(
-      captureSqliteDatabaseSnapshot(database.path, root),
+      captureSqliteDatabaseSnapshot(database.path, root, resourceScope),
     ).rejects.toMatchObject({ reason: "path" });
   },
 );
@@ -164,7 +172,7 @@ it.runIf(process.platform !== "win32")(
 it.each(["activate", "replace", "remove"])(
   "rejects a cold journal changed during database acquisition: %s",
   async (change) => {
-    const { database, root } = await fixture();
+    const { database, root, resourceScope } = await fixture();
     const journalPath = `${database.path}-journal`;
     await writeFile(journalPath, Buffer.alloc(28));
     const fileSystem: StableArtifactFileSystem = {
@@ -183,13 +191,19 @@ it.each(["activate", "replace", "remove"])(
       },
     };
     await expect(
-      captureSqliteDatabaseSnapshot(database.path, root, undefined, fileSystem),
+      captureSqliteDatabaseSnapshot(
+        database.path,
+        root,
+        resourceScope,
+        undefined,
+        fileSystem,
+      ),
     ).rejects.toMatchObject({ reason: "integrity" });
   },
 );
 
 it("rejects a database changed after its copy but before WAL acquisition", async () => {
-  const { database, root } = await fixture(true);
+  const { database, root, resourceScope } = await fixture(true);
   const initial = await readFile(database.path);
   const initialStat = await lstat(database.path);
   let changed = false;
@@ -208,7 +222,13 @@ it("rejects a database changed after its copy but before WAL acquisition", async
     },
   };
   await expect(
-    captureSqliteDatabaseSnapshot(database.path, root, undefined, fileSystem),
+    captureSqliteDatabaseSnapshot(
+      database.path,
+      root,
+      resourceScope,
+      undefined,
+      fileSystem,
+    ),
   ).rejects.toMatchObject({ reason: "integrity" });
   expect(changed).toBe(true);
   expect(await readFile(`${root}/database.snapshot`)).toEqual(initial);
@@ -217,7 +237,7 @@ it("rejects a database changed after its copy but before WAL acquisition", async
 it.each(["-wal", "-journal"] as const)(
   "rejects a previously absent %s created during database acquisition",
   async (suffix) => {
-    const { database, root } = await fixture();
+    const { database, root, resourceScope } = await fixture();
     let created = false;
     const fileSystem: StableArtifactFileSystem = {
       lstat: (path) => lstat(path, { bigint: true }),
@@ -233,7 +253,13 @@ it.each(["-wal", "-journal"] as const)(
       },
     };
     await expect(
-      captureSqliteDatabaseSnapshot(database.path, root, undefined, fileSystem),
+      captureSqliteDatabaseSnapshot(
+        database.path,
+        root,
+        resourceScope,
+        undefined,
+        fileSystem,
+      ),
     ).rejects.toMatchObject({ reason: "integrity" });
     expect(created).toBe(true);
   },

@@ -1,4 +1,5 @@
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import {
   AnalysisError,
   type AnalysisCapturedOutput,
@@ -35,10 +36,32 @@ export const sqliteDatabaseFailure = (
   cause: unknown,
   path: string,
   phase: string,
+  signal?: AbortSignal,
 ): AnalysisError => {
   const operation = "inspect_sqlite_database";
   if (cause instanceof AnalysisError) return cause;
   if (cause instanceof ArtifactReaderFailure) {
+    if (cause.cleanup !== undefined)
+      return new ProviderCleanupError(
+        SQLITE_PROVIDER_IDENTITY.id,
+        cause.cleanup.resources,
+        {
+          reason: cause.cleanup.reason,
+          previous_error:
+            cause.cause === undefined
+              ? null
+              : projectAnalysisError(
+                  signal?.aborted
+                    ? new AnalysisCancelledError(operation, {
+                        cause: cause.cause,
+                      })
+                    : sqliteDatabaseFailure(cause.cause, path, phase),
+                ),
+        },
+        { operation, cause },
+      );
+    if (cause.reason === "io" && cause.cause !== undefined)
+      return sqliteDatabaseFailure(cause.cause, path, phase, signal);
     if (cause.reason === "integrity")
       return new AnalysisArtifactChangedError(operation, path, cause.message, {
         cause,
@@ -53,6 +76,8 @@ export const sqliteDatabaseFailure = (
       },
     ]);
   }
+  if (cause instanceof Error && cause.name === "AbortError")
+    return new AnalysisCancelledError(operation, { cause });
   if (cause instanceof OwnedCommandFailure) {
     const projected = ownedCommandFailure(cause);
     if (projected !== undefined) return projected;

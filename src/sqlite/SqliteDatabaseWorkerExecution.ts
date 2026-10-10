@@ -15,6 +15,8 @@ import {
   type InspectSqliteDatabaseInput,
 } from "../domain/sqlite/sqliteDatabase.js";
 import { readStableArtifact } from "../artifacts/readStableArtifact.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { runOwnedCommand } from "../process/OwnedCommand.js";
 import { capturedSqliteOutput } from "./SqliteDatabaseFailures.js";
 import { SQLITE_DATABASE_LIMITS } from "./SqliteDatabaseLimits.js";
@@ -93,6 +95,7 @@ export const executeSqliteDatabaseWorker = async (request: {
   readonly root: string;
   readonly snapshotPath: string;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
+  readonly resourceScope: ArtifactResourceScope;
   readonly launcher?: SqliteWorkerLauncher;
   readonly signal?: AbortSignal;
   readonly captured: (output: AnalysisCapturedOutput) => void;
@@ -140,13 +143,22 @@ export const executeSqliteDatabaseWorker = async (request: {
       replyPath,
       SQLITE_DATABASE_LIMITS.outputBytes,
       request.signal,
+      undefined,
+      request.resourceScope,
     );
     reply = replySchema.parse(JSON.parse(file.bytes.toString("utf8")));
   } catch (cause: unknown) {
     throw new AnalysisOutputError(
       operation,
       `Owned SQLite worker reply is missing or malformed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause, capturedOutput },
+      {
+        cause,
+        capturedOutput,
+        ...(cause instanceof ArtifactReaderFailure &&
+        cause.cleanup !== undefined
+          ? { cleanup: cause.cleanup }
+          : {}),
+      },
     );
   }
   if (!reply.ok) throw rejectedReply(reply, capturedOutput);

@@ -68,7 +68,15 @@ selects the npm release, and persistent MCP registrations are pinned to the
 version that performed setup. Installing newer instructions does not update a
 running server or its registration.
 
-The release checked on **2026-10-07** was **5.0.0** (133 MCP tools), published
+The npm release checked on **2026-10-10** was **6.3.0**, published from
+[`74cf9e14`](https://github.com/morluto/rea/commit/74cf9e1401fcd89482fe39c27cc898f5858e9b72),
+with bundled skill version 34. It does not include automatic Pi or Hermes
+registration: `setup --client pi` and `setup --client hermes` reject those IDs
+before writing configuration. Their setup workflows below require a source build
+or a later release containing those integrations; `@latest` alone cannot select
+unpublished changes.
+
+The earlier release checked on **2026-10-07** was **5.0.0** (133 MCP tools), published
 from the fixed checkpoint
 [`b33236ec`](https://github.com/morluto/rea/releases/tag/rea-agents-5.0.0).
 The public CLI, MCP catalog and target-free session, and isolated update from
@@ -142,7 +150,22 @@ listed after the table because its connector is not one of these files:
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
 
+For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
+chat with REA's full input-schema profile before sending a model request
+(`compaction_static_context_blocked`; [#1554](https://github.com/morluto/rea/issues/1554)).
+The existing compact profile passed native chat and analysis with the complete
+tool inventory on Linux using a loopback model fixture. After setup, add
+`"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` to the `env` object of the
+`mcpServers.rea` entry in Copilot's `mcp-config.json`, preserving its other
+settings, then restart the client. Compact advertisements can reduce nested
+schema constraints; REA still validates complete canonical inputs. Full-profile
+`gpt-5.4` metadata is also verified locally. Live model API acceptance and
+Windows remain unverified; see [native client verification](testing.md).
+
 For [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md),
+automatic setup requires a build containing the integration; npm 6.3.0 does not
+include it. See [released package and main](#released-package-and-main).
+In a supported build,
 setup writes a `type: "stdio"` entry under `mcpServers.rea` in the user-level
 `~/.pi/agent/mcp.json` and installs the bundled skill under `~/.agents/skills`.
 Use `rea setup --client pi --dry-run --json` to inspect the plan, then
@@ -201,7 +224,10 @@ registration. Doctor treats an `enabled: false` entry as active when
 `enabledServers` lists `rea`, as OMP does, unless `disabledServers` also lists
 it. Run setup under each profile that should load REA.
 
-For Hermes, setup writes a `mcp_servers.rea` entry to `config.yaml`, preserving
+For Hermes, automatic setup also requires a build containing the integration;
+npm 6.3.0 does not include it. See
+[released package and main](#released-package-and-main).
+In a supported build, setup writes a `mcp_servers.rea` entry to `config.yaml`, preserving
 comments and unrelated settings. It resolves that file from `HERMES_HOME`, else
 from the platform default Hermes itself uses — `%LOCALAPPDATA%\hermes` on
 Windows, `~/.hermes` elsewhere — including any `HERMES_DATA_DIR_SUFFIX`. Hermes
@@ -598,8 +624,10 @@ dossiers, instructions, recovered data types, measured load mappings, loaded
 memory bytes, and observed file offsets. Independent load-image attestation
 supports DOS MZ and explicitly selected COM; PE returns its measurements with that limitation.
 On Linux and macOS, `annotate_native_function` also edits a function name and/or
-entry comments atomically and returns refreshed analysis. These session metadata
-edits leave executable bytes unchanged and are discarded on close. GUI controls
+entry comments atomically and returns refreshed analysis, and `set_address_name`
+and `set_addresses_names` name a function entry or any other mapped address
+(creating or renaming its primary label) with per-address success results. These
+session metadata edits leave executable bytes unchanged and are discarded on close. GUI controls
 require Hopper; Windows P0 remains read-only.
 
 Windows P0 admits native x86 and x86-64 PE applications and DLLs on fixed local NTFS volumes.

@@ -2,6 +2,8 @@ import { lstat, open, writeFile } from "node:fs/promises";
 import { constants, type BigIntStats } from "node:fs";
 import { join } from "node:path";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
   readStableArtifact,
   type StableArtifactFileSystem,
@@ -63,28 +65,36 @@ const readObservedArtifact = (
   observed: BigIntStats,
   maximumBytes: number,
   selectedFileSystem: StableArtifactFileSystem,
+  resourceScope: ArtifactResourceScope,
   signal?: AbortSignal,
 ) =>
   duringAcquisition(path, () =>
-    readStableArtifact(path, maximumBytes, signal, {
-      open: (selectedPath, flags) =>
-        selectedFileSystem.open(selectedPath, flags),
-      lstat: async (selectedPath) => {
-        const current = await selectedFileSystem.lstat(selectedPath);
-        if (!sameState(observed, current))
-          throw new ArtifactReaderFailure(
-            "integrity",
-            `SQLite snapshot file set changed during acquisition: ${selectedPath}`,
-          );
-        return current;
+    readStableArtifact(
+      path,
+      maximumBytes,
+      signal,
+      {
+        open: (selectedPath, flags) =>
+          selectedFileSystem.open(selectedPath, flags),
+        lstat: async (selectedPath) => {
+          const current = await selectedFileSystem.lstat(selectedPath);
+          if (!sameState(observed, current))
+            throw new ArtifactReaderFailure(
+              "integrity",
+              `SQLite snapshot file set changed during acquisition: ${selectedPath}`,
+            );
+          return current;
+        },
       },
-    }),
+      resourceScope,
+    ),
   );
 
 const verifyInactiveJournal = async (
   path: string,
   before: BigIntStats,
   selectedFileSystem: StableArtifactFileSystem,
+  resourceScope: ArtifactResourceScope,
   signal?: AbortSignal,
 ): Promise<void> => {
   if (!before.isFile() || before.isSymbolicLink())
@@ -98,6 +108,8 @@ const verifyInactiveJournal = async (
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     ),
   );
+  const owner = new OwnedFileHandle(file);
+  let failure: unknown;
   try {
     if (!sameState(before, await file.stat({ bigint: true })))
       throw new ArtifactReaderFailure(
@@ -134,8 +146,20 @@ const verifyInactiveJournal = async (
         "format",
         `Rollback journal may require recovery: ${path}. Supply a clean offline snapshot; only empty journals or a fully zeroed header are supported.`,
       );
+  } catch (cause: unknown) {
+    failure = cause;
+    throw cause;
   } finally {
-    await file.close();
+    const cleanup = await resourceScope.release({
+      kind: "file-handle",
+      resource: path,
+      handle: owner,
+    });
+    if (cleanup.kind === "failed")
+      throw ArtifactReaderFailure.withCleanup(
+        failure ?? cleanup.cause,
+        ArtifactReaderFailure.cleanupObservation(cleanup.cause, path),
+      );
   }
 };
 
@@ -143,6 +167,7 @@ const verifyInactiveJournal = async (
 export const captureSqliteDatabaseSnapshot = async (
   path: string,
   root: string,
+  resourceScope: ArtifactResourceScope,
   signal?: AbortSignal,
   selectedFileSystem: StableArtifactFileSystem = fileSystem,
 ) => {
@@ -165,6 +190,7 @@ export const captureSqliteDatabaseSnapshot = async (
       `${path}-journal`,
       before[2],
       selectedFileSystem,
+      resourceScope,
       signal,
     );
   const selectedSize = database.size + (wal?.size ?? 0n);
@@ -179,6 +205,7 @@ export const captureSqliteDatabaseSnapshot = async (
     database,
     SQLITE_DATABASE_LIMITS.inputBytes,
     selectedFileSystem,
+    resourceScope,
     signal,
   );
   await writeFile(snapshotPath, captured.bytes, {
@@ -198,6 +225,7 @@ export const captureSqliteDatabaseSnapshot = async (
       wal,
       SQLITE_DATABASE_LIMITS.inputBytes - artifact.bytes,
       selectedFileSystem,
+      resourceScope,
       signal,
     );
     await writeFile(`${snapshotPath}-wal`, capturedWal.bytes, {

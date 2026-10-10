@@ -132,12 +132,15 @@ cliTest
       const insert = database.prepare(
         'INSERT INTO "odd "" table"(id,payload,amount,missing,text_value,negative_zero) VALUES(?,?,?,NULL,CAST(X\'80ff\' AS TEXT),?)',
       );
-      insert.run(
-        9007199254740993n,
-        Buffer.from("deadbeef", "hex"),
-        Infinity,
-        -0,
-      );
+      insert.setReadBigInts(true);
+      expect(
+        insert.run(
+          9007199254740993n,
+          Buffer.from("deadbeef", "hex"),
+          Infinity,
+          -0,
+        ).lastInsertRowid,
+      ).toBe(9007199254740993n);
       insert.run(
         9007199254740994n,
         Buffer.from("deadbeef", "hex"),
