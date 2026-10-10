@@ -51,6 +51,8 @@ export interface InteractionEvent {
 export interface ProcessCaptureFinalization {
   readonly requested_ms: number;
   readonly elapsed_ms: number | null;
+  /** Code the PTY reported for an exit not caused by a signal; otherwise null. */
+  readonly exit_code: number | null;
   readonly signals: readonly {
     readonly signal: "SIGTERM" | "SIGKILL";
     readonly sent_at_ms: number;
@@ -412,6 +414,7 @@ const processCaptureFinalizationSchema = z
   .strictObject({
     requested_ms: z.number().int().safe().positive(),
     elapsed_ms: z.number().int().nonnegative().nullable(),
+    exit_code: z.number().int().nonnegative().nullable(),
     signals: z
       .array(
         z.strictObject({
@@ -429,6 +432,12 @@ const processCaptureFinalizationSchema = z
       .min(1),
   })
   .superRefine((finalization, context) => {
+    if (finalization.exit_code !== null && finalization.elapsed_ms === null)
+      context.addIssue({
+        code: "custom",
+        path: ["exit_code"],
+        message: "finalization exit_code requires an observed exit",
+      });
     for (const [index, attempt] of finalization.signals.entries())
       if (attempt.reason !== undefined && attempt.delivery !== "unverified")
         context.addIssue({
@@ -702,7 +711,7 @@ export const partialProcessCaptureObservationSchema = z
         : finalizationConsistencyIssue(
             observedExit === undefined
               ? undefined
-              : { reason: observedExit.reason },
+              : { reason: observedExit.reason, signal: observedExit.signal },
             committedManifest?.scenario,
             committedManifest?.comparison_contract,
             { finalization: observedFinalization, allowNullElapsedMs: true },

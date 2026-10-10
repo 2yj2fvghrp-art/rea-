@@ -127,7 +127,7 @@ export const finalizationManifestIssue = (
 
 type FinalizationAttempts = Pick<
   ProcessCaptureFinalization,
-  "requested_ms" | "elapsed_ms"
+  "requested_ms" | "elapsed_ms" | "exit_code"
 > & {
   readonly signals: readonly Pick<
     ProcessCaptureFinalization["signals"][number],
@@ -155,6 +155,7 @@ export const finalizationConsistencyIssue = (
   exit:
     | {
         readonly reason: string;
+        readonly signal?: number | null | undefined;
         readonly finalization?: FinalizationAttempts | undefined;
       }
     | undefined,
@@ -217,6 +218,13 @@ export const finalizationConsistencyIssue = (
     return "finalization SIGKILL cannot precede the requested interval";
   if (finalization.elapsed_ms === null && options?.allowNullElapsedMs !== true)
     return "finalization requires an observed elapsed_ms";
+  if (
+    finalization.exit_code !== null &&
+    exit?.signal !== undefined &&
+    exit.signal !== null &&
+    exit.signal !== 0
+  )
+    return "finalization exit_code requires an exit not caused by a signal";
   if (
     finalization.elapsed_ms !== null &&
     finalization.elapsed_ms <

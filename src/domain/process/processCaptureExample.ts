@@ -132,6 +132,7 @@ export const FINALIZED_PROCESS_CAPTURE_EXAMPLE = {
     finalization: {
       requested_ms: 1_500,
       elapsed_ms: 12,
+      exit_code: 0,
       signals: [{ signal: "SIGTERM", sent_at_ms: 0, delivery: "signaled" }],
     },
   },

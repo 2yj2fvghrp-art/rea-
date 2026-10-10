@@ -90,6 +90,7 @@ it("rejects finalization evidence that no deadline could have produced", () => {
   const capture = emptyCapture();
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     signals: [
       {
         signal: "SIGTERM" as const,
@@ -112,6 +113,7 @@ it("rejects finalization evidence that no deadline could have produced", () => {
 it("rejects a finalization reason on a verified delivery", () => {
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     elapsed_ms: 10,
     signals: [
       {
@@ -173,6 +175,7 @@ const withCommittedFinalization = (
 it("binds finalization evidence to the committed finalization interval", () => {
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     signals: [
       {
         signal: "SIGTERM" as const,
@@ -211,6 +214,7 @@ it("binds finalization evidence to the committed finalization interval", () => {
 it("validates finalization signal observations", () => {
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     signals: [
       {
         signal: "SIGTERM" as const,
@@ -347,6 +351,7 @@ it("validates finalization evidence in partial captures and rejects malformed re
   };
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     signals: [
       {
         signal: "SIGTERM" as const,
@@ -438,6 +443,7 @@ it("binds the comparison contract to the committed finalization interval", () =>
 it("validates finalization evidence in incomplete observations", () => {
   const finalization = {
     requested_ms: 500,
+    exit_code: null,
     signals: [
       {
         signal: "SIGTERM" as const,
@@ -582,6 +588,7 @@ it("validates finalization evidence in incomplete observations", () => {
   }
   const earlyKill = {
     requested_ms: 500,
+    exit_code: null,
     elapsed_ms: 600,
     signals: [
       { signal: "SIGTERM", sent_at_ms: 0, delivery: "signaled" },
@@ -631,7 +638,7 @@ it("rejects chronologically impossible or repeated finalization attempts", () =>
     signals: ReturnType<typeof attempt>[],
   ) => ({
     reason: "timeout",
-    finalization: { requested_ms: 500, elapsed_ms, signals },
+    finalization: { requested_ms: 500, elapsed_ms, exit_code: null, signals },
   });
 
   expect(
@@ -652,6 +659,60 @@ it("rejects chronologically impossible or repeated finalization attempts", () =>
     ),
     "a consistent record is accepted",
   ).toBeUndefined();
+});
+
+it("keeps the finalization exit code tied to an observed exit not caused by a signal", () => {
+  const attempt = {
+    signal: "SIGTERM" as const,
+    sent_at_ms: 0,
+    delivery: "signaled" as const,
+  };
+  const record = (
+    elapsed_ms: number | null,
+    exit_code: number | null,
+    signal?: number | null,
+  ) => ({
+    reason: "timeout",
+    ...(signal === undefined ? {} : { signal }),
+    finalization: {
+      requested_ms: 500,
+      elapsed_ms,
+      exit_code,
+      signals: [attempt],
+    },
+  });
+
+  expect(
+    finalizationConsistencyIssue(record(10, 3, 0)),
+    "a code reported for an exit without a signal is accepted",
+  ).toBeUndefined();
+  expect(
+    finalizationConsistencyIssue(record(10, 3, 9)),
+    "a code cannot accompany an exit ended by a signal",
+  ).toContain("exit_code");
+  expect(
+    finalizationConsistencyIssue(record(10, null, 9)),
+    "a signal exit records a null code",
+  ).toBeUndefined();
+
+  const schemaFinalization = {
+    requested_ms: 500,
+    elapsed_ms: null,
+    exit_code: 3,
+    signals: [attempt],
+  };
+  expect(
+    () =>
+      parseProcessCapture(
+        withCommittedFinalization(500, {
+          code: null,
+          signal: null,
+          reason: "timeout",
+          finalization: schemaFinalization,
+        }),
+      ),
+    "an exit code needs an observed exit",
+  ).toThrow("exit_code");
 });
 
 it("accepts the canonical finalized capture example", () => {

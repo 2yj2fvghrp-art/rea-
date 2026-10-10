@@ -748,9 +748,13 @@ export const awaitTerminalExit = async ({
       reason?: string | undefined;
     }[] = [];
     const pendingDeliveries: Promise<void>[] = [];
-    const snapshot = (elapsed: number | null): ProcessCaptureFinalization => ({
+    const snapshot = (
+      elapsed: number | null,
+      exitCode: number | null = null,
+    ): ProcessCaptureFinalization => ({
       requested_ms: scenario.finalization_ms,
       elapsed_ms: elapsed,
+      exit_code: exitCode,
       signals: finalizationSignals.map((attempt) => ({ ...attempt })),
     });
     const unobservedExit = (): void => {
@@ -884,7 +888,14 @@ export const awaitTerminalExit = async ({
           reason,
           ...(finalizationElapsedMs === undefined
             ? {}
-            : { finalization: snapshot(finalizationElapsedMs) }),
+            : {
+                finalization: snapshot(
+                  finalizationElapsedMs,
+                  exit.exitCode >= 0 && (exit.signal ?? 0) === 0
+                    ? exit.exitCode
+                    : null,
+                ),
+              }),
         });
       };
       if (pendingDeliveries.length === 0) {
