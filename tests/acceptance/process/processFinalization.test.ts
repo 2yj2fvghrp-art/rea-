@@ -177,8 +177,11 @@ const expectCooperativeFinalization = (
   if (outcome.kind === "partial") {
     expect(
       finalizationFromPartial(outcome.partial),
-      "the cleanup-flake partial observation preserves SIGTERM finalization",
-    ).toMatchObject({ signals: [{ signal: "SIGTERM", delivery: "signaled" }] });
+      "the cleanup-flake partial observation preserves SIGTERM finalization and the finalizer's exit code",
+    ).toMatchObject({
+      exit_code: expectedExitCode,
+      signals: [{ signal: "SIGTERM", delivery: "signaled" }],
+    });
     return;
   }
   const { capture } = outcome;
@@ -229,6 +232,7 @@ const expectIgnoringFinalization = (outcome: CaptureOutcome): void => {
       finalizationFromPartial(outcome.partial),
       "the cleanup-flake partial observation preserves SIGTERM and SIGKILL finalization",
     ).toMatchObject({
+      exit_code: null,
       signals: [
         { signal: "SIGTERM", delivery: "signaled" },
         { signal: "SIGKILL", delivery: "signaled" },
