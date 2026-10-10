@@ -120,6 +120,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
     );
     private static final String[] CAPABILITIES = {
         "annotate_native_function",
+        "set_address_name",
+        "set_addresses_names",
         "inspect_native_load_image",
         "read_bytes",
         "address_to_file_offset",
@@ -374,6 +376,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
             case "resolve_native_call_targets" -> resolveNativeCallTargets(request.params);
             case "xrefs" -> xrefs(request.params);
             case "analyze_function" -> analyzeFunction(request.params);
+            case "set_address_name", "set_addresses_names" -> {
+                if (!descriptor.transport.equals("unix-socket"))
+                    throw new RequestFailure("method_unavailable", "Windows P0 does not admit database mutation");
+                yield request.method.equals("set_address_name")
+                    ? setAddressName(request.params) : setAddressesNames(request.params);
+            }
             case "annotate_native_function" -> {
                 if (!descriptor.transport.equals("unix-socket"))
                     throw new RequestFailure("method_unavailable", "Windows P0 does not admit database mutation");
@@ -417,7 +425,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.addProperty("analysis_timed_out", timedOut);
         result.add("capabilities", GSON.toJsonTree(
             java.util.Arrays.stream(CAPABILITIES)
-                .filter(value -> !readOnly || !value.equals("annotate_native_function"))
+                .filter(value -> !readOnly || !(value.equals("annotate_native_function")
+                    || value.equals("set_address_name") || value.equals("set_addresses_names")))
                 .toArray(String[]::new)
         ));
         result.add("target", target);
@@ -1414,6 +1423,67 @@ public final class ReaGhidraBridge extends HeadlessScript {
         Address address = requireAddress(params, "address");
         Symbol symbol = currentProgram.getSymbolTable().getPrimarySymbol(address);
         return symbol == null ? JsonNull.INSTANCE : GSON.toJsonTree(symbol.getName(true));
+    }
+
+    // Analyst naming: a function entry renames the function, other addresses get a primary label.
+    private boolean applyAddressName(Address address, String name) throws Exception {
+        if (!currentProgram.getMemory().contains(address))
+            throw new RequestFailure("invalid_request", "Address is not mapped: " + canonicalAddress(address));
+        validateAnnotationText(name, "name");
+        int transaction = currentProgram.startTransaction("REA address name");
+        boolean commit = false;
+        try {
+            Function function = currentProgram.getFunctionManager().getFunctionAt(address);
+            String expected = name;
+            if (function != null) {
+                expected = annotationLeafName(function, name);
+                function.setName(expected, SourceType.USER_DEFINED);
+            } else {
+                var table = currentProgram.getSymbolTable();
+                Symbol primary = table.getPrimarySymbol(address);
+                if (primary != null && !primary.isDynamic()) {
+                    primary.setName(name, SourceType.USER_DEFINED);
+                } else {
+                    Symbol created = table.createLabel(address, name, SourceType.USER_DEFINED);
+                    created.setPrimary();
+                }
+            }
+            invalidateAnalysisCaches();
+            Symbol readback = currentProgram.getSymbolTable().getPrimarySymbol(address);
+            commit = readback != null && expected.equals(readback.getName());
+            return commit;
+        }
+        catch (ghidra.util.exception.InvalidInputException | ghidra.util.exception.DuplicateNameException exception) {
+            return false;
+        }
+        finally {
+            currentProgram.endTransaction(transaction, commit);
+        }
+    }
+
+    private JsonElement setAddressName(JsonObject params) throws Exception {
+        requireKeys(params, Set.of("document", "address", "name"));
+        requireDocument(params);
+        return GSON.toJsonTree(applyAddressName(requireAddress(params, "address"), requireString(params, "name")));
+    }
+
+    private JsonElement setAddressesNames(JsonObject params) throws Exception {
+        requireKeys(params, Set.of("document", "names"));
+        requireDocument(params);
+        if (!params.has("names") || !params.get("names").isJsonObject())
+            throw new RequestFailure("invalid_request", "names must be an object of address -> name");
+        JsonObject result = new JsonObject();
+        for (Map.Entry<String, JsonElement> entry : params.getAsJsonObject("names").entrySet()) {
+            boolean ok;
+            try {
+                ok = applyAddressName(parseReaAddress(entry.getKey()), entry.getValue().getAsString());
+            }
+            catch (RequestFailure failure) {
+                ok = false;
+            }
+            result.addProperty(entry.getKey(), ok);
+        }
+        return result;
     }
 
     private JsonArray listDocuments(JsonObject params) {
