@@ -13,6 +13,14 @@ const leaf = {
 const trace = (map: unknown, position = point) =>
   traceSourceMap(JSON.stringify(map), url, position);
 
+it("decodes a source-map transport prefix ending with a carriage return", () => {
+  const text = `)]}'transport prefix\r${JSON.stringify(leaf)}`;
+  expect(traceSourceMap(text, url, point).matches[0]).toMatchObject({
+    reported_source: "app.ts",
+    content: { text: "original" },
+  });
+});
+
 describe("upstream source-map point evidence", () => {
   it("preserves every duplicate-column/source-URL candidate and its own embedded bytes", () => {
     const report = trace({

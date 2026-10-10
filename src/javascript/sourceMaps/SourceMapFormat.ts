@@ -279,6 +279,14 @@ const inspectLeaf = (
   return leaf;
 };
 
+/** remove source-map transport framing only from the JSON parsing input. */
+export const sourceMapJsonText = (text: string): string => {
+  const withoutBom = text.replace(/^\uFEFF/u, "");
+  if (!withoutBom.startsWith(")]}'")) return withoutBom;
+  const newline = withoutBom.search(/[\r\n]/u);
+  return newline === -1 ? "" : withoutBom.slice(newline);
+};
+
 /** Validate structure before allocation, retaining raw declarations and section boundaries. */
 export const inspectSourceMap = (
   text: string,
@@ -289,10 +297,7 @@ export const inspectSourceMap = (
   readonly declarations: readonly SourceMapSourceDeclaration[];
   readonly leaves: readonly SourceMapLeaf[];
 } => {
-  const withoutBom = text.replace(/^\uFEFF/u, "");
-  const jsonText = withoutBom.startsWith(")]}'")
-    ? withoutBom.slice(withoutBom.indexOf("\n") + 1)
-    : withoutBom;
+  const jsonText = sourceMapJsonText(text);
   const value: unknown = JSON.parse(jsonText);
   const inspected = inspectSourceMapValue(value);
   const normalized =
