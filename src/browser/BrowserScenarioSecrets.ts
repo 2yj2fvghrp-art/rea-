@@ -20,6 +20,15 @@ const encodedSecretValues = (secret: string): ReadonlySet<string> =>
     new URLSearchParams([["value", secret]]).toString().slice("value=".length),
   ]);
 
+const htmlEscapedSecretValues = (secret: string): ReadonlySet<string> => {
+  const text = secret
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const attribute = text.replaceAll('"', "&quot;");
+  return new Set([text, attribute]);
+};
+
 /** Resolved secret values kept only for one in-memory scenario session. */
 export class BrowserScenarioSecrets {
   private constructor(private readonly values: ReadonlyMap<string, string>) {}
@@ -64,8 +73,14 @@ export class BrowserScenarioSecrets {
         (leftId < rightId ? -1 : leftId > rightId ? 1 : 0),
     );
     for (const [id, secret] of replacements)
-      if (secret !== "")
-        output = output.replaceAll(secret, `${REDACTION_PREFIX}${id}]`);
+      if (secret !== "") {
+        const marker = `${REDACTION_PREFIX}${id}]`;
+        for (const candidate of [
+          ...encodedSecretValues(secret),
+          ...htmlEscapedSecretValues(secret),
+        ])
+          output = output.replaceAll(candidate, marker);
+      }
     return output;
   }
 

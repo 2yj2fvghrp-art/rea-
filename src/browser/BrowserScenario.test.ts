@@ -147,6 +147,39 @@ describe("browserScenarioSchema", () => {
     expect(secrets?.redact("prefix-suffix")).toBe("[REDACTED:login_input]");
   });
 
+  it("redacts HTML and URL spellings from text artifacts", () => {
+    const scenario = browserScenarioSchema.parse(baseScenario());
+    const secrets = BrowserScenarioSecrets.resolve(scenario, {
+      REA_TEST_SESSION: "SECRET-a&b-7f3a",
+      REA_TEST_PASSWORD: "SECRET c8 7f3a",
+      REA_TEST_COOKIE: "cookie",
+    });
+    const ampersand = secrets?.redact(
+      [
+        "SECRET-a&b-7f3a",
+        "SECRET-a&amp;b-7f3a",
+        encodeURIComponent("SECRET-a&b-7f3a"),
+      ].join(" "),
+    );
+    expect(ampersand).toBe(
+      ["[REDACTED:session]", "[REDACTED:session]", "[REDACTED:session]"].join(
+        " ",
+      ),
+    );
+
+    const space = secrets?.redact(
+      [
+        encodeURIComponent("SECRET c8 7f3a"),
+        new URLSearchParams([["value", "SECRET c8 7f3a"]])
+          .toString()
+          .slice("value=".length),
+      ].join(" "),
+    );
+    expect(space).toBe(
+      ["[REDACTED:login_input]", "[REDACTED:login_input]"].join(" "),
+    );
+  });
+
   it("does not resolve inherited environment properties as secret values", () => {
     const scenario = browserScenarioSchema.parse(baseScenario());
     const environment = Object.assign(

@@ -144,6 +144,7 @@ environment-backed secret. Form, storage, and cookie values are either literal
 strings or declared secret references. Raw URL userinfo credentials are rejected.
 Captured credential-header
 values are not retained, and declared secret values are redacted automatically.
+DOM and accessibility text also removes standard HTML spellings of declared secrets.
 A secret may be declared solely to
 redact matching observed content; every secret reference in an action, URL,
 storage value still needs a declaration. Ordinary query values

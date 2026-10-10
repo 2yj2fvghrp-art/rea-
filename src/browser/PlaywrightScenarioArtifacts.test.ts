@@ -110,3 +110,67 @@ it("redacts declared secrets from current and historical URL artifacts", async (
     },
   });
 });
+
+it("redacts escaped declared secrets from DOM and accessibility artifacts", async () => {
+  const secretValue = "SECRET & done";
+  const htmlSpelling = "SECRET &amp; done";
+  const uriSpelling = encodeURIComponent(secretValue);
+  const scenarioWithEscapedSecret = browserScenarioSchema.parse({
+    browser: { mode: "launch", executable_path: "/opt/chromium" },
+    start_url: { url: "https://app.example.test/" },
+    actions: [{ step_id: "wait", action: "wait_for_timeout", duration_ms: 1 }],
+    secrets: [
+      {
+        secret_id: "escaped",
+        environment_variable: "REA_ESCAPED_SECRET",
+      },
+    ],
+    capture: { at_end: ["dom", "accessibility"] },
+  });
+  const scenarioSecrets = BrowserScenarioSecrets.resolve(
+    scenarioWithEscapedSecret,
+    {
+      REA_ESCAPED_SECRET: secretValue,
+    },
+  );
+  if (scenarioSecrets === undefined)
+    throw new Error("Expected resolved escaped secret");
+  const page = {
+    url: () => "https://app.example.test/",
+    content: () =>
+      Promise.resolve(
+        `<p>seen ${htmlSpelling}</p><a href="/next?t=${uriSpelling}">go</a>`,
+      ),
+    locator: () => ({
+      ariaSnapshot: () =>
+        Promise.resolve(
+          `- text seen ${htmlSpelling}\n- link go:\n  - /url: /next?t=${uriSpelling}`,
+        ),
+    }),
+  } as unknown as Page;
+
+  const result = await capturePlaywrightStepArtifacts({
+    context: {} as BrowserContext,
+    page,
+    secrets: scenarioSecrets,
+    requested: new Set(["dom", "accessibility"]),
+  });
+  const captured = JSON.stringify({
+    dom: result.dom,
+    accessibility: result.accessibility,
+  });
+  for (const spelling of [secretValue, htmlSpelling, uriSpelling])
+    expect(captured).not.toContain(spelling);
+  expect(result.dom).toMatchObject({
+    state: "captured",
+    value: {
+      text: `<p>seen [REDACTED:escaped]</p><a href="/next?t=[REDACTED:escaped]">go</a>`,
+    },
+  });
+  expect(result.accessibility).toMatchObject({
+    state: "captured",
+    value: {
+      text: `- text seen [REDACTED:escaped]\n- link go:\n  - /url: /next?t=[REDACTED:escaped]`,
+    },
+  });
+});
