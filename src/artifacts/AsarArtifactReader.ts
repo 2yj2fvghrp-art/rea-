@@ -23,11 +23,15 @@ import { listPackage, statFile, uncache } from "@electron/asar";
 
 import {
   ArtifactReaderFailure,
+  copyArtifactEntry,
+  sameArtifactEntry,
   type ArtifactEntry,
   type ArtifactReader,
 } from "./ArtifactReader.js";
 import { closeAsarHandle, readValidatedAsarEntry } from "./AsarEntryStream.js";
 import { admitAsarHeader } from "./AsarHeader.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
+import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
 
 /**
  * Official Electron ASAR adapter with range-streamed member reads.
@@ -41,10 +45,12 @@ export class AsarArtifactReader implements ArtifactReader {
   #archiveSize: number | undefined;
   #headerSize: number | undefined;
   readonly #entries = new Map<string, AsarEntryState>();
-  readonly #unpackedHandles = new Map<UnpackedFileHandle, string>();
-  readonly #unpackedHandleClosePromises = new Map<
+  readonly #unpackedHandles = new Map<
     UnpackedFileHandle,
-    Promise<void>
+    {
+      readonly path: string;
+      readonly owner: OwnedFileHandle<UnpackedFileHandle>;
+    }
   >();
   #snapshot: { readonly path: string; readonly sha256: string } | undefined;
   #snapshotRoot: string | undefined;
@@ -297,7 +303,7 @@ export class AsarArtifactReader implements ArtifactReader {
 
   async close(): Promise<void> {
     let cleanupFailure: ArtifactReaderFailure | undefined;
-    for (const [handle, path] of this.#unpackedHandles) {
+    for (const [handle, { path }] of this.#unpackedHandles) {
       try {
         await this.#closeUnpackedHandle(handle);
       } catch (cause: unknown) {
@@ -381,7 +387,10 @@ export class AsarArtifactReader implements ArtifactReader {
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
       const openedHandle = handle;
-      this.#unpackedHandles.set(openedHandle, canonical);
+      this.#unpackedHandles.set(openedHandle, {
+        path: canonical,
+        owner: new OwnedFileHandle(openedHandle),
+      });
       const openedMetadata = await openedHandle.stat();
       if (
         !openedMetadata.isFile() ||
@@ -401,9 +410,8 @@ export class AsarArtifactReader implements ArtifactReader {
         );
       }
       abortIfNeeded(signal);
-      const source = openedHandle.createReadStream({
+      const source = readFileHandleChunks(openedHandle, {
         start: 0,
-        autoClose: false,
       });
       source.once("close", () => {
         void this.#closeUnpackedHandle(openedHandle).catch(() => undefined);
@@ -425,7 +433,7 @@ export class AsarArtifactReader implements ArtifactReader {
             failure,
             ArtifactReaderFailure.cleanupObservation(
               cleanupCause,
-              this.#unpackedHandles.get(handle) ?? entry.path,
+              this.#unpackedHandles.get(handle)?.path ?? entry.path,
             ),
           );
         }
@@ -435,17 +443,10 @@ export class AsarArtifactReader implements ArtifactReader {
   }
 
   async #closeUnpackedHandle(handle: UnpackedFileHandle): Promise<void> {
-    if (!this.#unpackedHandles.has(handle)) return;
-    const pending = this.#unpackedHandleClosePromises.get(handle);
-    if (pending !== undefined) return pending;
-    const closing = Promise.resolve()
-      .then(() => handle.close())
-      .then(() => {
-        this.#unpackedHandles.delete(handle);
-      })
-      .finally(() => this.#unpackedHandleClosePromises.delete(handle));
-    this.#unpackedHandleClosePromises.set(handle, closing);
-    return closing;
+    const owned = this.#unpackedHandles.get(handle);
+    if (owned === undefined) return;
+    await owned.owner.close();
+    this.#unpackedHandles.delete(handle);
   }
 
   #resetArchiveState(): void {
@@ -460,9 +461,10 @@ type AsarEntryState = {
   readonly entry: ArtifactEntry;
 };
 type UnpackedFileHandle = {
+  readonly fd: number;
   stat(): Promise<Stats>;
   close(): Promise<void>;
-  createReadStream: FileHandle["createReadStream"];
+  read: FileHandle["read"];
 };
 type OpenAsarUnpackedFile = (
   path: string,
@@ -489,35 +491,6 @@ const asarUnpackedEntryFailure = (
     );
   return asarFailure(archivePath, `read ${entry.path}`, cause);
 };
-
-const copyArtifactEntry = (entry: ArtifactEntry): ArtifactEntry => ({
-  ...entry,
-  limitations: [...entry.limitations],
-  ...(entry.sourceIdentity === undefined
-    ? {}
-    : { sourceIdentity: { ...entry.sourceIdentity } }),
-});
-
-const sameArtifactEntry = (
-  entry: ArtifactEntry,
-  produced: ArtifactEntry,
-): boolean =>
-  entry.path === produced.path &&
-  entry.kind === produced.kind &&
-  entry.declaredSize === produced.declaredSize &&
-  entry.compressedSize === produced.compressedSize &&
-  entry.executable === produced.executable &&
-  entry.encrypted === produced.encrypted &&
-  entry.byteOffset === produced.byteOffset &&
-  entry.declaredSha256 === produced.declaredSha256 &&
-  entry.unpacked === produced.unpacked &&
-  entry.adapterKey === produced.adapterKey &&
-  entry.limitations.length === produced.limitations.length &&
-  entry.limitations.every(
-    (limitation, index) => limitation === produced.limitations[index],
-  ) &&
-  entry.sourceIdentity?.device === produced.sourceIdentity?.device &&
-  entry.sourceIdentity?.inode === produced.sourceIdentity?.inode;
 
 const isAsarFileMetadata = (
   metadata: ReturnType<typeof statFile>,

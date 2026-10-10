@@ -1,11 +1,8 @@
-import {
-  NonRegularFileReadError,
-  openRegularFile,
-  sameRegularFileState,
-} from "../../filesystem/RegularFile.js";
+import { sameRegularFileState } from "../../filesystem/RegularFile.js";
 import type { FileHandle } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import type { StableRegularFileDescriptor } from "../../filesystem/RegularFile.js";
+import type { OwnedFileHandle } from "../../filesystem/OwnedFileHandle.js";
 
 import { classifyArtifactContent } from "./ArtifactGraphConstruction.js";
 import { ARTIFACT_CLASSIFICATION_PREFIX_BYTES } from "../ArtifactHash.js";
@@ -15,8 +12,13 @@ import {
   zipPackageFormatForPath,
 } from "../../domain/zipPackageFormat.js";
 import { ArtifactReaderFailure } from "../ArtifactReader.js";
+import { type ArtifactResourceOwner } from "../ArtifactResourceScope.js";
 import type { HashResult } from "../ArtifactHash.js";
-import { hashStableRootArtifactHandle } from "./hashStableRootArtifact.js";
+import {
+  hashStableRootArtifactHandle,
+  openRootArtifact,
+} from "./hashStableRootArtifact.js";
+import type { ArtifactInventoryOptions } from "./types.js";
 
 interface RootClassification {
   readonly format: ArtifactOccurrence["artifact_format"];
@@ -24,27 +26,47 @@ interface RootClassification {
 }
 
 type RootInventoryClassification = RootClassification & {
-  readonly rootSource: StableRegularFileDescriptor | undefined;
+  readonly rootSource: RootInventorySource | undefined;
 };
+
+/** The admitted descriptor and the single owner that can confirm its close. */
+export interface RootInventorySource extends StableRegularFileDescriptor {
+  readonly owner: OwnedFileHandle;
+}
 
 /** Classify and hash one file root through the same stable open descriptor. */
 export const classifyAndHashRoot = async (
   path: string,
   directory: boolean,
   expectedMetadata: Stats,
-  signal?: AbortSignal,
+  options: Pick<ArtifactInventoryOptions, "resourceScope" | "signal">,
 ): Promise<RootClassification> => {
-  const result = await classifyAndHashRootForInventory(
-    path,
-    directory,
-    expectedMetadata,
-    signal,
-  );
-  try {
+  return options.resourceScope.run(async () => {
+    const result = await classifyAndHashRootForInventory(
+      path,
+      directory,
+      expectedMetadata,
+      options,
+    );
+    const rootSource = result.rootSource;
+    if (rootSource !== undefined) {
+      const owner: ArtifactResourceOwner = {
+        kind: "file-handle",
+        handle: rootSource.owner,
+        resource: `root artifact descriptor for ${path}`,
+      };
+      const cleanupAttempt = await options.resourceScope.release(owner);
+      if (cleanupAttempt.kind === "failed")
+        throw ArtifactReaderFailure.withCleanup(
+          cleanupAttempt.cause,
+          ArtifactReaderFailure.cleanupObservation(
+            cleanupAttempt.cause,
+            owner.resource,
+          ),
+        );
+    }
     return { format: result.format, digest: result.digest };
-  } finally {
-    await result.rootSource?.handle.close();
-  }
+  });
 };
 
 /** Classify a root and retain its admitted ZIP descriptor for child inventory. */
@@ -52,12 +74,27 @@ export const classifyAndHashRootForInventory = async (
   path: string,
   directory: boolean,
   expectedMetadata: Stats,
-  signal?: AbortSignal,
+  options: Pick<ArtifactInventoryOptions, "resourceScope" | "signal">,
 ): Promise<RootInventoryClassification> => {
   if (directory)
     return { format: "directory", digest: null, rootSource: undefined };
-  const handle = await openRootFile(path, signal);
-  let transferHandle = false;
+  const ownedHandle = await openRootArtifact(
+    path,
+    options.resourceScope,
+    options.signal,
+  );
+  const handle = ownedHandle.handle;
+  const owner: ArtifactResourceOwner = {
+    kind: "file-handle",
+    handle: ownedHandle,
+    resource: `root artifact descriptor for ${path}`,
+  };
+  let outcome:
+    | {
+        readonly kind: "completed";
+        readonly value: RootInventoryClassification;
+      }
+    | { readonly kind: "failed"; readonly cause: unknown };
   try {
     const initial = await handle.stat();
     if (!sameRegularFileState(expectedMetadata, initial))
@@ -70,18 +107,35 @@ export const classifyAndHashRootForInventory = async (
       path,
       handle,
       initial,
-      signal,
+      options.signal,
     );
     const retainSource = isZipFormat(format) || format === "mach-o-universal";
-    if (retainSource) transferHandle = true;
-    return {
-      format,
-      digest,
-      rootSource: retainSource ? { handle, initial } : undefined,
+    outcome = {
+      kind: "completed",
+      value: {
+        format,
+        digest,
+        rootSource: retainSource
+          ? { handle, initial, owner: ownedHandle }
+          : undefined,
+      },
     };
-  } finally {
-    if (!transferHandle) await handle.close();
+  } catch (cause: unknown) {
+    outcome = { kind: "failed", cause };
   }
+  if (outcome.kind === "failed" || outcome.value.rootSource === undefined) {
+    const cleanupAttempt = await options.resourceScope.release(owner);
+    if (cleanupAttempt.kind === "failed")
+      throw ArtifactReaderFailure.withCleanup(
+        outcome.kind === "failed" ? outcome.cause : cleanupAttempt.cause,
+        ArtifactReaderFailure.cleanupObservation(
+          cleanupAttempt.cause,
+          owner.resource,
+        ),
+      );
+  }
+  if (outcome.kind === "failed") throw outcome.cause;
+  return outcome.value;
 };
 
 const isZipFormat = (format: ArtifactOccurrence["artifact_format"]): boolean =>
@@ -90,23 +144,6 @@ const isZipFormat = (format: ArtifactOccurrence["artifact_format"]): boolean =>
   format === "apk" ||
   format === "msix" ||
   format === "appx";
-
-const openRootFile = async (
-  path: string,
-  signal?: AbortSignal,
-): Promise<FileHandle> => {
-  try {
-    return await openRegularFile(path, { symlinks: "reject", signal });
-  } catch (cause: unknown) {
-    if (cause instanceof NonRegularFileReadError)
-      throw new ArtifactReaderFailure(
-        "format",
-        `Artifact root is not a regular file: ${path}`,
-        { cause },
-      );
-    throw cause;
-  }
-};
 
 const classifyRootFormat = async (
   path: string,
