@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -256,6 +256,9 @@ export class HopperApplicationLauncher implements BridgeLauncher {
             shutdownMode: "bridge-request",
           });
     } catch (cause: unknown) {
+      // Ensure the bootstrap file containing the cleartext auth token is cleaned
+      // up even when the launch itself fails after writing credentials to disk.
+      await rm(bootstrapPath, { force: true }).catch(() => undefined);
       return err(hopperLaunchFailure(cause, signal));
     }
   }
@@ -321,6 +324,8 @@ export class HopperApplicationLauncher implements BridgeLauncher {
       await chmod(bootstrapPath, 0o600);
       return ok(bootstrapPath);
     } catch (cause: unknown) {
+      // Clean up any partially written bootstrap file that may contain the token.
+      await rm(bootstrapPath, { force: true }).catch(() => undefined);
       return err(new HopperStartError({ cause }));
     }
   }

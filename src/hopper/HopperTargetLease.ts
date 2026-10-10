@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, realpath, rm, rmdir } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rm,
+  rmdir,
+} from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import {
   createConnection,
   createServer,
@@ -159,27 +168,62 @@ const tryAcquireLease = async (
 };
 
 const ensureLeaseDirectory = async (directory: string): Promise<void> => {
-  let directoryStat: Awaited<ReturnType<typeof lstat>>;
   try {
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    directoryStat = await lstat(directory);
   } catch (cause: unknown) {
     throw new HopperStartError({
       cause,
-      userMessage:
-        "REA could not create or inspect its private Hopper lease directory.",
+      userMessage: "REA could not create its private Hopper lease directory.",
     });
   }
-  if (
-    directoryStat.isSymbolicLink() ||
-    directoryStat.isDirectory() === false ||
-    (process.getuid !== undefined && directoryStat.uid !== process.getuid())
-  )
+  // Use O_DIRECTORY|O_NOFOLLOW to open the directory without following symlinks,
+  // then fstat the descriptor to eliminate the TOCTOU window between lstat and
+  // subsequent socket/chmod operations on the predictable /tmp path.
+  let handle;
+  try {
+    handle = await open(
+      directory,
+      fsConstants.O_RDONLY |
+        (fsConstants.O_DIRECTORY ?? 0) |
+        (fsConstants.O_NOFOLLOW ?? 0),
+    );
+    const directoryStat = await handle.stat();
+    if (
+      directoryStat.isSymbolicLink() ||
+      directoryStat.isDirectory() === false ||
+      (process.getuid !== undefined && directoryStat.uid !== process.getuid())
+    )
+      throw new HopperStartError({
+        userMessage:
+          "REA's Hopper lease directory is not a private directory owned by this user.",
+      });
+    // POSIX permission hardening: chmod on the already-opened descriptor avoids
+    // a second TOCTOU window where the directory could be swapped between check
+    // and permission fix. Windows DACL-based security is handled separately.
+    const posixPermissionsApply = process.getuid !== undefined;
+    if (posixPermissionsApply && (directoryStat.mode & 0o077) !== 0) {
+      await chmod(directory, 0o700);
+      // Re-verify after chmod to ensure the directory was not replaced.
+      const afterChmod = await handle.stat();
+      if (
+        afterChmod.isSymbolicLink() ||
+        afterChmod.isDirectory() === false ||
+        (afterChmod.mode & 0o077) !== 0
+      )
+        throw new HopperStartError({
+          userMessage:
+            "REA's Hopper lease directory permissions could not be secured.",
+        });
+    }
+  } catch (cause: unknown) {
+    if (cause instanceof HopperStartError) throw cause;
     throw new HopperStartError({
-      userMessage:
-        "REA's Hopper lease directory is not a private directory owned by this user.",
+      cause,
+      userMessage: "REA could not inspect its private Hopper lease directory.",
     });
-  if ((directoryStat.mode & 0o077) !== 0) await chmod(directory, 0o700);
+  } finally {
+    await handle?.close();
+  }
 };
 
 const bind = (server: Server, socketPath: string): Promise<boolean> =>

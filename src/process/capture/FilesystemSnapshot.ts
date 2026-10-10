@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat, open, readdir, readlink } from "node:fs/promises";
+import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 import type { ProcessScenario } from "../../domain/process/processScenario.js";
@@ -74,12 +74,14 @@ export const hashFile = async (
   signal?: AbortSignal,
 ): Promise<FileHashOutcome> => {
   signal?.throwIfAborted();
+  const noFollowAvailable =
+    typeof fsConstants.O_NOFOLLOW === "number" && fsConstants.O_NOFOLLOW !== 0;
   let handle: FileHandle;
   try {
     handle = await open(
       path,
       fsConstants.O_RDONLY |
-        (fsConstants.O_NOFOLLOW ?? 0) |
+        (noFollowAvailable ? fsConstants.O_NOFOLLOW : 0) |
         (fsConstants.O_NONBLOCK ?? 0),
     );
   } catch (cause: unknown) {
@@ -94,6 +96,20 @@ export const hashFile = async (
   }
   try {
     signal?.throwIfAborted();
+    // On Windows, O_NOFOLLOW is unavailable (undefined → 0), so symlinks,
+    // junctions, and mount points are silently followed. Verify the canonical
+    // path matches the requested path to detect symlink/junction substitution.
+    // Windows inode values are unreliable (often 0), making the hasSameFileState
+    // identity check alone insufficient to detect file replacement.
+    if (!noFollowAvailable) {
+      const canonicalPath = await realpath(path);
+      if (canonicalPath !== path)
+        return {
+          state: "omitted",
+          reason: "file_changed_or_short_read",
+          system_code: null,
+        };
+    }
     const stats = await handle.stat();
     signal?.throwIfAborted();
     if (!hasSameFileState(expected, stats) || stats.size > maxBytes)
