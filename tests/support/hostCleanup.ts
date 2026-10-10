@@ -8,7 +8,10 @@ type SerializedCleanupReport = {
     readonly reason: unknown;
   };
   readonly terminal_renderer: { readonly state: unknown };
-  readonly temporary_root: { readonly state: unknown };
+  readonly temporary_root: {
+    readonly state: unknown;
+    readonly reason: unknown;
+  };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -24,7 +27,8 @@ const isSerializedCleanupReport = (
   isRecord(value.terminal_renderer) &&
   "state" in value.terminal_renderer &&
   isRecord(value.temporary_root) &&
-  "state" in value.temporary_root;
+  "state" in value.temporary_root &&
+  "reason" in value.temporary_root;
 
 const expectHostCleanupReport = (report: {
   readonly owned_process_group: {
@@ -32,7 +36,10 @@ const expectHostCleanupReport = (report: {
     readonly reason: unknown;
   };
   readonly terminal_renderer: { readonly state: unknown };
-  readonly temporary_root: { readonly state: unknown };
+  readonly temporary_root: {
+    readonly state: unknown;
+    readonly reason: unknown;
+  };
 }): void => {
   expect(report.owned_process_group.state).toBe("unverified");
   const reason = report.owned_process_group.reason;
@@ -54,7 +61,11 @@ const expectHostCleanupReport = (report: {
     ),
   );
   expect(report.terminal_renderer.state).toBe("cleaned");
-  expect(report.temporary_root.state).toBe("cleaned");
+  // The temporary root is retained while owned process cleanup is unverified.
+  expect(report.temporary_root).toEqual({
+    state: "unverified",
+    reason: `temporary root retained because owned process cleanup is unverified: ${reason}`,
+  });
 };
 
 /** Permit only the host ownership-token cleanup flake seen by real captures. */
