@@ -778,6 +778,7 @@ itWithCaptureCapability(
       undefined,
       undefined,
       undefined,
+      undefined,
       finalizationHost,
     );
 
