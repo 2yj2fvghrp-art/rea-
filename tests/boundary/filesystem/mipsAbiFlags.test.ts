@@ -8,6 +8,7 @@ import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import type { MipsElfMetadata } from "../../../src/domain/binaryTargetTypes.js";
 import { readMipsElfAbiFlags } from "../../../src/application/MipsElfAbiFlags.js";
+import { ok } from "../../../src/domain/result.js";
 import {
   ghidraMipsProfileParameters,
   ghidraMipsUnsupportedReason,
@@ -62,7 +63,12 @@ const inspect = async (
   await writeFile(path, bytes);
   const handle = await open(path, "r");
   try {
-    return await readMipsElfAbiFlags(handle, metadata(little), checkCancelled);
+    const result = await readMipsElfAbiFlags(
+      handle,
+      metadata(little),
+      checkCancelled,
+    );
+    return result.ok ? ok(result.value.abiFlags) : result;
   } finally {
     await handle.close();
   }
@@ -116,6 +122,85 @@ it("supports stripped section tables using PT_MIPS_ABIFLAGS", async () => {
   assert.ok(result.ok);
   assert.equal(result.value?.fpAbi, 5);
 });
+for (const little of [true, false]) {
+  for (const availableBytes of [0, 7, 47]) {
+    it(`resolves a carved ${little ? "LE" : "BE"} ELF with ${availableBytes} captured section-table bytes`, async () => {
+      const original = fixture(little);
+      const bytes = Buffer.concat([original, Buffer.alloc(availableBytes)]);
+      const sectionOffset = original.length + (availableBytes === 0 ? 1 : 0);
+      if (little) bytes.writeUInt32LE(sectionOffset, 32);
+      else bytes.writeUInt32BE(sectionOffset, 32);
+      const directory = await createTestTempDirectory("rea-mips-carved-");
+      const path = join(directory, "fixture.elf");
+      await writeFile(path, bytes);
+      const result = await parseBinaryTarget(path);
+      if (!result.ok) throw result.error;
+      if (
+        result.value.kind !== "executable" ||
+        result.value.architecture !== "mips"
+      )
+        throw new Error("Expected a resolved MIPS executable");
+      assert.equal(result.value.mips.abiFlags?.fpAbi, 5);
+      assert.equal(ghidraMipsUnsupportedReason(result.value), null);
+      assert.match(
+        result.value.mips.limitations?.join(" ") ?? "",
+        /section header table/u,
+      );
+      assert.equal(
+        result.value.sha256,
+        createHash("sha256").update(bytes).digest("hex"),
+      );
+      assert.deepEqual(await readFile(path), bytes);
+    });
+  }
+}
+it("keeps declarations in uncaptured section headers unknown when program ABI data is absent", async () => {
+  const bytes = fixture();
+  bytes.writeUInt32LE(bytes.length + 1, 32);
+  bytes.writeUInt32LE(0, 52);
+  const directory = await createTestTempDirectory("rea-mips-carved-unknown-");
+  const path = join(directory, "fixture.elf");
+  await writeFile(path, bytes);
+  const result = await parseBinaryTarget(path);
+  if (!result.ok) throw result.error;
+  if (
+    result.value.kind !== "executable" ||
+    result.value.architecture !== "mips"
+  )
+    throw new Error("Expected a resolved MIPS executable");
+  assert.equal(result.value.mips.abiFlags, null);
+  assert.match(
+    ghidraMipsUnsupportedReason(result.value) ?? "",
+    /inspected ABI.*unavailable headers remain unknown/u,
+  );
+});
+for (const failure of ["conflicting", "outside", "duplicate"]) {
+  it(`retains ${failure} ABI errors in a partly captured section table`, async () => {
+    const original = fixture();
+    const count = failure === "duplicate" ? 2 : 1;
+    const bytes = Buffer.concat([original, Buffer.alloc(count * 40 + 7)]);
+    bytes.writeUInt32LE(original.length, 32);
+    bytes.writeUInt16LE(count + 1, 48);
+    original.copy(bytes, abiOffset + 24, abiOffset, abiOffset + 24);
+    bytes[abiOffset + 24 + 7] = 6;
+    for (let i = 0; i < count; i += 1) {
+      const position = original.length + i * 40;
+      bytes.writeUInt32LE(0x7000002a, position + 4);
+      bytes.writeUInt32LE(
+        failure === "outside"
+          ? 0xfffffff0
+          : failure === "conflicting"
+            ? abiOffset + 24
+            : abiOffset,
+        position + 16,
+      );
+      bytes.writeUInt32LE(24, position + 20);
+    }
+    const result = await inspect(bytes);
+    assert.ok(!result.ok);
+    assert.match(result.error, new RegExp(failure, "u"));
+  });
+}
 it("supports a section-only ABI record without assuming its name", async () => {
   const bytes = fixture();
   bytes.writeUInt32LE(0, 28);
