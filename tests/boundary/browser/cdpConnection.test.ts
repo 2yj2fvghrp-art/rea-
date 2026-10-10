@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CdpConnection } from "../../../src/browser/CdpConnection.js";
+import { WEB_RUNTIME_LIMITS } from "../../../src/domain/webRuntime.js";
 import {
   startFakeCdpBrowser,
   type FakeCdpBrowser,
@@ -142,6 +143,17 @@ describe("CDP connection", () => {
       }
     },
   );
+});
+
+describe("CDP connection payload budgets", () => {
+  const browsers: FakeCdpBrowser[] = [];
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await Promise.all(
+      browsers.splice(0).map(async (browser) => browser.close()),
+    );
+  });
 
   it("preserves the selected payload limit reason for pending and subsequent commands", async () => {
     const browser = await startFakeCdpBrowser({
@@ -161,6 +173,29 @@ describe("CDP connection", () => {
           userMessage: expect.stringContaining("512 byte protocol budget"),
         });
       }
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("bounds command payloads to the shared protocol budget when no limits are selected", async () => {
+    const browser = await startFakeCdpBrowser({
+      commandResult: () => ({
+        oversized: "x".repeat(WEB_RUNTIME_LIMITS.protocolBytes + 1),
+      }),
+    });
+    browsers.push(browser);
+    const connection = await CdpConnection.connect(
+      browser.browserWebSocketUrl,
+      "observe_web_execution",
+    );
+    try {
+      await expect(connection.send("Runtime.enable")).rejects.toMatchObject({
+        reason: "payload_limit",
+        userMessage: expect.stringContaining(
+          `${WEB_RUNTIME_LIMITS.protocolBytes} byte protocol budget`,
+        ),
+      });
     } finally {
       await connection.close();
     }

@@ -6,6 +6,7 @@ import { BrowserObservationError } from "../domain/browserObservationError.js";
 import { CdpCommandRejection } from "./CdpCommandRejection.js";
 import { type BrowserObservationOperation } from "../domain/browserObservationErrors.js";
 import { safeParseJson } from "../domain/safeJson.js";
+import { WEB_RUNTIME_LIMITS } from "../domain/webRuntime.js";
 
 export interface CdpEvent {
   readonly method: string;
@@ -61,13 +62,18 @@ export class CdpConnection {
     limits?: { readonly maxPayloadBytes: number },
   ): Promise<CdpConnection> {
     if (signal?.aborted === true) throw new AnalysisCancelledError(operation);
+    // `ws` treats maxPayload 0 as unlimited and would otherwise apply its own
+    // 100 MiB default, so an omitted selection stays bounded by the shared
+    // protocol budget instead of disabling the receiver guard entirely.
+    const maxPayloadBytes =
+      limits?.maxPayloadBytes ?? WEB_RUNTIME_LIMITS.protocolBytes;
     const socket = new WebSocket(url, {
       handshakeTimeout: 0,
-      maxPayload: limits?.maxPayloadBytes ?? 0,
+      maxPayload: maxPayloadBytes,
       perMessageDeflate: false,
     });
     await waitForOpen(socket, operation, signal);
-    return new CdpConnection(socket, operation, limits?.maxPayloadBytes ?? 0);
+    return new CdpConnection(socket, operation, maxPayloadBytes);
   }
 
   /** Subscribe to validated CDP event envelopes. */
