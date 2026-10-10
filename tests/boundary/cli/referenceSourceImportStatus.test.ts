@@ -2,12 +2,9 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect } from "vitest";
-import { z } from "zod";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
-
-const failureMessageSchema = z.object({ message: z.string() });
 
 const unsupportedHostOutput = {
   error: "Import failed",
@@ -125,15 +122,17 @@ describe("compiled reference-source import preflight failures", () => {
         } else {
           expect(result.json).toMatchObject(invalidRootOutput);
         }
-        const message = (
-          scenario.fullOutput
-            ? z.object({ data: failureMessageSchema }).parse(result.json).data
-            : failureMessageSchema.parse(result.json)
-        ).message;
-        expect(message).toContain(
-          "Check that the path exists, is readable, and points to a directory.",
+        const messagePath = scenario.fullOutput ? "data.message" : "message";
+        expect(result.json).toHaveProperty(
+          messagePath,
+          expect.stringContaining(
+            "Check that the path exists, is readable, and points to a directory.",
+          ),
         );
-        expect(message).toContain(root);
+        expect(result.json).toHaveProperty(
+          messagePath,
+          expect.stringContaining(root),
+        );
         expect.soft(result.exitCode).toBe(1);
         if (scenario.logging) {
           const records: unknown[] = result.stderr
@@ -181,9 +180,14 @@ describe("compiled reference-source import preflight failures", () => {
           category: "execution_failure",
           message: expect.stringContaining("EACCES: permission denied"),
         });
-        const { message } = failureMessageSchema.parse(result.json);
-        expect(message).toContain(root);
-        expect(message).toContain("Check directory permissions and try again.");
+        expect(result.json).toHaveProperty(
+          "message",
+          expect.stringContaining(root),
+        );
+        expect(result.json).toHaveProperty(
+          "message",
+          expect.stringContaining("Check directory permissions and try again."),
+        );
         expect(result.exitCode).toBe(1);
       } finally {
         await chmod(parent, 0o700);
