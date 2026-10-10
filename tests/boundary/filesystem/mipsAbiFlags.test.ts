@@ -53,14 +53,36 @@ const fixture = (little = true): Buffer => {
   bytes.set([0, 0, 32, 2, 1, 1, 0, 5], abiOffset);
   return bytes;
 };
+const writeFixture = async (bytes: Buffer): Promise<string> => {
+  const directory = await createTestTempDirectory("rea-mips-abi-test-");
+  const path = join(directory, "fixture.elf");
+  await writeFile(path, bytes);
+  return path;
+};
+const resolveFixture = async (bytes: Buffer) => {
+  const path = await writeFixture(bytes);
+  const result = await parseBinaryTarget(path);
+  if (!result.ok) throw result.error;
+  if (
+    result.value.kind !== "executable" ||
+    result.value.architecture !== "mips"
+  )
+    throw new Error("Expected a resolved MIPS executable");
+  assert.equal(result.value.format, "elf");
+  assert.equal(result.value.path, path);
+  assert.equal(
+    result.value.sha256,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  assert.deepEqual(await readFile(path), bytes);
+  return result.value;
+};
 const inspect = async (
   bytes: Buffer,
   little = true,
   checkCancelled: () => void = () => {},
 ) => {
-  const directory = await createTestTempDirectory("rea-mips-abi-test-");
-  const path = join(directory, "fixture.elf");
-  await writeFile(path, bytes);
+  const path = await writeFixture(bytes);
   const handle = await open(path, "r");
   try {
     const result = await readMipsElfAbiFlags(
@@ -130,27 +152,13 @@ for (const little of [true, false]) {
       const sectionOffset = original.length + (availableBytes === 0 ? 1 : 0);
       if (little) bytes.writeUInt32LE(sectionOffset, 32);
       else bytes.writeUInt32BE(sectionOffset, 32);
-      const directory = await createTestTempDirectory("rea-mips-carved-");
-      const path = join(directory, "fixture.elf");
-      await writeFile(path, bytes);
-      const result = await parseBinaryTarget(path);
-      if (!result.ok) throw result.error;
-      if (
-        result.value.kind !== "executable" ||
-        result.value.architecture !== "mips"
-      )
-        throw new Error("Expected a resolved MIPS executable");
-      assert.equal(result.value.mips.abiFlags?.fpAbi, 5);
-      assert.equal(ghidraMipsUnsupportedReason(result.value), null);
+      const resolved = await resolveFixture(bytes);
+      assert.equal(resolved.mips.abiFlags?.fpAbi, 5);
+      assert.equal(ghidraMipsUnsupportedReason(resolved), null);
       assert.match(
-        result.value.mips.limitations?.join(" ") ?? "",
+        resolved.mips.limitations?.join(" ") ?? "",
         /section header table/u,
       );
-      assert.equal(
-        result.value.sha256,
-        createHash("sha256").update(bytes).digest("hex"),
-      );
-      assert.deepEqual(await readFile(path), bytes);
     });
   }
 }
@@ -158,19 +166,10 @@ it("keeps declarations in uncaptured section headers unknown when program ABI da
   const bytes = fixture();
   bytes.writeUInt32LE(bytes.length + 1, 32);
   bytes.writeUInt32LE(0, 52);
-  const directory = await createTestTempDirectory("rea-mips-carved-unknown-");
-  const path = join(directory, "fixture.elf");
-  await writeFile(path, bytes);
-  const result = await parseBinaryTarget(path);
-  if (!result.ok) throw result.error;
-  if (
-    result.value.kind !== "executable" ||
-    result.value.architecture !== "mips"
-  )
-    throw new Error("Expected a resolved MIPS executable");
-  assert.equal(result.value.mips.abiFlags, null);
+  const resolved = await resolveFixture(bytes);
+  assert.equal(resolved.mips.abiFlags, null);
   assert.match(
-    ghidraMipsUnsupportedReason(result.value) ?? "",
+    ghidraMipsUnsupportedReason(resolved) ?? "",
     /inspected ABI.*unavailable headers remain unknown/u,
   );
 });
@@ -324,49 +323,21 @@ it("preserves the caller's cancellation error during table inspection", async ()
 
 for (const little of [true, false]) {
   it(`resolves full-file MIPS ABI identity before provider selection (${little ? "LE" : "BE"})`, async () => {
-    const directory = await createTestTempDirectory("rea-mips-resolution-");
-    const path = join(directory, "fixture.elf");
     const bytes = fixture(little);
-    await writeFile(path, bytes);
-    const result = await parseBinaryTarget(path);
-    if (!result.ok) throw result.error;
-    assert.equal(result.value.architecture, "mips");
-    assert.equal(result.value.format, "elf");
-    assert.equal(
-      result.value.sha256,
-      createHash("sha256").update(bytes).digest("hex"),
-    );
-    if (
-      result.value.kind !== "executable" ||
-      result.value.architecture !== "mips"
-    )
-      throw new Error("Expected a resolved MIPS executable");
-    assert.equal(result.value.mips.byteOrder, little ? "little" : "big");
-    assert.equal(result.value.mips.abiFlags?.fpAbi, 5);
-    assert.equal(ghidraMipsUnsupportedReason(result.value), null);
-    assert.deepEqual(await readFile(path), bytes);
+    const resolved = await resolveFixture(bytes);
+    assert.equal(resolved.mips.byteOrder, little ? "little" : "big");
+    assert.equal(resolved.mips.abiFlags?.fpAbi, 5);
+    assert.equal(ghidraMipsUnsupportedReason(resolved), null);
   });
 }
 
 it("keeps missing ABI data unknown through the public target resolver", async () => {
-  const directory = await createTestTempDirectory("rea-mips-resolution-");
-  const path = join(directory, "fixture.elf");
   const bytes = fixture();
   bytes.writeUInt32LE(0, 52);
   bytes.writeUInt32LE(0, 172);
-  await writeFile(path, bytes);
-  const result = await parseBinaryTarget(path);
-  if (!result.ok) throw result.error;
-  if (
-    result.value.kind !== "executable" ||
-    result.value.architecture !== "mips"
-  )
-    throw new Error("Expected a resolved MIPS executable");
-  assert.equal(result.value.mips.abiFlags, null);
-  assert.match(
-    ghidraMipsUnsupportedReason(result.value) ?? "",
-    /inspected ABI/u,
-  );
+  const resolved = await resolveFixture(bytes);
+  assert.equal(resolved.mips.abiFlags, null);
+  assert.match(ghidraMipsUnsupportedReason(resolved) ?? "", /inspected ABI/u);
 });
 
 it("projects a malformed out-of-probe ABI record as a target error", async () => {
