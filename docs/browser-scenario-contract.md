@@ -144,6 +144,12 @@ environment-backed secret. Form, storage, and cookie values are either literal
 strings or declared secret references. Raw URL userinfo credentials are rejected.
 Captured credential-header
 values are not retained, and declared secret values are redacted automatically.
+Accessibility text also redacts the JSON/YAML quoting and whitespace normalization
+that Playwright applies to declared values. Literal matches are replaced without
+normalizing the snapshot. These artifacts use the shared literal redactor's marker
+(`[REDACTED]`, or a fallback if that marker contains a declared value). If
+replacement boundaries reconstruct a declared spelling, the redactor retains
+empty text. Byte counts and digests describe the retained text in both cases.
 A secret may be declared solely to
 redact matching observed content; every secret reference in an action, URL,
 storage value still needs a declaration. Ordinary query values
