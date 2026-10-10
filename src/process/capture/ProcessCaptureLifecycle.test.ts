@@ -193,6 +193,58 @@ it("records a scripted SIGKILL exit without inferring its cause", async () => {
   expect(exit.signal, "the observed SIGKILL remains an exit fact").toBe(9);
 });
 
+it.each([
+  [3, 3],
+  [0, 0],
+  [7, 7],
+] as const)(
+  "records exit code %i of a finalizer that exits on its own as %i",
+  async (exitCode, expected) => {
+    const fake = fakeTerminal();
+    const pending = start(fake, { timeout_ms: 100, finalization_ms: 5_000 });
+    await waitFor(() => fake.signals.includes("SIGTERM"));
+    fake.deliverExit({ exitCode, signal: 0 });
+
+    const exit = observed(await pending);
+
+    expect(
+      exit.finalization?.exit_code,
+      "the PTY-reported code of an exit not caused by a signal is recorded",
+    ).toBe(expected);
+    expect(exit.reason, "the initiating deadline stays the exit reason").toBe(
+      "timeout",
+    );
+  },
+);
+
+it("records no exit code when the finalizing target was ended by a signal", async () => {
+  const fake = fakeTerminal();
+  const pending = start(fake, { timeout_ms: 100, finalization_ms: 100 });
+  await waitFor(() => fake.signals.includes("SIGKILL"));
+  fake.deliverExit({ exitCode: 0, signal: 9 });
+
+  const exit = observed(await pending);
+
+  expect(
+    exit.finalization?.exit_code,
+    "a code reported next to a terminating signal is never recorded",
+  ).toBeNull();
+  expect(exit.signal, "the signal remains the observed exit fact").toBe(9);
+});
+
+it("records no exit code when no exit was observed", async () => {
+  const fake = fakeTerminal({}, new Promise<void>(() => undefined));
+  const pending = start(fake, { timeout_ms: 100, finalization_ms: 100 });
+
+  const result = await pending;
+
+  expect(result.unobserved, "no exit is invented").toBe(true);
+  expect(
+    result.finalization?.exit_code,
+    "an unobserved exit has no code to record",
+  ).toBeNull();
+}, 10_000);
+
 it("records every delivery result and publishes attempts incrementally", async () => {
   snapshots.length = 0;
   const fake = fakeTerminal({ SIGTERM: "gone", SIGKILL: "gone" });
