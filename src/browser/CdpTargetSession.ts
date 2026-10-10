@@ -51,35 +51,41 @@ export const closeCdpTargetSession = async (
 ): Promise<void> => {
   const { connection, sessionId } = targetSession;
   const cleanup = new AbortController();
+  const domainSignal =
+    signal === undefined
+      ? cleanup.signal
+      : AbortSignal.any([cleanup.signal, signal]);
   const timeout = setTimeout(() => cleanup.abort(), 1_000);
   timeout.unref();
   try {
     if (signal?.aborted !== true) {
       for (const domain of enabledDomains) {
-        if (cleanup.signal.aborted) break;
+        if (domainSignal.aborted) break;
         try {
           await connection.send(
             `${domain}.disable`,
             {},
             sessionId,
-            cleanup.signal,
+            domainSignal,
           );
         } catch {
           // Best-effort domain cleanup; transport close is the definitive boundary.
         }
       }
-      if (!cleanup.signal.aborted && sessionId !== undefined)
-        try {
-          await connection.send(
-            "Target.detachFromTarget",
-            { sessionId },
-            undefined,
-            cleanup.signal,
-          );
-        } catch {
-          // Best-effort detach; transport close is the definitive boundary.
-        }
     }
+    // Cancellation skips optional domain shutdown but still releases the
+    // attached session using its independent, bounded cleanup signal.
+    if (!cleanup.signal.aborted && sessionId !== undefined)
+      try {
+        await connection.send(
+          "Target.detachFromTarget",
+          { sessionId },
+          undefined,
+          cleanup.signal,
+        );
+      } catch {
+        // Best-effort detach; transport close is the definitive boundary.
+      }
   } finally {
     clearTimeout(timeout);
     cleanup.abort();
