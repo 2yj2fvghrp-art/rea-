@@ -56,8 +56,10 @@ export async function verifyGhidraEntryAliases({
     );
     assert.ok(canonical, "Fixture alias is not at a function entry");
     const xrefsSelectors = [];
+    // CLI xrefs keeps bare hexadecimal selectors as addresses. A Mach-O
+    // primary label such as "dead" is tested below as a procedure name instead.
     for (const value of [
-      canonical.value,
+      `${prefix}rea_alias_target`,
       alias.value,
       `${prefix}rea_xrefs_data`,
       `${prefix}rea_xrefs_unreferenced`,
@@ -163,7 +165,11 @@ export async function verifyGhidraEntryAliases({
           { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
         );
         const evidence = JSON.parse(stdout);
-        assert.deepEqual(evidence.normalized_result, expected);
+        assert.deepEqual(
+          evidence.normalized_result,
+          expected,
+          `CLI xrefs mismatch for ${JSON.stringify(selector)}`,
+        );
         assert.equal(evidence.parameters.address, selector.at(-1));
       }
     }
