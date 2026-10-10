@@ -26,9 +26,13 @@ import {
   type IntegrityContradiction,
 } from "../../domain/artifactGraph.js";
 import { AnalysisUnsupportedTargetError } from "../../domain/analysisErrorCore.js";
+import {
+  type ArtifactResourceOwner,
+  type ArtifactResourceScope,
+} from "../ArtifactResourceScope.js";
 import type { BinaryTarget } from "../../domain/binaryTargetTypes.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
-import { scanArtifactInventory } from "../inventory/ArtifactInventory.js";
+import { scanArtifactInventoryInScope } from "../inventory/ArtifactInventory.js";
 import type { ArtifactIntegrityPolicyName } from "../../domain/artifactIntegrityPolicy.js";
 
 /** Local extraction input with the output root chosen by the adapter. */
@@ -38,10 +42,17 @@ export interface ArtifactExtractionInput {
   readonly outputRoot: string;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly integrityPolicy: ArtifactIntegrityPolicyName;
+  readonly resourceScope: ArtifactResourceScope;
 }
 
 /** Extract every regular inventory occurrence into an exclusively owned absent root. */
 export const extractArtifact = async (
+  input: ArtifactExtractionInput,
+  signal?: AbortSignal,
+): Promise<ArtifactExtractionResult> =>
+  input.resourceScope.run(() => extractArtifactInScope(input, signal));
+
+const extractArtifactInScope = async (
   input: ArtifactExtractionInput,
   signal?: AbortSignal,
 ): Promise<ArtifactExtractionResult> => {
@@ -49,16 +60,33 @@ export const extractArtifact = async (
   abortIfNeeded(signal);
   const sourcePath = await realpath(input.inputPath);
   await requireExtractableFormat(sourcePath, input);
-  const snapshot = await scanArtifactInventory(sourcePath, {
+  const snapshot = await scanArtifactInventoryInScope(sourcePath, {
+    resourceScope: input.resourceScope,
     signal,
     environment: input.environment,
     integrity: { mode: input.integrityPolicy },
   });
-  return materializeArtifactInventory(input, sourcePath, snapshot, signal);
+  return materializeArtifactInventoryInScope(
+    input,
+    sourcePath,
+    snapshot,
+    signal,
+  );
 };
 
 /** Materialize a scanned inventory, verifying every current occurrence against it. */
 export const materializeArtifactInventory = async (
+  input: ArtifactExtractionInput,
+  sourcePath: string,
+  snapshot: ArtifactInventorySnapshot,
+  signal?: AbortSignal,
+): Promise<ArtifactExtractionResult> => {
+  return input.resourceScope.run(() =>
+    materializeArtifactInventoryInScope(input, sourcePath, snapshot, signal),
+  );
+};
+
+const materializeArtifactInventoryInScope = async (
   input: ArtifactExtractionInput,
   sourcePath: string,
   snapshot: ArtifactInventorySnapshot,
@@ -90,20 +118,14 @@ export const materializeArtifactInventory = async (
   const selectedIds = new Set(
     activeOccurrences.map(({ occurrence_id: id }) => id),
   );
-  const occurrences = new Map<string, ArtifactOccurrence>();
-  const neededNodes = new Set<string>();
-  collectOccurrences(
-    snapshot.occurrences,
-    selectedIds,
-    occurrences,
-    neededNodes,
+  const neededNodes = new Set(
+    activeOccurrences.map(({ artifact_id: id }) => id),
   );
   const nodes = new Map<string, ArtifactNode>();
-  collectNodes(snapshot.nodes, neededNodes, nodes);
-  const inventory: LoadedInventory = {
+  for (const node of snapshot.nodes)
+    if (neededNodes.has(node.artifact_id)) nodes.set(node.artifact_id, node);
+  const inventory: ExtractionInventory = {
     manifest: snapshot.manifest,
-    occurrences,
-    nodes,
     integrityContradictions: snapshot.integrity_contradictions.filter(
       ({ occurrence_id: id }) => selectedIds.has(id),
     ),
@@ -144,7 +166,7 @@ export const materializeArtifactInventory = async (
         "format",
         `Selected occurrence is not an extractable regular child file: ${occurrence.logical_path} (${occurrence.occurrence_id})`,
       );
-    const node = inventory.nodes.get(occurrence.artifact_id);
+    const node = nodes.get(occurrence.artifact_id);
     if (node === undefined)
       throw new ArtifactReaderFailure(
         "integrity",
@@ -183,7 +205,7 @@ const materializeSelection = async ({
 }: {
   readonly input: ArtifactExtractionInput;
   readonly sourcePath: string;
-  readonly inventory: LoadedInventory;
+  readonly inventory: ExtractionInventory;
   readonly selected: readonly SelectedOccurrence[];
   readonly signal: AbortSignal | undefined;
 }): Promise<ArtifactExtractionResult> => {
@@ -191,53 +213,27 @@ const materializeSelection = async ({
     selected.map((item) => [item.occurrence.logical_path, item]),
   );
   const reader = await createReader(sourcePath, input);
+  const readerOwner: ArtifactResourceOwner = {
+    kind: "reader" as const,
+    reader,
+    resource: `artifact reader for ${sourcePath}`,
+  };
+  let localReaderOwner: ArtifactResourceOwner | undefined = readerOwner;
   let output: SafeOutputTree | undefined;
-  let readerCloseAttempted = false;
-  let readerClosed = false;
   const extracted: ExtractedOccurrence[] = [];
   try {
     output = await SafeOutputTree.create(input.outputRoot);
-    const registry = new ArtifactPathRegistry();
-    for await (const entry of reader.entries(signal)) {
-      const path = normalizeArtifactPath(entry.path);
-      registry.add(path, entry.kind);
-      const selectedItem = byPath.get(path);
-      if (selectedItem === undefined) {
-        if (entry.kind === "file" || entry.kind === "slice")
-          throw new ArtifactReaderFailure(
-            "integrity",
-            `Regular artifact entry is missing from inventory: ${path}`,
-          );
-        continue;
-      }
-      preflight(entry);
-      const stream = await reader.open(entry, signal);
-      const written = await output.write(
-        path,
-        stream,
-        {
-          sha256: selectedItem.node.sha256,
-          bytes: selectedItem.node.size,
-        },
-        signal,
+    await writeSelectedEntries({ reader, output, byPath, extracted, signal });
+    localReaderOwner = undefined;
+    const closeAttempt = await input.resourceScope.release(readerOwner);
+    if (closeAttempt.kind === "failed")
+      throw ArtifactReaderFailure.withCleanup(
+        closeAttempt.cause,
+        ArtifactReaderFailure.cleanupObservation(
+          closeAttempt.cause,
+          readerOwner.resource,
+        ),
       );
-      extracted.push({
-        artifact_id: selectedItem.node.artifact_id,
-        relative_path: written.relativePath,
-        sha256: written.sha256,
-        bytes_written: written.bytesWritten,
-        created: true,
-      });
-      byPath.delete(path);
-    }
-    if (byPath.size > 0)
-      throw new ArtifactReaderFailure(
-        "integrity",
-        `Inventoried regular artifact entries were not materialized: ${[...byPath.keys()].sort(compareUnicodeCodePoints).join(", ")}`,
-      );
-    readerCloseAttempted = true;
-    await reader.close();
-    readerClosed = true;
     extracted.sort((left, right) =>
       compareUnicodeCodePoints(left.relative_path, right.relative_path),
     );
@@ -250,36 +246,12 @@ const materializeSelection = async ({
     await output.commit();
     return result;
   } catch (cause: unknown) {
-    const cleanupFailures: {
-      readonly cause: unknown;
-      readonly resource: string;
-    }[] = [];
-    if (readerCloseAttempted && !readerClosed)
-      cleanupFailures.push({
-        cause,
-        resource: `artifact reader for ${sourcePath}`,
-      });
-    if (!readerCloseAttempted) {
-      try {
-        readerCloseAttempted = true;
-        await reader.close();
-      } catch (cleanupCause: unknown) {
-        cleanupFailures.push({
-          cause: cleanupCause,
-          resource: `artifact reader for ${sourcePath}`,
-        });
-      }
-    }
-    if (output !== undefined) {
-      try {
-        await output.rollback();
-      } catch (cleanupCause: unknown) {
-        cleanupFailures.push({
-          cause: cleanupCause,
-          resource: input.outputRoot,
-        });
-      }
-    }
+    const cleanupFailures = await releaseExtractionOwners(
+      input.resourceScope,
+      localReaderOwner,
+      output,
+      input.outputRoot,
+    );
     if (cleanupFailures.length > 0) {
       const observations = cleanupFailures.map(
         ({ cause: cleanupCause, resource }) =>
@@ -296,9 +268,87 @@ const materializeSelection = async ({
   }
 };
 
+const writeSelectedEntries = async ({
+  reader,
+  output,
+  byPath,
+  extracted,
+  signal,
+}: {
+  readonly reader: ArtifactReader;
+  readonly output: SafeOutputTree;
+  readonly byPath: Map<string, SelectedOccurrence>;
+  readonly extracted: ExtractedOccurrence[];
+  readonly signal: AbortSignal | undefined;
+}): Promise<void> => {
+  const registry = new ArtifactPathRegistry();
+  for await (const entry of reader.entries(signal)) {
+    const path = normalizeArtifactPath(entry.path);
+    registry.add(path, entry.kind);
+    const selectedItem = byPath.get(path);
+    if (selectedItem === undefined) {
+      if (entry.kind === "file" || entry.kind === "slice")
+        throw new ArtifactReaderFailure(
+          "integrity",
+          `Regular artifact entry is missing from inventory: ${path}`,
+        );
+      continue;
+    }
+    preflight(entry);
+    const stream = await reader.open(entry, signal);
+    const written = await output.write(
+      path,
+      stream,
+      {
+        sha256: selectedItem.node.sha256,
+        bytes: selectedItem.node.size,
+      },
+      signal,
+    );
+    extracted.push({
+      artifact_id: selectedItem.node.artifact_id,
+      relative_path: written.relativePath,
+      sha256: written.sha256,
+      bytes_written: written.bytesWritten,
+      created: true,
+    });
+    byPath.delete(path);
+  }
+  if (byPath.size > 0)
+    throw new ArtifactReaderFailure(
+      "integrity",
+      `Inventoried regular artifact entries were not materialized: ${[...byPath.keys()].sort(compareUnicodeCodePoints).join(", ")}`,
+    );
+};
+
+const releaseExtractionOwners = async (
+  resourceScope: ArtifactResourceScope,
+  readerOwner: ArtifactResourceOwner | undefined,
+  output: SafeOutputTree | undefined,
+  outputRoot: string,
+): Promise<{ readonly cause: unknown; readonly resource: string }[]> => {
+  const failures: { readonly cause: unknown; readonly resource: string }[] = [];
+  if (readerOwner !== undefined) {
+    const attempt = await resourceScope.release(readerOwner);
+    if (attempt.kind === "failed")
+      failures.push({ cause: attempt.cause, resource: readerOwner.resource });
+  }
+  if (output !== undefined) {
+    const owner: ArtifactResourceOwner = {
+      kind: "output-tree",
+      tree: output,
+      resource: outputRoot,
+    };
+    const attempt = await resourceScope.release(owner);
+    if (attempt.kind === "failed")
+      failures.push({ cause: attempt.cause, resource: owner.resource });
+  }
+  return failures;
+};
+
 const createExtractionResult = (
   input: ArtifactExtractionInput,
-  inventory: LoadedInventory,
+  inventory: ExtractionInventory,
   selected: readonly SelectedOccurrence[],
   extracted: readonly ExtractedOccurrence[],
 ): ArtifactExtractionResult => {
@@ -333,34 +383,10 @@ const createExtractionResult = (
   });
 };
 
-interface LoadedInventory {
+interface ExtractionInventory {
   readonly manifest: ArtifactGraphManifest;
-  readonly occurrences: ReadonlyMap<string, ArtifactOccurrence>;
-  readonly nodes: ReadonlyMap<string, ArtifactNode>;
   readonly integrityContradictions: readonly IntegrityContradiction[];
 }
-
-const collectOccurrences = (
-  items: readonly ArtifactOccurrence[],
-  selected: ReadonlySet<string>,
-  output: Map<string, ArtifactOccurrence>,
-  neededNodes: Set<string>,
-): void => {
-  for (const item of items) {
-    if (!selected.has(item.occurrence_id)) continue;
-    output.set(item.occurrence_id, item);
-    if (item.artifact_id !== null) neededNodes.add(item.artifact_id);
-  }
-};
-
-const collectNodes = (
-  items: readonly ArtifactNode[],
-  selected: ReadonlySet<string>,
-  output: Map<string, ArtifactNode>,
-): void => {
-  for (const item of items)
-    if (selected.has(item.artifact_id)) output.set(item.artifact_id, item);
-};
 
 const ZIP_FORMATS = ["ipa", "apk", "msix", "appx", "zip"] as const;
 
