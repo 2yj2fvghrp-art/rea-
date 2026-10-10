@@ -1036,11 +1036,11 @@ public final class ReaGhidraBridge extends HeadlessScript {
         for (String field : List.of("name", "comment", "inline_comment")) {
             if (params.has(field)) validateAnnotationText(requireText(params, field), field);
         }
-        String leafName = params.has("name")
-            ? annotationLeafName(function, requireString(params, "name")) : null;
         int transaction = currentProgram.startTransaction("REA function annotations");
         boolean commit = false;
         try {
+            String leafName = params.has("name")
+                ? symbolLeafName(function.getSymbol(), requireString(params, "name")) : null;
             // Validate edits through Ghidra's own setters, including name rules.
             // A later invalid name must roll back earlier comment writes.
             for (String field : List.of("comment", "inline_comment")) {
@@ -1089,18 +1089,18 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
     }
 
-    private String annotationLeafName(Function function, String requested) {
+    private String symbolLeafName(Symbol symbol, String requested) throws ghidra.util.exception.InvalidInputException {
         // Fully qualified readback must be usable as an idempotent rename input.
-        if (requested.equals(procedureName(function))) return function.getName();
-        String namespace = function.getParentNamespace().isGlobal()
-            ? "" : function.getParentNamespace().getName(true);
+        if (requested.equals(symbol.getName(true))) return symbol.getName();
+        String namespace = symbol.getParentNamespace().isGlobal()
+            ? "" : symbol.getParentNamespace().getName(true);
         String prefix = namespace + "::";
         if (!namespace.isEmpty() && requested.startsWith(prefix)) {
             String leaf = requested.substring(prefix.length());
             if (!leaf.isEmpty()) return leaf;
-            throw new RequestFailure("invalid_function_name",
-                "Function name has an empty leaf within namespace " + namespace + " at " +
-                canonicalAddress(function.getEntryPoint()) + ": " + requested);
+            throw new ghidra.util.exception.InvalidInputException(
+                "Symbol name has an empty leaf within namespace " + namespace + " at " +
+                canonicalAddress(symbol.getAddress()) + ": " + requested);
         }
         return requested;
     }
@@ -1436,13 +1436,14 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Function function = currentProgram.getFunctionManager().getFunctionAt(address);
             String expected = name;
             if (function != null) {
-                expected = annotationLeafName(function, name);
+                expected = symbolLeafName(function.getSymbol(), name);
                 function.setName(expected, SourceType.USER_DEFINED);
             } else {
                 var table = currentProgram.getSymbolTable();
                 Symbol primary = table.getPrimarySymbol(address);
                 if (primary != null && !primary.isDynamic()) {
-                    primary.setName(name, SourceType.USER_DEFINED);
+                    expected = symbolLeafName(primary, name);
+                    primary.setName(expected, SourceType.USER_DEFINED);
                 } else {
                     Symbol created = table.createLabel(address, name, SourceType.USER_DEFINED);
                     created.setPrimary();
