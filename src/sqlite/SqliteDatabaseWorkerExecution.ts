@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { AnalysisCapturedOutput } from "../domain/analysisErrorBase.js";
 import {
+  AnalysisCancelledError,
   AnalysisInputError,
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
@@ -148,17 +149,19 @@ export const executeSqliteDatabaseWorker = async (request: {
     );
     reply = replySchema.parse(JSON.parse(file.bytes.toString("utf8")));
   } catch (cause: unknown) {
+    const options = {
+      cause,
+      capturedOutput,
+      ...(cause instanceof ArtifactReaderFailure && cause.cleanup !== undefined
+        ? { cleanup: cause.cleanup }
+        : {}),
+    };
+    if (request.signal?.aborted)
+      throw new AnalysisCancelledError(operation, options);
     throw new AnalysisOutputError(
       operation,
       `Owned SQLite worker reply is missing or malformed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      {
-        cause,
-        capturedOutput,
-        ...(cause instanceof ArtifactReaderFailure &&
-        cause.cleanup !== undefined
-          ? { cleanup: cause.cleanup }
-          : {}),
-      },
+      options,
     );
   }
   if (!reply.ok) throw rejectedReply(reply, capturedOutput);

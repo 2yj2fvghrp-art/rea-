@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { createSqliteDatabaseService } from "../composition/sqlite.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
@@ -38,8 +40,8 @@ export const registerSqliteCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.inspectSqliteDatabase, async () => {
-          try {
-            const result = await service.inspect(
+          const inspection = await service
+            .inspect(
               {
                 path: resolve(args.path),
                 ...(options.table === undefined
@@ -50,13 +52,41 @@ export const registerSqliteCommands = (
                   : { row_limit: options.rowLimit }),
               },
               { signal },
+            )
+            .then(
+              (result) => ({ result }),
+              (cause: unknown) => ({ cause }),
             );
-            return result.ok
-              ? result.value
-              : projectAnalysisError(result.error);
-          } finally {
+          try {
             await service.close();
+          } catch (cause: unknown) {
+            const primary =
+              "cause" in inspection
+                ? inspection.cause
+                : inspection.result.ok
+                  ? undefined
+                  : inspection.result.error;
+            if (
+              primary instanceof AnalysisError &&
+              cause instanceof AnalysisError
+            )
+              throw analysisErrorWithCleanupFailure(
+                primary,
+                cause,
+                "inspect_sqlite_database",
+              );
+            if ("cause" in inspection)
+              throw new AggregateError(
+                [inspection.cause, cause],
+                "SQLite inspection and provider cleanup both failed",
+                { cause: inspection.cause },
+              );
+            throw cause;
           }
+          if ("cause" in inspection) throw inspection.cause;
+          return inspection.result.ok
+            ? inspection.result.value
+            : projectAnalysisError(inspection.result.error);
         }),
       ),
   });

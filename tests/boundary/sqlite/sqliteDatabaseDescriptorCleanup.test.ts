@@ -1,9 +1,18 @@
+import { Cli } from "incur";
 import { access, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, it, onTestFinished, vi } from "vitest";
 
+import { SqliteDatabaseService } from "../../../src/application/sqlite/SqliteDatabaseService.js";
+import { registerSqliteCommands } from "../../../src/cli/sqliteCommands.js";
+import { createSqliteDatabaseService } from "../../../src/composition/sqlite.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { silentLogger } from "../../../src/logger.js";
 import { SqliteDatabaseProvider } from "../../../src/sqlite/SqliteDatabaseProvider.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
+import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { createSqliteDatabaseFixture } from "../../fixtures/sqlite/database.js";
 import {
   createTestWorkspace,
@@ -18,6 +27,10 @@ const descriptorCleanup = vi.hoisted(() => ({
   handles: [] as FileHandle[],
   readFailure: undefined as Error | undefined,
   onOpen: undefined as (() => void) | undefined,
+}));
+
+vi.mock("../../../src/composition/sqlite.js", () => ({
+  createSqliteDatabaseService: vi.fn(),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -54,7 +67,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 const fixture = async (
-  member: "database" | "WAL" | "journal",
+  member: "database" | "WAL" | "journal" | "reply",
   invalidate = false,
 ) => {
   const workspace = await createTestWorkspace("rea-sqlite-descriptor-cleanup-");
@@ -64,16 +77,34 @@ const fixture = async (
       ? database.path
       : member === "WAL"
         ? database.walPath
-        : `${database.path}-journal`;
+        : member === "journal"
+          ? `${database.path}-journal`
+          : "";
   if (member === "journal") await writeFile(path, Buffer.alloc(28));
   const roots: PrivateRuntimeRoot[] = [];
   const provider = new SqliteDatabaseProvider(
-    {},
-    () => {
-      throw new Error("SQLite worker deliberately unavailable");
+    process.env,
+    (spawn) => {
+      if (member !== "reply")
+        throw new Error("SQLite worker deliberately unavailable");
+      return spawnOwnedProviderProcess({
+        ...spawn,
+        arguments: spawn.arguments.map((argument, index) =>
+          index === 1
+            ? fileURLToPath(
+                new URL(
+                  "../../../dist/sqlite/SqliteDatabaseWorker.js",
+                  import.meta.url,
+                ),
+              )
+            : argument,
+        ),
+      });
     },
     async () => {
       const root = await PrivateRuntimeRoot.create({ parent: workspace.root });
+      if (member === "reply")
+        descriptorCleanup.path = join(root.path, "reply.json");
       roots.push(root);
       return root;
     },
@@ -98,6 +129,30 @@ const fixture = async (
     await removeTestWorkspace(workspace.root);
   });
   return { provider, roots, path, database };
+};
+
+const serveInspection = async (
+  provider: SqliteDatabaseProvider,
+  path: string,
+) => {
+  const previousExitCode = process.exitCode;
+  onTestFinished(() => {
+    process.exitCode = previousExitCode;
+  });
+  vi.mocked(createSqliteDatabaseService).mockReturnValue(
+    new SqliteDatabaseService(provider),
+  );
+  const cli = Cli.create("rea-sqlite-cleanup-test", { sync: false });
+  registerSqliteCommands(cli, silentLogger, {});
+  let stdout = "";
+  await cli.serve(["inspect-sqlite-database", path, "--json"], {
+    env: {},
+    stdout: (text) => {
+      stdout += text;
+    },
+    exit: () => {},
+  });
+  return { output: JSON.parse(stdout) as unknown, exitCode: process.exitCode };
 };
 
 it.each(["database", "WAL", "journal"] as const)(
@@ -138,6 +193,111 @@ it.each(["database", "WAL", "journal"] as const)(
       await expect(access(root.path)).rejects.toMatchObject({ code: "ENOENT" });
   },
 );
+
+it.each(["EACCES", "EPERM"])(
+  "retains the original %s inspection diagnostics through CLI shutdown",
+  async (code) => {
+    const selected = await fixture("database");
+    descriptorCleanup.readFailure = Object.assign(
+      new Error("injected source read denial"),
+      { code },
+    );
+    const result = await serveInspection(
+      selected.provider,
+      selected.database.path,
+    );
+    expect(result).toMatchObject({
+      exitCode: 1,
+      output: {
+        code: "cleanup_incomplete",
+        details: {
+          resources: [expect.stringContaining(selected.path)],
+          diagnostics: {
+            primary_error: {
+              details: {
+                diagnostics: {
+                  previous_error: {
+                    code: "access_denied",
+                    details: { path: selected.path, system_code: code },
+                  },
+                },
+              },
+            },
+            cleanup_error: { code: "cleanup_incomplete" },
+          },
+        },
+      },
+    });
+    expect(descriptorCleanup.attempts).toBe(2);
+  },
+);
+
+it("retains cancellation diagnostics and the interrupt exit code through CLI shutdown", async () => {
+  const selected = await fixture("database");
+  descriptorCleanup.onOpen = () => {
+    const interrupt = process.listeners("SIGINT").at(-1);
+    if (interrupt === undefined)
+      throw new Error("Missing CLI interrupt handler");
+    interrupt("SIGINT");
+  };
+  const result = await serveInspection(
+    selected.provider,
+    selected.database.path,
+  );
+  expect(result).toMatchObject({
+    exitCode: 130,
+    output: {
+      code: "cleanup_incomplete",
+      details: {
+        resources: [expect.stringContaining(selected.path)],
+        diagnostics: {
+          primary_error: {
+            details: {
+              diagnostics: { previous_error: { code: "cancelled" } },
+            },
+          },
+          cleanup_error: { code: "cleanup_incomplete" },
+        },
+      },
+    },
+  });
+  expect(descriptorCleanup.attempts).toBeGreaterThanOrEqual(2);
+});
+
+it("retains reply-read cancellation and retries the failed reply descriptor close", async () => {
+  const selected = await fixture("reply");
+  const controller = new AbortController();
+  descriptorCleanup.onOpen = () =>
+    controller.abort(new Error("requested cancellation during reply read"));
+  const result = await selected.provider.inspect(
+    { path: selected.database.path },
+    { signal: controller.signal },
+  );
+  if (result.ok) throw new Error("Expected cancelled reply read");
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    code: "cleanup_incomplete",
+    details: {
+      execution_failure: "cancelled",
+      resources: [expect.stringContaining(descriptorCleanup.path)],
+      captured_output: {
+        stdout: "",
+        stderr: expect.any(String),
+        truncated: false,
+      },
+    },
+  });
+  const handle = descriptorCleanup.handles[0];
+  if (handle === undefined) throw new Error("Expected owned reply descriptor");
+  expect(handle.fd).toBeGreaterThanOrEqual(0);
+  await expect(selected.provider.close()).rejects.toMatchObject({
+    cleanupIncomplete: true,
+  });
+  descriptorCleanup.denied = false;
+  await selected.provider.close();
+  expect(handle.fd).toBe(-1);
+  for (const root of selected.roots)
+    await expect(access(root.path)).rejects.toMatchObject({ code: "ENOENT" });
+});
 
 it("retries source cleanup before admitting another snapshot", async () => {
   const selected = await fixture("database");
