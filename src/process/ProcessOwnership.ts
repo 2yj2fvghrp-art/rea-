@@ -7,6 +7,7 @@ import {
 } from "./ProcessOwnershipObservation.js";
 import { launcherIdentityFailure } from "./ProcessOwnershipIdentity.js";
 import { descendantsOf, liveProcesses } from "./ProcessOwnershipProcessTree.js";
+import { readProcessRunTokens } from "./ProcessRunTokenObservations.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -90,10 +91,14 @@ export interface ProcessOwnershipHost {
   close?(): Promise<void>;
   /** List current processes; startup inspection may be cancelled by the caller. */
   listProcesses(signal?: AbortSignal): Promise<readonly ProcessTableEntry[]>;
-  environment(pid: number): Promise<Readonly<Record<string, string>>>;
+  environment(
+    pid: number,
+    signal?: AbortSignal,
+  ): Promise<Readonly<Record<string, string>>>;
   /** Read only run-token values in one host operation when the OS supports it. */
   runTokens?(
     processes: readonly ProcessTableEntry[],
+    signal?: AbortSignal,
   ): Promise<ReadonlyMap<number, ProcessRunTokenObservation>>;
   /** Read stable identities; omit the signal during cleanup so it can finish. */
   processIdentities?(
@@ -623,6 +628,7 @@ const processOwnershipFailures = async (
       expectedIdentities.has(pid),
     );
     const observed = await host.processIdentities(expectedMembers);
+    const identityFailures: ProcessOwnershipValidationFailure[] = [];
     for (const member of expectedMembers) {
       const expected = expectedIdentities.get(member.pid);
       const current = observed.get(member.pid);
@@ -631,8 +637,7 @@ const processOwnershipFailures = async (
         current?.state !== "readable" ||
         current.identity !== expected
       ) {
-        if (await processIsGone(host, member.pid)) continue;
-        failures.push({
+        identityFailures.push({
           pid: member.pid,
           reason: "process-identity-unavailable",
           diagnostic:
@@ -640,6 +645,7 @@ const processOwnershipFailures = async (
         });
       }
     }
+    failures.push(...(await recheckOwnershipFailures(identityFailures, host)));
   }
   failures.push(...(await processRunTokenFailures(members, runId, host)));
   if (
@@ -651,6 +657,7 @@ const processOwnershipFailures = async (
       expectedIdentities.has(pid),
     );
     const observed = await host.processIdentities(expectedMembers);
+    const identityFailures: ProcessOwnershipValidationFailure[] = [];
     for (const member of expectedMembers) {
       const expected = expectedIdentities.get(member.pid);
       const current = observed.get(member.pid);
@@ -660,14 +667,14 @@ const processOwnershipFailures = async (
         current.identity === expected
       )
         continue;
-      if (await processIsGone(host, member.pid)) continue;
-      failures.push({
+      identityFailures.push({
         pid: member.pid,
         reason: "process-identity-unavailable",
         diagnostic:
           "process identity changed or became unavailable during token validation",
       });
     }
+    failures.push(...(await recheckOwnershipFailures(identityFailures, host)));
   }
   return failures;
 };
@@ -678,43 +685,13 @@ const processRunTokenFailures = async (
   host: ProcessOwnershipHost,
 ): Promise<readonly ProcessOwnershipValidationFailure[]> => {
   const failures: ProcessOwnershipValidationFailure[] = [];
-  let runTokenObservations:
-    | ReadonlyMap<number, ProcessRunTokenObservation>
-    | undefined;
-  let runTokenReadFailure: string | undefined;
-  if (host.runTokens !== undefined) {
-    try {
-      runTokenObservations = await host.runTokens(members);
-    } catch (cause: unknown) {
-      runTokenReadFailure = errorMessage(cause);
-    }
-  }
-  for (const member of members) {
-    const batchObservation = runTokenObservations?.get(member.pid);
-    let observation =
-      batchObservation ?? (await readEnvironmentRunToken(host, member.pid));
-    if (
-      runTokenReadFailure !== undefined &&
-      observation.state === "unavailable"
-    )
-      observation = {
-        state: "unavailable",
-        reason: `${observation.reason}; run-token batch failed: ${runTokenReadFailure}`,
-      };
+  for await (const { process: member, observation } of readProcessRunTokens(
+    host,
+    members,
+  )) {
     if (observation.state === "readable") {
       if (observation.runId !== runId)
         failures.push({ pid: member.pid, reason: "run-token-mismatch" });
-      continue;
-    }
-    try {
-      const live = liveProcesses(await host.listProcesses());
-      if (!live.some(({ pid }) => pid === member.pid)) continue;
-    } catch (recheckCause: unknown) {
-      failures.push({
-        pid: member.pid,
-        reason: "environment-unreadable",
-        diagnostic: `${observation.reason}; process liveness recheck failed: ${errorMessage(recheckCause)}`,
-      });
       continue;
     }
     failures.push({
@@ -723,7 +700,37 @@ const processRunTokenFailures = async (
       diagnostic: observation.reason,
     });
   }
-  return failures;
+  return recheckOwnershipFailures(failures, host);
+};
+
+/**
+ * Take a fresh liveness snapshot after each ownership-read phase. Only an
+ * absent PID resolves an unreadable observation; a readable token mismatch
+ * remains a failure. Never reuse this snapshot across identity/token reads.
+ */
+const recheckOwnershipFailures = async (
+  failures: readonly ProcessOwnershipValidationFailure[],
+  host: ProcessOwnershipHost,
+): Promise<readonly ProcessOwnershipValidationFailure[]> => {
+  if (!failures.some(({ reason }) => reason !== "run-token-mismatch"))
+    return failures;
+  try {
+    const live = new Set(
+      liveProcesses(await host.listProcesses()).map(({ pid }) => pid),
+    );
+    return failures.filter(
+      ({ pid, reason }) => reason === "run-token-mismatch" || live.has(pid),
+    );
+  } catch (cause: unknown) {
+    return failures.map((failure) =>
+      failure.reason === "run-token-mismatch"
+        ? failure
+        : {
+            ...failure,
+            diagnostic: `${failure.diagnostic}; process liveness recheck failed: ${errorMessage(cause)}`,
+          },
+    );
+  }
 };
 
 interface TokenOwnedProcessScan {
@@ -799,18 +806,19 @@ const scanTokenOwnedProcesses = async (
   const failures: ProcessOwnershipValidationFailure[] = [];
   if (captureBaseline !== undefined && host.processIdentities !== undefined) {
     const stableCandidates: ProcessTableEntry[] = [];
+    const identityFailures: ProcessOwnershipValidationFailure[] = [];
     for (const process of candidates) {
       if (candidateIdentities.get(process.pid)?.state === "readable") {
         stableCandidates.push(process);
         continue;
       }
-      if (!(await processIsGone(host, process.pid)))
-        failures.push({
-          pid: process.pid,
-          reason: "process-identity-unavailable",
-          diagnostic: "process identity was unavailable during token scan",
-        });
+      identityFailures.push({
+        pid: process.pid,
+        reason: "process-identity-unavailable",
+        diagnostic: "process identity was unavailable during token scan",
+      });
     }
+    failures.push(...(await recheckOwnershipFailures(identityFailures, host)));
     candidates = stableCandidates;
   }
   const owned: ProcessTableEntry[] = [];
@@ -823,26 +831,14 @@ const scanTokenOwnedProcesses = async (
       identity?.state === "readable" ? identity.identity : null,
     );
   };
-  let bulkTokens: ReadonlyMap<number, ProcessRunTokenObservation> | undefined;
-  if (host.runTokens !== undefined)
-    bulkTokens = await host.runTokens(candidates);
   const unreadable: UnreadableTokenCandidate[] = [];
-  for (const process of candidates) {
-    const bulkToken = bulkTokens?.get(process.pid);
-    if (bulkToken !== undefined) {
-      if (bulkToken.state === "readable") {
-        if (bulkToken.runId === runId) recordOwned(process);
-        continue;
-      }
-      unreadable.push({ process, diagnostic: bulkToken.reason });
-      continue;
-    }
-    try {
-      if ((await host.environment(process.pid)).REA_PROCESS_RUN_ID === runId)
-        recordOwned(process);
-    } catch (cause: unknown) {
-      unreadable.push({ process, diagnostic: errorMessage(cause) });
-    }
+  for await (const { process, observation } of readProcessRunTokens(
+    host,
+    candidates,
+  )) {
+    if (observation.state === "readable") {
+      if (observation.runId === runId) recordOwned(process);
+    } else unreadable.push({ process, diagnostic: observation.reason });
   }
   const remaining = await settleUnreadableTokenCandidates(
     unreadable,
@@ -908,6 +904,7 @@ const scanTokenOwnedProcesses = async (
   if (candidates.length > 0 && host.processIdentities !== undefined) {
     const afterRead = await host.processIdentities(candidates);
     const stillOwned: ProcessTableEntry[] = [];
+    const identityFailures: ProcessOwnershipValidationFailure[] = [];
     const ownedPids = new Set(owned.map(({ pid }) => pid));
     for (const process of candidates) {
       const before = candidateIdentities.get(process.pid);
@@ -920,14 +917,14 @@ const scanTokenOwnedProcesses = async (
         if (ownedPids.has(process.pid)) stillOwned.push(process);
         continue;
       }
-      if (await processIsGone(host, process.pid)) continue;
-      failures.push({
+      identityFailures.push({
         pid: process.pid,
         reason: "process-identity-unavailable",
         diagnostic:
           "process identity changed or became unavailable during token validation",
       });
     }
+    failures.push(...(await recheckOwnershipFailures(identityFailures, host)));
     return {
       owned: stillOwned,
       failures,
@@ -968,63 +965,24 @@ const settleUnreadableTokenCandidates = async (
       void cause;
       live = undefined;
     }
-    let observations:
-      | ReadonlyMap<number, ProcessRunTokenObservation>
-      | undefined;
-    if (host.runTokens !== undefined) {
-      try {
-        observations = await host.runTokens(
-          remaining.map(({ process }) => process),
-        );
-      } catch (cause: unknown) {
-        void cause;
-        observations = undefined;
-      }
-    }
     const stillUnreadable: UnreadableTokenCandidate[] = [];
-    for (const candidate of remaining) {
-      const pid = candidate.process.pid;
-      if (live !== undefined && !live.has(pid)) continue;
-      const observation =
-        observations?.get(pid) ?? (await readEnvironmentRunToken(host, pid));
+    const candidates = remaining
+      .map(({ process }) => process)
+      .filter(({ pid }) => live === undefined || live.has(pid));
+    for await (const { process, observation } of readProcessRunTokens(
+      host,
+      candidates,
+    )) {
       if (observation.state === "readable") {
-        if (observation.runId === runId) recordOwned(candidate.process);
+        if (observation.runId === runId) recordOwned(process);
         continue;
       }
       stillUnreadable.push({
-        process: candidate.process,
+        process,
         diagnostic: observation.reason,
       });
     }
     remaining = stillUnreadable;
   }
   return remaining;
-};
-
-const readEnvironmentRunToken = async (
-  host: ProcessOwnershipHost,
-  pid: number,
-): Promise<ProcessRunTokenObservation> => {
-  try {
-    return {
-      state: "readable",
-      runId: (await host.environment(pid)).REA_PROCESS_RUN_ID,
-    };
-  } catch (cause: unknown) {
-    return { state: "unavailable", reason: errorMessage(cause) };
-  }
-};
-
-const processIsGone = async (
-  host: ProcessOwnershipHost,
-  pid: number,
-): Promise<boolean> => {
-  try {
-    return !liveProcesses(await host.listProcesses()).some(
-      (process) => process.pid === pid,
-    );
-  } catch (cause: unknown) {
-    void cause;
-    return false;
-  }
 };
