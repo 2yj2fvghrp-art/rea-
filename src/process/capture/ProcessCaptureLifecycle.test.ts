@@ -232,6 +232,23 @@ it("records no exit code when the finalizing target was ended by a signal", asyn
   expect(exit.signal, "the signal remains the observed exit fact").toBe(9);
 });
 
+it("records no exit code when the PTY reports a negative code without a signal", async () => {
+  const fake = fakeTerminal();
+  const pending = start(fake, { timeout_ms: 100, finalization_ms: 5_000 });
+  await waitFor(() => fake.signals.includes("SIGTERM"));
+  fake.deliverExit({ exitCode: -1, signal: 0 });
+
+  const exit = observed(await pending);
+
+  expect(
+    exit.finalization?.exit_code,
+    "a negative PTY code is not a process exit code and is never recorded",
+  ).toBeNull();
+  expect(exit.reason, "the initiating deadline stays the exit reason").toBe(
+    "timeout",
+  );
+});
+
 it("records no exit code when no exit was observed", async () => {
   const fake = fakeTerminal({}, new Promise<void>(() => undefined));
   const pending = start(fake, { timeout_ms: 100, finalization_ms: 100 });
