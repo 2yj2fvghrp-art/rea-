@@ -6,12 +6,16 @@ import { Reader, ZipReader, type Entry, type FileEntry } from "@zip.js/zip.js";
 
 import {
   ArtifactReaderFailure,
+  copyArtifactEntry,
+  sameArtifactEntry,
   type ArtifactEntry,
   type ArtifactReader,
 } from "./ArtifactReader.js";
 import type { ZipPackageFormat } from "../domain/zipPackageFormat.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
   NonRegularFileReadError,
+  RegularFileAdmissionFailure,
   openRegularFile,
   sameRegularFileState,
   type StableRegularFileDescriptor,
@@ -19,6 +23,7 @@ import {
 
 class NodeFileReader extends Reader<string> {
   #handle: FileHandle | undefined;
+  #owner: OwnedFileHandle | undefined;
   #initPromise: Promise<void> | undefined;
   readonly #ownsHandle: boolean;
 
@@ -38,10 +43,30 @@ class NodeFileReader extends Reader<string> {
 
   async #initialize(): Promise<void> {
     try {
-      this.#handle =
+      const handle =
         this.admitted?.handle ??
         (await openRegularFile(this.path, { symlinks: "reject" }));
+      this.#handle = handle;
+      if (this.#ownsHandle) this.#owner = new OwnedFileHandle(handle);
     } catch (cause: unknown) {
+      if (cause instanceof RegularFileAdmissionFailure) {
+        this.#owner = cause.owner;
+        const primary =
+          cause.cause instanceof NonRegularFileReadError
+            ? new ArtifactReaderFailure(
+                "format",
+                `ZIP source is not a regular file: ${this.path}`,
+                { cause: cause.cause },
+              )
+            : cause.cause;
+        throw ArtifactReaderFailure.withCleanup(
+          primary,
+          ArtifactReaderFailure.cleanupObservation(
+            cause.cleanupCause,
+            this.path,
+          ),
+        );
+      }
       if (cause instanceof NonRegularFileReadError)
         throw new ArtifactReaderFailure(
           "format",
@@ -86,8 +111,9 @@ class NodeFileReader extends Reader<string> {
   async closeHandle(): Promise<void> {
     if (!this.#ownsHandle) return;
     await this.#initPromise?.catch(() => undefined);
-    if (this.#handle === undefined) return;
-    await this.#handle.close();
+    if (this.#owner === undefined) return;
+    await this.#owner.close();
+    this.#owner = undefined;
     this.#handle = undefined;
   }
 }
@@ -97,7 +123,10 @@ export class ZipArtifactReader implements ArtifactReader {
   readonly format: ZipPackageFormat;
   readonly #source: NodeFileReader;
   readonly #reader: ZipReader<string>;
-  readonly #entries = new Map<string, Entry>();
+  readonly #entries = new Map<
+    string,
+    { readonly source: Entry; readonly metadata: ArtifactEntry }
+  >();
 
   /** Optionally bound each metadata read before allocating its backing buffer. */
   constructor(
@@ -120,39 +149,38 @@ export class ZipArtifactReader implements ArtifactReader {
   async *entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry> {
     for await (const entry of this.#reader.getEntriesGenerator()) {
       abortIfNeeded(signal);
-      this.#entries.set(entry.filename, entry);
-      const symlink = isSymlink(entry);
-      yield {
-        path: entry.filename,
-        kind: entry.directory ? "directory" : symlink ? "symlink" : "file",
-        declaredSize: entry.directory ? null : entry.uncompressedSize,
-        compressedSize: entry.directory ? null : entry.compressedSize,
-        executable: entry.executable,
-        encrypted: entry.encrypted,
-        byteOffset: null,
-        declaredSha256: null,
-        unpacked: false,
-        limitations: symlink ? ["Archive symlink target was not read."] : [],
-        adapterKey: entry.filename,
-      };
+      const metadata = projectZipEntry(entry);
+      this.#entries.set(entry.filename, {
+        source: entry,
+        metadata: copyArtifactEntry(metadata),
+      });
+      yield metadata;
     }
   }
 
   open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {
     abortIfNeeded(signal);
     const stored = this.#entries.get(entry.adapterKey);
-    if (stored === undefined || stored.directory || isSymlink(stored))
+    if (stored === undefined || !sameArtifactEntry(entry, stored.metadata))
+      return Promise.reject(
+        new ArtifactReaderFailure(
+          "integrity",
+          "ZIP entry metadata does not match this reader's inventory",
+        ),
+      );
+    const source = stored.source;
+    if (source.directory || isSymlink(source))
       return Promise.reject(
         new ArtifactReaderFailure("format", "ZIP entry is not a regular file"),
       );
-    if (stored.encrypted)
+    if (source.encrypted)
       return Promise.reject(
         new ArtifactReaderFailure(
           "unavailable",
           "Encrypted ZIP entry is unsupported",
         ),
       );
-    return Promise.resolve(extractStream(stored, signal));
+    return Promise.resolve(extractStream(source, signal));
   }
 
   async close(): Promise<void> {
@@ -165,6 +193,23 @@ export class ZipArtifactReader implements ArtifactReader {
     return [];
   }
 }
+
+const projectZipEntry = (entry: Entry): ArtifactEntry => {
+  const symlink = isSymlink(entry);
+  return {
+    path: entry.filename,
+    kind: entry.directory ? "directory" : symlink ? "symlink" : "file",
+    declaredSize: entry.directory ? null : entry.uncompressedSize,
+    compressedSize: entry.directory ? null : entry.compressedSize,
+    executable: entry.executable,
+    encrypted: entry.encrypted,
+    byteOffset: null,
+    declaredSha256: null,
+    unpacked: false,
+    limitations: symlink ? ["Archive symlink target was not read."] : [],
+    adapterKey: entry.filename,
+  };
+};
 
 const extractStream = (entry: FileEntry, signal?: AbortSignal): Readable => {
   const output = new PassThrough();
