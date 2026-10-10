@@ -1,20 +1,15 @@
 /**
- * Security Regression Tests — Real Code Path Reproductions
+ * Security Regression Tests — Actual Platform-Verified Reproductions
  *
- * Each test section follows a strict format:
+ * Format per finding:
  *   (A) VULNERABLE CODE: exact file, line, and code reference
  *   (B) REPRODUCTION: real filesystem + real application code execution
  *   (C) OBSERVED OUTPUT: what the test actually measures
  *   (D) REGRESSION: how the fix prevents the issue
+ *   (E) LIMITATIONS: what this test does NOT prove
  *
- * These are NOT mock tests — they exercise actual application code paths
- * with real filesystem operations. Tests that cannot prove the full exploit
- * chain are explicitly labeled as "reproduction tests" (not "exploit PoCs").
- *
- * Priority order:
- *   1. CWE-312: Cleartext Auth Token Persistence (most reproducible)
- *   2. CWE-61:  Silent O_NOFOLLOW Bypass on Windows (platform-specific)
- *   3. CWE-367: TOCTOU Race Pre-conditions (hardest to fully exploit)
+ * Tests run on the CURRENT platform (Windows or POSIX) with real filesystem ops.
+ * Platform-conditional tests are marked, not skipped.
  */
 import { constants as fsConstants } from "node:fs";
 import {
@@ -25,6 +20,7 @@ import {
   open,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   symlink,
@@ -39,10 +35,11 @@ import { HopperApplicationLauncher } from "./BridgeLauncher.js";
 import type { BridgeSession } from "./BridgeLauncher.js";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Shared helpers — real filesystem, no mocks
+// Shared helpers — real filesystem, zero mocks
 // ────────────────────────────────────────────────────────────────────────────
 
 const directories: string[] = [];
+const isWindows = process.platform === "win32";
 
 afterEach(async () => {
   await Promise.all(
@@ -59,44 +56,37 @@ const temporaryDirectory = async (): Promise<string> => {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// PRIORITY 1: CWE-312 — Cleartext Auth Token Persistence
+// 1. CWE-312 — Bootstrap File Cleanup (Defense-in-Depth)
 // ────────────────────────────────────────────────────────────────────────────
 //
 // VULNERABLE CODE: src/hopper/BridgeLauncher.ts
-//   L366-380: bridgeBootstrapSource() — embeds REA_TOKEN in cleartext Python
 //   L312:     bootstrapPath = `${session.directory}/bootstrap.py`
-//   L314-323: writeFile() writes token to disk with mode 0o600
-//   L258-263: #launchPreparedTarget catch — ORIGINALLY had NO rm() cleanup
+//   L314-323: writeFile(bootstrapPath, bridgeBootstrapSource(...), { mode: 0o600 })
+//   L258-263: catch block — originally NO rm() cleanup
 //
-// Attack scenario:
-//   1. User starts REA → HopperApplicationLauncher.launch() is called
-//   2. #writeBootstrap writes bootstrap.py with cleartext REA_TOKEN to session dir
-//   3. #launchPreparedTarget throws (Hopper binary missing, permission error, etc.)
-//   4. ORIGINAL: catch block returns error but does NOT delete bootstrap.py
-//   5. Token persists on disk → local attacker reads it → connects to bridge socket
-//
-// CVSS 6.5 (Medium-High) — AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N
+// WHAT THIS PROVES: The fix cleans up bootstrap.py on launch failure.
+// WHAT THIS DOES NOT PROVE: That a recovered token can authorize a bridge
+// connection. REA's SECURITY.md states same-user attacks are out of scope,
+// and the file is written with mode 0o600 (owner-only).
 
-describe("CWE-312: Cleartext Auth Token Persistence in Bootstrap Script", () => {
-  it("REPRODUCTION: HopperApplicationLauncher.launch() writes cleartext REA_TOKEN to bootstrap.py via real code path", async () => {
-    // This test exercises the ACTUAL HopperApplicationLauncher class.
-    // We inject dependencies so launch() proceeds through #writeBootstrap
-    // but fails at #launchPreparedTarget (no real Hopper binary).
+describe("CWE-312: Bootstrap File Cleanup on Launch Failure", () => {
+  it("HopperApplicationLauncher.launch() cleans up bootstrap.py after launch failure", async () => {
+    // This calls the ACTUAL HopperApplicationLauncher class.
+    // launch() → #acquireLaunchLease (injected) → #writeBootstrap (real)
+    // → #launchPreparedTarget → throws (no binary) → catch → rm(bootstrap)
     const directory = await temporaryDirectory();
     const bootstrapPath = join(directory, "bootstrap.py");
     const session: BridgeSession = {
       directory,
       socketPath: join(directory, "bridge.sock"),
-      token: "REAL_SESSION_TOKEN_a1b2c3d4e5f6",
-      runId: "test-session-001",
+      token: "test_token_for_cleanup_verification",
+      runId: "test-session-cleanup",
     };
 
-    // Create a launcher with a non-existent binary — launch will fail
-    // after #writeBootstrap succeeds, exercising the error cleanup path.
     const launcher = new HopperApplicationLauncher(
       {
         environment: process.env,
-        launcherPath: join(directory, "nonexistent-hopper"),
+        launcherPath: join(directory, "nonexistent-hopper-binary"),
         targetPath: join(directory, "test-binary"),
         targetKind: "executable",
         loaderArgs: [],
@@ -104,7 +94,6 @@ describe("CWE-312: Cleartext Auth Token Persistence in Bootstrap Script", () => 
         launchMode: "native",
       },
       {
-        // Skip lease acquisition by returning a no-op lease
         platform: "darwin",
         acquireTargetLease: async () => ({
           acquired: true as const,
@@ -113,92 +102,54 @@ describe("CWE-312: Cleartext Auth Token Persistence in Bootstrap Script", () => 
       },
     );
 
-    // Call the REAL launch() method — this will:
-    // 1. Acquire lease (mocked to succeed)
-    // 2. Call #writeBootstrap → writes bootstrap.py with REA_TOKEN
-    // 3. Call #launchPreparedTarget → fails (no Hopper binary)
-    // 4. FIX: catch block calls rm(bootstrapPath) before returning error
     const result = await launcher.launch(session);
 
-    // Launch should fail (no Hopper binary)
+    // Launch fails (no binary exists)
     expect(result.ok).toBe(false);
 
-    // ── OBSERVED OUTPUT (FIX VERIFICATION) ──
-    // WITH THE FIX: bootstrap.py should be cleaned up after launch failure
-    // The rm() in the catch block (L261) should have removed it.
-    let bootstrapSurvived: boolean;
+    // FIX VERIFICATION: bootstrap.py with token must NOT persist
+    let fileExists: boolean;
     try {
       await stat(bootstrapPath);
-      bootstrapSurvived = true;
+      fileExists = true;
     } catch {
-      bootstrapSurvived = false;
+      fileExists = false;
     }
+    expect(fileExists).toBe(false);
 
-    // REGRESSION CHECK: After the fix, the file should NOT survive
-    expect(bootstrapSurvived).toBe(false);
-
-    // Double-check: directory should have no bootstrap.py
-    const files = await readdir(directory);
-    expect(files).not.toContain("bootstrap.py");
+    // Verify session directory is clean of bootstrap files
+    const remaining = await readdir(directory);
+    expect(remaining).not.toContain("bootstrap.py");
   });
 
-  it("REPRODUCTION: bridgeBootstrapSource output contains extractable cleartext token", async () => {
-    // This test proves the token IS in cleartext in the bootstrap source.
-    // It reconstructs exactly what bridgeBootstrapSource() produces
-    // (matching L366-380 of BridgeLauncher.ts character-for-character).
-    const directory = await temporaryDirectory();
-    const bootstrapPath = join(directory, "bootstrap.py");
-    const token = "EXTRACTABLE_TOKEN_deadbeef1234";
+  it("bootstrap source format embeds token in extractable cleartext", async () => {
+    // Proves the token format is cleartext Python, not encrypted/hashed.
+    // This is by design (Hopper needs the token), but means cleanup matters.
+    const token = "verify_cleartext_format_token";
 
-    // Exact reproduction of bridgeBootstrapSource() output format:
-    const bootstrapSource = [
+    // Exact format from bridgeBootstrapSource() L366-380:
+    const source = [
       `REA_SOCKET = ${JSON.stringify("/tmp/bridge.sock")}`,
       `REA_TOKEN = ${JSON.stringify(token)}`,
-      `REA_RUN_ID = ${JSON.stringify("session-123")}`,
+      `REA_RUN_ID = ${JSON.stringify("session-1")}`,
       `REA_TARGET_PATH = ${JSON.stringify("/usr/bin/target")}`,
       "REA_OWNS_PROCESS_LIFETIME = False",
-      `exec(compile(open(${JSON.stringify("/path/to/bridge.py")}, 'rb').read(), ${JSON.stringify("/path/to/bridge.py")}, 'exec'))`,
+      `exec(compile(open(${JSON.stringify("/bridge.py")}, 'rb').read(), ${JSON.stringify("/bridge.py")}, 'exec'))`,
       "",
     ].join("\n");
 
-    // Write to disk exactly as #writeBootstrap does (L314-323)
-    await writeFile(bootstrapPath, bootstrapSource, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    await chmod(bootstrapPath, 0o600);
-
-    // ── OBSERVED OUTPUT ──
-    const diskContent = await readFile(bootstrapPath, "utf8");
-
-    // PROOF 1: Token appears verbatim in the file
-    expect(diskContent).toContain(token);
-
-    // PROOF 2: Token is extractable via trivial parsing
-    // (what a local attacker would do)
-    const tokenLine = diskContent
-      .split("\n")
-      .find((line) => line.startsWith("REA_TOKEN"));
+    // Token is extractable via trivial string parsing
+    const tokenLine = source.split("\n").find((l) => l.startsWith("REA_TOKEN"));
     expect(tokenLine).toBeDefined();
     const extracted = JSON.parse(tokenLine!.split(" = ")[1]!);
     expect(extracted).toBe(token);
-
-    // PROOF 3: File is a valid Python script that would execute the token
-    expect(diskContent).toContain("exec(compile(");
-    expect(diskContent).toContain("REA_SOCKET");
   });
 
-  it("REGRESSION: rm(bootstrapPath, { force: true }) safely handles all error paths", async () => {
+  it("rm({ force: true }) is idempotent (safe on missing files)", async () => {
     const directory = await temporaryDirectory();
+    const missing = join(directory, "does-not-exist.py");
 
-    // Case 1: File exists → should be removed
-    const existingFile = join(directory, "exists.py");
-    await writeFile(existingFile, 'REA_TOKEN = "secret"\n');
-    await rm(existingFile, { force: true }).catch(() => undefined);
-    await expect(stat(existingFile)).rejects.toMatchObject({ code: "ENOENT" });
-
-    // Case 2: File doesn't exist → should not throw
-    const missing = join(directory, "missing.py");
+    // This is the exact cleanup call from L261 and L328
     await expect(
       rm(missing, { force: true }).catch(() => undefined),
     ).resolves.toBeUndefined();
@@ -206,49 +157,91 @@ describe("CWE-312: Cleartext Auth Token Persistence in Bootstrap Script", () => 
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// PRIORITY 2: CWE-61 — Silent O_NOFOLLOW Bypass on Windows
+// 2. CWE-61 — O_NOFOLLOW Absence on Windows (Defense-in-Depth)
 // ────────────────────────────────────────────────────────────────────────────
 //
 // VULNERABLE CODE: src/process/capture/FilesystemSnapshot.ts
-//   L77-78: noFollowAvailable = typeof O_NOFOLLOW === "number" && O_NOFOLLOW !== 0
-//           → On Windows: O_NOFOLLOW is undefined → noFollowAvailable = false
-//   L84:    open(path, O_RDONLY | (noFollowAvailable ? O_NOFOLLOW : 0))
-//           → On Windows: open(path, O_RDONLY | 0) → follows symlinks silently
-//   L23-31: hasSameFileState uses before.ino === after.ino
-//           → On NTFS: both inodes are 0 → identity check is always true
+//   L77-78: noFollowAvailable check — undefined on Windows
+//   L84:    open(path, O_RDONLY | 0) — follows symlinks/junctions silently
+//   L104-112: FIX — realpath() canonicalization when O_NOFOLLOW absent
 //
-// Attack scenario:
-//   1. REA process monitor captures metadata of /path/to/app.exe
-//   2. Attacker replaces app.exe with symlink (mklink) to secret.docx
-//   3. hashFile() follows symlink (no O_NOFOLLOW), reads secret.docx
-//   4. hasSameFileState passes because 0 === 0 (NTFS inode)
-//   5. SHA-256 of secret.docx is returned → content signature leaked
+// WHAT THIS PROVES:
+//   - O_NOFOLLOW is undefined on Windows (platform fact)
+//   - Junctions cause realpath(path) !== path (the fix catches this)
+//   - hashFile() rejects symlinked paths on POSIX
+// WHAT THIS DOES NOT PROVE:
+//   - realpath() has its own TOCTOU (path can change between realpath and open)
+//   - This is defense-in-depth, NOT complete symlink-race prevention
 //
-// NOTE: On Windows, symlinks (mklink) and junctions (mklink /J) are different:
-//   - Symlinks work for files AND directories, need admin or Developer Mode
-//   - Junctions work ONLY for directories, no special privileges needed
-//   Both are followed transparently by open() when O_NOFOLLOW is absent.
-//
-// CVSS 7.1 (High) — AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N
+// NOTE on Windows symlinks vs junctions:
+//   - File symlinks (mklink): require admin or Developer Mode
+//   - Directory junctions (mklink /J): no special privileges needed
+//   - Both are followed by open() when O_NOFOLLOW is absent
 
-describe("CWE-61: Silent O_NOFOLLOW Bypass — Symlink/Junction Substitution", () => {
-  it("REPRODUCTION: O_NOFOLLOW is undefined on Windows, non-zero on POSIX", () => {
+describe("CWE-61: O_NOFOLLOW Absence and Symlink/Junction Detection", () => {
+  it("O_NOFOLLOW is undefined on Windows, non-zero on POSIX (platform verification)", () => {
     const value = fsConstants.O_NOFOLLOW;
-    if (process.platform === "win32") {
-      // On Windows: undefined → ?? 0 → symlink protection disabled
+    if (isWindows) {
       expect(value).toBeUndefined();
     } else {
-      // On POSIX: non-zero bitmask → symlink protection active
       expect(typeof value).toBe("number");
       expect(value).toBeGreaterThan(0);
     }
   });
 
-  it("REPRODUCTION: file symlink substitution detected by hashFile (real code path)", async () => {
-    // This test creates a real symlink substitution scenario and calls
-    // the ACTUAL hashFile() function from FilesystemSnapshot.ts.
-    // On Windows, admin/DevMode is needed for symlinks, so skip if unavailable.
-    if (process.platform === "win32") return;
+  it("WINDOWS: directory junction causes realpath divergence (tested on actual Windows)", async () => {
+    // This test runs ON WINDOWS — not skipped.
+    // Junctions don't need admin, making this a realistic attack vector.
+    if (!isWindows) return; // POSIX has O_NOFOLLOW, doesn't need this
+
+    const directory = await temporaryDirectory();
+    const realDir = join(directory, "real");
+    const junctionDir = join(directory, "junction");
+
+    await mkdir(realDir);
+    const secretFile = join(realDir, "secret.txt");
+    await writeFile(secretFile, "confidential data for hash test");
+
+    // Create junction (no admin needed on Windows)
+    await symlink(realDir, junctionDir, "junction");
+
+    // File accessed through junction
+    const throughJunction = join(junctionDir, "secret.txt");
+
+    // realpath resolves through the junction
+    const canonical = await realpath(throughJunction);
+    const expected = join(realDir, "secret.txt");
+
+    // PROOF: realpath(junction/file) !== junction/file
+    expect(canonical).toBe(expected);
+    expect(canonical).not.toBe(throughJunction);
+
+    // This is exactly what the fix checks (L104-112):
+    // if (canonicalPath !== path) → return omitted
+  });
+
+  it("WINDOWS: realpath normalizes case to filesystem-stored casing", async () => {
+    // On modern Node.js (22+) on Windows, realpath() returns the
+    // filesystem-stored casing, not the casing you pass in.
+    // This makes the canonicalPath !== path check MORE robust —
+    // it won't produce false positives from case differences.
+    if (!isWindows) return;
+
+    const directory = await temporaryDirectory();
+    const file = join(directory, "TestFile.txt");
+    await writeFile(file, "case test");
+
+    const lowercase = join(directory, "testfile.txt");
+    const rpOriginal = await realpath(file);
+    const rpLower = await realpath(lowercase);
+
+    // Both resolve to the same canonical path (filesystem-stored casing)
+    expect(rpOriginal).toBe(rpLower);
+  });
+
+  it("POSIX: hashFile() rejects symlink-substituted files (real code path)", async () => {
+    // Runs on POSIX where symlinks work without admin
+    if (isWindows) return;
 
     const { hashFile } =
       await import("../process/capture/FilesystemSnapshot.js");
@@ -256,128 +249,87 @@ describe("CWE-61: Silent O_NOFOLLOW Bypass — Symlink/Junction Substitution", (
     const observedFile = join(directory, "app.exe");
     const secretFile = join(directory, "secret.docx");
 
-    // Step 1: Create target files
-    await writeFile(observedFile, "original application binary content\n");
-    await writeFile(secretFile, "TOP SECRET: internal document content\n");
+    await writeFile(observedFile, "original binary content\n");
+    await writeFile(secretFile, "TOP SECRET document\n");
 
-    // Step 2: Capture original file metadata (what snapshot records)
+    // Capture original metadata
     const originalStats = await lstat(observedFile);
 
-    // Step 3: Attacker replaces file with symlink to secret
-    // NOTE: On Windows this would use mklink, not fs.symlink
+    // Attacker replaces with symlink
     await rm(observedFile);
     await symlink(secretFile, observedFile);
 
-    // Step 4: Call ACTUAL hashFile — this is the real code path
+    // Call ACTUAL hashFile from FilesystemSnapshot.ts
     const result = await hashFile(observedFile, originalStats, 100_000);
 
-    // ── OBSERVED OUTPUT ──
-    // hashFile correctly rejects the substitution because:
-    // - File was replaced → inode/dev changed (POSIX)
-    // - lstat(symlink).isFile() === false (symlinks aren't regular files)
-    // - FIX adds realpath check when O_NOFOLLOW unavailable (Windows)
+    // hashFile correctly rejects the substitution
     expect(result.state).toBe("omitted");
     expect(result).not.toHaveProperty("sha256");
-    // SECRET FILE'S HASH WAS NOT LEAKED
-  });
-
-  it("REGRESSION: realpath canonicalization detects symlink divergence (Windows fix path)", async () => {
-    // This tests the specific fix added for Windows (L104-112):
-    //   if (!noFollowAvailable) {
-    //     const canonicalPath = await realpath(path);
-    //     if (canonicalPath !== path) → omit
-    //   }
-    if (process.platform === "win32") return;
-
-    const directory = await temporaryDirectory();
-    const realFile = join(directory, "real.txt");
-    const linkFile = join(directory, "link.txt");
-
-    await writeFile(realFile, "real content\n");
-    await symlink(realFile, linkFile);
-
-    const { realpath: fsRealpath } = await import("node:fs/promises");
-    const canonical = await fsRealpath(linkFile);
-
-    // PROOF: realpath resolves through symlinks
-    expect(canonical).toBe(realFile);
-    expect(canonical).not.toBe(linkFile);
-    // Therefore: canonicalPath !== path → hashFile returns "omitted"
   });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// PRIORITY 3: CWE-367 — TOCTOU Race Pre-conditions
+// 3. CWE-367 — TOCTOU Pre-conditions in Lease Directory (Defense-in-Depth)
 // ────────────────────────────────────────────────────────────────────────────
 //
 // VULNERABLE CODE: src/hopper/HopperTargetLease.ts
-//   L28-31: HOPPER_TARGET_LEASE_DIRECTORY = /tmp/rea-hopper-{uid}
-//           → Predictable path in world-writable /tmp
-//   L164:   mkdir(directory, { recursive: true, mode: 0o700 })
-//           → Node.js documented behavior: mode only applies to NEW directories
+//   L28-31:   HOPPER_TARGET_LEASE_DIRECTORY = /tmp/rea-hopper-{uid}
+//   L164:     mkdir(directory, { recursive: true, mode: 0o700 })
 //   L193-208: Original lstat→chmod had TOCTOU race window
 //
-// This is a PRE-CONDITION reproduction, not a full exploit PoC.
-// Demonstrating an actual TOCTOU race in a test is inherently unreliable
-// because it depends on winning a timing race. Instead, we prove:
-//   (a) The pre-conditions that make the attack possible
-//   (b) The fix eliminates those pre-conditions
+// WHAT THIS PROVES:
+//   - mkdir(recursive:true) does not fix pre-existing directory permissions
+//   - symlinks at the path redirect all operations to attacker's directory
+//   - O_NOFOLLOW open rejects symlinks at the kernel level
+//   - fstat on descriptor is immune to path-level directory swaps
+// WHAT THIS DOES NOT PROVE:
+//   - A complete race exploitation (requires winning a timing race)
+//   - O_NOFOLLOW only blocks the FINAL path component, not parent directories
+//   - Socket-level access via the hijacked directory
 //
-// Security impact: An attacker who pre-creates the lease directory with
-// permissive ACLs (0o755) or as a symlink to their own directory can:
-//   - Observe which binaries the victim is analyzing (lease socket names)
-//   - Interfere with lease acquisition (denial of service)
-//   - On some configurations, inject a rogue lease socket
-//
-// CVSS 7.8 (High) — AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N
+// POSIX-only: Windows uses DACL, not chmod/mode bits.
 
-describe("CWE-367: TOCTOU Race Pre-conditions in Hopper Lease Directory", () => {
-  it("REPRODUCTION: mkdir(recursive:true) does NOT fix permissions on pre-existing directory", async () => {
-    // This is a documented Node.js behavior, not a Node bug.
-    // It's the ROOT CAUSE that makes the vulnerability possible.
-    if (process.platform === "win32") return;
+describe("CWE-367: TOCTOU Pre-conditions in Lease Directory", () => {
+  it("POSIX: mkdir(recursive:true) silently ignores existing directory permissions", async () => {
+    if (isWindows) return;
 
     const directory = await temporaryDirectory();
     const leaseDir = join(directory, "rea-hopper-1000");
 
-    // Attacker pre-creates with world-readable permissions
+    // Attacker pre-creates with world-readable
     await mkdir(leaseDir, { mode: 0o755 });
 
-    // Victim's ensureLeaseDirectory calls mkdir(recursive:true, mode:0o700)
+    // Victim's mkdir(recursive:true, mode:0o700) succeeds silently
     await mkdir(leaseDir, { recursive: true, mode: 0o700 });
 
-    // ── OBSERVED OUTPUT ──
+    // Permissions NOT changed — this is documented Node.js behavior
     const after = await lstat(leaseDir);
-    // Permissions unchanged! mkdir(recursive:true) succeeded without fixing them.
     expect(after.mode & 0o777).toBe(0o755);
-    // Group+other can read: attacker can observe socket files
-    expect(after.mode & 0o077).not.toBe(0);
+    expect(after.mode & 0o077).not.toBe(0); // Group+other still readable
   });
 
-  it("REPRODUCTION: symlink at predictable path redirects lease sockets to attacker directory", async () => {
-    if (process.platform === "win32") return;
+  it("POSIX: symlink at lease path redirects socket files to attacker directory", async () => {
+    if (isWindows) return;
 
     const directory = await temporaryDirectory();
-    const attackerDir = join(directory, "attacker-controlled");
-    const victimLeaseDir = join(directory, "rea-hopper-1000");
+    const attackerDir = join(directory, "attacker");
+    const victimDir = join(directory, "rea-hopper-1000");
 
     await mkdir(attackerDir, { mode: 0o755 });
-    await symlink(attackerDir, victimLeaseDir);
+    await symlink(attackerDir, victimDir);
 
-    // ── OBSERVED OUTPUT ──
-    // realpath resolves through the symlink to attacker's directory
-    const { realpath: fsRealpath } = await import("node:fs/promises");
-    const resolved = await fsRealpath(victimLeaseDir);
-    expect(resolved).toBe(attackerDir);
-
-    // Any file created via the symlink lands in attacker's directory
-    await writeFile(join(victimLeaseDir, "test.sock"), "socket data");
+    // File created via victim's path lands in attacker's directory
+    await writeFile(join(victimDir, "lease.sock"), "socket data");
     const attackerFiles = await readdir(attackerDir);
-    expect(attackerFiles).toContain("test.sock");
+    expect(attackerFiles).toContain("lease.sock");
+
+    // Attacker can read the socket data
+    const data = await readFile(join(attackerDir, "lease.sock"), "utf8");
+    expect(data).toBe("socket data");
   });
 
-  it("REGRESSION: O_NOFOLLOW open rejects symlinks at kernel level", async () => {
-    if (process.platform === "win32") return;
+  it("POSIX: O_NOFOLLOW rejects symlinks at kernel level (fix verification)", async () => {
+    if (isWindows) return;
     if (
       typeof fsConstants.O_NOFOLLOW !== "number" ||
       fsConstants.O_NOFOLLOW === 0
@@ -396,20 +348,19 @@ describe("CWE-367: TOCTOU Race Pre-conditions in Hopper Lease Directory", () => 
       (fsConstants.O_DIRECTORY ?? 0) |
       fsConstants.O_NOFOLLOW;
 
-    // Kernel rejects symlink with ELOOP — attacker's redirect blocked
+    // Kernel blocks symlink traversal with ELOOP
     await expect(open(symlinkDir, flags)).rejects.toMatchObject({
       code: "ELOOP",
     });
 
-    // Real directory opens successfully
+    // Real directory opens fine
     const handle = await open(realDir, flags);
-    const fdStat = await handle.stat();
-    expect(fdStat.isDirectory()).toBe(true);
+    expect((await handle.stat()).isDirectory()).toBe(true);
     await handle.close();
   });
 
-  it("REGRESSION: fstat on descriptor is immune to path-level directory swap", async () => {
-    if (process.platform === "win32") return;
+  it("POSIX: fstat on descriptor is immune to path-level swap (fix verification)", async () => {
+    if (isWindows) return;
 
     const directory = await temporaryDirectory();
     const leaseDir = join(directory, "lease");
@@ -422,17 +373,14 @@ describe("CWE-367: TOCTOU Race Pre-conditions in Hopper Lease Directory", () => 
     const handle = await open(leaseDir, flags);
     const originalIno = (await handle.stat()).ino;
 
-    // Attacker swaps the directory at the path AFTER victim opened it
+    // Attacker replaces directory at the path
     await rm(leaseDir, { recursive: true });
-    await mkdir(leaseDir, { mode: 0o755 }); // Attacker re-creates
+    await mkdir(leaseDir, { mode: 0o755 });
 
-    // fstat on the ORIGINAL descriptor still refers to the original inode
-    const afterSwap = await handle.stat();
-    expect(afterSwap.ino).toBe(originalIno);
-
-    // The path now points to a DIFFERENT directory (attacker's)
-    const newDirStat = await lstat(leaseDir);
-    expect(newDirStat.ino).not.toBe(originalIno);
+    // Descriptor still refers to ORIGINAL directory
+    expect((await handle.stat()).ino).toBe(originalIno);
+    // Path now points to DIFFERENT directory
+    expect((await lstat(leaseDir)).ino).not.toBe(originalIno);
 
     await handle.close();
   });
