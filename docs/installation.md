@@ -68,13 +68,13 @@ selects the npm release, and persistent MCP registrations are pinned to the
 version that performed setup. Installing newer instructions does not update a
 running server or its registration.
 
-The release checked on **2026-10-07** was **5.0.0** (133 MCP tools), published
+The release checked on **2026-10-10** was **6.3.0** (166 MCP tools), published
 from the fixed checkpoint
-[`b33236ec`](https://github.com/morluto/rea/releases/tag/rea-agents-5.0.0).
-The public CLI, MCP catalog and target-free session, and isolated update from
-4.1.0 to 5.0.0 were verified through npm. The artifact includes Windows native
-controls, Android/JADX and firmware tools, Ghidra function annotations, and
-retained application-Evidence references.
+[`74cf9e14`](https://github.com/morluto/rea/commit/74cf9e1401fcd89482fe39c27cc898f5858e9b72).
+The public CLI, MCP catalog, and client integrations up to this checkpoint were
+verified through npm. Newer client integrations added after this release (including
+automatic setup for **Pi** and **Hermes**) require a source build or a subsequent
+release containing those integrations.
 
 Main's catalog describes the current code. A source build or a subsequent
 release containing changes after this checkpoint is required for newer
@@ -145,6 +145,7 @@ listed after the table because its connector is not one of these files:
 For [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md),
 setup writes a `type: "stdio"` entry under `mcpServers.rea` in the user-level
 `~/.pi/agent/mcp.json` and installs the bundled skill under `~/.agents/skills`.
+*(Note: Automatic Pi setup requires a source checkout or a release after 6.3.0; npm 6.3.0 does not include the Pi integration).*
 Use `rea setup --client pi --dry-run --json` to inspect the plan, then
 `rea setup --client pi --yes --json` to approve it. Check the registration with
 `rea doctor --client pi --json`. Pi reads `mcp.json` as strict JSON, like its
@@ -202,7 +203,7 @@ registration. Doctor treats an `enabled: false` entry as active when
 it. Run setup under each profile that should load REA.
 
 For Hermes, setup writes a `mcp_servers.rea` entry to `config.yaml`, preserving
-comments and unrelated settings. It resolves that file from `HERMES_HOME`, else
+comments and unrelated settings. *(Note: Automatic Hermes setup requires a source checkout or a release after 6.3.0; npm 6.3.0 does not include the Hermes integration).* It resolves that file from `HERMES_HOME`, else
 from the platform default Hermes itself uses — `%LOCALAPPDATA%\hermes` on
 Windows, `~/.hermes` elsewhere — including any `HERMES_DATA_DIR_SUFFIX`. Hermes
 connects an entry unless `enabled` is false, so setup states `enabled: true`.
