@@ -171,6 +171,7 @@ export const captureDom = (
       ? documentNodes.attributes
       : [];
     const baseIndex = nodes.length;
+    const svgContexts = new Map<number, boolean>();
     total += nodeTypes.length;
     for (let index = 0; index < nodeTypes.length; index += 1) {
       const attributeIndexes = numberArray(attributes[index]);
@@ -205,7 +206,13 @@ export const captureDom = (
         nodeIndex,
         nodeName,
         allowedOrigins,
-        svgElement: elementInSvgContext(index, nodeNames, parents, strings),
+        svgElement: elementInSvgContext(
+          index,
+          nodeNames,
+          parents,
+          strings,
+          svgContexts,
+        ),
       });
       for (const url of metadata.urls) {
         urls.push(url);
@@ -387,19 +394,32 @@ const elementInSvgContext = (
   nodeNames: readonly number[],
   parents: readonly number[],
   strings: readonly string[],
+  contexts: Map<number, boolean>,
 ): boolean => {
   let current = index;
   const seen = new Set<number>();
+  let inSvg = false;
   while (current >= 0 && current < nodeNames.length && !seen.has(current)) {
+    const cached = contexts.get(current);
+    if (cached !== undefined) {
+      inSvg = cached;
+      break;
+    }
     seen.add(current);
-    if (indexedString(strings, nodeNames[current]) === "svg") return true;
+    if (indexedString(strings, nodeNames[current]) === "svg") {
+      inSvg = true;
+      break;
+    }
     const parent = Math.trunc(parents[current] ?? -1);
-    if (parent < 0 || parent === current) return false;
+    if (parent < 0 || parent === current) break;
     if (indexedString(strings, nodeNames[parent]) === "foreignObject")
-      return false;
+      break;
     current = parent;
   }
-  return false;
+  // Cache the entire examined chain, including forward references and cycles,
+  // so shared ancestors are examined once per document.
+  for (const node of seen) contexts.set(node, inSvg);
+  return inSvg;
 };
 
 const domMetadata = (

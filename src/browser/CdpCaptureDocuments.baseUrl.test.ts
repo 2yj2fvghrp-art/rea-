@@ -466,6 +466,47 @@ describe("SVG xlink:href destinations", () => {
 });
 
 describe("SVG xlink:href context", () => {
+  it("keeps forward ancestor context local to each document", () => {
+    const svg = svgDocument([
+      { name: "a", parent: 2, attributes: [["xlink:href", "/svg-link"]] },
+      { name: "g", parent: 3 },
+      { name: "svg", parent: 0 },
+    ]);
+    const html = svgDocument([
+      { name: "A", parent: 2, attributes: [["xlink:href", "/html-link"]] },
+      { name: "DIV", parent: 3 },
+      { name: "BODY", parent: 0 },
+    ]);
+    const offset = svg.strings.length;
+    const result = captureSvg({
+      strings: [...svg.strings, ...html.strings],
+      documents: [
+        ...svg.documents,
+        ...html.documents.map((document) => ({
+          ...document,
+          documentURL: document.documentURL + offset,
+          baseURL: document.baseURL + offset,
+          nodes: {
+            ...document.nodes,
+            nodeName: document.nodes.nodeName.map((index) => index + offset),
+            nodeValue: document.nodes.nodeValue.map((index) => index + offset),
+            attributes: document.nodes.attributes.map((attributes) =>
+              attributes.map((index) => index + offset),
+            ),
+          },
+        })),
+      ],
+    });
+    expect(result.urls).toEqual([
+      {
+        node_index: 1,
+        attribute: "href",
+        url: `${origin}/svg-link`,
+        destination_scope: "approved",
+      },
+    ]);
+  });
+
   it("stops SVG context at foreignObject and resumes it for a nested svg", () => {
     const result = captureSvg(
       svgDocument([
