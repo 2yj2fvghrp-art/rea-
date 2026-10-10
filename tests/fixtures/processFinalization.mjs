@@ -7,7 +7,8 @@ import { join } from "node:path";
 // - "ignoring": stays alive and swallows SIGTERM and SIGINT, so only SIGKILL
 //   ends the process.
 // - "exits": exits on its own at once.
-const [mode, directory] = process.argv.slice(2);
+// An optional third argument is the exit code a cooperative finalizer uses.
+const [mode, directory, finalExitCode = "0"] = process.argv.slice(2);
 
 writeFileSync(join(directory, "pid.txt"), String(process.pid));
 writeFileSync(
@@ -30,7 +31,7 @@ if (mode === "ignoring") {
       join(directory, "final.json"),
       JSON.stringify({ phase: "final" }),
     );
-    process.exit(0);
+    process.exit(Number(finalExitCode));
   });
 }
 

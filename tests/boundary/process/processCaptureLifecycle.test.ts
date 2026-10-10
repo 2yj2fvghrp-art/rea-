@@ -510,6 +510,7 @@ itWithCaptureCapability(
     expect(capture.exit.finalization, "finalization is recorded").toMatchObject(
       {
         requested_ms: 1_500,
+        exit_code: 0,
         signals: [{ signal: "SIGTERM", delivery: "signaled" }],
       },
     );
@@ -805,6 +806,7 @@ itWithCaptureCapability(
       value: {
         requested_ms: 500,
         elapsed_ms: null,
+        exit_code: null,
         signals: [
           { signal: "SIGTERM", delivery: "signaled" },
           { signal: "SIGKILL", delivery: "unverified" },

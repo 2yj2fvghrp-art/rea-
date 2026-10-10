@@ -32,9 +32,15 @@ const captureScenario = (
   mode: "cooperative" | "ignoring",
   root: string,
   additions: CaptureScenario = {},
+  finalExitCode?: number,
 ): CaptureScenario => ({
   executable: process.execPath,
-  arguments: [finalizationFixture, mode, root],
+  arguments: [
+    finalizationFixture,
+    mode,
+    root,
+    ...(finalExitCode === undefined ? [] : [String(finalExitCode)]),
+  ],
   working_directory: root,
   filesystem_observation_paths: [root],
   idle_timeout_ms: 10_000,
@@ -164,7 +170,10 @@ const finalizationFromPartial = (partial: unknown) => {
     : undefined;
 };
 
-const expectCooperativeFinalization = (outcome: CaptureOutcome): void => {
+const expectCooperativeFinalization = (
+  outcome: CaptureOutcome,
+  expectedExitCode = 0,
+): void => {
   if (outcome.kind === "partial") {
     expect(
       finalizationFromPartial(outcome.partial),
@@ -192,6 +201,10 @@ const expectCooperativeFinalization = (outcome: CaptureOutcome): void => {
     capture.exit.finalization?.elapsed_ms,
     "the cooperative target exits within its interval",
   ).toBeLessThan(1_500);
+  expect(
+    capture.exit.finalization?.exit_code,
+    "the code the finalizer exited with is recorded",
+  ).toBe(expectedExitCode);
   expect(
     capture.frames.map(({ data }) => data).join(""),
     "finalization output is captured",
@@ -248,6 +261,10 @@ const expectIgnoringFinalization = (outcome: CaptureOutcome): void => {
     "the elapsed finalization duration is observed",
   ).toEqual(expect.any(Number));
   expect(
+    capture.exit.finalization?.exit_code,
+    "an exit ended by SIGKILL records no code",
+  ).toBeNull();
+  expect(
     capture.files_after.find(({ path }) => path.endsWith("final.json")),
     "an ignoring child does not write a final report",
   ).toBeUndefined();
@@ -266,6 +283,25 @@ captureTest.each(["CLI", "MCP"] as const)(
         ? await captureViaCli(root, scenario)
         : await captureViaMcp(scenario);
     expectCooperativeFinalization(outcome);
+  },
+  20_000,
+);
+
+captureTest.each(["CLI", "MCP"] as const)(
+  "records the non-zero exit code of a finalizer through the compiled %s workflow",
+  async (adapter) => {
+    const root = await createTestTempDirectory("rea-finalization-accept-");
+    const scenario = captureScenario(
+      "cooperative",
+      root,
+      { timeout_ms: 1_500, finalization_ms: 1_500 },
+      3,
+    );
+    const outcome =
+      adapter === "CLI"
+        ? await captureViaCli(root, scenario)
+        : await captureViaMcp(scenario);
+    expectCooperativeFinalization(outcome, 3);
   },
   20_000,
 );
