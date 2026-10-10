@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { expect, it } from "vitest";
+import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 import { AnalysisCapabilityUnavailableError } from "../../domain/analysisErrorCore.js";
 import { projectAnalysisError } from "../../domain/analysisErrorProjection.js";
 import {
@@ -24,6 +27,27 @@ it("names the Wakaru configuration requirement when it is not configured", async
     remediation: { action: refusal.reason },
   });
 });
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "rejects a directory configured as the resource limiter",
+  async () => {
+    const root = await createTestTempDirectory("rea-wakaru-limiter-");
+    const command = join(root, "wakaru");
+    const limiter = join(root, "prlimit");
+    await writeFile(command, "#!/bin/sh\n", { mode: 0o700 });
+    await mkdir(limiter);
+
+    await expect(
+      resolveWakaruCommand({
+        REA_WAKARU_COMMAND: command,
+        REA_JAVASCRIPT_PRLIMIT_COMMAND: limiter,
+      }),
+    ).rejects.toMatchObject({
+      _tag: "AnalysisCapabilityUnavailableError",
+      reason: expect.stringContaining(limiter),
+    });
+  },
+);
 
 it("rejects an exhausted shared execution budget before launching the next command", async () => {
   await expect(
