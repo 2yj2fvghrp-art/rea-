@@ -92,6 +92,30 @@ describe("BinarySession open liveness", () => {
     expect(deep.created).toHaveLength(2);
   });
 
+  it("retires a retained client whose startup never completed", async () => {
+    // A Hopper startup timeout leaves the operation-health snapshot in
+    // "not_started" while the retained resources block the next start()
+    // until close() retries cleanup. Classifying that state as live would return success
+    // without entering the retire path, so subsequent analysis still hits
+    // the wedged client.
+    const { session, deep } = openSession();
+    expect((await session.open(process.execPath)).ok).toBe(true);
+    expect((await session.execute("address_name", {})).ok).toBe(true);
+    expect(deep.created).toHaveLength(1);
+
+    const wedged = deep.created[0];
+    wedged?.kill("not_started");
+
+    const second = await session.open(process.execPath);
+    expect(second.ok).toBe(true);
+    // The wedged binding was retired (close ran, so cleanup is retried),
+    // not reused.
+    expect(wedged?.closeCalled).toBe(true);
+    // The next query runs against a freshly created child, not the wedged one.
+    expect((await session.execute("address_name", {})).ok).toBe(true);
+    expect(deep.created).toHaveLength(2);
+  });
+
   it("falls back to the health probe when the child reports no operation health", async () => {
     // Without an operation-health hook there is no child-liveness signal,
     // so the probe keeps the previous `health` admission behavior.
@@ -141,7 +165,7 @@ describe("BinarySession open liveness", () => {
 });
 
 interface KillableChild extends AnalysisClient {
-  kill(state?: "exited" | "unreachable" | "unknown"): void;
+  kill(state?: "exited" | "unreachable" | "unknown" | "not_started"): void;
   closeCalled: boolean;
 }
 
@@ -245,7 +269,8 @@ const killableDeepProvider = (options: {
     createClient: (): KillableChild => {
       let alive = true;
       let closeCalled = false;
-      let deadState: "exited" | "unreachable" | "unknown" = "exited";
+      let deadState: "exited" | "unreachable" | "unknown" | "not_started" =
+        "exited";
       const client: KillableChild = {
         execute: (operation) => {
           return alive
@@ -288,7 +313,13 @@ const killableDeepProvider = (options: {
         get closeCalled() {
           return closeCalled;
         },
-        kill: (state: "exited" | "unreachable" | "unknown" = "exited") => {
+        kill: (
+          state:
+            | "exited"
+            | "unreachable"
+            | "unknown"
+            | "not_started" = "exited",
+        ) => {
           alive = false;
           deadState = state;
         },

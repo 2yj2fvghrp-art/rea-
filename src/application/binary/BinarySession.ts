@@ -736,10 +736,14 @@ export class BinarySession
    * answers unconditionally ok without touching a child, so `health` alone
    * cannot see a dead child. `operationHealthSnapshot` reaches the
    * instantiated children instead. Only the known-live states allow the
-   * fast path: `exited`/`unreachable` are dead, and `unknown` is never
+   * fast path: `exited`/`unreachable` are dead, `unknown` is never
    * evidence of health (it is what a recorded but uncharacterized failure
-   * reports), so the gate fails closed. Without a snapshot signal, fall
-   * back to the `health` admission probe.
+   * reports), and `not_started` is a startup that never completed — in the
+   * Hopper timeout case the client holds retained resources that block the
+   * next `start()` until `close()` retries cleanup, so treating it as live
+   * would skip the retire path and hand the wedged client to subsequent
+   * analysis. The gate fails closed: without a snapshot signal, fall back
+   * to the `health` admission probe.
    */
   async #retainedClientLive(
     client: AnalysisClient,
@@ -747,11 +751,7 @@ export class BinarySession
   ): Promise<boolean> {
     const snapshot = client.operationHealthSnapshot?.();
     if (snapshot !== undefined)
-      return (
-        snapshot.state === "idle" ||
-        snapshot.state === "busy" ||
-        snapshot.state === "not_started"
-      );
+      return snapshot.state === "idle" || snapshot.state === "busy";
     try {
       return (await client.execute("health", {}, options)).ok;
     } catch {
