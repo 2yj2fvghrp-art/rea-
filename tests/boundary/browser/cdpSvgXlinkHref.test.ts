@@ -30,8 +30,9 @@ const chromeExecutable = [
 );
 
 // Issue 1586's page, plus the HTML, image, use, and foreign-origin cases the
-// real snapshot must distinguish. The test is skipped when no Chrome-family
-// executable is installed.
+// real snapshot must distinguish. The XHTML page is the prefixed-svg gap
+// reported on PR 1602. The tests are skipped when no Chrome-family executable
+// is installed.
 const pageHtml = `<!doctype html><title>x</title>
 <svg width="10" height="10">
   <a id="s2" xlink:href="/xl-s2h"><text>s2</text></a>
@@ -148,6 +149,144 @@ it.skipIf(chromeExecutable === undefined)(
       ).toBe(false);
       expect(urls.every((url) => url.attribute === "href")).toBe(true);
       expect(urls).toHaveLength(5);
+    } finally {
+      child.kill("SIGTERM");
+      if (!(await waitForExit(child, 2_000))) child.kill("SIGKILL");
+      await waitForExit(child, 2_000);
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  },
+);
+
+const xhtmlPage = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:svg="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<head><title>x</title></head>
+<body>
+<svg:svg width="10" height="10">
+  <svg:a id="pa1" xlink:href="/xl-pa1"><svg:text>p</svg:text></svg:a>
+  <svg:image id="img" xlink:href="/xl-image"/>
+  <svg:foreignObject width="10" height="10">
+    <a id="fo-a" xlink:href="/xl-html-fo">no</a>
+    <h:a xmlns:h="http://www.w3.org/1999/xhtml" id="fo-h" xlink:href="/xl-h">no</h:a>
+    <svg:a id="fo-svg" xlink:href="/xl-fo-svg"><svg:text>y</svg:text></svg:a>
+  </svg:foreignObject>
+</svg:svg>
+<svg:a id="orphan" xlink:href="/xl-orphan"><svg:text>o</svg:text></svg:a>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" width="10" height="10">
+  <a id="custom" x:href="/xl-custom"><text>c</text></a>
+  <a id="both" href="/href-wins" x:href="/xlink-loses"><text>b</text></a>
+  <a id="empty" href="" x:href="/xlink-empty"><text>e</text></a>
+</svg>
+<svg:a id="out" xlink:href="https://cdn.example.test/out"><svg:text>out</svg:text></svg:a>
+<bogus:svg xmlns:bogus="http://example.com/not-svg" id="bogus" xlink:href="/xl-bogus"/>
+<a id="xhtml-a" xlink:href="/xl-xhtml-a">no</a>
+</body>
+</html>
+`;
+
+it.skipIf(chromeExecutable === undefined)(
+  "reports prefixed SVG links from an XHTML page through headless Chrome",
+  async ({ processes }) => {
+    const executable = chromeExecutable;
+    if (executable === undefined) return;
+    const profile = await createTestTempDirectory("rea-svg-xhtml-");
+    const server = createServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "application/xhtml+xml; charset=utf-8",
+      });
+      response.end(xhtmlPage);
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string")
+      throw new Error("XHTML fixture server did not bind a TCP port");
+    const origin = `http://127.0.0.1:${String(address.port)}`;
+    const pageUrl = `${origin}/page.xhtml`;
+    let stderr = "";
+    const child = processes.spawn(executable, [
+      "--headless=new",
+      ...(process.env.REA_BROWSER_NO_SANDBOX === "true"
+        ? ["--no-sandbox"]
+        : []),
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-dev-shm-usage",
+      "--disable-sync",
+      "--metrics-recording-only",
+      pageUrl,
+    ]);
+    child.stdout.on("data", () => undefined);
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < 8_192) stderr += chunk.toString("utf8");
+    });
+    try {
+      const port = await waitForBrowserDevtoolsPort({
+        child,
+        executable,
+        activePortPath: join(profile, "DevToolsActivePort"),
+        stderr: () => stderr,
+        timeoutMs: 20_000,
+      });
+      const endpoint = `http://127.0.0.1:${String(port)}`;
+      const provider = new CdpBrowserProvider();
+      const targetId = await pageTarget(provider, endpoint, origin, pageUrl);
+      const result = await provider.inspectPage(
+        inspectWebPageInputSchema.parse({
+          cdp_endpoint: endpoint,
+          allowed_origins: [origin],
+          target_id: targetId,
+          observation_ms: 0,
+        }),
+      );
+      if (!result.ok) throw result.error;
+      const urls = result.value.metadata.dom_urls;
+      expect(
+        result.value.dom.nodes.some((node) => node.node_name === "html"),
+      ).toBe(true);
+      expect(
+        result.value.dom.nodes.some(
+          (node) =>
+            node.node_name === "svg:a" &&
+            node.attribute_names.includes("xlink:href"),
+        ),
+      ).toBe(true);
+      expect(
+        result.value.dom.nodes.some((node) => node.node_name === "bogus:svg"),
+      ).toBe(true);
+      expect(urls.map(({ attribute }) => attribute)).toEqual([
+        "href",
+        "href",
+        "href",
+        "href",
+        "href",
+        "href",
+        "href",
+        "href",
+      ]);
+      expect(
+        urls.map(({ url, destination_scope }) => ({
+          url,
+          destination_scope,
+        })),
+      ).toEqual([
+        { url: `${origin}/xl-pa1`, destination_scope: "approved" },
+        { url: `${origin}/xl-image`, destination_scope: "approved" },
+        { url: `${origin}/xl-fo-svg`, destination_scope: "approved" },
+        { url: `${origin}/xl-orphan`, destination_scope: "approved" },
+        { url: `${origin}/xl-custom`, destination_scope: "approved" },
+        { url: `${origin}/href-wins`, destination_scope: "approved" },
+        { url: pageUrl, destination_scope: "approved" },
+        { url: null, destination_scope: "outside_policy" },
+      ]);
     } finally {
       child.kill("SIGTERM");
       if (!(await waitForExit(child, 2_000))) child.kill("SIGKILL");
