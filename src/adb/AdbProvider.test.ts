@@ -355,6 +355,87 @@ it.each([
   },
 );
 
+it("refuses case-folded file name aliases before any filesystem effect", async () => {
+  const { binary, root } = await writeAdbStub((root) =>
+    pullStub(
+      "'package:/data/app/x/base.apk' 'package:/data/app/y/BASE.apk'",
+      `  printf 'pulled\\n' >> ${join(root, "pull.log")}
+  printf 'x' > "$5"`,
+    ),
+  );
+  const output = join(root, "pulls");
+  const result = await providerOver(binary).execute({
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.hostile",
+      output_directory: output,
+    },
+  });
+  if (result.ok) throw new Error("expected a refusal");
+  expect(result.error._tag).toBe("AnalysisProtocolError");
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    code: "unreadable_output",
+  });
+  expect(result.error.message).toContain('"/data/app/x/base.apk"');
+  expect(result.error.message).toContain('"/data/app/y/BASE.apk"');
+  expect(result.error.capturedOutput?.stdout).toContain(
+    "package:/data/app/y/BASE.apk",
+  );
+  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+});
+
+it("pulls a lone mixed-case file name unchanged", async () => {
+  const { binary, root } = await writeAdbStub(() =>
+    pullStub(
+      "'package:/data/app/x/Base.apk'",
+      `  printf 'apk-bytes-for-testing' > "$5"`,
+    ),
+  );
+  const output = join(root, "pulls");
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.mixed",
+      output_directory: output,
+    },
+  });
+  expect(result.coverage).toBe("complete");
+  expect(result.artifacts).toMatchObject([
+    {
+      file_name: "Base.apk",
+      local_path: join(output, "com.mixed", "Base.apk"),
+    },
+  ]);
+});
+
+it("refuses a reserved Windows device file name before any filesystem effect", async () => {
+  const { binary, root } = await writeAdbStub((root) =>
+    pullStub(
+      "'package:/data/app/x/base.apk' 'package:/data/app/x/NUL.apk'",
+      `  printf 'pulled\\n' >> ${join(root, "pull.log")}
+  printf 'x' > "$5"`,
+    ),
+  );
+  const output = join(root, "pulls");
+  const result = await providerOver(binary).execute({
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.hostile",
+      output_directory: output,
+    },
+  });
+  if (result.ok) throw new Error("expected a refusal");
+  expect(result.error._tag).toBe("AnalysisProtocolError");
+  expect(result.error.message).toContain('"/data/app/x/NUL.apk"');
+  expect(result.error.message).toContain("reserved Windows device name");
+  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+});
+
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi

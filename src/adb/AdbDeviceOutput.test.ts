@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findAliasedPackagePaths,
   parseAdbDevicesOutput,
   parseGetpropOutput,
   parsePackageListOutput,
@@ -335,5 +336,104 @@ describe("parsePmPathOutput", () => {
     expect(paths).toEqual([]);
     expect(rejectedPaths).toEqual([]);
     expect(unparsedLines).toEqual([" package:/data/app/x/base.apk"]);
+  });
+});
+
+describe("parsePmPathOutput host file name policy", () => {
+  it.each([
+    "NUL.apk",
+    "con.apk",
+    "COM1.apk",
+    "lpt9.apk",
+    "Aux.apk",
+    "prn.x.apk",
+  ])(
+    "rejects the reserved Windows device name %s on every host",
+    (fileName) => {
+      const devicePath = `/data/app/x/${fileName}`;
+      const { paths, rejectedPaths } = parsePmPathOutput(
+        `package:/data/app/x/base.apk\npackage:${devicePath}\n`,
+      );
+      expect(paths.map((entry) => entry.file_name)).toEqual(["base.apk"]);
+      expect(rejectedPaths).toEqual([
+        {
+          device_path: devicePath,
+          file_name: fileName,
+          reason: "the file name is a reserved Windows device name",
+        },
+      ]);
+    },
+  );
+
+  it.each(["Base.apk", "console.apk", "nullable.apk", "com10.apk", "lpt0.apk"])(
+    "accepts the ordinary file name %s",
+    (fileName) => {
+      const { paths, rejectedPaths } = parsePmPathOutput(
+        `package:/data/app/x/${fileName}\n`,
+      );
+      expect(rejectedPaths).toEqual([]);
+      expect(paths.map((entry) => entry.file_name)).toEqual([fileName]);
+      expect(findAliasedPackagePaths(paths)).toBeUndefined();
+    },
+  );
+});
+
+describe("findAliasedPackagePaths", () => {
+  const entries = (...devicePaths: string[]) =>
+    parsePmPathOutput(devicePaths.map((path) => `package:${path}\n`).join(""))
+      .paths;
+
+  it("reports two file names that differ only by case", () => {
+    expect(
+      findAliasedPackagePaths(
+        entries(
+          "/data/app/x/base.apk",
+          "/data/app/x/split_a.apk",
+          "/data/app/y/BASE.apk",
+        ),
+      ),
+    ).toMatchObject({
+      first: { device_path: "/data/app/x/base.apk" },
+      second: { device_path: "/data/app/y/BASE.apk" },
+    });
+  });
+
+  it("folds Unicode normalisation and compatibility forms", () => {
+    const composed = {
+      device_path: "/data/app/x/caf\u00e9.apk",
+      file_name: "caf\u00e9.apk",
+      role: "unknown",
+    } as const;
+    const decomposed = {
+      device_path: "/data/app/y/cafe\u0301.apk",
+      file_name: "cafe\u0301.apk",
+      role: "unknown",
+    } as const;
+    const ligature = {
+      device_path: "/data/app/z/\ufb01le.apk",
+      file_name: "\ufb01le.apk",
+      role: "unknown",
+    } as const;
+    const plain = {
+      device_path: "/data/app/z/FILE.apk",
+      file_name: "FILE.apk",
+      role: "unknown",
+    } as const;
+    expect(findAliasedPackagePaths([composed, decomposed])).toEqual({
+      first: composed,
+      second: decomposed,
+    });
+    expect(findAliasedPackagePaths([ligature, plain])).toEqual({
+      first: ligature,
+      second: plain,
+    });
+  });
+
+  it("leaves exact repeats to the pull loop's overwrite guard", () => {
+    expect(
+      findAliasedPackagePaths(
+        entries("/data/app/x/base.apk", "/data/app/y/base.apk"),
+      ),
+    ).toBeUndefined();
   });
 });

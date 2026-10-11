@@ -120,6 +120,13 @@ existing analysis families directly, for example
   whole pull as `unreadable_output` before any host directory is created,
   even when the unsafe entry is the only one; the error names the raw device
   path and retains the `pm path` output. Paths are never trimmed or renamed.
+  Reserved Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+  `LPT1`-`LPT9`, in any case and with any extension, such as `NUL.apk`) fail
+  the same way. Two entries whose file names differ only by case or Unicode
+  normalisation (`base.apk` and `BASE.apk`) also fail the whole pull, and the
+  error names both raw device paths. Both checks apply on every host, not only
+  on Windows or case-insensitive volumes, so the same listing is refused the
+  same way wherever REA runs.
 - **Partial results keep facts.** Failed individual pulls return successful
   artifacts with `coverage: "partial"` and per-file `failures`. Listings
   that contain unrecognized lines report them as `unparsed_lines` and mark

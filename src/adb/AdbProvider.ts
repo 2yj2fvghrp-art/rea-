@@ -42,6 +42,7 @@ import {
   type AdbClientIdentity,
 } from "./AdbConfiguration.js";
 import {
+  findAliasedPackagePaths,
   parseAdbDevicesOutput,
   parseGetpropOutput,
   parsePackageListOutput,
@@ -1165,6 +1166,24 @@ export class AdbProvider {
       return err(
         new AnalysisProtocolError(
           `pm path reported an APK path whose file name cannot be used on the host: ${JSON.stringify(rejected.device_path)} (${rejected.reason}); no APK was pulled`,
+          {
+            capturedOutput: {
+              stdout: paths.value.stdout,
+              stderr: paths.value.stderr,
+              truncated: false,
+            },
+          },
+        ),
+      );
+    // Names that differ only by case or Unicode normalisation resolve to one
+    // file on case-insensitive or normalising destinations, so the second pull
+    // would replace bytes already digested for the first. Refuse the listing on
+    // every host, before any filesystem effect, so the outcome is reproducible.
+    const aliased = findAliasedPackagePaths(parsed.paths);
+    if (aliased !== undefined)
+      return err(
+        new AnalysisProtocolError(
+          `pm path reported APK paths whose file names collide on case-insensitive or normalising host filesystems: ${JSON.stringify(aliased.first.device_path)} and ${JSON.stringify(aliased.second.device_path)}; no APK was pulled`,
           {
             capturedOutput: {
               stdout: paths.value.stdout,

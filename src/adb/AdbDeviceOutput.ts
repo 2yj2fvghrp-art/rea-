@@ -6,6 +6,8 @@
  * their evidence basis.
  */
 
+import { isWindowsReservedFileName } from "../domain/windowsReservedFileName.js";
+
 /** One device exactly as `adb devices -l` reports it. */
 export interface AdbDeviceEntry {
   readonly serial: string;
@@ -214,7 +216,9 @@ const fileNameOf = (devicePath: string): string => {
  * Host file names REA writes pulled APKs under. Package Manager names APKs
  * `base.apk`, `split_*.apk`, or a system module name; anything else, including
  * dot segments, separators, and control characters, could escape or alias the
- * package output directory when joined on the host.
+ * package output directory when joined on the host. Names matching this
+ * pattern are further refused when they are reserved Windows device names
+ * (`NUL.apk`, `com1.apk`) or alias another entry under case folding.
  */
 const SAFE_HOST_APK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/u;
 
@@ -238,6 +242,47 @@ const unsafeDevicePathReason = (
   if (fileName.includes("\\")) return "the file name contains a path separator";
   if (!SAFE_HOST_APK_FILE_NAME.test(fileName))
     return "the file name is not of the form [A-Za-z0-9][A-Za-z0-9._-]*.apk";
+  if (isWindowsReservedFileName(fileName))
+    return "the file name is a reserved Windows device name";
+  return undefined;
+};
+
+/**
+ * Host-independent collision key for a pulled APK file name. Case-insensitive
+ * destinations (Windows, default macOS volumes) and normalising filesystems
+ * resolve names that differ only by case or Unicode normalisation to one file,
+ * so the key folds both. The fold is applied on every host on purpose: the
+ * same listing must be refused the same way wherever REA runs, so the evidence
+ * stays reproducible instead of depending on the destination filesystem.
+ */
+const hostFileNameKey = (fileName: string): string =>
+  fileName.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+
+/** Two `pm path` entries whose distinct file names would alias one host file. */
+export interface AdbAliasedPackagePaths {
+  readonly first: AdbPackagePathEntry;
+  readonly second: AdbPackagePathEntry;
+}
+
+/**
+ * Find the first pair of entries whose file names differ as strings but are
+ * equal under case folding or NFC/NFKC normalisation. Exact repeats are not
+ * aliases: the pull loop already refuses to overwrite those by string identity.
+ */
+export const findAliasedPackagePaths = (
+  paths: readonly AdbPackagePathEntry[],
+): AdbAliasedPackagePaths | undefined => {
+  const seen = new Map<string, AdbPackagePathEntry>();
+  for (const entry of paths) {
+    const key = hostFileNameKey(entry.file_name);
+    const earlier = seen.get(key);
+    if (earlier === undefined) {
+      seen.set(key, entry);
+      continue;
+    }
+    if (earlier.file_name !== entry.file_name)
+      return { first: earlier, second: entry };
+  }
   return undefined;
 };
 
