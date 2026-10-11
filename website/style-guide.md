@@ -9,8 +9,10 @@ evidence the reader can inspect, and a useful next step. A clean, refined
 appearance comes from precise wording, readable figures, consistent typography
 and deliberate spacing.
 
-Use this guide for new pages and revisions. Start from an existing page and
-reuse `public/assets/styles.css` and `public/assets/main.js`. Local preview and
+Use this guide for new pages and revisions. Create the common page structure
+with `python3 scripts/website.py new-page`, then reuse the relevant components
+from an existing page, `public/assets/styles.css` and `public/assets/main.js`.
+Keep shared regions in sync with `templates/`. Contribution, preview and
 publication commands are in [README.md](README.md).
 
 ## What a reader should understand
@@ -23,6 +25,13 @@ These are reading goals, not a requirement to fit every investigation above the
 fold. Keep the main path short and let readers open the supporting details.
 
 ## Write the task directly
+
+Write the English source first. Keep translated wording just as concrete: a
+reader should understand the question, the evidence and the next action without
+decoding a literal translation. Preserve commands, code and recorded values.
+Read a whole example together when reviewing its translation. Check headings,
+figures and interactive labels at phone widths, including right-to-left editions.
+The [translation guide](locales/README.md) explains the catalogs and update process.
 
 Name the software, behavior or action in headings. Give the opening paragraph
 one job: explain what the page covers. Use concrete verbs such as install, trace,

@@ -15,7 +15,10 @@ import {
 } from "./javascriptSemanticState.js";
 import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
-import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
+import {
+  completeSemanticSteps,
+  traverseJavaScriptAstSteps,
+} from "./javascriptSemanticTraversal.js";
 import {
   evaluateSemanticBinding,
   evaluateSemanticProvenance,
@@ -97,6 +100,7 @@ export const collectSemanticModuleLink = (
     );
   else if (t.isVariableDeclarator(node)) collectRequireLink(node, state);
   else if (t.isAssignmentExpression(node)) collectCommonJsExport(node, state);
+  else if (t.isCallExpression(node)) collectUnboundRequireLink(node, state);
 };
 
 /** Collect lexical references after definitions exist, optionally for one name. */
@@ -104,11 +108,19 @@ export const collectSemanticReferences = (
   program: t.Program,
   state: JavaScriptSemanticAnalysisState,
   name?: string,
-): JavaScriptSemanticReference[] => {
+): JavaScriptSemanticReference[] =>
+  completeSemanticSteps(collectSemanticReferencesSteps(program, state, name));
+
+/** Collect lexical references in steps while preserving resolution and visit order. */
+export function* collectSemanticReferencesSteps(
+  program: t.Program,
+  state: JavaScriptSemanticAnalysisState,
+  name?: string,
+): Generator<void, JavaScriptSemanticReference[]> {
   const output: JavaScriptSemanticReference[] = [];
   const seen = new Set<string>();
   const patterns: t.Node[] = [];
-  traverseJavaScriptAst(program, {
+  yield* traverseJavaScriptAstSteps(program, {
     enter: (node, parent, readAncestors) => {
       if (isPatternNode(node)) patterns.push(node);
       if (
@@ -154,7 +166,7 @@ export const collectSemanticReferences = (
     },
   });
   return output;
-};
+}
 
 /** Freeze collected scopes into deterministic IR order. */
 export const immutableSemanticScopes = (
@@ -311,9 +323,11 @@ const collectRequireLink = (
   node: t.VariableDeclarator,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const origin = semanticRequireOrigin(node.init, state);
-  if (origin === undefined) return;
-  for (const binding of requirePatternBindings(node.id, origin.importedPath))
+  const required = semanticRequireOrigin(node.init, state);
+  if (required === undefined) return;
+  const { origin, call } = required;
+  const bindings = requirePatternBindings(node.id, origin.importedPath);
+  for (const binding of bindings)
     addModuleLink(
       state,
       {
@@ -326,6 +340,29 @@ const collectRequireLink = (
       },
       node,
     );
+  if (bindings.length > 0) state.linkedRequireCalls.add(call);
+};
+
+const collectUnboundRequireLink = (
+  node: t.CallExpression,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  if (state.linkedRequireCalls.has(node)) return;
+  const required = semanticRequireOrigin(node, state);
+  if (required === undefined) return;
+  addModuleLink(
+    state,
+    {
+      kind: "require",
+      specifier: required.origin.specifier,
+      importedName: null,
+      localName: null,
+      exportedName: null,
+      location: range(node),
+    },
+    node,
+  );
+  state.linkedRequireCalls.add(node);
 };
 
 const requirePatternBindings = (
@@ -361,19 +398,66 @@ const collectCommonJsExport = (
 ): void => {
   const exportedName = commonJsExportName(node.left, state);
   if (exportedName === undefined) return;
-  const origin = semanticRequireOrigin(node.right, state);
+  const receiverEffect = isCommonJsModuleExports(node.left, state)
+    ? null
+    : commonJsExportReceiverEffect(node.right, state);
+  if (receiverEffect === "detached") return;
+  // Simple assignment chains yield their rightmost assigned value. Compound
+  // and logical writes also depend on the previous value, so remain unknown.
+  let value =
+    node.operator === "=" && receiverEffect !== "uncertain" ? node.right : null;
+  while (t.isAssignmentExpression(value, { operator: "=" }))
+    value = value.right;
+  const required =
+    value === null ? undefined : semanticRequireOrigin(value, state);
+  const origin = required?.origin;
   addModuleLink(
     state,
     {
       kind: "commonjs-export",
       specifier: origin?.specifier ?? null,
       importedName: origin?.importedPath.at(-1) ?? null,
-      localName: t.isIdentifier(node.right) ? node.right.name : null,
+      localName: value !== null && t.isIdentifier(value) ? value.name : null,
       exportedName,
-      callableId: semanticCallableIdForNode(node.right),
+      callableId: value === null ? null : semanticCallableIdForNode(value),
       location: range(node),
     },
     node,
+  );
+  if (required !== undefined) state.linkedRequireCalls.add(required.call);
+};
+
+/**
+ * An outer property assignment captures its receiver before evaluating the
+ * RHS. When that chain assigns a freshly created identity to `module.exports`,
+ * the outer write targets the old exports object and cannot define an export
+ * on the value ultimately returned by the CommonJS module. Reassignments from
+ * existing bindings may preserve identity, so this guard leaves them as
+ * export candidates.
+ */
+const commonJsExportReceiverEffect = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): "detached" | "uncertain" | null => {
+  let value = node;
+  while (t.isAssignmentExpression(value, { operator: "=" })) {
+    if (isCommonJsModuleExports(value.left, state))
+      return isFreshAssignmentResult(value.right) ? "detached" : "uncertain";
+    value = value.right;
+  }
+  return null;
+};
+
+const isFreshAssignmentResult = (node: t.Node): boolean => {
+  let value = node;
+  while (t.isAssignmentExpression(value, { operator: "=" }))
+    value = value.right;
+  return (
+    t.isArrowFunctionExpression(value) ||
+    t.isFunctionExpression(value) ||
+    t.isClassExpression(value) ||
+    t.isObjectExpression(value) ||
+    t.isArrayExpression(value)
   );
 };
 
@@ -630,7 +714,7 @@ const commonJsExportName = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
-  if (isUnshadowedGlobal(node, state, "exports")) return "default";
+  // Rebinding the CommonJS `exports` alias does not replace `module.exports`.
   if (!t.isMemberExpression(node) && !t.isOptionalMemberExpression(node))
     return undefined;
   const key = semanticStaticPropertyKey(node.property, node.computed);
@@ -641,15 +725,17 @@ const commonJsExportName = (
     return key === null ? "*" : key || "*";
   if (
     t.isMemberExpression(node.object) &&
-    isUnshadowedGlobal(node.object.object, state, "module") &&
-    semanticStaticPropertyKey(node.object.property, node.object.computed) ===
-      "exports"
+    isCommonJsModuleExports(node.object, state)
   )
     return key === null ? "*" : key || "default";
-  if (
-    isUnshadowedGlobal(node.object, state, "module") &&
-    semanticStaticPropertyKey(node.property, node.computed) === "exports"
-  )
-    return "default";
+  if (isCommonJsModuleExports(node, state)) return "default";
   return undefined;
 };
+
+const isCommonJsModuleExports = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) &&
+  isUnshadowedGlobal(node.object, state, "module") &&
+  semanticStaticPropertyKey(node.property, node.computed) === "exports";

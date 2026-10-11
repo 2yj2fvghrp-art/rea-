@@ -27,11 +27,16 @@ const command =
 const lab = await mkdtemp(join(tmpdir(), `rea-${client}-client-`));
 const account = join(lab, "account");
 const profile = join(lab, "selected profile");
+const stickyHermes =
+  client === "hermes" && process.env.REA_VERIFY_HERMES_STICKY_PROFILE === "1";
+const selectedProfile = stickyHermes
+  ? join(profile, "profiles", "coder")
+  : profile;
 const workspace = join(lab, "workspace");
 const target = join(workspace, "fixture α测试");
 const artifactPath = join(workspace, "evidence.json");
 const skillPath = join(
-  client === "pi" ? join(account, ".agents") : profile,
+  client === "pi" ? join(account, ".agents") : selectedProfile,
   "skills",
   "reverse-engineer-anything",
   "SKILL.md",
@@ -39,7 +44,8 @@ const skillPath = join(
 const verifier = createVerifierRun();
 await Promise.all([
   mkdir(account),
-  mkdir(profile),
+  mkdir(profile, { recursive: true }),
+  ...(stickyHermes ? [mkdir(selectedProfile, { recursive: true })] : []),
   mkdir(target, { recursive: true }),
 ]);
 await writeFile(
@@ -48,12 +54,17 @@ await writeFile(
 );
 const environment = {
   PATH: process.env.PATH ?? "",
+  HOME: account,
   USERPROFILE: account,
   [client === "pi" ? "PI_CODING_AGENT_DIR" : "HERMES_HOME"]: profile,
   PI_OFFLINE: "1",
   REA_PROCESS_RUN_ID: verifier.run_id,
 };
-const configPath = join(profile, client === "pi" ? "mcp.json" : "config.yaml");
+const configPath = join(
+  selectedProfile,
+  client === "pi" ? "mcp.json" : "config.yaml",
+);
+if (stickyHermes) await writeFile(join(profile, "active_profile"), "coder\n");
 const original =
   client === "pi"
     ? JSON.stringify({
@@ -61,13 +72,6 @@ const original =
       })
     : "# Keep caller settings.\nmcp_servers:\n  other:\n    command: unrelated-server\n    enabled: false\n";
 await writeFile(configPath, original);
-if (client === "pi") {
-  // The CLI fixture account and native os.homedir() differ; use Pi's caller-owned skill setting.
-  await writeFile(
-    join(profile, "settings.json"),
-    JSON.stringify({ skills: [join(account, ".agents", "skills")] }),
-  );
-}
 const clientVersion = (
   await exec(command, ["--version"], { env: environment, timeout: 30_000 })
 ).stdout.trim();
@@ -438,8 +442,9 @@ try {
       "loopback deterministic OpenAI-compatible endpoint; no live provider claim",
     skillDiscovery:
       client === "pi"
-        ? "caller-configured isolated shared directory; default OS home discovery unverified"
+        ? "native HOME shared personal directory; no explicit skill setting"
         : "native HERMES_HOME personal directory",
+    stickyHermes,
     catalogSize: catalog?.length,
     evidenceSeen,
     skillLoaded,

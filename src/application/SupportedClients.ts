@@ -1,6 +1,11 @@
 import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lstatSync } from "node:fs";
+import { err, ok, type Result } from "../domain/result.js";
+import {
+  HermesClientPathError,
+  resolveHermesClientHome,
+} from "./HermesClientHome.js";
 
 /** One supported client configuration location. */
 export interface SetupClient {
@@ -35,7 +40,15 @@ export interface SetupClient {
     | "unsupported";
 }
 
-type ClientPath = readonly string[] | ((paths: ClientPathContext) => string);
+interface ClientPathFailure {
+  readonly path: string;
+  readonly message: string;
+}
+
+type ClientPathResult = Result<string, ClientPathFailure>;
+type ClientPath =
+  | readonly string[]
+  | ((paths: ClientPathContext) => string | ClientPathResult);
 
 interface ClientPathContext {
   readonly home: string;
@@ -115,49 +128,8 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
 
-/**
- * Hermes Agent home. `HERMES_HOME` wins; otherwise the platform default mirrors
- * Hermes's own resolver (`%LOCALAPPDATA%\\hermes` on Windows, `~/.hermes`
- * elsewhere), including the optional `HERMES_DATA_DIR_SUFFIX` that is appended
- * to the literal `hermes`/`.hermes` directory name.
- */
-const hermesDirectory = ({
-  home,
-  platform,
-  env,
-}: ClientPathContext): string => {
-  const override = env.HERMES_HOME?.trim();
-  if (override) {
-    const expandedVariables = override.replace(
-      /\$(\w+|\{[^}]*\})/gu,
-      (match, variable: string) => {
-        const key = variable.startsWith("{") ? variable.slice(1, -1) : variable;
-        return env[key] ?? match;
-      },
-    );
-    const expanded =
-      platform === "win32"
-        ? expandedVariables.replace(
-            /%([^%]+)%/gu,
-            (match, variable: string) => env[variable] ?? match,
-          )
-        : expandedVariables;
-    if (expanded === "~") return home;
-    if (
-      expanded.startsWith("~/") ||
-      (platform === "win32" && expanded.startsWith("~\\"))
-    )
-      return join(home, expanded.slice(2));
-    return resolve(expanded);
-  }
-  const suffix = env.HERMES_DATA_DIR_SUFFIX ?? "";
-  return platform === "win32"
-    ? join(
-        env.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"),
-        `hermes${suffix}`,
-      )
-    : join(home, `.hermes${suffix}`);
-};
+const hermesDirectory = ({ home, platform, env }: ClientPathContext): string =>
+  resolveHermesClientHome(home, platform, env);
 
 /** Grok Bot uses an absolute SAND_DATA_ROOT; anything else stays ~/.grokbot. */
 const grokBotDirectory = ({ home, env }: ClientPathContext): string => {
@@ -183,34 +155,32 @@ export const manualRegistrationRemediation = (
     : undefined;
 
 const OMP_PROFILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
-
-/**
- * OMP's active named profile. OMP_PROFILE wins over the legacy PI_PROFILE even
- * when empty; empty and "default" select the default profile. OMP refuses to
- * start with an invalid name, so one leaves the default location in place.
- */
-const ompProfile = ({ env }: ClientPathContext): string | undefined => {
-  const name = (env.OMP_PROFILE ?? env.PI_PROFILE)?.trim();
-  return name === undefined ||
-    name === "" ||
-    name === "default" ||
-    name.endsWith(".") ||
-    !OMP_PROFILE_NAME.test(name)
-    ? undefined
-    : name;
-};
+const OMP_RESERVED_PROFILE =
+  /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/iu;
 
 /**
  * The OMP agent directory whose `mcp.json` holds user-scope MCP servers. OMP
  * joins PI_CONFIG_DIR to the home directory, and a named profile ignores
  * PI_CODING_AGENT_DIR. Relative overrides use the setup process working directory.
  */
-const ompAgentDirectory = (context: ClientPathContext): string => {
+const ompAgentDirectory = (context: ClientPathContext): ClientPathResult => {
   const root = join(context.home, context.env.PI_CONFIG_DIR || ".omp");
-  const profile = ompProfile(context);
-  if (profile !== undefined) return join(root, "profiles", profile, "agent");
+  // OMP_PROFILE wins even when empty. Match OMP's validation on every host.
+  const profile = (context.env.OMP_PROFILE ?? context.env.PI_PROFILE)?.trim();
+  if (profile !== undefined && profile !== "" && profile !== "default") {
+    if (
+      !OMP_PROFILE_NAME.test(profile) ||
+      profile.endsWith(".") ||
+      OMP_RESERVED_PROFILE.test(profile)
+    )
+      return err({
+        path: root,
+        message: `Invalid OMP profile ${JSON.stringify(profile)}: names must match ^[a-z0-9][a-z0-9._-]{0,63}$, cannot end with ".", and cannot be a Windows reserved device name (CON, PRN, AUX, NUL, COM0-9, LPT0-9, including extensions). Repair OMP_PROFILE or PI_PROFILE before configuring OMP.`,
+      });
+    return ok(join(root, "profiles", profile, "agent"));
+  }
   const override = context.env.PI_CODING_AGENT_DIR;
-  return override ? resolve(override) : join(root, "agent");
+  return ok(override ? resolve(override) : join(root, "agent"));
 };
 
 /**
@@ -493,8 +463,10 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
   {
     name: "omp",
     displayName: "OMP",
-    configPath: (context: ClientPathContext) =>
-      join(ompAgentDirectory(context), "mcp.json"),
+    configPath: (context: ClientPathContext) => {
+      const directory = ompAgentDirectory(context);
+      return directory.ok ? ok(join(directory.value, "mcp.json")) : directory;
+    },
     markerPath: ompAgentDirectory,
     format: "omp",
   },
@@ -545,8 +517,14 @@ export const clientEvidencePaths = (
   ),
 ];
 
-const resolvePath = (path: ClientPath, context: ClientPathContext): string =>
-  typeof path === "function" ? path(context) : join(context.home, ...path);
+const resolvePath = (
+  path: ClientPath,
+  context: ClientPathContext,
+): ClientPathResult => {
+  const resolved =
+    typeof path === "function" ? path(context) : join(context.home, ...path);
+  return typeof resolved === "string" ? ok(resolved) : resolved;
+};
 
 /** Describe every client location that setup, doctor, or uninstall may inspect. */
 export const supportedClients = (
@@ -558,7 +536,27 @@ export const supportedClients = (
   const definitions: readonly ClientDefinition[] = SUPPORTED_CLIENT_DEFINITIONS;
   return definitions.map((definition) => {
     try {
-      const configPath = resolvePath(definition.configPath, context);
+      const config = resolvePath(definition.configPath, context);
+      const marker = config.ok
+        ? resolvePath(definition.markerPath, context)
+        : config;
+      if (!config.ok)
+        return {
+          name: definition.name,
+          displayName: definition.displayName,
+          format: definition.format,
+          configPath: config.error.path,
+          configPathError: config.error.message,
+        };
+      if (!marker.ok)
+        return {
+          name: definition.name,
+          displayName: definition.displayName,
+          format: definition.format,
+          configPath: marker.error.path,
+          configPathError: marker.error.message,
+        };
+      const configPath = config.value;
       return {
         name: definition.name,
         displayName: definition.displayName,
@@ -573,10 +571,18 @@ export const supportedClients = (
                 ...new Set([...definition.configPaths(context), configPath]),
               ],
             }),
-        markerPath: resolvePath(definition.markerPath, context),
+        markerPath: marker.value,
         format: definition.format,
       };
     } catch (cause: unknown) {
+      if (cause instanceof HermesClientPathError)
+        return {
+          name: definition.name,
+          displayName: definition.displayName,
+          format: definition.format,
+          configPath: cause.path,
+          configPathError: cause.message,
+        };
       if (definition.name !== "pi") throw cause;
       return {
         name: definition.name,
@@ -611,14 +617,23 @@ export const clientSkillDirectories = (
   const destinations = new Map<string, { client: string; directory: string }>();
   for (const client of selected) {
     const definition = definitions.find(({ name }) => name === client);
-    const directory =
-      definition?.skillPath === undefined
-        ? join(home, ".agents", "skills")
-        : resolvePath(definition.skillPath, {
-            home,
-            platform,
-            env: environment,
-          });
+    let directory: string;
+    try {
+      const resolved =
+        definition?.skillPath === undefined
+          ? ok(join(home, ".agents", "skills"))
+          : resolvePath(definition.skillPath, {
+              home,
+              platform,
+              env: environment,
+            });
+      if (!resolved.ok) continue;
+      directory = resolved.value;
+    } catch (cause: unknown) {
+      // Registration diagnostics own an unresolved profile; never fall back to another skill root.
+      if (cause instanceof HermesClientPathError) continue;
+      throw cause;
+    }
     if (!destinations.has(directory))
       destinations.set(directory, {
         client:

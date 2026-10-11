@@ -31,20 +31,30 @@ export const registerWasmCommands = (
         .describe("Explicit local WASM candidates"),
     }),
     run: ({ args, options }) =>
-      withCommandCancellation((signal) =>
-        logCliCommand(logger, CLI_COMMANDS.inspectWasmArtifact, async () => {
-          const result = await service.inspect(
-            {
-              path: resolve(args.path),
-              glue_paths: options.glue_paths?.map((path) => resolve(path)),
-              candidate_paths: options.candidate_paths?.map((path) =>
-                resolve(path),
-              ),
+      withCommandCancellation(async (signal) => {
+        try {
+          return await logCliCommand(
+            logger,
+            CLI_COMMANDS.inspectWasmArtifact,
+            async () => {
+              const result = await service.inspect(
+                {
+                  path: resolve(args.path),
+                  glue_paths: options.glue_paths?.map((path) => resolve(path)),
+                  candidate_paths: options.candidate_paths?.map((path) =>
+                    resolve(path),
+                  ),
+                },
+                { signal },
+              );
+              return result.ok
+                ? result.value
+                : projectAnalysisError(result.error);
             },
-            { signal },
           );
-          return result.ok ? result.value : projectAnalysisError(result.error);
-        }),
-      ),
+        } finally {
+          await service.close();
+        }
+      }),
   });
 };

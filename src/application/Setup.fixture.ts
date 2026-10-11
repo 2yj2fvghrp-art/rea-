@@ -1,10 +1,10 @@
 import { skillDestinations } from "./SetupSkill.js";
-import {
-  type ClientConfigurationInspection,
-  type ClientConfigurationResult,
-  type SetupHost,
-  type SetupOptions,
-  type SetupProviderEnvironment,
+import type {
+  ClientConfigurationInspection,
+  ClientConfigurationResult,
+  SetupHost,
+  SetupOptions,
+  SetupProviderEnvironment,
 } from "./SetupTypes.js";
 import type { SetupClient } from "./SupportedClients.js";
 import type { SetupHopperInstallResult } from "./SetupInstallFailure.js";
@@ -52,7 +52,7 @@ export class FakeSetupHost implements SetupHost {
 
   constructor(platform: NodeJS.Platform = "darwin") {
     this.platform = platform;
-    this.registrationCommand = setupRegistrationCommand(platform, false);
+    this.registrationCommand = setupRegistrationCommand(platform, undefined);
   }
 
   macosVersion = (): Promise<string | undefined> =>

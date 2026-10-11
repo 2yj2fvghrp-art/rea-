@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, readdir } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 import { homeDirectoryFromEnvironment } from "../config/homeDirectory.js";
 import { join } from "node:path";
 
@@ -8,6 +8,10 @@ import { BinaryTargetError } from "../domain/configurationErrors.js";
 import { parseBinaryTarget } from "./BinaryTargetResolver.js";
 import { execFileOutput } from "../process/ExecFileOutput.js";
 import type { JsonValue } from "../domain/jsonValue.js";
+import {
+  javaScriptRuntime,
+  type JavaScriptRuntime,
+} from "../domain/runtimeVersion.js";
 import { installedCaskAppdir, probeHomebrew } from "./homebrew.js";
 import {
   linuxHopperBinarySupported,
@@ -36,8 +40,6 @@ import {
   type DoctorScopeReport,
 } from "./DoctorScope.js";
 
-/** Deep provider IDs whose readiness can be selected explicitly by doctor. */
-export const DOCTOR_PROVIDER_IDS = ["hopper", "ghidra", "ida"] as const;
 /** One actionable environment diagnostic. */
 export interface DoctorCheck {
   readonly name: string;
@@ -79,7 +81,7 @@ export interface DoctorProviderInspection {
 export interface DoctorHost {
   readonly platform: NodeJS.Platform;
   readonly architecture: NodeJS.Architecture;
-  readonly nodeVersion: string;
+  readonly runtime: JavaScriptRuntime;
   readonly homeDirectory: string;
   readonly configuredHopperPath?: string;
   readonly configuredIlspyCmdPath?: string;
@@ -312,7 +314,7 @@ export const systemDoctorHost = (
   return {
     platform,
     architecture,
-    nodeVersion: process.versions.node,
+    runtime: javaScriptRuntime(process.versions),
     homeDirectory,
     ...(environment.HOPPER_LAUNCHER_PATH === undefined
       ? {}
@@ -472,6 +474,7 @@ const executableAvailable = async (
 ): Promise<boolean> => {
   try {
     await access(path, constants.X_OK);
+    if (!(await stat(path)).isFile()) return false;
     if (platform !== "linux") return true;
     const linked = await run("ldd", [path], options);
     return linuxSharedLibrariesAvailable(`${linked.stdout}\n${linked.stderr}`);
