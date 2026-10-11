@@ -29,7 +29,8 @@ export const parseWabtOutput = (
     offset += match[0].length;
     let description: string;
     if (match[1] === "Custom") {
-      const name = customSectionNames[customIndex++];
+      // Custom-section names use the same %.*s display as module names.
+      const name = customSectionNames[customIndex++]?.split("\0", 1)[0];
       if (name === undefined || !text.startsWith(`"${name}"\n`, offset))
         throw new Error(
           "WABT custom-section header does not match decoded WAT.",
