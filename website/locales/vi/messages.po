@@ -11141,86 +11141,86 @@ msgctxt "runtime"
 msgid "REA on GitHub ({count})"
 msgstr "REA TRÊN GitHub ({count})"
 
-#: website/public/assets/dino-demo.js:71
+#: website/public/assets/dino-demo.js:77
 #, python-brace-format
 msgctxt "runtime"
 msgid "Distance {distance}"
 msgstr "Khoảng cách {distance}"
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Hit a cactus. Try another speed."
 msgstr "Đánh một cây xương rồng. Hãy thử một tốc độ khác."
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Space or Jump ↑"
 msgstr "Không gian hoặc Nhảy ↑"
 
-#: website/public/assets/dino-demo.js:91
+#: website/public/assets/dino-demo.js:97
 msgctxt "runtime"
 msgid "Play again"
 msgstr "Chơi lại"
 
-#: website/public/assets/dino-demo.js:91
-#: website/public/assets/dino-demo.js:105
+#: website/public/assets/dino-demo.js:97
+#: website/public/assets/dino-demo.js:111
 msgctxt "runtime"
 msgid "Play"
 msgstr "Chơi"
 
-#: website/public/assets/dino-demo.js:165
+#: website/public/assets/dino-demo.js:171
 msgctxt "runtime"
 msgid "Pause"
 msgstr "Tạm dừng"
 
-#: website/public/assets/dino-demo.js:106
+#: website/public/assets/dino-demo.js:112
 msgctxt "runtime"
 msgid "Press Play, then jump over the cactus."
 msgstr "Nhấn Play, sau đó nhảy qua cây xương rồng."
 
-#: website/public/assets/dino-demo.js:141
+#: website/public/assets/dino-demo.js:147
 msgctxt "runtime"
 msgid "Hit a cactus. Press Play again, or change the speed and restart."
 msgstr ""
 "Đánh một cây xương rồng. Nhấn Play một lần nữa, hoặc thay đổi tốc độ và khởi"
 " động lại."
 
-#: website/public/assets/dino-demo.js:166
+#: website/public/assets/dino-demo.js:172
 msgctxt "runtime"
 msgid "Running. Space or Jump clears a cactus."
 msgstr "Chạy. Không gian Hoặc Nhảy xóa một cây xương rồng."
 
-#: website/public/assets/dino-demo.js:177
-#: website/public/assets/dino-demo.js:213
-#: website/public/assets/dino-demo.js:218
+#: website/public/assets/dino-demo.js:183
+#: website/public/assets/dino-demo.js:219
+#: website/public/assets/dino-demo.js:224
 msgctxt "runtime"
 msgid "Paused. Press Play to continue."
 msgstr "Dừng lại. Nhấn Play để tiếp tục."
 
-#: website/public/assets/dino-demo.js:197
+#: website/public/assets/dino-demo.js:203
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Space or Jump clears a cactus."
 msgstr "Tốc độ cố định: {speed}. Không gian Hoặc Nhảy xóa một cây xương rồng."
 
-#: website/public/assets/dino-demo.js:200
+#: website/public/assets/dino-demo.js:206
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Press Play to try it."
 msgstr "Tốc độ cố định: {speed}. Nhấn Play để thử nó."
 
-#: website/public/assets/dino-demo.js:209
+#: website/public/assets/dino-demo.js:215
 msgctxt "runtime"
 msgid "Recovered rule: start at 6, then increase toward 13."
 msgstr "Quy tắc phục hồi: bắt đầu từ 6, sau đó tăng lên 13."
 
-#: website/public/assets/dino-demo.js:210
+#: website/public/assets/dino-demo.js:216
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Tốc độ cố định: {speed}."
 
-#: website/public/assets/dino-demo.js:242
+#: website/public/assets/dino-demo.js:248
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11229,7 +11229,7 @@ msgstr ""
 "Phát lại quy tắc phục hồi. Tất cả bốn giá trị phù hợp với kiểm tra trò chơi "
 "gốc được kiểm soát khi được làm tròn thành ba số thập phân."
 
-#: website/public/assets/dino-demo.js:245
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

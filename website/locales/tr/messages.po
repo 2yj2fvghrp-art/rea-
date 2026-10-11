@@ -11152,86 +11152,86 @@ msgctxt "runtime"
 msgid "REA on GitHub ({count})"
 msgstr "REA üzerinde GitHub ({count})"
 
-#: website/public/assets/dino-demo.js:71
+#: website/public/assets/dino-demo.js:77
 #, python-brace-format
 msgctxt "runtime"
 msgid "Distance {distance}"
 msgstr "Uzaklık {distance}"
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Hit a cactus. Try another speed."
 msgstr "Kaktüse vur. Başka bir hız dene."
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Space or Jump ↑"
 msgstr "Boşluk veya Atlama ↑"
 
-#: website/public/assets/dino-demo.js:91
+#: website/public/assets/dino-demo.js:97
 msgctxt "runtime"
 msgid "Play again"
 msgstr "Tekrar oyna"
 
-#: website/public/assets/dino-demo.js:91
-#: website/public/assets/dino-demo.js:105
+#: website/public/assets/dino-demo.js:97
+#: website/public/assets/dino-demo.js:111
 msgctxt "runtime"
 msgid "Play"
 msgstr "Oyna"
 
-#: website/public/assets/dino-demo.js:165
+#: website/public/assets/dino-demo.js:171
 msgctxt "runtime"
 msgid "Pause"
 msgstr "Duraklat"
 
-#: website/public/assets/dino-demo.js:106
+#: website/public/assets/dino-demo.js:112
 msgctxt "runtime"
 msgid "Press Play, then jump over the cactus."
 msgstr "Oynat düğmesine basın, ardından kaktüsün üzerinden atlayın."
 
-#: website/public/assets/dino-demo.js:141
+#: website/public/assets/dino-demo.js:147
 msgctxt "runtime"
 msgid "Hit a cactus. Press Play again, or change the speed and restart."
 msgstr ""
 "Kaktüse vur. Tekrar Oynat düğmesine basın veya hızı değiştirin ve yeniden "
 "başlatın."
 
-#: website/public/assets/dino-demo.js:166
+#: website/public/assets/dino-demo.js:172
 msgctxt "runtime"
 msgid "Running. Space or Jump clears a cactus."
 msgstr "Koşma. Boşluk veya Atlama bir kaktüsü temizler."
 
-#: website/public/assets/dino-demo.js:177
-#: website/public/assets/dino-demo.js:213
-#: website/public/assets/dino-demo.js:218
+#: website/public/assets/dino-demo.js:183
+#: website/public/assets/dino-demo.js:219
+#: website/public/assets/dino-demo.js:224
 msgctxt "runtime"
 msgid "Paused. Press Play to continue."
 msgstr "Duraklatıldı. Devam etmek için Oynat düğmesine basın."
 
-#: website/public/assets/dino-demo.js:197
+#: website/public/assets/dino-demo.js:203
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Space or Jump clears a cactus."
 msgstr "Sabit hız: {speed}. Boşluk veya Atlama bir kaktüsü temizler."
 
-#: website/public/assets/dino-demo.js:200
+#: website/public/assets/dino-demo.js:206
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Press Play to try it."
 msgstr "Sabit hız: {speed}. Denemek için Oynat düğmesine basın."
 
-#: website/public/assets/dino-demo.js:209
+#: website/public/assets/dino-demo.js:215
 msgctxt "runtime"
 msgid "Recovered rule: start at 6, then increase toward 13."
 msgstr "Kurtarılan kural: 6'dan başlayın, ardından 13'e doğru artırın."
 
-#: website/public/assets/dino-demo.js:210
+#: website/public/assets/dino-demo.js:216
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Sabit hız: {speed}."
 
-#: website/public/assets/dino-demo.js:242
+#: website/public/assets/dino-demo.js:248
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11240,7 +11240,7 @@ msgstr ""
 "Kurtarılan kuralı tekrar oynattı. Dört değerin tümü, üç ondalık basamağa "
 "yuvarlandığında kontrol edilen orijinal oyun kontrolüyle eşleşir."
 
-#: website/public/assets/dino-demo.js:245
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

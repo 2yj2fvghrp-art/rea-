@@ -10414,91 +10414,91 @@ msgctxt "runtime"
 msgid "REA on GitHub ({count})"
 msgstr "REA에GitHub({count})"
 
-#: website/public/assets/dino-demo.js:71
+#: website/public/assets/dino-demo.js:77
 #, python-brace-format
 msgctxt "runtime"
 msgid "Distance {distance}"
 msgstr "거리 {distance}"
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Hit a cactus. Try another speed."
 msgstr "선인장을 치십시오. 다른 속도를 시도하십시오."
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Space or Jump ↑"
 msgstr "공동↑"
 
-#: website/public/assets/dino-demo.js:91
+#: website/public/assets/dino-demo.js:97
 msgctxt "runtime"
 msgid "Play again"
 msgstr "다시 재생"
 
-#: website/public/assets/dino-demo.js:91
-#: website/public/assets/dino-demo.js:105
+#: website/public/assets/dino-demo.js:97
+#: website/public/assets/dino-demo.js:111
 msgctxt "runtime"
 msgid "Play"
 msgstr "시작"
 
-#: website/public/assets/dino-demo.js:165
+#: website/public/assets/dino-demo.js:171
 msgctxt "runtime"
 msgid "Pause"
 msgstr "일시 중지"
 
-#: website/public/assets/dino-demo.js:106
+#: website/public/assets/dino-demo.js:112
 msgctxt "runtime"
 msgid "Press Play, then jump over the cactus."
 msgstr "재생을 누른 다음 선인장을 뛰어 넘습니다."
 
-#: website/public/assets/dino-demo.js:141
+#: website/public/assets/dino-demo.js:147
 msgctxt "runtime"
 msgid "Hit a cactus. Press Play again, or change the speed and restart."
 msgstr "선인장을 치십시오. 재생을 다시 누르거나 속도를 변경하고 다시 시작하십시오."
 
-#: website/public/assets/dino-demo.js:166
+#: website/public/assets/dino-demo.js:172
 msgctxt "runtime"
 msgid "Running. Space or Jump clears a cactus."
 msgstr "실행. 공간 또는 점프는 선인장을 지 웁니다."
 
-#: website/public/assets/dino-demo.js:177
-#: website/public/assets/dino-demo.js:213
-#: website/public/assets/dino-demo.js:218
+#: website/public/assets/dino-demo.js:183
+#: website/public/assets/dino-demo.js:219
+#: website/public/assets/dino-demo.js:224
 msgctxt "runtime"
 msgid "Paused. Press Play to continue."
 msgstr "일시 중지되었습니다. 계속하려면 재생을 누릅니다."
 
-#: website/public/assets/dino-demo.js:197
+#: website/public/assets/dino-demo.js:203
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Space or Jump clears a cactus."
 msgstr "조정 속도: {speed}. 공간 또는 점프는 선인장을 지 웁니다."
 
-#: website/public/assets/dino-demo.js:200
+#: website/public/assets/dino-demo.js:206
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Press Play to try it."
 msgstr "조정 속도: {speed}. 그것을 시도 재생을 누릅니다."
 
-#: website/public/assets/dino-demo.js:209
+#: website/public/assets/dino-demo.js:215
 msgctxt "runtime"
 msgid "Recovered rule: start at 6, then increase toward 13."
 msgstr "복구 된 규칙:6 에서 시작한 다음 13 으로 늘립니다."
 
-#: website/public/assets/dino-demo.js:210
+#: website/public/assets/dino-demo.js:216
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "조정 속도: {speed}."
 
-#: website/public/assets/dino-demo.js:242
+#: website/public/assets/dino-demo.js:248
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
 "game check when rounded to three decimals."
 msgstr "복구된 규칙을 다시 재생했습니다. 4 개의 값 모두 3 개의 소수로 둥글게 하면 제어된 원래 게임 체크와 일치합니다."
 
-#: website/public/assets/dino-demo.js:245
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

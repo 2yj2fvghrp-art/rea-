@@ -2204,6 +2204,11 @@ pre code {
   gap: 2.5rem;
 }
 .dino-stage {
+  --dino-ground: #b7c0c9;
+  --dino-ink: #5b6570;
+  --dino-player: #294f82;
+  --dino-crash: #8c4b40;
+  --dino-eye: #ffffff;
   overflow: hidden;
   margin-block: 0.8rem;
   background: var(--soft);
@@ -2593,6 +2598,13 @@ pre code {
   }
   ::selection {
     background: #45475a;
+  }
+  .dino-stage {
+    --dino-ground: #45475a;
+    --dino-ink: #a6adc8;
+    --dino-player: #89b4fa;
+    --dino-crash: #f38ba8;
+    --dino-eye: #181825;
   }
   .skip-link,
   .button,

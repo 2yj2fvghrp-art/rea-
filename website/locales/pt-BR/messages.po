@@ -11235,86 +11235,86 @@ msgctxt "runtime"
 msgid "REA on GitHub ({count})"
 msgstr "REA em GitHub ({count})"
 
-#: website/public/assets/dino-demo.js:71
+#: website/public/assets/dino-demo.js:77
 #, python-brace-format
 msgctxt "runtime"
 msgid "Distance {distance}"
 msgstr "Distância {distance}"
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Hit a cactus. Try another speed."
 msgstr "Bata em um cacto. Tente outra velocidade."
 
-#: website/public/assets/dino-demo.js:81
+#: website/public/assets/dino-demo.js:87
 msgctxt "runtime"
 msgid "Space or Jump ↑"
 msgstr "Espaço ou salto"
 
-#: website/public/assets/dino-demo.js:91
+#: website/public/assets/dino-demo.js:97
 msgctxt "runtime"
 msgid "Play again"
 msgstr "Jogar novamente"
 
-#: website/public/assets/dino-demo.js:91
-#: website/public/assets/dino-demo.js:105
+#: website/public/assets/dino-demo.js:97
+#: website/public/assets/dino-demo.js:111
 msgctxt "runtime"
 msgid "Play"
 msgstr "Jogar"
 
-#: website/public/assets/dino-demo.js:165
+#: website/public/assets/dino-demo.js:171
 msgctxt "runtime"
 msgid "Pause"
 msgstr "Pausa"
 
-#: website/public/assets/dino-demo.js:106
+#: website/public/assets/dino-demo.js:112
 msgctxt "runtime"
 msgid "Press Play, then jump over the cactus."
 msgstr "Pressione Play e, em seguida, salte sobre o cacto."
 
-#: website/public/assets/dino-demo.js:141
+#: website/public/assets/dino-demo.js:147
 msgctxt "runtime"
 msgid "Hit a cactus. Press Play again, or change the speed and restart."
 msgstr ""
 "Bata em um cacto. Pressione Play novamente ou altere a velocidade e "
 "reinicie."
 
-#: website/public/assets/dino-demo.js:166
+#: website/public/assets/dino-demo.js:172
 msgctxt "runtime"
 msgid "Running. Space or Jump clears a cactus."
 msgstr "A correr. Espaço ou salto limpa um cacto."
 
-#: website/public/assets/dino-demo.js:177
-#: website/public/assets/dino-demo.js:213
-#: website/public/assets/dino-demo.js:218
+#: website/public/assets/dino-demo.js:183
+#: website/public/assets/dino-demo.js:219
+#: website/public/assets/dino-demo.js:224
 msgctxt "runtime"
 msgid "Paused. Press Play to continue."
 msgstr "Parou. Prima Play para continuar."
 
-#: website/public/assets/dino-demo.js:197
+#: website/public/assets/dino-demo.js:203
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Space or Jump clears a cactus."
 msgstr "Velocidade fixa: {speed}. Espaço ou salto limpa um cacto."
 
-#: website/public/assets/dino-demo.js:200
+#: website/public/assets/dino-demo.js:206
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}. Press Play to try it."
 msgstr "Velocidade fixa: {speed}. Pressione Play para tentar."
 
-#: website/public/assets/dino-demo.js:209
+#: website/public/assets/dino-demo.js:215
 msgctxt "runtime"
 msgid "Recovered rule: start at 6, then increase toward 13."
 msgstr "Regra recuperada: comece em 6, depois aumente para 13."
 
-#: website/public/assets/dino-demo.js:210
+#: website/public/assets/dino-demo.js:216
 #, python-brace-format
 msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Velocidade fixa: {speed}."
 
-#: website/public/assets/dino-demo.js:242
+#: website/public/assets/dino-demo.js:248
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11324,7 +11324,7 @@ msgstr ""
 "verificação do jogo original controlada quando arredondados para três casas "
 "decimais."
 
-#: website/public/assets/dino-demo.js:245
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"
