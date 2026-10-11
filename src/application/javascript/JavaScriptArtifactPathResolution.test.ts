@@ -271,6 +271,7 @@ describe("NodeNext emitted-extension path resolution", () => {
           sourcePath: "app/main.ts",
           context: "module-specifier",
           files,
+          allowEmittedCounterparts: true,
         }),
       ).toMatchObject({
         resolution_status: "resolved",
@@ -291,6 +292,7 @@ describe("NodeNext emitted-extension path resolution", () => {
         sourcePath: "app/main.ts",
         context: "module-specifier",
         files,
+        allowEmittedCounterparts: true,
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -313,7 +315,11 @@ describe("NodeNext emitted-extension path resolution", () => {
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
   });
 
-  it("does not substitute TypeScript counterparts for loadURL references", () => {
+  it("does not substitute TypeScript counterparts without a module-origin opt-in", () => {
+    // Runtime resource references (loadURL arguments, BrowserWindow preloads, utility
+    // process entrypoints) carry the module-specifier label from the literal fallback
+    // but are consumed verbatim by Electron; without the opt-in flag a missing emitted
+    // .js must not resolve to a same-stem .ts source.
     const files = fileMap([
       file("app/main.ts", "root"),
       file("app/renderer.ts", "root"),
@@ -324,28 +330,8 @@ describe("NodeNext emitted-extension path resolution", () => {
         sourcePath: "app/main.ts",
         context: "module-specifier",
         files,
-        mechanism: "call:win.loadURL",
       }),
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
-  });
-
-  it("still substitutes TypeScript counterparts for real module calls", () => {
-    const files = fileMap([
-      file("app/main.ts", "root"),
-      file("app/dep.ts", "root"),
-    ]);
-    expect(
-      resolve({
-        declaredPath: "./dep.js",
-        sourcePath: "app/main.ts",
-        context: "module-specifier",
-        files,
-        mechanism: "call:import",
-      }),
-    ).toMatchObject({
-      resolution_status: "resolved",
-      resolved_path: "app/dep.ts",
-    });
   });
 
   it("does not substitute TypeScript counterparts for a JavaScript importer", () => {
@@ -359,6 +345,7 @@ describe("NodeNext emitted-extension path resolution", () => {
         sourcePath: "app/main.js",
         context: "module-specifier",
         files,
+        allowEmittedCounterparts: true,
       }),
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
   });

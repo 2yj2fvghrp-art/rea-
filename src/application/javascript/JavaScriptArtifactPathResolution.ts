@@ -55,7 +55,7 @@ export interface ResolveArtifactPathInput {
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
   readonly htmlBaseHref?: string | null;
   readonly moduleKind?: "import" | "require";
-  readonly mechanism?: string;
+  readonly allowEmittedCounterparts?: boolean;
 }
 
 const EXTENSIONS = [
@@ -672,11 +672,12 @@ const emittedExtensionCounterparts = (
   candidate: string,
 ): readonly string[] => {
   if (input.context !== "module-specifier") return [];
-  // window.loadURL references are labelled module-specifier upstream, but Electron loads
-  // the exact URL at runtime; they are not NodeNext module specifiers, so a missing .js
-  // must not be substituted with a TypeScript counterpart here.
-  if (input.mechanism?.startsWith("call:") && input.mechanism.endsWith("loadURL"))
-    return [];
+  // Emitted-extension substitution is opt-in: only callers resolving a genuine module
+  // specifier (import/export/require origins) set this flag. Runtime resource paths such
+  // as loadURL arguments, BrowserWindow preloads, and utility-process entrypoints are
+  // consumed verbatim by Electron, and their labels fall back to "module-specifier"
+  // upstream, so the context label alone is not a sufficient signal.
+  if (input.allowEmittedCounterparts !== true) return [];
   if (!TYPESCRIPT_IMPORTER.test(input.sourcePath)) return [];
   const match = EMITTED_EXTENSION_COUNTERPARTS.find(([extension]) =>
     candidate.endsWith(extension),

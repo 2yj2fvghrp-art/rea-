@@ -263,7 +263,6 @@ const addDiscoveredRole = (
     sourcePath: input.file.path,
     context: input.value.resolution_context,
     files: context.filesByPath,
-    mechanism: input.value.mechanism,
   });
   const role = createElectronRoleNode(context, {
     kind:
@@ -407,6 +406,11 @@ const resolveReference = (
                 reference.kind === "dynamic-import"
               ? "import"
               : undefined,
+          reference.kind === "require" ||
+            reference.kind === "static-import" ||
+            reference.kind === "dynamic-import"
+            ? true
+            : undefined,
         );
   if (path === null) return null;
   const file = context.filesByPath.get(path);
