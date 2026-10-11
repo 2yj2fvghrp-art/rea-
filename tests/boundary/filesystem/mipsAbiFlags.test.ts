@@ -10,6 +10,7 @@ import type { MipsElfMetadata } from "../../../src/domain/binaryTargetTypes.js";
 import { readMipsElfAbiFlags } from "../../../src/application/MipsElfAbiFlags.js";
 import { ok } from "../../../src/domain/result.js";
 import {
+  GHIDRA_MIPS_SOFT_FLOAT_STORAGE,
   ghidraMipsProfileParameters,
   ghidraMipsUnsupportedReason,
 } from "../../../src/ghidra/GhidraMipsProfile.js";
@@ -131,8 +132,24 @@ for (const little of [true, false]) {
     const fp64 = await inspect(bytes, little);
     assert.ok(fp64.ok);
     const changed = target({ ...metadata(little), abiFlags: fp64.value });
-    assert.match(ghidraMipsUnsupportedReason(changed) ?? "", /register modes/u);
+    assert.equal(fp64.value?.cpr1Size, 2);
+    assert.equal(fp64.value?.fpAbi, 6);
+    assert.match(ghidraMipsUnsupportedReason(changed) ?? "", /FP64/u);
     assert.notDeepEqual(ghidraMipsProfileParameters(changed), before);
+  });
+
+  it(`retains a soft-float declaration and commits its admitted storage policy (${little ? "LE" : "BE"})`, async () => {
+    const bytes = fixture(little);
+    bytes[abiOffset + 5] = 0;
+    bytes[abiOffset + 7] = 3;
+    const resolved = await resolveFixture(bytes);
+    assert.equal(resolved.mips.abiFlags?.cpr1Size, 0);
+    assert.equal(resolved.mips.abiFlags?.fpAbi, 3);
+    assert.equal(ghidraMipsUnsupportedReason(resolved), null);
+    assert.equal(
+      ghidraMipsProfileParameters(resolved).mips_soft_float_storage,
+      GHIDRA_MIPS_SOFT_FLOAT_STORAGE,
+    );
   });
 }
 
@@ -272,12 +289,11 @@ const unsupported: [string, (bytes: Buffer) => void, RegExp][] = [
     /MIPS32r2/u,
   ],
   [
-    "soft-float",
+    "soft-float with declared CPR1",
     (b) => {
-      b[abiOffset + 5] = 0;
       b[abiOffset + 7] = 3;
     },
-    /register modes/u,
+    /soft-float without CPR1/u,
   ],
   [
     "unspecified FP ABI",
