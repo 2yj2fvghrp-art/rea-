@@ -7,7 +7,10 @@ import { HAR_CAPTURE_PROVIDER_IDENTITY } from "../../../src/browser/history/Capt
 import { HistoricalCaptureDecoder } from "../../../src/browser/history/HistoricalCaptureDecoder.js";
 import { inspectWebNetworkCaptureInputSchema } from "../../../src/domain/webNetworkCapture.js";
 import { runOwnedCommand } from "../../../src/process/OwnedCommand.js";
-import { spawnOwnedChildProcess } from "../../../src/process/ProviderProcess.js";
+import {
+  spawnOwnedChildProcess,
+  spawnOwnedInternalProcess,
+} from "../../../src/process/ProviderProcess.js";
 import { prepareProcessOwnershipInspection } from "../../../src/process/ProcessOwnershipObservation.js";
 import { historicalHar } from "../../fixtures/historicalHar.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -50,21 +53,41 @@ const isRunning = (pid: number): boolean => {
   }
 };
 
-it("collects a REA-owned child without native process-group preparation", async () => {
-  const snapshot = await runOwnedCommand(
-    command('process.stdout.write("decoded")'),
-    { timeoutMs: 5_000, diagnosticBytes: 1024 },
-    { supervision: "internal-helper" },
+it.skipIf(process.platform === "win32")(
+  "collects a REA-owned child without native process-group preparation",
+  async () => {
+    const snapshot = await runOwnedCommand(
+      command('process.stdout.write("decoded")'),
+      { timeoutMs: 5_000, diagnosticBytes: 1024 },
+      { supervision: "internal-helper" },
+    );
+    expect(snapshot).toMatchObject({
+      exitCode: 0,
+      signal: null,
+      stdout: { text: "decoded" },
+    });
+    expect(prepareProcessOwnershipInspection).not.toHaveBeenCalled();
+  },
+);
+
+it("routes Windows internal helpers through owned-launch preparation", async () => {
+  vi.mocked(prepareProcessOwnershipInspection).mockClear();
+  vi.mocked(prepareProcessOwnershipInspection).mockRejectedValueOnce(
+    new Error("native ownership helper compilation failed"),
   );
-  expect(snapshot).toMatchObject({
-    exitCode: 0,
-    signal: null,
-    stdout: { text: "decoded" },
-  });
-  expect(prepareProcessOwnershipInspection).not.toHaveBeenCalled();
+  await expect(
+    spawnOwnedInternalProcess({
+      ...command("process.exit(0)"),
+      platform: "win32",
+    }),
+  ).rejects.toThrow("native ownership helper compilation failed");
+  expect(prepareProcessOwnershipInspection).toHaveBeenCalledTimes(1);
 });
 
 it("still requires native preparation for process-group commands", async () => {
+  vi.mocked(prepareProcessOwnershipInspection).mockRejectedValueOnce(
+    new Error("native ownership helper compilation failed"),
+  );
   await expect(
     runOwnedCommand(command("process.exit(0)"), {
       timeoutMs: 5_000,
@@ -73,7 +96,11 @@ it("still requires native preparation for process-group commands", async () => {
   ).rejects.toThrow("native ownership helper compilation failed");
 });
 
-it("terminates a cancelled direct child through its live handle", async () => {
+it("terminates an internal helper when cancelled", async () => {
+  if (process.platform === "win32")
+    vi.mocked(prepareProcessOwnershipInspection).mockResolvedValueOnce(
+      undefined,
+    );
   const root = await createTestTempDirectory("rea-owned-child-cancel-");
   const pidPath = join(root, "pid");
   const controller = new AbortController();
@@ -118,6 +145,7 @@ it("refuses a memory limit that a direct child cannot enforce", async () => {
   await expect(
     spawnOwnedChildProcess({
       ...command("process.exit(0)"),
+      platform: "linux",
       memoryLimitBytes: 1024 * 1024 * 1024,
     }),
   ).rejects.toThrow(/Windows Job Object launcher/u);
@@ -125,7 +153,11 @@ it("refuses a memory limit that a direct child cannot enforce", async () => {
 
 it.each([
   { supervision: "process-group", memoryLimitBytes: undefined, prepared: 1 },
-  { supervision: "internal-helper", memoryLimitBytes: undefined, prepared: 0 },
+  {
+    supervision: "internal-helper",
+    memoryLimitBytes: undefined,
+    prepared: process.platform === "win32" ? 1 : 0,
+  },
   // Only the owned launcher enforces a requested memory limit.
   {
     supervision: "internal-helper",
@@ -139,6 +171,10 @@ it.each([
     const path = join(root, "capture.har");
     await writeFile(path, JSON.stringify(historicalHar()));
     vi.mocked(prepareProcessOwnershipInspection).mockClear();
+    if (prepared === 1)
+      vi.mocked(prepareProcessOwnershipInspection).mockRejectedValueOnce(
+        new Error("native ownership helper compilation failed"),
+      );
     const decoder = new HistoricalCaptureDecoder(
       [
         {
@@ -162,8 +198,8 @@ it.each([
       }),
     );
 
-    // The stub writes no reply, so every run fails; only the owned launcher
-    // depends on native ownership preparation.
+    // The stub writes no reply, so every run fails. Windows internal helpers
+    // use the owned Job Object launcher even without a memory limit.
     expect(result.ok).toBe(false);
     expect(prepareProcessOwnershipInspection).toHaveBeenCalledTimes(prepared);
   },

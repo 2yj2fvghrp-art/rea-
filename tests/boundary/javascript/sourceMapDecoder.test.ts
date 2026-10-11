@@ -64,13 +64,18 @@ it("runs the real pinned codec with an independent heap and removes its private 
     "prepareProcessOwnershipInspection",
   );
   onTestFinished(() => preparation.mockRestore());
-  if (SOURCE_MAP_CODEC_MEMORY_LIMIT_BYTES === null)
+  if (
+    SOURCE_MAP_CODEC_MEMORY_LIMIT_BYTES === null &&
+    process.platform !== "win32"
+  )
     preparation.mockRejectedValue(
       new Error("native ownership helper compilation failed"),
     );
   const response = await decoder.trace(input);
   if (SOURCE_MAP_CODEC_MEMORY_LIMIT_BYTES === null)
-    expect(preparation).not.toHaveBeenCalled();
+    expect(preparation).toHaveBeenCalledTimes(
+      process.platform === "win32" ? 1 : 0,
+    );
   if (!response.ok) throw response.error;
   expect(response.value).toMatchObject({
     engine: { id: "jridgewell-trace-mapping", version: "0.3.31" },

@@ -223,18 +223,15 @@ export const spawnOwnedProviderProcess = async (
   return { process: child, ownership };
 };
 
-/**
- * Spawn a REA-owned helper that creates no descendant processes.
- *
- * Node keeps the child's process ID reserved until it reaps the child and then
- * refuses to signal the handle, so the live handle identifies this process
- * without native process-group token inspection. External tools, and anything
- * that may create descendants, use spawnOwnedProviderProcess instead.
- */
+/** Spawn a non-Windows REA helper that creates no descendant processes. */
 export const spawnOwnedChildProcess = async (
   options: OwnedProviderProcessSpawnOptions,
 ): Promise<ChildProcess> => {
   options.signal?.throwIfAborted();
+  if ((options.platform ?? process.platform) === "win32")
+    throw new Error(
+      "Owned Windows helpers require the Windows Job Object launcher.",
+    );
   if (options.memoryLimitBytes !== undefined)
     throw new Error(
       "Owned process memory limits require the Windows Job Object launcher; a direct child cannot enforce one.",
@@ -255,11 +252,14 @@ export const spawnOwnedChildProcess = async (
   return child;
 };
 
-/** Launch a REA helper with no descendants, retaining enforced memory authority. */
+/** Launch an internal helper with Windows kill-on-owner-close containment. */
 export const spawnOwnedInternalProcess = async (
   options: OwnedProviderProcessSpawnOptions,
 ): Promise<Extract<ProviderProcessLaunch, { ownsProcessLifetime: true }>> => {
-  if (options.memoryLimitBytes === undefined)
+  if (
+    (options.platform ?? process.platform) !== "win32" &&
+    options.memoryLimitBytes === undefined
+  )
     return {
       process: await spawnOwnedChildProcess(options),
       ownsProcessLifetime: true,
