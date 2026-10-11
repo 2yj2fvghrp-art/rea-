@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
@@ -13,8 +14,30 @@ import { javaScriptExportShapeComparisonResultSchema } from "../../../src/domain
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const execute = promisify(execFile);
+const requireFixture = createRequire(import.meta.url);
 const comparisonEnvelope = z.object({
   normalized_result: javaScriptExportShapeComparisonResultSchema,
+});
+let mcpComparisonConnection:
+  | {
+      readonly client: Client;
+      readonly transport: StdioClientTransport;
+      readonly ready: Promise<void>;
+    }
+  | undefined;
+
+afterAll(async () => {
+  if (mcpComparisonConnection === undefined) return;
+  try {
+    await mcpComparisonConnection.ready;
+  } catch {
+    // Keep the failed connection owned until both resources are closed below.
+  }
+  try {
+    await mcpComparisonConnection.client.close();
+  } finally {
+    await mcpComparisonConnection.transport.close();
+  }
 });
 
 describe("exported function binding resolution through the CLI", () => {
@@ -109,6 +132,287 @@ describe("exported function binding resolution through the CLI", () => {
     await expectRuntimeExports(fixture, (count) => count);
     const cli = await compareThroughCli(fixture);
     expectUncertainComparison(cli);
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("does not treat rebinding the CommonJS exports alias as a default export", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `exports = function parse() { return { kind: "result", count: ${String(count)} }; };`,
+      "default",
+      "app.cjs",
+    );
+
+    // This is a test-owned fixture, so Node's actual CommonJS loader is the
+    // oracle for what the application exports.
+    expect(requireFixture(fixture.leftPath)).toEqual({});
+    expect(requireFixture(fixture.rightPath)).toEqual({});
+
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "missing" },
+      right: { status: "missing" },
+      summary: { added: 0, removed: 0, changed: 0 },
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it.each([
+    ["the CommonJS exports alias", "exports"],
+    ["an ordinary object property", "holder.value"],
+  ])(
+    "resolves exported callable values through = chains ending at %s",
+    async (_, target) => {
+      const fixture = await analyzeVersions(
+        (count) =>
+          `const holder = {};\nfunction parse() { return { kind: "result", count: ${String(count)} }; }\nmodule.exports = ${target} = parse;`,
+        "default",
+        "app.cjs",
+      );
+      expect(requireFixture(fixture.leftPath)()).toEqual({
+        kind: "result",
+        count: 1,
+      });
+      expect(requireFixture(fixture.rightPath)()).toEqual({
+        kind: "result",
+        count: 2,
+      });
+      for (const evidence of [fixture.input.left, fixture.input.right])
+        expectExportedCallableBinding(evidence, "parse");
+      const cli = await compareThroughCli(fixture);
+      expectCountChange(cli);
+      expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+    },
+  );
+});
+
+describe("CommonJS assignment-chain receiver identity through the CLI", () => {
+  it("does not export a named write whose captured module.exports receiver is replaced", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const VERSION = ${String(count)};\nmodule.exports.parse = (module.exports = () => ({ count: VERSION }));`,
+      "parse",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath]) {
+      const value = requireFixture(path);
+      expect(typeof value).toBe("function");
+      expect(Reflect.ownKeys(value)).toEqual(["length", "name"]);
+    }
+    for (const evidence of [fixture.input.left, fixture.input.right]) {
+      const analysis = z
+        .object({
+          normalized_result: javascriptApplicationAnalysisResultSchema,
+        })
+        .parse(evidence).normalized_result;
+      expect(
+        analysis.graph.nodes
+          .flatMap(({ observations }) => observations)
+          .filter(
+            ({ properties }) =>
+              properties.semantic_role === "export-binding" &&
+              properties.exported_name === "parse",
+          ),
+      ).toEqual([]);
+    }
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "missing" },
+      right: { status: "missing" },
+      summary: { added: 0, removed: 0, changed: 0 },
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("keeps a named property export when its receiver remains stable through the RHS chain", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const holder = {};\nfunction parse() { return { kind: "result", count: ${String(count)} }; }\nmodule.exports.parse = holder.value = parse;`,
+      "parse",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath])
+      expect(requireFixture(path).parse()).toEqual({
+        kind: "result",
+        count: path === fixture.leftPath ? 1 : 2,
+      });
+    const cli = await compareThroughCli(fixture);
+    expectCountChange(cli);
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("keeps receiver identity unresolved when module.exports is reassigned to the same function", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const VERSION = ${String(count)};\nfunction parse() { return { count: VERSION }; }\nmodule.exports = parse;\nmodule.exports.parse = (module.exports = parse);`,
+      "parse",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath]) {
+      const value = requireFixture(path);
+      expect(value.parse).toBe(value);
+      expect(value.parse()).toEqual({
+        count: path === fixture.leftPath ? 1 : 2,
+      });
+    }
+    for (const evidence of [fixture.input.left, fixture.input.right])
+      expectUnresolvedExportBinding(evidence, "parse");
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "unavailable" },
+      right: { status: "unavailable" },
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("keeps receiver replacement by an existing function unresolved", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const VERSION = ${String(count)};\nfunction parse() { return { count: VERSION }; }\nmodule.exports.parse = (module.exports = parse);`,
+      "parse",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath]) {
+      const value = requireFixture(path);
+      expect(typeof value).toBe("function");
+      expect(value.parse).toBeUndefined();
+      expect(value()).toEqual({
+        count: path === fixture.leftPath ? 1 : 2,
+      });
+    }
+    for (const evidence of [fixture.input.left, fixture.input.right])
+      expectUnresolvedExportBinding(evidence, "parse");
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "unavailable" },
+      right: { status: "unavailable" },
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("resolves a nested lexical parse binding in an ordinary module.exports chain", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `function parse() { return { count: VERSION }; }\nfunction configure() { const parse = () => ({ count: 7 }); let local; module.exports = local = parse; }\nconst VERSION = ${String(count)};\nconfigure();`,
+      "default",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath])
+      expect(requireFixture(path)()).toEqual({ count: 7 });
+    for (const evidence of [fixture.input.left, fixture.input.right])
+      expectExportedCallableBinding(evidence, "parse");
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      summary: { added: 0, removed: 0, changed: 0, unknown: 0 },
+      changes: [],
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+});
+
+describe("CommonJS export identity and scope regressions", () => {
+  it("does not export a named write through the original exports alias after replacement", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const VERSION = ${String(count)};\nexports.parse = (module.exports = () => ({ count: VERSION }));`,
+      "parse",
+      "app.cjs",
+    );
+    for (const path of [fixture.leftPath, fixture.rightPath]) {
+      const value = requireFixture(path);
+      expect(typeof value).toBe("function");
+      expect(Reflect.ownKeys(value)).toEqual(["length", "name"]);
+    }
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "missing" },
+      right: { status: "missing" },
+      summary: { added: 0, removed: 0, changed: 0 },
+    });
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it("keeps a dead var shadow of the alias-chain RHS unavailable", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `function parse() { return { count: ${String(count)} }; }\nfunction configure() { if (false) { var parse = () => ({ count: 7 }); } module.exports = exports = parse; }\nconfigure();`,
+      "default",
+      "app.cjs",
+    );
+    expect(requireFixture(fixture.leftPath)).toBeUndefined();
+    expect(requireFixture(fixture.rightPath)).toBeUndefined();
+    const cli = await compareThroughCli(fixture);
+    expectUncertainComparison(cli);
+    expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+  });
+
+  it.each(["+=", "||=", "??="] as const)(
+    "does not treat module.exports %s as a definite function export",
+    async (operator) => {
+      const fixture = await analyzeVersions(
+        (count) =>
+          `module.exports ${operator} (() => ({ kind: "result", count: ${String(count)} }));`,
+        "default",
+        "app.cjs",
+      );
+      const left = requireFixture(fixture.leftPath);
+      const right = requireFixture(fixture.rightPath);
+      if (operator === "+=") {
+        expect(typeof left).toBe("string");
+        expect(typeof right).toBe("string");
+      } else {
+        expect(left).toEqual({});
+        expect(right).toEqual({});
+      }
+      const cli = await compareThroughCli(fixture);
+      expectUncertainComparison(cli);
+      expect(await compareThroughMcp(fixture.input)).toEqual(cli);
+    },
+  );
+
+  it("keeps a parameter-default mutation unknown in a CommonJS return shape", async () => {
+    const fixture = await analyzeVersions(
+      (count) =>
+        `const source = { value: 0 }; module.exports = exports = function current(arg = null, set = (arg = source)) { var arg; arg.value = ${String(count)}; return { kind: "result", count: source.value }; };`,
+      "default",
+      "app.cjs",
+    );
+    expect(requireFixture(fixture.leftPath)()).toEqual({
+      kind: "result",
+      count: 1,
+    });
+    expect(requireFixture(fixture.rightPath)()).toEqual({
+      kind: "result",
+      count: 2,
+    });
+    for (const evidence of [fixture.input.left, fixture.input.right]) {
+      const analysis = z
+        .object({
+          normalized_result: javascriptApplicationAnalysisResultSchema,
+        })
+        .parse(evidence).normalized_result;
+      const shapes = analysis.graph.nodes
+        .flatMap(({ observations }) => observations)
+        .find(
+          ({ properties }) =>
+            properties.semantic_role === "export-return-shapes" &&
+            properties.exported_name === "default",
+        )?.properties.static_return_shapes;
+      expect(shapes).toEqual([
+        expect.objectContaining({
+          fields: expect.arrayContaining([
+            expect.objectContaining({ path: "/count", state: "unknown" }),
+          ]),
+        }),
+      ]);
+    }
+    const cli = await compareThroughCli(fixture);
+    expect(cli).toMatchObject({
+      left: { status: "selected" },
+      right: { status: "selected" },
+      summary: { added: 0, removed: 0, changed: 0 },
+      changes: [],
+    });
     expect(await compareThroughMcp(fixture.input)).toEqual(cli);
   });
 });
@@ -481,6 +785,58 @@ const expectRuntimeExports = async (
     expect(await runtimeExport(path, exportName)).toEqual(expected(count));
 };
 
+const expectExportedCallableBinding = (
+  evidence: unknown,
+  localName: string,
+): void => {
+  const analysis = z
+    .object({
+      normalized_result: javascriptApplicationAnalysisResultSchema,
+    })
+    .parse(evidence).normalized_result;
+  const exportBinding = analysis.graph.nodes
+    .flatMap(({ observations }) => observations)
+    .find(
+      ({ properties }) =>
+        properties.semantic_role === "export-binding" &&
+        properties.exported_name === "default",
+    );
+  expect(exportBinding?.properties.local_name).toBe(localName);
+  expect(analysis.semantic_graph.nodes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: "function", label: localName }),
+    ]),
+  );
+};
+
+const expectUnresolvedExportBinding = (
+  evidence: unknown,
+  exportName: string,
+): void => {
+  const analysis = z
+    .object({
+      normalized_result: javascriptApplicationAnalysisResultSchema,
+    })
+    .parse(evidence).normalized_result;
+  const observations = analysis.graph.nodes.flatMap(
+    ({ observations }) => observations,
+  );
+  expect(
+    observations.filter(
+      ({ properties }) =>
+        properties.semantic_role === "export-binding" &&
+        properties.exported_name === exportName,
+    ),
+  ).not.toHaveLength(0);
+  expect(
+    observations.filter(
+      ({ properties }) =>
+        properties.semantic_role === "export-return-shapes" &&
+        properties.exported_name === exportName,
+    ),
+  ).toEqual([]);
+};
+
 const expectUncertainComparison = (
   result: Awaited<ReturnType<typeof compareThroughCli>>,
 ): void => {
@@ -570,33 +926,37 @@ const compareThroughCli = async (
 };
 
 const compareThroughMcp = async (input: Record<string, unknown>) => {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [resolve("scripts/rea.mjs"), "mcp"],
-    cwd: process.cwd(),
-    env: { PATH: process.env.PATH ?? "", REA_LOG_LEVEL: "silent" },
-    stderr: "pipe",
+  const client = await getMcpComparisonClient();
+  const response = await client.callTool({
+    name: "compare_javascript_export_shapes",
+    arguments: input,
   });
-  const client = new Client({
-    name: "exported-function-bindings",
-    version: "1",
-  });
-  try {
-    await client.connect(transport);
-    const response = await client.callTool({
-      name: "compare_javascript_export_shapes",
-      arguments: input,
+  expect(response.isError).not.toBe(true);
+  await client.ping();
+  return comparisonEnvelope.parse(response.structuredContent).normalized_result;
+};
+
+const getMcpComparisonClient = async (): Promise<Client> => {
+  if (mcpComparisonConnection === undefined) {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve("scripts/rea.mjs"), "mcp"],
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH ?? "", REA_LOG_LEVEL: "silent" },
+      stderr: "pipe",
     });
-    expect(response.isError).not.toBe(true);
-    return comparisonEnvelope.parse(response.structuredContent)
-      .normalized_result;
-  } finally {
-    try {
-      await client.close();
-    } finally {
-      await transport.close();
-    }
+    const client = new Client({
+      name: "exported-function-bindings",
+      version: "1",
+    });
+    mcpComparisonConnection = {
+      client,
+      transport,
+      ready: client.connect(transport),
+    };
   }
+  await mcpComparisonConnection.ready;
+  return mcpComparisonConnection.client;
 };
 
 const runtimeExport = async (

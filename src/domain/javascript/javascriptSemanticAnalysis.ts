@@ -29,6 +29,7 @@ import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
   resolveSemanticBindingFromScope,
+  semanticBindingId,
   semanticScopeId,
   semanticVariableScope,
 } from "./javascriptSemanticState.js";
@@ -43,6 +44,13 @@ import {
   resolveSemanticModuleCallables,
 } from "./javascriptSemanticReturns.js";
 import { collectJavaScriptDerivedSemanticsSteps } from "./javascriptSemanticDerivedAnalysis.js";
+import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
+import {
+  collectElectronMemberWritesSteps,
+  electronExportPath,
+  electronMemberPath,
+  ELECTRON_MODULE,
+} from "./javascriptElectronMemberWrites.js";
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 import { propertyName } from "./javascriptAstValues.js";
 import { semanticCoverage } from "./javascriptSemanticCoverage.js";
@@ -51,6 +59,8 @@ import {
   parseJavaScriptSource,
   type ParsedJavaScriptSource,
 } from "./javascriptSourceParser.js";
+
+import { isJavaScriptRpcClientFactory } from "./javascriptRpcEndpoints.js";
 
 interface BindPatternInput {
   readonly pattern: t.Node;
@@ -99,7 +109,7 @@ export const analyzeJavaScriptSemantics = (
 
 /** Recover lexical references, optionally for one name, without evaluating values or provenance. */
 export const analyzeParsedJavaScriptReferences = (
-  file: ParsedJavaScriptSource,
+  file: Pick<ParsedJavaScriptSource, "program">,
   name?: string,
 ): readonly JavaScriptSemanticReference[] => {
   const state = createState(file.program);
@@ -172,6 +182,40 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
       "Cross-function mutation and dynamic property resolution remain unknown.",
     ],
   };
+}
+
+/** Resolve tRPC client roots by lexical identity, excluding overwritten bindings. */
+export function* classifyParsedJavaScriptRpcClientRootsSteps(
+  file: ParsedJavaScriptSource,
+): Generator<void, ReadonlySet<t.Node>> {
+  const state = createState(file.program);
+  yield* collectDefinitionsSteps(file.program, state);
+  const roots = new Set<t.Node>();
+  const clients = new Map<string, boolean>();
+  yield* traverseJavaScriptAstSteps(file.program, {
+    enter: (node) => {
+      if (!t.isMemberExpression(node) && !t.isOptionalMemberExpression(node))
+        return;
+      const root = node.object;
+      if (!t.isIdentifier(root)) return;
+      const binding = resolveSemanticBindingState(state, root, root.name);
+      if (binding === undefined) return;
+      let client = clients.get(binding.bindingId);
+      if (client === undefined) {
+        const [initializer] = binding.initializers;
+        client =
+          initializer !== undefined &&
+          initializer.projection.length === 0 &&
+          binding.initializers.length === 1 &&
+          !binding.definitions.some(({ kind }) => kind === "assignment") &&
+          !state.conditionalInitializers.has(initializer.node) &&
+          isJavaScriptRpcClientFactory(initializer.node);
+        clients.set(binding.bindingId, client);
+      }
+      if (client) roots.add(root);
+    },
+  });
+  return roots;
 }
 
 /** Receiver identity facts for the overloaded `.open` syntax only. */
@@ -310,26 +354,45 @@ const resolveGlobalAliasFact = (
   return openGlobalFact(name);
 };
 
-const ELECTRON_MODULE = /^electron(?:\/(?:common|main|renderer|utility))?$/u;
-
 /**
- * Electron export paths for call and construction roots bound to Electron
- * under another name, such as esbuild's `import { ipcMain as ipcMain2 }`.
- * Keys are root identifier offsets; roots spelled as their export are omitted.
+ * Proven Electron export path segments for call and construction roots, keyed by
+ * root offset. Only proven Electron origins are present; callers must not
+ * infer an Electron export from an absent entry or familiar local name.
  */
 export const classifyParsedJavaScriptElectronBindings = (
   file: ParsedJavaScriptSource,
-): ReadonlyMap<number, string> =>
+): ReadonlyMap<number, readonly string[]> =>
   completeSemanticSteps(classifyParsedJavaScriptElectronBindingsSteps(file));
 
 /** Resolve Electron aliases while yielding during lexical and AST scans. */
 export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
-): Generator<void, ReadonlyMap<number, string>> {
-  const facts = new Map<number, string>();
+): Generator<void, ReadonlyMap<number, readonly string[]>> {
+  const facts = new Map<number, readonly string[]>();
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
-  const exportsByBinding = new Map<string, string | null>();
+  const exportsByBinding = new Map<string, readonly string[] | null>();
+  const rootExport = (root: t.Node): readonly string[] | undefined => {
+    if (t.isIdentifier(root)) {
+      if (semanticResolutionBlocked(state, root, root.name)) return undefined;
+      const binding = resolveSemanticBindingState(state, root, root.name);
+      if (binding === undefined) return undefined;
+      let exported = exportsByBinding.get(binding.bindingId);
+      if (exported === undefined) {
+        exported = electronExport(binding, state);
+        exportsByBinding.set(binding.bindingId, exported);
+      }
+      return exported ?? undefined;
+    }
+    const origin = semanticRequireOrigin(root, state);
+    return origin !== undefined && ELECTRON_MODULE.test(origin.specifier)
+      ? electronExportPath(origin.importedPath)
+      : undefined;
+  };
+  const writes = yield* collectElectronMemberWritesSteps(
+    file.program,
+    rootExport,
+  );
   yield* traverseJavaScriptAstSteps(file.program, {
     enter: (node) => {
       if (
@@ -338,41 +401,43 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
         !t.isNewExpression(node)
       )
         return;
-      const root = calleeRoot(node.callee);
-      if (root === undefined) return;
-      const binding = resolveSemanticBindingState(state, root, root.name);
-      if (binding === undefined) return;
-      let exported = exportsByBinding.get(binding.bindingId);
-      if (exported === undefined) {
-        exported = electronExport(binding, state);
-        exportsByBinding.set(binding.bindingId, exported);
-      }
-      if (exported !== null && exported !== root.name)
+      const { root, members } = electronMemberPath(node.callee);
+      const exported = rootExport(root);
+      if (exported !== undefined && !writes.covers([...exported, ...members]))
         facts.set(root.start ?? -1, exported);
     },
   });
   return facts;
 }
 
-const calleeRoot = (node: t.Node): t.Identifier | undefined => {
-  while (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
-    if (!t.isNode(node.object)) return undefined;
-    node = node.object;
-  }
-  return t.isIdentifier(node) ? node : undefined;
-};
-
 // Read import and require origins directly; general value evaluation is
 // unnecessary here and costly across large vendor bundles.
 const electronExport = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
-): string | null => {
-  const origin = bindingOrigin(binding, state);
-  return origin !== undefined &&
-    ELECTRON_MODULE.test(origin.specifier) &&
-    origin.importedPath.length > 0
-    ? origin.importedPath.join(".")
+): readonly string[] | null => {
+  if (binding.definitions.some(({ kind }) => kind === "assignment"))
+    return null;
+  const directOrigin = bindingOrigin(binding, state);
+  const [initializer] = binding.initializers;
+  if (
+    directOrigin === undefined &&
+    (initializer === undefined ||
+      binding.initializers.length !== 1 ||
+      state.conditionalInitializers.has(initializer.node))
+  )
+    return null;
+  const provenance =
+    directOrigin === undefined
+      ? evaluateSemanticProvenance(binding, state)
+      : undefined;
+  const origin =
+    directOrigin ??
+    (provenance?.status === "module" && provenance.origins.length === 1
+      ? provenance.origins[0]
+      : undefined);
+  return origin !== undefined && ELECTRON_MODULE.test(origin.specifier)
+    ? electronExportPath(origin.importedPath)
     : null;
 };
 
@@ -1074,7 +1139,7 @@ const createBinding = (
   kind: JavaScriptSemanticDefinition["kind"],
   mutable: boolean,
 ): JavaScriptSemanticBindingState => ({
-  bindingId: `${scope.scopeId}:binding:${encodeURIComponent(name)}`,
+  bindingId: semanticBindingId(scope.scopeId, name),
   scopeId: scope.scopeId,
   name,
   kind,

@@ -27,11 +27,8 @@ import {
 import { ProviderSelectionError } from "./providerSelectionError.js";
 import { UnknownRegistryError } from "./unknownRegistryError.js";
 import { providerRetryAction } from "./providerOperationHealth.js";
-import {
-  type AnalysisError,
-  type AnalysisErrorTag,
-} from "./analysisErrorBase.js";
-import { type AnalysisErrorProjection } from "./analysisErrorProjection.js";
+import type { AnalysisError, AnalysisErrorTag } from "./analysisErrorBase.js";
+import type { AnalysisErrorProjection } from "./analysisErrorProjection.js";
 
 export const analysisErrorRemediationAction = (
   error: AnalysisError,
@@ -47,7 +44,7 @@ export const analysisErrorRemediationAction = (
     return (
       error.remediationAction ??
       (error.resource === "transport"
-        ? "Export retained session evidence through export_evidence_bundle to a caller-selected path, or use complete CLI JSON output. Tools that accept retained-evidence references can inspect compatible records. The connection remains usable."
+        ? "Discover retained records with get_evidence_bundle and detail: summary, then inspect compatible records through inspect_analysis_view using an exact Evidence reference. Export complete retained session evidence through export_evidence_bundle to a caller-selected path, or use complete CLI JSON output. The connection remains usable."
         : error.resource === "cpu"
           ? "Review the reported worker CPU limits and observed signal. Retry with sufficient CPU time or a smaller artifact; REA retains tighter inherited limits."
           : error.resource === "file-size"
@@ -345,7 +342,11 @@ const artifactMessage = ({
     return "Artifact operation was cancelled. Start it again when ready.";
   if (reason === "limit")
     return "Artifact is too large to process safely. Narrow the requested path or use a smaller artifact.";
-  if (reason === "path") return artifactPathMessage(detail);
+  if (reason === "path")
+    return (
+      detail ??
+      "Artifact contains a conflicting internal path. Inspect the reported path before retrying."
+    );
   if (reason === "unavailable" && details?.unpacked === true)
     return `ASAR unpacked companion bytes are unavailable for ${details.logicalPath}. Select the archive in place with its .unpacked directory beside it, then retry.`;
   if (reason === "unavailable")
@@ -359,23 +360,6 @@ const artifactMessage = ({
   if (reason === "format" || reason === "integrity")
     return "Artifact is invalid or has changed. Get a fresh copy and try again.";
   return "Artifact could not be read or written. Check file access and try again.";
-};
-
-const artifactPathMessage = (detail: string | undefined): string => {
-  // Kept in step with DESTINATION_CASE_COLLISION_PREFIX. Domain does not import
-  // the artifact adapter that produces the detail.
-  if (
-    detail !== undefined &&
-    detail.startsWith("Destination filesystem cannot store both ")
-  )
-    return detail;
-  if (
-    detail !== undefined &&
-    (detail.startsWith("Artifact path is absolute or unsafe:") ||
-      detail.startsWith("Artifact path is not normalized:"))
-  )
-    return "Artifact contains an unsafe internal path. Inspect the reported path and correct the artifact before retrying.";
-  return "Artifact contains a conflicting internal path. Inspect the reported path before retrying.";
 };
 
 const evidenceFileMessage = ({

@@ -1,4 +1,8 @@
 import * as t from "@babel/types";
+import {
+  ELECTRON_IDENTITY_LIMITATION,
+  ELECTRON_MODULE,
+} from "./javascriptElectronMemberWrites.js";
 
 import {
   completeSemanticSteps,
@@ -19,6 +23,7 @@ import {
   inspectCall,
   inspectRouteProperty,
   inspectRoleProperty,
+  inspectRpcNode,
 } from "./javascriptStaticAnalysisCalls.js";
 import {
   inspectBundlerRegistration,
@@ -33,6 +38,7 @@ import {
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
 import {
   classifyParsedJavaScriptElectronBindingsSteps,
+  classifyParsedJavaScriptRpcClientRootsSteps,
   classifyParsedJavaScriptOpenReceivers,
   type JavaScriptOpenReceiverFact,
 } from "./javascriptSemanticAnalysis.js";
@@ -40,6 +46,8 @@ import {
   parseJavaScriptSource,
   type ParsedJavaScriptSource,
 } from "./javascriptSourceParser.js";
+
+import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
 
 /** Parse one JavaScript artifact and recover static structure only. */
 export const analyzeJavaScriptStaticSource = (
@@ -74,11 +82,13 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
   const electronBindings =
     yield* classifyParsedJavaScriptElectronBindingsSteps(file);
+  const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
   yield* traverseStaticSourceSteps(file, {
     source,
     accumulator,
     ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
     electronBindings,
+    rpcScan: createJavaScriptRpcScan(source, clientRoots),
   });
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
   return finalizeStaticAnalysis(source, file, accumulator);
@@ -114,6 +124,12 @@ const finalizeStaticAnalysis = (
       : [
           "One or more static keys, expressions, or Electron boundary values were dynamic and remain unknown.",
         ]),
+    ...(accumulator.references.some(
+      ({ value }) =>
+        value.specifier !== null && ELECTRON_MODULE.test(value.specifier),
+    )
+      ? [ELECTRON_IDENTITY_LIMITATION]
+      : []),
     "JavaScript syntax was parsed as data and was never evaluated.",
   ];
   return {
@@ -213,4 +229,5 @@ const inspectNode = (
     inspectRouteProperty(node, findings);
     inspectRoleProperty(node, findings);
   }
+  inspectRpcNode(node, findings);
 };

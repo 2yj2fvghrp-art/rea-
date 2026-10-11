@@ -411,6 +411,44 @@ describe.skipIf(process.platform === "win32")(
 describe.skipIf(process.platform === "win32")(
   "PSP explicit loader boundary",
   () => {
+    it("rejects mixing the PSP loader with a configured generic processor", async () => {
+      const { directory } = await installation();
+      const config = parseConfig({
+        GHIDRA_INSTALL_DIR: directory,
+        REA_GHIDRA_LANGUAGE_ID: "x86:LE:64:default",
+      });
+      if (!config.ok) throw config.error;
+      const provider = new GhidraProvider(config.value, silentLogger, {}, host);
+      const result = await provider.resolveAnalysisProfile(target);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("Conflicting language override was accepted");
+      expect(result.error._tag).toBe("AnalysisUnsupportedTargetError");
+      expect(result.error.message).toContain(
+        "does not accept REA_GHIDRA_LANGUAGE_ID overrides",
+      );
+    });
+
+    it("keeps PSP and generic language-override launch paths mutually exclusive", () => {
+      const paths = {
+        projectRoot: "/project",
+        targetPath: "/target.elf",
+        bridgeScriptPath: "/bridge/Rea.java",
+        descriptorPath: "/session",
+        ghidraLogPath: "/log",
+        scriptLogPath: "/scriptlog",
+      };
+      const languageOverride = { languageId: "x86:LE:64:default" };
+      expect(() =>
+        ghidraHeadlessArguments({ ...paths, psp: true, languageOverride }),
+      ).toThrow("PSP ELF import cannot be combined");
+      expect(ghidraHeadlessArguments({ ...paths, languageOverride })).toEqual(
+        expect.arrayContaining(["-processor", "x86:LE:64:default"]),
+      );
+      expect(ghidraHeadlessArguments({ ...paths, psp: true })).toEqual(
+        expect.arrayContaining(["-loader", "PspElfLoader", "-processor", "Allegrex:LE:32:default"]),
+      );
+    });
+
     it("forces the PSP loader/language only for the selected profile", () => {
       const paths = {
         projectRoot: "/project",

@@ -167,6 +167,9 @@ Native call tracing and process capture retain available observations in
 `details.partial_observation` on failure, including when cleanup succeeds.
 The observation reports its partial coverage; cleanup details describe host
 state separately from the execution failure.
+A process capture that fails during a finalization interval keeps every signal
+attempt and its delivery result in `details.partial_observation`, with
+`elapsed_ms` and `exit_code` null when no exit was observed.
 Derived comparisons and reconstruction verification yield before computation
 and before publication, so cancellation cannot race with successful Evidence.
 
@@ -305,6 +308,23 @@ that reference for a summary, one section/module, or a stable page, or call
 bundle exports stream canonical JSON into an atomically published file. A broad
 follow-up or `get_evidence_bundle` can also exceed the response budget; exporting
 preserves the complete session without sending it through a single MCP frame.
+To discover existing records without their large payloads, call
+`get_evidence_bundle` with `detail: "summary"`. Its `result.records` contain
+Evidence IDs, artifact/provider identities, analysis-profile digests and native
+procedure metadata. Optional `filters` match exact `evidence_id`, `operation`,
+`target_sha256`, `analysis_profile_digest` or `procedure_address`. Use a discovered
+ID with `inspect_analysis_view`; neither discovery nor retained selection starts
+a provider. `retention: "complete-record"` describes stored Evidence, while
+`native_dossier.value_flow` independently reports truncation, unavailable or
+unknown metadata. Missing omission counts remain null. Summary output carries
+every matching record; actual transport admission still applies. Omitted
+`detail` preserves complete canonical bundle delivery; filters require summary.
+
+For a portable exported bundle, the CLI shares this projection:
+`rea inspect-evidence-bundle '{"path":"/tmp/evidence.json","detail":"summary","filters":{"operation":"analyze_function"}}' --format json`.
+The CLI validates and materializes that local bundle under its existing memory
+budget; summary delivery does not make arbitrary large files cheap to import.
+
 Cancelling an export stops further serialization and removes its staging file.
 The destination changes only when a complete export is atomically published.
 
