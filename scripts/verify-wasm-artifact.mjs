@@ -122,15 +122,35 @@ try {
       new URL("../tests/fixtures/wasm/custom-names.wat", import.meta.url),
       "utf8",
     ),
-  ];
-  for (const [index, source] of sources.entries()) {
+  ].map((source) => ({ source, debugNames: false }));
+  sources.push(
+    {
+      source:
+        '(module $named (func (export "answer") (result i32) i32.const 42))\n',
+      debugNames: true,
+    },
+    {
+      source: await readFile(
+        new URL("../tests/fixtures/wasm/module-names.wat", import.meta.url),
+        "utf8",
+      ),
+      debugNames: false,
+    },
+  );
+  for (const [index, { source, debugNames }] of sources.entries()) {
     const fixtureRoot = join(root.path, `fixture-${index}`);
     await mkdir(fixtureRoot);
     const path = join(fixtureRoot, "module.wasm");
     await writeFile(join(fixtureRoot, "source.wat"), source);
     await tool(
       "wat2wasm",
-      ["--enable-all", "source.wat", "-o", "module.wasm"],
+      [
+        "--enable-all",
+        ...(debugNames ? ["--debug-names"] : []),
+        "source.wat",
+        "-o",
+        "module.wasm",
+      ],
       fixtureRoot,
     );
     await tool("wasm-validate", ["--enable-all", "module.wasm"], fixtureRoot);
@@ -220,6 +240,10 @@ try {
           '"unicode-é\\\t"',
         ],
       );
+    if (debugNames) {
+      assert.ok(report.headers.includes("\nmodule name: <named>\n"));
+      assert.deepEqual(report.exports, ['(export "answer" (func 0))']);
+    }
     const bundleReply = await client.callTool({
       name: "get_evidence_bundle",
       arguments: {},
