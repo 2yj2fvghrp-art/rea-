@@ -3,6 +3,7 @@ import { homeDirectoryFromEnvironment } from "../config/homeDirectory.js";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import spawn from "cross-spawn";
+import { lt, valid } from "semver";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -305,6 +306,23 @@ export const systemUpdateHost = (
     }),
   latestVersion: async (installation) => {
     const context = packageManagerContext(installation, environment);
+    if (installation?.manager === "bun") {
+      const version = await runUpdateCommand(
+        ["bun", "--version"],
+        context.environment,
+        "structured",
+        context.workingDirectory,
+      );
+      if (!version.ok)
+        return err({ kind: "unavailable", detail: version.error });
+      const bunVersion = valid(version.value);
+      // bun info was introduced in 1.2.17; older releases reserve the command.
+      if (bunVersion === null || lt(bunVersion, "1.2.17"))
+        return err({
+          kind: "unsupported-package-manager",
+          detail: `REA updates for Bun global installations require Bun 1.2.17 or later; bun --version returned ${JSON.stringify(version.value)}. Upgrade Bun manually, then rerun rea update.`,
+        });
+    }
     return npmReleaseLookup(
       await runUpdateCommand(
         installation?.manager === "bun"

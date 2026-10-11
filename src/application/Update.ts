@@ -29,6 +29,7 @@ export type UpdateOutput = "human" | "structured";
 /** Why release lookup failed before a version could be compared. */
 export type ReleaseLookupFailure =
   | { readonly kind: "unavailable"; readonly detail: string }
+  | { readonly kind: "unsupported-package-manager"; readonly detail: string }
   | { readonly kind: "invalid-metadata"; readonly detail: string };
 
 /** Effects used to update and verify one identified REA installation. */
@@ -120,6 +121,8 @@ const versionCheckRemediation = (
   const failure = release.error;
   const kind = failure.kind;
   switch (kind) {
+    case "unsupported-package-manager":
+      return failure.detail;
     case "unavailable":
       return `REA could not resolve the latest release: ${failure.detail}. Retry rea update when registry access is available.`;
     case "invalid-metadata":

@@ -403,8 +403,12 @@ installs the matching skill and on-demand references in the same plan, and adds
 release into the npm prefix or Bun global directory that owns the running
 package, then checks the new executable's version before reporting success. It
 does not reopen onboarding. For npm installations, release lookup and
-installation both use npm's configured registry. For Bun global installations,
-`bun info` and `bun add --global --ignore-scripts` use Bun's configured registry
+installation both use npm's configured registry. Bun global updates require
+Bun 1.2.17 or later, which introduced `bun info`. The updater checks `bun --version`
+first and stops with an instruction to upgrade Bun manually if the version is
+older or cannot be parsed; it does not upgrade Bun itself.
+For supported Bun global installations, `bun info` and
+`bun add --global --ignore-scripts` use Bun's configured registry
 and run inside the owning Bun global directory (`BUN_INSTALL_GLOBAL_DIR`, else
 `$BUN_INSTALL/install/global`, else `$XDG_CACHE_HOME/.bun/install/global`,
 else `~/.bun/install/global`), never in the caller's current project. A Bun

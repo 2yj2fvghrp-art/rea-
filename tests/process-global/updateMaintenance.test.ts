@@ -374,109 +374,138 @@ describe("update subprocess boundaries", () => {
 });
 
 describe("Bun global installation update", () => {
-  it("updates a Bun global installation from inside its global project", async () => {
-    // A recording `bun` on PATH crosses the real subprocess boundary without registry access.
-    const root = await createTestTempDirectory("rea-update-bun-");
-    const globalDirectory = join(root, "bun", "install", "global");
-    const packageRoot = join(
-      globalDirectory,
-      "node_modules",
-      PRODUCT_IDENTITY.packageName,
-    );
-    const versionPath = join(root, "installed-version");
-    const logPath = join(root, "bun-invocations.jsonl");
-    await mkdir(join(packageRoot, "scripts"), { recursive: true });
-    await writeFile(
-      join(globalDirectory, "package.json"),
-      '{"dependencies":{"rea-agents":"3.2.1"}}\n',
-    );
-    await writeFile(versionPath, "3.2.1");
-    await writeFile(
-      join(packageRoot, "scripts", "rea.mjs"),
-      `import { readFileSync } from "node:fs";\nprocess.stdout.write(readFileSync(${JSON.stringify(versionPath)}, "utf8") + "\\n");\n`,
-    );
-    const binDirectory = join(root, "bin");
-    const recorder = join(binDirectory, "record-bun.mjs");
-    await mkdir(binDirectory);
-    await writeFile(
-      recorder,
-      [
-        'import { appendFileSync, writeFileSync } from "node:fs";',
-        "const args = process.argv.slice(2);",
-        `appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args, cwd: process.cwd(), globalDirectory: process.env.BUN_INSTALL_GLOBAL_DIR }) + "\\n");`,
-        'if (args[0] === "info") process.stdout.write(\'"3.3.0"\\n\');',
-        `else if (args[0] === "add") writeFileSync(${JSON.stringify(versionPath)}, args.at(-1).split("@").at(-1));`,
-        "else process.exitCode = 2;",
-        "",
-      ].join("\n"),
-    );
-    if (process.platform === "win32") {
-      await writeFile(
-        join(binDirectory, "bun.cmd"),
-        `@"${process.execPath}" "${recorder}" %*\r\n`,
+  it.each([
+    ["1.4.2", "updated"],
+    ["1.2.17", "updated"],
+    ["1.2.14", "failed"],
+    ["1.2.17-canary.1", "failed"],
+    ["unknown", "failed"],
+  ])(
+    "handles Bun %s with outcome %s inside its global project",
+    async (bunVersion, status) => {
+      // A recording `bun` on PATH crosses the real subprocess boundary without registry access.
+      const root = await createTestTempDirectory("rea-update-bun-");
+      const globalDirectory = join(root, "bun", "install", "global");
+      const packageRoot = join(
+        globalDirectory,
+        "node_modules",
+        PRODUCT_IDENTITY.packageName,
       );
-    } else {
+      const versionPath = join(root, "installed-version");
+      const logPath = join(root, "bun-invocations.jsonl");
+      await mkdir(join(packageRoot, "scripts"), { recursive: true });
       await writeFile(
-        join(binDirectory, "bun"),
-        `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(recorder)} "$@"\n`,
-        { mode: 0o755 },
+        join(globalDirectory, "package.json"),
+        '{"dependencies":{"rea-agents":"3.2.1"}}\n',
       );
-    }
-    const pathKey =
-      Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ??
-      "PATH";
-    const environment: NodeJS.ProcessEnv = {
-      ...process.env,
-      [pathKey]: `${binDirectory}${delimiter}${process.env[pathKey] ?? ""}`,
-      BUN_INSTALL: join(root, "bun"),
-    };
-    delete environment.BUN_INSTALL_GLOBAL_DIR;
+      await writeFile(versionPath, "3.2.1");
+      await writeFile(
+        join(packageRoot, "scripts", "rea.mjs"),
+        `import { readFileSync } from "node:fs";\nprocess.stdout.write(readFileSync(${JSON.stringify(versionPath)}, "utf8") + "\\n");\n`,
+      );
+      const binDirectory = join(root, "bin");
+      const recorder = join(binDirectory, "record-bun.mjs");
+      await mkdir(binDirectory);
+      await writeFile(
+        recorder,
+        [
+          'import { appendFileSync, writeFileSync } from "node:fs";',
+          "const args = process.argv.slice(2);",
+          `appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args, cwd: process.cwd(), globalDirectory: process.env.BUN_INSTALL_GLOBAL_DIR }) + "\\n");`,
+          `if (JSON.stringify(args) === '["--version"]') console.log(${JSON.stringify(bunVersion)});`,
+          `else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(["info", PRODUCT_IDENTITY.packageName, "dist-tags.latest", "--json"]))}) process.stdout.write('"3.3.0"\\n');`,
+          `else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(["add", "--global", "--ignore-scripts", `${PRODUCT_IDENTITY.packageName}@3.3.0`]))}) writeFileSync(${JSON.stringify(versionPath)}, "3.3.0");`,
+          "else process.exitCode = 2;",
+          "",
+        ].join("\n"),
+      );
+      if (process.platform === "win32") {
+        await writeFile(
+          join(binDirectory, "bun.cmd"),
+          `@"${process.execPath}" "${recorder}" %*\r\n`,
+        );
+      } else {
+        await writeFile(
+          join(binDirectory, "bun"),
+          `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(recorder)} "$@"\n`,
+          { mode: 0o755 },
+        );
+      }
+      const pathKey =
+        Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ??
+        "PATH";
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        [pathKey]: `${binDirectory}${delimiter}${process.env[pathKey] ?? ""}`,
+        BUN_INSTALL: join(root, "bun"),
+      };
+      delete environment.BUN_INSTALL_GLOBAL_DIR;
 
-    const result = await runUpdate(
-      "3.2.1",
-      systemUpdateHost(packageRoot, home, environment),
-      "structured",
-    );
+      const result = await runUpdate(
+        "3.2.1",
+        systemUpdateHost(packageRoot, home, environment),
+        "structured",
+      );
 
-    expect(result).toMatchObject({
-      status: "updated",
-      installMethod: "bun",
-      installedVersion: "3.3.0",
-      command: [
-        "bun",
-        "add",
-        "--global",
-        "--ignore-scripts",
-        `${PRODUCT_IDENTITY.packageName}@3.3.0`,
-      ],
-    });
-    const invocations = (await readFile(logPath, "utf8"))
-      .trim()
-      .split("\n")
-      .map((line): unknown => JSON.parse(line));
-    // `bun info` needs a project in its working directory, and the caller's
-    // directory must never be selected, so both commands run in the owner.
-    expect(invocations).toEqual([
-      {
-        args: [
-          "info",
-          PRODUCT_IDENTITY.packageName,
-          "dist-tags.latest",
-          "--json",
-        ],
+      const invocations = (await readFile(logPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line): unknown => JSON.parse(line));
+      const versionInvocation = {
+        args: ["--version"],
         cwd: globalDirectory,
         globalDirectory,
-      },
-      {
-        args: [
+      };
+      if (status === "failed") {
+        expect(result).toEqual({
+          status: "failed",
+          currentVersion: "3.2.1",
+          latestVersion: null,
+          reason: "version-check",
+          remediation: `REA updates for Bun global installations require Bun 1.2.17 or later; bun --version returned ${JSON.stringify(bunVersion)}. Upgrade Bun manually, then rerun rea update.`,
+        });
+        expect(invocations).toEqual([versionInvocation]);
+        expect(await readFile(versionPath, "utf8")).toBe("3.2.1");
+        return;
+      }
+
+      expect(result).toMatchObject({
+        status: "updated",
+        installMethod: "bun",
+        installedVersion: "3.3.0",
+        command: [
+          "bun",
           "add",
           "--global",
           "--ignore-scripts",
           `${PRODUCT_IDENTITY.packageName}@3.3.0`,
         ],
-        cwd: globalDirectory,
-        globalDirectory,
-      },
-    ]);
-  });
+      });
+      // `bun info` needs a project in its working directory, and the caller's
+      // directory must never be selected, so all commands run in the owner.
+      expect(invocations).toEqual([
+        versionInvocation,
+        {
+          args: [
+            "info",
+            PRODUCT_IDENTITY.packageName,
+            "dist-tags.latest",
+            "--json",
+          ],
+          cwd: globalDirectory,
+          globalDirectory,
+        },
+        {
+          args: [
+            "add",
+            "--global",
+            "--ignore-scripts",
+            `${PRODUCT_IDENTITY.packageName}@3.3.0`,
+          ],
+          cwd: globalDirectory,
+          globalDirectory,
+        },
+      ]);
+    },
+  );
 });
