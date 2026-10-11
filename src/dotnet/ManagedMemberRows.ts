@@ -1,4 +1,7 @@
-import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
+import {
+  admitManagedProjection,
+  managedDecodeBudget,
+} from "./ManagedDecodeBudget.js";
 import type { ManagedPeLayout } from "./ManagedPeReader.js";
 import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
@@ -270,6 +273,10 @@ const budgetedSignature = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
 ): ReturnType<typeof signature> => {
-  managedDecodeBudget(layout).reserve(bytes.length * 256, layout.blob.offset);
-  return signature(bytes, managedDecodeBudget(layout).digest(bytes, "sha256"));
+  const budget = managedDecodeBudget(layout);
+  budget.admitTransient(bytes.length * 256, layout.blob.offset);
+  return admitManagedProjection(
+    signature(bytes, budget.digest(bytes, "sha256")),
+    budget,
+  );
 };

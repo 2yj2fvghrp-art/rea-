@@ -18,6 +18,12 @@ export class ManagedDecodeBudget {
   readonly #digests = new WeakMap<ArrayBufferLike, Map<string, string>>();
 
   reserve(bytes: number, offset: number | null): void {
+    this.admitTransient(bytes, offset);
+    this.#remaining -= bytes;
+  }
+
+  /** Bound a decoding allocation that is released before the next one; only retained output is reserved. */
+  admitTransient(bytes: number, offset: number | null): void {
     if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.#remaining)
       throw managedFailure(
         "resource-limit",
@@ -25,7 +31,6 @@ export class ManagedDecodeBudget {
         `Managed metadata exceeds the ${String(MAX_METADATA_REPRESENTATION_BYTES)} byte representation budget`,
         offset,
       );
-    this.#remaining -= bytes;
   }
 
   /** UTF-8 cannot decode to more UTF-16 units than bytes; JSON uses at most six bytes per unit. */
@@ -80,25 +85,27 @@ export const managedDecodeBudget = (
   return budget;
 };
 
+/** Exact UTF-8 JSON bytes of a decoded scalar or key, including escapes. */
+const jsonBytes = (item: unknown): number =>
+  Buffer.byteLength(JSON.stringify(item) ?? "null");
+
 /** Admit repeated values too: shared heap strings still expand at the JSON boundary. */
 export const admitManagedProjection = <Value>(
   value: Value,
   budget: ManagedDecodeBudget = new ManagedDecodeBudget(),
 ): Value => {
   const visit = (item: unknown): void => {
-    if (typeof item === "string") {
-      budget.reserveString(item.length, null);
-    } else if (Array.isArray(item)) {
+    if (Array.isArray(item)) {
       budget.reserve(item.length + 2, null);
       for (const child of item) visit(child);
     } else if (item !== null && typeof item === "object") {
       budget.reserve(2, null);
       for (const key of Object.keys(item)) {
-        budget.reserve(key.length * 6 + 4, null);
+        budget.reserve(jsonBytes(key) + 2, null);
         visit(Reflect.get(item, key));
       }
     } else {
-      budget.reserve(32, null);
+      budget.reserve(jsonBytes(item), null);
     }
   };
   visit(value);

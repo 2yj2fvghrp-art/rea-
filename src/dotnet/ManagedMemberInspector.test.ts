@@ -29,6 +29,34 @@ describe("managed member inspection", () => {
     ]);
   });
 
+  it("charges decoded output rather than accumulated decoding bounds", () => {
+    // Each bound fits alone, but 256 bytes per IL and signature byte together
+    // exceed the 64 MiB budget although the retained members are small.
+    const il = Buffer.concat([Buffer.alloc(200_000), Buffer.from([0x2a])]);
+    const header = Buffer.alloc(12);
+    header.writeUInt16LE(0x3003, 0);
+    header.writeUInt16LE(8, 2);
+    header.writeUInt32LE(il.length, 4);
+    const bytes = buildManagedPeFixture({
+      ilBody: Buffer.concat([header, il]),
+      methodSignature: Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x01]),
+        Buffer.alloc(80_000),
+      ]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.coverage.state).not.toBe("unavailable");
+    expect(result.methods[0]?.body).toMatchObject({
+      status: "present",
+      il_size: il.length,
+      opcode_counts: { nop: 200_000, ret: 1 },
+    });
+  });
+
   it("inspects metadata members, signatures, CIL hashes, call edges, and field anchors", () => {
     const bytes = buildManagedPeFixture();
     const result = inspectManagedMembersBytes(
