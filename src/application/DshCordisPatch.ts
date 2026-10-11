@@ -294,7 +294,8 @@ const dshWinningConfigNode = (
 ): unknown => {
   let established = false;
   let winning: unknown;
-  for (const item of items) {
+  for (const raw of items) {
+    const item = isAlias(raw) ? (nodeMap(raw, yamlDocument) ?? raw) : raw;
     if (!isMap(item)) continue;
     const insertNode = item.get("insert", true);
     const insert = isAlias(insertNode)
@@ -498,7 +499,10 @@ export const serializeDshDocument = (
   // anchor. Uninstall removes the anchored row first; the later alias must
   // still be dropped or serialization keeps a dangling alias and restores.
   const ownedInsertAliases = new Set<unknown>();
+  const ownedRootAliases = new Set<unknown>();
   for (const candidate of root.items) {
+    if (isAlias(candidate) && aliasOwnsReaEntry(candidate, yamlDocument))
+      ownedRootAliases.add(candidate);
     if (!isMap(candidate)) continue;
     const candidateOperation = candidate as unknown as YAMLMap<
       unknown,
@@ -517,7 +521,9 @@ export const serializeDshDocument = (
   type PatchItem = (typeof root.items)[number];
   root.items = root.items.flatMap((item): PatchItem[] => {
     if (isAlias(item))
-      return aliasOwnsReaEntry(item, yamlDocument) ? [] : [item];
+      return ownedRootAliases.has(item) || aliasOwnsReaEntry(item, yamlDocument)
+        ? []
+        : [item];
     if (!isMap(item)) return [item];
     // Seq members type as node-keyed maps; alias values need the loose view.
     const operation = item as unknown as YAMLMap<unknown, unknown>;
@@ -551,24 +557,28 @@ export const serializeDshDocument = (
       // and would otherwise override it again at their position.
       return mapEntryId(operation, yamlDocument) === DSH_ENTRY_ID ? [] : [item];
     }
-    removeAliasedReaEntries(insert, yamlDocument);
-    if (insert.items.length === 0) return [];
     const carrying = insert.items
-      .map((entry, index) =>
-        isMap(entry) && mapEntryId(entry, yamlDocument) === DSH_ENTRY_ID
-          ? index
-          : -1,
-      )
+      .map((entry, index) => (entryOwnsRea(entry, yamlDocument) ? index : -1))
       .filter((index) => index >= 0);
     if (carrying.length === 0) return [item];
     if (carried) {
       removeSeqItems(insert, carrying);
       return insert.items.length === 0 ? [] : [item];
     }
+    const first = carrying[0] as number;
+    let entry: unknown = insert.items[first];
+    // The only owned member may be an alias of an external entry. Copy that
+    // map into the list so the refresh can keep its Cordis tags.
+    if (isAlias(entry)) {
+      const resolved = entry.resolve(yamlDocument);
+      const cloned = isMap(resolved) ? resolved.clone() : undefined;
+      if (!isMap(cloned)) return [item];
+      insert.items[first] = cloned as never;
+      entry = cloned;
+    }
     carried = true;
     for (const index of carrying.slice(1).reverse())
       insert.items.splice(index, 1);
-    const entry = insert.items[carrying[0] as number];
     if (isMap(entry)) {
       if (desired === undefined) {
         insert.items.splice(carrying[0] as number, 1);
@@ -637,18 +647,6 @@ const aliasOwnsReaEntry = (node: unknown, yamlDocument: Document): boolean => {
 const entryOwnsRea = (node: unknown, yamlDocument: Document): boolean => {
   const map = nodeMap(node, yamlDocument);
   return map !== undefined && mapEntryId(map, yamlDocument) === DSH_ENTRY_ID;
-};
-
-const removeAliasedReaEntries = (
-  sequence: { items: unknown[] },
-  yamlDocument: Document,
-): void => {
-  for (let index = sequence.items.length - 1; index >= 0; index -= 1)
-    if (
-      isAlias(sequence.items[index]) &&
-      entryOwnsRea(sequence.items[index], yamlDocument)
-    )
-      sequence.items.splice(index, 1);
 };
 
 const removeSeqItems = (

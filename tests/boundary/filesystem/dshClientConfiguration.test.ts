@@ -1298,4 +1298,106 @@ describe("DeepSeek Harness alias cleanup", () => {
   });
 });
 
+describe("DeepSeek Harness root aliases", () => {
+  it("uses a direct patch replayed by a root alias as the winning config", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: first-launcher
+        args: [mcp]
+        env:
+          GHIDRA_INSTALL_DIR: /absolute/ghidra
+- &patch
+  id: rea-mcp
+  config:
+    serverName: rea
+    transport: stdio
+    command: stale-launcher
+    args: [mcp]
+    env:
+      GHIDRA_INSTALL_DIR: !!js process.env.GHIDRA_INSTALL_DIR
+- *patch
+`,
+    );
+
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(await readFile(client.configPath, "utf8")).toContain(
+      "!!js process.env.GHIDRA_INSTALL_DIR",
+    );
+  });
+
+  it("removes a root alias of the owned insertion on uninstall", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &row
+  insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+- *row
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("rea-mcp");
+    expect(text).not.toContain("*row");
+  });
+
+  it("keeps a Cordis tag when the only owned row is an alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &entry
+  id: rea-mcp
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: rea
+    transport: stdio
+    command: stale-launcher
+    args: [mcp]
+    cwd: !!js process.cwd()
+- insert:
+    - *entry
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.cwd()");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert?: { config?: { cwd?: unknown; command?: unknown } }[];
+    }[];
+    const row = patches.find((patch) => patch.insert !== undefined);
+    expect(row?.insert?.[0]?.config?.cwd).toBe("process.cwd()");
+    expect(row?.insert?.[0]?.config?.command).toBe(command[0]);
+  });
+});
+
 const textOf = (value: unknown): string => String(value);

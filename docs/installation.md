@@ -89,8 +89,11 @@ running server or its registration.
 
 The npm release checked on **2026-10-11** was **6.4.0**, published from
 [`a56f7bb6`](https://github.com/morluto/rea/commit/a56f7bb668ab23fec8d33f7af353ac7ed2fe1895).
-The actual registry package accepted dry-run setup plans for all 17 client IDs
-listed below, including Qwen Code, Pi and Hermes. OpenCode's plan selected
+The actual registry package accepted dry-run setup plans for the 17 client IDs
+in that release, including Qwen Code, Pi and Hermes. DeepSeek Harness (`dsh`)
+is on main and is not in npm 6.4.0; `rea setup --client dsh` against `@latest`
+reports an unsupported client until a release containing it is published.
+OpenCode's plan selected
 `OPENCODE_CONFIG_DIR` even when that directory did not yet exist. These checks
 used an isolated home on macOS with Node 24; they verify planning and argument
 admission, without writing client configuration or establishing live integration
@@ -163,6 +166,9 @@ listed after the table because its connector is not one of these files:
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
 | DeepSeek Harness   | `dsh`            |
+
+`dsh` is main-only until a release after 6.4.0. The registry check above does
+not cover it.
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
