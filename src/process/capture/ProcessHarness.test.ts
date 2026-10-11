@@ -812,7 +812,10 @@ it("retains the root start identity once at launch and signals only with it", as
     identity: "id-launch",
   }));
   const signal = vi.fn(async () => "signaled" as const);
-  const signalRoot = retainRootSignaller(4242, 500, { observe, signal });
+  const signalRoot = retainRootSignaller(4242, 500, "captured-run", {
+    observe,
+    signal,
+  });
 
   expect(
     observe,
@@ -857,7 +860,7 @@ it.each([
   "never signals without a retained identity: %s",
   async (_label, read, delivery) => {
     const signal = vi.fn(async () => "signaled" as const);
-    const signalRoot = retainRootSignaller(4242, 500, {
+    const signalRoot = retainRootSignaller(4242, 500, "captured-run", {
       observe: read,
       signal,
     });
@@ -872,7 +875,7 @@ it.each([
 
 it("does not read an identity when there is no finalization interval", async () => {
   const observe = vi.fn(async () => undefined);
-  const signalRoot = retainRootSignaller(4242, 0, {
+  const signalRoot = retainRootSignaller(4242, 0, "captured-run", {
     observe,
     signal: vi.fn(async () => "signaled" as const),
   });
@@ -893,7 +896,7 @@ it("does not read an identity when there is no finalization interval", async () 
 it.each(["signaled", "gone", "identity-changed", "unverified"] as const)(
   "reports the identity-checked delivery result %s unchanged",
   async (delivery) => {
-    const signalRoot = retainRootSignaller(4242, 500, {
+    const signalRoot = retainRootSignaller(4242, 500, "captured-run", {
       observe: async () => ({ state: "readable", identity: "id-launch" }),
       signal: async () => delivery,
     });
@@ -943,7 +946,7 @@ it("seeds a finalization observation only for a scenario with an interval", () =
 });
 
 it("keeps a non-empty reason when the identity inspection fails without a message", async () => {
-  const signalRoot = retainRootSignaller(4242, 500, {
+  const signalRoot = retainRootSignaller(4242, 500, "captured-run", {
     observe: async () => {
       throw new Error();
     },
@@ -960,7 +963,7 @@ it("keeps a non-empty reason when the identity inspection fails without a messag
 });
 
 it("keeps a non-empty reason when the identity diagnostic is empty", async () => {
-  const signalRoot = retainRootSignaller(4242, 500, {
+  const signalRoot = retainRootSignaller(4242, 500, "captured-run", {
     observe: async () => ({ state: "unavailable" as const, reason: "" }),
     signal: vi.fn(async () => "signaled" as const),
   });

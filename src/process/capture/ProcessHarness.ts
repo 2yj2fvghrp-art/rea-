@@ -93,12 +93,14 @@ export interface FinalizationHost {
   readonly signal: typeof signalProcessWithStartIdentity;
 }
 
-/** Retain the root's start identity right after spawn, only when finalization can need it. */
+/** Bind the captured root's initial identity to its run token before retaining it. */
 export const retainRootSignaller = (
   pid: number,
   finalizationMs: number,
+  runId: string,
   host: FinalizationHost = {
-    observe: observeProcessStartIdentity,
+    observe: (rootPid) =>
+      observeProcessStartIdentity(rootPid, undefined, runId),
     signal: signalProcessWithStartIdentity,
   },
 ): StartedCaptureRuntime["signalRoot"] => {
@@ -323,6 +325,7 @@ const startCaptureRuntime = async (
       signalRoot: retainRootSignaller(
         terminal.pid,
         scenario.finalization_ms,
+        options.runId,
         options.finalizationHost,
       ),
     };

@@ -199,15 +199,15 @@ immediately, also during finalization, and ends the run as cancelled.
 }
 ```
 
-Both finalization signals go to the captured root after its start identity is
-checked immediately before the call, so a process that replaced the root is not
-signalled; the check and the signal are separate operations, not one atomic
-step. The identity is read right after the process starts, not at the instant
-of the spawn: a root that exits and whose PID is reused before that first read
-is indistinguishable by this check. REA does not fall back to a bare PID kill
-for either finalization signal; where the identity cannot be read, the attempt
-is recorded as `unverified`. Cancellation before any deadline is unchanged and
-keeps the existing terminal kill. Descendants are not signalled during
+REA binds the captured root's first start identity to its ownership token,
+checking the identity before and after reading that token. A missing or
+mismatched token, or an identity change during validation, leaves the identity
+unverified rather than adopting a replacement process. Both finalization
+signals recheck that retained identity immediately before the call; the check
+and signal remain separate operating-system operations. REA does not fall back
+to a bare PID kill for either finalization signal; failed identity or ownership
+validation is recorded as `unverified` with its reason. Cancellation before any
+deadline keeps the existing terminal kill. Descendants are not signalled during
 finalization; owned-process cleanup handles them afterwards.
 
 `exit.reason` keeps the initiating deadline (`timeout` or `idle_timeout`).
