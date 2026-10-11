@@ -14,6 +14,11 @@ import {
   semanticContainer,
   semanticSlotAtPath,
 } from "./javascriptSemanticSlots.js";
+import {
+  semanticClassCandidates,
+  semanticClassPropertyReferences,
+  semanticObjectPropertyReferences,
+} from "./javascriptSemanticObjectReferences.js";
 import { semanticIterationSources } from "./javascriptSemanticIterationSources.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
 import { createSemanticReturnedReferences } from "./javascriptSemanticReturnedReferences.js";
@@ -28,6 +33,7 @@ import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import { traverseJavaScriptAstSteps } from "./javascriptSemanticTraversal.js";
 import {
   semanticStaticPropertyKey,
+  semanticMemberWriteTargets,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 
@@ -120,11 +126,13 @@ export function* collectSemanticMemberMutationsSteps(
           continue;
         }
         // An alias restored from a saved reference can revisit the same binding
-        // at an earlier capture. Only a repeated lifetime closes a cycle.
+        // at an earlier capture or a shorter getter-receiver path. Only a
+        // repeated capture and path closes a cycle.
         const lifetime = JSON.stringify([
           binding.bindingId,
           current.originAt?.start,
           current.originAt?.end,
+          current.path,
         ]);
         if (current.bindings.has(lifetime)) continue;
         // Union compatible copied-slot selections at each binding. Carrying every
@@ -286,7 +294,7 @@ export function* collectSemanticMemberMutationsSteps(
         (path[0] === "constructor" && path[1] === "prototype"))
     )
       arrayIterationUnknown = true;
-    return referencedValues(expression, path, effect);
+    return referencedValues(expression, path, effect, state);
   }
   // Expanding a value below its references depends only on syntax, not on the
   // escape site. Escaping an object reaches every method's results, so
@@ -356,26 +364,14 @@ export function* collectSemanticMemberMutationsSteps(
       markEscaped(expression.object, mutation);
   };
   const markTarget = (node: t.Node, mutation: t.Node): void => {
-    if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node))
+    for (const target of semanticMemberWriteTargets(node))
       markValue(
-        node.object,
-        [semanticStaticPropertyKey(node.property, node.computed)],
+        target.object,
+        [semanticStaticPropertyKey(target.property, target.computed)],
         new Set(),
         "write",
         mutation,
       );
-    else if (t.isRestElement(node)) markTarget(node.argument, mutation);
-    else if (t.isAssignmentPattern(node)) markTarget(node.left, mutation);
-    else if (t.isArrayPattern(node)) {
-      for (const element of node.elements)
-        if (element !== null) markTarget(element, mutation);
-    } else if (t.isObjectPattern(node)) {
-      for (const property of node.properties)
-        markTarget(
-          t.isRestElement(property) ? property.argument : property.value,
-          mutation,
-        );
-    }
   };
   yield* traverseJavaScriptAstSteps(program, {
     enter: (node, parent) => {
@@ -618,6 +614,7 @@ const referencedValues = (
   node: t.Node,
   path: PropertyPath,
   effect: ValueEffect,
+  state: JavaScriptSemanticAnalysisState,
 ): readonly ReferencedValue[] => {
   if (effect === "escape" && t.isFunction(node))
     return semanticCallableResultExpressions(node).flatMap(
@@ -628,8 +625,32 @@ const referencedValues = (
   if (t.isObjectExpression(node) || t.isArrayExpression(node)) {
     if (effect === "write" && path.length < 2) return [];
     return t.isObjectExpression(node)
-      ? objectReferencedValues(node, path)
+      ? semanticObjectPropertyReferences(node, path, state)
       : arrayReferencedValues(node, path);
+  }
+  if (t.isClass(node)) {
+    const [key, ...remaining] = path;
+    if (key === undefined) return [];
+    // Replacing or deleting the getter's property does not use the value it
+    // would return. Only a deeper path can mutate the returned object.
+    if (effect === "write" && remaining.length === 0) return [];
+    return semanticClassPropertyReferences(
+      { owner: node, kind: "static" },
+      [key, ...remaining],
+      state,
+    );
+  }
+  if (t.isNewExpression(node)) {
+    const [key, ...remaining] = path;
+    if (key === undefined) return [];
+    if (effect === "write" && remaining.length === 0) return [];
+    return semanticClassCandidates(node.callee, state).flatMap((klass) =>
+      semanticClassPropertyReferences(
+        { owner: klass, kind: "instance" },
+        [key, ...remaining],
+        state,
+      ),
+    );
   }
   if (t.isAssignmentExpression(node))
     return node.operator === "||=" || node.operator === "??="
@@ -742,11 +763,17 @@ const observableMutationPaths = (
   for (const binding of state.bindingsById.values()) {
     const observer = bindingNodes.get(binding.bindingId);
     if (observer === undefined) continue;
-    for (const initializer of binding.initializers)
+    for (const initializer of binding.initializers) {
+      const expression = unwrapJavaScriptExpression(initializer.node).node;
+      // Preserve member paths through class values and local instances so
+      // getter-result aliases can be resolved at the accessor boundary.
+      if (t.isClass(expression) || t.isNewExpression(expression))
+        (observer.origins ??= new Set()).add("opaque");
       link(
         project(expressionNode(initializer.node), initializer.projection),
         observer,
       );
+    }
     // Preserve exact paths where copies, defaults or iteration need their
     // reference-specific projections; an opaque origin prevents pruning.
     if (binding.referenceInitializers.length > 0)
@@ -797,7 +824,12 @@ const observableMutationPaths = (
             observer,
           );
         else
-          for (const reference of referencedValues(expression, [], "escape"))
+          for (const reference of referencedValues(
+            expression,
+            [],
+            "escape",
+            state,
+          ))
             link(
               project(expressionNode(reference.node), reference.path),
               observer,
@@ -842,6 +874,7 @@ const observableMutationPaths = (
                 origin,
                 [key],
                 "escape",
+                state,
               )) {
                 link(
                   project(expressionNode(reference.node), reference.path),
@@ -886,60 +919,6 @@ const observableMutationPaths = (
     }
     return path;
   };
-};
-
-const objectReferencedValues = (
-  node: t.ObjectExpression,
-  path: PropertyPath,
-): readonly ReferencedValue[] => {
-  const [key, ...remaining] = path;
-  const references: ReferencedValue[] = [];
-  const overwritten = new Set<string>();
-  for (const property of [...node.properties].reverse()) {
-    if (t.isSpreadElement(property)) {
-      const selected = key ?? null;
-      if (typeof selected !== "object" && overwritten.has(String(selected)))
-        continue;
-      references.push({
-        node: property.argument,
-        path: [
-          typeof selected === "object"
-            ? {
-                ...selected,
-                excludedKeys: [
-                  ...new Set([
-                    ...(selected?.excludedKeys ?? []),
-                    ...overwritten,
-                  ]),
-                ].sort(compareUnicodeCodePoints),
-              }
-            : selected,
-          ...remaining,
-        ],
-      });
-      continue;
-    }
-    const name = semanticStaticPropertyKey(property.key, property.computed);
-    if (name !== null && overwritten.has(name)) continue;
-    if (name === null || semanticPropertyPathKeyMatches(key ?? null, name))
-      references.push({
-        node: t.isObjectProperty(property) ? property.value : property,
-        path: remaining,
-      });
-    // A prototype setter does not replace an own property from a spread.
-    if (
-      name !== null &&
-      !(t.isObjectMethod(property) && property.kind !== "method") &&
-      !(
-        t.isObjectProperty(property) &&
-        !property.computed &&
-        !property.shorthand &&
-        name === "__proto__"
-      )
-    )
-      overwritten.add(name);
-  }
-  return references;
 };
 
 const arrayReferencedValues = (

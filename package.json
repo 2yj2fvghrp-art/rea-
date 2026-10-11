@@ -30,6 +30,9 @@
     "access": "public"
   },
   "type": "module",
+  "imports": {
+    "#javascript-analysis-worker": "./dist/composition/javascriptAnalysisWorkerProcess.js"
+  },
   "bin": {
     "rea": "scripts/rea.mjs",
     "rea-agents": "scripts/rea.mjs"
@@ -50,6 +53,7 @@
     "bridge/ghidra/ReaGhidraBridge.java",
     "bridge/ghidra/ReaGhidraExtensions.java",
     "bridge/ghidra/ReaGhidraPrepareCom.java",
+    "bridge/ghidra/ReaGhidraApplySeeds.java",
     "bridge/ghidra/ReaGhidraNoReturnFix.java",
     "bridge/android/ReaJadxBridge.java",
     "bridge/mitmproxy/capture.py",
@@ -101,6 +105,8 @@
     "precheck:ci": "npm run deps:check",
     "check:ci": "node scripts/run-exclusive.mjs artifacts turbo run typecheck lint format:check knip metadata:check jscpd scan:todos && npm run verify:architecture-guards",
     "build:cached": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills",
+    "build:termux": "node scripts/run-exclusive.mjs artifacts npm run build:termux:run",
+    "build:termux:run": "npm run compile:termux && npm run artifacts:skills",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint && npm run verify:module-boundaries",
@@ -150,6 +156,7 @@
     "verify:apktool": "npm run build:cached && node scripts/verify-apktool.mjs",
     "verify:adb": "npm run build:cached && node scripts/verify-adb.mjs",
     "verify:ghidra": "npm run build:cached && node scripts/verify-real-ghidra.mjs",
+    "verify:ghidra:seeds": "npm run build:cached && node scripts/verify/ghidra/seeds.mjs",
     "verify:ghidra:mips": "npm run build:cached && node scripts/verify-real-ghidra-mips.mjs",
     "verify:ghidra:swift": "npm run build:cached && node scripts/verify-real-ghidra-swift.mjs",
     "verify:ida": "npm run build:cached && node scripts/verify-real-ida.mjs",
@@ -236,6 +243,7 @@
     "verify:recorded:crash": "npm run build:cached && node scripts/verify-recorded-crash.mjs",
     "mcp-catalog:check:built": "node scripts/generate-mcp-tool-catalog.mjs --check",
     "compile": "node scripts/clean-build-output.mjs && tsc -p tsconfig.build.json",
+    "compile:termux": "node scripts/clean-build-output.mjs && node --max-old-space-size=3072 node_modules/typescript-termux/lib/tsc.js -p tsconfig.build.json",
     "artifacts:mcp-catalog": "node scripts/generate-mcp-tool-catalog.mjs",
     "artifacts:skills": "node scripts/generate-skill-metadata.mjs",
     "artifacts:product-catalog": "node scripts/generate-product-catalog.mjs",
@@ -261,6 +269,7 @@
     "@lydell/node-pty": "1.1.0",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/server": "2.3.1",
+    "@xmldom/xmldom": "0.9.12",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
     "@zip.js/zip.js": "2.15.0",
@@ -309,6 +318,7 @@
     "oxlint": "1.87.0",
     "turbo": "2.11.7",
     "typescript": "7.0.2",
+    "typescript-termux": "npm:typescript@5.9.3",
     "vitepress": "1.6.4",
     "vitest": "5.0.3"
   }

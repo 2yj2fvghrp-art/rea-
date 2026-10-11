@@ -64,6 +64,7 @@ try {
     executable,
     [
       "--headless=new",
+      "--password-store=basic",
       ...(process.env.REA_BROWSER_NO_SANDBOX === "true"
         ? ["--no-sandbox"]
         : []),
@@ -354,7 +355,11 @@ try {
     scripts: observed.value.scripts.items.length,
     networkRequests: observed.value.network.requests.length,
     consoleEvents: observed.value.console.events.length,
-    websocketEvents: observed.value.network.websocket_events.length,
+    websocketConnections: observed.value.network.websocket_connections.length,
+    websocketFrames: observed.value.network.websocket_connections.reduce(
+      (total, connection) => total + connection.events.length,
+      0,
+    ),
     bundleScripts: bundle.capture.scripts_analyzed,
     sourceMaps: bundle.observations.source_maps.processed,
     bundle_cli_and_stdio_mcp: true,
