@@ -1047,6 +1047,8 @@ itWithCaptureCapability(
         executable: process.execPath,
         arguments: [processFixture, "tree"],
         working_directory: dirname(processFixture),
+        // The post-capture ps lookup requires OS PIDs, not display identities.
+        normalization: { pids: false },
         timeout_ms: 20_000,
         idle_timeout_ms: 20_000,
       }),
