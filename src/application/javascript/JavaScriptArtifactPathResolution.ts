@@ -557,7 +557,10 @@ const resolveCandidate = (
 ): CandidateResolution =>
   resolveFileCandidates(input, [
     ...fileCandidates(candidate),
-    ...typescriptEmittedSourceCandidates(input.sourcePath, candidate),
+    // NodeNext emitted-name substitution models TypeScript module specifier
+    // resolution. URL references and absolute-URI imports load the exact
+    // resource named, so they must not be rewritten to TypeScript sources.
+    ...emittedSourceCandidatesFor(input, candidate),
   ]) ??
   resolveDirectory(
     input,
@@ -565,6 +568,16 @@ const resolveCandidate = (
     readPackageMetadata(input, candidate),
     packageChain,
   );
+
+const emittedSourceCandidatesFor = (
+  input: ResolveArtifactPathInput,
+  candidate: string,
+): readonly string[] => {
+  if (input.context !== "module-specifier") return [];
+  const declared = stripQueryAndFragment(input.declaredPath);
+  if (hasScheme(declared) || fileUrlPath(declared) !== undefined) return [];
+  return typescriptEmittedSourceCandidates(input.sourcePath, candidate);
+};
 
 const resolveDirectory = (
   input: ResolveArtifactPathInput,

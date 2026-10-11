@@ -1066,6 +1066,10 @@ describe("TypeScript NodeNext emitted-extension resolution", () => {
       });
     },
   );
+});
+
+describe("TypeScript NodeNext emitted-extension boundaries", () => {
+  const container = "container";
 
   it("keeps a present runtime file ahead of its source counterpart", () => {
     const files = fileMap([
@@ -1096,6 +1100,37 @@ describe("TypeScript NodeNext emitted-extension resolution", () => {
       resolve({
         declaredPath: "./dep.js",
         sourcePath: "src/main.js",
+        context: "module-specifier",
+        moduleKind: "import",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("keeps the emitted-name fallback off for URL references", () => {
+    const files = fileMap([
+      file("src/main.ts", container, 'new Worker("./worker.js");'),
+      file("src/worker.ts", container, "export const work = 1;"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./worker.js",
+        sourcePath: "src/main.ts",
+        context: "url-reference",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("keeps the emitted-name fallback off for file-URL module imports", () => {
+    const files = fileMap([
+      file("src/main.ts", container, 'import "file:///app/dep.js";'),
+      file("app/dep.ts", container, "export const value = 1;"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "file:///app/dep.js",
+        sourcePath: "src/main.ts",
         context: "module-specifier",
         moduleKind: "import",
         files,
