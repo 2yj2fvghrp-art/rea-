@@ -63,8 +63,8 @@ const leafGraphRow = (root: string): JsonValue => [
 ];
 
 export interface Upstream {
-  /** Answer any other single root with a leaf graph instead of rejecting it. */
-  readonly leafRoots?: boolean;
+  /** Roots, besides the procedure itself, that the fake answers with a leaf graph; any other root is rejected. */
+  readonly leafRoots?: readonly string[];
   /** Advertise the fake server's tools; omit for the default full set. */
   readonly tools?: readonly string[];
   /** Items the fake `callees` tool reports for the procedure. */
@@ -107,7 +107,8 @@ export const callGraphSession = async (
       const requested = Array.isArray(args.roots) ? args.roots : [];
       const rootKnown =
         JSON.stringify(requested) === JSON.stringify(["0x1000"]) ||
-        (upstream.leafRoots === true && requested.length === 1);
+        (requested.length === 1 &&
+          upstream.leafRoots?.includes(String(requested[0])) === true);
       if (!rootKnown || args.max_depth !== 1)
         throw new Error(
           `Unexpected callgraph request: ${JSON.stringify(args)}`,

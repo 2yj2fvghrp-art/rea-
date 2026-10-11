@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "vitest";
+import { z } from "zod";
 import { EnhancedTools } from "../../../../src/application/EnhancedTools.js";
 import {
   callGraphSession,
@@ -9,15 +10,26 @@ import {
 
 afterEach(removeCallGraphSessions);
 
+const requestedRoots = (producer: {
+  calls: { name: string; args: unknown }[];
+}) =>
+  producer.calls
+    .filter(({ name }) => name === "callgraph")
+    .map(
+      ({ args }) =>
+        z.object({ roots: z.array(z.string()) }).parse(args).roots[0],
+    )
+    .sort();
+
 const armSession = () =>
   callGraphSession({
     callees: [],
     callgraph: graphRow([edge("0x1000", "0x2000"), edge("0x1000", "0x3000")]),
-    leafRoots: true,
+    leafRoots: ["0x2000", "0x3000"],
   });
 
 it("shows the callee edges of an ARM64 procedure in the call graph", async () => {
-  const { client } = await armSession();
+  const { client, producer } = await armSession();
   try {
     const result = await new EnhancedTools(client).execute("get_call_graph", {
       address: "main",
@@ -34,6 +46,10 @@ it("shows the callee edges of an ARM64 procedure in the call graph", async () =>
         { address: "0x3000", status: "ok", calls: [] },
       ],
     });
+    expect(
+      requestedRoots(producer),
+      "each reachable procedure is read once, with exactly its own root",
+    ).toEqual(["0x1000", "0x2000", "0x3000"]);
   } finally {
     expect((await client.close()).ok).toBe(true);
   }
@@ -61,7 +77,7 @@ it("reaches an ARM64 callee in a call path", async () => {
 });
 
 it("traverses every ARM64 callee in a call path without a goal and records no failure", async () => {
-  const { client } = await armSession();
+  const { client, producer } = await armSession();
   try {
     const result = await new EnhancedTools(client).execute("trace_call_path", {
       start: "main",
@@ -85,6 +101,10 @@ it("traverses every ARM64 callee in a call path without a goal and records no fa
       failures: [],
       truncated: false,
     });
+    expect(
+      requestedRoots(producer),
+      "each reachable procedure is read once, with exactly its own root",
+    ).toEqual(["0x1000", "0x2000", "0x3000"]);
   } finally {
     expect((await client.close()).ok).toBe(true);
   }
