@@ -19,10 +19,16 @@ const fixturePath = fileURLToPath(
 
 const expectAvailableToolInventory = async (client: Client) => {
   const listed = await client.listTools();
-  const status = await client.callTool({
-    name: "binary_session",
-    arguments: {},
-  });
+  const statusDefinition = listed.tools.find(
+    ({ name }) => name === "binary_session",
+  );
+  if (statusDefinition === undefined)
+    throw new Error("Production binary_session contract is missing");
+  // Validate the invoked contract without compiling every catalog output schema.
+  const status = await client.callTool(
+    { name: "binary_session", arguments: {} },
+    { toolDefinition: statusDefinition },
+  );
   expect(status.isError).not.toBe(true);
   const availability = z
     .object({
@@ -44,7 +50,7 @@ const expectAvailableToolInventory = async (client: Client) => {
   expect(new Set(listed.tools.map(({ name }) => name))).toEqual(
     new Set(TOOL_CONTRACTS.map(({ name }) => name)),
   );
-  return status;
+  return { status, tools: listed.tools };
 };
 
 /**
@@ -180,7 +186,7 @@ describe("production stdio runtime", () => {
     try {
       await client.connect(transport);
       // Keep catalog parity independent of initial target/provider startup.
-      const status = await expectAvailableToolInventory(client);
+      const { status, tools } = await expectAvailableToolInventory(client);
       expect(
         z
           .object({ result: z.object({ open: z.boolean() }) })
@@ -188,10 +194,13 @@ describe("production stdio runtime", () => {
       ).toEqual({ open: false });
       // Closing the empty session produces a structured lifecycle record,
       // making the fatal-record check observable without launching a provider.
-      const closed = await client.callTool({
-        name: "close_binary",
-        arguments: {},
-      });
+      const closeDefinition = tools.find(({ name }) => name === "close_binary");
+      if (closeDefinition === undefined)
+        throw new Error("Production close_binary contract is missing");
+      const closed = await client.callTool(
+        { name: "close_binary", arguments: {} },
+        { toolDefinition: closeDefinition },
+      );
       expect(closed.isError).not.toBe(true);
     } finally {
       await client.close();
