@@ -313,6 +313,41 @@ describe("NodeNext emitted-extension path resolution", () => {
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
   });
 
+  it("does not substitute TypeScript counterparts for loadURL references", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/renderer.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./renderer.js",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        mechanism: "call:win.loadURL",
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("still substitutes TypeScript counterparts for real module calls", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/dep.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./dep.js",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        mechanism: "call:import",
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/dep.ts",
+    });
+  });
+
   it("does not substitute TypeScript counterparts for a JavaScript importer", () => {
     const files = fileMap([
       file("app/main.js", "root"),
