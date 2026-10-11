@@ -225,7 +225,7 @@ it("charges only templated segments and keeps recorded dot segments", () => {
   const capture = analysisViewCaptureFixture();
   capture.records = capture.records.slice(0, 3);
   const urls = [
-    `https://api.example.test${"/a".repeat(500_000)}`,
+    `https://api.example.test${"/a".repeat(90_000)}`,
     "https://api.example.test/a/%2e%2e/admin",
     "https://api.example.test/admin",
   ];
@@ -302,4 +302,30 @@ it("keeps a recorded literal placeholder apart from a templated segment", () => 
   expect(
     result.value.groups.map((group) => group.templated_segments.length).sort(),
   ).toEqual([0, 1]);
+});
+
+it("compares media types case-insensitively and counts templated groups across pages", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 3);
+  const reported = [
+    ["https://api.example.test/a", "Application/JSON"],
+    ["https://api.example.test/a", "application/json; charset=utf-8"],
+    ["https://api.example.test/users/7", "application/json"],
+  ];
+  capture.records.forEach((record, index) => {
+    const [url, mimeType] = reported[index] ?? [];
+    record.reported = {
+      request: { method: "GET", url: url ?? null },
+      response: { status: 200, content: { mimeType: mimeType ?? null } },
+    };
+  });
+  const result = project(capture, 0, 1);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups[0]).toMatchObject({
+    path_template: "/a",
+    content_types: ["application/json"],
+    flags: [],
+  });
+  expect(result.value.templated_groups).toBe(1);
 });

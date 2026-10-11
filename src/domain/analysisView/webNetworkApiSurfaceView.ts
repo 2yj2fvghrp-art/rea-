@@ -50,6 +50,13 @@ export const apiSurfaceFields = {
     total: z.number().int().nonnegative(),
     excluded: z.number().int().nonnegative(),
   }),
+  templated_groups: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      "Groups across every page that carry at least one templated segment.",
+    ),
   groups: z.array(groupSchema),
   excluded_records: z.array(
     z.strictObject({
@@ -78,6 +85,10 @@ const responseSchema = z.object({
 
 // Upper bound of serialized bytes one templated segment adds to a group.
 const TEMPLATED_SEGMENT_BYTES = 128;
+
+// Upper bound of transient memory per split segment: the split string, the
+// mapped template part, a segment descriptor and its deduplication entry.
+const SPLIT_SEGMENT_BYTES = 1024;
 
 // Serialized bytes one retained observed value adds beyond its own text.
 const OBSERVED_VALUE_BYTES = 16;
@@ -216,7 +227,7 @@ export const projectWebNetworkApiSurfaceView = (
       continue;
     }
     // Bound the transient split of one path before allocating it.
-    if (slashCount(path) * TEMPLATED_SEGMENT_BYTES > budget)
+    if (slashCount(path) * SPLIT_SEGMENT_BYTES > budget)
       return overBudget(
         "One recorded path has more segments than the reply budget allows.",
       );
@@ -258,13 +269,14 @@ export const projectWebNetworkApiSurfaceView = (
         flags: [],
       };
       buckets.set(key, group);
-      retained.set(
-        key,
-        segments.map((segment) => new Set(segment.observed_values)),
-      );
     } else {
       // Equal templates have the same ordered rule positions; keep new values only.
-      const seen = retained.get(key) ?? [];
+      // Deduplication sets are created on the first merge, not for every group.
+      const existing = group.templated_segments;
+      const seen =
+        retained.get(key) ??
+        existing.map((segment) => new Set(segment.observed_values));
+      retained.set(key, seen);
       segments.forEach((segment, index) => {
         const value = segment.observed_values[0]!;
         const values = seen[index];
@@ -288,8 +300,11 @@ export const projectWebNetworkApiSurfaceView = (
     // HAR uses status 0 and an empty mimeType for an unavailable response.
     if (typeof status === "number" && status !== 0) group.statuses.push(status);
     else unavailableResponse = true;
+    // Media type and subtype are case-insensitive; compare their lowercase essence.
     const essence =
-      typeof mime === "string" ? mime.split(";", 1).join("").trim() : "";
+      typeof mime === "string"
+        ? mime.split(";", 1).join("").trim().toLowerCase()
+        : "";
     if (essence.length > 0) group.content_types.push(essence);
     else unavailableResponse = true;
   }
@@ -322,6 +337,9 @@ export const projectWebNetworkApiSurfaceView = (
       total: capture.total_records,
       excluded: excluded.length,
     },
+    templated_groups: groups.filter(
+      (group) => group.templated_segments.length > 0,
+    ).length,
     groups: page,
     excluded_records: excluded,
     limitations: [

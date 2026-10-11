@@ -355,8 +355,9 @@ it("seals inferred and literal HAR pages, including a null artifact digest", () 
   const capture = analysisViewCaptureFixture();
   capture.artifact.sha256 = null;
   const parent = analysisViewCaptureEvidence(capture);
+  // Any templated group in the full grouping makes every page inferred.
   for (const [offset, confidence] of [
-    [0, "derived"],
+    [0, "inferred"],
     [11, "inferred"],
   ] as const) {
     const result = inspectAnalysisView({

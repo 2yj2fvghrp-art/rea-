@@ -130,12 +130,13 @@ credentials, headers and bodies are not copied into groups.
 Rules apply in table order to the recorded, still-encoded request path, read
 before WHATWG dot-segment removal, so `/a/%2e%2e/admin` and `/admin` stay distinct. Segment indexes start
 at zero after the leading slash. Each matched segment lists its observed literals
-and `basis: "inferred"`. A page with a match has inferred Evidence; a page with
-only literal groups has derived Evidence. Version prefixes, short opaque IDs
+and `basis: "inferred"`. `templated_groups` counts templated groups across every
+page. Because paging follows the full grouping, every page is inferred Evidence
+when that count is nonzero, and derived Evidence only when no group was templated. Version prefixes, short opaque IDs
 and digit-bearing route names stay literal. No cross-sample merging occurs.
 
-Groups cite parent record ordinals and distinct statuses and MIME types (without
-parameters). Flags report single samples, mixed statuses or mixed content types.
+Groups cite parent record ordinals and distinct statuses and MIME types (lowercase
+type/subtype without parameters). Flags report single samples, mixed statuses or mixed content types.
 `coverage` pages groups; `records` separately reports examined, total and excluded
 parent records. Ordinal subsets carry a limitation. Null URLs are excluded as
 `url-redacted`; unparseable URLs, URLs without an origin, and spellings without

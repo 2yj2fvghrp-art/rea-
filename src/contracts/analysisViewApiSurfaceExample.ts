@@ -19,7 +19,7 @@ export const API_SURFACE_EXAMPLE = {
     parent_digest:
       "9e218c18bc6159ec9c8492a9130c286496fb1b6d9f03ec2f4ea3321ce2b15097",
     view_digest:
-      "61d5d54d2de92af05775f19e7460ab7a2b645a8ffc7d5bb8f7da18c5d2cba0b8",
+      "4a96eeb513583d1fa1ef2bbb14c30f8d8223c736c7b64586fda3e35f95507b9b",
     artifact: {
       path: "/fixtures/api-surface.har",
       sha256:
@@ -41,6 +41,7 @@ export const API_SURFACE_EXAMPLE = {
       total: 2,
       excluded: 0,
     },
+    templated_groups: 1,
     groups: [
       {
         method: "GET",

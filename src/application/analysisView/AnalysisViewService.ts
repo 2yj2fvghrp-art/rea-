@@ -178,8 +178,8 @@ const createAnalysisViewEvidence = (
     result: jsonValueSchema.parse(result),
     rawResult: null,
     confidence:
-      result.kind === "api-surface" &&
-      result.groups.some((group) => group.templated_segments.length > 0)
+      // Paging follows the full grouping, so any templated group makes every page inferred.
+      result.kind === "api-surface" && result.templated_groups > 0
         ? "inferred"
         : "derived",
     authority: parent.authority,
