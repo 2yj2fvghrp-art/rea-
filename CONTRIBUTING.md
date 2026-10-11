@@ -21,8 +21,30 @@ When adding or changing an MCP tool, follow the [tool design guide](docs/tool-de
 
 ## Development setup
 
+### Fork and create a branch
+
+If you do not have write access to this repository, create a fork with GitHub's
+**Fork** button. Clone your fork, add the original repository as `upstream`, and
+start a branch from its current `main`. Replace `YOUR-USERNAME` with your GitHub
+username and `fix/my-change` with a branch name for your contribution:
+
+```bash
+git clone https://github.com/YOUR-USERNAME/rea.git
+cd rea
+git remote add upstream https://github.com/morluto/rea.git
+git fetch upstream
+git switch -c fix/my-change upstream/main
+```
+
+`origin` points to your fork, where you push your work; `upstream` points to the
+original repository, where you propose the change. For another contribution,
+fetch `upstream` again and create a new branch from `upstream/main`.
+
+### Install dependencies
+
 Use the development toolchain pinned in `.nvmrc` and
-`package.json#packageManager`. Run `nvm use` before installing dependencies;
+`package.json#packageManager`. If you use nvm, run `nvm install` to install the
+pinned Node.js version if needed, then `nvm use` before installing dependencies;
 installed-package runtime support is documented in
 [installation](docs/installation.md#start-setup).
 
@@ -75,6 +97,14 @@ npm run check:fast
 
 `test:local` runs source tests without building. `check:changed` combines cached
 static checks with source tests affected since the merge base with `origin/main`.
+In a fork checkout, `origin/main` can lag behind the original repository. Fetch
+`upstream` and select its branch explicitly for changed source tests:
+
+```bash
+git fetch upstream
+npm run test:changed -- --base upstream/main
+```
+
 Import-graph selection can miss runtime registration, bridges, and generated data;
 select relevant boundary tests explicitly. See [testing](docs/testing.md#developer-commands)
 for commands, test placement, pruning, and real-provider prerequisites.
@@ -142,6 +172,24 @@ for supported hosts and unattended startup.
 Use the default `build/conformance/manifest.json` unless explicitly verifying
 another source-built manifest with `REA_HOPPER_CONFORMANCE_MANIFEST_PATH`.
 Generated fixtures and manifests remain ignored.
+
+## Submit a pull request
+
+After running the relevant checks above, review your diff and commit only the
+files needed for your change. Replace the file path, commit description, and
+branch name in this example:
+
+```bash
+git diff
+git add path/to/changed-file
+git commit -m "fix: describe the problem solved"
+git push -u origin fix/my-change
+```
+
+On GitHub, open a pull request from your fork's branch to `morluto/rea`'s `main`.
+Use the pull request template to explain the concrete problem, link a related
+issue when applicable, and record checks that ran and unavailable coverage.
+Respond to review feedback with further commits on the same branch.
 
 ## Maintainer release checklist
 
