@@ -600,6 +600,13 @@ it.each([
   ["modified typed reference field", [0x20, 0x09, 0x16]],
   ["typed reference generic argument", [0x15, 0x12, 0x05, 0x01, 0x16]],
   ["typed reference array element", [0x1d, 0x16]],
+  ["by-reference generic argument", [0x15, 0x12, 0x05, 0x01, 0x10, 0x08]],
+  ["void generic argument", [0x15, 0x12, 0x05, 0x01, 0x01]],
+  ["void function pointer parameter", [0x1b, 0x00, 0x01, 0x01, 0x01]],
+  ["by-reference pointee", [0x0f, 0x10, 0x08]],
+  ["nested by-reference", [0x10, 0x10, 0x08]],
+  ["void field", [0x01]],
+  ["void array element", [0x1d, 0x01]],
 ])("reports a %s as malformed", (_name, type) => {
   expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
     kind: "unknown",
@@ -638,6 +645,26 @@ it("decodes typed references in parameter and return positions", () => {
   ).toMatchObject({
     parse_status: "decoded",
     field_type: "fnptr[default has-this](typedbyref)->void",
+  });
+});
+
+it.each([
+  ["by-reference field", [0x06, 0x10, 0x08], { field_type: "i4&" }],
+  ["void pointer field", [0x06, 0x0f, 0x01], { field_type: "void*" }],
+  [
+    "by-reference function pointer return and parameter",
+    [0x06, 0x1b, 0x00, 0x01, 0x10, 0x08, 0x10, 0x0e],
+    { field_type: "fnptr[default](string&)->i4&" },
+  ],
+  [
+    "by-reference method return and parameter",
+    [0x00, 0x01, 0x10, 0x08, 0x10, 0x15, 0x12, 0x05, 0x01, 0x0f, 0x01],
+    { return_type: "i4&", parameter_types: ["class:5<void*>&"] },
+  ],
+])("decodes a %s in its grammar position", (_name, blob, expected) => {
+  expect(signature(Buffer.from(blob))).toMatchObject({
+    parse_status: "decoded",
+    ...expected,
   });
 });
 

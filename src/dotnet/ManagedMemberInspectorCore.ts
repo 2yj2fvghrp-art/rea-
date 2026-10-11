@@ -367,15 +367,15 @@ const malformedSignature = (detail: string, offset: number): never => {
 // Pending work while decoding one Type. Signatures nest arbitrarily deep, so
 // decoding keeps an explicit stack instead of recursing.
 type TypeContinuation =
-  | { readonly kind: "wrap"; readonly apply: (inner: string) => string }
+  | { readonly kind: "suffix"; readonly suffix: "*" | "&" | "[]" }
   | { readonly kind: "modifiers"; readonly modifiers: string[] }
   | { readonly kind: "array" }
   | {
       readonly kind: "list";
       remaining: number;
       readonly items: string[];
-      // Function pointer items are RetType/Param positions, which admit
-      // TYPEDBYREF; generic arguments are Type positions, which do not.
+      // Function pointer items are a RetType then Params; generic
+      // arguments are Types.
       readonly signatureItems: boolean;
       readonly render: (items: readonly string[]) => string;
     };
@@ -470,22 +470,35 @@ const arrayShape = (
   return { value: `[${dimensions.join(",")}]`, next };
 };
 
-// TYPEDBYREF may follow custom modifiers in a RetType or Param position but is
-// never a field type or part of another type.
-const typedByRefAllowed = (
+/** Grammar position of the element being decoded (ECMA-335 II.23.2). */
+type SignaturePosition = "field" | "return" | "parameter" | "type" | "pointee";
+
+// Custom modifiers do not change the position they precede.
+const currentPosition = (
   stack: readonly TypeContinuation[],
-  signatureItem: boolean,
-): boolean => {
+  base: SignaturePosition,
+): SignaturePosition => {
   const frame = stack.findLast(({ kind }) => kind !== "modifiers");
-  return frame === undefined
-    ? signatureItem
-    : frame.kind === "list" && frame.signatureItems;
+  if (frame === undefined) return base;
+  if (frame.kind === "suffix") return frame.suffix === "*" ? "pointee" : "type";
+  if (frame.kind === "list" && frame.signatureItems)
+    return frame.items.length === 0 ? "return" : "parameter";
+  return "type";
 };
+
+// VOID is a RetType or a pointee; TYPEDBYREF is a RetType or Param; BYREF
+// prefixes a RetType, Param, or (since ref fields) a field type.
+const POSITION_ELEMENTS: ReadonlyMap<number, readonly SignaturePosition[]> =
+  new Map([
+    [0x01, ["return", "pointee"]],
+    [0x16, ["return", "parameter"]],
+    [0x10, ["return", "parameter", "field"]],
+  ]);
 
 const readTypeSignature = (
   blob: Buffer,
   offset: number,
-  signatureItem: boolean,
+  base: SignaturePosition,
 ): { readonly value: string; readonly next: number } => {
   const stack: TypeContinuation[] = [];
   let cursor = offset;
@@ -494,13 +507,22 @@ const readTypeSignature = (
     const kind = blob[cursor];
     if (kind === undefined)
       return malformedSignature("truncated type signature", cursor);
+    const positions = POSITION_ELEMENTS.get(kind);
+    if (
+      positions !== undefined &&
+      !positions.includes(currentPosition(stack, base))
+    )
+      return malformedSignature(
+        `element type 0x${kind.toString(16)} is not valid in a ${currentPosition(stack, base)} position`,
+        cursor,
+      );
     const named = ELEMENT_TYPES.get(kind);
     if (named !== undefined) {
       value = named;
       cursor += 1;
     } else if (kind === 0x0f || kind === 0x10 || kind === 0x1d) {
       const suffix = kind === 0x0f ? "*" : kind === 0x10 ? "&" : "[]";
-      stack.push({ kind: "wrap", apply: (inner) => inner + suffix });
+      stack.push({ kind: "suffix", suffix });
       cursor += 1;
     } else if (kind === 0x1f || kind === 0x20) {
       const token = readCompressed(blob, cursor + 1);
@@ -520,11 +542,6 @@ const readTypeSignature = (
       value = `${kind === 0x1e ? "mvar" : "var"}:${String(variable.value)}`;
       cursor = variable.next;
     } else if (kind === 0x16) {
-      if (!typedByRefAllowed(stack, signatureItem))
-        return malformedSignature(
-          "TYPEDBYREF is only valid as a parameter or return type",
-          cursor,
-        );
       value = "typedbyref";
       cursor += 1;
     } else if (kind === 0x14) {
@@ -589,7 +606,7 @@ const readTypeSignature = (
     while (value !== undefined) {
       const top = stack.pop();
       if (top === undefined) return { value, next: cursor };
-      if (top.kind === "wrap") value = top.apply(value);
+      if (top.kind === "suffix") value += top.suffix;
       else if (top.kind === "modifiers")
         value = `${value} ${top.modifiers.join(" ")}`;
       else if (top.kind === "array") {
@@ -644,7 +661,7 @@ export const signature = (
       throw managedFailure("invalid-blob", "signature", "empty signature", 0);
     const first = blob[0] ?? 0;
     if ((first & 0x0f) === 6) {
-      const fieldType = readTypeSignature(blob, 1, false);
+      const fieldType = readTypeSignature(blob, 1, "field");
       return {
         ...raw,
         kind: "field",
@@ -660,11 +677,11 @@ export const signature = (
       };
     }
     const header = readMethodSignatureHeader(blob, 0);
-    const returnType = readTypeSignature(blob, header.next, true);
+    const returnType = readTypeSignature(blob, header.next, "return");
     let offset = returnType.next;
     const parameters: string[] = [];
     for (let index = 0; index < header.parameterCount; index += 1) {
-      const parameter = readTypeSignature(blob, offset, true);
+      const parameter = readTypeSignature(blob, offset, "parameter");
       parameters.push(parameter.value);
       offset = parameter.next;
     }
