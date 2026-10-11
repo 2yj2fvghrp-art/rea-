@@ -323,8 +323,12 @@ substitute version-dependent Electron defaults for omitted `webPreferences`.
 Dynamic option objects, bridge keys, API objects, and IPC channel expressions
 remain unknown and make coverage partial.
 
-Electron API identity follows proven lexical module aliases. Reassigned bindings,
-dynamic selections, and visibly overwritten namespace members are unresolved.
+Electron API identity follows proven lexical module aliases. Bundled CommonJS
+namespace imports are followed through locally declared interop helpers that
+are recognized by name (`__toESM`, `__importStar`, `_interopRequireWildcard`),
+including the `electron = __toESM(electron)` rewrap that Rolldown emits. Other
+reassigned bindings, dynamic selections, and visibly overwritten namespace
+members are unresolved.
 Direct and destructuring assignment, loop, update, and delete targets are checked
 through namespace aliases; unrelated member writes do not discard observed API
 identity. This static check does

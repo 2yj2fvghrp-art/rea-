@@ -73,4 +73,33 @@ describe("Electron API identity", () => {
       },
     ]);
   });
+
+  it("follows bundler namespace interop helpers without accepting other writes", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      var __toESM = (mod) => mod;
+      var __importStar = (this && this.__importStar) || ((mod) => mod);
+      let electron = require("electron");
+      electron = __toESM(electron);
+      new electron.BrowserWindow({ webPreferences: { preload: "./rolldown.js" } });
+      var import_electron = __toESM(require("electron"));
+      new import_electron.BrowserWindow({ webPreferences: { preload: "./esbuild.js" } });
+      const Electron = __importStar(require("electron"));
+      new Electron.BrowserWindow({ webPreferences: { preload: "./tsc.js" } });
+
+      let replaced = require("electron");
+      replaced = __toESM(require("./fake"));
+      new replaced.BrowserWindow({ webPreferences: { preload: "./replaced.js" } });
+      let rewritten = require("electron");
+      rewritten = __toESM(rewritten);
+      rewritten = fake;
+      new rewritten.BrowserWindow({ webPreferences: { preload: "./rewritten.js" } });
+      let unbound = require("electron");
+      unbound = _interopRequireWildcard(unbound);
+      new unbound.BrowserWindow({ webPreferences: { preload: "./unbound.js" } });
+    `);
+
+    expect(
+      analysis.electron.browser_windows.map(({ preload_path }) => preload_path),
+    ).toEqual(["./rolldown.js", "./esbuild.js", "./tsc.js"]);
+  });
 });

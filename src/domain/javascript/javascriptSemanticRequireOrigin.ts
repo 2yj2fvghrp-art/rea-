@@ -58,3 +58,38 @@ export const semanticRequireOrigin = (
         call: current,
       };
 };
+
+// esbuild/Rolldown, TypeScript, and Babel emit these helpers for namespace
+// imports of CommonJS modules; each returns an object exposing every own
+// member of its operand, so member paths through the result are unchanged.
+const NAMESPACE_INTEROP_HELPERS = new Set([
+  "__importStar",
+  "__toESM",
+  "_interopRequireWildcard",
+]);
+
+/** Return the module operand of a locally declared namespace interop helper. */
+export const semanticNamespaceInteropOperand = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): t.Expression | undefined => {
+  const call = unwrapJavaScriptExpression(node).node;
+  if (
+    !t.isCallExpression(call) ||
+    !t.isIdentifier(call.callee) ||
+    !NAMESPACE_INTEROP_HELPERS.has(call.callee.name) ||
+    semanticResolutionBlocked(state, call.callee, call.callee.name)
+  )
+    return undefined;
+  const helper = resolveSemanticBindingState(
+    state,
+    call.callee,
+    call.callee.name,
+  );
+  const [operand] = call.arguments;
+  return helper !== undefined &&
+    !helper.definitions.some(({ kind }) => kind === "assignment") &&
+    t.isExpression(operand)
+    ? operand
+    : undefined;
+};
