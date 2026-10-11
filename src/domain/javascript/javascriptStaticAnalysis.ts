@@ -23,6 +23,7 @@ import {
   inspectCall,
   inspectRouteProperty,
   inspectRoleProperty,
+  inspectRpcNode,
 } from "./javascriptStaticAnalysisCalls.js";
 import {
   inspectBundlerRegistration,
@@ -223,4 +224,5 @@ const inspectNode = (
     inspectRouteProperty(node, findings);
     inspectRoleProperty(node, findings);
   }
+  inspectRpcNode(node, findings);
 };

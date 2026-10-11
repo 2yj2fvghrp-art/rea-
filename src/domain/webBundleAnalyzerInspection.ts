@@ -22,6 +22,7 @@ import {
   resolveSpecifier,
   isUrlLikeModuleSpecifier,
 } from "./webBundleAnalyzerAst.js";
+import { createJavaScriptRpcScan } from "./javascript/javascriptRpcEndpoints.js";
 
 type BundleObservations = WebBundleAnalysis["observations"];
 type ChunkEdge = BundleObservations["chunks"]["edges"][number];
@@ -66,10 +67,21 @@ export const analyzeScript = (
   accumulator.parsedScripts += 1;
   detectVendorFingerprints(script, accumulator);
   const openReceiverFacts = classifyParsedJavaScriptOpenReceivers(file);
+  const rpc = createJavaScriptRpcScan(script.source.artifact.text);
   traverseJavaScriptAst(file, {
     enter: (node) => {
       accumulator.visitedNodes += 1;
       inspectNode(script, node, accumulator, openReceiverFacts);
+      const endpoint = rpc.inspect(node);
+      if (endpoint !== undefined)
+        addFinding({
+          collection: accumulator.endpoints,
+          script,
+          rawValue: endpoint.value,
+          mechanism: endpoint.mechanism,
+          node,
+          accumulator,
+        });
     },
   });
 };
