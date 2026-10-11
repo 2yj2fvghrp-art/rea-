@@ -161,6 +161,71 @@ describe("tRPC procedure recognition", () => {
   });
 });
 
+describe("tRPC binding identity and bundled syntax", () => {
+  it("keeps client bindings local to their lexical declaration", () => {
+    expect(
+      rpcEndpoints(`
+      function first() { const c = createTRPCClient({}); c.users.query(); }
+      function unrelated(c) { c.users.query("select 1"); }
+      const c = createTRPCClient({});
+      function closure() { c.posts.query(); }
+      function shadowed() { c.users.query(); var c = pool; }
+      { const c = pool; c.users.query(); }
+      try {} catch (c) { c.users.query(); }
+    `),
+    ).toEqual([
+      { kind: "network", value: "users", mechanism: "trpc:procedure:query" },
+      { kind: "network", value: "posts", mechanism: "trpc:procedure:query" },
+    ]);
+  });
+
+  it("does not corroborate overwritten or destructured client bindings", () => {
+    expect(
+      rpcEndpoints(`
+      let c = createTRPCClient({}); c = pool; c.users.query();
+      const { client } = createTRPCClient({}); client.users.query();
+    `),
+    ).toEqual([]);
+    expect(
+      rpcEndpoints(`
+      var c = createTRPCClient({}); c.users.query();
+    `),
+    ).toEqual([
+      { kind: "network", value: "users", mechanism: "trpc:procedure:query" },
+    ]);
+  });
+
+  it("recognizes surviving factory names inside bundled call wrappers", () => {
+    expect(
+      rpcEndpoints(`
+      const c = (0, t.createTRPCClient)({
+        links: [(0, t.httpBatchLink)({ url: "/api/rpc" })],
+      });
+      c.users.query();
+      const p = (t.createTRPCProxyClient as any)({});
+      p.posts.query();
+      (0, t.httpLink)({ url: "/api/other" });
+    `),
+    ).toEqual([
+      {
+        kind: "network",
+        value: "/api/rpc",
+        mechanism: "trpc:link:httpBatchLink",
+      },
+      { kind: "network", value: "users", mechanism: "trpc:procedure:query" },
+      { kind: "network", value: "posts", mechanism: "trpc:procedure:query" },
+      { kind: "network", value: "/api/other", mechanism: "trpc:link:httpLink" },
+    ]);
+  });
+
+  it("preserves procedure paths beyond the former nesting cutoff", () => {
+    const path = Array.from({ length: 64 }, (_, i) => `router${i}`).join(".");
+    expect(rpcEndpoints(`root.${path}.useQuery();`)).toEqual([
+      { kind: "network", value: path, mechanism: "trpc:procedure:useQuery" },
+    ]);
+  });
+});
+
 describe("GraphQL operation recognition", () => {
   it("recognizes named operations in tagged templates and string literals", () => {
     expect(
@@ -184,6 +249,20 @@ describe("GraphQL operation recognition", () => {
         value: "OnInvoice",
         mechanism: "graphql:subscription",
       },
+    ]);
+  });
+
+  it("retains operations after long ignored prefixes and long headers", () => {
+    const name = "Operation" + "x".repeat(512);
+    const text =
+      "#" +
+      "comment".repeat(700) +
+      "\nquery " +
+      name +
+      " ".repeat(600) +
+      "{ users { id } }";
+    expect(rpcEndpoints(`const doc = ${JSON.stringify(text)};`)).toEqual([
+      { kind: "network", value: name, mechanism: "graphql:query" },
     ]);
   });
 

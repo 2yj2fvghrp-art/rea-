@@ -20,10 +20,6 @@ import {
   stringValue,
 } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticStaticPropertyName } from "./javascriptAstValues.js";
-import {
-  createJavaScriptRpcScan,
-  type JavaScriptRpcScan,
-} from "./javascriptRpcEndpoints.js";
 import type {
   JavaScriptAnalysisAccumulator as AnalysisAccumulator,
   JavaScriptEndpointInput as EndpointInput,
@@ -205,16 +201,9 @@ const inspectEndpointCall = (
     });
 };
 
-const rpcScans = new WeakMap<AnalysisAccumulator, JavaScriptRpcScan>();
-
 /** Record tRPC procedures, tRPC link URLs and named GraphQL operations. */
 export const inspectRpcNode = (node: t.Node, context: FindingContext): void => {
-  let scan = rpcScans.get(context.accumulator);
-  if (scan === undefined) {
-    scan = createJavaScriptRpcScan(context.source);
-    rpcScans.set(context.accumulator, scan);
-  }
-  const rpc = scan.inspect(node);
+  const rpc = context.rpcScan.inspect(node);
   if (rpc !== undefined)
     addEndpoint(context, { node, kind: "network", ...rpc });
 };

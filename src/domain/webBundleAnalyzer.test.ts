@@ -626,3 +626,33 @@ it("recognizes tRPC procedures and named GraphQL operations in captured scripts"
     { value: "ListarNotas", mechanism: "graphql:query" },
   ]);
 });
+
+it("keeps RPC lexical identity and bundled factory recognition in captured scripts", () => {
+  const longOperation = "Operation" + "x".repeat(512);
+  const document =
+    "#" +
+    "comment".repeat(700) +
+    "\nquery " +
+    longOperation +
+    " { users { id } }";
+  const result = analyzeCapturedWebBundle(
+    inspection(`
+    function first() { const c = createTRPCClient({}); }
+    function unrelated(c) { c.users.query("select 1"); }
+    const c = (0, t.createTRPCClient)({ links: [(0, t.httpBatchLink)({ url: "/api/rpc" })] });
+    c.posts.query();
+    const doc = ${JSON.stringify(document)};
+  `),
+  );
+  expect(
+    result.observations.endpoints.map(({ value, mechanism }) => ({
+      value,
+      mechanism,
+    })),
+  ).toEqual([
+    { value: "/api/rpc", mechanism: "trpc:link:httpBatchLink" },
+    { value: "posts", mechanism: "trpc:procedure:query" },
+    { value: longOperation, mechanism: "graphql:query" },
+  ]);
+  expect(result.completeness.status).toBe("complete");
+});

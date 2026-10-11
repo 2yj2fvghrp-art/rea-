@@ -259,16 +259,19 @@ RPC client syntax also contributes network endpoint candidates, in both
   and prefetch variants, `queryOptions`, `infiniteQueryOptions`,
   `mutationOptions`, `subscriptionOptions`) are recognized directly. The
   vanilla `query` and `mutate` methods are recognized on a root bound to
-  `createTRPCClient` or `createTRPCProxyClient` in the same source, or on a
+  `createTRPCClient` or `createTRPCProxyClient` in the same lexical binding, or on a
   path of at least two segments in a source containing `TRPCClientError`,
-  `trpc-accept`, or `/trpc`. `subscribe` additionally requires a tRPC observer
+  `trpc-accept`, or `/trpc`. Factory bindings must have one unconditional
+  initializer and no binding assignments; shadowed locals do not inherit client
+  identity. `subscribe` additionally requires a tRPC observer
   argument (`onData`, `onError`, `onStarted`, `onStopped`, `onComplete`, or
   `onConnectionStateChange`). `this` roots, browser globals, and any path
   containing an RTK Query `endpoints` segment are never procedures; cache-key
   helpers such as `queryKey` issue no request and are excluded.
 - `trpc:link:<link>` records the literal `url` option of `httpLink`,
   `httpBatchLink`, `httpBatchStreamLink`, and `httpSubscriptionLink` when the
-  link's callee name survives bundling.
+  link's callee name survives bundling, including `(0, module.httpBatchLink)`
+  import-call wrappers.
 - `graphql:query`, `graphql:mutation`, and `graphql:subscription` record a
   named operation found at the start of a string or cooked template literal —
   the name must be followed by variable definitions (`($`), a directive, or a

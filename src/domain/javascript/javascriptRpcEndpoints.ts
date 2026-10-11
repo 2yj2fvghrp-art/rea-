@@ -1,6 +1,9 @@
 import * as t from "@babel/types";
 
-import { semanticStaticPropertyKey } from "./javascriptAstValues.js";
+import {
+  unwrapJavaScriptExpression,
+  semanticStaticPropertyKey,
+} from "./javascriptAstValues.js";
 import { calleeName } from "./javascriptStaticAnalysisHelpers.js";
 
 /** One RPC operation or transport URL recovered from client-side syntax. */
@@ -81,8 +84,6 @@ const BROWSER_GLOBAL_NAMES: ReadonlySet<string> = new Set([
   "frames",
 ]);
 
-/** Router nesting deeper than this is not treated as a procedure path. */
-const MAX_PROCEDURE_PATH_SEGMENTS = 32;
 const PROCEDURE_SEGMENT = /^[A-Za-z_$][\w$]*$/u;
 
 interface MemberPath {
@@ -91,7 +92,7 @@ interface MemberPath {
   readonly properties: readonly string[];
 }
 
-/** Read a bounded static member path and the expression it starts from. */
+/** Read a static member path and the expression it starts from. */
 const memberPath = (callee: t.Node): MemberPath | undefined => {
   const reversed: string[] = [];
   let current: t.Node = callee;
@@ -99,7 +100,6 @@ const memberPath = (callee: t.Node): MemberPath | undefined => {
     t.isMemberExpression(current) ||
     t.isOptionalMemberExpression(current)
   ) {
-    if (reversed.length > MAX_PROCEDURE_PATH_SEGMENTS) return undefined;
     const property = semanticStaticPropertyKey(
       current.property,
       current.computed,
@@ -159,10 +159,6 @@ const GRAPHQL_OPERATION_TYPES: ReadonlySet<string> = new Set([
 // selection set starting with a field name.
 const GRAPHQL_OPERATION_HEADER =
   /^(query|mutation|subscription)[\s,]+([_A-Za-z][_0-9A-Za-z]*)[\s,]*(?:\([\s,]*\$|@[_A-Za-z]|\{[\s,]*[_A-Za-z])/u;
-/** Leading ignored tokens are skipped within this many code units only. */
-const MAX_GRAPHQL_IGNORED_PREFIX = 4096;
-/** An operation header (type, name and opener) is read from this window. */
-const MAX_GRAPHQL_HEADER = 512;
 
 const isGraphqlIgnoredCharacter = (character: string): boolean =>
   character === "," || character === "﻿" || /\s/u.test(character);
@@ -172,7 +168,7 @@ export const graphqlOperationFromText = (
   text: string,
 ): JavaScriptRpcEndpoint | undefined => {
   // Skip GraphQL ignored tokens: whitespace, commas, BOM and # comments.
-  const limit = Math.min(text.length, MAX_GRAPHQL_IGNORED_PREFIX);
+  const limit = text.length;
   let index = 0;
   while (index < limit) {
     const character = text.charAt(index);
@@ -182,9 +178,7 @@ export const graphqlOperationFromText = (
     } else break;
   }
   if (index >= limit) return undefined;
-  const header = GRAPHQL_OPERATION_HEADER.exec(
-    text.slice(index, index + MAX_GRAPHQL_HEADER),
-  );
+  const header = GRAPHQL_OPERATION_HEADER.exec(text.slice(index));
   const type = header?.[1];
   const name = header?.[2];
   return type === undefined || name === undefined
@@ -213,11 +207,33 @@ export const graphqlOperationFromDocumentNode = (
     : { value, mechanism: `graphql:${type}` };
 };
 
+/** Bundlers use `(0, imported.factory)` to call an import without a receiver. */
+const rpcFactoryName = (callee: t.Node): string => {
+  let current = unwrapJavaScriptExpression(callee).node;
+  while (t.isSequenceExpression(current)) {
+    const last = current.expressions.at(-1);
+    if (last === undefined) return "";
+    current = unwrapJavaScriptExpression(last).node;
+  }
+  return calleeName(current);
+};
+
+/** Whether an initializer has the syntax of a documented tRPC client factory. */
+export const isJavaScriptRpcClientFactory = (node: t.Node): boolean => {
+  const call = unwrapJavaScriptExpression(node).node;
+  return (
+    (t.isCallExpression(call) || t.isOptionalCallExpression(call)) &&
+    TRPC_CLIENT_FACTORIES.has(
+      rpcFactoryName(call.callee).split(".").pop() ?? "",
+    )
+  );
+};
+
 /** Recover the literal `url` option passed to a documented tRPC HTTP link. */
 const trpcLinkUrl = (
   node: t.CallExpression | t.OptionalCallExpression,
 ): JavaScriptRpcEndpoint | undefined => {
-  const name = calleeName(node.callee);
+  const name = rpcFactoryName(node.callee);
   const factory = name.slice(name.lastIndexOf(".") + 1);
   if (!TRPC_URL_LINKS.has(factory)) return undefined;
   const options = node.arguments[0];
@@ -235,11 +251,13 @@ const trpcLinkUrl = (
  * marker and a tRPC observer argument. `this` roots, browser globals and RTK
  * Query `endpoints` chains are never procedures.
  */
-export const createJavaScriptRpcScan = (source: string): JavaScriptRpcScan => {
+export const createJavaScriptRpcScan = (
+  source: string,
+  clientRoots: ReadonlySet<t.Node>,
+): JavaScriptRpcScan => {
   let marker: boolean | undefined;
   const hasMarker = (): boolean =>
     (marker ??= TRPC_SOURCE_MARKERS.some((value) => source.includes(value)));
-  const clientBindings = new Set<string>();
   // graphql-tag documents retain their source text in loc.source.body; that
   // text repeats the OperationDefinition already recovered from the object.
   const documentSourceBodies = new WeakSet<t.Node>();
@@ -257,8 +275,7 @@ export const createJavaScriptRpcScan = (source: string): JavaScriptRpcScan => {
     if (method === undefined || first === undefined) return undefined;
     if (BROWSER_GLOBAL_NAMES.has(first) || segments.includes("endpoints"))
       return undefined;
-    const bound =
-      t.isIdentifier(path.root) && clientBindings.has(path.root.name);
+    const bound = clientRoots.has(path.root);
     const recognized = TRPC_HOOK_METHODS.has(method)
       ? true
       : TRPC_REQUEST_METHODS.has(method)
@@ -275,17 +292,6 @@ export const createJavaScriptRpcScan = (source: string): JavaScriptRpcScan => {
 
   return {
     inspect: (node) => {
-      if (t.isVariableDeclarator(node)) {
-        if (
-          t.isIdentifier(node.id) &&
-          t.isCallExpression(node.init) &&
-          TRPC_CLIENT_FACTORIES.has(
-            calleeName(node.init.callee).split(".").pop() ?? "",
-          )
-        )
-          clientBindings.add(node.id.name);
-        return undefined;
-      }
       if (t.isCallExpression(node) || t.isOptionalCallExpression(node))
         return trpcLinkUrl(node) ?? procedure(node);
       if (t.isObjectExpression(node)) {

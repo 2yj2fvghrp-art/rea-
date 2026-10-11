@@ -5,8 +5,14 @@ import { sanitizeEndpointCandidate } from "./browserObservation.js";
 import { compositeKey } from "./unicodeCodePointOrder.js";
 import type { WebPageInspection } from "./browserObservationSchemas.js";
 import type { WebBundleAnalysis } from "./webBundleAnalysis.js";
-import { traverseJavaScriptAst } from "./javascript/javascriptSemanticTraversal.js";
-import { classifyParsedJavaScriptOpenReceivers } from "./javascript/javascriptSemanticAnalysis.js";
+import {
+  completeSemanticSteps,
+  traverseJavaScriptAst,
+} from "./javascript/javascriptSemanticTraversal.js";
+import {
+  classifyParsedJavaScriptOpenReceivers,
+  classifyParsedJavaScriptRpcClientRootsSteps,
+} from "./javascript/javascriptSemanticAnalysis.js";
 import type { JavaScriptOpenReceiverFact } from "./javascript/javascriptSemanticAnalysis.js";
 import { semanticStaticPropertyName } from "./javascript/javascriptAstValues.js";
 import {
@@ -67,7 +73,10 @@ export const analyzeScript = (
   accumulator.parsedScripts += 1;
   detectVendorFingerprints(script, accumulator);
   const openReceiverFacts = classifyParsedJavaScriptOpenReceivers(file);
-  const rpc = createJavaScriptRpcScan(script.source.artifact.text);
+  const rpc = createJavaScriptRpcScan(
+    script.source.artifact.text,
+    completeSemanticSteps(classifyParsedJavaScriptRpcClientRootsSteps(file)),
+  );
   traverseJavaScriptAst(file, {
     enter: (node) => {
       accumulator.visitedNodes += 1;
