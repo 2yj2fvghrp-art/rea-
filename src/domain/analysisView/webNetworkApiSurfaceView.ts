@@ -318,7 +318,6 @@ export const projectWebNetworkApiSurfaceView = (
       const byRule = byTemplate.get(template) ?? new Map();
       byTemplate.set(template, byRule);
       byRule.set(rules, group);
-      contentTypes.set(group, new Set());
     } else {
       // Equal templates have the same ordered rule positions; keep new values only.
       // Deduplication sets are created on the first merge, not for every group.
@@ -364,14 +363,31 @@ export const projectWebNetworkApiSurfaceView = (
         "Retained content type text would exceed the capture reply budget.",
       );
     const essence = rawMime.split(";", 1).join("").trim().toLowerCase();
-    if (MEDIA_TYPE_ESSENCE.test(essence)) {
-      const seenTypes = contentTypes.get(group);
-      if (seenTypes !== undefined && !seenTypes.has(essence)) {
+    if (!MEDIA_TYPE_ESSENCE.test(essence)) unavailableResponse = true;
+    else {
+      // The set is created on the first retained type, and charged before allocation.
+      let seenTypes = contentTypes.get(group);
+      if (seenTypes === undefined) {
+        if (projectedBytes + DEDUP_SET_BYTES + essence.length > budget)
+          return overBudget(
+            "Retained content type text would exceed the capture reply budget.",
+          );
+        projectedBytes += DEDUP_SET_BYTES;
+        seenTypes = new Set();
+        contentTypes.set(group, seenTypes);
+      } else if (
+        !seenTypes.has(essence) &&
+        projectedBytes + essence.length > budget
+      )
+        return overBudget(
+          "Retained content type text would exceed the capture reply budget.",
+        );
+      if (!seenTypes.has(essence)) {
         projectedBytes += essence.length;
         seenTypes.add(essence);
         group.content_types.push(essence);
       }
-    } else unavailableResponse = true;
+    }
   }
   const groups: Group[] = [];
   for (const byOrigin of buckets.values())

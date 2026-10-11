@@ -159,12 +159,13 @@ parent does not retain, so the refusal does not repeat declaration text. Each
 path is bounded before it is split. Four retained copies of its text, and two
 copies of the request method and origin, are charged against bytes already
 retained before the group key is serialized. A new group is retained only when
-those path, method, origin, and segment charges fit together. Each distinct
-content type is tracked in a set and charged before it is retained. Newly
-retained templated segments, distinct observed values, and deduplication sets
-created on the first merge are charged against the 96 MiB reply budget before
-those sets are allocated; exceeding the budget returns `resource_constraint`.
-Limitations on the examined records are deduplicated onto the view.
+those path, method, origin, and segment charges fit together. The content-type
+set is created and charged when the first type is retained; each later distinct
+type is charged before it is kept. Newly retained templated segments, distinct
+observed values, and deduplication sets created on the first merge are charged
+against the 96 MiB reply budget before those sets are allocated; exceeding the
+budget returns `resource_constraint`. Limitations on the examined records are
+deduplicated onto the view.
 
 ## Resource and lifecycle boundaries
 
