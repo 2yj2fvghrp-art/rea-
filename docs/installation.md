@@ -567,8 +567,13 @@ need Xvfb, Python 3, X11 and XTEST; approved setup installs those dependencies
 on supported distributions. Add the curl installer's reported executable
 directory, commonly `~/.local/bin`, to your shell `PATH` if needed.
 
-REA starts Hopper when needed. On macOS, its launcher can bring a window or
-first-run dialog forward; choose demo mode or activate your existing license.
+REA starts Hopper when needed. On macOS, complete its demo or license prompt in
+the same user session before the first CLI/MCP operation or unattended job. Open
+Hopper manually if needed; its launcher can also bring the dialog forward.
+If startup reports `Cannot launch Hopper! Connection is invalid.` or waits for
+bridge readiness, check Hopper for a pending demo, license, or loader dialog.
+Complete the dialog and retry. If REA reports `cleanup_incomplete`, follow the
+retained-resource guidance below before reopening the target.
 Hopper serializes analysis requests. Cancelling a wait can leave provider work
 running, which the session reports. Successful decompilation is cached until
 a relevant rename or comment changes it.
