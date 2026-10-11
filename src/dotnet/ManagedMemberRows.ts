@@ -1,6 +1,7 @@
 import {
   admitManagedProjection,
   managedDecodeBudget,
+  managedJsonStringBytes,
   type ManagedDecodeBudget,
 } from "./ManagedDecodeBudget.js";
 import type { ManagedPeLayout } from "./ManagedPeReader.js";
@@ -235,6 +236,15 @@ export const edges = (
   const callEdges: ManagedCallEdge[] = [];
   const fieldAccesses: ManagedFieldAccess[] = [];
   for (const method of methods) {
+    const derives = method.body.anchors.some(
+      (anchor) =>
+        anchor.opcode !== "ldtoken" &&
+        anchor.operand !== null &&
+        (anchor.operand_kind === "method" || anchor.operand_kind === "field"),
+    );
+    if (derives) budget.admitTransient(callerNameBytes(method), null);
+    // Built once per method, only after its exact size was admitted.
+    const caller = derives ? callerName(method) : method.name;
     for (const anchor of method.body.anchors) {
       if (anchor.opcode === "ldtoken") continue;
       if (anchor.operand_kind === "method" && anchor.operand !== null) {
@@ -247,10 +257,7 @@ export const edges = (
           admitManagedProjection(
             {
               caller_token: method.token,
-              caller:
-                method.declaring_type === null
-                  ? method.name
-                  : `${method.declaring_type}.${method.name}`,
+              caller,
               opcode: anchor.opcode,
               target_token: anchor.operand,
               target_kind: targetKind(anchor.operand),
@@ -265,10 +272,7 @@ export const edges = (
           admitManagedProjection(
             {
               method_token: method.token,
-              method:
-                method.declaring_type === null
-                  ? method.name
-                  : `${method.declaring_type}.${method.name}`,
+              method: caller,
               opcode: anchor.opcode,
               field_token: anchor.operand,
               field_name: fieldCore.get(anchor.operand)?.name ?? null,
@@ -278,9 +282,24 @@ export const edges = (
         );
       }
     }
+    // Every record now reserves the name it carries.
+    if (derives) budget.releaseTransient();
   }
   return { callEdges, fieldAccesses };
 };
+
+const callerName = (method: ManagedMethod): string =>
+  method.declaring_type === null
+    ? method.name
+    : `${method.declaring_type}.${method.name}`;
+
+/** JSON bytes of `callerName`, from its parts: the joining dot adds one byte. */
+const callerNameBytes = (method: ManagedMethod): number =>
+  method.declaring_type === null
+    ? managedJsonStringBytes(method.name)
+    : managedJsonStringBytes(method.declaring_type) +
+      managedJsonStringBytes(method.name) -
+      1;
 
 const budgetedSignature = (
   bytes: Buffer,

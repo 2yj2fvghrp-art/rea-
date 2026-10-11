@@ -219,6 +219,47 @@ describe("managed derived edges", () => {
   });
 });
 
+describe("managed derived caller names", () => {
+  it("admits a caller name before building it", () => {
+    let built = false;
+    // A string-like type name records whether the caller was interpolated.
+    const declaringType = {
+      length: 70 * 1024 * 1024,
+      charCodeAt: () => 0x54,
+      toString: () => {
+        built = true;
+        return "T";
+      },
+    } as unknown as string;
+    const method = {
+      token: "0x06000001",
+      declaring_type: declaringType,
+      name: "m",
+      body: {
+        anchors: [
+          {
+            il_offset: 0,
+            opcode: "call",
+            operand_kind: "method",
+            operand: "0x0a000001",
+          },
+        ],
+      },
+    } as unknown as ManagedMethod;
+
+    expect(() =>
+      edges(
+        [method],
+        new Map(),
+        new Map(),
+        new Map(),
+        new ManagedDecodeBudget(),
+      ),
+    ).toThrow(ManagedReaderFailure);
+    expect(built).toBe(false);
+  });
+});
+
 describe("managed member reference bounds", () => {
   it("retains members and reports an out-of-range TypeDef coded index as partial", () => {
     const bytes = buildManagedPeFixture({ extendsRaw: 12 });

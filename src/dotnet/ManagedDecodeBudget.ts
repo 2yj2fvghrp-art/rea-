@@ -101,7 +101,7 @@ export const managedDecodeBudget = (
 };
 
 /** Exact UTF-8 bytes of a JSON string literal, counted without serializing it. */
-const jsonStringBytes = (value: string): number => {
+export const managedJsonStringBytes = (value: string): number => {
   let bytes = 2;
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
@@ -125,7 +125,7 @@ const jsonStringBytes = (value: string): number => {
 /** Exact UTF-8 JSON bytes of a decoded scalar or key, including escapes. */
 const jsonBytes = (item: unknown): number =>
   typeof item === "string"
-    ? jsonStringBytes(item)
+    ? managedJsonStringBytes(item)
     : Buffer.byteLength(JSON.stringify(item) ?? "null");
 
 /** Admit repeated values too: shared heap strings still expand at the JSON boundary. */
