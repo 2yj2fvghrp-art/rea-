@@ -37,6 +37,8 @@ const CODE_EXTENSIONS = new Set([
   "m",
   "mm",
   "sh",
+  "cs",
+  "php",
 ]);
 
 const LANGUAGE_BY_EXTENSION = new Map<string, string>([

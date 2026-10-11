@@ -282,7 +282,7 @@ const parseWithBabel = (
   const plugins = parserPluginsForPath(path);
 
   try {
-    const ast = parseRecoveredJavaScript(source, {
+    const ast = parseRecoveredJavaScript(source, path, {
       allowImportExportEverywhere: false,
       allowReturnOutsideFunction: true,
       allowUndeclaredExports: true,

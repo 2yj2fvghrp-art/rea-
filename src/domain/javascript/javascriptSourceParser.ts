@@ -37,15 +37,27 @@ export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
     : ["decorators-legacy", typescript];
 };
 
+/** `.mjs` and `.mts` are modules by extension; other paths leave the mode to syntax. */
+export const isExplicitModuleSourcePath = (path?: string): boolean =>
+  /\.m[jt]s$/iu.test(path ?? "");
+
 /**
  * Parse a module or script with recovery. Babel tries module mode first and
  * keeps its strict-mode errors after falling back to a script, so a script
  * with errors is parsed again as a script to report only its own errors.
+ * Explicit modules keep module strictness.
  */
 export const parseRecoveredJavaScript = (
   source: string,
+  sourcePath: string | undefined,
   options: Omit<ParserOptions, "sourceType" | "errorRecovery">,
 ): ParsedJavaScriptSource => {
+  if (isExplicitModuleSourcePath(sourcePath))
+    return parse(source, {
+      ...options,
+      sourceType: "module",
+      errorRecovery: true,
+    });
   const file = parse(source, {
     ...options,
     sourceType: "unambiguous",
@@ -62,7 +74,7 @@ export const parseJavaScriptSource = (
   sourcePath?: string,
 ): ParsedJavaScriptSource | null => {
   try {
-    return parseRecoveredJavaScript(source, {
+    return parseRecoveredJavaScript(source, sourcePath, {
       attachComment: false,
       plugins: parserPluginsForPath(sourcePath),
     });

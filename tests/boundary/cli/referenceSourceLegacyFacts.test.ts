@@ -21,6 +21,11 @@ cliTest(
         join(source, "legacy.js"),
         "var messages = {};\ndelete messages;\n",
       ),
+      // An explicit module keeps the strict-mode error.
+      writeFile(
+        join(source, "module.mjs"),
+        "var messages = {};\ndelete messages;\n",
+      ),
       writeFile(join(source, "index.php"), "<?php echo 'legacy';\n"),
       writeFile(join(source, "Program.cs"), "class Program {}\n"),
     ]);
@@ -52,8 +57,18 @@ cliTest(
 
     expect(result.exitCode).toBe(0);
     const graph = historicalSourceGraphSchema.parse(result.json);
-    expect(graph.parse_failures).toEqual([]);
+    expect(graph.parse_failures).toEqual([
+      {
+        path: "module.mjs",
+        parser: "babel",
+        reason: "Deleting local variable in strict mode. (2:0)",
+      },
+    ]);
     expect(graph.languages).toEqual(["C#", "JavaScript", "PHP"]);
+    for (const path of ["Program.cs", "index.php"])
+      expect(
+        graph.entries.find((entry) => entry.path === path)?.classifications,
+      ).toContain("source");
     expect(graph.vcs).toEqual({ kind: "git", head, dirty: null });
     expect(graph.provenance.importer_version).toBe(
       PRODUCT_IDENTITY.packageVersion,
