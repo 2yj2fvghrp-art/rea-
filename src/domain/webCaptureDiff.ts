@@ -342,7 +342,7 @@ const networkDimension = (
     afterWebSockets,
     webSocketShapes,
   );
-  return compareDimension(
+  const compared = compareDimension(
     new Map([
       ...networkMap(before, sources, responseFields),
       ...webSocketMetadataMap(beforeWebSockets),
@@ -360,12 +360,21 @@ const networkDimension = (
         "websocket_frames",
       ]),
     ) &&
-      responseFieldsComplete &&
       shapesComplete &&
       webSocketPayloadBytesComplete &&
       webSocketShapesComplete,
     "Network capture or selected HTTP/WebSocket payload-shape coverage is attach-window limited, unavailable, or incomplete.",
   );
+  // Missing response values prevent equality, not independently observed
+  // additions or removals in a complete request inventory.
+  return compared.status === "unchanged" && !responseFieldsComplete
+    ? {
+        ...compared,
+        status: "unknown",
+        reason:
+          "HTTP response status, MIME type, or byte-count evidence is incomplete.",
+      }
+    : compared;
 };
 
 const networkMap = (

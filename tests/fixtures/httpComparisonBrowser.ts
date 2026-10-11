@@ -2,6 +2,7 @@ import { startFakeCdpBrowser, type FakeCdpBrowser } from "./fakeCdpBrowser.js";
 
 export type HttpRequestObservation = {
   readonly requestId: string;
+  readonly path?: string;
   readonly status?: number;
   readonly mimeType?: string;
   readonly encodedDataLength?: number;
@@ -15,7 +16,7 @@ const requestEvents = (
   sessionId: string | undefined,
 ): CdpEvent[] => {
   const session = sessionId === undefined ? {} : { sessionId };
-  const url = `${origin}/api/items`;
+  const url = `${origin}${observation.path ?? "/api/items"}`;
   const { requestId, status, mimeType, encodedDataLength } = observation;
   const events: CdpEvent[] = [
     {

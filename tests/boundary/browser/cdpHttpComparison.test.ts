@@ -173,17 +173,76 @@ describe("HTTP comparison repeated request coverage", () => {
   });
 });
 
+it.each([
+  {
+    name: "a pending request in an empty inventory",
+    before: [],
+    after: [{ requestId: "pending" }],
+  },
+  {
+    name: "a known request beside an existing pending request",
+    before: [{ requestId: "pending" }],
+    after: [
+      { requestId: "pending" },
+      {
+        ...response,
+        requestId: "new",
+        path: "/api/new",
+        encodedDataLength: 100,
+      },
+    ],
+  },
+])("preserves additions and removals of $name", async (observations) => {
+  const [before, after] = await capturePair(
+    observations.before,
+    observations.after,
+  );
+  // Live CDP observations have attach-limited inventories. Their absence
+  // remains unknown even when a request is seen in the other capture.
+  for (const [left, right] of [
+    [before, after],
+    [after, before],
+  ] as const)
+    expect(compareNetwork(left, right)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+      changes: [],
+    });
+
+  // Project explicitly complete inventory coverage without changing the
+  // producer's request facts; response fields remain independently unknown.
+  markNetworkInventoriesComplete(before, after);
+  for (const [left, right, change] of [
+    [before, after, "added"],
+    [after, before, "removed"],
+  ] as const)
+    expect(compareNetwork(left, right)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [expect.objectContaining({ change })],
+    });
+});
+
 it("requires response field coverage even when capture sections are complete", async () => {
   const [before, after] = await capturePair(
     [response],
     [{ ...response, encodedDataLength: 100 }],
   );
+  markNetworkInventoriesComplete(before, after);
+  expect(compareNetwork(before, before).status).toBe("unknown");
+  expect(compareNetwork(before, after).status).toBe("unknown");
+  expect(compareNetwork(after, after).status).toBe("unchanged");
+});
+
+const markNetworkInventoriesComplete = (
+  ...inspections: WebPageInspection[]
+): void => {
   const sections = new Set([
     "network_requests",
     "websocket_connections",
     "websocket_frames",
   ]);
-  for (const inspection of [before, after])
+  for (const inspection of inspections)
     for (const key of [
       "policy_filtered_sections",
       "attach_limited_sections",
@@ -193,7 +252,4 @@ it("requires response field coverage even when capture sections are complete", a
       inspection.completeness[key] = inspection.completeness[key].filter(
         (section) => !sections.has(section),
       );
-  expect(compareNetwork(before, before).status).toBe("unknown");
-  expect(compareNetwork(before, after).status).toBe("unknown");
-  expect(compareNetwork(after, after).status).toBe("unchanged");
-});
+};
