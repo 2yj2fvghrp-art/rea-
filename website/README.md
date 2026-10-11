@@ -37,15 +37,15 @@ install them with `sudo apt-get install libcairo2 fonts-dejavu-core`. On an
 Apple Silicon Mac, install the ARM build with `brew install cairo pkg-config`.
 Check that `/opt/homebrew/lib/libcairo.dylib` reports `arm64`. An old Intel
 build in `/usr/local/lib` shadows the ARM build. The preview then fails with
-`incompatible architecture (have 'x86_64', need 'arm64')`. Do not link ARM
-files into `/usr/local/lib`. That breaks Intel programs that use the same
-names. Back up the Intel files once with
-`BACKUP=~/cairo-intel-backup-$(date +%F)` and
-`mkdir -p "$BACKUP"` and `mv -n /usr/local/lib/libcairo* "$BACKUP"/`. The `-n`
-flag keeps a second run from replacing the saved files. Reinstall the ARM
-build with `brew reinstall cairo` if needed. Open a new shell. Run the preview
-with `arch -arm64 python3 scripts/website.py serve`. Restore the Intel files
-after with `mv -n "$BACKUP"/libcairo* /usr/local/lib/`. For other systems, see
+`incompatible architecture (have 'x86_64', need 'arm64')`. Keep
+`/usr/local/lib` intact. Do not move its files and do not link ARM files into
+it. That breaks Intel programs that use the same names. Use one shell for the
+next steps. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. Verify with
+`python3 -c "import ctypes.util; print(ctypes.util.find_library('cairo'))"`.
+The result should point at `/opt/homebrew`. Run the preview from that same
+shell with `arch -arm64 python3 scripts/website.py serve`. Do not open a new
+shell between the export and the serve. For other systems, see
 [CairoSVG's installation instructions](https://cairosvg.org/documentation/#installation).
 CI installs both packages explicitly before rendering the card.
 
