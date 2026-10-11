@@ -165,7 +165,10 @@ const reconstructSource = async (source: string): Promise<Reconstruction> => {
   const root = await createTestTempDirectory("rea-electron-option-keys-");
   await Promise.all([
     writeFile(join(root, "package.json"), JSON.stringify({ main: "main.js" })),
-    writeFile(join(root, "main.js"), source),
+    writeFile(
+      join(root, "main.js"),
+      `const { BrowserWindow, utilityProcess } = require("electron");\n${source}`,
+    ),
     writeFile(join(root, "preload.js"), "void 0;"),
     writeFile(join(root, "worker.js"), "void 0;"),
   ]);
