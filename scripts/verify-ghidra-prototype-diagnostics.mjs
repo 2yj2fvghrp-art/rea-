@@ -22,6 +22,7 @@ import {
   ProviderProcessSupervisor,
 } from "../dist/process/ProviderProcess.js";
 import { cleanupOwnedProcessGroup } from "../dist/process/ProcessOwnership.js";
+import { OwnedCommandFailure } from "../dist/process/OwnedCommand.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { requireMcpOperationResult } from "./lib/mcp-verifier-results.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
@@ -54,6 +55,7 @@ export async function verifyGhidraPrototypeDiagnostics({
   );
   const helper = join(dirname(bridge), "ReaGhidraPrototypeDiagnostics.java");
   const producerOutput = join(workspace, "producer.json");
+  let retainWorkspace = false;
   try {
     await exec(process.env.REA_AS ?? "as", [
       "--32",
@@ -104,7 +106,9 @@ export async function verifyGhidraPrototypeDiagnostics({
       ownsProcessLifetime: true,
       cleanup: () => cleanupOwnedProcessGroup(launch.ownership),
     });
+    retainWorkspace = true;
     let producer;
+    let producerFailure;
     try {
       assert.ok(
         await supervisor.waitForExit(180000),
@@ -120,10 +124,24 @@ export async function verifyGhidraPrototypeDiagnostics({
       producer = assertPrototypeDiagnosticsReport(
         JSON.parse(await readFile(producerOutput, "utf8")),
       );
+    } catch (cause) {
+      producerFailure = cause;
+      throw cause;
     } finally {
       const stopped = await supervisor.stop();
-      supervisor.dispose();
-      assert.notEqual(stopped.status, "incomplete", JSON.stringify(stopped));
+      if (stopped.status === "incomplete")
+        throw new OwnedCommandFailure(
+          "process",
+          `Prototype producer cleanup incomplete; workspace retained at ${workspace}`,
+          supervisor.snapshot(),
+          stopped.reason,
+          producerFailure === undefined
+            ? undefined
+            : { cause: producerFailure },
+          [workspace, run.run_id, `pid:${launch.ownership.leaderPid}`],
+          supervisor,
+        );
+      retainWorkspace = false;
     }
     const publicWorkflows = await verifyPublicWorkflows({
       entrypoint,
@@ -153,7 +171,7 @@ export async function verifyGhidraPrototypeDiagnostics({
       cleanup: "complete",
     };
   } finally {
-    await rm(workspace, { recursive: true, force: true });
+    if (!retainWorkspace) await rm(workspace, { recursive: true, force: true });
   }
 }
 
