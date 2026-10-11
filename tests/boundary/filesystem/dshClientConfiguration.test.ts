@@ -348,4 +348,173 @@ describe("DeepSeek Harness registration identity", () => {
   });
 });
 
+describe("DeepSeek Harness repair boundaries", () => {
+  it("repairs a direct-only registration by appending the insert", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- id: rea-mcp
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: rea
+    transport: stdio
+    command: stale-launcher
+    args: [mcp]
+`,
+    );
+
+    // An incomplete manual registration has no insertion to rewrite, so the
+    // repair appends one canonical row instead of leaving the entry absent.
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(parseYaml(await readFile(client.configPath, "utf8"))).toEqual([
+      {
+        insert: [
+          {
+            id: "rea-mcp",
+            name: "@deepseek-ai/dsh-mcp-client",
+            config: {
+              serverName: "rea",
+              transport: "stdio",
+              command: command[0],
+              args: command.slice(1),
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("updates a grouped entry in place and drops the superseding disable op", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `# agent group carrying several tools
+- id: agent-group
+  insert:
+    - id: user-tool
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: other
+        transport: stdio
+        command: other-server
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+- id: rea-mcp
+  disabled: true
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("# agent group carrying several tools");
+    expect(text).not.toMatch(/^- id: rea-mcp$/mu);
+    // The entry keeps its position inside the group; nothing moves to a new
+    // root-level insertion.
+    expect(parseYaml(text)).toEqual([
+      {
+        id: "agent-group",
+        insert: [
+          {
+            id: "user-tool",
+            name: "@deepseek-ai/dsh-mcp-client",
+            config: {
+              serverName: "other",
+              transport: "stdio",
+              command: "other-server",
+            },
+          },
+          {
+            id: "rea-mcp",
+            name: "@deepseek-ai/dsh-mcp-client",
+            config: {
+              serverName: "rea",
+              transport: "stdio",
+              command: command[0],
+              args: command.slice(1),
+            },
+          },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("DeepSeek Harness registration state", () => {
+  it("diagnoses a disabled entry as stale and re-enables it on repair", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      disabled: true
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+`,
+    );
+
+    // The command matches, but Cordis never activates a disabled row, so the
+    // registration reads as stale rather than aligned.
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "stale" });
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: { disabled?: unknown }[];
+    }[];
+    expect(patches[0]?.insert[0]?.disabled).toBeUndefined();
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("retains the existing registration environment across a repair", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          GHIDRA_INSTALL_DIR: /caller/nondefault/ghidra
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: { config: { env?: Record<string, string> } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.env).toEqual({
+      GHIDRA_INSTALL_DIR: "/caller/nondefault/ghidra",
+    });
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
