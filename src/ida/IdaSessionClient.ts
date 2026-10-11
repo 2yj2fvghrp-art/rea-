@@ -360,12 +360,11 @@ export class IdaSessionClient implements AnalysisClient {
         throw new AnalysisProtocolError(
           "IDA headless session has no database binding.",
         );
-      const raw = await readSettledHealth(
-        this.connection,
-        this.#database,
-        this.config.timeoutMs,
-        options?.signal,
-      );
+      const raw = await readSettledHealth(this.connection, {
+        database: this.#database,
+        timeoutMs: this.config.timeoutMs,
+        signal: options?.signal,
+      });
       const metadata = modernHealthSchema.parse(raw);
       if (
         !sameIdaHostPath(metadata.input_path, this.#workspace.inputPath) ||

@@ -49,13 +49,11 @@ it("sleeps the fixed retry delay between busy reads and returns the settled answ
   const { connection, reads } = scripted([busy("a"), busy("a"), ok]);
   const { clock, sleeps } = virtualClock();
 
-  const raw = await readSettledHealth(
-    connection,
-    "db",
-    10_000,
-    undefined,
+  const raw = await readSettledHealth(connection, {
+    database: "db",
+    timeoutMs: 10_000,
     clock,
-  );
+  });
 
   expect(raw, "the settled payload is returned unchanged").toEqual(ok);
   expect(reads.length, "one read per poll").toBe(3);
@@ -66,13 +64,11 @@ it("clamps the last pause to the remaining budget and stops without another read
   const { connection, reads } = scripted([busy("config_json_get")]);
   const { clock, sleeps } = virtualClock();
 
-  const failure = await readSettledHealth(
-    connection,
-    "db",
-    350,
-    undefined,
+  const failure = await readSettledHealth(connection, {
+    database: "db",
+    timeoutMs: 350,
     clock,
-  ).catch((cause: unknown) => cause);
+  }).catch((cause: unknown) => cause);
 
   expect(sleeps, "three full pauses, then the 50 ms remainder").toEqual([
     100, 100, 100, 50,
@@ -88,13 +84,11 @@ it("does not read again when the only pause consumes the whole budget", async ()
   const { connection, reads } = scripted([busy("config_json_get")]);
   const { clock } = virtualClock();
 
-  const failure = await readSettledHealth(
-    connection,
-    "db",
-    100,
-    undefined,
+  const failure = await readSettledHealth(connection, {
+    database: "db",
+    timeoutMs: 100,
     clock,
-  ).catch((cause: unknown) => cause);
+  }).catch((cause: unknown) => cause);
 
   expect(reads.length, "the single read before the pause is the only one").toBe(
     1,
@@ -108,13 +102,11 @@ it("reports the busy tool of the last observation", async () => {
   const { connection } = scripted([busy("first_tool"), busy("last_tool")]);
   const { clock } = virtualClock();
 
-  const failure = await readSettledHealth(
-    connection,
-    "db",
-    150,
-    undefined,
+  const failure = await readSettledHealth(connection, {
+    database: "db",
+    timeoutMs: 150,
     clock,
-  ).catch((cause: unknown) => cause);
+  }).catch((cause: unknown) => cause);
 
   expect(failure, "the operation names the tool seen last").toMatchObject({
     operation: "server_health: headless worker still busy in last_tool",
@@ -127,13 +119,12 @@ it("rejects without another read when the signal aborts after the pause has fulf
   const { connection, reads } = scripted([busy("config_json_get")]);
   const { clock } = virtualClock(() => controller.abort());
 
-  const failure = await readSettledHealth(
-    connection,
-    "db",
-    10_000,
-    controller.signal,
+  const failure = await readSettledHealth(connection, {
+    database: "db",
+    timeoutMs: 10_000,
+    signal: controller.signal,
     clock,
-  ).catch((cause: unknown) => cause);
+  }).catch((cause: unknown) => cause);
 
   expect(reads.length, "the abort wins over the next read").toBe(1);
   expect(failure, "the abort is surfaced, not a timeout").toMatchObject({
