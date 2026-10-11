@@ -279,6 +279,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             resolution_status: status,
           }),
           evidence: expect.objectContaining({
+            ...(specifier === "legacy/feature"
+              ? {
+                  limitations: expect.arrayContaining([
+                    "The selected package ESM subpath target node_modules/legacy/feature does not exist in the inventoried artifact container; ESM subpath targets are exact files, so no extension or directory index was tried.",
+                  ]),
+                }
+              : {}),
             artifact: expect.objectContaining({
               sha256: createHash("sha256").update(source).digest("hex"),
             }),

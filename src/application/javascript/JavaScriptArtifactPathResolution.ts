@@ -437,7 +437,7 @@ const resolveLegacyEsmSubpath = (
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
     ]);
-  return notFoundCandidate();
+  return exactPackageTargetNotFound(candidate, "ESM subpath");
 };
 
 const resolvePackageExports = (
@@ -1050,12 +1050,12 @@ const notFoundCandidate = (): CandidateResolution => ({
 
 const exactPackageTargetNotFound = (
   path: string,
-  mapKind: "exports" | "imports",
+  targetKind: "exports" | "imports" | "ESM subpath",
 ): CandidateResolution => ({
   resolvedPath: null,
   status: "not-found",
   limitations: [
-    `The selected package ${mapKind === "imports" ? "import" : "exports"} target ${path} does not exist in the inventoried artifact container; ${mapKind === "imports" ? "import" : "exports"} targets are exact files, so no extension or directory index was tried.`,
+    `The selected package ${targetKind === "imports" ? "import" : targetKind} target ${path} does not exist in the inventoried artifact container; ${targetKind === "imports" ? "import" : targetKind} targets are exact files, so no extension or directory index was tried.`,
   ],
 });
 
