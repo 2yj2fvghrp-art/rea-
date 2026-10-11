@@ -36,7 +36,26 @@ Setup continues to pin persistent MCP registrations to the exact version that
 performed setup. Running current setup later migrates unversioned or older
 managed registrations through the normal reviewed setup transaction.
 
+With Bun, `bunx rea-agents setup` (or `bunx rea-agents@latest setup`) is the
+equivalent entry point. Setup run through `npx` registers
+`npx -y rea-agents@<version> mcp`; setup run through `bunx` or `bun x` registers
+`bunx rea-agents@<version> mcp`. On Windows, setup wraps either command in
+`cmd.exe /d /c` so clients can start the runner's command shim. Neither
+registration points into the runner's temporary package cache.
+
 REA supports Node.js 22.x (>=22.19), 24.x (>=24.11), and 26+. Node.js 23, 25, and prereleases are unsupported. It uses the npm already paired with that runtime and never upgrades Node.js, npm, or Homebrew.
+
+When REA runs on Bun, the `rea doctor` `node` check reports the Bun version and
+the Node.js compatibility version Bun declares, and passes when that
+compatibility version is in the supported range. Bun does not enforce the V8
+heap flags REA gives its owned helper processes, so Evidence that reports those
+limits on Node.js records them as unavailable under Bun. On Windows, the owned
+Job Object of each JavaScript helper (source analyzer, source-map codec and HAR
+decoder) instead limits its committed memory to that helper's heap budget plus
+a 512 MiB reserve for Bun itself, and Evidence reports that limit. This needs
+the matching bundled Windows native artifact; an artifact without the control
+refuses to start the helper rather than running it unlimited. CI tests Node.js
+only.
 
 Running `npm install rea-agents` without `--global` installs the executable only
 in the current project's `node_modules/.bin`; it does not make `rea` available
@@ -512,6 +531,25 @@ export HOPPER_LAUNCHER_PATH=/absolute/path/to/Hopper
 rea doctor --provider hopper --json
 ```
 
+Hopper startup allows 120,000 ms for launch, initial analysis, and authenticated
+bridge readiness. For large targets, set `REA_HOPPER_STARTUP_TIMEOUT_MS` to a
+decimal integer from 1 to 2,147,483,647 milliseconds in the environment that
+starts REA. CLI and MCP use the same setting; invalid values fail configuration
+validation. An MCP client's own request timeout must also allow enough time.
+
+If macOS denies Apple Events, allow the application that starts REA under
+**System Settings → Privacy & Security → Automation**, then retry. REA releases
+the target reservation when the native helper reports its complete authorization
+rejection and its arguments cannot alter the helper's generated AppleScript.
+Arguments containing quotes, backslashes, or line breaks remain unchanged but
+cannot establish that a failed handoff opened no document. Other failed handoffs
+retain ownership until document closure is confirmed. If a timed-out bridge
+becomes ready later, `close_binary` connects to that run, authenticates its
+identity, and requests document shutdown. After a connection drops, the bridge
+allows 30 seconds for an authenticated cleanup reconnect, then releases Hopper's
+Python execution thread. Expiry does not establish document closure, so REA
+retains unconfirmed ownership. Retry close while the bridge remains available.
+
 If a Linux launcher exists but cannot start, inspect its shared libraries:
 
 ```bash
@@ -669,7 +707,7 @@ rea providers --json
 
 `rea setup` can configure supported Windows agents and install the bundled
 REA skill after approval. Direct registrations use Node to launch REA's entry
-script; package-runner registrations use the pinned `npx` command. Hopper
+script; package-runner registrations use the pinned `npx` or `bunx` command. Hopper
 installation remains unavailable on Windows. Setup never installs Ghidra,
 Java, or Python. It preserves valid detected Ghidra/JDK settings in agent
 registrations. See [Windows Ghidra P0](windows-ghidra-p0.md) for provider diagnostics.
@@ -852,7 +890,7 @@ Ghidra/JDK installation; neither is inferred from startup alone.
 
 ## Diagnose, update, and remove
 
-`rea doctor --json` is strictly read-only. `rea update` updates only the npm or Bun global installation that owns the running CLI. Source checkouts and package-runner copies must be updated through the mechanism that owns them; a fresh package-runner invocation can use `npx rea-agents@latest`. `rea uninstall` removes only REA-owned agent registrations and skill files; `--purge-data` additionally removes REA cache and state paths.
+`rea doctor --json` is strictly read-only. `rea update` updates only the npm or Bun global installation that owns the running CLI. Source checkouts and package-runner copies must be updated through the mechanism that owns them; a fresh package-runner invocation can use `npx rea-agents@latest` or `bunx rea-agents@latest`. `rea uninstall` removes only REA-owned agent registrations and skill files; `--purge-data` additionally removes REA cache and state paths.
 
 ```bash
 rea update
@@ -897,6 +935,7 @@ For a client that requires manual configuration, use:
 <!-- x-release-please-end -->
 
 Persistent registrations should use one exact package version. `rea setup`
-writes the same package-runner shape and pins it to the exact version that
-performed setup. Run current setup to refresh an older registration, then
-restart the client.
+writes the same package-runner shape, or `bunx rea-agents@<version> mcp` when
+setup runs through `bunx`, and pins it to the exact version that performed
+setup. Run current setup to refresh an older registration, then restart the
+client.
