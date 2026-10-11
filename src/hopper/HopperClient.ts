@@ -50,6 +50,7 @@ import {
 } from "./HopperCleanup.js";
 import {
   parseHopperServerInfo,
+  HOPPER_SHUTDOWN_TIMEOUT_MS,
   type HopperServerInfo,
 } from "./HopperSessionValues.js";
 import { connectHopperSocketOnce } from "./HopperSocketConnection.js";
@@ -72,7 +73,6 @@ import {
 /** Aggregate in-memory retention budget for this provider's launcher output. */
 export const HOPPER_PROCESS_DIAGNOSTIC_BYTES = 8 * 1024 * 1024;
 
-const SHUTDOWN_TIMEOUT_MS = 30_000;
 const SESSION_ROOT = process.platform === "darwin" ? "/tmp" : tmpdir();
 
 /** Dependencies, deadlines, and redacted diagnostics for one bridge client. */
@@ -354,7 +354,7 @@ export class HopperClient {
       return err(new HopperStartError({ cause }));
     }
     if (deadline.signal.aborted) {
-      return this.#startupFailure(startupInterruption(deadline));
+      return this.#startupFailure(await this.#startupInterruption(deadline));
     }
     const socketPath = join(this.#resources.runtimeRoot.path, "bridge.sock");
     this.#token = randomBytes(32).toString("hex");
@@ -380,7 +380,7 @@ export class HopperClient {
     if (!launched.ok) {
       return this.#startupFailure(
         deadline.signal.aborted
-          ? startupInterruption(deadline)
+          ? await this.#startupInterruption(deadline)
           : launched.error,
       );
     }
@@ -411,9 +411,7 @@ export class HopperClient {
     }
     const remainingMs = deadline.remainingMs();
     if (remainingMs <= 0) {
-      return this.#startupFailure(
-        new HopperTimeoutError(this.#options.startupTimeoutMs),
-      );
+      return this.#startupFailure(await this.#startupInterruption(deadline));
     }
     const health = await this.#request(
       "health",
@@ -425,7 +423,9 @@ export class HopperClient {
     );
     if (!health.ok) {
       return this.#startupFailure(
-        deadline.signal.aborted ? startupInterruption(deadline) : health.error,
+        deadline.signal.aborted
+          ? await this.#startupInterruption(deadline)
+          : health.error,
       );
     }
     const parsed = parseHopperServerInfo(health.value, runId);
@@ -438,6 +438,8 @@ export class HopperClient {
     primary: AnalysisError,
   ): Promise<Result<never, AnalysisError>> {
     this.#rememberStartupFailure(primary);
+    // Failed readiness never authorized this connection to mutate a document.
+    this.#releaseTransport();
     const closed = await this.#cleanup();
     const failure = closed.ok
       ? primary
@@ -449,11 +451,7 @@ export class HopperClient {
   #rememberStartupFailure(failure: AnalysisError): void {
     if (failure instanceof HopperProcessError)
       this.#rememberProcessFailure(failure, []);
-    else if (
-      this.#operationFailure === undefined &&
-      (failure instanceof HopperTimeoutError ||
-        failure instanceof HopperStartError)
-    )
+    else if (this.#operationFailure === undefined)
       this.#operationFailure = {
         state:
           failure instanceof HopperTimeoutError ? "not_started" : "unknown",
@@ -523,13 +521,13 @@ export class HopperClient {
     }
   }
 
-  /** Recover only this run's authenticated bridge when it became ready late. */
+  /** Reauthenticate this run after late readiness or a lost transport. */
   async #reconnectForCleanup(): Promise<void> {
+    if (this.#socket?.destroyed === true) this.#releaseTransport();
     const root = this.#resources.runtimeRoot;
     const runId = this.#runId;
     if (
       this.#socket !== undefined ||
-      this.#startupFailureResult === undefined ||
       root === undefined ||
       runId === undefined ||
       this.#token === undefined ||
@@ -538,7 +536,10 @@ export class HopperClient {
     )
       return;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SHUTDOWN_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => controller.abort(),
+      HOPPER_SHUTDOWN_TIMEOUT_MS,
+    );
     this.#closing = true;
     try {
       const connected = await connectHopperSocketOnce(
@@ -554,19 +555,11 @@ export class HopperClient {
         {},
         {
           signal: controller.signal,
-          timeoutMs: SHUTDOWN_TIMEOUT_MS,
+          timeoutMs: HOPPER_SHUTDOWN_TIMEOUT_MS,
         },
       );
       if (health.ok && parseHopperServerInfo(health.value, runId).ok) return;
-      this.#failAll(
-        new HopperProtocolError(
-          "Retained Hopper bridge identity was not confirmed",
-        ),
-      );
-      this.#detachSocket(socket);
-      socket.destroy();
-      this.#socket = undefined;
-      this.#responses.reset();
+      this.#releaseTransport();
     } finally {
       this.#closing = false;
       clearTimeout(timer);
@@ -586,13 +579,9 @@ export class HopperClient {
         logger: this.#logger,
         onDiagnostic: this.#options.onDiagnostic,
         request: (method) =>
-          this.#request(method, {}, { timeoutMs: SHUTDOWN_TIMEOUT_MS }),
+          this.#request(method, {}, { timeoutMs: HOPPER_SHUTDOWN_TIMEOUT_MS }),
         retainDocument: options.retainDocument === true,
-        releaseTransport: (socket) => {
-          this.#failAll(new HopperProcessError(null));
-          if (socket !== undefined) this.#detachSocket(socket);
-          socket?.destroy();
-        },
+        releaseTransport: () => this.#releaseTransport(),
       });
     } finally {
       if (this.#socket?.destroyed === true) this.#socket = undefined;
@@ -729,7 +718,10 @@ export class HopperClient {
         "launch",
         launcherFailure,
       );
-    if (nativeHopperLaunchWasDenied(launcherFailure)) {
+    if (
+      this.#resources.launch?.authorizationDenialBeforeHandoff === true &&
+      nativeHopperLaunchWasDenied(launcherFailure)
+    ) {
       this.#resources.shutdownConfirmed = true;
       return new HopperStartError({
         userMessage:
@@ -830,6 +822,15 @@ export class HopperClient {
     socket.off("data", this.#onSocketData);
     socket.off("error", this.#onSocketError);
     socket.off("close", this.#onSocketClose);
+  }
+
+  #releaseTransport(): void {
+    const socket = this.#socket;
+    this.#socket = undefined;
+    this.#failAll(new HopperProcessError(null));
+    if (socket !== undefined) this.#detachSocket(socket);
+    socket?.destroy();
+    this.#responses.reset();
   }
 
   #attachLauncher(launch: BridgeLaunch): void {
@@ -1002,10 +1003,3 @@ const mergeFailedRequests = (
 };
 
 const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
-
-const startupInterruption = (
-  deadline: ProviderStartupDeadline,
-): HopperCancelledError | HopperTimeoutError =>
-  deadline.interruption === "cancelled"
-    ? new HopperCancelledError()
-    : new HopperTimeoutError(deadline.timeoutMs);

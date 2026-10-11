@@ -8,7 +8,8 @@ import type { HopperLauncherOutcome } from "../domain/hopperErrors.js";
 
 /**
  * Hopper's native helper sends activate before its open-document Apple event.
- * An explicit authorization rejection means the target was never handed off.
+ * Recognize its explicit authorization rejection. The launcher must separately
+ * establish that caller arguments could not alter the generated AppleScript.
  * Other script errors, signals, and incomplete output leave ownership unknown.
  */
 export const nativeHopperLaunchWasDenied = (

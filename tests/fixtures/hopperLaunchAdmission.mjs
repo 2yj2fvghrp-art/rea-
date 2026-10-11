@@ -7,10 +7,17 @@ const bootstrapIndex = process.argv.indexOf("-Y") + 1;
 if (bootstrapIndex === 0) throw new Error("Missing Hopper bootstrap argument");
 const bootstrapPath = process.argv[bootstrapIndex];
 await writeFile(receiptPath, bootstrapPath);
-if (mode === "denied") {
+if (mode === "denied" || mode === "denied-after-handoff") {
   process.stderr.write(
     "Cannot launch Hopper!\nNot authorized to send Apple events to Hopper Disassembler.\n",
-    () => process.exit(2),
+    async () => {
+      if (mode === "denied-after-handoff") {
+        // A real native helper can create a document before emitting this same
+        // diagnostic when caller literals alter its AppleScript construction.
+        await writeFile(`${receiptPath}.document-created`, "unconfirmed");
+      }
+      process.exit(2);
+    },
   );
 } else if (mode === "handoff") {
   process.exit(0);
