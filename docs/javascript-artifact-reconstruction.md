@@ -159,9 +159,11 @@ completed partial Evidence. MCP failure details return
 after recording succeeds, so `inspect_analysis_view` can open that analysis
 directly without serializing the entire partial graph into the error response.
 CLI failure output retains the complete partial Evidence.
-Cancellation after source analysis begins likewise
-retains completed facts; an SDK client may reject its cancelled request before
-receiving that reply. On the same MCP connection, inspect the Evidence bundle
+Cancellation after source analysis begins likewise retains completed facts,
+including cancellation during analyzer cleanup, graph construction, or Evidence
+sealing. REA finishes projecting those owned facts cooperatively to return partial
+Evidence. An SDK client may reject its cancelled request before receiving that
+reply. On the same MCP connection, inspect the Evidence bundle
 and use the retained analysis ID with `inspect_analysis_view`. Owned analyzer
 cleanup is verified before its private files are released. Cleanup uncertainty
 is reported separately and retains ownership for retry.
@@ -230,6 +232,11 @@ unknown instead of silently treating them as absent or verified.
 
 Plain `.ts` artifact sources use TypeScript syntax without JSX, including
 angle-bracket type assertions. `.tsx` and `.jsx` retain JSX parsing.
+
+Relative TypeScript imports can name their emitted `.js`, `.mjs`, or `.cjs`
+counterparts while resolving to inventoried source files. This substitution
+requires import or require semantics. Literal Electron preload, renderer, and
+utility-process runtime paths retain the runtime filename selected by the caller.
 
 Selected bounded text is then parsed as inert data to recover:
 
