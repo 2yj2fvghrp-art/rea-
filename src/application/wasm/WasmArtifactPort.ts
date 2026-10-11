@@ -8,6 +8,8 @@ import type { Result } from "../../domain/result.js";
 
 /** Replaceable offline WASM inspection engine, independent of target execution and network clients. */
 export interface WasmArtifactPort {
+  /** Retry removal of retained workspaces; failures preserve ownership for another attempt. */
+  close(): Promise<void>;
   inspect(
     input: InspectWasmArtifactInput,
     options?: ExecutionOptions,

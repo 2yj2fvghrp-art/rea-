@@ -12,6 +12,7 @@ it.each([
   { path: "/module", fetch: true },
 ])("rejects invalid selection before effects: %j", async (input) => {
   const service = new WasmArtifactService({
+    close: () => Promise.resolve(),
     inspect: () => {
       throw new Error("Must not execute");
     },
@@ -30,6 +31,7 @@ it.each(["path", "digest", "wat", "candidates", "glue"])(
     if (problem === "candidates") value.candidates = [];
     const execution = wasmArtifactExecution(value);
     const service = new WasmArtifactService({
+      close: () => Promise.resolve(),
       inspect: () =>
         Promise.resolve(
           ok({
@@ -55,6 +57,7 @@ it("cancels before provider work and delivers observed Evidence on success", asy
   const value = wasmArtifactFixture();
   let calls = 0;
   const service = new WasmArtifactService({
+    close: () => Promise.resolve(),
     inspect: () => {
       calls++;
       return Promise.resolve(ok(wasmArtifactExecution(value)));

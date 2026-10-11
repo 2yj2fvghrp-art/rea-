@@ -1,6 +1,6 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { WasmArtifactService } from "../../../src/application/wasm/WasmArtifactService.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
@@ -14,7 +14,9 @@ import {
 
 it("advertises exact valid schemas and records inline WASM interface evidence without a binary target", async () => {
   const value = wasmArtifactFixture();
+  const close = vi.fn(() => Promise.resolve());
   const service = new WasmArtifactService({
+    close,
     inspect: () => Promise.resolve(ok(wasmArtifactExecution(value))),
   });
   const session = createTestBinarySession(() => {
@@ -77,4 +79,6 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
       })
     ).isError,
   ).toBe(true);
+  await server.close();
+  expect(close).toHaveBeenCalled();
 });

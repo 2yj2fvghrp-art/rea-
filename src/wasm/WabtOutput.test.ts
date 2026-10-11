@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, it } from "vitest";
-import { parseWabtHeaders } from "./WabtOutput.js";
+import { parseWabtOutput } from "./WabtOutput.js";
 import { parseWabtWat } from "./WabtWat.js";
 import { associateWasmGlue } from "./WasmGlueAdapter.js";
 const golden = () =>
@@ -11,21 +11,28 @@ const golden = () =>
 it("retains real WABT section ranges, custom section identity and original header output", async () => {
   const text = await golden();
   const headers = text.slice(0, text.indexOf("Section Details:\n"));
-  expect(parseWabtHeaders(headers, 76)).toHaveLength(7);
-  expect(parseWabtHeaders(headers, 76).at(-1)).toEqual({
+  expect(parseWabtOutput(text, 76, ["test"]).sections).toHaveLength(7);
+  expect(parseWabtOutput(text, 76, ["test"]).headers).toBe(headers);
+  expect(parseWabtOutput(text, 76, ["test"]).sections.at(-1)).toEqual({
     kind: "Custom",
     start: 64,
     end: 76,
     bytes: 12,
     description: '"test"',
   });
-  expect(() => parseWabtHeaders(headers, 75)).toThrow(/ranges/u);
+  expect(() => parseWabtOutput(text, 75, ["test"])).toThrow(/ranges/u);
   expect(() =>
-    parseWabtHeaders(headers.replace("size=0x0000000c", "size=0x0000000d"), 76),
+    parseWabtOutput(text.replace("size=0x0000000c", "size=0x0000000d"), 76, [
+      "test",
+    ]),
   ).toThrow(/ranges/u);
-  expect(() => parseWabtHeaders(headers + "unexpected\n", 76)).toThrow(
-    /Unrecognized/u,
-  );
+  expect(() =>
+    parseWabtOutput(
+      text.replace("\nSection Details:\n", "unexpected\nSection Details:\n"),
+      76,
+      ["test"],
+    ),
+  ).toThrow(/Unrecognized/u);
 });
 it("extracts escaped WAT import/export forms while retaining multiline producer text", async () => {
   const text = await readFile(
@@ -35,6 +42,7 @@ it("extracts escaped WAT import/export forms while retaining multiline producer 
   expect(parseWabtWat(text)).toEqual({
     imports: ['(import "env" "foo" (func (;0;) (type 0)))'],
     exports: ['(export "memory" (memory 0))', '(export "run" (func 1))'],
+    customSectionNames: ["test"],
   });
   expect(
     parseWabtWat(
@@ -43,6 +51,7 @@ it("extracts escaped WAT import/export forms while retaining multiline producer 
   ).toEqual({
     imports: ['(import "a.b" "c\\0aline" (func))'],
     exports: ['(export "fake\\22Export[1]:" (func 0))'],
+    customSectionNames: [],
   });
   expect(
     parseWabtWat(

@@ -22,6 +22,11 @@ const OPERATION = "inspect_wasm_artifact";
 export class WasmArtifactService {
   constructor(readonly provider: WasmArtifactPort) {}
 
+  /** Join provider cleanup during shutdown or an explicit retry. */
+  close(): Promise<void> {
+    return this.provider.close();
+  }
+
   /** Preserve exact selected artifact identity and validated upstream observations. */
   async inspect(
     rawInput: unknown,

@@ -9,3 +9,5 @@ custom section. The custom payload is retained as an `@custom` annotation in dec
 Upstream tag commit: `ff0ef7e0009402740c805a9744c09b05be063e48`.
 The separate real-tool verifier generates its own fixtures with caller-supplied
 WABT and compares exact producer output against the public CLI/MCP surfaces.
+`custom-names.wat` covers newlines, quotes, Unicode, backslashes and embedded
+section markers in custom names; objdump displays those names without escaping.

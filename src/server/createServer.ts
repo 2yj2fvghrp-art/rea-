@@ -204,6 +204,8 @@ export const createServer = (
   );
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
+  const wasmArtifact =
+    options.wasmArtifact ?? createWasmArtifactService(environment);
   const availability = installSessionToolAvailability(
     session,
     selectedOptions,
@@ -238,14 +240,24 @@ export const createServer = (
         "Android provider cleanup failed",
       );
     });
+    void wasmArtifact.close().catch((cause: unknown) => {
+      logger.error(
+        { error: cause instanceof Error ? cause.message : String(cause) },
+        "WASM provider cleanup failed",
+      );
+    });
   };
   const closeServer = server.close.bind(server);
   server.close = async () => {
-    const results = await Promise.allSettled([closeServer(), android.close()]);
+    const results = await Promise.allSettled([
+      closeServer(),
+      android.close(),
+      wasmArtifact.close(),
+    ]);
     for (const result of results)
       if (result.status === "rejected") throw result.reason;
   };
-  registerConfiguredAnalysisTools(toolContext, android);
+  registerConfiguredAnalysisTools(toolContext, android, wasmArtifact);
   registerObservationTools(toolContext);
   registerGuidedPrompts(server, analysis, session);
   if (session !== undefined) {
@@ -296,6 +308,7 @@ const registerConfiguredAnalysisTools = (
     recordEvidence,
   }: ServerToolContext,
   android: AndroidAnalysisPort,
+  wasmArtifact: WasmArtifactService,
 ): void => {
   registerAndroidTools(
     server,
@@ -310,12 +323,7 @@ const registerConfiguredAnalysisTools = (
     recordEvidence,
   );
   registerAnalysisViewTool(server, toolLogger, evidenceById, recordEvidence);
-  registerWasmTools(
-    server,
-    options.wasmArtifact ?? createWasmArtifactService(environment),
-    toolLogger,
-    recordEvidence,
-  );
+  registerWasmTools(server, wasmArtifact, toolLogger, recordEvidence);
   registerEvmTools(
     server,
     options.evmInterface ?? createEvmInterfaceService(environment),

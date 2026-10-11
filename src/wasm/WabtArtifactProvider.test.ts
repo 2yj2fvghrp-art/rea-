@@ -7,6 +7,17 @@ import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { spawnOwnedProviderProcess } from "../process/ProviderProcess.js";
 import { OwnedCommandFailure } from "../process/OwnedCommand.js";
 
+const failureTags: Readonly<Record<string, string>> = {
+  invalid: "AnalysisInputError",
+  timeout: "AnalysisTimeoutError",
+  cancelled: "AnalysisCancelledError",
+  "changed-snapshot": "AnalysisArtifactChangedError",
+  cleanup: "ProviderAdapterError",
+  malformed: "AnalysisOutputError",
+  "malformed-wat": "AnalysisOutputError",
+  "wat-warning": "AnalysisOutputError",
+};
+
 it("returns actionable unavailable without creating a workspace when tools are absent", async () => {
   const provider = new WabtArtifactProvider({}, undefined, () => {
     throw new Error("Must not allocate");
@@ -33,6 +44,8 @@ it.each([
   "cancelled",
   "cleanup",
   "changed-snapshot",
+  "malformed-wat",
+  "wat-warning",
 ])("owns private artifact bytes and retains %s outcome", async (mode) => {
   const selectedRoot = await createTestTempDirectory("rea-wabt-seam-");
   const path = join(selectedRoot, "selected.wasm");
@@ -50,6 +63,7 @@ it.each([
   );
   let runtimePath = "";
   let acquiredPid: number | undefined;
+  let cleanupAttempts = 0;
   const controller = new AbortController();
   const provider = new WabtArtifactProvider(
     { REA_WABT_BIN_DIRECTORY: selectedRoot },
@@ -77,13 +91,22 @@ it.each([
             ? "unexpected producer output"
             : dump
           : input.command.includes("wasm2wat")
-            ? "(module)\n"
+            ? mode === "malformed-wat"
+              ? "unexpected decoder output\n"
+              : '(module (@custom "test" "payload"))\n'
             : "";
       const invalid = !version && mode === "invalid";
+      const stderr = invalid
+        ? "module.wasm: invalid bytes\n"
+        : !version &&
+            input.command.includes("wasm2wat") &&
+            mode === "wat-warning"
+          ? "decoder warning\n"
+          : "";
       const script =
         !version && mode === "cancelled"
           ? "setInterval(() => undefined, 1000)"
-          : `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(invalid ? "module.wasm: invalid bytes\n" : "")}); process.exit(${invalid ? 1 : 0});`;
+          : `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${invalid ? 1 : 0});`;
       const launched = await spawnOwnedProviderProcess({
         ...input,
         command: process.execPath,
@@ -104,9 +127,9 @@ it.each([
       return {
         path: root.path,
         close: async () => {
-          await root.close();
-          if (mode === "cleanup")
+          if (mode === "cleanup" && ++cleanupAttempts <= 2)
             throw new Error("Source-owned cleanup uncertainty");
+          await root.close();
         },
       };
     },
@@ -129,28 +152,38 @@ it.each([
   else
     expect(result).toMatchObject({
       ok: false,
-      error: {
-        _tag:
-          mode === "invalid"
-            ? "AnalysisInputError"
-            : mode === "timeout"
-              ? "AnalysisTimeoutError"
-              : mode === "cancelled"
-                ? "AnalysisCancelledError"
-                : mode === "changed-snapshot"
-                  ? "AnalysisArtifactChangedError"
-                  : mode === "cleanup"
-                    ? "ProviderAdapterError"
-                    : "AnalysisOutputError",
-      },
+      error: { _tag: failureTags[mode] },
     });
   if (mode === "invalid")
     expect(result).toMatchObject({
       error: { capturedOutput: { stderr: "module.wasm: invalid bytes\n" } },
     });
-  if (mode === "cleanup")
+  if (mode === "cleanup") {
     expect(result).toMatchObject({
-      error: { cleanupIncomplete: true, cleanupResources: [runtimePath] },
+      error: {
+        cleanupIncomplete: true,
+        cleanupResources: [runtimePath],
+        partialObservation: { normalized_result: { validation: "valid" } },
+      },
+    });
+    await expect(access(runtimePath)).resolves.toBeUndefined();
+    await expect(provider.close()).rejects.toMatchObject({
+      cleanupIncomplete: true,
+    });
+    await expect(access(runtimePath)).resolves.toBeUndefined();
+    await provider.close();
+  }
+  if (mode === "malformed-wat" || mode === "wat-warning")
+    expect(result).toMatchObject({
+      error: {
+        capturedOutput: {
+          stdout:
+            mode === "malformed-wat"
+              ? "unexpected decoder output\n"
+              : '(module (@custom "test" "payload"))\n',
+          stderr: mode === "wat-warning" ? "decoder warning\n" : "",
+        },
+      },
     });
   await expect(access(runtimePath)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readFile(path)).toEqual(bytes);

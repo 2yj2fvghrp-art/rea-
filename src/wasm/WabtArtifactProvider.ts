@@ -31,7 +31,7 @@ import { runOwnedCommand } from "../process/OwnedCommand.js";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { WABT_PROVIDER_IDENTITY, WABT_LIMITS } from "./WabtRelease.js";
 import { wabtFailure } from "./WabtFailures.js";
-import { parseWabtHeaders } from "./WabtOutput.js";
+import { parseWabtOutput } from "./WabtOutput.js";
 import { parseWabtWat } from "./WabtWat.js";
 import { associateWasmGlue } from "./WasmGlueAdapter.js";
 
@@ -41,6 +41,9 @@ const digest = (text: string) =>
   createHash("sha256").update(text).digest("hex");
 /** Run caller-supplied WABT against private copies of exactly selected bytes. */
 export class WabtArtifactProvider implements WasmArtifactPort {
+  readonly #pendingRoots = new Set<
+    Pick<PrivateRuntimeRoot, "path" | "close">
+  >();
   constructor(
     readonly environment: Readonly<NodeJS.ProcessEnv> = process.env,
     readonly launcher?: Launcher,
@@ -48,6 +51,28 @@ export class WabtArtifactProvider implements WasmArtifactPort {
       Pick<PrivateRuntimeRoot, "path" | "close">
     > = () => PrivateRuntimeRoot.create({ prefix: "rea-wabt-" }),
   ) {}
+  /** Retry retained cleanup without discarding roots that still cannot be removed. */
+  async close(): Promise<void> {
+    const failures: { path: string; reason: string }[] = [];
+    for (const root of this.#pendingRoots) {
+      try {
+        await root.close();
+        this.#pendingRoots.delete(root);
+      } catch (cause: unknown) {
+        failures.push({
+          path: root.path,
+          reason: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    }
+    if (failures.length > 0)
+      throw new ProviderCleanupError(
+        WABT_PROVIDER_IDENTITY.id,
+        failures.map(({ path }) => path),
+        { failures },
+        { operation: OPERATION },
+      );
+  }
   async inspect(
     input: InspectWasmArtifactInput,
     options?: ExecutionOptions,
@@ -58,6 +83,7 @@ export class WabtArtifactProvider implements WasmArtifactPort {
     let capturedOutput: AnalysisCapturedOutput | undefined;
     try {
       if (options?.signal?.aborted) throw new AnalysisCancelledError(OPERATION);
+      await this.close();
       const directory = this.environment.REA_WABT_BIN_DIRECTORY ?? "";
       if (!isAbsolute(directory))
         throw new Error(
@@ -281,24 +307,35 @@ export class WabtArtifactProvider implements WasmArtifactPort {
         stderr: dump.stderr.text,
         truncated: false,
       };
-      const separator = dump.stdout.text.indexOf("Section Details:\n");
-      if (separator < 0)
+      if (dump.stderr.text !== "")
         throw new AnalysisOutputError(
           OPERATION,
-          "WABT section details are missing.",
+          "Unexpected WABT section output.",
         );
-      const headers = dump.stdout.text.slice(0, separator);
-      const details = `module.wasm:\tfile format wasm 0x1\n\n${dump.stdout.text.slice(separator)}`;
       const wat = await execute(decode, decode.arguments);
-      if (
-        !wat.stdout.text.startsWith("(module") ||
-        wat.stderr.text !== "" ||
-        dump.stderr.text !== ""
-      )
+      capturedOutput = {
+        stdout: wat.stdout.text,
+        stderr: wat.stderr.text,
+        truncated: false,
+      };
+      if (!wat.stdout.text.startsWith("(module") || wat.stderr.text !== "")
         throw new AnalysisOutputError(
           OPERATION,
           "Unexpected WABT decoding output.",
         );
+      const { imports, exports, customSectionNames } = parseWabtWat(
+        wat.stdout.text,
+      );
+      capturedOutput = {
+        stdout: dump.stdout.text,
+        stderr: dump.stderr.text,
+        truncated: false,
+      };
+      const { sections, headers, details } = parseWabtOutput(
+        dump.stdout.text,
+        artifact.bytes,
+        customSectionNames,
+      );
       const limitations = [
         "WAT is a decoded representation, not original source or proof of runtime behavior. Custom annotations may retain payloads, but WAT does not establish original binary layout or round-trip byte identity. Original bytes and objdump output remain authoritative.",
         "Imports and exports retain exact top-level WABT WAT forms. Names remain escaped producer text; unescaped objdump display names are not parsed as unambiguous identifiers.",
@@ -309,8 +346,9 @@ export class WabtArtifactProvider implements WasmArtifactPort {
       const report = wasmArtifactSchema.parse({
         artifact,
         validation: "valid",
-        sections: parseWabtHeaders(headers, artifact.bytes),
-        ...parseWabtWat(wat.stdout.text),
+        sections,
+        imports,
+        exports,
         headers,
         details,
         wat: {
@@ -360,6 +398,21 @@ export class WabtArtifactProvider implements WasmArtifactPort {
       try {
         await root.close();
       } catch (cause: unknown) {
+        this.#pendingRoots.add(root);
+        const partialObservation = result.ok
+          ? createEvidence(
+              result.value.subject ?? undefined,
+              result.value.provider,
+              {
+                operation: OPERATION,
+                parameters: input,
+                result: result.value.result,
+                confidence: "observed",
+                locations: result.value.locations,
+                limitations: result.value.limitations,
+              },
+            )
+          : result.error.partialObservation;
         result = err(
           new ProviderCleanupError(
             WABT_PROVIDER_IDENTITY.id,
@@ -370,7 +423,13 @@ export class WabtArtifactProvider implements WasmArtifactPort {
                 ? null
                 : projectAnalysisError(result.error),
             },
-            { operation: OPERATION, cause },
+            {
+              operation: OPERATION,
+              cause,
+              ...(partialObservation === undefined
+                ? {}
+                : { partialObservation }),
+            },
           ),
         );
       }

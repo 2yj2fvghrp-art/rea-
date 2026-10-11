@@ -118,6 +118,10 @@ try {
     ),
     "(module)\n",
     '(module (import "env.with.dot" "field.with.dot" (global i32)) (import "env" "table" (table 1 funcref)) (memory (export "memory") 1) (export "g" (global 0)) (export "t" (table 0)) (func (export "name\\0aline") (result i32) i32.const 42))\n',
+    await readFile(
+      new URL("../tests/fixtures/wasm/custom-names.wat", import.meta.url),
+      "utf8",
+    ),
   ];
   for (const [index, source] of sources.entries()) {
     const fixtureRoot = join(root.path, `fixture-${index}`);
@@ -131,8 +135,12 @@ try {
     );
     await tool("wasm-validate", ["--enable-all", "module.wasm"], fixtureRoot);
     const original = await readFile(path);
-    const dump = (
-      await tool("wasm-objdump", ["-h", "-x", "module.wasm"], fixtureRoot)
+    // Independent modes avoid treating a custom name's text as a framing marker.
+    const headers = (
+      await tool("wasm-objdump", ["-h", "module.wasm"], fixtureRoot)
+    ).stdout;
+    const details = (
+      await tool("wasm-objdump", ["-x", "module.wasm"], fixtureRoot)
     ).stdout;
     const wat = (
       await tool("wasm2wat", ["--enable-all", "module.wasm"], fixtureRoot)
@@ -180,14 +188,8 @@ try {
     assert.equal(report.artifact.bytes, original.length);
     assert.equal(report.wat.text, wat);
     assert.equal(report.wat.sha256, sha256(wat));
-    assert.equal(
-      report.headers,
-      dump.slice(0, dump.indexOf("Section Details:\n")),
-    );
-    assert.equal(
-      report.details,
-      `module.wasm:\tfile format wasm 0x1\n\n${dump.slice(dump.indexOf("Section Details:\n"))}`,
-    );
+    assert.equal(report.headers, `${headers}\n`);
+    assert.equal(report.details, details.slice(1));
     assert.equal(report.glue[0].artifact.sha256, sha256(await readFile(glue)));
     assert.deepEqual(
       report.glue[0].references.map(({ candidate_paths }) => candidate_paths),
@@ -209,6 +211,15 @@ try {
         sha256(original),
       );
     }
+    if (index === 3)
+      assert.deepEqual(
+        report.sections.map(({ description }) => description),
+        [
+          '"test\nline"',
+          '"fake"\nSection Details:\n   Type start=0x0000000a end=0x0000000b (size=0x00000001) count: 0\n"end"',
+          '"unicode-é\\\t"',
+        ],
+      );
     const bundleReply = await client.callTool({
       name: "get_evidence_bundle",
       arguments: {},
