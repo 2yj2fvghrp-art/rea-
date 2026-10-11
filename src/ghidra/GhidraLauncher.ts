@@ -443,7 +443,9 @@ export const ghidraHeadlessArguments = (
       options.dosCom === true ||
       override !== undefined)
   )
-    throw new Error("A PSP ELF import cannot be combined with DOS or a generic Ghidra language override.");
+    throw new Error(
+      "A PSP ELF import cannot be combined with DOS or a generic Ghidra language override.",
+    );
   if (
     override !== undefined &&
     (options.dosMz === true || options.dosCom === true)
