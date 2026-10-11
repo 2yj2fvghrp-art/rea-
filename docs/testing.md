@@ -743,10 +743,11 @@ establish real IDA operation. The initial real workflows cover legacy upstream
 headless profile on macOS arm64 with IDA Professional 9.1 (build 9.1.250226)
 at the same upstream commit, using `tests/conformance/ida/inventory.c` built
 with `clang -O0 -arch arm64` and the procedure `_rea_fixture_add` (Mach-O C
-symbols carry a leading underscore). Before the headless
-session waited out the transient `busy` health a worker can report right after
-opening, that lane failed intermittently on that host. Linux headless, modern attached GUI tools, other engine versions and
-architectures remain unverified; see the [provider guide](ida-provider.md).
+symbols carry a leading underscore). Before the headless session waited out
+the transient `busy` health a worker can report right after opening, that lane
+failed intermittently on that host. Linux headless, modern attached GUI tools,
+other engine versions and architectures remain unverified; see the
+[provider guide](ida-provider.md).
 
 ## DOS Ghidra analysis
 
