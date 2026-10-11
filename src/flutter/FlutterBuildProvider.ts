@@ -50,6 +50,8 @@ const APK_METADATA_READ_MAX_BYTES = 8 * 1024 * 1024;
 const LIBRARY_MAX_BYTES = 256 * 1024 * 1024;
 /** Cumulative cap across every library entry in one identification. */
 const TOTAL_EXTRACTION_MAX_BYTES = 768 * 1024 * 1024;
+/** The APK itself must fit within this budget before any copy. */
+const APK_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
 /** A complete AOT image carries exactly one VM and one isolate section. */
@@ -67,8 +69,10 @@ const sha256File = async (
   signal: AbortSignal | undefined,
 ): Promise<string> => {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) {
-    if (signal?.aborted === true) throw new AnalysisCancelledError("identify");
+  const stream = createReadStream(path, signal === undefined ? {} : { signal });
+  for await (const chunk of stream) {
+    if (signal?.aborted === true)
+      throw new AnalysisCancelledError("digest", { cause: signal.reason });
     hash.update(chunk as Buffer);
   }
   return hash.digest("hex");
@@ -236,12 +240,21 @@ export class FlutterBuildProvider {
       // The copy itself is streamed and abort-checked so cancellation
       // stops the write promptly instead of draining the whole file.
       const before = await stat(path);
+      if (before.size > APK_MAX_BYTES)
+        throw new Error(
+          `The selected APK is ${String(before.size)} bytes, exceeding the ${String(APK_MAX_BYTES)}-byte budget`,
+        );
       const output = await openFile(snapshotPath, "wx");
       try {
-        const abortSignal = signal;
-        for await (const chunk of createReadStream(path)) {
-          if (abortSignal?.aborted === true)
-            throw new AnalysisCancelledError(operation);
+        const copyStream = createReadStream(
+          path,
+          signal === undefined ? {} : { signal },
+        );
+        for await (const chunk of copyStream) {
+          if (signal?.aborted === true)
+            throw new AnalysisCancelledError(operation, {
+              cause: signal.reason,
+            });
           await output.write(chunk as Buffer);
         }
       } finally {
@@ -376,6 +389,26 @@ export class FlutterBuildProvider {
           kind: match[2]! === "libapp" ? "libapp" : "libflutter",
         });
       }
+      // Preflight: refuse before any I/O when the declared entry sizes
+      // already exceed the cumulative budget, even though streaming might
+      // discover smaller actual sizes.
+      const declaredTotal = [...flutterEntries.values()].reduce(
+        (total, { entry }) => total + (entry.declaredSize ?? 0),
+        0,
+      );
+      if (declaredTotal > TOTAL_EXTRACTION_MAX_BYTES)
+        return err(
+          new AnalysisResourceConstraintError(
+            request.operation,
+            "file-size",
+            `declared library sizes total ${String(declaredTotal)} bytes, exceeding the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte cumulative budget before any extraction`,
+            {
+              max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES,
+              declared_total: declaredTotal,
+            },
+          ),
+        );
+
       const facts = new Map<string, LibraryFacts>();
       let extractedTotal = 0;
       for (const { entry, abi, kind } of flutterEntries.values()) {
@@ -462,9 +495,14 @@ export class FlutterBuildProvider {
               bytes,
               sha256: digest,
               buildId: buildIdScanner.result(),
-              dartVersion: labeledScanner.result().dartVersion,
-              toolchainLines: labeledScanner.result().toolchainLines,
-              toolchainCapped: labeledScanner.result().toolchainCapped,
+              ...(() => {
+                const labeled = labeledScanner.result();
+                return {
+                  dartVersion: labeled.dartVersion,
+                  toolchainLines: labeled.toolchainLines,
+                  toolchainCapped: labeled.toolchainCapped,
+                };
+              })(),
             },
           });
         }
