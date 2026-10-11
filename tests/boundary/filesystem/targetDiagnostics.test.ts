@@ -70,6 +70,7 @@ describe("target route diagnostics", () => {
     expect(projected.remediation.action).toContain(
       "does not decompile or execute",
     );
+    expect(projected.remediation.action).toContain("up to 8 MiB");
     const doctor = systemDoctorHost();
     expect(await doctor.inspectTarget?.(path)).toMatchObject({
       ok: false,
