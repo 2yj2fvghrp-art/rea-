@@ -124,7 +124,8 @@ export class IdaOperationRunner {
       )[0];
       if (
         requestedBy !== undefined &&
-        item?.fn === null &&
+        item?.query === query &&
+        item.fn === null &&
         item.error !== null &&
         MISSING_PROCEDURE_ANSWERS.has(item.error)
       )
