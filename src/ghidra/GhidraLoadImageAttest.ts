@@ -12,6 +12,7 @@ import { err, ok, type Result } from "../domain/result.js";
 import {
   attestGhidraDosComLoadImage,
   attestGhidraDosLoadImage,
+  attestGhidraRawBinaryLoadImage,
 } from "./GhidraLoadImageValues.js";
 import type { NativeAotPeResult } from "../domain/native/nativeAotPe.js";
 import type { GhidraTargetSnapshot } from "./GhidraClient.js";
@@ -37,7 +38,7 @@ type NativeLoadImageAttestationInput = {
 const isSignalAborted = (signal: AbortSignal | undefined): boolean =>
   signal?.aborted === true;
 
-/** Independently verify measured load-image observations for admitted DOS targets. */
+/** Independently verify measured load-image observations for admitted DOS and raw-binary targets. */
 export const attestGhidraNativeLoadImage = async (
   input: NativeLoadImageAttestationInput,
 ): Promise<Result<JsonValue, AnalysisError>> => {
@@ -71,7 +72,7 @@ export const attestGhidraNativeLoadImage = async (
           nativeLoadImageSchema.parse({
             status: "unsupported",
             reason:
-              "Independent load-image verification currently supports DOS MZ and explicit DOS COM targets only.",
+              "Independent load-image verification currently supports DOS MZ, explicit DOS COM, and caller-supplied raw-binary targets only.",
             observations: {
               ...observations,
               metadata_recovery: [
@@ -98,13 +99,17 @@ export const attestGhidraNativeLoadImage = async (
       );
     }
   }
-  if (target.format !== "dos-mz" && target.format !== "dos-com") {
+  if (
+    target.format !== "dos-mz" &&
+    target.format !== "dos-com" &&
+    target.format !== "raw-binary"
+  ) {
     return ok(
       jsonValueSchema.parse(
         nativeLoadImageSchema.parse({
           status: "unsupported",
           reason:
-            "Independent load-image verification currently supports DOS MZ and explicit DOS COM targets only.",
+            "Independent load-image verification currently supports DOS MZ, explicit DOS COM, and caller-supplied raw-binary targets only.",
           observations,
           limitations: [
             "Other formats expose measured mappings and source identities; no format-specific verification was performed.",
@@ -129,15 +134,24 @@ export const attestGhidraNativeLoadImage = async (
       new ProviderAdapterError("ghidra", operation, {
         diagnostics: {
           reason:
-            "The uncapped DOS load-image snapshot was unexpectedly not captured.",
+            "The uncapped load-image snapshot was unexpectedly not captured.",
         },
       }),
     );
-  const attested = (
-    target.format === "dos-com"
-      ? attestGhidraDosComLoadImage
-      : attestGhidraDosLoadImage
-  )(snapshot.value.bytes, target.sha256 ?? "", observations);
+  const attested =
+    target.format === "raw-binary"
+      ? attestGhidraRawBinaryLoadImage(
+          snapshot.value.bytes,
+          target,
+          observations,
+        )
+      : (target.format === "dos-com"
+          ? attestGhidraDosComLoadImage
+          : attestGhidraDosLoadImage)(
+          snapshot.value.bytes,
+          target.sha256 ?? "",
+          observations,
+        );
   if (!attested.ok)
     return err(
       new ProviderAdapterError("ghidra", operation, {

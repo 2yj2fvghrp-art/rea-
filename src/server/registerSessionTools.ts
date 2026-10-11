@@ -203,6 +203,12 @@ const registerOpenLifecycleTool = ({
         session.open(input.path, {
           signal: context.mcpReq.signal,
           ...(input.format === undefined ? {} : { formatHint: input.format }),
+          ...(input.architecture === undefined
+            ? {}
+            : { architecture: input.architecture }),
+          ...(input.entry_point === undefined
+            ? {}
+            : { entryPoint: input.entry_point }),
           ...(input.provider_id === undefined
             ? {}
             : { providerId: input.provider_id }),

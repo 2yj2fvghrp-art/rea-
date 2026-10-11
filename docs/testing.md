@@ -793,6 +793,11 @@ truncation constraint, while leading-zero coordinates still resolve correctly.
 It has the same Ghidra/JDK prerequisites as the MZ lane. Neither lane claims DOS
 runtime or PC-98 device execution.
 
+Caller-supplied headerless images use `format=raw-binary` with `architecture`
+and `entry_point`. Domain, CLI, and MCP admission are covered by deterministic
+tests; real Ghidra import of those images is not a separate `verify:*` lane in
+this increment. See [raw binary analysis](raw-binary.md).
+
 ## Apple Interface Builder archives
 
 `npm run verify:interface-builder` compiles the source-owned AppKit XIB into a

@@ -1,0 +1,62 @@
+# Headerless raw-binary analysis with Ghidra
+
+REA admits a headerless executable when the caller supplies the CPU family and
+the address where file offset 0 should be mapped. That interpretation is not
+inferred from a `.bin` suffix or from unrecognized bytes.
+
+## Open and inspect
+
+```bash
+rea inspect /absolute/path/to/ecu.bin --target-format raw-binary --architecture arm --entry-point 0x8000000 --provider ghidra --json
+rea function /absolute/path/to/ecu.bin 0x8000000 --target-format raw-binary --architecture arm --entry-point 0x8000000 --provider ghidra --json
+rea inspect-native-load-image /absolute/path/to/ecu.bin --target-format raw-binary --architecture arm --entry-point 0x8000000 --provider ghidra --json
+```
+
+```json
+{
+  "name": "open_binary",
+  "arguments": {
+    "path": "/absolute/path/to/ecu.bin",
+    "format": "raw-binary",
+    "architecture": "arm",
+    "entry_point": "0x8000000",
+    "provider_id": "ghidra"
+  }
+}
+```
+
+`architecture` is one of `x86`, `x86_64`, `arm`, or `arm64`. `entry_point` is a
+hexadecimal address of the form `0x…`. The complete file is mapped starting at
+that address, and Ghidra seeds an `entry` function there before auto-analysis.
+Omitted `format` keeps header-based detection; architecture and entry without
+`format=raw-binary` are rejected.
+
+Ghidra imports a private snapshot with `BinaryLoader` and these little-endian
+generic languages:
+
+| architecture | language_id         |
+| ------------ | ------------------- |
+| x86          | `x86:LE:32:default` |
+| x86_64       | `x86:LE:64:default` |
+| arm          | `ARM:LE:32:v7`      |
+| arm64        | `AARCH64:LE:64:v8A` |
+
+Those settings, the caller-supplied entry, and `language_selection:
+caller-supplied-v1` are committed in the analysis profile. A different entry
+or architecture is a different profile; snapshots from header-detected targets
+do not replay.
+
+Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 continues to admit
+PE applications only.
+
+## Limitations
+
+- Headers are not discovered from file bytes. This increment does not guess
+  load addresses, vector tables, or memory maps.
+- Big-endian, Thumb-only, Cortex-M, and other Ghidra processor variants are
+  unsupported.
+- Reset vectors, memory-mapped I/O, and firmware boot sequences are not
+  emulated.
+- Independent load-image verification covers source identity, mapped file
+  bytes, the bound language, and the caller-supplied entry. Original bytes
+  stay unchanged.

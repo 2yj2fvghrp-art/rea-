@@ -177,6 +177,50 @@ describe("Ghidra provider", () => {
   });
 });
 
+describe("Ghidra raw-binary profile", () => {
+  it("commits BinaryLoader language and caller-supplied entry", async () => {
+    const ghidra = provider();
+    const target: BinaryTarget = {
+      path: "/tmp/ecu.bin",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "raw-binary",
+      architecture: "arm",
+      availableArchitectures: ["arm"],
+      entryPoint: "0x8000000",
+      entryPointSource: "0x08000000",
+    };
+    expect(ghidra.inspectTargetSupport(target).status).toBe("supported");
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    expect(resolved.ok && resolved.value).toMatchObject({
+      profile: {
+        parameters: {
+          target_format: "raw-binary",
+          architecture: "arm",
+          loader: "BinaryLoader",
+          language_id: "ARM:LE:32:v7",
+          compiler_spec_id: "default",
+          language_selection: "caller-supplied-v1",
+          entry_point: "0x8000000",
+        },
+      },
+    });
+    const shifted = await ghidra.resolveAnalysisProfile({
+      ...target,
+      entryPoint: "0x8001000",
+      entryPointSource: "0x8001000",
+    });
+    expect(resolved.ok && shifted.ok).toBe(true);
+    if (!resolved.ok || !shifted.ok || resolved.value.profile === null)
+      throw new Error("expected raw-binary profiles");
+    expect(shifted.value.profile?.digest).not.toBe(
+      resolved.value.profile.digest,
+    );
+    const windows = provider({ ...installationHost(), platform: "win32" });
+    expect(windows.inspectTargetSupport(target).status).toBe("unsupported");
+  });
+});
+
 describe("Ghidra Mach-O slice support", () => {
   it("refuses universal targets whose selected slice cannot be enforced", () => {
     const ghidra = provider();
