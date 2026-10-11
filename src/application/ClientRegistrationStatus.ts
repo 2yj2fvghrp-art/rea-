@@ -69,6 +69,7 @@ const registrationSchema = z
     tools: z.array(z.string()).optional(),
     disabled: z.boolean().optional(),
     enabled: z.boolean().optional(),
+    duplicate: z.boolean().optional(),
   })
   .passthrough();
 
@@ -220,8 +221,13 @@ const registrationAligned = (
   )
     return false;
   // A projected foreign package name means the row exists but is not the
-  // canonical Harness MCP client insertion.
-  if (client.format === "dsh" && registration.package !== undefined)
+  // canonical Harness MCP client insertion. Repeated insertions are the same
+  // kind of projection: the effective command can match and still not be the
+  // single owned row.
+  if (
+    client.format === "dsh" &&
+    (registration.package !== undefined || registration.duplicate === true)
+  )
     return false;
   // OMP and Pi infer stdio for a command entry without an explicit type.
   if (

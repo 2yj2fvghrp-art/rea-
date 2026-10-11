@@ -590,4 +590,124 @@ describe("DeepSeek Harness registration state", () => {
   });
 });
 
+describe("DeepSeek Harness canonical row repair", () => {
+  it("normalizes two aligned insertions instead of reporting unchanged", async () => {
+    const { home, client } = await harnessClient();
+    const row = `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+`;
+    await writeFile(client.configPath, `${row}${row}`);
+
+    // Both rows already match, but Cordis still has two insertions. Doctor
+    // and setup must normalize to the single owned row.
+    const registration = async () =>
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh");
+    expect(await registration()).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: unknown[];
+    }[];
+    const reaRows = patches.flatMap(({ insert }) =>
+      insert.filter(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { id?: unknown }).id === "rea-mcp",
+      ),
+    );
+    expect(reaRows).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await registration()).toMatchObject({ state: "aligned" });
+  });
+
+  it("keeps Cordis expression tags on caller-owned config fields", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        cwd: !!js process.cwd() # caller launch directory
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.cwd()");
+    expect(text).toContain("# caller launch directory");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert: { config: { cwd?: unknown; command?: unknown } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.command).toBe(command[0]);
+    expect(patches[0]?.insert[0]?.config.cwd).toBe("process.cwd()");
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await readFile(client.configPath, "utf8")).toContain(
+      "!!js process.cwd()",
+    );
+  });
+
+  it("keeps a Cordis tag from the direct patch that owns the effective config", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: first-launcher
+        args: [mcp]
+- id: rea-mcp
+  config:
+    serverName: rea
+    transport: stdio
+    command: stale-launcher
+    args: [mcp]
+    cwd: !!js process.cwd()
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.cwd()");
+    expect(text).not.toContain("stale-launcher");
+    expect(text).not.toContain("first-launcher");
+    expect(text).not.toMatch(/^- id: rea-mcp$/mu);
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert?: { config?: { cwd?: unknown } }[];
+    }[];
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.insert?.[0]?.config?.cwd).toBe("process.cwd()");
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
