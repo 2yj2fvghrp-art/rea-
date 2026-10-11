@@ -30,16 +30,29 @@ if (/^\s{2}(?:tool_count|catalog_digest):/mu.test(current))
 const versionLine = /^ {2}version: "[^"\r\n]+"$/mu;
 if (!versionLine.test(current))
   throw new Error("Missing authored skill version");
-// A shipped skill must run the version it ships with, not whatever `@latest` resolves to.
-const latestSpecifier = PRODUCT_IDENTITY.packageSpecifier;
-const pinnedSpecifier = PRODUCT_IDENTITY.registrationPackageSpecifier;
-const source = current
-  .replace(
-    versionLine,
-    `$&\n  tool_count: ${String(CATALOG_IDENTITY.counts.mcp_tools)}`,
-  )
-  .replaceAll(latestSpecifier, pinnedSpecifier);
+const source = current.replace(
+  versionLine,
+  `$&\n  tool_count: ${String(CATALOG_IDENTITY.counts.mcp_tools)}`,
+);
 const paths = await filePaths(sourceRoot);
+// The authored bundle is installable straight from the repository, so it must
+// already name the exact package version it ships with, never `@latest`.
+// Release Please updates the pinned SKILL.md command with package.json.
+const pinnedSpecifier = PRODUCT_IDENTITY.registrationPackageSpecifier;
+const packagePrefix = `${pinnedSpecifier.slice(0, pinnedSpecifier.lastIndexOf("@"))}@`;
+const specifiersIn = (text) =>
+  text
+    .split(packagePrefix)
+    .slice(1)
+    .map((rest) => `${packagePrefix}${/^[^\s`"')\]]*/u.exec(rest)?.[0] ?? ""}`);
+for (const relativePath of paths) {
+  const text = await readFile(join(sourceRoot, relativePath), "utf8");
+  for (const specifier of specifiersIn(text))
+    if (specifier !== pinnedSpecifier)
+      throw new Error(
+        `${relativePath} names ${specifier}; pin the package runner to ${pinnedSpecifier}`,
+      );
+}
 // Rebuild this owned output directory so removed references cannot survive a build.
 if (!check) await rm(outputRoot, { recursive: true, force: true });
 for (const relativePath of paths) {

@@ -115,21 +115,42 @@ it("rejects missing, stale, and extra packaged references and removes deleted so
   await f.generate("--check");
 });
 
-it("pins authored `@latest` commands to the packaged version", async () => {
+it("keeps an authored command pinned to the packaged version", async () => {
   const f = await fixture();
   await writeFile(
     join(f.sourceRoot, "SKILL.md"),
     authored.replace(
       "Inspect the caller-selected artifact.",
-      "Run `npx -y rea-agents@latest doctor --json` first.",
+      "Run `npx -y rea-agents@6.2.0 doctor --json` first.",
     ),
   );
   await f.generate();
   const generated = await readFile(join(f.outputRoot, "SKILL.md"), "utf8");
   expect(generated).toContain("npx -y rea-agents@6.2.0 doctor --json");
-  expect(generated).not.toContain("rea-agents@latest");
+  expect(generated).not.toContain("@latest");
   await f.generate("--check");
 });
+
+it.each([
+  ["SKILL.md", "rea-agents@latest"],
+  ["SKILL.md", "rea-agents@6.1.0"],
+  ["references/guide.md", "rea-agents@latest"],
+])(
+  "rejects a floating or stale package specifier in authored %s (%s)",
+  async (relativePath, specifier) => {
+    const f = await fixture();
+    const path = join(f.sourceRoot, relativePath);
+    await writeFile(
+      path,
+      `${await readFile(path, "utf8")}Run \`npx -y ${specifier} doctor\`.\n`,
+    );
+    await expect(f.generate()).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        `${relativePath} names ${specifier}; pin the package runner to rea-agents@6.2.0`,
+      ),
+    });
+  },
+);
 
 it("rejects catalog-dependent metadata in the authored source", async () => {
   const f = await fixture();
