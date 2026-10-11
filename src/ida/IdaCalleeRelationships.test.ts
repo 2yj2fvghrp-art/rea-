@@ -96,14 +96,15 @@ describe("headless IDA callee edges on non-x86 targets", () => {
   it("appends graph-only callees after the callees items, sorted by address", async () => {
     const { client } = await session({
       callees: [{ addr: "0x3000", name: "printf_stub", type: "internal" }],
-      callgraph: graphRow([edge("0x1000", "0x3000"), edge("0x1000", "0x2000")]),
+      callgraph: graphRow([edge("0x1000", "0x4000"), edge("0x1000", "0x2000")]),
     });
     try {
       const execution = await callees(client);
 
-      expect(execution.result, "existing items first, additions after").toEqual(
-        ["0x3000", "0x2000"],
-      );
+      expect(
+        execution.result,
+        "existing items first, then the additions in address order",
+      ).toEqual(["0x3000", "0x2000", "0x4000"]);
     } finally {
       expect((await client.close()).ok).toBe(true);
     }
