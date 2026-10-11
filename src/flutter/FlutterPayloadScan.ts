@@ -170,11 +170,9 @@ export class BuildIdScanner {
       }
       probe = prefix + 1;
     }
-    // Keep enough trailing bytes for the fixed prefix plus one maximum note.
-    const keep = Math.min(
-      joined.length,
-      4 + 2 + BUILD_ID_NOTE_TAIL.length + BUILD_ID_MAX_BYTES,
-    );
+    // Keep enough trailing bytes for one complete maximum note:
+    // namesz(4) + descsz(4) + type(4) + name(4) + descriptor(64) = 80.
+    const keep = Math.min(joined.length, 16 + BUILD_ID_MAX_BYTES);
     this.#buffer = joined.slice(joined.length - keep);
   }
 
@@ -195,8 +193,12 @@ const DART_VERSION_PATTERN = /Dart VM version:[^\x00\n]{0,200}/u;
 const TOOLCHAIN_PATTERN =
   /Android \([^)\x00\n]{0,80}\) clang version [^\x00\n]{0,500}|based on LLVM \d[^\x00\n]{0,80}/u;
 const MAX_TOOLCHAIN_LINES = 4;
-/** Carry spans chunk boundaries for either accepted pattern. */
-const CARRY_BYTES = 600;
+/**
+ * Carry spans chunk boundaries for either accepted pattern. The toolchain
+ * pattern accepts up to 605 printable bytes (9 + 80 + 16 + 500), so the
+ * carry must hold at least that to preserve a line split at a boundary.
+ */
+const CARRY_BYTES = 640;
 
 /**
  * Incremental ASCII string collector that keeps only labeled version and

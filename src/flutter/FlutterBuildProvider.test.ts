@@ -4,20 +4,13 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { expect, onTestFinished, test } from "vitest";
 
+import { aotFixtureImage, REFERENCE_HASH } from "./FlutterTestFixtures.js";
+import { snapshotSection } from "./DartElf.js";
 import { FlutterBuildProvider } from "./FlutterBuildProvider.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 
 const it = test.skipIf(process.platform === "win32");
 const run = promisify(execFile);
-
-const snapshotSection = (hash: string): Buffer =>
-  Buffer.concat([
-    Buffer.from([
-      0xf5, 0xf5, 0xdc, 0xdc, 0x49, 0x0d, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
-      0,
-    ]),
-    Buffer.from(hash, "latin1"),
-  ]);
 
 const buildIdNote = (): Buffer =>
   Buffer.concat([
@@ -52,85 +45,7 @@ const libflutter = (): Buffer =>
  * snapshot symbols, two snapshot sections, and a string pool, so goldens
  * do not depend on any file outside the repository.
  */
-const aotImage = (): Buffer => {
-  const hash = "65817c30a78bb44c3dc3771876b6010a";
-  const SHENT = 64;
-  const shoff = 64 + 56;
-  const symbols = [
-    { name: "_kDartVmSnapshotData", value: 0x1000, size: 52 },
-    { name: "_kDartVmSnapshotInstructions", value: 0x1800, size: 16 },
-    { name: "_kDartIsolateSnapshotData", value: 0x2000, size: 0x600 },
-    { name: "_kDartIsolateSnapshotInstructions", value: 0x2600, size: 16 },
-  ];
-  const dynsymOff = shoff + 3 * SHENT + 16;
-  const dynstrOff = dynsymOff + symbols.length * 24;
-  const image = Buffer.alloc(dynstrOff + 256);
-  image.writeUInt32LE(0x464c457f, 0);
-  image[4] = 2;
-  image[5] = 1;
-  image.writeBigUInt64LE(BigInt(64), 0x20);
-  image.writeBigUInt64LE(BigInt(shoff), 0x28);
-  image.writeUInt16LE(56, 0x36);
-  image.writeUInt16LE(1, 0x38);
-  image.writeUInt16LE(SHENT, 0x3a);
-  image.writeUInt16LE(3, 0x3c);
-  image.writeUInt32LE(1, 64);
-  const dyn = shoff + SHENT;
-  const str = dyn + SHENT;
-  image.writeUInt32LE(11, dyn + 4);
-  image.writeBigUInt64LE(BigInt(dynsymOff), dyn + 0x18);
-  image.writeBigUInt64LE(BigInt(symbols.length * 24), dyn + 0x20);
-  image.writeUInt32LE(2, dyn + 0x28);
-  image.writeUInt32LE(3, str + 4);
-  image.writeBigUInt64LE(BigInt(dynstrOff), str + 0x18);
-  image.writeBigUInt64LE(BigInt(256), str + 0x20);
-  let cursor = dynstrOff + 1;
-  const offsets = symbols.map((symbol) => {
-    image.write(symbol.name, cursor, "latin1");
-    const at = cursor - dynstrOff;
-    cursor += symbol.name.length + 1;
-    return at;
-  });
-  symbols.forEach((symbol, index) => {
-    const base = dynsymOff + index * 24;
-    image.writeUInt32LE(offsets[index]!, base);
-    image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
-    image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
-  });
-  const snapshotSection = (digest: string): Buffer =>
-    Buffer.concat([
-      Buffer.from([
-        0xf5, 0xf5, 0xdc, 0xdc, 0x49, 0x0d, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0,
-        0, 0,
-      ]),
-      Buffer.from(digest, "latin1"),
-    ]);
-  const pool = Buffer.concat([
-    Buffer.from(
-      "package:adaptive_breakpoints/src/adaptive_breakpoints.dart\x00",
-    ),
-    Buffer.from("package:animations/src/fade_scale_transition.dart\x00"),
-    Buffer.from("dart:_http\x00dart:_http/crypto.dart\x00"),
-    Buffer.from("AdaptiveBreakpoint\x00FadeScaleTransition\x00"),
-  ]);
-  const vmSection = snapshotSection(hash);
-  const isolateSection = Buffer.concat([
-    snapshotSection(hash),
-    Buffer.from([0]),
-    pool,
-  ]);
-  return Buffer.concat([
-    image,
-    Buffer.alloc(0x1000 - image.length),
-    vmSection,
-    Buffer.alloc(0x1800 - 0x1000 - vmSection.length),
-    Buffer.alloc(16),
-    Buffer.alloc(0x2000 - 0x1800 - 16),
-    isolateSection,
-    Buffer.alloc(0x600 - isolateSection.length),
-    Buffer.alloc(16),
-  ]);
-};
+const aotImage = aotFixtureImage;
 
 /** Build a real APK-shaped zip with the `zip` CLI. */
 const buildApk = async (
@@ -153,7 +68,7 @@ const buildApk = async (
 };
 
 it("projects each payload shape through the owned snapshot", async () => {
-  const hash = "65817c30a78bb44c3dc3771876b6010a";
+  const hash = REFERENCE_HASH;
   const agreeBoth = await buildApk("agree.apk", [
     { path: "lib/arm64-v8a/libapp.so", bytes: libapp(hash) },
     { path: "lib/arm64-v8a/libflutter.so", bytes: libflutter() },
@@ -265,7 +180,7 @@ it("refuses a requested ABI the payload does not carry", async () => {
   const apk = await buildApk("oneabi.apk", [
     {
       path: "lib/arm64-v8a/libapp.so",
-      bytes: libapp("65817c30a78bb44c3dc3771876b6010a"),
+      bytes: libapp(REFERENCE_HASH),
     },
   ]);
   const result = await new FlutterBuildProvider({ environment: {} }).execute({
@@ -306,7 +221,7 @@ test.skipIf(process.platform === "win32")(
       coverage: string;
     };
     expect(value.abi).toBe("arm64-v8a");
-    expect(value.libapp.snapshot_hash).toBe("65817c30a78bb44c3dc3771876b6010a");
+    expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
     expect(value.libapp.sections.map((section) => section.name)).toEqual([
       "_kDartVmSnapshotData",
       "_kDartVmSnapshotInstructions",
@@ -330,7 +245,7 @@ it("accepts an APK whose path contains spaces through the owned snapshot", async
   const apk = await buildApk("flutter spaced.apk", [
     {
       path: "lib/arm64-v8a/libapp.so",
-      bytes: libapp("65817c30a78bb44c3dc3771876b6010a"),
+      bytes: libapp(REFERENCE_HASH),
     },
     { path: "lib/arm64-v8a/libflutter.so", bytes: libflutter() },
   ]);
@@ -350,7 +265,7 @@ it("retains failed snapshot cleanup and retries it on close", async () => {
   const apk = await buildApk("cleanup.apk", [
     {
       path: "lib/arm64-v8a/libapp.so",
-      bytes: libapp("65817c30a78bb44c3dc3771876b6010a"),
+      bytes: libapp(REFERENCE_HASH),
     },
   ]);
   const spaces: string[] = [];
@@ -377,7 +292,7 @@ it("cancels before creating any snapshot root", async () => {
   const apk = await buildApk("cancel.apk", [
     {
       path: "lib/arm64-v8a/libapp.so",
-      bytes: libapp("65817c30a78bb44c3dc3771876b6010a"),
+      bytes: libapp(REFERENCE_HASH),
     },
   ]);
   const controller = new AbortController();

@@ -99,30 +99,44 @@ export const readElfSymbol = (
       },
     };
 
-  const segments: { readonly vaddr: number; readonly offset: number }[] = [];
+  const segments: {
+    readonly vaddr: number;
+    readonly offset: number;
+    readonly filesz: number;
+  }[] = [];
   for (let index = 0; index < e_phnum; index += 1) {
     const base = e_phoff + index * e_phentsize;
     const type = reader.u32(base);
     if (type !== PT_LOAD) continue;
     const vaddr = is64 ? reader.u64(base + 0x10) : reader.u32(base + 8);
     const offset = is64 ? reader.u64(base + 0x08) : reader.u32(base + 4);
-    if (vaddr === null || offset === null)
+    const filesz = is64 ? reader.u64(base + 0x20) : reader.u32(base + 0x10);
+    if (vaddr === null || offset === null || filesz === null)
       return {
         failure: { reason: `PT_LOAD segment ${String(index)} is truncated` },
       };
-    segments.push({ vaddr, offset });
+    segments.push({ vaddr, offset, filesz });
   }
   if (segments.length === 0)
     return { failure: { reason: "ELF image has no PT_LOAD segments" } };
-  const toOffset = (vaddr: number): number | null => {
-    let best: { vaddr: number; offset: number } | null = null;
+  const toOffset = (vaddr: number, size: number): number | null => {
+    let best: {
+      vaddr: number;
+      offset: number;
+      filesz: number;
+    } | null = null;
     for (const segment of segments)
       if (
         segment.vaddr <= vaddr &&
         (best === null || segment.vaddr > best.vaddr)
       )
         best = segment;
-    return best === null ? null : best.offset + (vaddr - best.vaddr);
+    if (best === null) return null;
+    const delta = vaddr - best.vaddr;
+    // The full symbol must sit inside the file-backed portion of the
+    // segment; addresses in a gap or BSS are not snapshot bytes.
+    if (delta + size > best.filesz) return null;
+    return best.offset + delta;
   };
 
   for (let index = 0; index < e_shnum; index += 1) {
@@ -166,7 +180,7 @@ export const readElfSymbol = (
       if (nameOffset === null || stValue === null || stSize === null) continue;
       const name = reader.cString(stringOffset + nameOffset, 256);
       if (name !== symbolName) continue;
-      const fileOffset = toOffset(stValue);
+      const fileOffset = toOffset(stValue, stSize);
       if (fileOffset === null)
         return {
           failure: { reason: `symbol ${symbolName} has no loadable address` },
@@ -205,3 +219,77 @@ export const readSnapshotHeader = (
   const kind = reader.u32(offset + 12);
   return { magicValid: true, kind, headerLength };
 };
+
+export const buildElf64Image = (
+  symbols: ReadonlyArray<{ name: string; value: number; size: number }>,
+): Buffer => {
+  const ELF_HEADER = 64;
+  const PHENT = 56;
+  const PHNUM = 1;
+  const SHENT = 64;
+  const phoff = ELF_HEADER;
+  const shoffAligned = phoff + PHENT * PHNUM;
+  // Place payload data after the three section headers so nothing overlaps.
+  const dynsymOff = shoffAligned + 3 * SHENT + 16;
+  const dynstrOff = dynsymOff + symbols.length * 24;
+  const image = Buffer.alloc(dynstrOff + 256);
+  // ELF header
+  image.writeUInt32LE(0x464c457f, 0);
+  image[4] = 2; // ELFCLASS64
+  image[5] = 1; // little-endian
+  image.writeUInt16LE(0x003e, 0x12); // e_machine x86_64
+  image.writeUInt32LE(1, 0x10); // ET_REL? keep type small
+  image.writeBigUInt64LE(BigInt(phoff), 0x20);
+  image.writeBigUInt64LE(BigInt(shoffAligned), 0x28);
+  image.writeUInt16LE(PHENT, 0x36);
+  image.writeUInt16LE(PHNUM, 0x38);
+  image.writeUInt16LE(SHENT, 0x3a);
+  image.writeUInt16LE(2, 0x3c); // e_shnum: null + dynsym
+  // Program header: one PT_LOAD mapping identity
+  const ph = phoff;
+  image.writeUInt32LE(1, ph); // PT_LOAD
+  image.writeBigUInt64LE(BigInt(0), ph + 8); // offset
+  image.writeBigUInt64LE(BigInt(0), ph + 0x10); // vaddr
+  image.writeBigUInt64LE(BigInt(0x10000), ph + 0x20); // p_filesz generously covers fixture symbols
+  // Section headers
+  const sh = shoffAligned;
+  // null section stays zero
+  const dyn = sh + SHENT;
+  image.writeUInt32LE(11, dyn + 4); // SHT_DYNSYM
+  image.writeBigUInt64LE(BigInt(dynsymOff), dyn + 0x18);
+  image.writeBigUInt64LE(BigInt(symbols.length * 24), dyn + 0x20);
+  image.writeUInt32LE(2, dyn + 0x28); // sh_link -> strtab section index
+  // dynstr section header
+  const str = dyn + SHENT;
+  image.writeUInt32LE(3, str + 4); // SHT_STRTAB
+  image.writeBigUInt64LE(BigInt(dynstrOff), str + 0x18);
+  image.writeBigUInt64LE(BigInt(256), str + 0x20);
+  image.writeUInt16LE(3, 0x3c); // e_shnum includes strtab
+  // dynstr: leading NUL then names
+  let strCursor = dynstrOff + 1;
+  const nameOffsets = symbols.map((symbol) => {
+    image.write(symbol.name, strCursor, "latin1");
+    const at = strCursor - dynstrOff;
+    strCursor += symbol.name.length + 1;
+    return at;
+  });
+  // dynsym entries
+  symbols.forEach((symbol, index) => {
+    const base = dynsymOff + index * 24;
+    image.writeUInt32LE(nameOffsets[index]!, base);
+    image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
+    image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
+    image[base + 4] = 0x10; // GLOBAL FUNC
+  });
+  return image;
+};
+
+/** A minimal Dart snapshot data section carrying a 32-hex hash. */
+export const snapshotSection = (hash: string): Buffer =>
+  Buffer.concat([
+    Buffer.from([
+      0xf5, 0xf5, 0xdc, 0xdc, 0x49, 0x0d, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
+      0,
+    ]),
+    Buffer.from(hash, "latin1"),
+  ]);

@@ -751,9 +751,8 @@ export class FlutterBuildProvider {
         pool.packageUriCount > MAX_POOL_URIS ||
         pool.dartUriCount > MAX_POOL_URIS ||
         pool.classLikeTokenCount > MAX_POOL_TOKENS ||
-        (hashScan.sources > 0 &&
-          (hashScan.candidates.length !== 1 ||
-            hashScan.sources !== SYMBOL_PAIR_COUNT));
+        hashScan.candidates.length !== 1 ||
+        hashScan.sources !== SYMBOL_PAIR_COUNT;
       return ok(
         createAnalysisExecution(
           {
@@ -869,18 +868,25 @@ const projectStringPool = (
         else tokens.add(text);
       }
     };
+    let overflowed = false;
     for (const byte of section) {
       if (byte >= 0x20 && byte < 0x7f) {
         // A single unbounded run (an adversarial NUL-free section) never
-        // materializes: growth stops at the cap and marks the pool capped.
+        // materializes: growth stops at the cap and the entire run is
+        // discarded at its delimiter, since a truncated prefix would be
+        // fabricated evidence rather than an observation.
         if (run.length < MAX_RUN_BYTES) run += String.fromCharCode(byte);
-        else collectionCapped = true;
+        else {
+          overflowed = true;
+          collectionCapped = true;
+        }
       } else {
-        consider(run);
+        if (!overflowed) consider(run);
+        overflowed = false;
         run = "";
       }
     }
-    consider(run);
+    if (!overflowed) consider(run);
   }
   return {
     packageUris: [...packages].sort(),

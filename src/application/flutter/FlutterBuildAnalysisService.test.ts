@@ -33,21 +33,20 @@ const refusing: FlutterBuildAnalysisPort = {
   },
 };
 
-it.each([
-  [{ path: "/targets/app.apk", extra: true }],
-  [{ path: 7 }],
-  [{}],
-  [{ path: "/targets/app.apk", abi: "not a locale" }],
-])("admits only well-formed requests before any effect: %j", async (input) => {
-  await expect(
-    new FlutterBuildAnalysisService(refusing).execute(
-      "identify_flutter_build",
-      input,
-    ),
-  ).resolves.toMatchObject({
-    ok: false,
-    error: { _tag: "AnalysisInputError" },
-  });
+const malformedSelections: readonly unknown[] = [
+  { path: "/targets/app.apk", extra: true },
+  { path: 7 },
+  {},
+  { path: "/targets/app.apk", abi: "not a locale" },
+];
+it.each(malformedSelections)("refuses %j at admission", async (input) => {
+  const settled = await new FlutterBuildAnalysisService(refusing).execute(
+    "identify_flutter_build",
+    input,
+  );
+  expect(settled.ok).toBe(false);
+  if (settled.ok) return;
+  expect(settled.error._tag).toBe("AnalysisInputError");
 });
 
 it("passes the validated request to the provider and seals Evidence", async () => {

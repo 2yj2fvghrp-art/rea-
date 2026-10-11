@@ -126,9 +126,7 @@ describe("BuildIdScanner", () => {
 });
 
 describe("LabeledStringScanner", () => {
-  it("collects a full clang line within the 500-character bound", () => {
-    const line =
-      "Android (5900059 based on r365631c1) clang version 9.0.8 (https://android.googlesource.com/toolchain/llvm-project 207d7abc1a2abf3ef8d4301736d6a7ebc224a290) (based on LLVM 9.0.8svn)";
+  const assertSingleToolchainLine = (line: string): void => {
     const scanner = new LabeledStringScanner();
     scanner.push(
       Uint8Array.from(
@@ -136,6 +134,11 @@ describe("LabeledStringScanner", () => {
       ),
     );
     expect(scanner.result().toolchainLines).toEqual([line]);
+  };
+  it("collects a full clang line within the 500-character bound", () => {
+    assertSingleToolchainLine(
+      "Android (5900059 based on r365631c1) clang version 9.0.8 (https://android.googlesource.com/toolchain/llvm-project 207d7abc1a2abf3ef8d4301736d6a7ebc224a290) (based on LLVM 9.0.8svn)",
+    );
   });
 
   it("reads a labeled Dart VM version string when a build carries one", () => {
@@ -154,15 +157,9 @@ describe("LabeledStringScanner", () => {
   });
 
   it("collects the labeled Android clang line", () => {
-    const line =
-      "Android (5900059 based on r365631c) clang version 9.0.8 (https://android.googlesource.com/toolchain/llvm-project 207d7abc) (based on LLVM 9.0.8svn)";
-    const scanner = new LabeledStringScanner();
-    scanner.push(
-      Uint8Array.from(
-        Array.from(`\x00${line}\x00`, (character) => character.charCodeAt(0)),
-      ),
+    assertSingleToolchainLine(
+      "Android (5900059 based on r365631c) clang version 9.0.8 (https://android.googlesource.com/toolchain/llvm-project 207d7abc) (based on LLVM 9.0.8svn)",
     );
-    expect(scanner.result().toolchainLines).toEqual([line]);
   });
 });
 
