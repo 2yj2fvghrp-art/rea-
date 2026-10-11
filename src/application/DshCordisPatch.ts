@@ -1,4 +1,4 @@
-import { isMap, isScalar, isSeq } from "yaml";
+import { isAlias, isMap, isScalar, isSeq } from "yaml";
 import type { Document, YAMLMap } from "yaml";
 import {
   parse as parseYaml,
@@ -422,7 +422,8 @@ const applyDshRegistrationConfig = (
  * `!!js` tags, stay on the winning config; only REA-owned keys are replaced.
  * Environment entries keep their tags unless the value actually changed. A
  * comment-only file is an empty patch list, and its comments stay when the
- * registration is appended.
+ * registration is appended. An alias that repeats an owned insertion is
+ * collapsed; aliases to other patches stay.
  */
 export const serializeDshDocument = (
   document: Record<string, unknown>,
@@ -464,6 +465,8 @@ export const serializeDshDocument = (
   let carried = false;
   type PatchItem = (typeof root.items)[number];
   root.items = root.items.flatMap((item): PatchItem[] => {
+    if (isAlias(item))
+      return aliasOwnsReaEntry(item, yamlDocument) ? [] : [item];
     if (!isMap(item)) return [item];
     const insert = item.get("insert");
     if (!isSeq(insert)) {
@@ -471,6 +474,8 @@ export const serializeDshDocument = (
       // and would otherwise override it again at their position.
       return (item.get("id") as unknown) === DSH_ENTRY_ID ? [] : [item];
     }
+    removeAliasedReaEntries(insert, yamlDocument);
+    if (insert.items.length === 0) return [];
     const carrying = insert.items
       .map((entry, index) =>
         isMap(entry) && (entry.get("id") as unknown) === DSH_ENTRY_ID
@@ -513,6 +518,45 @@ export const serializeDshDocument = (
     root.items.push(appended as unknown as (typeof root.items)[number]);
   }
   return yamlDocument.toString({ lineWidth: 0 });
+};
+
+const nodeMap = (
+  node: unknown,
+  yamlDocument: Document,
+): YAMLMap<unknown, unknown> | undefined => {
+  if (isAlias(node)) {
+    const resolved = node.resolve(yamlDocument);
+    return isMap(resolved) ? resolved : undefined;
+  }
+  return isMap(node) ? node : undefined;
+};
+
+/** An alias of an insertion or direct patch that carries the REA entry id. */
+const aliasOwnsReaEntry = (node: unknown, yamlDocument: Document): boolean => {
+  if (!isAlias(node)) return false;
+  const map = nodeMap(node, yamlDocument);
+  if (map === undefined) return false;
+  if (map.get("id") === DSH_ENTRY_ID) return true;
+  const insert = map.get("insert");
+  return (
+    isSeq(insert) &&
+    insert.items.some((entry) => entryOwnsRea(entry, yamlDocument))
+  );
+};
+
+const entryOwnsRea = (node: unknown, yamlDocument: Document): boolean =>
+  nodeMap(node, yamlDocument)?.get("id") === DSH_ENTRY_ID;
+
+const removeAliasedReaEntries = (
+  sequence: { items: unknown[] },
+  yamlDocument: Document,
+): void => {
+  for (let index = sequence.items.length - 1; index >= 0; index -= 1)
+    if (
+      isAlias(sequence.items[index]) &&
+      entryOwnsRea(sequence.items[index], yamlDocument)
+    )
+      sequence.items.splice(index, 1);
 };
 
 const removeSeqItems = (

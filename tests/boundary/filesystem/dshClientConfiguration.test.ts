@@ -954,4 +954,80 @@ describe("DeepSeek Harness entry ownership", () => {
   });
 });
 
+describe("DeepSeek Harness alias collapse", () => {
+  it("collapses an aliased insertion and keeps an unrelated alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &other
+  insert:
+    - id: other-tool
+      name: other
+      config:
+        command: keep-me
+- *other
+- &row
+  insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+- *row
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("*other");
+    expect(text).not.toContain("*row");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text) as { insert?: { id?: string }[] }[];
+    const reaRows = patches.flatMap(({ insert }) =>
+      (insert ?? []).filter((entry) => entry.id === "rea-mcp"),
+    );
+    expect(reaRows).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("collapses an aliased entry inside one insertion", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - &entry
+      id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+    - *entry
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("*entry");
+    const patches = parseYaml(text) as { insert?: { id?: string }[] }[];
+    expect(
+      patches.flatMap(({ insert }) =>
+        (insert ?? []).filter((entry) => entry.id === "rea-mcp"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
