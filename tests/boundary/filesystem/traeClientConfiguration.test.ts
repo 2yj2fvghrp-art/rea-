@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { npxRegistrationCommand } from "../../../src/application/ClientRegistrationIdentity.js";
 import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
+import { skillDestinations } from "../../../src/application/SetupSkill.js";
 import { supportedClients } from "../../../src/application/SupportedClients.js";
 import { systemUninstallHost } from "../../../src/application/Uninstall.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -58,6 +59,21 @@ describe("Trae configuration paths", () => {
 
   it("resolves the registration format as the plain mcpServers JSON dialect", () => {
     expect(traePath("/home/a")?.format).toBe("json");
+  });
+
+  it("resolves the personal skills directory under the home root", () => {
+    expect(
+      skillDestinations("/home/a", ["trae"]).map(({ path }) => path),
+    ).toEqual([
+      join("/home/a", ".trae", "skills", "reverse-engineer-anything"),
+    ]);
+    expect(
+      skillDestinations("C:\\Users\\a", ["trae"], {}, "win32").map(
+        ({ path }) => path,
+      ),
+    ).toEqual([
+      join("C:\\Users\\a", ".trae", "skills", "reverse-engineer-anything"),
+    ]);
   });
 });
 

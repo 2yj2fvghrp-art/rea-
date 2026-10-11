@@ -148,8 +148,9 @@ For [Trae](https://docs.trae.ai/ide/add-mcp-servers), setup writes
 user directory (`%APPDATA%\Trae\User` on Windows,
 `~/Library/Application Support/Trae/User` on macOS, and
 `~/.config/Trae/User` elsewhere). Entries carry `command`, `args`, and
-`env`; stdio is the default transport. Trae has no personal skills
-directory, so setup does not install a skill copy.
+`env`; stdio is the default transport. Trae discovers personal skills from
+`~/.trae/skills` (`%userprofile%\.trae\skills` on Windows), so setup
+installs its skill copy there.
 
 For [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md),
 setup writes a `type: "stdio"` entry under `mcpServers.rea` in the user-level

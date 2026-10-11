@@ -464,6 +464,7 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
   {
     name: "trae",
     displayName: "Trae",
+    skillPath: [".trae", "skills"],
     configPath: (context: ClientPathContext) =>
       join(traeUserDirectory(context), "mcp.json"),
     markerPath: traeUserDirectory,
