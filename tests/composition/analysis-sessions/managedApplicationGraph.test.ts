@@ -657,7 +657,14 @@ describe("managed application graph type selection", () => {
     });
 
     expect(selected.coverage.state).toBe("complete");
-    expect(project(selected).coverage).toMatchObject({ status: "partial" });
+    const result = project(selected);
+    expect(result.coverage).toMatchObject({ status: "partial" });
+    expect(result.limitations).toContain(
+      "Managed member Evidence selected only these declaring types: Fixture.Program; type, method, and field nodes of other types are omitted, not absent.",
+    );
+    expect(result.limitations).not.toContain(
+      "At least one supplied managed Evidence record has partial coverage.",
+    );
   });
 
   it("accepts member Evidence recorded before type selection existed", () => {
