@@ -31,3 +31,9 @@ export interface AndroidManifestFacts {
    */
   readonly unresolved_attributes: readonly string[];
 }
+
+/** Why a manifest could not be read; the reader never throws for expected input. */
+export type AndroidManifestReadFailure =
+  | { readonly kind: "truncated"; readonly message: string }
+  | { readonly kind: "malformed"; readonly message: string }
+  | { readonly kind: "limit_exceeded"; readonly message: string };
