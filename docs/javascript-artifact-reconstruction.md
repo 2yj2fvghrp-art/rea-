@@ -469,6 +469,12 @@ from unmatched nested targets rather than reporting array indices.
 For imports and requires, the active Node conditions include `module-sync`;
 earlier active conditions retain precedence over later ones.
 
+Package self-references use the importer's enclosing package scope before
+installed dependencies. ESM requires the parsed package name to equal the
+metadata name; a scope-only name such as `@scope` cannot capture `@scope/pkg`.
+CommonJS retains Node's raw-request name/prefix matching. Both paths preserve
+the original specifier and select exports under their own loader conditions.
+
 Exact package-private `#alias` specifiers resolve against the importer's
 enclosing `package.json` `imports` map — the nearest same-container package
 scope, stopping at a `node_modules` directory so a nested package cannot inherit

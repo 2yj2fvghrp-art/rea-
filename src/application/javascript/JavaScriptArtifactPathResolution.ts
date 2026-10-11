@@ -246,7 +246,7 @@ const bareModuleCandidate = (
     return unresolvedCandidate("rejected", [
       "Percent signs are not admitted in ES module package names.",
     ]);
-  const self = packageSelfCandidate(input, declared);
+  const self = packageSelfCandidate(input, declared, packageName);
   if (self !== null) return self;
   const subpath =
     declared === packageName ? "." : `.${declared.slice(packageName.length)}`;
@@ -361,6 +361,7 @@ const resolvePackageImportAlias = (
 const packageSelfCandidate = (
   input: ResolveArtifactPathInput,
   declared: string,
+  packageName: string,
 ): CandidateResolution | null => {
   if (input.moduleKind === undefined || !input.files.has(input.sourcePath))
     return null;
@@ -371,7 +372,10 @@ const packageSelfCandidate = (
   if (
     metadata.name === undefined ||
     metadata.exports === undefined ||
-    (declared !== metadata.name && !declared.startsWith(`${metadata.name}/`))
+    // ESM compares the parsed package name; CommonJS matches the raw request.
+    (input.moduleKind === "import"
+      ? metadata.name !== packageName
+      : declared !== metadata.name && !declared.startsWith(`${metadata.name}/`))
   )
     return null;
   const subpath =
