@@ -44,6 +44,15 @@ describe("ghidraSessionRoot", () => {
     ).toBe(posixBase("Users", "operator"));
   });
 
+  it("falls back to the drive root when every element above the base is dot-prefixed", () => {
+    // A drive root is a legitimate session root: the private runtime must
+    // accept it as a parent and keep exactly one separator.
+    const driveRoot = resolve(sep);
+    expect(
+      ghidraSessionRoot({ base: join(driveRoot, ".Tmp"), platform: "win32" }),
+    ).toBe(driveRoot);
+  });
+
   it.skipIf(!POSIX)("prefers the platform temp directory by default", () => {
     expect(
       ghidraSessionRoot({ base: posixBase("home", "operator", ".cache") }),

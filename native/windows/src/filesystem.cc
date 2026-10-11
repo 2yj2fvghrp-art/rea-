@@ -219,7 +219,10 @@ std::unique_ptr<Runtime> createRuntime(const std::wstring& parentPath, const std
   require(BCryptGenRandom(nullptr, random.data(), random.size(), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0,
           "Generate runtime identity failed", parentPath, ERROR_GEN_FAILURE);
   auto result = std::make_unique<Runtime>();
-  result->path = parent->path + L"\\" + prefix + hex(random.data(), random.size());
+  // A drive-root parent already ends with its separator, and appending a second
+  // one creates an empty path component that later admission rejects.
+  const std::wstring separator = parent->path.back() == L'\\' ? L"" : L"\\";
+  result->path = parent->path + separator + prefix + hex(random.data(), random.size());
   Security security;
   result->directory = createRelative(parent->get(), prefix + hex(random.data(), random.size()),
                                      DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,

@@ -16,7 +16,7 @@ import {
   open,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { verifyWindowsProtocolInput } from "./lib/windows-protocol-input.mjs";
 
@@ -416,6 +416,33 @@ try {
   assert.equal(await exists(runtime.path), false);
   assert.equal(await readFile(sentinel, "utf8"), "preserve");
   report.controls.cleanupDoesNotTraverseJunctions = true;
+  // A private runtime parented by a bare drive root must keep one separator:
+  // a doubled one creates an empty path component that every later snapshot
+  // rejects. Ghidra's session root reaches this shape whenever the inherited
+  // temp directory contains a dot-prefixed element.
+  const driveRoot = resolve(sep);
+  const driveRootRuntime = WindowsPrivateRuntime.create(
+    driveRoot,
+    "drive-root-",
+  );
+  try {
+    assert.equal(driveRootRuntime.observation.path.startsWith(driveRoot), true);
+    assert.equal(driveRootRuntime.observation.path.includes("\\\\"), false);
+    const driveRootSnapshot = await driveRootRuntime.snapshot(
+      source,
+      "drive-root.bin",
+    );
+    assert.equal(
+      driveRootSnapshot.sha256,
+      createHash("sha256")
+        .update(await readFile(source))
+        .digest("hex"),
+    );
+    report.controls.driveRootRuntimeParent = true;
+  } finally {
+    await driveRootRuntime.close();
+  }
+  assert.equal(await exists(driveRootRuntime.observation.path), false);
   const fixture = join(workspace, "tree.mjs");
   await writeFile(
     fixture,
