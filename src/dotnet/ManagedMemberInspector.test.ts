@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { inspectManagedMembersBytes } from "./ManagedMemberInspector.js";
 import { ManagedDecodeBudget } from "./ManagedDecodeBudget.js";
 import { edges } from "./ManagedMemberRows.js";
-import type { ManagedMethod } from "./ManagedMemberInspectorCore.js";
+import { signature, type ManagedMethod } from "./ManagedMemberInspectorCore.js";
 import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
 
 import {
@@ -390,18 +390,112 @@ it.each([
   },
 );
 
-it("keeps an admitted but unimplemented element type unsupported", () => {
-  // ECMA-335 ELEMENT_TYPE_ARRAY is valid, but multidimensional arrays are not decoded here.
+it("decodes generic instantiation member signatures as complete coverage", () => {
+  // System.Runtime.Caching 0x06000001: instance void (Dictionary<string, object>)
+  // shape, with TypeRef/TypeSpec coded tokens kept as encoded.
   const bytes = buildManagedPeFixture({
-    fieldSignature: Buffer.from([6, 0x14, 8, 1, 0, 0]),
+    methodSignature: Buffer.from([
+      0x00, 0x01, 0x01, 0x15, 0x12, 0x71, 0x01, 0x0e,
+    ]),
+    fieldSignature: Buffer.from([
+      0x06, 0x15, 0x11, 0x0a, 0x02, 0x13, 0x00, 0x1e, 0x01,
+    ]),
   });
   const result = inspectManagedMembersBytes(
     bytes,
     managedPeFixtureTarget(bytes),
   );
+
+  expect(result.methods[0]?.signature).toMatchObject({
+    parse_status: "decoded",
+    return_type: "void",
+    parameter_types: ["class:113<string>"],
+    issue: null,
+  });
   expect(result.fields[0]?.signature).toMatchObject({
+    parse_status: "decoded",
+    field_type: "valuetype:10<var:0,mvar:1>",
+  });
+  expect(result.coverage).toMatchObject({ state: "complete", issues: [] });
+});
+
+it.each([
+  ["single-dimension general array", [0x14, 0x08, 0x01, 0x00, 0x00], "i4[...]"],
+  [
+    "sized array with signed lower bounds",
+    [0x14, 0x08, 0x02, 0x02, 0x04, 0x03, 0x02, 0x02, 0x7f],
+    "i4[1...4,-1...1]",
+  ],
+  [
+    "partially bounded array",
+    [0x14, 0x0e, 0x03, 0x01, 0x05, 0x00],
+    "string[5,,]",
+  ],
+  [
+    "function pointer",
+    [0x1b, 0x00, 0x02, 0x08, 0x0e, 0x1c],
+    "fnptr[default](string,object)->i4",
+  ],
+  ["required modifier", [0x1f, 0x09, 0x08], "i4 modreq:9"],
+  [
+    "optional modifier under a pointer",
+    [0x0f, 0x20, 0x0d, 0x08],
+    "i4 modopt:13*",
+  ],
+  ["typed reference", [0x16], "typedbyref"],
+  [
+    "array of generic instantiations",
+    [0x1d, 0x15, 0x12, 0x05, 0x01, 0x14, 0x08, 0x01, 0x01, 0x03, 0x00],
+    "class:5<i4[3]>[]",
+  ],
+])("decodes a %s field signature", (_name, type, expected) => {
+  expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
+    kind: "field",
+    parse_status: "decoded",
+    field_type: expected,
+    issue: null,
+  });
+});
+
+it.each([
+  ["generic instantiation without arguments", [0x15, 0x12, 0x05, 0x00]],
+  ["generic instantiation of a primitive", [0x15, 0x08, 0x05, 0x01, 0x08]],
+  ["zero-rank array", [0x14, 0x08, 0x00, 0x00, 0x00]],
+  [
+    "array with more sizes than dimensions",
+    [0x14, 0x08, 0x01, 0x02, 0x01, 0x01, 0x00],
+  ],
+  ["truncated generic argument list", [0x15, 0x12, 0x05, 0x02, 0x08]],
+  ["truncated function pointer", [0x1b, 0x00, 0x01, 0x08]],
+])("reports a %s as malformed", (_name, type) => {
+  expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
+    kind: "unknown",
+    parse_status: "malformed",
+  });
+});
+
+it("keeps element types that member signatures do not assign unsupported", () => {
+  expect(signature(Buffer.from([0x06, 0x45, 0x08]))).toMatchObject({
     parse_status: "unsupported",
-    issue: "unsupported element type 0x14",
+    issue: "unsupported element type 0x45",
+  });
+});
+
+it("decodes deeply nested generic instantiations without recursion", () => {
+  const depth = 4_000;
+  const decoded = signature(
+    Buffer.concat([
+      Buffer.from([0x06]),
+      Buffer.from(
+        Array.from({ length: depth }, () => [0x15, 0x12, 0x05, 0x01]).flat(),
+      ),
+      Buffer.from([0x08]),
+    ]),
+  );
+
+  expect(decoded).toMatchObject({
+    parse_status: "decoded",
+    field_type: `${"class:5<".repeat(depth)}i4${">".repeat(depth)}`,
   });
 });
 
