@@ -211,7 +211,9 @@ describe("package import aliases compared with Node", () => {
       "#config",
     );
     expect(nested.target).toBeNull();
-    expect(nested.error_code).toBe("ERR_PACKAGE_IMPORT_NOT_DEFINED");
+    // CJS reports MODULE_NOT_FOUND when the nested package.json has no
+    // `imports` field at all; it still does not inherit the ancestor map.
+    expect(nested.error_code).toBe("MODULE_NOT_FOUND");
     const outcome = resolveAlias(
       inventory(new Map(Object.entries(files))),
       "#config",

@@ -18,7 +18,10 @@ const createPackageImportAliasFixture = async () => {
     'const nested = require("./node_modules/fixture/index.cjs");',
     'const missing = require("#missing");',
   ].join("\n");
-  const nestedSource = 'module.exports = require("#config");';
+  const nestedSource = [
+    'const config = require("#config");',
+    "module.exports = config;",
+  ].join("\n");
   const files = {
     "package.json": JSON.stringify({
       name: "app",

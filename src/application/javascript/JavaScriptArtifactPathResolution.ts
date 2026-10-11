@@ -251,7 +251,9 @@ const bareModuleCandidate = (
  */
 const enclosingPackageMetadata = (
   input: ResolveArtifactPathInput,
-): PackageMetadata | { readonly kind: "none" } => {
+):
+  | Extract<PackageMetadata, { readonly kind: "available" | "unavailable" }>
+  | { readonly kind: "none" } => {
   let directory = posix.dirname(input.sourcePath);
   while (posix.basename(directory) !== "node_modules") {
     const metadata = readPackageMetadata(input, directory);
