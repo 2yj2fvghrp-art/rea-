@@ -451,6 +451,7 @@ const readExecutableMetadata = async (
       arm: {
         ...parsed.value.arm,
         cpuArch: attributes.value.cpuArch,
+        cpuArchProfile: attributes.value.cpuArchProfile,
         ...(attributes.value.limitations.length === 0
           ? {}
           : { limitations: attributes.value.limitations }),

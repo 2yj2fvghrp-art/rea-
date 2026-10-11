@@ -31,6 +31,11 @@ export interface ArmElfMetadata {
    * file declares none; undefined until the section table has been read.
    */
   readonly cpuArch?: number | null;
+  /**
+   * Tag_CPU_arch_profile character ("A", "R", "M") from the same File scope,
+   * or null when absent; the arch enum alone does not identify the variant.
+   */
+  readonly cpuArchProfile?: string | null;
   /** Unavailable declaration sources; missing sections there remain unknown. */
   readonly limitations?: readonly string[];
 }

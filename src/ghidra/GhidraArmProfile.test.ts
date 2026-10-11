@@ -42,6 +42,7 @@ const target = (change: Partial<ArmElfMetadata> = {}): BinaryTarget => ({
     type: 2,
     flags: 0x05000400,
     cpuArch: 10,
+    cpuArchProfile: "A",
     ...change,
   },
 });
@@ -60,6 +61,7 @@ describe("bounded Ghidra ARM admission", () => {
         flags: 0x05000400,
         cpu_arch: 10,
         cpu_arch_name: "v7",
+        cpu_arch_profile: "A",
         float_abi: "hard",
       },
       arm_support_lane: "elf32-exec-le-eabi5-v7-pinned-v1",
@@ -89,6 +91,9 @@ describe("bounded Ghidra ARM admission", () => {
     [{ cpuArch: 6 }, "v6"],
     [{ cpuArch: 13 }, "v7E-M"],
     [{ cpuArch: 99 }, "unknown architecture (99)"],
+    [{ cpuArchProfile: "R" }, "Realtime profile"],
+    [{ cpuArchProfile: "M" }, "Microcontroller profile"],
+    [{ cpuArchProfile: null }, "no Tag_CPU_arch_profile"],
   ] satisfies [Partial<ArmElfMetadata>, string][])(
     "refuses an unverified ARM interpretation %j",
     async (change, reason) => {

@@ -15,15 +15,20 @@ provider-neutral facts. Recognition does not mean every ARM variant is
 supported.
 
 The lane admits little-endian ELF32 `ET_EXEC` images declaring EABI5 whose
-`.ARM.attributes` declare `Tag_CPU_arch` v7, the ISA the verification build
-covers. Hard-float (`armhf`, `EF_ARM_ABI_FLOAT_HARD`) and unspecified float
-conventions are covered; `EF_ARM_ABI_FLOAT_SOFT` is refused. ELF64 AArch64
-images use the separate `arm64` lane. Big-endian `armeb`, `EF_ARM_BE8`
-mixed-endian images, older or legacy ABIs, PIE (`ET_DYN`), shared images and
-relocatable objects are not covered, and neither are images declaring another
-ISA (for example `v8-A`) or no readable declaration at all, because the EABI
-version does not identify the CPU architecture: provider selection returns the
-specific unsupported constraint rather than guessing a compatible profile.
+`.ARM.attributes` declare `Tag_CPU_arch` v7 with the Application profile, the
+variant the verification build covers. Hard-float (`armhf`,
+`EF_ARM_ABI_FLOAT_HARD`) and unspecified float conventions are covered;
+`EF_ARM_ABI_FLOAT_SOFT` is refused. ELF64 AArch64 images use the separate
+`arm64` lane. Big-endian `armeb`, `EF_ARM_BE8` mixed-endian images, older or
+legacy ABIs, PIE (`ET_DYN`), shared images and relocatable objects are not
+covered, and neither are images declaring another ISA (for example `v8-A`) or
+profile (for example the Realtime profile a cortex-r5 build declares), an
+unknown profile, or no readable declaration at all, because the EABI version
+and the arch enum alone do not identify the CPU variant: provider selection
+returns the specific unsupported constraint rather than guessing a compatible
+profile. When the section table extends beyond the captured file, the profile
+records the unexamined declarations as an inspection limitation instead of
+treating the partial scan as complete coverage.
 
 ## Pinned import language
 

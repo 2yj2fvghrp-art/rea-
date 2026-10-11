@@ -79,6 +79,7 @@ try {
       type: 2,
       flags: independent.flags,
       cpuArch: 10,
+      cpuArchProfile: "A",
     },
     "REA ELF interpretation disagrees with GNU readelf or the declared ISA",
   );
@@ -89,6 +90,11 @@ try {
     readelfAttributes.stdout,
     /Tag_CPU_arch:\s*v7\b/u,
     "The fixture must declare the v7 ISA the lane pins",
+  );
+  assert.match(
+    readelfAttributes.stdout,
+    /Tag_CPU_arch_profile:\s*Application\b/u,
+    "The fixture must declare the Application profile the lane pins",
   );
   assert.equal(resolved.value.sha256, fixture.sha256);
   const snapshotPath = join(workspace, "arm.snapshot.json");
@@ -195,6 +201,7 @@ try {
       flags: independent.flags,
       cpu_arch: 10,
       cpu_arch_name: "v7",
+      cpu_arch_profile: "A",
       float_abi: "hard",
     });
     for (const evidence of snapshot.evidence_bundle.records)
@@ -296,6 +303,44 @@ try {
     ],
     { timeout: 60000 },
   );
+  const r5Path = join(workspace, "arm-r5.elf");
+  // cortex-r5 declares Tag_CPU_arch v7 with the Realtime profile, so the
+  // arch enum alone matches the lane while the variant does not.
+  await execute(
+    compiler,
+    [
+      "--target=arm-linux-gnueabihf",
+      "-mcpu=cortex-r5",
+      "-mfloat-abi=hard",
+      "-fno-pic",
+      "-fuse-ld=lld",
+      "-nostdlib",
+      "-static",
+      "-O0",
+      "-Wl,-e,rea_arm_entry",
+      "-Wl,--build-id=none",
+      fileURLToPath(new URL("../tests/conformance/c/arm.c", import.meta.url)),
+      fileURLToPath(
+        new URL("../tests/conformance/ghidra/arm-probe.S", import.meta.url),
+      ),
+      "-o",
+      r5Path,
+    ],
+    { timeout: 60000 },
+  );
+  const r5Attributes = await execute("readelf", ["-A", r5Path], {
+    timeout: 30000,
+  });
+  assert.match(
+    r5Attributes.stdout,
+    /Tag_CPU_arch:\s*v7\b/u,
+    "The cortex-r5 variant must declare the v7 arch enum",
+  );
+  assert.match(
+    r5Attributes.stdout,
+    /Tag_CPU_arch_profile:\s*Realtime\b/u,
+    "The cortex-r5 variant must declare the Realtime profile",
+  );
   const noAttributesPath = join(workspace, "arm-v7-noattributes.elf");
   await writeFile(noAttributesPath, await readFile(fixture.path));
   let objcopyTool;
@@ -316,8 +361,21 @@ try {
     { timeout: 30000 },
   );
   const variantMetadata = [
-    { label: "v8a", path: v8Path, cpuArch: 14 },
-    { label: "no-attributes", path: noAttributesPath, cpuArch: null },
+    { label: "v8a", path: v8Path, cpuArch: 14, profile: "A", pattern: /v8-A/u },
+    {
+      label: "r5-profile",
+      path: r5Path,
+      cpuArch: 10,
+      profile: "R",
+      pattern: /Realtime profile/u,
+    },
+    {
+      label: "no-attributes",
+      path: noAttributesPath,
+      cpuArch: null,
+      profile: null,
+      pattern: /Tag_CPU_arch/u,
+    },
   ];
   for (const variant of variantMetadata) {
     const variantResolved = await parseBinaryTarget(variant.path);
@@ -326,6 +384,11 @@ try {
       variantResolved.value.arm.cpuArch,
       variant.cpuArch,
       `ISA declaration for the ${variant.label} variant`,
+    );
+    assert.equal(
+      variantResolved.value.arm.cpuArchProfile,
+      variant.profile,
+      `Profile declaration for the ${variant.label} variant`,
     );
     const variantTransport = new StdioClientTransport({
       command: process.execPath,
@@ -351,7 +414,7 @@ try {
       const text = JSON.stringify(error);
       assert.match(
         text,
-        variant.label === "v8a" ? /v8-A/u : /Tag_CPU_arch/u,
+        variant.pattern,
         `The ${variant.label} variant must refuse with its typed ISA reason`,
       );
       refusals.push({ variant: variant.label, error });
@@ -399,7 +462,7 @@ try {
       "attributes-declared Tag_CPU_arch v7 admission",
       "pinned ARM:LE:32:v7 language checked after import",
       "ARM and Thumb-2 probe encodings",
-      "typed refusals for legacy EABI, BE8, v8-A, and absent attributes",
+      "typed refusals for legacy EABI, BE8, v8-A, Realtime profile, and absent attributes",
       "snapshot round-trip and CLI parity",
     ],
     refusals,

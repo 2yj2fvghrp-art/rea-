@@ -11,6 +11,18 @@ const EF_ARM_ABI_FLOAT_HARD = 0x00000400;
 
 /** Tag_CPU_arch enum for ARMv7, the only ISA this lane's verifier built. */
 const ARM_CPU_ARCH_V7 = 10;
+/** Tag_CPU_arch_profile for Application, the only variant the build covers. */
+const ARM_CPU_ARCH_PROFILE_A = "A";
+
+const ARM_CPU_ARCH_PROFILE_NAMES: Readonly<Record<string, string>> = {
+  R: "the Realtime profile",
+  M: "the Microcontroller profile",
+};
+
+const armCpuArchProfileName = (profile: string | null | undefined): string =>
+  profile == null
+    ? "no Tag_CPU_arch_profile"
+    : (ARM_CPU_ARCH_PROFILE_NAMES[profile] ?? `profile "${profile}"`);
 
 /** Declared Tag_CPU_arch names for typed refusals; unknown values stay numeric. */
 const ARM_CPU_ARCH_NAMES: Readonly<Record<number, string>> = {
@@ -39,10 +51,11 @@ const armCpuArchName = (value: number): string =>
 
 /**
  * Verified 32-bit ARM admission: little-endian ELF32 ET_EXEC with EABI5 whose
- * .ARM.attributes declare Tag_CPU_arch v7. Hard-float (armhf) and unspecified
- * float conventions are admitted; the import language is pinned because Ghidra
- * header auto-selection has several plausible wrong answers for ARM/Thumb-2
- * interworked images, and the EABI version does not identify the CPU ISA.
+ * .ARM.attributes declare Tag_CPU_arch v7 with the Application profile.
+ * Hard-float (armhf) and unspecified float conventions are admitted; the
+ * import language is pinned because Ghidra header auto-selection has several
+ * plausible wrong answers for ARM/Thumb-2 interworked images, and neither
+ * the EABI version nor the arch enum alone identifies the CPU variant.
  */
 export const isVerifiedArmAdmission = (target: BinaryTarget): boolean =>
   ghidraArmUnsupportedReason(target) === null;
@@ -76,6 +89,8 @@ export const ghidraArmUnsupportedReason = (
     return "This Ghidra ARM lane requires .ARM.attributes declaring Tag_CPU_arch v7; an image without a readable declaration cannot establish the verified ISA, and the ELF header alone does not identify the CPU architecture.";
   if (metadata.cpuArch !== ARM_CPU_ARCH_V7)
     return `This Ghidra ARM lane admits Tag_CPU_arch v7 only, and this image declares ${armCpuArchName(metadata.cpuArch)}; that ISA needs its own verified build before admission.`;
+  if (metadata.cpuArchProfile !== ARM_CPU_ARCH_PROFILE_A)
+    return `This Ghidra ARM lane admits the ARMv7 Application profile only, and this image declares ${armCpuArchProfileName(metadata.cpuArchProfile)}; the verified build covers armv7-a.`;
   return null;
 };
 
@@ -102,6 +117,10 @@ export const ghidraArmProfileParameters = (
       cpu_arch: target.arm.cpuArch ?? null,
       cpu_arch_name:
         target.arm.cpuArch == null ? null : armCpuArchName(target.arm.cpuArch),
+      cpu_arch_profile: target.arm.cpuArchProfile ?? null,
+      ...(target.arm.limitations === undefined
+        ? {}
+        : { attributes_limitations: [...target.arm.limitations] }),
       float_abi:
         (target.arm.flags & EF_ARM_ABI_FLOAT_HARD) !== 0
           ? "hard"

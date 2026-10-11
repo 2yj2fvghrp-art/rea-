@@ -5,13 +5,28 @@ import { err, ok, type Result } from "../domain/result.js";
 /** Observed AEABI declarations and coverage of their source tables. */
 export interface ArmElfAttributesInspection {
   readonly cpuArch: number | null;
+  readonly cpuArchProfile: string | null;
   readonly limitations: readonly string[];
 }
+
+/** File-scope AEABI declarations; other scopes do not declare the ISA. */
+interface AeabiFileDeclarations {
+  readonly cpuArch: number | null;
+  readonly cpuArchProfile: string | null;
+}
+
+const NO_AEABI_DECLARATIONS: AeabiFileDeclarations = {
+  cpuArch: null,
+  cpuArchProfile: null,
+};
 
 /** SHT_ARM_ATTRIBUTES carries the AEABI declarations for an ELF32 ARM image. */
 const SHT_ARM_ATTRIBUTES = 0x70000003;
 const ARM_ATTRIBUTES_MAX_BYTES = 65536;
 const ARM_ATTRIBUTES_MAX_TAGS = 4096;
+/** Tag_CPU_arch (6) and Tag_CPU_arch_profile (7), a one-byte character. */
+const TAG_CPU_ARCH = 6;
+const TAG_CPU_ARCH_PROFILE = 7;
 
 /** Read one ULEB128 value; null on truncation or an over-long encoding. */
 const readUleb128 = (
@@ -43,33 +58,36 @@ const skipAttributesString = (
 };
 
 /**
- * Scan one aeabi subsection's tag/value pairs for Tag_CPU_arch (6). Scope
- * tags carry a 4-byte block length, Tag_NULL carries no value, tags 4, 5,
- * and 32 carry strings, and every other declared tag carries one ULEB value;
- * malformed shapes read back as null rather than a guessed architecture.
+ * Scan one File scope's tag/value pairs for Tag_CPU_arch (6) and
+ * Tag_CPU_arch_profile (7). Scope tags cannot nest, Tag_NULL carries no
+ * value, tags 4, 5, and 32 carry strings, and every other declared tag
+ * carries one ULEB value; malformed shapes read back as no declaration.
  */
-const aeabiTagsCpuArch = (
+const scanAeabiFileScope = (
   section: Buffer,
   start: number,
   end: number,
-): number | null => {
+): AeabiFileDeclarations | null => {
   let cursor = start;
+  let cpuArch: number | null = null;
+  let cpuArchProfile: string | null = null;
   let tags = 0;
   while (cursor < end) {
     if ((tags += 1) > ARM_ATTRIBUTES_MAX_TAGS) return null;
     const tag = readUleb128(section, cursor, end);
     if (tag === null) return null;
     cursor = tag.next;
-    if (tag.value === 6) {
-      const arch = readUleb128(section, cursor, end);
-      return arch === null ? null : arch.value;
-    }
-    if (tag.value === 0) continue;
-    if (tag.value >= 1 && tag.value <= 3) {
-      if (cursor + 4 > end) return null;
-      cursor += 4;
+    if (tag.value === TAG_CPU_ARCH || tag.value === TAG_CPU_ARCH_PROFILE) {
+      const value = readUleb128(section, cursor, end);
+      if (value === null) return null;
+      cursor = value.next;
+      if (tag.value === TAG_CPU_ARCH) cpuArch = value.value;
+      else if (value.value < 1 || value.value > 127) return null;
+      else cpuArchProfile = String.fromCharCode(value.value);
       continue;
     }
+    if (tag.value === 0) continue;
+    if (tag.value >= 1 && tag.value <= 3) return null;
     if (tag.value === 4 || tag.value === 5) {
       const next = skipAttributesString(section, cursor, end);
       if (next === null) return null;
@@ -88,16 +106,46 @@ const aeabiTagsCpuArch = (
     if (value === null) return null;
     cursor = value.next;
   }
-  return null;
+  return { cpuArch, cpuArchProfile };
+};
+
+/**
+ * Walk one aeabi subsection's length-delimited scope blocks. Only File
+ * scopes declare the architecture; Section and Symbol scopes are skipped
+ * whole, so their bytes can never read as a CPU_arch declaration, and a
+ * later File scope supersedes an earlier one as sequential consumers do.
+ */
+const aeabiDeclarations = (
+  section: Buffer,
+  start: number,
+  end: number,
+): AeabiFileDeclarations | null => {
+  let cursor = start;
+  let declarations: AeabiFileDeclarations = NO_AEABI_DECLARATIONS;
+  while (cursor < end) {
+    const scope = readUleb128(section, cursor, end);
+    if (scope === null || scope.value < 1 || scope.value > 3) return null;
+    if (scope.next + 4 > end) return null;
+    const blockEnd = cursor + section.readUInt32LE(scope.next);
+    if (blockEnd < scope.next + 4 || blockEnd > end) return null;
+    if (scope.value === 1) {
+      const scanned = scanAeabiFileScope(section, scope.next + 4, blockEnd);
+      if (scanned === null) return null;
+      declarations = scanned;
+    }
+    cursor = blockEnd;
+  }
+  return declarations;
 };
 
 /**
  * Parse an AEABI attributes payload: 'A', then subsections of a 4-byte
- * length, a NUL-terminated owner, and tag/value pairs. Only the public
- * aeabi subsection declares the architecture; other owners are skipped.
+ * length, a NUL-terminated owner, and length-delimited scope blocks. Only
+ * the public aeabi subsection declares the architecture; other owners and
+ * every malformed shape read back as no declaration.
  */
-const armAttributesCpuArch = (section: Buffer): number | null => {
-  if (section.length < 2 || section[0] !== 0x41) return null;
+const armAttributesDeclarations = (section: Buffer): AeabiFileDeclarations => {
+  if (section.length < 2 || section[0] !== 0x41) return NO_AEABI_DECLARATIONS;
   let cursor = 1;
   while (cursor + 4 <= section.length) {
     const subsectionEnd = cursor + section.readUInt32LE(cursor);
@@ -106,15 +154,17 @@ const armAttributesCpuArch = (section: Buffer): number | null => {
       subsectionEnd > section.length ||
       subsectionEnd > cursor + ARM_ATTRIBUTES_MAX_BYTES
     )
-      return null;
+      return NO_AEABI_DECLARATIONS;
     const ownerEnd = skipAttributesString(section, cursor + 4, subsectionEnd);
-    if (ownerEnd === null) return null;
+    if (ownerEnd === null) return NO_AEABI_DECLARATIONS;
     const owner = section.toString("ascii", cursor + 4, ownerEnd - 1);
-    if (owner === "aeabi")
-      return aeabiTagsCpuArch(section, ownerEnd, subsectionEnd);
+    if (owner === "aeabi") {
+      const declarations = aeabiDeclarations(section, ownerEnd, subsectionEnd);
+      return declarations === null ? NO_AEABI_DECLARATIONS : declarations;
+    }
     cursor = subsectionEnd;
   }
-  return null;
+  return NO_AEABI_DECLARATIONS;
 };
 
 /**
@@ -193,9 +243,11 @@ export const readArmElfCpuArch = async (
   if (count === 0) {
     if (tableOffset !== 0)
       return err("unsupported extended or inconsistent ARM section table");
-    return ok({ cpuArch: null, limitations });
+    return ok({ cpuArch: null, cpuArchProfile: null, limitations });
   }
-  if (tableOffset < 52 || stride < 40)
+  // The exact ELF32 entry size bounds the table allocation by the header
+  // count alone; a padded stride could multiply a sparse file into one.
+  if (tableOffset < 52 || stride !== 40)
     return err("invalid ARM section table offset or entry size");
   const examinable = Math.min(
     count,
@@ -205,7 +257,8 @@ export const readArmElfCpuArch = async (
     limitations.push(
       `ARM section header table at file offset ${tableOffset} extends beyond the captured file: examined ${examinable} of ${count} complete headers. Declarations in unavailable headers remain unknown.`,
     );
-  if (examinable === 0) return ok({ cpuArch: null, limitations });
+  if (examinable === 0)
+    return ok({ cpuArch: null, cpuArchProfile: null, limitations });
   const contents = await read(
     tableOffset,
     examinable * stride,
@@ -234,11 +287,12 @@ export const readArmElfCpuArch = async (
   };
   const section = await locateAttributesSection();
   if (!section.ok) return section;
-  if (section.value === undefined) return ok({ cpuArch: null, limitations });
-  // Preserve the declaration verbatim, including unknown enum values.
+  if (section.value === undefined)
+    return ok({ cpuArch: null, cpuArchProfile: null, limitations });
+  // Preserve the declarations verbatim, including unknown enum values.
   // Provider admission, not parsing, decides which ISAs have been verified.
   return ok({
-    cpuArch: armAttributesCpuArch(section.value),
+    ...armAttributesDeclarations(section.value),
     limitations,
   });
 };
