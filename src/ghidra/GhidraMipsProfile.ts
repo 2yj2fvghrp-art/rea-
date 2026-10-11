@@ -49,6 +49,9 @@ export const ghidraMipsUnsupportedReason = (
     return "This Ghidra MIPS lane admits double-precision or FPXX ABI declarations with 32-bit CPR1, or soft-float without CPR1; single-float, FP64 and unspecified modes need separate verification.";
   if (abi.isaExtension !== 0 || abi.ases !== 0)
     return "MIPS ABI flags declare an ISA extension or ASE outside this standard-instruction lane.";
+  // MIPS_AFL_FLAGS1_ODDSPREG (bit 0) is the GCC and LLVM default for MIPS32 o32
+  // whatever the FP ABI; soft-float objects from both carry it. With no CPR1 it
+  // selects nothing, so it is accepted for soft-float as well as hard-float.
   if ((abi.flags1 & ~1) !== 0 || abi.flags2 !== 0)
     return "MIPS ABI flags contain unsupported general flags.";
   return null;

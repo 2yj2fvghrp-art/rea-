@@ -233,6 +233,24 @@ describe("soft-float MIPS storage", () => {
     );
   });
 
+  it("admits the ODDSPREG default that soft-float toolchains emit, but no other flags", () => {
+    const ghidra = new GhidraProvider(config, silentLogger, {}, host);
+    // GCC 5.2 kernel modules and LLVM/Rust firmware both record flags1 = 1.
+    expect(
+      ghidra.inspectTargetSupport(
+        target(abi({ cpr1Size: 0, fpAbi: 3, flags1: 1 })),
+      ).status,
+    ).toBe("supported");
+    expect(
+      ghidra.inspectTargetSupport(
+        target(abi({ cpr1Size: 0, fpAbi: 3, flags1: 2 })),
+      ),
+    ).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("general flags"),
+    });
+  });
+
   it("reports the prototype outcome as session limitations", async () => {
     const { client } = await session(target(softFloat), report);
     const health = await client.execute("health", {});
