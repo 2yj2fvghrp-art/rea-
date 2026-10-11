@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  displayDevicePath,
   findAliasedPackagePaths,
   parseAdbDevicesOutput,
   parseGetpropOutput,
@@ -240,51 +241,94 @@ describe("parsePmPathOutput", () => {
       role: "unknown",
     });
   });
+});
 
+describe("parsePmPathOutput unsafe device paths", () => {
   it.each([
-    ["a dot-dot segment", "/data/app/x/..", "..", "dot segment"],
-    ["a dot segment", "/data/app/x/.", ".", "dot segment"],
-    ["an empty final segment", "/data/app/x/", "", "no final file name"],
+    ["a dot-dot segment", "/data/app/x/..", "..", "dot_segment"],
+    ["a dot segment", "/data/app/x/.", ".", "dot_segment"],
+    ["an empty final segment", "/data/app/x/", "", "empty_file_name"],
     [
       "a backslash separator",
       "/data/app/x/..\\..\\evil.apk",
       "..\\..\\evil.apk",
-      "path separator",
+      "path_separator",
     ],
-    ["a NUL character", "/data/app/x/base\u0000.apk", "base\u0000.apk", "NUL"],
+    [
+      "a NUL character",
+      "/data/app/x/base\u0000.apk",
+      "base\u0000.apk",
+      "whitespace_or_control",
+    ],
     [
       "an escape character",
       "/data/app/x/\u001b[2Jbase.apk",
       "\u001b[2Jbase.apk",
-      "control characters",
+      "whitespace_or_control",
     ],
     [
       "a hidden file name",
       "/data/app/x/.base.apk",
       ".base.apk",
-      "not of the form",
+      "not_portable_apk_name",
     ],
-    ["a non-APK name", "/data/app/x/base.so", "base.so", "not of the form"],
-    ["a trailing tab", "/data/app/x/base.apk\t", "base.apk\t", "whitespace"],
-    ["a trailing space", "/data/app/x/base.apk ", "base.apk ", "whitespace"],
+    [
+      "a non-APK name",
+      "/data/app/x/base.so",
+      "base.so",
+      "not_portable_apk_name",
+    ],
+    [
+      "a trailing tab",
+      "/data/app/x/base.apk\t",
+      "base.apk\t",
+      "whitespace_or_control",
+    ],
+    [
+      "a trailing space",
+      "/data/app/x/base.apk ",
+      "base.apk ",
+      "whitespace_or_control",
+    ],
     [
       "a leading space in the path",
       " /data/app/x/base.apk",
       "base.apk",
-      "whitespace",
+      "whitespace_or_control",
     ],
     [
       "a space inside a directory segment",
       "/data/app/x y/base.apk",
       "base.apk",
-      "whitespace",
+      "whitespace_or_control",
     ],
     [
       "a C1 control character",
       "/data/app/x/base.apk\u0085",
       "base.apk\u0085",
-      "control characters",
+      "whitespace_or_control",
     ],
+    ...[
+      ["U+202E right-to-left override", "\u202e"],
+      ["U+200B zero-width space", "\u200b"],
+      ["U+FEFF byte-order mark", "\ufeff"],
+      ["U+2066 left-to-right isolate", "\u2066"],
+      ["U+E000 private-use character", "\ue000"],
+      ["a lone surrogate", "\ud800"],
+    ].flatMap(([name, char]) => [
+      [
+        `${name!} in a directory segment`,
+        `/data/${char!}ppa/x/base.apk`,
+        "base.apk",
+        "whitespace_or_control",
+      ],
+      [
+        `${name!} in the file name`,
+        `/data/app/x/base${char!}.apk`,
+        `base${char!}.apk`,
+        "whitespace_or_control",
+      ],
+    ]),
   ])(
     "rejects %s as a host file name and keeps the raw device path",
     (_, devicePath, fileName, reason) => {
@@ -297,7 +341,7 @@ describe("parsePmPathOutput", () => {
         {
           device_path: devicePath,
           file_name: fileName,
-          reason: expect.stringContaining(reason) as unknown,
+          reason,
         },
       ]);
     },
@@ -324,7 +368,7 @@ describe("parsePmPathOutput", () => {
       {
         device_path: "/data/app/x/base.apk\r",
         file_name: "base.apk\r",
-        reason: expect.stringContaining("control characters") as unknown,
+        reason: "whitespace_or_control",
       },
     ]);
   });
@@ -359,7 +403,7 @@ describe("parsePmPathOutput host file name policy", () => {
         {
           device_path: devicePath,
           file_name: fileName,
-          reason: "the file name is a reserved Windows device name",
+          reason: "reserved_name",
         },
       ]);
     },
@@ -395,6 +439,7 @@ describe("findAliasedPackagePaths", () => {
     ).toMatchObject({
       first: { device_path: "/data/app/x/base.apk" },
       second: { device_path: "/data/app/y/BASE.apk" },
+      reason: "case_fold_alias",
     });
   });
 
@@ -422,10 +467,12 @@ describe("findAliasedPackagePaths", () => {
     expect(findAliasedPackagePaths([composed, decomposed])).toEqual({
       first: composed,
       second: decomposed,
+      reason: "normalization_alias",
     });
     expect(findAliasedPackagePaths([ligature, plain])).toEqual({
       first: ligature,
       second: plain,
+      reason: "normalization_alias",
     });
   });
 
@@ -435,5 +482,22 @@ describe("findAliasedPackagePaths", () => {
         entries("/data/app/x/base.apk", "/data/app/y/base.apk"),
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("displayDevicePath", () => {
+  it("escapes format controls so a bidi override cannot reorder prose", () => {
+    expect(displayDevicePath("/data/\u202eapp/x\u200b/base\ufeff.apk")).toBe(
+      '"/data/\\u{202E}app/x\\u{200B}/base\\u{FEFF}.apk"',
+    );
+    expect(displayDevicePath("/data/app/x/base.apk\u0085 ")).toBe(
+      '"/data/app/x/base.apk\\u{85} "',
+    );
+  });
+
+  it("leaves ordinary paths and non-ASCII letters readable", () => {
+    expect(displayDevicePath("/data/app/caf\u00e9/base.apk")).toBe(
+      '"/data/app/caf\u00e9/base.apk"',
+    );
   });
 });

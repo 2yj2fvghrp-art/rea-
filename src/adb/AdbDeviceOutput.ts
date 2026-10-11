@@ -223,27 +223,53 @@ const fileNameOf = (devicePath: string): string => {
 const SAFE_HOST_APK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/u;
 
 /**
- * Whitespace or control characters anywhere in a device path. Package Manager
- * never emits them, and keeping them would make the retained path differ from
- * what a trimmed or terminal-rendered copy shows.
+ * Whitespace and invisible or non-text code points anywhere in a device path:
+ * `\s`, control characters (`Cc`), format controls (`Cf`: bidi overrides and
+ * isolates such as U+202E and U+2066, zero-width characters such as U+200B,
+ * and the U+FEFF byte-order mark), lone surrogates (`Cs`), and private-use
+ * code points (`Co`). Package Manager never emits them, and each one makes
+ * the retained path differ from what a trimmed or terminal-rendered copy
+ * shows, or lets a renderer reorder the path. This is the only check applied
+ * to directory segments, which REA never writes on the host; the final
+ * segment must also match the ASCII-only {@link SAFE_HOST_APK_FILE_NAME},
+ * like the portable-segment rule in `webScriptExportPlan.ts`.
  */
-const DEVICE_PATH_WHITESPACE_OR_CONTROL = /[\s\p{Cc}]/u;
+const DEVICE_PATH_INVISIBLE_OR_CONTROL = /[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}]/u;
+
+/**
+ * Quote a raw device path for caller-facing prose. JSON quoting escapes C0
+ * controls; every other control, format, surrogate, private-use, or non-space
+ * separator code point is escaped as `\u{...}` so a bidi override cannot
+ * reorder the rendered message. Structured details keep the raw path.
+ */
+export const displayDevicePath = (devicePath: string): string =>
+  JSON.stringify(devicePath).replace(/[\p{C}\p{Z}]/gu, (char) =>
+    char === " "
+      ? char
+      : `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`,
+  );
+
+/** Stable reason a device-reported APK path cannot be used on the host. */
+export type AdbUnsafeDevicePathReason =
+  | "whitespace_or_control"
+  | "empty_file_name"
+  | "dot_segment"
+  | "path_separator"
+  | "not_portable_apk_name"
+  | "reserved_name";
 
 /** Why a device-reported APK path cannot be pulled under a host file name. */
 const unsafeDevicePathReason = (
   devicePath: string,
   fileName: string,
-): string | undefined => {
-  if (DEVICE_PATH_WHITESPACE_OR_CONTROL.test(devicePath))
-    return "the path contains whitespace, NUL, or control characters";
-  if (fileName === "") return "the path has no final file name segment";
-  if (fileName === "." || fileName === "..")
-    return "the final segment is a dot segment";
-  if (fileName.includes("\\")) return "the file name contains a path separator";
-  if (!SAFE_HOST_APK_FILE_NAME.test(fileName))
-    return "the file name is not of the form [A-Za-z0-9][A-Za-z0-9._-]*.apk";
-  if (isWindowsReservedFileName(fileName))
-    return "the file name is a reserved Windows device name";
+): AdbUnsafeDevicePathReason | undefined => {
+  if (DEVICE_PATH_INVISIBLE_OR_CONTROL.test(devicePath))
+    return "whitespace_or_control";
+  if (fileName === "") return "empty_file_name";
+  if (fileName === "." || fileName === "..") return "dot_segment";
+  if (fileName.includes("\\")) return "path_separator";
+  if (!SAFE_HOST_APK_FILE_NAME.test(fileName)) return "not_portable_apk_name";
+  if (isWindowsReservedFileName(fileName)) return "reserved_name";
   return undefined;
 };
 
@@ -262,6 +288,8 @@ const hostFileNameKey = (fileName: string): string =>
 export interface AdbAliasedPackagePaths {
   readonly first: AdbPackagePathEntry;
   readonly second: AdbPackagePathEntry;
+  /** `case_fold_alias` when the names differ only by case, otherwise by normalisation. */
+  readonly reason: "case_fold_alias" | "normalization_alias";
 }
 
 /**
@@ -281,7 +309,14 @@ export const findAliasedPackagePaths = (
       continue;
     }
     if (earlier.file_name !== entry.file_name)
-      return { first: earlier, second: entry };
+      return {
+        first: earlier,
+        second: entry,
+        reason:
+          earlier.file_name.toLowerCase() === entry.file_name.toLowerCase()
+            ? "case_fold_alias"
+            : "normalization_alias",
+      };
   }
   return undefined;
 };
@@ -291,7 +326,7 @@ export interface AdbRejectedPackagePath {
   /** Raw device path exactly as Package Manager reported it. */
   readonly device_path: string;
   readonly file_name: string;
-  readonly reason: string;
+  readonly reason: AdbUnsafeDevicePathReason;
 }
 
 /**
@@ -299,8 +334,8 @@ export interface AdbRejectedPackagePath {
  * name (`base.apk`, `split_*.apk`), which is the only signal the output
  * carries; any other name reports an unknown role. Only the protocol line
  * terminator (`\n` or `\r\n`) is stripped, so each retained device path is
- * byte-for-byte what the device reported. Paths with whitespace or control
- * characters, and file names that are not safe host file names, are reported
+ * byte-for-byte what the device reported. Paths with whitespace, control,
+ * format, surrogate, or private-use code points, and file names that are not safe host file names, are reported
  * in `rejectedPaths` with that raw device path, never trimmed or renamed.
  */
 export const parsePmPathOutput = (

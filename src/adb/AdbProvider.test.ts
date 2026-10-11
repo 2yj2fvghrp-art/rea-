@@ -302,29 +302,52 @@ it("refuses a pm path file name that would escape the package directory", async 
     },
   });
   if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisProtocolError");
-  expect(projectAnalysisError(result.error)).toMatchObject({
+  expect(result.error._tag).toBe("AnalysisOutputError");
+  const projected = projectAnalysisError(result.error);
+  expect(projected).toMatchObject({
     code: "unreadable_output",
+    retryable: false,
+    details: {
+      operation: "pull_adb_package",
+      reason: "unsafe_device_path",
+      diagnostics: {
+        package_name: "com.hostile",
+        rejected_paths: [
+          {
+            device_path: "/data/app/x/..",
+            file_name: "..",
+            reason: "dot_segment",
+          },
+        ],
+      },
+    },
   });
-  expect(result.error.message).toContain('"/data/app/x/.."');
-  expect(result.error.message).toContain("dot segment");
-  expect(result.error.capturedOutput?.stdout).toContain(
-    "package:/data/app/x/..",
-  );
+  expect(projected.message).toContain('"/data/app/x/.."');
+  expect(projected.message).toContain("dot_segment");
+  expect(projected.message).not.toContain("rea doctor");
+  expect(projected.details?.captured_output).toMatchObject({
+    stdout: expect.stringContaining("package:/data/app/x/..") as unknown,
+  });
   await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
   await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
 });
 
 it.each([
-  ["a dot-dot final segment", "'package:/data/app/x/..'", '"/data/app/x/.."'],
+  [
+    "a dot-dot final segment",
+    "'package:/data/app/x/..'",
+    "/data/app/x/..",
+    "dot_segment",
+  ],
   [
     "a trailing space",
     "'package:/data/app/x/base.apk '",
-    '"/data/app/x/base.apk "',
+    "/data/app/x/base.apk ",
+    "whitespace_or_control",
   ],
 ])(
   "refuses a pm path whose only entry has %s instead of reporting absence",
-  async (_, paths, quotedPath) => {
+  async (_, paths, devicePath, reason) => {
     const { binary, root } = await writeAdbStub((root) =>
       pullStub(
         paths,
@@ -342,11 +365,16 @@ it.each([
       },
     });
     if (result.ok) throw new Error("expected a refusal");
-    expect(result.error._tag).toBe("AnalysisProtocolError");
-    expect(projectAnalysisError(result.error)).toMatchObject({
+    expect(result.error._tag).toBe("AnalysisOutputError");
+    const projected = projectAnalysisError(result.error);
+    expect(projected).toMatchObject({
       code: "unreadable_output",
+      details: {
+        reason: "unsafe_device_path",
+        diagnostics: { rejected_paths: [{ device_path: devicePath, reason }] },
+      },
     });
-    expect(result.error.message).toContain(quotedPath);
+    expect(projected.message).toContain(JSON.stringify(devicePath));
     expect(result.error.capturedOutput?.stdout).toContain(
       "package:/data/app/x/",
     );
@@ -373,15 +401,28 @@ it("refuses case-folded file name aliases before any filesystem effect", async (
     },
   });
   if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisProtocolError");
-  expect(projectAnalysisError(result.error)).toMatchObject({
+  expect(result.error._tag).toBe("AnalysisOutputError");
+  const projected = projectAnalysisError(result.error);
+  expect(projected).toMatchObject({
     code: "unreadable_output",
+    details: {
+      operation: "pull_adb_package",
+      reason: "aliased_device_paths",
+      diagnostics: {
+        package_name: "com.hostile",
+        alias_reason: "case_fold_alias",
+        aliased_paths: [
+          { device_path: "/data/app/x/base.apk", file_name: "base.apk" },
+          { device_path: "/data/app/y/BASE.apk", file_name: "BASE.apk" },
+        ],
+      },
+    },
   });
-  expect(result.error.message).toContain('"/data/app/x/base.apk"');
-  expect(result.error.message).toContain('"/data/app/y/BASE.apk"');
-  expect(result.error.capturedOutput?.stdout).toContain(
-    "package:/data/app/y/BASE.apk",
-  );
+  expect(projected.message).toContain('"/data/app/x/base.apk"');
+  expect(projected.message).toContain('"/data/app/y/BASE.apk"');
+  expect(projected.details?.captured_output).toMatchObject({
+    stdout: expect.stringContaining("package:/data/app/y/BASE.apk") as unknown,
+  });
   await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
   await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
 });
@@ -429,12 +470,83 @@ it("refuses a reserved Windows device file name before any filesystem effect", a
     },
   });
   if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisProtocolError");
-  expect(result.error.message).toContain('"/data/app/x/NUL.apk"');
-  expect(result.error.message).toContain("reserved Windows device name");
+  expect(result.error._tag).toBe("AnalysisOutputError");
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    details: {
+      reason: "unsafe_device_path",
+      diagnostics: {
+        rejected_paths: [
+          {
+            device_path: "/data/app/x/NUL.apk",
+            file_name: "NUL.apk",
+            reason: "reserved_name",
+          },
+        ],
+      },
+    },
+  });
   await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
   await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
 });
+
+it.each([
+  ["U+202E", "\u202e"],
+  ["U+200B", "\u200b"],
+  ["U+FEFF", "\ufeff"],
+  ["U+2066", "\u2066"],
+])(
+  "refuses %s format controls in directory and file names before any filesystem effect",
+  async (_, char) => {
+    const inDirectory = `/data/${char}ppa/x/base.apk`;
+    const inFileName = `/data/app/x/split${char}_a.apk`;
+    const { binary, root } = await writeAdbStub((root) =>
+      pullStub(
+        `'package:${inDirectory}' 'package:${inFileName}'`,
+        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
+  printf 'x' > "$5"`,
+      ),
+    );
+    const output = join(root, "pulls");
+    const result = await providerOver(binary).execute({
+      operation: "pull_adb_package",
+      input: {
+        serial: "emulator-5554",
+        package: "com.hostile",
+        output_directory: output,
+      },
+    });
+    if (result.ok) throw new Error("expected a refusal");
+    const projected = projectAnalysisError(result.error);
+    expect(projected).toMatchObject({
+      code: "unreadable_output",
+      details: {
+        reason: "unsafe_device_path",
+        diagnostics: {
+          rejected_paths: [
+            {
+              device_path: inDirectory,
+              file_name: "base.apk",
+              reason: "whitespace_or_control",
+            },
+            {
+              device_path: inFileName,
+              file_name: `split${char}_a.apk`,
+              reason: "whitespace_or_control",
+            },
+          ],
+        },
+      },
+    });
+    // The raw path stays in the structured details; the prose escapes it.
+    expect(projected.message).not.toContain(char);
+    expect(projected.message).toContain(
+      `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`,
+    );
+    expect(projected.message).toContain("and 1 other path(s)");
+    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+  },
+);
 
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
