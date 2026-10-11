@@ -10,11 +10,7 @@ import {
   functionInstructionWindowSchema,
 } from "../domain/hopperValues.js";
 import type { JsonValue } from "../domain/jsonValue.js";
-import {
-  EMPTY_CALLEES_LIMITATION,
-  readCallGraphCallees,
-  unavailableCallGraph,
-} from "./IdaCallGraph.js";
+import { readCallGraphCallees, unavailableCallGraph } from "./IdaCallGraph.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import type { IdaOperation } from "./IdaProviderCapabilities.js";
 import { IDA_LIMITATIONS } from "./IdaProviderCapabilities.js";
@@ -195,14 +191,11 @@ export class IdaOperationRunner {
     );
   }
 
-  /** Add depth-one call graph callees on targets where `callees` may not recognise calls. */
+  /** Add processor-neutral function callees on targets where upstream `callees` is unsound. */
   private async addCallGraphCallees(
     fn: IdaFunction,
     result: Map<string, ReturnType<typeof identity>>,
-    upstreamCalleesEmpty: boolean,
   ): Promise<void> {
-    if (this.options.x86Only !== false) return;
-    if (upstreamCalleesEmpty) this.limitations.push(EMPTY_CALLEES_LIMITATION);
     const graph =
       this.options.callGraphAvailable === false
         ? unavailableCallGraph("the upstream server does not advertise it")
@@ -351,7 +344,10 @@ export class IdaOperationRunner {
   ): Promise<ReturnType<typeof identity>[]> {
     const queries: string[] = [];
     const result = new Map<string, ReturnType<typeof identity>>();
-    let upstreamCalleesEmpty = false;
+    if (this.readsCallGraph(direction)) {
+      await this.addCallGraphCallees(fn, result);
+      return [...result.values()];
+    }
     if (this.protocol === "legacy") {
       const value = await this.call(
         direction === "callers" ? "get_callers" : "get_callees",
@@ -379,7 +375,6 @@ export class IdaOperationRunner {
         throw new AnalysisProtocolError(
           `IDA callees failed: ${page?.error ?? "missing callees"}`,
         );
-      upstreamCalleesEmpty = page.callees.length === 0;
       if (page.more === true)
         this.limitations.push(
           "Upstream callees capped results at 500; additional callees remain unknown.",
@@ -397,8 +392,6 @@ export class IdaOperationRunner {
       const resolved = identity(await this.resolve(query));
       result.set(resolved.address, resolved);
     }
-    if (this.readsCallGraph(direction))
-      await this.addCallGraphCallees(fn, result, upstreamCalleesEmpty);
     return [...result.values()];
   }
 

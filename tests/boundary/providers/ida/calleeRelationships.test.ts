@@ -39,11 +39,34 @@ it("shows the callee edges of an ARM64 procedure in the call graph", async () =>
     expect(
       result.value,
       "the root lists both observed callees instead of an empty observed list",
-    ).toEqual({
-      "0": [{ address: "0x1000", status: "ok", calls: ["0x2000", "0x3000"] }],
+    ).toMatchObject({
+      "0": [
+        {
+          address: "0x1000",
+          status: "ok",
+          calls: ["0x2000", "0x3000"],
+          limitations: expect.arrayContaining([
+            "This relationship read does not establish calls to targets IDA does not recognize as functions; imports and other non-function call targets remain unknown.",
+          ]),
+        },
+      ],
       "1": [
-        { address: "0x2000", status: "ok", calls: [] },
-        { address: "0x3000", status: "ok", calls: [] },
+        {
+          address: "0x2000",
+          status: "ok",
+          calls: [],
+          limitations: expect.arrayContaining([
+            "This relationship read does not establish calls to targets IDA does not recognize as functions; imports and other non-function call targets remain unknown.",
+          ]),
+        },
+        {
+          address: "0x3000",
+          status: "ok",
+          calls: [],
+          limitations: expect.arrayContaining([
+            "This relationship read does not establish calls to targets IDA does not recognize as functions; imports and other non-function call targets remain unknown.",
+          ]),
+        },
       ],
     });
     expect(
@@ -99,12 +122,98 @@ it("traverses every ARM64 callee in a call path without a goal and records no fa
         { source_address: "0x1000", target_address: "0x3000" },
       ],
       failures: [],
-      truncated: false,
+      truncated: true,
+      limitations: expect.arrayContaining([
+        "This relationship read does not establish calls to targets IDA does not recognize as functions; imports and other non-function call targets remain unknown.",
+      ]),
+      residual_unknowns: expect.arrayContaining([
+        expect.stringContaining("Call relationships for 0x1000 are limited:"),
+      ]),
     });
     expect(
       requestedRoots(producer),
       "each reachable procedure is read once, with exactly its own root",
     ).toEqual(["0x1000", "0x2000", "0x3000"]);
+  } finally {
+    expect((await client.close()).ok).toBe(true);
+  }
+});
+
+it("preserves missing callgraph coverage through direct, graph, and trace workflows", async () => {
+  const { client, producer } = await callGraphSession({
+    tools: [
+      "idb_open",
+      "idb_list",
+      "idb_close",
+      "server_health",
+      "list_funcs",
+      "lookup_funcs",
+      "find_regex",
+      "decompile",
+      "disasm",
+      "callees",
+      "xrefs_to",
+    ],
+    callees: [
+      { addr: "0x3000", name: "bogus_non_x86_match", type: "internal" },
+    ],
+  });
+  try {
+    const direct = await client.execute("procedure_callees", {
+      procedure: "main",
+    });
+    if (!direct.ok) throw direct.error;
+    expect(
+      direct.value.result,
+      "the x86-only producer result is ignored",
+    ).toEqual([]);
+    expect(direct.value.limitations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("callgraph was unavailable"),
+        expect.stringContaining("targets IDA does not recognize as functions"),
+      ]),
+    );
+
+    const application = new EnhancedTools(client);
+    const graph = await application.execute("get_call_graph", {
+      address: "main",
+    });
+    if (!graph.ok) throw graph.error;
+    expect(graph.value).toMatchObject({
+      "0": [
+        {
+          status: "ok",
+          calls: [],
+          limitations: expect.arrayContaining([
+            expect.stringContaining("callgraph was unavailable"),
+          ]),
+        },
+      ],
+    });
+
+    const trace = await application.execute("trace_call_path", {
+      start: "main",
+      goal: "0x3000",
+    });
+    if (!trace.ok) throw trace.error;
+    expect(trace.value).toMatchObject({
+      goal_status: "not_reached",
+      edges: [],
+      limitations: expect.arrayContaining([
+        expect.stringContaining("callgraph was unavailable"),
+      ]),
+      residual_unknowns: expect.arrayContaining([
+        expect.stringContaining("Call relationships for 0x1000 are limited:"),
+      ]),
+    });
+    expect(
+      producer.calls.some(({ name }) => name === "callees"),
+      "the inaccurate fallback is never queried",
+    ).toBe(false);
+    expect(
+      producer.calls.some(({ name }) => name === "callgraph"),
+      "an unadvertised tool is never requested",
+    ).toBe(false);
   } finally {
     expect((await client.close()).ok).toBe(true);
   }

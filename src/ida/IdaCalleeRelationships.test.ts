@@ -11,7 +11,7 @@ import {
   graphRow,
   removeCallGraphSessions,
 } from "../../tests/fixtures/idaCallGraph.js";
-import type { JsonValue } from "../domain/jsonValue.js";
+import { UNRECOGNIZED_CALLEE_LIMITATION } from "./IdaCallGraph.js";
 import { IDA_LIMITATIONS } from "./IdaProviderCapabilities.js";
 import { IdaSessionClient } from "./IdaSessionClient.js";
 
@@ -28,9 +28,6 @@ const observedTools = (rawResult: unknown): string[] =>
     .parse(rawResult)
     .observations.map(({ tool }) => tool);
 
-const EMPTY_CALLEES_LIMITATION =
-  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; REA adds edges from the upstream call graph when it is available, and that graph reports calls to recognized functions only, so other call targets remain unknown.";
-
 const callees = async (client: IdaSessionClient) => {
   const result = await client.execute("procedure_callees", {
     procedure: "main",
@@ -40,9 +37,11 @@ const callees = async (client: IdaSessionClient) => {
 };
 
 describe("headless IDA callee edges on non-x86 targets", () => {
-  it("reads callee edges from the upstream call graph when callees reports none", async () => {
+  it("uses the neutral call graph as the sole callee source on non-x86 targets", async () => {
     const { client } = await session({
-      callees: [],
+      callees: [
+        { addr: "0x4000", name: "bogus_non_x86_match", type: "internal" },
+      ],
       callgraph: graphRow([
         edge("0x1000", "0x2000"),
         edge("0x1000", "0x3000"),
@@ -54,163 +53,24 @@ describe("headless IDA callee edges on non-x86 targets", () => {
 
       expect(
         execution.result,
-        "the two root edges are observed and the child edge is ignored",
+        "the root edges are observed and the child edge is ignored",
       ).toEqual(["0x2000", "0x3000"]);
       expect(
         execution.limitations,
-        "an empty callees reply is not proof of absence",
-      ).toContain(EMPTY_CALLEES_LIMITATION);
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-
-  it("never reports an unobservable leaf as an observed empty list", async () => {
-    const { client } = await session({
-      callees: [],
-      callgraph: graphRow([]),
-    });
-    try {
-      const execution = await callees(client);
-
-      expect(execution.result, "nothing was observed").toEqual([]);
-      expect(
-        execution.limitations,
-        "the empty result carries the completeness limitation",
-      ).toContain(EMPTY_CALLEES_LIMITATION);
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-
-  it("merges a fixed upstream's callees with the graph without duplicates or a warning", async () => {
-    const { client } = await session({
-      callees: [
-        { addr: "0x3000", name: "printf_stub", type: "internal" },
-        { addr: "0x2000", name: "square", type: "internal" },
-      ],
-      callgraph: graphRow([
-        edge("0x1000", "0x2000"),
-        edge("0x1000", "0x3000"),
-        edge("0x1000", "0x2000"),
-      ]),
-    });
-    try {
-      const execution = await callees(client);
-
+        "calls to non-function targets remain unknown",
+      ).toContain(UNRECOGNIZED_CALLEE_LIMITATION);
       expect(
         execution.result,
-        "callees order is kept and the duplicate graph edges add nothing",
-      ).toEqual(["0x3000", "0x2000"]);
+        "the unreliable callees row is neither resolved nor reported",
+      ).not.toContain("0x4000");
       expect(
-        execution.limitations,
-        "a populated callees reply needs no completeness warning",
-      ).not.toContain(EMPTY_CALLEES_LIMITATION);
+        observedTools(execution.rawResult),
+        "non-x86 callees is never queried",
+      ).not.toContain("callees");
     } finally {
       expect((await client.close()).ok).toBe(true);
     }
   });
-
-  it("appends graph-only callees after the callees items, sorted by address", async () => {
-    const { client } = await session({
-      callees: [{ addr: "0x3000", name: "printf_stub", type: "internal" }],
-      callgraph: graphRow([edge("0x1000", "0x4000"), edge("0x1000", "0x2000")]),
-    });
-    try {
-      const execution = await callees(client);
-
-      expect(
-        execution.result,
-        "existing items first, then the additions in address order",
-      ).toEqual(["0x3000", "0x2000", "0x4000"]);
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-});
-
-describe("headless IDA call graph degradation", () => {
-  it.each([
-    [
-      "a failing call graph tool",
-      { callgraphFailure: "unknown tool callgraph" },
-    ],
-    ["a transport-truncated reply", { callgraphTruncatedOutput: true }],
-    [
-      "an error row",
-      {
-        callgraph: [
-          { root: "0x1000", error: "Function not found", nodes: [], edges: [] },
-        ] as JsonValue,
-      },
-    ],
-    ["an unreadable reply", { callgraph: { unexpected: true } as JsonValue }],
-    [
-      "a reply for another root",
-      {
-        callgraph: [{ root: "0x2000", nodes: [], edges: [] }] as JsonValue,
-      },
-    ],
-  ])(
-    "fails the callee read instead of reporting a partial list for %s",
-    async (_label, graph) => {
-      const { client } = await session({
-        callees: [{ addr: "0x3000", name: "printf_stub", type: "internal" }],
-        ...graph,
-      });
-      try {
-        const result = await client.execute("procedure_callees", {
-          procedure: "main",
-        });
-
-        if (result.ok) throw new Error("expected a producer fault");
-        expect(
-          result.error._tag,
-          "a callgraph the producer could not give consistently is a producer fault",
-        ).toBe("AnalysisProtocolError");
-      } finally {
-        expect((await client.close()).ok).toBe(true);
-      }
-    },
-  );
-
-  it.each([
-    [
-      "a truncated graph",
-      { truncated: true, limit_reason: "edges" },
-      "Upstream callgraph was truncated; additional callees remain unknown.",
-    ],
-    [
-      "a saturated per-function cap",
-      { max_edges_per_func: 2 },
-      "Upstream callgraph may be truncated; additional callees may remain unknown.",
-    ],
-  ])(
-    "keeps the edges seen and reports %s",
-    async (_label, extra, limitation) => {
-      const { client } = await session({
-        callees: [],
-        callgraph: graphRow(
-          [edge("0x1000", "0x2000"), edge("0x1000", "0x3000")],
-          extra,
-        ),
-      });
-      try {
-        const execution = await callees(client);
-
-        expect(execution.result, "the observed edges are kept").toEqual([
-          "0x2000",
-          "0x3000",
-        ]);
-        expect(
-          execution.limitations,
-          "omitted callees are reported as unknown",
-        ).toContain(limitation);
-      } finally {
-        expect((await client.close()).ok).toBe(true);
-      }
-    },
-  );
 });
 
 describe("headless IDA call graph availability and cancellation", () => {
@@ -256,63 +116,6 @@ describe("headless IDA call graph availability and cancellation", () => {
       if (result.ok) throw new Error("expected cancellation");
       expect(result.error._tag, "cancellation is not swallowed").toBe(
         "AnalysisCancelledError",
-      );
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-
-  it("reports a server that does not advertise callgraph without requesting it", async () => {
-    const { client, producer } = await session({
-      tools: [
-        "idb_open",
-        "idb_list",
-        "idb_close",
-        "server_health",
-        "list_funcs",
-        "lookup_funcs",
-        "find_regex",
-        "decompile",
-        "disasm",
-        "callees",
-        "xrefs_to",
-      ],
-      callees: [],
-    });
-    try {
-      const execution = await callees(client);
-
-      expect(execution.result, "nothing is observed").toEqual([]);
-      expect(
-        execution.limitations,
-        "the missing tool is a limitation, not a failure",
-      ).toContain(
-        "Upstream callgraph was unavailable (the upstream server does not advertise it); callees may be incomplete.",
-      );
-      expect(
-        producer.calls.some(({ name }) => name === "callgraph"),
-        "an unadvertised tool is never requested",
-      ).toBe(false);
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-
-  it("lets a transport failure of the call graph request fail the read", async () => {
-    const { client, producer } = await session({
-      callees: [],
-      callgraph: graphRow([]),
-    });
-    producer.beforeCall = async (name) => {
-      if (name === "callgraph") throw new Error("transport timed out");
-    };
-    try {
-      const result = await client.execute("procedure_callees", {
-        procedure: "main",
-      });
-
-      expect(result.ok, "a transport failure is not an observation").toBe(
-        false,
       );
     } finally {
       expect((await client.close()).ok).toBe(true);
@@ -412,42 +215,6 @@ describe("headless IDA callee edges on x86 targets", () => {
         producer.calls.some(({ name }) => name === "callgraph"),
         "the legacy profile has no call graph source",
       ).toBe(false);
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
-});
-
-describe("graph-derived callee identities", () => {
-  it("names a graph-only callee from the graph node without an extra lookup", async () => {
-    const { client, producer } = await session({
-      callees: [],
-      callgraph: graphRow([edge("0x1000", "0x2000")], {}, "graph_name"),
-    });
-    try {
-      const result = await client.execute("analyze_function", {
-        procedure: "main",
-      });
-
-      if (!result.ok) throw result.error;
-      expect(
-        z
-          .object({
-            callees: z.array(
-              z.object({ address: z.string(), name: z.string() }),
-            ),
-          })
-          .parse(result.value.result).callees,
-        "the dossier carries the graph node's name",
-      ).toEqual([
-        expect.objectContaining({ address: "0x2000", name: "graph_name" }),
-      ]);
-      expect(
-        producer.calls
-          .filter(({ name }) => name === "lookup_funcs")
-          .map(({ args }) => JSON.stringify(args.queries)),
-        "no lookup is made for the graph-derived callee",
-      ).not.toContain(JSON.stringify(["0x2000"]));
     } finally {
       expect((await client.close()).ok).toBe(true);
     }

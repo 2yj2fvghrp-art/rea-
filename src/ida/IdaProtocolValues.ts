@@ -85,15 +85,13 @@ export const modernPageSchema = z
   )
   .length(1);
 
-export const modernLookupSchema = z
-  .array(
-    z.object({
-      query: z.string(),
-      fn: idaFunctionSchema.nullable(),
-      error: z.string().nullable(),
-    }),
-  )
-  .length(1);
+const modernLookupRowSchema = z.object({
+  query: z.string(),
+  fn: idaFunctionSchema.nullable(),
+  error: z.string().nullable(),
+});
+export const modernLookupBatchSchema = z.array(modernLookupRowSchema);
+export const modernLookupSchema = modernLookupBatchSchema.length(1);
 
 const instructionSchema = z.union([
   z.object({

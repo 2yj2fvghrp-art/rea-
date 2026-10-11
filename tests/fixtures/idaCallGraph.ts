@@ -29,17 +29,12 @@ export const edge = (from: string, to: string, type = "call") => ({
 export const graphRow = (
   edges: readonly ReturnType<typeof edge>[],
   extra: Readonly<Record<string, JsonValue>> = {},
-  squareName = "square",
 ): JsonValue => [
   {
     root: "0x1000",
-    nodes: [
-      { addr: "0x1000", name: "main", depth: 0 },
-      { addr: "0x2000", name: squareName, depth: 1 },
-      { addr: "0x3000", name: "printf_stub", depth: 1 },
-    ],
+    nodes: [{ addr: "0x1000", name: "main", depth: 0 }],
     edges: [...edges],
-    max_depth: 1,
+    max_depth: 0,
     truncated: false,
     limit_reason: null,
     max_edges_per_func: 200,
@@ -54,7 +49,7 @@ const leafGraphRow = (root: string): JsonValue => [
     root,
     nodes: [{ addr: root, name: FUNCTIONS[root]?.name ?? null, depth: 0 }],
     edges: [],
-    max_depth: 1,
+    max_depth: 0,
     truncated: false,
     limit_reason: null,
     max_edges_per_func: 200,
@@ -101,13 +96,13 @@ export const callGraphSession = async (
   producer.overrideCall = (name, args): JsonValue | undefined => {
     if (name === "lookup_funcs") {
       const queries = args.queries;
-      const query = Array.isArray(queries) ? String(queries[0]) : "";
-      const fn = FUNCTIONS[query];
-      return [
-        fn === undefined
+      const addresses = Array.isArray(queries) ? queries.map(String) : [];
+      return addresses.map((query) => {
+        const fn = FUNCTIONS[query];
+        return fn === undefined
           ? { query, fn: null, error: "Not found" }
-          : { query, fn: { ...fn, size: "0x20" }, error: null },
-      ];
+          : { query, fn: { ...fn, size: "0x20" }, error: null };
+      });
     }
     if (name === "callees")
       return [{ callees: [...upstream.callees], more: false }];
@@ -117,7 +112,7 @@ export const callGraphSession = async (
         JSON.stringify(requested) === JSON.stringify(["0x1000"]) ||
         (requested.length === 1 &&
           upstream.leafRoots?.includes(String(requested[0])) === true);
-      if (!rootKnown || args.max_depth !== 1)
+      if (!rootKnown || args.max_depth !== 0)
         throw new Error(
           `Unexpected callgraph request: ${JSON.stringify(args)}`,
         );

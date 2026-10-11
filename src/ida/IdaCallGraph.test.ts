@@ -5,7 +5,11 @@ import {
 } from "../domain/analysisErrorCore.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
-import { isX86OnlyTarget, readCallGraphCallees } from "./IdaCallGraph.js";
+import {
+  isX86OnlyTarget,
+  readCallGraphCallees,
+  UNRECOGNIZED_CALLEE_LIMITATION,
+} from "./IdaCallGraph.js";
 
 const target = (
   architecture: "x86" | "x86_64" | "arm" | "arm64",
@@ -25,17 +29,34 @@ const row = (
 ): JsonValue => [
   {
     root: "0x1000",
-    nodes: [
-      { addr: "0x1000", name: "main" },
-      { addr: "0x20", name: "low" },
-      { addr: "0x100", name: "" },
-      { addr: "0x300", name: null },
-    ],
+    nodes: [{ addr: "0x1000", name: "main" }],
     edges: [...edges],
     ...extra,
   },
 ];
 const call = (from: string, to: string) => ({ from, to, type: "call" });
+const readGraph = (
+  edges: readonly { from: string; to: string; type: string }[],
+  extra: Readonly<Record<string, JsonValue>> = {},
+  lookup: Readonly<Record<string, string | null>> = {
+    "0x20": "low",
+  },
+) =>
+  readCallGraphCallees(async (tool, args) => {
+    if (tool === "callgraph") return row(edges, extra);
+    if (tool === "lookup_funcs")
+      return (args.queries as string[]).map((query) => {
+        const name = lookup[query];
+        return name == null
+          ? { query, fn: null, error: "Not found" }
+          : {
+              query,
+              fn: { address: query, name, size: "0x10" },
+              error: null,
+            };
+      });
+    throw new Error(`Unexpected tool: ${tool}`);
+  }, "0x1000");
 
 describe("architecture gate for the call graph source", () => {
   it.each([
@@ -88,8 +109,8 @@ describe("architecture gate for the call graph source", () => {
   });
 });
 
-describe("reading callees from a depth-one call graph", () => {
-  it("requests exactly the procedure as root at depth one", async () => {
+describe("reading root callees from the processor-neutral call graph", () => {
+  it("requests only the procedure as root at depth zero", async () => {
     const requests: unknown[] = [];
 
     await readCallGraphCallees(async (tool, args) => {
@@ -98,20 +119,16 @@ describe("reading callees from a depth-one call graph", () => {
     }, "0x1000");
 
     expect(requests, "one scoped request, no other tool").toEqual([
-      ["callgraph", { roots: ["0x1000"], max_depth: 1 }],
+      ["callgraph", { roots: ["0x1000"], max_depth: 0 }],
     ]);
   });
 
-  it("keeps only call edges that leave the requested procedure", async () => {
-    const result = await readCallGraphCallees(
-      async () =>
-        row([
-          call("0x1000", "0x20"),
-          { from: "0x1000", to: "0x400", type: "jump" },
-          call("0x20", "0x500"),
-        ]),
-      "0x1000",
-    );
+  it("keeps root call edges, excluding child and non-call edges", async () => {
+    const result = await readGraph([
+      call("0x1000", "0x20"),
+      { from: "0x1000", to: "0x400", type: "jump" },
+      call("0x20", "0x500"),
+    ]);
 
     expect(
       result.callees.map(({ address }) => address),
@@ -119,75 +136,120 @@ describe("reading callees from a depth-one call graph", () => {
     ).toEqual(["0x20"]);
   });
 
-  it("orders additions numerically and names unnamed nodes by address", async () => {
-    const result = await readCallGraphCallees(
-      async () =>
-        row([
+  it("batches name lookup and keeps numeric order and unresolved addresses", async () => {
+    const requests: unknown[] = [];
+    const result = await readCallGraphCallees(async (tool, args) => {
+      requests.push([tool, args]);
+      if (tool === "callgraph")
+        return row([
           call("0x1000", "0x300"),
           call("0x1000", "0x100"),
           call("0x1000", "0x20"),
-        ]),
-      "0x1000",
-    );
+        ]);
+      return [
+        {
+          query: "0x20",
+          fn: { address: "0x20", name: "low", size: "0x10" },
+          error: null,
+        },
+        {
+          query: "0x100",
+          fn: { address: "0x100", name: "middle", size: "0x10" },
+          error: null,
+        },
+        { query: "0x300", fn: null, error: "Not found" },
+      ];
+    }, "0x1000");
 
     expect(
       result.callees,
-      "numeric order, with the address as the name of an empty or null name",
+      "numeric order, with a real address retained when lookup misses",
     ).toEqual([
       { address: "0x20", name: "low" },
-      { address: "0x100", name: "0x100" },
+      { address: "0x100", name: "middle" },
       { address: "0x300", name: "0x300" },
     ]);
+    expect(requests).toEqual([
+      ["callgraph", { roots: ["0x1000"], max_depth: 0 }],
+      ["lookup_funcs", { queries: ["0x20", "0x100", "0x300"] }],
+    ]);
+    expect(result.limitations).toContain(UNRECOGNIZED_CALLEE_LIMITATION);
+    expect(result.limitations).toContain(
+      "IDA observed callee address 0x300 but could not resolve its name: Not found; the address is retained.",
+    );
   });
 
+  it("keeps observed addresses when a typed name-lookup failure prevents enrichment", async () => {
+    const failure = new AnalysisProtocolError("lookup reply failed");
+    const result = await readCallGraphCallees(async (tool) => {
+      if (tool === "callgraph") return row([call("0x1000", "0x20")]);
+      throw failure;
+    }, "0x1000");
+
+    expect(
+      result.callees,
+      "the graph address remains a real observation",
+    ).toEqual([{ address: "0x20", name: "0x20" }]);
+    expect(result.limitations).toContain(
+      "IDA observed callee addresses but the name lookup failed (lookup reply failed); the addresses are retained.",
+    );
+  });
+
+  it("does not hide unexpected name-lookup failures or cancellation", async () => {
+    const failures = [
+      new Error("unexpected transport failure"),
+      new AnalysisCancelledError("lookup_funcs"),
+    ];
+    for (const failure of failures)
+      await expect(
+        readCallGraphCallees(async (tool) => {
+          if (tool === "callgraph") return row([call("0x1000", "0x20")]);
+          throw failure;
+        }, "0x1000"),
+        `${failure.message} must not be converted into a name limitation`,
+      ).rejects.toBe(failure);
+  });
+});
+
+describe("call graph coverage and failure handling", () => {
   it.each([
     ["truncated", { truncated: true }],
     ["limit_reason", { limit_reason: "edges" }],
   ])("reports a graph flagged by %s as truncated", async (_label, extra) => {
-    const result = await readCallGraphCallees(
-      async () => row([call("0x1000", "0x20")], extra),
-      "0x1000",
-    );
+    const result = await readGraph([call("0x1000", "0x20")], extra);
 
     expect(
       result.limitations,
       "each truncation signal counts on its own",
-    ).toEqual([
+    ).toContain(
       "Upstream callgraph was truncated; additional callees remain unknown.",
-    ]);
+    );
   });
 
-  it("does not blame the root for a cap that only a child function reached", async () => {
-    const result = await readCallGraphCallees(
-      async () =>
-        row([call("0x1000", "0x20")], {
-          per_func_capped: true,
-          max_edges_per_func: 200,
-        }),
-      "0x1000",
-    );
+  it("limits graph traversal to the root so child-function caps cannot truncate it", async () => {
+    const result = await readGraph([call("0x1000", "0x20")], {
+      per_func_capped: false,
+      max_edges_per_func: 200,
+    });
 
     expect(
       result.limitations,
       "per_func_capped is graph-wide; the root's own edge count decides",
-    ).toEqual([]);
+    ).toEqual([UNRECOGNIZED_CALLEE_LIMITATION]);
   });
 
   it("reports a graph that saturates its per-function cap with root edges", async () => {
-    const result = await readCallGraphCallees(
-      async () =>
-        row([call("0x1000", "0x20"), call("0x1000", "0x100")], {
-          max_edges_per_func: 2,
-        }),
-      "0x1000",
+    const result = await readGraph(
+      [call("0x1000", "0x20"), call("0x1000", "0x100")],
+      { max_edges_per_func: 2 },
     );
 
     expect(
       result.limitations,
       "reaching the cap is uncertain, so it is reported as possible truncation",
-    ).toEqual([
+    ).toContain(
       "Upstream callgraph may be truncated; additional callees may remain unknown.",
-    ]);
+    );
   });
 
   it("fails the read for a reply about a different root", async () => {
