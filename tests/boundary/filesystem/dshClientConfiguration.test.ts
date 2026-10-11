@@ -209,6 +209,89 @@ describe("DeepSeek Harness Cordis patch registration", () => {
 });
 
 describe("DeepSeek Harness registration identity", () => {
+  it("applies a direct config patch before judging the registration", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+- id: rea-mcp
+  config:
+    serverName: rea
+    transport: stdio
+    command: redirected-launcher
+    args: [mcp]
+`,
+    );
+
+    // The later direct patch replaces the row's config, so the effective
+    // command is the redirect and the registration is stale, not aligned.
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "stale" });
+
+    // Setup rewrites one canonical entry and drops the superseded direct op.
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("redirected-launcher");
+    expect(text).not.toMatch(/^- id: rea-mcp$/mu);
+    const patches = parseYaml(text) as unknown[];
+    expect(patches).toHaveLength(1);
+  });
+
+  it("collapses duplicate rea entries into one canonical row", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: first-launcher
+        args: [mcp]
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: second-launcher
+        args: [mcp]
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: unknown[];
+    }[];
+    const reaRows = patches.flatMap(({ insert }) =>
+      insert.filter(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { id?: unknown }).id === "rea-mcp",
+      ),
+    );
+    expect(reaRows).toHaveLength(1);
+  });
+
   it("reports a foreign server name as stale instead of aligned", async () => {
     const { home, client } = await harnessClient();
     await writeFile(

@@ -58,60 +58,88 @@ export const parseDshCordisDocument = (
 };
 
 /**
- * The config of the one canonical REA entry in a patch list: matching id and
- * the Harness MCP client package as its name, with no duplicate. An entry
- * carrying the id under a wrong or missing package name, or several entries,
- * is not a registration REA can vouch for; it reads back as absent so the
- * next setup rewrites exactly one canonical entry.
+ * The effective config of the REA entry under Cordis patch semantics: patches
+ * apply in order, an insert replaces the row named by id, and a later direct
+ * `{ id, config }` operation replaces that row's whole config. The entry reads
+ * back only when the winning writer left the canonical Harness MCP client
+ * package as its name; a wrong or missing package name reads back as absent so
+ * the next setup rewrites exactly one canonical entry.
  */
 const dshEntryConfig = (
   patches: readonly unknown[],
 ): Record<string, unknown> | undefined => {
-  let canonical: Record<string, unknown> | undefined;
+  let name: unknown;
+  let config: Record<string, unknown> | undefined;
+  const configOf = (value: unknown): Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? { ...(value as Record<string, unknown>) }
+      : {};
   for (const op of patches) {
     if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
     const inserted = Reflect.get(op, "insert");
-    if (!Array.isArray(inserted)) continue;
-    for (const entry of inserted) {
-      if (!isInsertEntry(entry)) continue;
-      if (Reflect.get(entry, "name") !== DSH_CLIENT_PACKAGE) continue;
-      if (canonical !== undefined) return undefined;
-      const config = Reflect.get(entry, "config");
-      canonical =
-        typeof config === "object" && config !== null && !Array.isArray(config)
-          ? { ...(config as Record<string, unknown>) }
-          : {};
+    if (Array.isArray(inserted)) {
+      for (const entry of inserted) {
+        if (!isInsertEntry(entry)) continue;
+        name = Reflect.get(entry, "name");
+        config = configOf(Reflect.get(entry, "config"));
+      }
+      continue;
     }
+    // A direct patch to the row replaces its config and, when present, its
+    // name; the repository verifier uses these operations natively.
+    if (Reflect.get(op, "id") !== DSH_ENTRY_ID) continue;
+    const opName = Reflect.get(op, "name");
+    if (opName !== undefined) name = opName;
+    if (Reflect.has(op as object, "config"))
+      config = configOf(Reflect.get(op, "config"));
   }
-  return canonical;
+  return name === DSH_CLIENT_PACKAGE ? config : undefined;
 };
 
 /**
- * Return the document with the REA entry upserted into its patch list. An
- * existing `rea-mcp` entry is replaced in place; otherwise a new insert
- * operation is appended after the user's own patches.
+ * Return the document with the REA entry upserted into its patch list. The
+ * first id-matching insert is replaced in place, later duplicates and direct
+ * patches to the entry are dropped so exactly one canonical row remains, and
+ * a fresh insert operation is appended when nothing matched.
  */
 export const withDshServer = (
   parsed: ClientConfigurationDocument,
   desired: Record<string, unknown>,
 ): Record<string, unknown> => {
-  const patches = [...(parsed.document[PATCHES_KEY] as readonly unknown[])];
   let replaced = false;
-  for (let index = 0; index < patches.length; index += 1) {
-    const op = patches[index];
-    if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
-    const inserted = Reflect.get(op, "insert");
-    if (!Array.isArray(inserted)) continue;
-    const next = inserted.map((entry) =>
-      isInsertEntry(entry)
-        ? { ...entry, name: DSH_CLIENT_PACKAGE, config: { ...desired } }
-        : (entry as unknown),
-    );
-    if (next.some(isInsertEntry)) {
-      patches[index] = { ...(op as Record<string, unknown>), insert: next };
-      replaced = true;
-    }
-  }
+  const patches = (parsed.document[PATCHES_KEY] as readonly unknown[]).flatMap(
+    (op) => {
+      if (typeof op !== "object" || op === null || Array.isArray(op))
+        return [op];
+      const inserted = Reflect.get(op, "insert");
+      if (Array.isArray(inserted)) {
+        let seen = false;
+        const next = inserted.flatMap((entry) => {
+          if (!isInsertEntry(entry)) return [entry];
+          // Replace the first matching row; collapse any later duplicates.
+          if (seen) return [];
+          seen = true;
+          return [
+            {
+              ...entry,
+              name: DSH_CLIENT_PACKAGE,
+              config: { ...desired },
+            } as unknown,
+          ];
+        });
+        if (!seen) return [op];
+        replaced = true;
+        if (next.length === 0) return [];
+        return [{ ...(op as Record<string, unknown>), insert: next }];
+      }
+      // Direct patches to the REA row are superseded by the rewritten entry.
+      if (Reflect.get(op, "id") === DSH_ENTRY_ID) {
+        replaced = true;
+        return [];
+      }
+      return [op];
+    },
+  );
   if (!replaced)
     patches.push({
       insert: [
@@ -122,8 +150,9 @@ export const withDshServer = (
 };
 
 /**
- * Return the document with every REA entry removed. Insert operations that
- * hold nothing else after removal are dropped entirely.
+ * Return the document with every REA entry removed: entries inside insert
+ * operations, direct patches to the entry, and insert operations that hold
+ * nothing else after removal.
  */
 export const removeDshServer = (
   parsed: ClientConfigurationDocument,
@@ -138,16 +167,18 @@ export const removeDshServer = (
         insert: inserted.filter((entry) => !isInsertEntry(entry)),
       };
     })
-    .filter(
-      (op) =>
-        !(
-          typeof op === "object" &&
-          op !== null &&
-          !Array.isArray(op) &&
-          Array.isArray(Reflect.get(op, "insert")) &&
-          (Reflect.get(op, "insert") as unknown[]).length === 0
-        ),
-    );
+    .filter((op) => {
+      if (typeof op !== "object" || op === null || Array.isArray(op))
+        return true;
+      // A direct patch to the REA row goes away with the entry.
+      if (Reflect.get(op, "id") === DSH_ENTRY_ID) return false;
+      const inserted = Reflect.get(op, "insert");
+      return !(
+        Array.isArray(inserted) &&
+        inserted.every((entry) => !isInsertEntry(entry)) &&
+        inserted.length === 0
+      );
+    });
   return { ...parsed.document, [PATCHES_KEY]: patches };
 };
 
@@ -188,7 +219,11 @@ export const serializeDshDocument = (
   root.items = root.items.flatMap((item): PatchItem[] => {
     if (!isMap(item)) return [item];
     const insert = item.get("insert");
-    if (!isSeq(insert)) return [item];
+    if (!isSeq(insert)) {
+      // Direct patches to the REA row are superseded by the rewritten entry
+      // and would otherwise override it again at their position.
+      return (item.get("id") as unknown) === DSH_ENTRY_ID ? [] : [item];
+    }
     // yaml unwraps scalar members in get(); the cast keeps the comparison honest.
     const withoutRea = insert.items.filter(
       (entry) =>
