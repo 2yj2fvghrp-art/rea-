@@ -29,21 +29,21 @@ export const registerFridaCommands = (
       .min(1)
       .max(2048)
       .refine(isValidFridaRemoteAddress)
-      .describe("Remote Frida host address, optionally with a port")
-      .optional(),
-    token: z.string().min(1).describe("Remote authentication token").optional(),
+      .optional()
+      .describe("Remote Frida host address, optionally with a port"),
+    token: z.string().min(1).optional().describe("Remote authentication token"),
     certificate: z
       .string()
       .min(1)
-      .describe("Remote TLS certificate")
-      .optional(),
-    origin: z.string().min(1).describe("Remote connection origin").optional(),
+      .optional()
+      .describe("Remote TLS certificate"),
+    origin: z.string().min(1).optional().describe("Remote connection origin"),
     keepaliveInterval: z
       .number()
       .int()
       .positive()
-      .describe(FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION)
-      .optional(),
+      .optional()
+      .describe(FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION),
   });
   const remoteFrom = (
     options: z.infer<typeof remoteOptions>,
@@ -97,8 +97,8 @@ export const registerFridaCommands = (
         deviceId: z
           .string()
           .min(1)
-          .describe("Frida device identifier")
-          .optional(),
+          .optional()
+          .describe("Frida device identifier"),
       })
       .refine(
         (options) =>
@@ -142,25 +142,25 @@ export const registerFridaCommands = (
         deviceId: z
           .string()
           .min(1)
-          .describe("Frida device identifier")
-          .optional(),
-        script: z.string().describe("Inline JavaScript to load").optional(),
+          .optional()
+          .describe("Frida device identifier"),
+        script: z.string().optional().describe("Inline JavaScript to load"),
         scriptFile: z
           .string()
           .min(1)
-          .describe("Path to JavaScript source file")
-          .optional(),
+          .optional()
+          .describe("Path to JavaScript source file"),
         argument: z
           .array(z.string())
-          .describe("Arguments passed to a spawned target")
-          .optional(),
+          .optional()
+          .describe("Arguments passed to a spawned target"),
         durationMs: z
           .number()
           .int()
           .min(0)
           .max(60_000)
-          .describe("Instrumentation duration in milliseconds")
-          .default(1_000),
+          .default(1_000)
+          .describe("Instrumentation duration in milliseconds"),
       })
       .refine(
         (options) =>

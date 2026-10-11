@@ -72,6 +72,7 @@ interface ManagedSession {
   readonly messages: JsonValue[];
   readonly messagesByScript: Map<string, JsonValue[]>;
   state: "paused" | "running" | "detached";
+  targetResumeObserved: boolean;
   resumeAfterDetachPending: boolean;
   capturedBytes: number;
   messagesTruncated: boolean;
@@ -263,6 +264,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         messages: [],
         messagesByScript: new Map(),
         state: input.mode === "spawn" ? "paused" : "running",
+        targetResumeObserved: false,
         resumeAfterDetachPending: false,
         capturedBytes: 0,
         messagesTruncated: false,
@@ -415,6 +417,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     try {
       await managed.device.resume(managed.pid);
       managed.state = "running";
+      managed.targetResumeObserved = true;
       managed.resumeAfterDetachPending = false;
       return ok(null);
     } catch (cause: unknown) {
@@ -483,6 +486,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     if (managed === undefined) return undefined;
     return {
       ...sessionObservation(managed),
+      targetResumeObserved: managed.targetResumeObserved,
       scripts: [...managed.scripts.values()].map(({ id, name }) => ({
         scriptId: id,
         name,
@@ -527,7 +531,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       managed.mode === "spawn" &&
       ((!parentSessionReleased && managed.state === "paused") ||
         managed.resumeAfterDetachPending);
-    let targetResumeObserved = false;
+    let targetResumeObserved = managed.targetResumeObserved;
     for (const entry of [...managed.scripts.values()]) {
       const failure = await this.#releaseScript(
         managed,
@@ -558,6 +562,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       try {
         await managed.device.resume(managed.pid);
         managed.state = "running";
+        managed.targetResumeObserved = true;
         managed.resumeAfterDetachPending = false;
         targetResumeObserved = true;
       } catch (cause: unknown) {
@@ -789,8 +794,6 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
           const index = scriptMessages?.indexOf(removed) ?? -1;
           if (scriptMessages !== undefined && index >= 0) {
             scriptMessages.splice(index, 1);
-            if (scriptMessages.length === 0)
-              managed.messagesByScript.delete(removed.script_id);
           }
         }
       }

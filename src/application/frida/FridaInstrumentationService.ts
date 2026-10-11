@@ -66,6 +66,7 @@ export class FridaInstrumentationService {
     const status = this.#provider.status(session.sessionId);
     const observation = status ?? {
       ...session,
+      targetResumeObserved: false,
       scripts: [],
       messages: loaded?.messages ?? [],
       messagesTruncated: loaded?.messagesTruncated ?? false,
@@ -85,10 +86,13 @@ export class FridaInstrumentationService {
             }),
         cleanup_error: closed.ok ? null : closed.error.message,
         target_state_before_cleanup: observation.state,
-        target_resume_observed: closed.ok
-          ? closed.value.targetResumeObserved
-          : observation.state !== "running" &&
-            statusAfterCleanup?.state === "running",
+        target_resume_observed:
+          observation.targetResumeObserved ||
+          (observation.mode === "spawn" && observation.state === "running") ||
+          (closed.ok && closed.value.targetResumeObserved) ||
+          (observation.mode === "spawn" &&
+            observation.state !== "running" &&
+            statusAfterCleanup?.state === "running"),
         instrumentation_cleanup: closed.ok
           ? "released"
           : "incomplete_or_unknown",
@@ -245,6 +249,7 @@ export class FridaInstrumentationService {
     const status = this.#provider.status(started.value.sessionId);
     const observation = status ?? {
       ...started.value,
+      targetResumeObserved: false,
       scripts: [],
       messages: loaded.value.messages,
       messagesTruncated: loaded.value.messagesTruncated,

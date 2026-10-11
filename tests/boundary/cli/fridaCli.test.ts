@@ -59,6 +59,7 @@ it("maps one-shot Frida CLI target, script, duration, and remote options", async
         pid: 71,
         mode: "attach",
         state: "running",
+        targetResumeObserved: false,
         scripts: [],
         messages: [],
         messagesTruncated: false,

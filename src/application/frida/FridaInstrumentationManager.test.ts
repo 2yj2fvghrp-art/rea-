@@ -188,6 +188,18 @@ class FakeDeviceManager implements DeviceManager {
   }
 }
 
+const startLocalAttachedSession = async (
+  bindings = new FakeDeviceManager(),
+) => {
+  const manager = new FridaInstrumentationManager({ deviceManager: bindings });
+  const started = await manager.startSession({
+    mode: "attach",
+    deviceId: "local",
+    pid: 512,
+  });
+  return { bindings, manager, started };
+};
+
 // eslint-disable-next-line max-lines-per-function -- related manager lifecycle cases share the same focused fake provider.
 describe("FridaInstrumentationManager", () => {
   it("loads instrumentation before resuming a spawned target", async () => {
@@ -224,6 +236,9 @@ describe("FridaInstrumentationManager", () => {
     const resumed = await manager.resumeSession(started.value.sessionId);
     expect(resumed.ok).toBe(true);
     expect(bindings.device.resumed).toEqual([512]);
+    expect(manager.status(started.value.sessionId)?.targetResumeObserved).toBe(
+      true,
+    );
     expect(manager.status(started.value.sessionId)?.state).toBe("running");
     await manager.closeAll();
     expect(bindings.device.session.isDetached()).toBe(true);
@@ -366,15 +381,7 @@ describe("FridaInstrumentationManager", () => {
   });
 
   it("closes a session when its target already destroyed the script", async () => {
-    const bindings = new FakeDeviceManager();
-    const manager = new FridaInstrumentationManager({
-      deviceManager: bindings,
-    });
-    const started = await manager.startSession({
-      mode: "attach",
-      deviceId: "local",
-      pid: 512,
-    });
+    const { bindings, manager, started } = await startLocalAttachedSession();
     expect(started.ok).toBe(true);
     if (!started.ok) return;
     const loaded = await manager.loadScript(started.value.sessionId, {
@@ -417,15 +424,7 @@ describe("FridaInstrumentationManager", () => {
   });
 
   it("uses successful parent-session detach to release a script after unload fails", async () => {
-    const bindings = new FakeDeviceManager();
-    const manager = new FridaInstrumentationManager({
-      deviceManager: bindings,
-    });
-    const started = await manager.startSession({
-      mode: "attach",
-      deviceId: "local",
-      pid: 512,
-    });
+    const { bindings, manager, started } = await startLocalAttachedSession();
     expect(started.ok).toBe(true);
     if (!started.ok) return;
     const loaded = await manager.loadScript(started.value.sessionId, {
@@ -604,13 +603,7 @@ it("does not release a newer remote lease when retrying an older session close",
 });
 
 it("attributes messages to their producing script and returns each load's messages", async () => {
-  const bindings = new FakeDeviceManager();
-  const manager = new FridaInstrumentationManager({ deviceManager: bindings });
-  const started = await manager.startSession({
-    mode: "attach",
-    deviceId: "local",
-    pid: 512,
-  });
+  const { bindings, manager, started } = await startLocalAttachedSession();
   expect(started.ok).toBe(true);
   if (!started.ok) return;
 
@@ -646,6 +639,71 @@ it("attributes messages to their producing script and returns each load's messag
     expect.objectContaining({ script_id: first.value.scriptId }),
     expect.objectContaining({ script_id: second.value.scriptId }),
   ]);
+  await manager.closeAll();
+});
+
+it("keeps an active script message bucket after its last message is evicted", async () => {
+  const { bindings, manager, started } = await startLocalAttachedSession();
+  const session = bindings.device.session;
+  expect(started.ok).toBe(true);
+  if (!started.ok) return;
+
+  session.nextPayload = { tag: "A" };
+  const first = await manager.loadScript(started.value.sessionId, {
+    sourceKind: "inline",
+    source: "send({tag: 'A'});",
+  });
+  expect(first.ok).toBe(true);
+  if (!first.ok) return;
+
+  let finishSecondLoad: (() => void) | undefined;
+  let markSecondLoadStarted: (() => void) | undefined;
+  const secondLoadGate = new Promise<void>((resolve) => {
+    finishSecondLoad = resolve;
+  });
+  const secondLoadStarted = new Promise<void>((resolve) => {
+    markSecondLoadStarted = resolve;
+  });
+  session.nextPayload = { tag: "B2" };
+  session.scriptLoadGate = secondLoadGate;
+  session.onScriptLoadStarted = () => markSecondLoadStarted?.();
+  const secondLoading = manager.loadScript(started.value.sessionId, {
+    sourceKind: "inline",
+    source: "send({tag: 'B2'});",
+  });
+  await secondLoadStarted;
+  const secondScript = session.scripts[1];
+  expect(secondScript).toBeDefined();
+  if (secondScript === undefined) return;
+  secondScript.message.emit({ type: "send", payload: { tag: "B1" } }, null);
+
+  const firstScript = session.scripts[0];
+  expect(firstScript).toBeDefined();
+  if (firstScript === undefined) return;
+  for (let index = 0; index < 800; index += 1)
+    firstScript.message.emit(
+      { type: "send", payload: "x".repeat(32_700) },
+      null,
+    );
+
+  finishSecondLoad?.();
+  const second = await secondLoading;
+  expect(second.ok).toBe(true);
+  if (second.ok) {
+    expect(second.value.messages).toContainEqual(
+      expect.objectContaining({
+        script_id: second.value.scriptId,
+        payload: { tag: "B2" },
+      }),
+    );
+    expect(second.value.messagesTruncated).toBe(true);
+  }
+  expect(manager.status(started.value.sessionId)?.messages).toContainEqual(
+    expect.objectContaining({
+      script_id: second.ok ? second.value.scriptId : "",
+      payload: { tag: "B2" },
+    }),
+  );
   await manager.closeAll();
 });
 

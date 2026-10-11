@@ -61,6 +61,8 @@ export interface FridaScriptObservation {
 }
 
 export interface FridaSessionStatus extends FridaSessionObservation {
+  /** True only after REA has successfully resumed this spawned target. */
+  readonly targetResumeObserved: boolean;
   readonly scripts: readonly {
     readonly scriptId: string;
     readonly name: string;
