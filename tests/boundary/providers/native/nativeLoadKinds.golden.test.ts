@@ -95,6 +95,23 @@ it("retains empty dylib-use options and rejects missing or ambiguous encoding fi
   }
 });
 
+it.each(["vmaddr", "vmsize", "uuid", "entryoff"])(
+  "rejects a required %s label truncated before its value",
+  async (key) => {
+    const raw = await nativeFixture("otool-load.txt");
+    const truncated = raw.replace(
+      new RegExp(`^(\\s*${key})\\s+\\S.*$`, "mu"),
+      "$1",
+    );
+    expect(truncated).not.toBe(raw);
+    expect(() => parseOtoolLoadCommands(raw)).not.toThrow();
+    // Only the empty dylib-use options row may omit its value.
+    expect(() => parseOtoolLoadCommands(truncated)).toThrow(
+      `otool field ${key} has no value`,
+    );
+  },
+);
+
 it("preserves dependency install names that begin with the word stamp", () => {
   const load = parseOtoolLoadCommands(
     withOtoolMachHeader(

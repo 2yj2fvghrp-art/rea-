@@ -371,10 +371,13 @@ const parseField = (rawLine: string): readonly [string, string] | undefined => {
 const requireUniqueField = (block: string, key: string): void => {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const pattern = new RegExp(`^\\s*${escaped}(?:\\s|$)`, "mu");
-  let count = 0;
-  for (const line of block.split("\n")) if (pattern.test(line)) count += 1;
-  if (count !== 1)
+  const lines = block.split("\n").filter((line) => pattern.test(line));
+  if (lines.length !== 1)
     throw new TypeError(`otool field ${key} is missing or repeated`);
+  // parseField owns which labeled lines carry a value; a bare required label
+  // is truncated output, except the empty dylib-use options row it admits.
+  if (parseField(lines[0] ?? "")?.[0] !== key)
+    throw new TypeError(`otool field ${key} has no value`);
 };
 
 const parseSegment = (
