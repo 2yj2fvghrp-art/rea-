@@ -249,12 +249,17 @@ const parseBundle = (input: unknown, seal: boolean): EvidenceBundle => {
     const owned = immutableBundles.get(input);
     if (owned !== undefined) return owned;
   }
-  return authenticateParsedEvidenceBundle(evidenceBundleSchema.parse(input));
+  return authenticateBundle(evidenceBundleSchema.parse(input), seal);
 };
 
 /** Authenticate evidence and bundle invariants after the bundle shape is parsed. */
 export const authenticateParsedEvidenceBundle = (
   parsed: EvidenceBundle,
+): EvidenceBundle => authenticateBundle(parsed, false);
+
+const authenticateBundle = (
+  parsed: EvidenceBundle,
+  seal: boolean,
 ): EvidenceBundle => {
   const recordIds = parsed.records.map(({ evidence_id: id }) => id);
   if (new Set(recordIds).size !== recordIds.length)
