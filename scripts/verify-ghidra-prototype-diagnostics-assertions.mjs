@@ -158,6 +158,17 @@ export function assertPrototypeDiagnosticsReport(report) {
     has(dossier("rea_overwrite_return"), "return-register-forwarding"),
     undefined,
   );
+  for (const name of ["rea_forward_clear_xor", "rea_forward_clear_sub"]) {
+    const diagnostic = has(dossier(name), "return-register-forwarding");
+    assert.equal(diagnostic.classification, "observation");
+    assert.equal(
+      diagnostic.evidence.some((item) =>
+        item.detail.includes("immediate caller"),
+      ),
+      false,
+      `${name}: clearing EAX must not corroborate use of the returned value`,
+    );
+  }
   const shared = dossier("rea_shared_cleanup");
   assert.ok(
     has(shared, "stack-cleanup").evidence.some(

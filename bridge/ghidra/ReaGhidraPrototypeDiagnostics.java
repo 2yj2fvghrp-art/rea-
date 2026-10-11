@@ -250,9 +250,13 @@ public final class ReaGhidraPrototypeDiagnostics {
     private static boolean readsRegister(Instruction instruction, Register register) {
         Varnode node = new Varnode(register.getAddress(), register.getMinimumByteSize());
         for (PcodeOp operation : instruction.getPcode()) {
-            if ((operation.getOpcode() == PcodeOp.INT_XOR || operation.getOpcode() == PcodeOp.INT_SUB) &&
-                operation.getInput(0).equals(operation.getInput(1))) continue;
-            for (int i = 0; i < operation.getNumInputs(); i++) if (node.intersects(operation.getInput(i))) return true;
+            // Self-XOR/SUB and subtraction flags are independent of the incoming value.
+            // Their register writes still kill it before later flag p-code reads the result.
+            boolean independent = (operation.getOpcode() == PcodeOp.INT_XOR || operation.getOpcode() == PcodeOp.INT_SUB ||
+                operation.getOpcode() == PcodeOp.INT_LESS || operation.getOpcode() == PcodeOp.INT_SBORROW) &&
+                operation.getInput(0).equals(operation.getInput(1));
+            if (!independent)
+                for (int i = 0; i < operation.getNumInputs(); i++) if (node.intersects(operation.getInput(i))) return true;
             if (operation.getOutput() != null && node.intersects(operation.getOutput())) return false;
         }
         return false;

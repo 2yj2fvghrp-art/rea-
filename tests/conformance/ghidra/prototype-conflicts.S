@@ -12,6 +12,10 @@ _start:
     call rea_stack_control
     call rea_forward_return
     mov %eax, %ebx
+    call rea_forward_clear_xor
+    xor %eax, %eax
+    call rea_forward_clear_sub
+    sub %eax, %eax
     call rea_overwrite_return
     call rea_written_slot_control
     call rea_unknown_store_control
@@ -92,6 +96,19 @@ rea_forward_return:
     call rea_conversion_helper
     ret
 .size rea_forward_return, .-rea_forward_return
+
+.globl rea_forward_clear_xor, rea_forward_clear_sub
+.type rea_forward_clear_xor, @function
+rea_forward_clear_xor:
+    call rea_conversion_helper
+    ret
+.size rea_forward_clear_xor, .-rea_forward_clear_xor
+
+.type rea_forward_clear_sub, @function
+rea_forward_clear_sub:
+    call rea_conversion_helper
+    ret
+.size rea_forward_clear_sub, .-rea_forward_clear_sub
 
 .type rea_overwrite_return, @function
 rea_overwrite_return:

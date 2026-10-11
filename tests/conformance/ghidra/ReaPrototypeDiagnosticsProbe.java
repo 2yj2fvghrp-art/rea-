@@ -99,6 +99,9 @@ public class ReaPrototypeDiagnosticsProbe extends GhidraScript {
             if (java.util.Set.of("rea_written_slot_control", "rea_unknown_store_control", "rea_conditional_pointer_control", "rea_dynamic_stack_control", "rea_userop_control").contains(function.getName()))
                 function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
+            if (java.util.Set.of("rea_forward_clear_xor", "rea_forward_clear_sub").contains(function.getName()))
+                function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
+                    Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
             if (function.getName().equals("rea_cleanup_conflict") || function.getName().equals("rea_cleanup_control"))
                 function.setCallingConvention("__stdcall");
             if (function.getName().equals("rea_padding_control"))
