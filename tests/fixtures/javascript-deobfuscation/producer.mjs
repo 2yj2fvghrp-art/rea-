@@ -4,6 +4,8 @@ import { readFile, writeFile } from "node:fs/promises";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const args = process.argv.slice(2);
 const mode = process.env.REA_DEOBFUSCATION_FIXTURE_MODE ?? "normal";
+if (mode === "slow-both")
+  await new Promise((resolve) => setTimeout(resolve, 600));
 if (args.includes("--version")) {
   console.log(mode === "wrong-version" ? "jsvm-lift 9.9.9" : "jsvm-lift 0.1.0");
 } else {

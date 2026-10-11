@@ -33,7 +33,7 @@ import {
   JS_REDOX_LIMITS,
   JS_REDOX_PROVIDER_IDENTITY,
 } from "./JsRedoxRelease.js";
-import { executeJsRedox } from "./JsRedoxExecution.js";
+import { executeJsRedox, type JsRedoxRunRequest } from "./JsRedoxExecution.js";
 
 const OPERATION = "deobfuscate_javascript_source";
 const HOST_REQUIREMENT =
@@ -116,8 +116,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
         source,
         runtimePath: root.path,
         tree,
-        run: (arguments_, cwd, signal) =>
-          this.#run(engine, arguments_, cwd, signal),
+        run: (request) => this.#run(engine, request),
       });
       await root.close();
       root = undefined;
@@ -143,6 +142,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
       tree,
       processOwner,
       execution,
+      signal: options?.signal,
     });
   }
 
@@ -152,9 +152,10 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     readonly tree: SafeOutputTree | undefined;
     readonly processOwner: ProviderProcessSupervisor | undefined;
     readonly execution: AnalysisExecution | undefined;
+    readonly signal: AbortSignal | undefined;
   }): Promise<Result<AnalysisExecution, AnalysisError>> {
     let failedTree: SafeOutputTree | undefined;
-    if (state.tree !== undefined && !state.tree.published) {
+    if (state.tree !== undefined) {
       try {
         await state.tree.rollback();
       } catch {
@@ -191,7 +192,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     }
     if (state.tree?.published === true && state.execution !== undefined)
       return ok(state.execution);
-    return err(this.#projectFailure(state.failure));
+    return err(this.#projectFailure(state.failure, state.signal));
   }
 
   #cleanupError(
@@ -248,8 +249,10 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
         limiter,
         sha256: executable.sha256,
         bytes: executable.bytes.length,
+        executable: executable.bytes,
       };
     } catch (cause: unknown) {
+      if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       const reason = `Configured js-redox or util-linux prlimit is unavailable: ${failureMessage(cause)}`;
       throw new AnalysisCapabilityUnavailableError(
         JS_REDOX_PROVIDER_IDENTITY.id,
@@ -281,12 +284,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     }
   }
 
-  #run(
-    engine: { command: string; limiter: string },
-    arguments_: readonly string[],
-    cwd: string,
-    signal?: AbortSignal,
-  ) {
+  #run(engine: { limiter: string }, request: JsRedoxRunRequest) {
     return runOwnedCommand(
       {
         command: engine.limiter,
@@ -296,28 +294,30 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
           "--core=0",
           `--cpu=${String(JS_REDOX_LIMITS.cpuSeconds)}`,
           "--",
-          engine.command,
-          ...arguments_,
+          request.command,
+          ...request.arguments,
         ],
         expectedCommand: null,
         runId: `rea-js-redox-${randomUUID()}`,
-        cwd,
+        cwd: request.cwd,
         hostEnvironment: this.environment,
-        env: { TMPDIR: cwd, RAYON_NUM_THREADS: "1", NO_COLOR: "1" },
+        env: { TMPDIR: request.cwd, RAYON_NUM_THREADS: "1", NO_COLOR: "1" },
       },
       {
-        timeoutMs: JS_REDOX_LIMITS.timeoutMs,
+        timeoutMs: request.timeoutMs,
         diagnosticBytes: JS_REDOX_LIMITS.diagnosticBytes,
       },
       {
-        ...(signal === undefined ? {} : { signal }),
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
         ...(this.launcher === undefined ? {} : { launcher: this.launcher }),
       },
     );
   }
 
-  #projectFailure(cause: unknown): AnalysisError {
+  #projectFailure(cause: unknown, signal?: AbortSignal): AnalysisError {
     if (cause instanceof AnalysisError) return cause;
+    if (signal?.aborted)
+      return new AnalysisCancelledError(OPERATION, { cause });
     if (cause instanceof OwnedCommandFailure) {
       if (cause.reason === "cancelled")
         return new AnalysisCancelledError(OPERATION, { cause });

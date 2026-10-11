@@ -25,5 +25,5 @@ export const JS_REDOX_LIMITATIONS = [
   "Only proof-gated static rewrites are applied. Regions whose proof preconditions do not hold remain unchanged.",
   "The target JavaScript is never executed. The runtime-semantics-preserved-by-design claim applies to the unformatted safe-deobfuscation output contract, not arbitrary later formatting or edits.",
   "Recovered readability does not establish original source text, identifier names, source maps, runtime inputs or complete deobfuscation.",
-  "Initial adapter verification is Linux x64. The owned worker is limited to one process, 1 GiB virtual address space, 120 CPU seconds, a 120-second wall deadline, 64 MiB input/output and 8 MiB diagnostic/report streams.",
+  "Initial adapter verification is Linux x64. The owned worker receives a single-thread hint and per-process 1 GiB virtual address-space, 120 CPU-second and 120-second shared launch-deadline limits, plus 64 MiB input/output and 8 MiB diagnostic/report stream bounds. This adapter does not impose an aggregate process-count or cgroup memory limit.",
 ] as const;

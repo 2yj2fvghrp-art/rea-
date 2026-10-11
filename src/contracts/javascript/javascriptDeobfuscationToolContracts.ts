@@ -12,7 +12,7 @@ export const JAVASCRIPT_DEOBFUSCATION_TOOL_CONTRACTS = [
     ...toolContractMetadata("deobfuscate_javascript_source"),
     kind: "application",
     description:
-      "Safely simplify one local UTF-8 JavaScript file with caller-supplied js-redox deobfuscate-safe 0.1.0 on Linux x64. Publishes the exact input, proof-gated transformed source, validated js-safe-deobfuscate/v1 report and manifest into an absent output directory. Target JavaScript is never executed; unproven rewrites remain unchanged. Requires util-linux prlimit; 1 GiB address-space ceiling, 120-second deadline, 64 MiB input/output and 8 MiB diagnostic/report streams.",
+      "Safely simplify one local UTF-8 JavaScript file with caller-supplied js-redox deobfuscate-safe 0.1.0 on Linux x64. Publishes the exact input, proof-gated transformed source, validated js-safe-deobfuscate/v1 report and manifest into an absent output directory. Target JavaScript is never executed; unproven rewrites remain unchanged. Requires util-linux prlimit; per-process 1 GiB address-space and 120 CPU-second limits, one shared 120-second launch deadline, 64 MiB input/output and 8 MiB diagnostic/report streams; no aggregate process-count limit is claimed.",
     inputSchema: javascriptDeobfuscationInputSchema,
     outputSchema: evidenceResultOf(javascriptDeobfuscationResultSchema),
     examples: [

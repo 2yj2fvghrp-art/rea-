@@ -93,7 +93,9 @@ complete deobfuscation. It says only that the emitted unformatted rewrite was
 produced by js-redox's fail-closed static transform set under the validated
 report contract. Target JavaScript is never executed.
 
-The current adapter uses one worker, a 1 GiB virtual-address-space ceiling, 120
-CPU seconds and a 120-second wall deadline. Input and transformed output are
+The current adapter gives the owned worker a single-thread hint plus per-process
+1 GiB virtual-address-space and 120 CPU-second limits. The version probe and
+transform share one 120-second launch deadline. Input and transformed output are
 limited to 64 MiB each; the report and diagnostic streams are limited to 8 MiB.
-Other host platforms are not claimed by this adapter.
+There is no aggregate process-count or cgroup memory limit. Other host platforms
+are not claimed by this adapter.

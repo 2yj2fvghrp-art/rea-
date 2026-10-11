@@ -7,6 +7,7 @@ import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
 import {
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
+  AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 import type { JavaScriptDeobfuscationInput } from "../../domain/javascript/javascriptDeobfuscation.js";
 import type { ProviderProcessSnapshot } from "../../process/ProviderProcess.js";
@@ -29,11 +30,20 @@ const OPERATION = "deobfuscate_javascript_source";
 
 export interface JsRedoxEngine extends JsRedoxEngineIdentity {
   readonly limiter: string;
+  readonly executable: Buffer;
 }
 
 interface StableSource {
   readonly bytes: Buffer;
   readonly sha256: string;
+}
+
+export interface JsRedoxRunRequest {
+  readonly command: string;
+  readonly arguments: readonly string[];
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs: number;
 }
 
 export const executeJsRedox = async (input: {
@@ -44,24 +54,28 @@ export const executeJsRedox = async (input: {
   readonly runtimePath: string;
   readonly tree: SafeOutputTree;
   readonly run: (
-    arguments_: readonly string[],
-    cwd: string,
-    signal?: AbortSignal,
+    request: JsRedoxRunRequest,
   ) => Promise<ProviderProcessSnapshot>;
 }): Promise<AnalysisExecution> => {
   const snapshotPath = join(input.runtimePath, "source.js");
+  const enginePath = await snapshotEngine(input);
   const outputPath = join(input.runtimePath, "deobfuscated.js");
   const reportPath = join(input.runtimePath, "report.json");
   await writeFile(snapshotPath, input.source.bytes, {
     flag: "wx",
     mode: 0o600,
   });
+  const deadlineAt = Date.now() + JS_REDOX_LIMITS.timeoutMs;
+  const runWithinDeadline = (arguments_: readonly string[]) =>
+    input.run({
+      command: enginePath,
+      arguments: arguments_,
+      cwd: input.runtimePath,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      timeoutMs: remainingTimeoutMs(deadlineAt),
+    });
 
-  const versionRun = await input.run(
-    ["--version"],
-    input.runtimePath,
-    input.signal,
-  );
+  const versionRun = await runWithinDeadline(["--version"]);
   const version = parseJsRedoxVersion(versionRun.stdout.text);
   if (version !== JS_REDOX_RELEASE.version)
     throw new AnalysisCapabilityUnavailableError(
@@ -73,18 +87,14 @@ export const executeJsRedox = async (input: {
       },
     );
 
-  const executionRun = await input.run(
-    [
-      snapshotPath,
-      outputPath,
-      "--report",
-      reportPath,
-      "--max-iterations",
-      String(input.request.max_iterations),
-    ],
-    input.runtimePath,
-    input.signal,
-  );
+  const executionRun = await runWithinDeadline([
+    snapshotPath,
+    outputPath,
+    "--report",
+    reportPath,
+    "--max-iterations",
+    String(input.request.max_iterations),
+  ]);
   const output = await readStableArtifact(
     outputPath,
     JS_REDOX_LIMITS.outputBytes,
@@ -122,6 +132,39 @@ export const executeJsRedox = async (input: {
     executionRun,
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
+};
+
+const snapshotEngine = async (input: {
+  readonly runtimePath: string;
+  readonly engine: JsRedoxEngine;
+  readonly signal?: AbortSignal;
+}): Promise<string> => {
+  const enginePath = join(input.runtimePath, "deobfuscate-safe");
+  await writeFile(enginePath, input.engine.executable, {
+    flag: "wx",
+    mode: 0o700,
+  });
+  const snapshot = await readStableArtifact(
+    enginePath,
+    JS_REDOX_LIMITS.executableBytes,
+    input.signal,
+  );
+  if (
+    snapshot.sha256 !== input.engine.sha256 ||
+    snapshot.bytes.length !== input.engine.bytes
+  )
+    throw new AnalysisOutputError(
+      OPERATION,
+      "Owned js-redox executable snapshot disagrees with the fingerprinted engine bytes.",
+    );
+  return enginePath;
+};
+
+const remainingTimeoutMs = (deadlineAt: number): number => {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0)
+    throw new AnalysisTimeoutError(OPERATION, JS_REDOX_LIMITS.timeoutMs);
+  return Math.max(1, remaining);
 };
 
 const assertInputsUnchanged = async (

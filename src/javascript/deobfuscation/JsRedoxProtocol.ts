@@ -1,3 +1,5 @@
+import { TextDecoder } from "node:util";
+
 import { z } from "zod";
 
 import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
@@ -38,7 +40,8 @@ export const parseJsRedoxVersion = (stdout: string): string | null => {
 
 export const parseJsRedoxReport = (bytes: Buffer): JsRedoxReport => {
   try {
-    return jsRedoxReportSchema.parse(JSON.parse(bytes.toString("utf8")));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return jsRedoxReportSchema.parse(JSON.parse(text));
   } catch (cause: unknown) {
     throw new AnalysisOutputError(
       OPERATION,

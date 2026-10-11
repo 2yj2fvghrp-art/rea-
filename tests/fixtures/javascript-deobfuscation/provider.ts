@@ -1,4 +1,4 @@
-import { access, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
@@ -19,10 +19,19 @@ export const deobfuscationFixture = async (
   const command = join(root, "fixture-js-redox");
   await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
   const launches: { cwd: string | undefined; pid: number | undefined }[] = [];
+  const engineSnapshots: { path: string; bytes: Buffer }[] = [];
   const provider = createJavaScriptDeobfuscationProvider(
     { ...process.env, REA_JS_REDOX_COMMAND: command },
     async (options) => {
-      const start = options.arguments.indexOf("--") + 2;
+      const separator = options.arguments.indexOf("--");
+      const enginePath = options.arguments[separator + 1];
+      if (enginePath === undefined)
+        throw new Error("js-redox fixture launch omitted engine path");
+      engineSnapshots.push({
+        path: enginePath,
+        bytes: await readFile(enginePath),
+      });
+      const start = separator + 2;
       const child = await spawnOwnedProviderProcess({
         ...options,
         command: process.execPath,
@@ -45,7 +54,9 @@ export const deobfuscationFixture = async (
     service: new JavaScriptDeobfuscationService(provider),
     path,
     output: join(root, "output"),
+    command,
     launches,
+    engineSnapshots,
   };
 };
 
