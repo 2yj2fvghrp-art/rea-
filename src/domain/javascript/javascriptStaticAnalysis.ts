@@ -44,8 +44,10 @@ import {
   indexJavaScriptBindingsSteps,
   classifyParsedJavaScriptRpcClientRootsSteps,
   classifyParsedJavaScriptOpenReceivers,
+  createParsedJavaScriptValueEvaluatorSteps,
   type JavaScriptOpenReceiverFact,
 } from "./javascriptSemanticAnalysis.js";
+import { createJavaScriptStaticConstantReader } from "./javascriptStaticConstants.js";
 import {
   parseJavaScriptSource,
   type ParsedJavaScriptSource,
@@ -90,10 +92,14 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     bindings,
   );
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
+  const evaluation = yield* createParsedJavaScriptValueEvaluatorSteps(file);
   yield* traverseStaticSourceSteps(
     file,
     {
       source,
+      constants: createJavaScriptStaticConstantReader(
+        evaluation.status === "available" ? evaluation.evaluate : undefined,
+      ),
       accumulator,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
       electronBindings: electronIdentity.bindings,
@@ -109,7 +115,16 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     electronIdentity,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
-  return finalizeStaticAnalysis(source, file, accumulator);
+  return finalizeStaticAnalysis(
+    source,
+    file,
+    accumulator,
+    evaluation.status === "available"
+      ? []
+      : [
+          `Constant folding was unavailable (${evaluation.reason}); only literal syntax supplied static values.`,
+        ],
+  );
 }
 
 function* traverseStaticSourceSteps(
@@ -130,6 +145,7 @@ const finalizeStaticAnalysis = (
   source: string,
   file: ParsedJavaScriptSource,
   accumulator: AnalysisAccumulator,
+  evaluationLimitations: readonly string[],
 ): JavaScriptStaticAnalysis => {
   const parserErrors = file.errors.length;
   const limitations = [
@@ -143,6 +159,7 @@ const finalizeStaticAnalysis = (
           "Electron wrapper expansion reached its resource budget (1000000 visits/substitutions or depth 128); additional paths remain unknown.",
         ]
       : []),
+    ...evaluationLimitations,
     ...(parserErrors === 0
       ? []
       : [

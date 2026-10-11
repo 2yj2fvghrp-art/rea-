@@ -46,6 +46,11 @@ const staticValue = z.discriminatedUnion("status", [
     expression: z.null(),
   }),
   z.strictObject({
+    status: z.literal("derived"),
+    value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    expression: z.string(),
+  }),
+  z.strictObject({
     status: z.literal("dynamic"),
     value: z.null(),
     expression: z.string(),
@@ -74,6 +79,14 @@ const ipcChannel = <Shape extends z.ZodRawShape>(shape: Shape) =>
       ...shape,
       channel: z.string(),
       channel_expression: z.null(),
+    }),
+    z.strictObject({
+      ...findingContext,
+      invocation_location: range.optional(),
+      resolution_basis: z.literal("wrapper-substitution").optional(),
+      ...shape,
+      channel: z.string(),
+      channel_expression: z.string(),
     }),
     z.strictObject({
       ...findingContext,
@@ -213,6 +226,13 @@ const electron = z
         z
           .strictObject({
             ...bridgeShape,
+            api_key: z.string(),
+            api_key_expression: z.string(),
+          })
+          .transform(withRuntime),
+        z
+          .strictObject({
+            ...bridgeShape,
             api_key: z.null(),
             api_key_expression: z.string(),
           })
@@ -319,6 +339,7 @@ export const javaScriptWorkerStaticAnalysisSchema = z
         ...findingContext,
         kind: z.enum(["route", "network"]),
         value: z.string(),
+        expression: z.string().nullable(),
         mechanism: z.string(),
       }),
     ),
