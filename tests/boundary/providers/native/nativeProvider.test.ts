@@ -27,6 +27,7 @@ import {
   nativeFixture as fixture,
   nativeMachoTarget as machoTarget,
   nativeMachoTargetForFile,
+  withOtoolMachHeader,
 } from "../../../fixtures/nativeCommands.js";
 
 const cleanupOwner = (runId: string): ProviderProcessSupervisor => {
@@ -549,7 +550,7 @@ describe("native macOS provider inspection", () => {
 
   it("preserves 64-bit addresses and alignment from captured otool output", async () => {
     const runner = new FixtureRunner({
-      otool: await fixture("otool-high-address.txt"),
+      otool: withOtoolMachHeader(await fixture("otool-high-address.txt")),
     });
     const client = new NativeMacOSProvider({}, runner, "darwin").createClient(
       machoTarget("/private/fixture"),

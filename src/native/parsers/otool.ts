@@ -214,13 +214,24 @@ const validateDylibCommandLines = (block: string): void => {
     "cmdsize",
     "name",
     "time stamp",
+    "options",
     "current version",
     "compatibility version",
   ]);
+  const hasOptions = /^[ \t]*options(?:[ \t]|$)/mu.test(block);
+  const hasTimestamp = /^[ \t]*time stamp(?:[ \t]|$)/mu.test(block);
+  if (hasOptions === hasTimestamp)
+    throw new TypeError(
+      "otool dylib command must have exactly one timestamp or options representation",
+    );
+  requireUniqueField(block, hasOptions ? "options" : "time stamp");
   for (const rawLine of block.split("\n").slice(1)) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
-    const key = /^(time stamp|\S+(?:\s+version)?)\s+/u.exec(line)?.[1];
+    const key =
+      line === "options"
+        ? "options"
+        : /^(time stamp|\S+(?:\s+version)?)\s+/u.exec(line)?.[1];
     if (key === undefined || !allowed.has(key))
       throw new TypeError(
         "otool dylib command contains ambiguous multiline text",
@@ -231,13 +242,7 @@ const validateDylibCommandLines = (block: string): void => {
 const scalarFields = (kind: string): readonly string[] => {
   const common = ["cmd", "cmdsize"];
   if (DYLIB_COMMANDS.has(kind))
-    return [
-      ...common,
-      "name",
-      "time stamp",
-      "current version",
-      "compatibility version",
-    ];
+    return [...common, "name", "current version", "compatibility version"];
   if (kind === "LC_LOAD_DYLINKER" || kind === "LC_ID_DYLINKER")
     return [...common, "name"];
   if (kind === "LC_UUID") return [...common, "uuid"];
@@ -340,6 +345,10 @@ const parseFields = (block: string): Record<string, string | number | null> => {
   const fields: Record<string, string | number | null> = {};
   for (const rawLine of block.split(/\r?\n/u).slice(1)) {
     const line = rawLine.trim();
+    if (line === "options") {
+      fields.options = "";
+      continue;
+    }
     // Keys are `token` or a compound `token version`. `time stamp` is the one
     // other real key, and it must be matched as a whole: treating `stamp` as a
     // generic suffix would swallow an install name such as
@@ -357,7 +366,7 @@ const parseFields = (block: string): Record<string, string | number | null> => {
 
 const requireUniqueField = (block: string, key: string): void => {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const pattern = new RegExp(`^\\s*${escaped}\\s+`, "mu");
+  const pattern = new RegExp(`^\\s*${escaped}(?:\\s+|$)`, "mu");
   let count = 0;
   for (const line of block.split("\n")) if (pattern.test(line)) count += 1;
   if (count !== 1)

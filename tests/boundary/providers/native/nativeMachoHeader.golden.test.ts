@@ -9,6 +9,56 @@ import {
   withOtoolMachHeader,
 } from "../../../fixtures/nativeCommands.js";
 
+it.each(["delay-init", "weak re-export upward delay-init", ""])(
+  "retains dylib-use options %j from real framed otool output",
+  async (options) => {
+    const output = (await nativeFixture("otool-dylib-use.txt")).replace(
+      "options delay-init ",
+      `options ${options}`,
+    );
+    const runner = new NativeFixtureRunner({ "otool:-h": output });
+    const client = new NativeMacOSProvider({}, runner, "darwin").createClient(
+      nativeMachoTarget("/owned/fixture"),
+    );
+    const result = await client.execute("inspect_macho", {});
+    if (!result.ok) throw result.error;
+    expect(result.value.result).toMatchObject({
+      load_commands: {
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            index: 16,
+            kind: "LC_LOAD_DYLIB",
+            fields: expect.objectContaining({ options }),
+          }),
+        ]),
+      },
+      dependencies: {
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            path: "@rpath/libdelay.dylib",
+            current_version: "0.0.0",
+            compatibility_version: "1.0.0",
+          }),
+        ]),
+      },
+    });
+    expect(parseOtoolLoadCommands(output).commands).toHaveLength(23);
+  },
+);
+
+it.each([
+  "",
+  "      options delay-init\n      options",
+  "      options delay-init\n   time stamp 2 Thu Jan  1 00:00:02 1970",
+  "      options delay-init\n      unsupported invented",
+])("rejects ambiguous dylib-use representation %j", async (replacement) => {
+  const output = (await nativeFixture("otool-dylib-use.txt")).replace(
+    "      options delay-init ",
+    replacement,
+  );
+  expect(() => parseOtoolLoadCommands(output)).toThrow(/otool/u);
+});
+
 it("collects the actual Mach header alongside the native load commands", async () => {
   // The provider always invokes `otool -h -l`, which the runner resolves
   // via the "otool:-h" key; no bare `otool` override is needed.
