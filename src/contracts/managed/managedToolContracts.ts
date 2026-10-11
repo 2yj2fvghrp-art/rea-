@@ -28,7 +28,7 @@ export const managedMembersInputSchema = managedTargetInputSchema.extend({
         .string()
         .min(1)
         .describe(
-          "Exact declaring-type full_name: namespace-qualified for top-level types (System.Threading.Monitor); nested types report their bare name",
+          "Exact declaring-type full_name: namespace-qualified for top-level types (System.Threading.Monitor); nested types report their bare name, so it selects every nested type of that name",
         ),
     )
     .min(1)

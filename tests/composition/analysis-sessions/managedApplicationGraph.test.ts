@@ -629,3 +629,48 @@ describe("managed application graph coverage", () => {
     });
   });
 });
+
+describe("managed application graph type selection", () => {
+  const project = (result: Parameters<typeof createEvidence>[2]["result"]) => {
+    const bytes = buildManagedPeFixture();
+    const binary = managedPeFixtureTarget(bytes, "/fixture/ManagedInterop.exe");
+    const projection = projectManagedApplicationGraphEvidence({
+      managed_members: createEvidence(binary, MANAGED_STATIC_PROVIDER, {
+        operation: "inspect_managed_members",
+        parameters: {},
+        result,
+        rawResult: null,
+        limitations: [],
+      }),
+    });
+    if (!projection.ok) throw new Error("projection failed");
+    return managedApplicationGraphResultSchema.parse(
+      parseEvidence(projection.value).normalized_result,
+    );
+  };
+
+  it("marks a graph from selected member inspection partial", () => {
+    const bytes = buildManagedPeFixture();
+    const binary = managedPeFixtureTarget(bytes, "/fixture/ManagedInterop.exe");
+    const selected = inspectManagedMembersBytes(bytes, binary, {
+      typeNames: ["Fixture.Program"],
+    });
+
+    expect(selected.coverage.state).toBe("complete");
+    expect(project(selected).coverage).toMatchObject({ status: "partial" });
+  });
+
+  it("accepts member Evidence recorded before type selection existed", () => {
+    const bytes = buildManagedPeFixture();
+    const binary = managedPeFixtureTarget(bytes, "/fixture/ManagedInterop.exe");
+    const { selection: _selection, ...legacy } = inspectManagedMembersBytes(
+      bytes,
+      binary,
+    );
+
+    expect(managedMemberInspectionSchema.parse(legacy).selection).toBeNull();
+    expect(project(legacy).coverage).toMatchObject({
+      status: "complete-within-inputs",
+    });
+  });
+});

@@ -56,11 +56,13 @@ export const assessManagedGraphOmissions = (
       sources.members.identity_scope.requires_mvid,
       sources.boundaries.identity_scope.requires_mvid,
     ),
-  partialInput: [
-    sources.members?.coverage.state,
-    sources.boundaries?.coverage.state,
-    sources.artifact?.coverage.state,
-  ].some((state) => state !== undefined && state !== "complete"),
+  partialInput:
+    (sources.members?.selection ?? null) !== null ||
+    [
+      sources.members?.coverage.state,
+      sources.boundaries?.coverage.state,
+      sources.artifact?.coverage.state,
+    ].some((state) => state !== undefined && state !== "complete"),
 });
 
 /** Derive graph coverage solely from the coverage of supplied source evidence. */

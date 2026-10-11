@@ -459,9 +459,53 @@ describe("managed member comparison of ambiguous undecoded signatures", () => {
   });
 });
 
-const inspect = (bytes: Buffer, path: string) => {
+describe("managed member comparison of selected types", () => {
+  it("keeps members outside the other side's selection unknown", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-all.dll");
+    const right = inspect(buildManagedPeFixture(), "/tmp/right-selected.dll", [
+      "Missing.Type",
+    ]);
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.summary).toMatchObject({ added: 0, removed: 0, unknown: 2 });
+    expect(result.methods[0]).toMatchObject({
+      status: "unknown",
+      left: { token: "0x06000001" },
+      right: null,
+    });
+    expect(result.coverage.status).toBe("partial");
+    expect(result.limitations).toContain(
+      "The observations select different declaring types; a member outside the other side's selection is unknown, not added or removed.",
+    );
+  });
+
+  it("compares two identical selections within those types", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-sel.dll", [
+      "Fixture.Program",
+    ]);
+    const right = inspect(buildManagedPeFixture(), "/tmp/right-sel.dll", [
+      "Fixture.Program",
+    ]);
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.methods[0]).toMatchObject({ status: "unchanged" });
+    expect(result.coverage.status).toBe("complete-within-inputs");
+  });
+});
+
+const inspect = (bytes: Buffer, path: string, typeNames?: string[]) => {
   const target = managedPeFixtureTarget(bytes, path);
-  const result = inspectManagedMembersBytes(bytes, target);
+  const result = inspectManagedMembersBytes(
+    bytes,
+    target,
+    typeNames === undefined ? {} : { typeNames },
+  );
   return {
     result,
     evidenceId: `ev_${hash(Buffer.from(path))}`,
