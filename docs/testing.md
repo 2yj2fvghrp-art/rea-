@@ -916,6 +916,24 @@ establish passing Android coverage; inspect its execution receipt.
 The `termux-browser-diagnostics` artifact retains the Termux command log, exit
 status, and Android logcat on success or failure. The emulator is disposable.
 
+## Pcap capture analysis
+
+`npm run verify:pcap -- --pcap PATH` runs both operations against a real
+capture file through caller-supplied tshark and capinfos. Record: tshark
+and capinfos 4.6.6 (Alpine Docker image) against a 50-packet Linux
+cooked-mode pcap with DNS, TLS, and HTTP traffic — file type
+(Wireshark/tcpdump/... - pcap), encapsulation (Linux cooked-mode capture
+v2), packet count (50), SHA-256 digest agreement between capinfos and
+REA's streaming digest, endpoint inventory (7 distinct addresses), DNS
+queries (httpbin.org, httpbin.org.fritz.box), protocol distribution (6
+protocols), and CLI and MCP schema parity. Also verified against a 30-packet Android emulator capture (tcpdump on-device, pulled via `adb pull`) with DNS, mDNS, ICMP, and Google endpoints. Parser goldens in
+`src/pcap/PcapConfiguration.test.ts` come from the same tools. See
+Cross-platform stub tests exercise the provider through `.cmd` (Windows)
+and `.sh` (POSIX) stub scripts for tool probing, capture inspection, and
+refusal paths; real-engine verification against tshark/capinfos on
+Windows and macOS has not been run. See
+[Packet capture analysis](pcap-analysis.md) for boundaries and budgets.
+
 ## Developer commands
 
 Use source feedback while editing, explicit boundary checks for the changed

@@ -56,6 +56,8 @@ const SOURCE_PATHS = {
   androidContracts: "dist/contracts/android/androidToolContracts.js",
   androidProvider: "dist/android/JadxRelease.js",
   apktoolContracts: "dist/contracts/apktool/apktoolToolContracts.js",
+  pcapContracts: "dist/contracts/pcap/pcapToolContracts.js",
+  pcapProvider: "dist/pcap/PcapProvider.js",
   apktoolProvider: "dist/apktool/ApktoolProvider.js",
   jebContracts: "dist/contracts/jeb/jebToolContracts.js",
   jebProvider: "dist/jeb/JebProvider.js",
