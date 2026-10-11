@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { TextDecoder } from "node:util";
 
 import type { AnalysisExecution } from "../../application/AnalysisProvider.js";
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
@@ -100,6 +101,7 @@ export const executeJsRedox = async (input: {
     JS_REDOX_LIMITS.outputBytes,
     input.signal,
   );
+  assertUtf8JavaScript(output.bytes);
   const reportFile = await readStableArtifact(
     reportPath,
     JS_REDOX_LIMITS.reportBytes,
@@ -132,6 +134,18 @@ export const executeJsRedox = async (input: {
     executionRun,
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
+};
+
+const assertUtf8JavaScript = (bytes: Buffer): void => {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause: unknown) {
+    throw new AnalysisOutputError(
+      OPERATION,
+      "js-redox returned transformed JavaScript that is not valid UTF-8.",
+      { cause },
+    );
+  }
 };
 
 const snapshotEngine = async (input: {

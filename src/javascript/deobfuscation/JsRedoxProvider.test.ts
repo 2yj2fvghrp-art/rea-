@@ -6,6 +6,7 @@ import {
   deobfuscationFixture,
 } from "../../../tests/fixtures/javascript-deobfuscation/provider.js";
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
+import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
 import { JS_REDOX_LIMITS } from "./JsRedoxRelease.js";
 
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
@@ -140,6 +141,109 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     if (response.ok) throw new Error("expected shared deadline timeout");
     expect(response.error._tag).toBe("AnalysisTimeoutError");
     expect(fixture.launches).toHaveLength(2);
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "rejects transformed JavaScript that is not valid UTF-8",
+  async () => {
+    const fixture = await deobfuscationFixture("invalid-output-utf8");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (response.ok) throw new Error("expected malformed output rejection");
+    expect(response.error._tag).toBe("AnalysisOutputError");
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "rejects a relative resource-limiter override before launch",
+  async () => {
+    const fixture = await deobfuscationFixture("normal", undefined, {
+      REA_JAVASCRIPT_PRLIMIT_COMMAND: "prlimit",
+    });
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (response.ok) throw new Error("expected relative limiter rejection");
+    expect(response.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    expect(fixture.launches).toHaveLength(0);
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "observes cancellation immediately before output publication",
+  async () => {
+    const fixture = await deobfuscationFixture();
+    onTestFinished(async () => fixture.provider.close?.());
+    const controller = new AbortController();
+    const originalClose = PrivateRuntimeRoot.prototype.close;
+    vi.spyOn(PrivateRuntimeRoot.prototype, "close").mockImplementationOnce(
+      async function (this: PrivateRuntimeRoot) {
+        await originalClose.call(this);
+        controller.abort();
+      },
+    );
+    onTestFinished(() => vi.restoreAllMocks());
+    const response = await fixture.service.deobfuscate(
+      {
+        path: fixture.path,
+        output_directory: fixture.output,
+      },
+      { signal: controller.signal },
+    );
+    if (response.ok) throw new Error("expected pre-commit cancellation");
+    expect(response.error._tag).toBe("AnalysisCancelledError");
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "retains bounded process diagnostics for a nonzero engine exit",
+  async () => {
+    const fixture = await deobfuscationFixture("nonzero");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (response.ok) throw new Error("expected engine failure");
+    expect(response.error).toMatchObject({
+      _tag: "ProviderAdapterError",
+      diagnostics: {
+        exit_code: 23,
+        exit_signal: null,
+        diagnostic_truncated: false,
+        stdout: {
+          text: "fixture stdout diagnostic\n",
+          bytes: 26,
+          retained_bytes: 26,
+        },
+        stderr: {
+          text: "fixture stderr diagnostic\n",
+          bytes: 26,
+          retained_bytes: 26,
+        },
+      },
+    });
     await expect(access(fixture.output)).rejects.toMatchObject({
       code: "ENOENT",
     });

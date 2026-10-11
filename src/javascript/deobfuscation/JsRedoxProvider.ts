@@ -120,6 +120,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
       });
       await root.close();
       root = undefined;
+      if (options?.signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       await tree.commit();
     } catch (cause: unknown) {
       failure = cause;
@@ -223,7 +224,8 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
       process.platform !== "linux" ||
       process.arch !== "x64" ||
       configured === undefined ||
-      !isAbsolute(configured)
+      !isAbsolute(configured) ||
+      !isAbsolute(limiter)
     )
       throw new AnalysisCapabilityUnavailableError(
         JS_REDOX_PROVIDER_IDENTITY.id,
@@ -330,7 +332,10 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     }
     return new ProviderAdapterError(JS_REDOX_PROVIDER_IDENTITY.id, OPERATION, {
       cause,
-      diagnostics: { reason: failureMessage(cause) },
+      diagnostics:
+        cause instanceof OwnedCommandFailure
+          ? ownedCommandDiagnostics(cause)
+          : { reason: failureMessage(cause) },
     });
   }
 
@@ -403,6 +408,31 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     return undefined;
   }
 }
+
+const ownedCommandDiagnostics = (
+  failure: OwnedCommandFailure,
+): Readonly<Record<string, import("../../domain/jsonValue.js").JsonValue>> => ({
+  reason: failure.message,
+  exit_code: failure.snapshot?.exitCode ?? null,
+  exit_signal: failure.snapshot?.signal ?? null,
+  diagnostic_truncated: failure.snapshot?.diagnosticTruncated === true,
+  stdout:
+    failure.snapshot === null
+      ? null
+      : {
+          text: failure.snapshot.stdout.text,
+          bytes: failure.snapshot.stdout.observedBytes,
+          retained_bytes: failure.snapshot.stdout.bytes,
+        },
+  stderr:
+    failure.snapshot === null
+      ? null
+      : {
+          text: failure.snapshot.stderr.text,
+          bytes: failure.snapshot.stderr.observedBytes,
+          retained_bytes: failure.snapshot.stderr.bytes,
+        },
+});
 
 const failureMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);

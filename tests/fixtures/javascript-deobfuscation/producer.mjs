@@ -6,6 +6,11 @@ const args = process.argv.slice(2);
 const mode = process.env.REA_DEOBFUSCATION_FIXTURE_MODE ?? "normal";
 if (mode === "slow-both")
   await new Promise((resolve) => setTimeout(resolve, 600));
+if (mode === "nonzero") {
+  console.log("fixture stdout diagnostic");
+  console.error("fixture stderr diagnostic");
+  process.exit(23);
+}
 if (args.includes("--version")) {
   console.log(mode === "wrong-version" ? "jsvm-lift 9.9.9" : "jsvm-lift 0.1.0");
 } else {
@@ -14,11 +19,14 @@ if (args.includes("--version")) {
   const reportPath = args[args.indexOf("--report") + 1];
   const maximum = Number(args[args.indexOf("--max-iterations") + 1]);
   const source = await readFile(input);
-  const transformed = Buffer.from(
-    source
-      .toString("utf8")
-      .replace('table[0] + " " + table[1]', '"hello world"'),
-  );
+  const transformed =
+    mode === "invalid-output-utf8"
+      ? Buffer.from([0xff])
+      : Buffer.from(
+          source
+            .toString("utf8")
+            .replace('table[0] + " " + table[1]', '"hello world"'),
+        );
   await writeFile(output, transformed);
   const outputDigest = sha256(transformed);
   const report = {

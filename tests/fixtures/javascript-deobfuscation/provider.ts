@@ -12,6 +12,7 @@ import { createTestTempDirectory } from "../temporaryDirectory.js";
 export const deobfuscationFixture = async (
   mode = "normal",
   source = 'const table = ["hello", "world"];\nconsole.log(table[0] + " " + table[1]);\n',
+  environment: Readonly<NodeJS.ProcessEnv> = {},
 ) => {
   const root = await createTestTempDirectory("rea-js-redox-fixture-");
   const path = join(root, "selected.js");
@@ -21,7 +22,7 @@ export const deobfuscationFixture = async (
   const launches: { cwd: string | undefined; pid: number | undefined }[] = [];
   const engineSnapshots: { path: string; bytes: Buffer }[] = [];
   const provider = createJavaScriptDeobfuscationProvider(
-    { ...process.env, REA_JS_REDOX_COMMAND: command },
+    { ...process.env, REA_JS_REDOX_COMMAND: command, ...environment },
     async (options) => {
       const separator = options.arguments.indexOf("--");
       const enginePath = options.arguments[separator + 1];
