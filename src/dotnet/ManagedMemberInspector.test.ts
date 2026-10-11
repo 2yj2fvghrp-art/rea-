@@ -387,3 +387,50 @@ it.each([
     }
   },
 );
+
+describe("managed member type selection", () => {
+  const bytes = buildManagedPeFixture();
+  const target = managedPeFixtureTarget(bytes);
+  const everything = inspectManagedMembersBytes(bytes, target);
+
+  it("reports no selection when every type is inspected", () => {
+    expect(everything.selection).toBeNull();
+  });
+
+  it("decodes the selected type's members and reports unmatched names", () => {
+    const result = inspectManagedMembersBytes(bytes, target, {
+      typeNames: ["Fixture.Program", "Missing.Type"],
+    });
+
+    expect(result.selection).toEqual({
+      type_names: ["Fixture.Program", "Missing.Type"],
+      unmatched_type_names: ["Missing.Type"],
+    });
+    expect(result.types).toEqual(everything.types);
+    expect(result.fields).toEqual(everything.fields);
+    expect(result.methods).toEqual(everything.methods);
+    expect(result.call_edges).toEqual(everything.call_edges);
+    expect(result.field_accesses).toEqual(everything.field_accesses);
+    expect(result.coverage).toEqual(everything.coverage);
+    expect(result.limitations).toContain(
+      "Types, fields, methods, call edges, and field accesses cover only the selected declaring types; coverage describes that selection. Edge targets outside it keep their names but are not described.",
+    );
+  });
+
+  it("omits members of unselected types without dropping member references", () => {
+    const result = inspectManagedMembersBytes(bytes, target, {
+      typeNames: ["Missing.Type"],
+    });
+
+    expect(result.selection).toEqual({
+      type_names: ["Missing.Type"],
+      unmatched_type_names: ["Missing.Type"],
+    });
+    expect(result.types).toEqual([]);
+    expect(result.fields).toEqual([]);
+    expect(result.methods).toEqual([]);
+    expect(result.call_edges).toEqual([]);
+    expect(result.field_accesses).toEqual([]);
+    expect(result.member_refs).toEqual(everything.member_refs);
+  });
+});

@@ -17,7 +17,10 @@ import {
   readMetadataGuid,
   readMetadataString,
 } from "./ManagedMetadataHeaps.js";
-import { managedFailure } from "./ManagedReaderFailure.js";
+import {
+  managedFailure,
+  ManagedReaderFailure,
+} from "./ManagedReaderFailure.js";
 import type { ManagedResourceDirectory } from "./ManagedMetadataInventory.js";
 
 type ModuleIdentity = NonNullable<ManagedArtifactInspection["module"]>;
@@ -235,6 +238,74 @@ const readTypeName = ({
   return namespace.length === 0 ? name : `${namespace}.${name}`;
 };
 
+/**
+ * TypeDef MethodList starts in row order, read once per layout. Rescanning the
+ * TypeDef table for every custom attribute charges the decode budget per row
+ * and exhausts it on assemblies with many types and attributes. Null records
+ * an unreadable TypeDef row, which keeps the row-by-row scan.
+ */
+interface TypeMethodStarts {
+  readonly starts: readonly number[];
+  readonly ordered: boolean;
+}
+
+const typeMethodStarts = new WeakMap<
+  ManagedMetadataLayout,
+  TypeMethodStarts | null
+>();
+
+const methodStartsForTypes = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+  typeCount: number,
+): TypeMethodStarts | null => {
+  if (typeMethodStarts.has(layout)) return typeMethodStarts.get(layout) ?? null;
+  let index: TypeMethodStarts | null;
+  try {
+    const starts: number[] = [];
+    for (let row = 1; row <= typeCount; row += 1)
+      starts.push(methodListForType(bytes, layout, row));
+    index = {
+      starts,
+      ordered: starts.every(
+        (start, row) => row === 0 || (starts[row - 1] ?? 0) <= start,
+      ),
+    };
+  } catch (cause: unknown) {
+    if (!(cause instanceof ManagedReaderFailure)) throw cause;
+    index = null;
+  }
+  typeMethodStarts.set(layout, index);
+  return index;
+};
+
+/** First TypeDef row whose MethodList range holds the method, as a row scan finds it. */
+const typeRowForMethod = (
+  { starts, ordered }: TypeMethodStarts,
+  methodCount: number,
+  methodRow: number,
+): number | null => {
+  const end = (index: number): number => starts[index + 1] ?? methodCount + 1;
+  if (!ordered) {
+    const index = starts.findIndex(
+      (start, row) => methodRow >= start && methodRow < end(row),
+    );
+    return index < 0 ? null : index + 1;
+  }
+  // The last start at or below the method owns it when its range is nonempty.
+  let first = 0;
+  let last = starts.length - 1;
+  let found = -1;
+  while (first <= last) {
+    const middle = first + Math.floor((last - first) / 2);
+    if ((starts[middle] ?? 0) <= methodRow) {
+      found = middle;
+      first = middle + 1;
+    } else last = middle - 1;
+  }
+  return found >= 0 && methodRow < end(found) ? found + 1 : null;
+};
+
 const declaringTypeForMethod = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
@@ -244,7 +315,17 @@ const declaringTypeForMethod = (
   const types = layout.table(2);
   const methods = layout.table(6);
   if (types === undefined || methods === undefined) return null;
-  for (let row = 1; row <= types.rowCount; row += 1) {
+  const starts = methodStartsForTypes(bytes, layout, types.rowCount);
+  const indexedRow =
+    starts === null
+      ? undefined
+      : typeRowForMethod(starts, methods.rowCount, methodRow);
+  if (indexedRow === null) return null;
+  for (
+    let row = indexedRow ?? 1;
+    row <= (indexedRow ?? types.rowCount);
+    row += 1
+  ) {
     const cursor = metadataRowCursor(bytes, layout, 2, row);
     cursor.readUInt32();
     const nameIndex = cursor.readIndex(layout.stringIndexSize);
