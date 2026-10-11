@@ -881,30 +881,28 @@ const selectArrayPackageTarget = (
   conditions: ReadonlySet<string>,
   mapKind: "exports" | "imports",
 ): ExportTargetOutcome => {
-  let invalid: string | null = null;
+  if (value.length === 0) return { kind: "blocked" };
+  let lastOutcome: ExportTargetOutcome = { kind: "unmatched" };
   for (const entry of value) {
     const nested = selectExportTarget(entry, conditions, mapKind);
     // Node's array fallback catches invalid targets, not invalid configuration.
     if (nested.kind === "invalid-config") return nested;
-    if (nested.kind === "invalid") {
-      invalid = nested.limitation;
+    if (nested.kind === "unmatched") continue;
+    if (nested.kind === "invalid" || nested.kind === "blocked") {
+      lastOutcome = nested;
       continue;
     }
-    if (nested.kind === "unmatched") continue;
-    invalid = null;
-    if (nested.kind === "value" || nested.kind === "non-relative")
-      return nested;
+    return nested;
   }
-  return invalid === null
-    ? { kind: "blocked" }
-    : { kind: "invalid", limitation: invalid };
+  return lastOutcome;
 };
 
 /**
  * Resolve a target in Node's declared order. Explicit null blocks an active
  * condition, whereas an unmatched nested object permits the next condition.
  * An array skips unmatched and invalid entries, stops at its first string, and
- * preserves the final invalid-versus-null refusal if no string is selected.
+ * preserves the last invalid/null outcome if no string is selected. A nonempty
+ * array of unmatched conditions stays unmatched; an empty array blocks.
  */
 const selectExportTarget = (
   value: unknown,

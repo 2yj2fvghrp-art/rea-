@@ -13,6 +13,14 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 
 const literalAliases = ["#/x", "#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
 const fallbackAliases = {
+  "#inactive-array": {
+    node: [{ browser: "./browser.cjs" }],
+    default: "./config.cjs",
+  },
+  "#nested-inactive-array": {
+    node: [[{ browser: "./browser.cjs" }]],
+    default: "./config.cjs",
+  },
   "#parent": ["../outside.cjs", "./config.cjs"],
   "#absolute": { node: [["/outside.cjs"], "./config.cjs"] },
   "#url": {

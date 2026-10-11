@@ -176,6 +176,112 @@ describe("literal package import keys compared with Node", () => {
   });
 });
 
+describe("inactive package target arrays compared with Node", () => {
+  it("continues past inactive arrays in enclosing imports and exports conditions", async () => {
+    const root = await createTestTempDirectory("rea-inactive-package-array-");
+    const conditional = {
+      node: [{ browser: "./browser.cjs" }],
+      default: "./fallback.cjs",
+    };
+    const nested = {
+      node: [
+        [{ browser: "./browser.cjs" }],
+        { "rea-inactive": "./inactive.cjs" },
+      ],
+      default: "./fallback.cjs",
+    };
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({
+        imports: { "#conditional": conditional, "#nested": nested },
+      }),
+      "main.cjs": "module.exports = 1;",
+      "fallback.cjs": "module.exports = 1;",
+      "node_modules/fixture/package.json": JSON.stringify({
+        name: "fixture",
+        exports: { ".": conditional, "./nested": nested },
+      }),
+      "node_modules/fixture/fallback.cjs": "module.exports = 2;",
+    });
+    const inventoried = inventory(contents);
+    for (const [specifier, expected] of [
+      ["#conditional", "fallback.cjs"],
+      ["#nested", "fallback.cjs"],
+      ["fixture", "node_modules/fixture/fallback.cjs"],
+      ["fixture/nested", "node_modules/fixture/fallback.cjs"],
+    ] as const) {
+      const required = await nodeRequireTarget(
+        join(root, "main.cjs"),
+        specifier,
+      );
+      expect(required.error_code, specifier).toBeNull();
+      expect(posixRelative(root, required.target ?? "")).toBe(expected);
+      const imported = await nodeImportTarget(root, specifier);
+      expect(imported.error_code).toBeNull();
+      expect(posixRelative(root, fileURLToPath(imported.target ?? ""))).toBe(
+        expected,
+      );
+      for (const moduleKind of ["require", "import"] as const)
+        expect(
+          resolveAlias(inventoried, specifier, "main.cjs", moduleKind),
+        ).toMatchObject({
+          declared_path: specifier,
+          resolution_status: "resolved",
+          resolved_path: expected,
+        });
+    }
+  });
+
+  it("keeps empty, null, invalid, and unmatched array outcomes distinct", async () => {
+    const root = await createTestTempDirectory("rea-inactive-package-refusal-");
+    const inactive = { browser: "./browser.cjs" };
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({
+        imports: {
+          "#empty": { node: [], default: "./fallback.cjs" },
+          "#null": { node: [null, inactive], default: "./fallback.cjs" },
+          "#invalid": {
+            node: ["../outside.cjs", inactive],
+            default: "./fallback.cjs",
+          },
+          "#unmatched": [inactive],
+        },
+      }),
+      "main.cjs": "module.exports = 1;",
+      "fallback.cjs": "module.exports = 1;",
+    });
+    const inventoried = inventory(contents);
+    for (const [specifier, errorCode, status] of [
+      ["#empty", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
+      ["#null", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
+      ["#invalid", "ERR_INVALID_PACKAGE_TARGET", "rejected"],
+      ["#unmatched", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
+    ] as const) {
+      expect(
+        (await nodeRequireTarget(join(root, "main.cjs"), specifier)).error_code,
+      ).toBe(errorCode);
+      expect((await nodeImportTarget(root, specifier)).error_code).toBe(
+        errorCode,
+      );
+      for (const moduleKind of ["require", "import"] as const) {
+        const result = resolveAlias(
+          inventoried,
+          specifier,
+          "main.cjs",
+          moduleKind,
+        );
+        expect(result).toMatchObject({
+          resolution_status: status,
+          resolved_path: null,
+        });
+        if (specifier === "#unmatched")
+          expect(result.limitations.join(" ")).not.toContain("explicit null");
+        else if (specifier !== "#invalid")
+          expect(result.limitations.join(" ")).toContain("explicit null");
+      }
+    }
+  });
+});
+
 describe("package import target arrays compared with Node", () => {
   it("skips invalid parent, absolute, and URL targets before an exact fallback", async () => {
     const root = await createTestTempDirectory("rea-import-alias-fallback-");
