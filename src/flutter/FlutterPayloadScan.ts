@@ -240,9 +240,12 @@ export class LabeledStringScanner {
 
   #consider(text: string): void {
     // A run longer than any accepted pattern is rejected, not truncated:
-    // publishing a prefix as verbatim would fabricate evidence.
+    // publishing a prefix as verbatim would fabricate evidence. Only a run
+    // that starts like a labeled line claims the toolchain cap, so an
+    // unrelated overlong string (a license, debug spew) is skipped silently.
     if (text.length > CARRY_BYTES) {
-      this.#toolchainCapped = true;
+      if (text.startsWith("Dart VM version:") || text.startsWith("Android ("))
+        this.#toolchainCapped = true;
       return;
     }
     if (this.#dartVersion === null) {

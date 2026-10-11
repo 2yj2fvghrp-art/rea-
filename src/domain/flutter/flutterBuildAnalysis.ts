@@ -119,6 +119,10 @@ export const flutterResultSchemas = {
         .string()
         .regex(/^[0-9a-f]{32}$/u)
         .nullable(),
+      /** Distinct hashes found; more than one means the sections disagree. */
+      snapshot_hash_candidates: z.array(z.string().regex(/^[0-9a-f]{32}$/u)),
+      /** Snapshot sections the hashes were read from. */
+      snapshot_hash_sources: z.number().int().nonnegative(),
       /** Snapshot symbols read from the dynamic symbol table. */
       sections: z.array(
         z.strictObject({

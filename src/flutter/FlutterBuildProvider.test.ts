@@ -4,7 +4,11 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { expect, onTestFinished, test } from "vitest";
 
-import { aotFixtureImage, REFERENCE_HASH } from "./FlutterTestFixtures.js";
+import {
+  aotFixtureImage,
+  buildElf64Image,
+  REFERENCE_HASH,
+} from "./FlutterTestFixtures.js";
 import { snapshotSection } from "./DartElf.js";
 import { FlutterBuildProvider } from "./FlutterBuildProvider.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
@@ -46,6 +50,36 @@ const libflutter = (): Buffer =>
  * do not depend on any file outside the repository.
  */
 const aotImage = aotFixtureImage;
+
+/** Two data symbols at one offset and size: aliased exports. */
+const aliasedDataImage = (): Buffer => {
+  const elf = buildElf64Image([
+    { name: "_kDartVmSnapshotData", value: 0x1000, size: 52 },
+    { name: "_kDartIsolateSnapshotData", value: 0x1000, size: 52 },
+  ]);
+  return Buffer.concat([
+    elf,
+    Buffer.alloc(0x1000 - elf.length),
+    snapshotSection(REFERENCE_HASH),
+  ]);
+};
+
+/** Two data symbols whose snapshot hashes disagree. */
+const conflictingHashImage = (): Buffer => {
+  const elf = buildElf64Image([
+    { name: "_kDartVmSnapshotData", value: 0x1000, size: 52 },
+    { name: "_kDartIsolateSnapshotData", value: 0x1200, size: 52 },
+  ]);
+  const vm = snapshotSection("11111111111111111111111111111111");
+  const isolate = snapshotSection("22222222222222222222222222222222");
+  return Buffer.concat([
+    elf,
+    Buffer.alloc(0x1000 - elf.length),
+    vm,
+    Buffer.alloc(0x1200 - 0x1000 - vm.length),
+    isolate,
+  ]);
+};
 
 /** Build a real APK-shaped zip with the `zip` CLI. */
 const buildApk = async (
@@ -212,6 +246,8 @@ test.skipIf(process.platform === "win32")(
       abi: string;
       libapp: {
         snapshot_hash: string | null;
+        snapshot_hash_candidates: string[];
+        snapshot_hash_sources: number;
         sections: { name: string; magic_valid: boolean }[];
       };
       string_pool: {
@@ -222,6 +258,8 @@ test.skipIf(process.platform === "win32")(
     };
     expect(value.abi).toBe("arm64-v8a");
     expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+    expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
+    expect(value.libapp.snapshot_hash_sources).toBe(2);
     expect(value.libapp.sections.map((section) => section.name)).toEqual([
       "_kDartVmSnapshotData",
       "_kDartVmSnapshotInstructions",
@@ -240,6 +278,59 @@ test.skipIf(process.platform === "win32")(
     expect(value.coverage).toBe("complete");
   },
 );
+
+it("reports aliased snapshot data symbols as partial coverage", async () => {
+  const apk = await buildApk("aliased.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: aliasedDataImage() },
+  ]);
+  const result = await new FlutterBuildProvider({ environment: {} }).execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = result.value.result as {
+    coverage: string;
+    libapp: {
+      snapshot_hash: string | null;
+      snapshot_hash_candidates: string[];
+      snapshot_hash_sources: number;
+    };
+  };
+  // The aliased range is scanned once, so one candidate no longer counts
+  // as two agreeing sources.
+  expect(value.coverage).toBe("partial");
+  expect(value.libapp.snapshot_hash_sources).toBe(1);
+  expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
+  expect(result.value.limitations).toContain(
+    "Two or more snapshot data symbols share one offset and size; the aliased range is scanned once, so its hash counts as one source instead of two agreeing ones",
+  );
+});
+
+it("preserves conflicting snapshot hash candidates from the AOT image", async () => {
+  const apk = await buildApk("conflicted.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: conflictingHashImage() },
+  ]);
+  const result = await new FlutterBuildProvider({ environment: {} }).execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = result.value.result as {
+    coverage: string;
+    libapp: {
+      snapshot_hash: string | null;
+      snapshot_hash_candidates: string[];
+      snapshot_hash_sources: number;
+    };
+  };
+  expect(value.coverage).toBe("partial");
+  expect(value.libapp.snapshot_hash).toBeNull();
+  expect(value.libapp.snapshot_hash_sources).toBe(2);
+  expect(value.libapp.snapshot_hash_candidates).toEqual([
+    "11111111111111111111111111111111",
+    "22222222222222222222222222222222",
+  ]);
+});
 
 it("accepts an APK whose path contains spaces through the owned snapshot", async () => {
   const apk = await buildApk("flutter spaced.apk", [

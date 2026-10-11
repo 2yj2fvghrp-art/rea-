@@ -15,60 +15,116 @@ const identity = {
   version: null,
 };
 
-it("advertises an exact valid Flutter schema and records inline evidence through MCP", async () => {
-  const provider: FlutterBuildAnalysisPort = {
-    async inspectAvailability() {
-      return { status: "available", code: null, reason: null, diagnostics: {} };
-    },
-    async close() {},
-    async execute() {
-      return ok(
-        createAnalysisExecution(
+const SNAPSHOT_HASH = "65817c30a78bb44c3dc3771876b6010a";
+
+/** One shared target identity for both fake operation results. */
+const target = {
+  path: "/targets/gallery.apk",
+  bytes: 117817550,
+  sha256: "a".repeat(64),
+};
+
+const inspectExecution = () =>
+  createAnalysisExecution(
+    {
+      target,
+      abi: "arm64-v8a",
+      libapp: {
+        bytes: 24691632,
+        sha256: "b".repeat(64),
+        snapshot_hash: SNAPSHOT_HASH,
+        snapshot_hash_candidates: [SNAPSHOT_HASH],
+        snapshot_hash_sources: 2,
+        sections: [
           {
-            target: {
-              path: "/targets/gallery.apk",
-              bytes: 117817550,
-              sha256: "a".repeat(64),
-            },
-            flutter_detected: true,
-            abis: [
-              {
-                abi: "arm64-v8a",
-                libapp: {
-                  present: true,
-                  bytes: 24691632,
-                  sha256: "b".repeat(64),
-                  elf_header_valid: true,
-                  snapshot_hash_sources: 2,
-                  snapshot_hash_candidates: [
-                    "65817c30a78bb44c3dc3771876b6010a",
-                  ],
-                  snapshot_hash: "65817c30a78bb44c3dc3771876b6010a",
-                },
-                libflutter: {
-                  present: true,
-                  bytes: 9073432,
-                  sha256: "c".repeat(64),
-                  build_id: "e8d907ef7c175ec4313f47111019adc9588c5f61",
-                  dart_version: null,
-                  toolchain_lines: ["Android (5900059) clang version 9.0.8"],
-                  toolchain_capped: false,
-                },
-              },
-            ],
-            coverage: "complete",
+            name: "_kDartVmSnapshotData",
+            offset: 4096,
+            size: 52,
+            magic_valid: true,
+            kind: 3,
+            header_length: 3401,
           },
-          identity,
-        ),
-      );
+          {
+            name: "_kDartIsolateSnapshotData",
+            offset: 8192,
+            size: 1536,
+            magic_valid: true,
+            kind: 3,
+            header_length: 3401,
+          },
+        ],
+      },
+      string_pool: {
+        package_uris: [
+          "package:adaptive_breakpoints/src/adaptive_breakpoints.dart",
+        ],
+        package_uri_count_at_least: 1,
+        dart_uris: ["dart:_http"],
+        dart_uri_count_at_least: 1,
+        class_like_tokens: ["AdaptiveBreakpoint"],
+        class_like_token_count_at_least: 1,
+        printable_run_count: 4,
+      },
+      coverage: "complete",
     },
-  };
+    identity,
+  );
+
+const identifyExecution = () =>
+  createAnalysisExecution(
+    {
+      target,
+      flutter_detected: true,
+      abis: [
+        {
+          abi: "arm64-v8a",
+          libapp: {
+            present: true,
+            bytes: 24691632,
+            sha256: "b".repeat(64),
+            elf_header_valid: true,
+            snapshot_hash_sources: 2,
+            snapshot_hash_candidates: [SNAPSHOT_HASH],
+            snapshot_hash: SNAPSHOT_HASH,
+          },
+          libflutter: {
+            present: true,
+            bytes: 9073432,
+            sha256: "c".repeat(64),
+            build_id: "e8d907ef7c175ec4313f47111019adc9588c5f61",
+            dart_version: null,
+            toolchain_lines: ["Android (5900059) clang version 9.0.8"],
+            toolchain_capped: false,
+          },
+        },
+      ],
+      coverage: "complete",
+    },
+    identity,
+  );
+
+/** A recording-free provider answering both Flutter operations inline. */
+const fakeProvider = (): FlutterBuildAnalysisPort => ({
+  async inspectAvailability() {
+    return { status: "available", code: null, reason: null, diagnostics: {} };
+  },
+  async close() {},
+  async execute(request) {
+    return ok(
+      request.operation === "inspect_dart_aot"
+        ? inspectExecution()
+        : identifyExecution(),
+    );
+  },
+});
+
+it("advertises an exact valid Flutter schema and records inline evidence through MCP", async () => {
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
   });
   const server = createServer(
     { kind: "session", session },
-    { flutterAnalysis: provider },
+    { flutterAnalysis: fakeProvider() },
   );
   onTestFinished(() => server.close());
   const [clientTransport, serverTransport] =
@@ -98,8 +154,26 @@ it("advertises an exact valid Flutter schema and records inline evidence through
     abis: [
       {
         abi: "arm64-v8a",
-        libapp: { snapshot_hash: "65817c30a78bb44c3dc3771876b6010a" },
+        libapp: { snapshot_hash: SNAPSHOT_HASH },
       },
     ],
+  });
+
+  const inspected = await client.callTool({
+    name: "inspect_dart_aot",
+    arguments: { path: "/targets/gallery.apk", abi: "arm64-v8a" },
+  });
+  expect(inspected.isError).not.toBe(true);
+  const inspectedText = (inspected.content as { readonly text?: string }[])
+    .map((part) => part.text ?? "")
+    .join("");
+  const inspectedEvidence = parseEvidence(JSON.parse(inspectedText));
+  expect(inspectedEvidence.normalized_result).toMatchObject({
+    abi: "arm64-v8a",
+    libapp: {
+      snapshot_hash: SNAPSHOT_HASH,
+      snapshot_hash_candidates: [SNAPSHOT_HASH],
+      snapshot_hash_sources: 2,
+    },
   });
 });

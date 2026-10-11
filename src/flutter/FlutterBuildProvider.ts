@@ -176,6 +176,14 @@ const openEntrySafely = async (
           iterator.next().catch((cause: unknown) => {
             throw mapReaderFailure(operation, path, cause);
           }),
+        // An early for-await exit must close the underlying stream; the
+        // delegates forward that closure instead of dropping it.
+        return: (value) =>
+          iterator.return
+            ? iterator.return(value)
+            : Promise.resolve({ done: true, value: undefined }),
+        throw: (reason) =>
+          iterator.throw ? iterator.throw(reason) : Promise.reject(reason),
       };
     },
   };
@@ -734,14 +742,25 @@ export class FlutterBuildProvider {
       }
       // Hash scanning is bounded to the exported data symbols' byte ranges
       // so decoy or stale magic/hash sequences elsewhere in the image
-      // cannot inflate source counts or contribute candidates.
-      const dataRanges = sections
-        .filter((section) => section.name.endsWith("Data"))
-        .map((section) =>
+      // cannot inflate source counts or contribute candidates. Aliased
+      // exports (two data symbols at one offset and size) are scanned once:
+      // counting the shared slice twice would let one candidate masquerade
+      // as two agreeing sources.
+      const scannedRanges = new Set<string>();
+      let aliasedDataSymbols = false;
+      const scanner = new SnapshotHashScanner();
+      for (const section of sections) {
+        if (!section.name.endsWith("Data")) continue;
+        const range = `${String(section.offset)}:${String(section.size)}`;
+        if (scannedRanges.has(range)) {
+          aliasedDataSymbols = true;
+          continue;
+        }
+        scannedRanges.add(range);
+        scanner.push(
           bounded.subarray(section.offset, section.offset + section.size),
         );
-      const scanner = new SnapshotHashScanner();
-      for (const range of dataRanges) scanner.push(range);
+      }
       const hashScan = scanner.result();
       if (sections.length === 0)
         return err(
@@ -753,6 +772,7 @@ export class FlutterBuildProvider {
         );
       const pool = projectStringPool(isolateData);
       const partial =
+        aliasedDataSymbols ||
         sections.length < symbolNames.length ||
         sections.some(
           (section) => section.name.endsWith("Data") && !section.magic_valid,
@@ -775,6 +795,8 @@ export class FlutterBuildProvider {
                 hashScan.candidates.length === 1
                   ? hashScan.candidates[0]!
                   : null,
+              snapshot_hash_candidates: [...hashScan.candidates],
+              snapshot_hash_sources: hashScan.sources,
               sections,
             },
             string_pool: {
@@ -799,6 +821,11 @@ export class FlutterBuildProvider {
               ...(sections.length < symbolNames.length
                 ? [
                     `Only ${String(sections.length)} of 4 snapshot symbols were present`,
+                  ]
+                : []),
+              ...(aliasedDataSymbols
+                ? [
+                    "Two or more snapshot data symbols share one offset and size; the aliased range is scanned once, so its hash counts as one source instead of two agreeing ones",
                   ]
                 : []),
               ...(pool.packageUriCount > MAX_POOL_URIS

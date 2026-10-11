@@ -161,6 +161,38 @@ describe("LabeledStringScanner", () => {
       "Android (5900059 based on r365631c) clang version 9.0.8 (https://android.googlesource.com/toolchain/llvm-project 207d7abc) (based on LLVM 9.0.8svn)",
     );
   });
+
+  it("does not claim a toolchain cap for unrelated overlong strings", () => {
+    const scanner = new LabeledStringScanner();
+    const license = `Apache License Version 2.0 ${"x".repeat(700)}`;
+    scanner.push(
+      Uint8Array.from(
+        Array.from(`\x00${license}\x00`, (character) =>
+          character.charCodeAt(0),
+        ),
+      ),
+    );
+    const result = scanner.result();
+    expect(result.toolchainCapped).toBe(false);
+    expect(result.toolchainLines).toEqual([]);
+  });
+
+  it("claims the cap only for an overlong run shaped like a toolchain line", () => {
+    const overlongToolchain = `Android (${"r".repeat(700)}) clang version 9`;
+    for (const [text, capped] of [
+      [overlongToolchain, true],
+      [`Dart VM version: ${"3".repeat(700)}`, true],
+      [`based on LLVM 9 ${"x".repeat(700)}`, false],
+    ] as const) {
+      const scanner = new LabeledStringScanner();
+      scanner.push(
+        Uint8Array.from(
+          Array.from(`\x00${text}\x00`, (character) => character.charCodeAt(0)),
+        ),
+      );
+      expect(scanner.result().toolchainCapped).toBe(capped);
+    }
+  });
 });
 
 function exists(path: string): boolean {

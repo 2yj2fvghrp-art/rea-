@@ -118,6 +118,25 @@ if (options.apk !== null) {
         `${aot.string_pool.package_uri_count_at_least} package:, ${aot.string_pool.dart_uri_count_at_least} dart:`,
       );
     }
+
+    // Exercise every ABI the APK carries, not only the preferred image.
+    for (const abi of libappAbis) {
+      if (abi.abi === aot?.abi) continue;
+      const perAbi = await run("inspect_dart_aot", {
+        path: options.apk,
+        abi: abi.abi,
+      });
+      if (perAbi === null) continue;
+      check(
+        `AOT snapshot sections located through the symbol table for ${abi.abi}`,
+        perAbi.abi === abi.abi &&
+          perAbi.libapp.sections.length >= 4 &&
+          perAbi.libapp.sections
+            .filter((section) => section.name.endsWith("Data"))
+            .every((section) => section.magic_valid),
+        `${perAbi.libapp.sections.length} section(s), abi=${perAbi.abi}`,
+      );
+    }
   }
 }
 

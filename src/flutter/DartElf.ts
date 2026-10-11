@@ -51,6 +51,14 @@ export interface ElfParseFailure {
 
 const SHT_DYNSYM = 11;
 const PT_LOAD = 1;
+const PT_DYNAMIC = 2;
+/** Position-independent executable images carry PT_DYNAMIC. */
+const ET_DYN = 3;
+const DT_NULL = 0;
+const DT_STRTAB = 5;
+const DT_SYMTAB = 6;
+const DT_STRSZ = 10;
+const DT_SYMENT = 11;
 
 /**
  * Parse one snapshot symbol's file offset and size from a little-endian
@@ -69,6 +77,8 @@ export const readElfSymbol = (
   if (elfClass !== 1 && elfClass !== 2)
     return { failure: { reason: `unsupported ELF class ${String(elfClass)}` } };
   const is64 = elfClass === 2;
+  const entrySize = is64 ? 24 : 16;
+  const e_type = reader.u16(0x10);
   const e_shoff = is64 ? reader.u64(0x28) : reader.u32(0x20);
   const e_shentsize = reader.u16(is64 ? 0x3a : 0x2e);
   const e_shnum = reader.u16(is64 ? 0x3c : 0x30);
@@ -76,13 +86,18 @@ export const readElfSymbol = (
   const e_phentsize = reader.u16(is64 ? 0x36 : 0x2a);
   const e_phnum = reader.u16(is64 ? 0x38 : 0x2c);
   const MIN_SHENT = is64 ? 64 : 40;
+  // Section-stripped ET_DYN images keep their exported symbols reachable
+  // through PT_DYNAMIC instead of section headers; every other shape still
+  // needs a usable section header table.
+  const dynamicFallback = e_type === ET_DYN && e_shnum === 0;
   if (
     e_shoff === null ||
     e_shentsize === null ||
     e_shnum === null ||
-    e_shnum === 0 ||
-    e_shentsize < MIN_SHENT ||
-    e_shoff + e_shentsize * e_shnum > bytes.length
+    (!dynamicFallback &&
+      (e_shnum === 0 ||
+        e_shentsize < MIN_SHENT ||
+        e_shoff + e_shentsize * e_shnum > bytes.length))
   )
     return {
       failure: {
@@ -108,9 +123,22 @@ export const readElfSymbol = (
     readonly offset: number;
     readonly filesz: number;
   }[] = [];
+  let dynamicSegment: { offset: number; filesz: number } | null = null;
   for (let index = 0; index < e_phnum; index += 1) {
     const base = e_phoff + index * e_phentsize;
     const type = reader.u32(base);
+    if (type === PT_DYNAMIC) {
+      const offset = is64 ? reader.u64(base + 0x08) : reader.u32(base + 4);
+      const filesz = is64 ? reader.u64(base + 0x20) : reader.u32(base + 0x10);
+      if (offset === null || filesz === null)
+        return {
+          failure: {
+            reason: `PT_DYNAMIC segment ${String(index)} is truncated`,
+          },
+        };
+      dynamicSegment = { offset, filesz };
+      continue;
+    }
     if (type !== PT_LOAD) continue;
     const vaddr = is64 ? reader.u64(base + 0x10) : reader.u32(base + 8);
     const offset = is64 ? reader.u64(base + 0x08) : reader.u32(base + 4);
@@ -143,6 +171,36 @@ export const readElfSymbol = (
     return best.offset + delta;
   };
 
+  /** Read one dynsym entry; null when its fields do not parse. */
+  const readEntry = (
+    base: number,
+  ): { nameOffset: number; stValue: number; stSize: number } | null => {
+    const nameOffset = reader.u32(base);
+    const stValue = is64 ? reader.u64(base + 8) : reader.u32(base + 4);
+    const stSize = is64 ? reader.u64(base + 16) : reader.u32(base + 8);
+    if (nameOffset === null || stValue === null || stSize === null) return null;
+    return { nameOffset, stValue, stSize };
+  };
+
+  /** Map one located symbol to its file offset, refusing unmappable values. */
+  const resolve = (
+    name: string,
+    stValue: number,
+    stSize: number,
+  ): { symbol: ElfSymbol } | { failure: ElfParseFailure } => {
+    const fileOffset = toOffset(stValue, stSize);
+    if (fileOffset === null)
+      return {
+        failure: { reason: `symbol ${symbolName} has no loadable address` },
+      };
+    if (fileOffset + stSize > bytes.length)
+      return {
+        failure: { reason: `symbol ${symbolName} extends past the image` },
+      };
+    return { symbol: { name, offset: fileOffset, size: stSize } };
+  };
+
+  // Primary path: locate the dynamic symbol table through section headers.
   for (let index = 0; index < e_shnum; index += 1) {
     const header = e_shoff + index * e_shentsize;
     const type = reader.u32(is64 ? header + 4 : header + 4);
@@ -152,7 +210,6 @@ export const readElfSymbol = (
     const link = reader.u32(is64 ? header + 0x28 : header + 0x18);
     if (offset === null || size === null)
       return { failure: { reason: "dynamic symbol table is truncated" } };
-    const entrySize = is64 ? 24 : 16;
     if (offset + size > bytes.length || size % entrySize !== 0)
       return { failure: { reason: "dynamic symbol table is malformed" } };
     if (link === null || link >= e_shnum)
@@ -177,23 +234,70 @@ export const readElfSymbol = (
         failure: { reason: "dynamic symbol strings are out of bounds" },
       };
     for (let entry = 0; entry < size / entrySize; entry += 1) {
-      const base = offset + entry * entrySize;
-      const nameOffset = reader.u32(base);
-      const stValue = is64 ? reader.u64(base + 8) : reader.u32(base + 4);
-      const stSize = is64 ? reader.u64(base + 16) : reader.u32(base + 8);
-      if (nameOffset === null || stValue === null || stSize === null) continue;
-      const name = reader.cString(stringOffset + nameOffset, 256);
+      const parsed = readEntry(offset + entry * entrySize);
+      if (parsed === null) continue;
+      const name = reader.cString(stringOffset + parsed.nameOffset, 256);
       if (name !== symbolName) continue;
-      const fileOffset = toOffset(stValue, stSize);
-      if (fileOffset === null)
-        return {
-          failure: { reason: `symbol ${symbolName} has no loadable address` },
-        };
-      if (fileOffset + stSize > bytes.length)
-        return {
-          failure: { reason: `symbol ${symbolName} extends past the image` },
-        };
-      return { symbol: { name, offset: fileOffset, size: stSize } };
+      return resolve(name, parsed.stValue, parsed.stSize);
+    }
+  }
+
+  // Fallback path: section-stripped ET_DYN images name their dynamic symbol
+  // table through PT_DYNAMIC tag-value pairs instead of section headers.
+  // The segment records no symbol count, so the walk stops where the string
+  // table begins (the standard layout places it after the symbols), at the
+  // first entry that no longer parses, or at the end of the image.
+  if (dynamicFallback && dynamicSegment !== null) {
+    const dynamicEntrySize = is64 ? 16 : 8;
+    let symbolTableVaddr: number | null = null;
+    let stringTableVaddr: number | null = null;
+    let stringTableBytes: number | null = null;
+    let declaredEntrySize: number | null = null;
+    const dynamicEnd = Math.min(
+      bytes.length,
+      dynamicSegment.offset + dynamicSegment.filesz,
+    );
+    for (
+      let base = dynamicSegment.offset;
+      base + dynamicEntrySize <= dynamicEnd;
+      base += dynamicEntrySize
+    ) {
+      const tag = is64 ? reader.u64(base) : reader.u32(base);
+      const value = is64 ? reader.u64(base + 8) : reader.u32(base + 4);
+      if (tag === null || value === null || tag === DT_NULL) break;
+      if (tag === DT_SYMTAB) symbolTableVaddr = value;
+      else if (tag === DT_STRTAB) stringTableVaddr = value;
+      else if (tag === DT_STRSZ) stringTableBytes = value;
+      else if (tag === DT_SYMENT) declaredEntrySize = value;
+    }
+    if (
+      symbolTableVaddr !== null &&
+      stringTableVaddr !== null &&
+      (declaredEntrySize === null || declaredEntrySize === entrySize)
+    ) {
+      const tableOffset = toOffset(symbolTableVaddr, 0);
+      const stringOffset = toOffset(stringTableVaddr, 0);
+      if (tableOffset !== null && stringOffset !== null) {
+        const walkEnd =
+          stringOffset > tableOffset ? stringOffset : bytes.length;
+        for (
+          let base = tableOffset;
+          base + entrySize <= walkEnd;
+          base += entrySize
+        ) {
+          const parsed = readEntry(base);
+          if (parsed === null) break;
+          if (
+            stringTableBytes !== null &&
+            parsed.nameOffset >= stringTableBytes
+          )
+            break;
+          const name = reader.cString(stringOffset + parsed.nameOffset, 256);
+          if (name === null) break;
+          if (name !== symbolName) continue;
+          return resolve(name, parsed.stValue, parsed.stSize);
+        }
+      }
     }
   }
   return {
@@ -284,6 +388,77 @@ export const buildElf64Image = (
     image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
     image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
     image[base + 4] = 0x10; // GLOBAL FUNC
+  });
+  return image;
+};
+
+/**
+ * Build a section-stripped ELF64 image (e_shnum 0, ET_DYN) whose exported
+ * symbols are reachable only through the PT_DYNAMIC tag-value pairs, the
+ * way release toolchains ship `libapp.so`.
+ */
+export const buildStrippedElf64Image = (
+  symbols: ReadonlyArray<{ name: string; value: number; size: number }>,
+): Buffer => {
+  const ELF_HEADER = 64;
+  const PHENT = 56;
+  const PHNUM = 2;
+  const dynamicEntry = 16;
+  // DT_SYMTAB, DT_STRTAB, DT_STRSZ, DT_SYMENT, then a DT_NULL terminator.
+  const DYNAMIC_ENTRIES = 5;
+  const phoff = ELF_HEADER;
+  const dynamicOff = phoff + PHENT * PHNUM;
+  const dynsymOff = dynamicOff + DYNAMIC_ENTRIES * dynamicEntry;
+  const dynstrOff = dynsymOff + symbols.length * 24;
+  const strtabBytes = 256;
+  const image = Buffer.alloc(dynstrOff + strtabBytes);
+  // ELF header
+  image.writeUInt32LE(0x464c457f, 0);
+  image[4] = 2; // ELFCLASS64
+  image[5] = 1; // little-endian
+  image.writeUInt16LE(ET_DYN, 0x10);
+  image.writeUInt16LE(0x003e, 0x12); // e_machine x86_64
+  image.writeBigUInt64LE(BigInt(phoff), 0x20);
+  image.writeUInt16LE(PHENT, 0x36);
+  image.writeUInt16LE(PHNUM, 0x38);
+  // e_shoff, e_shentsize, and e_shnum stay zero: no section headers exist.
+  // PT_LOAD identity-maps the file so symbol vaddrs resolve to offsets.
+  const load = phoff;
+  image.writeUInt32LE(PT_LOAD, load);
+  image.writeBigUInt64LE(BigInt(0), load + 8);
+  image.writeBigUInt64LE(BigInt(0), load + 0x10);
+  image.writeBigUInt64LE(BigInt(0x10000), load + 0x20); // p_filesz covers fixture symbols
+  // PT_DYNAMIC locates the symbol table for stripped images.
+  const dyn = phoff + PHENT;
+  image.writeUInt32LE(PT_DYNAMIC, dyn);
+  image.writeBigUInt64LE(BigInt(dynamicOff), dyn + 8); // p_offset
+  image.writeBigUInt64LE(BigInt(dynamicOff), dyn + 0x10); // p_vaddr
+  image.writeBigUInt64LE(BigInt(DYNAMIC_ENTRIES * dynamicEntry), dyn + 0x20);
+  const pairs: ReadonlyArray<readonly [number, number]> = [
+    [DT_SYMTAB, dynsymOff],
+    [DT_STRTAB, dynstrOff],
+    [DT_STRSZ, strtabBytes],
+    [DT_SYMENT, 24],
+  ];
+  pairs.forEach(([tag, value], index) => {
+    const base = dynamicOff + index * dynamicEntry;
+    image.writeBigUInt64LE(BigInt(tag), base);
+    image.writeBigUInt64LE(BigInt(value), base + 8);
+  });
+  // The final entry stays zero: DT_NULL terminates the walk.
+  // dynstr: leading NUL then names
+  let strCursor = dynstrOff + 1;
+  const nameOffsets = symbols.map((symbol) => {
+    image.write(symbol.name, strCursor, "latin1");
+    const at = strCursor - dynstrOff;
+    strCursor += symbol.name.length + 1;
+    return at;
+  });
+  symbols.forEach((symbol, index) => {
+    const base = dynsymOff + index * 24;
+    image.writeUInt32LE(nameOffsets[index]!, base);
+    image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
+    image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
   });
   return image;
 };
