@@ -33,6 +33,17 @@ export function assertPrototypeDiagnosticsReport(report) {
     );
     const inspection = projectNativeApiInspection(value);
     for (const diagnostic of api.prototype_diagnostics) {
+      assert.match(diagnostic.inferred_claim, /^The recovered /u);
+      if (api.signature_source === "user_defined") {
+        assert.doesNotMatch(
+          [
+            diagnostic.inferred_claim,
+            ...diagnostic.evidence.map((item) => item.detail),
+          ].join(" "),
+          /inferred/u,
+          `${name}: user-defined signature was mislabeled as inferred`,
+        );
+      }
       for (const unknown of diagnostic.residual_unknowns)
         assert.ok(
           inspection.residual_unknowns.includes(unknown),
@@ -102,7 +113,7 @@ export function assertPrototypeDiagnosticsReport(report) {
   assert.equal(cleanup.calling_convention, "__stdcall");
   assert.match(
     has(cleanup, "stack-cleanup").evidence[0].detail,
-    /20 bytes.*16 inferred/u,
+    /20 bytes.*16 recovered/u,
   );
   for (const name of [
     "rea_cleanup_control",
@@ -157,7 +168,7 @@ export function assertPrototypeDiagnosticsReport(report) {
   assert.match(
     has(dossier("rea_stdcall_missing_cleanup"), "stack-cleanup").evidence[0]
       .detail,
-    /0 bytes.*4 inferred/u,
+    /0 bytes.*4 recovered/u,
   );
   for (const [name, convention] of [
     ["rea_fastcall_missing_cleanup", "__fastcall"],
@@ -167,7 +178,7 @@ export function assertPrototypeDiagnosticsReport(report) {
     assert.equal(api.calling_convention, convention);
     assert.match(
       has(api, "stack-cleanup").evidence[0].detail,
-      /0 bytes.*4 inferred/u,
+      /0 bytes.*4 recovered/u,
     );
   }
   const custom = noConflict("rea_custom_allocation_control");

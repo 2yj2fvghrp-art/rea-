@@ -70,7 +70,7 @@ public final class ReaGhidraPrototypeDiagnostics {
         if (!knownAllocation) limitations.add("Compiler-model x86 stack-slot allocation could not be established; padding reads and return cleanup remain observations or unknowns.");
         boolean calleeCleanup = model != null && !model.isProgramExtension() && !model.isMerged() &&
             model.getExtrapop() == PrototypeModel.UNKNOWN_EXTRAPOP;
-        String claim = "The inferred prototype has " + prototype.getNumParams() +
+        String claim = "The recovered prototype has " + prototype.getNumParams() +
             " parameters and " + (stackEnd - 4) + " bytes of recovered x86 stack-argument extent" +
             (knownAllocation ? " including compiler-model slot padding" : " with allocation unknown") +
             " (calling convention " + (modelName == null ? "unknown" : modelName) + ").";
@@ -187,7 +187,7 @@ public final class ReaGhidraPrototypeDiagnostics {
                     "The immediate caller continuation reads EAX in raw p-code; return intent is not established.", addressText));
             }
             diagnostics.add(diagnostic("return-register-forwarding", "observation",
-                "The inferred return type is " + returnType + ".", facts,
+                "The recovered return type is " + returnType + ".", facts,
                 "EAX may be an incidental live register. Callee return semantics, caller data flow and the source return type require corroboration."));
         }
         return result;
@@ -295,7 +295,7 @@ public final class ReaGhidraPrototypeDiagnostics {
         if (prototype.isVarArg() || cleanup == extent || cleanup == 0 && !calleeCleanup) return;
         JsonArray facts = new JsonArray();
         if (branch != null) facts.add(evidence("branch", branch, "Direct branch to a shared epilogue outside the owned body; no body range was added.", addressText));
-        facts.add(evidence("return", returned, "RET explicitly cleans up " + cleanup + " bytes, compared with " + extent + " inferred stack-argument bytes.", addressText));
+        facts.add(evidence("return", returned, "RET explicitly cleans up " + cleanup + " bytes, compared with " + extent + " recovered stack-argument bytes.", addressText));
         diagnostics.add(diagnostic("stack-cleanup", "conflict", claim, facts,
             "Hidden parameters, stack padding, custom calling conventions and incomplete parameter recovery remain possible. Cleanup bytes do not prove a source argument count."));
     }
