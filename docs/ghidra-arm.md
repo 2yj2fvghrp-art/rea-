@@ -14,13 +14,16 @@ ELF `EM_ARM` targets retain class, byte order, `e_type`, and raw `e_flags` as
 provider-neutral facts. Recognition does not mean every ARM variant is
 supported.
 
-The lane admits little-endian ELF32 `ET_EXEC` images declaring EABI5.
-Hard-float (`armhf`, `EF_ARM_ABI_FLOAT_HARD`) and unspecified float conventions
-are covered; `EF_ARM_ABI_FLOAT_SOFT` is refused. ELF64 AArch64 images use the
-separate `arm64` lane. Big-endian `armeb`, `EF_ARM_BE8` mixed-endian images,
-older or legacy ABIs, PIE (`ET_DYN`), shared images and relocatable objects are
-not covered: provider selection returns the specific unsupported constraint
-rather than guessing a compatible profile.
+The lane admits little-endian ELF32 `ET_EXEC` images declaring EABI5 whose
+`.ARM.attributes` declare `Tag_CPU_arch` v7, the ISA the verification build
+covers. Hard-float (`armhf`, `EF_ARM_ABI_FLOAT_HARD`) and unspecified float
+conventions are covered; `EF_ARM_ABI_FLOAT_SOFT` is refused. ELF64 AArch64
+images use the separate `arm64` lane. Big-endian `armeb`, `EF_ARM_BE8`
+mixed-endian images, older or legacy ABIs, PIE (`ET_DYN`), shared images and
+relocatable objects are not covered, and neither are images declaring another
+ISA (for example `v8-A`) or no readable declaration at all, because the EABI
+version does not identify the CPU architecture: provider selection returns the
+specific unsupported constraint rather than guessing a compatible profile.
 
 ## Pinned import language
 

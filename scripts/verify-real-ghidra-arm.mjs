@@ -78,8 +78,17 @@ try {
       byteOrder: "little",
       type: 2,
       flags: independent.flags,
+      cpuArch: 10,
     },
-    "REA ELF interpretation disagrees with GNU readelf",
+    "REA ELF interpretation disagrees with GNU readelf or the declared ISA",
+  );
+  const readelfAttributes = await execute("readelf", ["-A", fixture.path], {
+    timeout: 30000,
+  });
+  assert.match(
+    readelfAttributes.stdout,
+    /Tag_CPU_arch:\s*v7\b/u,
+    "The fixture must declare the v7 ISA the lane pins",
   );
   assert.equal(resolved.value.sha256, fixture.sha256);
   const snapshotPath = join(workspace, "arm.snapshot.json");
@@ -184,6 +193,8 @@ try {
       byte_order: "little",
       type: 2,
       flags: independent.flags,
+      cpu_arch: 10,
+      cpu_arch_name: "v7",
       float_abi: "hard",
     });
     for (const evidence of snapshot.evidence_bundle.records)
@@ -249,6 +260,105 @@ try {
     }
   }
 
+  // Typed refusals for ISA declarations the verified lane does not cover: a
+  // real armv8-a build (attributes declare v8) and the same v7 fixture with
+  // its .ARM.attributes removed, so neither a newer ISA nor an absent
+  // declaration can slip into the v7-pinned lane.
+  const objcopyCandidates = [
+    process.env.REA_ARM_OBJCOPY,
+    "llvm-objcopy",
+    "llvm-objcopy-21",
+  ].filter((candidate) => candidate !== undefined);
+  const compiler = process.env.REA_ARM_CLANG ?? "clang";
+  const v8Path = join(workspace, "arm-v8a.elf");
+  const v8Source = join(workspace, "arm-v8a.S");
+  await writeFile(v8Source, ".global _start\n_start: mov r0,#42\n");
+  await execute(
+    compiler,
+    [
+      "--target=arm-linux-gnueabihf",
+      "-march=armv8-a+crc",
+      "-mfloat-abi=hard",
+      "-fno-pic",
+      "-fuse-ld=lld",
+      "-nostdlib",
+      "-static",
+      "-Wl,-e,_start",
+      "-Wl,--build-id=none",
+      "-o",
+      v8Path,
+      v8Source,
+    ],
+    { timeout: 60000 },
+  );
+  const noAttributesPath = join(workspace, "arm-v7-noattributes.elf");
+  await writeFile(noAttributesPath, await readFile(fixture.path));
+  let objcopyTool;
+  for (const candidate of objcopyCandidates) {
+    try {
+      await execute(candidate, ["--version"], { timeout: 10000 });
+      objcopyTool = candidate;
+      break;
+    } catch {
+      // Try the next candidate name.
+    }
+  }
+  if (objcopyTool === undefined)
+    throw new Error("Missing prerequisite: llvm-objcopy (set REA_ARM_OBJCOPY)");
+  await execute(
+    objcopyTool,
+    ["--remove-section", ".ARM.attributes", noAttributesPath],
+    { timeout: 30000 },
+  );
+  const variantMetadata = [
+    { label: "v8a", path: v8Path, cpuArch: 14 },
+    { label: "no-attributes", path: noAttributesPath, cpuArch: null },
+  ];
+  for (const variant of variantMetadata) {
+    const variantResolved = await parseBinaryTarget(variant.path);
+    if (!variantResolved.ok) throw variantResolved.error;
+    assert.equal(
+      variantResolved.value.arm.cpuArch,
+      variant.cpuArch,
+      `ISA declaration for the ${variant.label} variant`,
+    );
+    const variantTransport = new StdioClientTransport({
+      command: process.execPath,
+      args: [entrypoint, "mcp"],
+      env,
+      stderr: "pipe",
+    });
+    const variantClient = new Client({
+      name: "rea-real-arm-refusal",
+      version: "1",
+    });
+    try {
+      await variantClient.connect(variantTransport);
+      const rejected = await variantClient.callTool(
+        {
+          name: "open_binary",
+          arguments: { path: variant.path, provider_id: "ghidra" },
+        },
+        undefined,
+        { timeout: 60000 },
+      );
+      const error = requireMcpToolError(rejected);
+      const text = JSON.stringify(error);
+      assert.match(
+        text,
+        variant.label === "v8a" ? /v8-A/u : /Tag_CPU_arch/u,
+        `The ${variant.label} variant must refuse with its typed ISA reason`,
+      );
+      refusals.push({ variant: variant.label, error });
+    } finally {
+      try {
+        await variantClient.close();
+      } finally {
+        await variantTransport.close();
+      }
+    }
+  }
+
   // Same public operation through CLI, not a private injected provider.
   const cli = await execute(
     process.execPath,
@@ -281,9 +391,10 @@ try {
     effective_language: "ARM:LE:32:v7",
     checks: [
       "independent ELF and symbols",
+      "attributes-declared Tag_CPU_arch v7 admission",
       "pinned ARM:LE:32:v7 language checked after import",
       "ARM and Thumb-2 probe encodings",
-      "typed refusals for legacy EABI and BE8",
+      "typed refusals for legacy EABI, BE8, v8-A, and absent attributes",
       "snapshot round-trip and CLI parity",
     ],
     refusals,

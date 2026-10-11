@@ -26,6 +26,13 @@ export interface ArmElfMetadata {
   readonly byteOrder: "little" | "big";
   readonly type: number;
   readonly flags: number;
+  /**
+   * Tag_CPU_arch enum declared by .ARM.attributes, or null when the inspected
+   * file declares none; undefined until the section table has been read.
+   */
+  readonly cpuArch?: number | null;
+  /** Unavailable declaration sources; missing sections there remain unknown. */
+  readonly limitations?: readonly string[];
 }
 
 /** Declared fields of the 24-byte MIPS ABI flags record, not inferred semantics. */

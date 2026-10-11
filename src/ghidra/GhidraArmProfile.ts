@@ -9,11 +9,40 @@ const EF_ARM_BE8 = 0x00800000;
 const EF_ARM_ABI_FLOAT_SOFT = 0x00000200;
 const EF_ARM_ABI_FLOAT_HARD = 0x00000400;
 
+/** Tag_CPU_arch enum for ARMv7, the only ISA this lane's verifier built. */
+const ARM_CPU_ARCH_V7 = 10;
+
+/** Declared Tag_CPU_arch names for typed refusals; unknown values stay numeric. */
+const ARM_CPU_ARCH_NAMES: Readonly<Record<number, string>> = {
+  0: "pre-v4",
+  1: "v4",
+  2: "v4T",
+  3: "v5T",
+  4: "v5TE",
+  5: "v5TEJ",
+  6: "v6",
+  7: "v6KZ",
+  8: "v6T2",
+  9: "v6K",
+  10: "v7",
+  11: "v6-M",
+  12: "v6S-M",
+  13: "v7E-M",
+  14: "v8-A",
+  15: "v8-R",
+  16: "v8-M Baseline",
+  17: "v8-M Mainline",
+};
+
+const armCpuArchName = (value: number): string =>
+  ARM_CPU_ARCH_NAMES[value] ?? `an unknown architecture (${value})`;
+
 /**
- * Verified 32-bit ARM admission: little-endian ELF32 ET_EXEC with EABI5.
- * Hard-float (armhf) and unspecified float conventions are admitted; the
- * import language is pinned because Ghidra header auto-selection has several
- * plausible wrong answers for ARM/Thumb-2 interworked images.
+ * Verified 32-bit ARM admission: little-endian ELF32 ET_EXEC with EABI5 whose
+ * .ARM.attributes declare Tag_CPU_arch v7. Hard-float (armhf) and unspecified
+ * float conventions are admitted; the import language is pinned because Ghidra
+ * header auto-selection has several plausible wrong answers for ARM/Thumb-2
+ * interworked images, and the EABI version does not identify the CPU ISA.
  */
 export const isVerifiedArmAdmission = (target: BinaryTarget): boolean =>
   ghidraArmUnsupportedReason(target) === null;
@@ -43,6 +72,10 @@ export const ghidraArmUnsupportedReason = (
     return "EF_ARM_BE8 mixed-endian images need separate verification in this Ghidra lane.";
   if ((metadata.flags & EF_ARM_ABI_FLOAT_SOFT) !== 0)
     return "EF_ARM_ABI_FLOAT_SOFT is outside this Ghidra lane; the verified lane covers hard-float and unspecified float conventions.";
+  if (metadata.cpuArch === undefined || metadata.cpuArch === null)
+    return "This Ghidra ARM lane requires .ARM.attributes declaring Tag_CPU_arch v7; an image without a readable declaration cannot establish the verified ISA, and the ELF header alone does not identify the CPU architecture.";
+  if (metadata.cpuArch !== ARM_CPU_ARCH_V7)
+    return `This Ghidra ARM lane admits Tag_CPU_arch v7 only, and this image declares ${armCpuArchName(metadata.cpuArch)}; that ISA needs its own verified build before admission.`;
   return null;
 };
 
@@ -66,6 +99,9 @@ export const ghidraArmProfileParameters = (
       byte_order: target.arm.byteOrder,
       type: target.arm.type,
       flags: target.arm.flags,
+      cpu_arch: target.arm.cpuArch ?? null,
+      cpu_arch_name:
+        target.arm.cpuArch == null ? null : armCpuArchName(target.arm.cpuArch),
       float_abi:
         (target.arm.flags & EF_ARM_ABI_FLOAT_HARD) !== 0
           ? "hard"
