@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import { z } from "zod";
 
-import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
+import {
+  compareUnicodeCodePoints,
+  compositeKey,
+} from "./unicodeCodePointOrder.js";
 
 import {
   analysisProfileSchema,
@@ -448,8 +451,10 @@ const evidenceMatchesEntry = (
   snapshot: Pick<AnalysisSnapshot, "target" | "binding">,
 ): boolean =>
   isCorrespondingEvidence(evidence, snapshot) &&
-  `${evidenceQueryKey(evidence)}\0${evidenceContentDigest(evidence)}` ===
-    entryEvidenceKey(entry, snapshot.binding);
+  compositeKey([
+    evidenceQueryKey(evidence),
+    evidenceContentDigest(evidence),
+  ]) === entryEvidenceKey(entry, snapshot.binding);
 
 /** Compute the stable lookup key for one provider/profile-specific query. */
 export const analysisQueryId = (
@@ -585,9 +590,15 @@ const restoreSnapshot = (
       !isCorrespondingEvidence(evidence, header)
     )
       continue;
-    const query = `${evidence.confidence}\0${evidenceQueryKey(evidence)}`;
+    const query = compositeKey([
+      evidence.confidence,
+      evidenceQueryKey(evidence),
+    ]);
     corresponding.add(query);
-    matching.set(`${query}\0${evidenceContentDigest(evidence)}`, evidence);
+    matching.set(
+      compositeKey([query, evidenceContentDigest(evidence)]),
+      evidence,
+    );
   }
   const find = (
     query: string,
@@ -595,7 +606,7 @@ const restoreSnapshot = (
     label: string,
     operation: string,
   ): Evidence => {
-    const evidence = matching.get(`${query}\0${digest}`);
+    const evidence = matching.get(compositeKey([query, digest]));
     if (evidence !== undefined) return evidence;
     throw new TypeError(
       corresponding.has(query)
@@ -632,7 +643,7 @@ const restoreSnapshot = (
       throw new TypeError("Analysis snapshot entry provider does not match");
     checkId(entry, false);
     const evidence = find(
-      `observed\0${entryQueryKey(entry, header.binding)}`,
+      compositeKey(["observed", entryQueryKey(entry, header.binding)]),
       digest,
       "entry",
       entry.operation,
@@ -658,7 +669,7 @@ const restoreSnapshot = (
       );
     checkId(entry, true);
     const evidence = find(
-      `derived\0${workflowEntryQueryKey(entry)}`,
+      compositeKey(["derived", workflowEntryQueryKey(entry)]),
       digest,
       "workflow entry",
       entry.operation,
@@ -735,7 +746,14 @@ const entryEvidenceKey = (
   entry: AnalysisSnapshotEntry,
   binding: AnalysisSnapshotBinding,
 ): string =>
-  `${entryQueryKey(entry, binding)}\0${snapshotContentDigest(entry.execution.result, entry.execution.raw_result, entry.execution)}`;
+  compositeKey([
+    entryQueryKey(entry, binding),
+    snapshotContentDigest(
+      entry.execution.result,
+      entry.execution.raw_result,
+      entry.execution,
+    ),
+  ]);
 
 const workflowEntryQueryKey = (
   entry: Pick<AnalysisSnapshotWorkflowEntry, "operation" | "parameters"> & {
@@ -755,7 +773,14 @@ const workflowEntryQueryKey = (
 const workflowEntryEvidenceKey = (
   entry: AnalysisSnapshotWorkflowEntry,
 ): string =>
-  `${workflowEntryQueryKey(entry)}\0${snapshotContentDigest(entry.execution.result, entry.execution.raw_result, entry.execution)}`;
+  compositeKey([
+    workflowEntryQueryKey(entry),
+    snapshotContentDigest(
+      entry.execution.result,
+      entry.execution.raw_result,
+      entry.execution,
+    ),
+  ]);
 
 const isWorkflowEvidence = (
   evidence: Evidence,
@@ -781,8 +806,10 @@ const evidenceMatchesWorkflowEntry = (
   snapshot: Pick<AnalysisSnapshot, "target">,
 ): boolean =>
   isWorkflowEvidence(evidence, snapshot, entry) &&
-  `${evidenceQueryKey(evidence)}\0${evidenceContentDigest(evidence)}` ===
-    workflowEntryEvidenceKey(entry);
+  compositeKey([
+    evidenceQueryKey(evidence),
+    evidenceContentDigest(evidence),
+  ]) === workflowEntryEvidenceKey(entry);
 
 const evidenceContentMetadata = (evidence: Evidence) => ({
   limitations: evidence.limitations,
