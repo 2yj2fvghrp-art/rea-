@@ -6,6 +6,8 @@ import {
 } from "../../tests/fixtures/idaMcp.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import { decodeIdaToolResult } from "./IdaMcpConnection.js";
 import type { AnalysisOperation } from "../application/AnalysisProvider.js";
 import { IdaSessionClient } from "./IdaSessionClient.js";
 
@@ -139,6 +141,7 @@ describe("headless IDA procedure lookup failures", () => {
     ["Not a function", "read_function_instructions", "main"],
     ["Not a function", "procedure_pseudo_code", "0x1000"],
     ["Not found", "procedure_assembly", "_missing"],
+    ["Not found", "procedure_pseudo_code", "main\nsecond line"],
   ] as const)(
     "reports the upstream %s answer for %s of %s as an invalid request naming the procedure",
     async (upstream, operation, procedure) => {
@@ -164,17 +167,23 @@ describe("headless IDA procedure lookup failures", () => {
         );
         expect(
           projected.details,
-          "the operation and exactly one issue on the procedure argument",
+          "the operation and exactly one issue that names the procedure in its message",
         ).toEqual({
           operation,
           issues: [
             {
-              path: ["procedure"],
+              path: [],
               reason: "invalid_value",
               message: `IDA could not resolve procedure ${JSON.stringify(procedure)}: ${upstream}.`,
             },
           ],
         });
+        if (!(result.error instanceof AnalysisInputError))
+          throw new Error("expected an AnalysisInputError");
+        expect(
+          result.error.issues.map(({ message }) => message ?? "").join(""),
+          "a control character in the query is carried JSON-escaped, never raw",
+        ).not.toContain("\n");
         expect(
           (result.error.cause as Error | undefined)?.message,
           "the upstream text stays on the retained cause",
@@ -300,6 +309,48 @@ describe("attached IDA procedure lookup failures", () => {
       expect(
         projectAnalysisError(result.error).code,
         "the legacy profile keeps its pre-existing classification",
+      ).toBe("unreadable_output");
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("leaves an MCP error reply for an unknown legacy name as unreadable output", async () => {
+    const { root, target } = await createIdaTarget();
+    roots.push(root);
+    const producer = new RecordingIdaMcp(target, "attached");
+    producer.beforeCall = async (name) => {
+      if (name === "get_function_by_name")
+        decodeIdaToolResult({
+          content: [{ type: "text", text: "Function not found: main" }],
+          isError: true,
+        });
+    };
+    const client = new IdaSessionClient(
+      {
+        command: "fixture",
+        args: [],
+        env: {},
+        mode: "attached",
+        timeoutMs: 1000,
+        workspaceRoot: root,
+      },
+      target,
+      producer,
+    );
+    try {
+      const result = await client.execute("procedure_pseudo_code", {
+        procedure: "main",
+      });
+
+      if (result.ok) throw new Error("expected unreadable output");
+      expect(
+        result.error._tag,
+        "a producer error reply, not caller input",
+      ).toBe("AnalysisProtocolError");
+      expect(
+        projectAnalysisError(result.error).code,
+        "the legacy profile keeps its existing classification",
       ).toBe("unreadable_output");
     } finally {
       expect((await client.close()).ok).toBe(true);
