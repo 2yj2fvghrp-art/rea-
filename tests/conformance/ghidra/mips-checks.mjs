@@ -198,7 +198,7 @@ export function assertMipsGlobal(bytes, byteOrder) {
 /**
  * Soft-float o32 places float/double values exactly where a same-size integer
  * goes: Ghidra joins register pairs most-significant word first. The struct
- * return keeps its hidden $a0 pointer, so its float is retyped to an integer.
+ * return keeps its hidden $a0 pointer and its float in $a1.
  */
 export function assertMipsSoftFloatStorage(boundaries, byteOrder) {
   language(byteOrder);
@@ -233,7 +233,7 @@ export function assertMipsSoftFloatStorage(boundaries, byteOrder) {
       return: ["rea_mips_soft_pair *", "v0:4"],
       parameters: [
         ["__return_storage_ptr__", "rea_mips_soft_pair *", "a0:4 (auto)"],
-        ["scale", "uint", "a1:4"],
+        ["scale", "float", "a1:4"],
         ["sel", "int", "a2:4"],
       ],
     },

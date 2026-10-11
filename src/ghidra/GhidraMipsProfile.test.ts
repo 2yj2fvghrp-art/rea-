@@ -163,9 +163,9 @@ describe("bounded Ghidra MIPS admission", () => {
 
 describe("soft-float MIPS storage", () => {
   const report: GhidraMipsSoftFloatReport = {
-    policy: "o32-integer-registers-v1",
-    remapped: 3,
-    retyped: 1,
+    policy: "o32-soft-float-prototype-v1",
+    functions: 5,
+    definitions: 1,
   };
   const session = async (
     value: BinaryTarget,
@@ -225,7 +225,7 @@ describe("soft-float MIPS storage", () => {
     expect(ghidra.inspectTargetSupport(soft).status).toBe("supported");
     const { profile } = await session(soft, report);
     expect(profile.parameters.mips_soft_float_storage).toBe(
-      "o32-integer-registers-v1",
+      "o32-soft-float-prototype-v1",
     );
     const hard = await session(target(), undefined);
     expect(hard.profile.parameters).not.toHaveProperty(
@@ -233,7 +233,7 @@ describe("soft-float MIPS storage", () => {
     );
   });
 
-  it("reports the remapping outcome as session limitations", async () => {
+  it("reports the prototype outcome as session limitations", async () => {
     const { client } = await session(target(softFloat), report);
     const health = await client.execute("health", {});
     if (!health.ok) throw health.error;
@@ -241,7 +241,7 @@ describe("soft-float MIPS storage", () => {
       expect.arrayContaining([
         expect.stringContaining("model hard-float o32 only"),
         expect.stringContaining(
-          "3 functions kept float types with remapped storage; 1 functions had float types replaced by same-size integers.",
+          "5 functions and 1 function-pointer definitions use __rea_soft_float.",
         ),
       ]),
     );

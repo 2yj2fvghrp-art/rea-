@@ -46,8 +46,8 @@ const sessionInfoSchema = z
     mips_soft_float_storage: z
       .object({
         policy: z.literal(GHIDRA_MIPS_SOFT_FLOAT_STORAGE),
-        remapped: z.number().int().nonnegative(),
-        retyped: z.number().int().nonnegative(),
+        functions: z.number().int().nonnegative(),
+        definitions: z.number().int().nonnegative(),
       })
       .strict()
       .optional(),

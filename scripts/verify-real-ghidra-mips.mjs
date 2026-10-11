@@ -100,17 +100,23 @@ async function verifySoftFloat(call, symbols, byteOrder) {
       procedure: symbols.rea_mips_soft_caller,
     }),
   );
+  // Includes the struct call and the indirect call through a typed pointer.
   assert.doesNotMatch(caller.pseudocode, /\bin_f\d+\b/u);
-  for (const literal of ["1.5", "2.5", "3.25", "4.75", "5.5", "6.125"])
+  for (const literal of [
+    "1.5",
+    "2.5",
+    "3.25",
+    "4.75",
+    "5.5",
+    "6.125",
+    "7.5",
+    "8.5",
+    "9.5",
+  ])
     assert.ok(
       caller.pseudocode.includes(literal),
       `Soft-float caller lost argument ${literal}`,
     );
-  // Retyped: 7.5f reaches the struct callee as its integer bit pattern.
-  assert.ok(
-    caller.pseudocode.includes("0x40f00000"),
-    "Soft-float caller lost the retyped struct-call argument",
-  );
   return { storage: boundaries };
 }
 const reports = [];
@@ -345,16 +351,16 @@ try {
       );
       assert.equal(
         snapshot.binding.analysis_profile.parameters.mips_soft_float_storage,
-        floatAbi === "soft" ? "o32-integer-registers-v1" : undefined,
+        floatAbi === "soft" ? "o32-soft-float-prototype-v1" : undefined,
       );
       assert.equal(
         snapshot.evidence_bundle.records.some((record) =>
-          JSON.stringify(record).includes(
-            "Soft-float storage outcome: 3 functions kept float types with remapped storage; 1 functions had float types replaced by same-size integers.",
+          /Soft-float prototype outcome: 4 functions and [1-9]\d* function-pointer definitions use __rea_soft_float\./u.test(
+            JSON.stringify(record),
           ),
         ),
         floatAbi === "soft",
-        "Soft-float storage outcome missing from, or unexpected in, retained Evidence",
+        "Soft-float prototype outcome missing from, or unexpected in, retained Evidence",
       );
       assert.ok(snapshot.evidence_bundle.records.length > 0);
       if (psp) {

@@ -55,32 +55,36 @@ identity is versioned independently of file identity. Evidence, lifecycle
 outputs and saved snapshots preserve the `mips` family. Hopper and IDA adapters
 do not implicitly gain MIPS support. Windows Ghidra P0 remains PE x86/x86-64 only.
 
-### Soft-float storage
+### Soft-float prototype
 
 Ghidra's MIPS32 compiler specifications model hard-float o32 only: a typed
 `float` or `double` parameter is bound to `$f12`/`$f14` and returned in `$f0`.
 Soft-float o32 passes those values in integer registers and stack slots, so a
-typed signature (for example from DWARF) would make the decompiler read FPU
-registers the code never writes and drop the real dataflow. For soft-float
-targets REA commits `mips_soft_float_storage: o32-integer-registers-v1` in the
-analysis profile and runs `ReaGhidraMipsSoftFloat.java` after auto-analysis.
-For each non-thunk function with a float/double formal parameter or return
-type it either:
+typed prototype (for example from DWARF) would make the decompiler read FPU
+registers the code never writes and drop the real dataflow. That applies to
+functions, external functions and indirect calls through typed function
+pointers alike.
 
-- keeps the declared types and binds each to the storage Ghidra's own o32 model
-  assigns to an unsigned integer of the same size, including `$a2:$a3` pair
-  alignment and stack spill; or
-- for functions with auto-parameters (such as a hidden struct-return pointer)
-  or float sizes other than 4 or 8 bytes, replaces the float types with
-  same-size integers and lets Ghidra recompute dynamic storage, which keeps the
-  hidden `$a0` pointer.
+For soft-float targets REA commits
+`mips_soft_float_storage: o32-soft-float-prototype-v1` in the analysis profile
+and runs `ReaGhidraMipsSoftFloat.java` after auto-analysis. The script encodes
+the program's own default o32 prototype, removes its floating-point parameter
+and return entries and the rules that consume floating-point storage, and
+installs the result as the program-specific `__rea_soft_float` prototype through
+a Ghidra specification extension. Deriving it keeps the byte-order-specific
+aggregate rules and the hidden struct-return pointer. The script then assigns
+that prototype, with dynamic storage, to every non-thunk function and external
+function, and to every function-pointer definition, whose declared types use
+`float` or `double`. Thunks follow their targets. Types are kept.
 
-No function is left on hard-float storage. The script records both counts last;
-REA requires that report exactly when the profile commits the policy and
-refuses the session otherwise, before serving any operation. Session Evidence
-carries the policy and counts as limitations. Functions without typed float
-signatures are unchanged: Ghidra already infers integer-register parameters for
-them. Hard-float profiles do not gain the policy, so their digests are unchanged.
+The script fails, and writes no report, if the derived prototype still places a
+float in an FPU register or any reassigned function does. It records the
+function and definition counts last; REA requires that report exactly when the
+profile commits the policy and refuses the session otherwise, before serving any
+operation. Session Evidence carries the policy and counts as limitations.
+Callables without typed float signatures keep Ghidra's default prototype, under
+which Ghidra already infers integer-register parameters. Hard-float profiles do
+not gain the policy, so their digests are unchanged.
 
 ## Use
 
@@ -136,10 +140,11 @@ decompilation, distinct artifact digest and missing-section limitations through
 CLI Evidence and an MCP-produced snapshot. Caller-selected Ghidra heap limits
 are passed to these child workflows.
 For soft-float fixtures the lane also checks, through `inspect_native_api`, the
-exact parameter and return storage of float, double, mixed (pair alignment and
-stack spill) and struct-returning functions; that a caller's decompilation
-receives every source float constant without FPU inputs; and that the snapshot
-profile and Evidence retain the storage policy and outcome counts.
+exact parameter and return types and storage of float, double, mixed (pair
+alignment and stack spill) and struct-returning functions; that a caller's
+decompilation receives every source float constant without FPU inputs,
+including an indirect call through a typed function pointer; and that the
+snapshot profile and Evidence retain the policy and outcome counts.
 Pseudocode presence is a liveness check, not proof of semantic equivalence.
 Instruction decoding and reader agreement likewise do not establish runtime,
 delay-slot execution or complete floating-point semantics. Assertion regressions

@@ -304,7 +304,7 @@ describe("MIPS soft-float real-verifier expectations", () => {
             "rea_mips_soft_pair *",
             "a0:4 (auto)",
           ),
-          item(1, "scale", "uint", "a1:4"),
+          item(1, "scale", "float", "a1:4"),
           item(2, "sel", "int", "a2:4"),
         ],
       },
@@ -334,7 +334,7 @@ describe("MIPS soft-float real-verifier expectations", () => {
     expect(() => assertMipsSoftFloatStorage(unaligned, "little")).toThrow();
     const lostHiddenReturn = boundaries("little");
     lostHiddenReturn.rea_mips_soft_struct.parameters = [
-      { ordinal: 0, name: "scale", data_type: "uint", storage: "a0:4" },
+      { ordinal: 0, name: "scale", data_type: "float", storage: "a0:4" },
       { ordinal: 1, name: "sel", data_type: "int", storage: "a1:4" },
     ];
     expect(() =>

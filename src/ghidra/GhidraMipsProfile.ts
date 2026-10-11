@@ -54,8 +54,8 @@ export const ghidraMipsUnsupportedReason = (
   return null;
 };
 
-/** Soft-float storage policy applied by ReaGhidraMipsSoftFloat.java after analysis. */
-export const GHIDRA_MIPS_SOFT_FLOAT_STORAGE = "o32-integer-registers-v1";
+/** Soft-float prototype policy applied by ReaGhidraMipsSoftFloat.java after analysis. */
+export const GHIDRA_MIPS_SOFT_FLOAT_STORAGE = "o32-soft-float-prototype-v1";
 
 /** Whether the admitted target declares the soft-float o32 ABI. */
 export const isGhidraMipsSoftFloatTarget = (target: BinaryTarget): boolean =>
@@ -64,11 +64,11 @@ export const isGhidraMipsSoftFloatTarget = (target: BinaryTarget): boolean =>
   target.mips?.abiFlags?.cpr1Size === 0 &&
   target.mips.abiFlags.fpAbi === MIPS_FP_ABI_SOFT;
 
-/** Storage outcome the post-analysis script records for the bridge handshake. */
+/** Prototype outcome the post-analysis script records for the bridge handshake. */
 export interface GhidraMipsSoftFloatReport {
   readonly policy: typeof GHIDRA_MIPS_SOFT_FLOAT_STORAGE;
-  readonly remapped: number;
-  readonly retyped: number;
+  readonly functions: number;
+  readonly definitions: number;
 }
 
 /** Fail closed unless soft-float storage ran exactly for soft-float targets. */
@@ -79,21 +79,21 @@ export const ghidraMipsSoftFloatFailure = (
   expected === (report !== undefined)
     ? undefined
     : expected
-      ? "The Ghidra session did not report the committed MIPS soft-float storage remapping."
+      ? "The Ghidra session did not report the committed MIPS soft-float prototype."
       : "The Ghidra session reported MIPS soft-float storage that the profile did not commit.";
 
-/** Keep REA's storage remapping distinct from Ghidra's hard-float o32 model. */
+/** Keep REA's soft-float prototype distinct from Ghidra's hard-float o32 model. */
 export const ghidraMipsSoftFloatLimitations = (
   expected: boolean,
   report?: GhidraMipsSoftFloatReport,
 ): readonly string[] =>
   expected
     ? [
-        "Soft-float o32: Ghidra's MIPS32 compiler specifications model hard-float o32 only. After analysis REA keeps each declared float/double parameter and return type but binds it to the integer registers or stack slots o32 assigns to a same-size integer. Functions with auto-parameters (such as a hidden struct-return pointer) or float sizes other than 4 or 8 bytes instead have their float types replaced by same-size integers so Ghidra derives the integer placement itself.",
+        "Soft-float o32: Ghidra's MIPS32 compiler specifications model hard-float o32 only. After analysis REA installs a program-specific `__rea_soft_float` prototype, derived from the default o32 model without its floating-point registers and rules, and assigns it to every function, external function and function-pointer definition whose declared types use float or double, so those values keep their types and use integer registers and stack slots.",
         ...(report === undefined
           ? []
           : [
-              `Soft-float storage outcome: ${report.remapped} functions kept float types with remapped storage; ${report.retyped} functions had float types replaced by same-size integers.`,
+              `Soft-float prototype outcome: ${report.functions} functions and ${report.definitions} function-pointer definitions use __rea_soft_float.`,
             ]),
       ]
     : [];
