@@ -195,6 +195,27 @@ outside-memory and undecodable addresses have separate outcomes. Effective
 memory base/index/displacement roles and per-instruction context mode remain
 unavailable; `mode` is the program language variant.
 
+`inspect_native_instruction` also returns `incoming_references` to the exact
+queried address, including data, interior-instruction and undecodable addresses.
+Ghidra enumerates its ReferenceManager, excludes synthetic entry-point
+references, and returns deterministic source-address ordering while retaining
+distinct operand references from the same source. `[]` means that enumeration
+found no references; omission or `null` means this facet is unavailable in an
+older capture or another provider. Empty static references do not prove that
+the address is unused at runtime. The existing `references` field still holds
+outgoing instruction references, and `xrefs` still returns bare source addresses.
+The Ghidra analysis profile versions this incoming-reference coverage. Reopen
+the target without an older snapshot and save a fresh snapshot to acquire it;
+the older snapshot's Evidence bundle remains readable with this facet unavailable.
+
+Compact incoming, outgoing instruction and call-target references preserve the source
+address, operand index, DATA/READ/WRITE classification, primary status, provider
+`provenance`, and reference `source` (for Ghidra: `analysis`, `default`, `imported`
+or `user_defined`). Primary status reports the provider's chosen reference; it
+does not establish literal addressing. Analyzer-inferred indexed targets remain
+static references, not observed runtime reads or writes. Older evidence may omit
+the additive fields, and null or omitted facts mean unavailable rather than false.
+
 Ghidra distinguishes a return using decoded instruction p-code's `RETURN`
 operation. `flow.classification_evidence` preserves the Listing flow type and
 the observed return evidence; mnemonic spelling alone is not the classifier.
@@ -389,6 +410,12 @@ unpaired Unicode surrogate; a rejection identifies the field and UTF-16 index
 and leaves every annotation unchanged. CRLF, supplementary Unicode characters,
 and combining characters are preserved. Windows P0 remains read-only. Ghidra has no
 GUI authority, and REA never falls back automatically to Hopper.
+`set_address_name` and `set_addresses_names` give Ghidra sessions the same
+compact naming results as Hopper: a local function entry renames that function,
+and any other mapped address, such as a global, receives a new or renamed primary
+label. A batch applies each address separately and reports one success boolean
+per address. Use them to name many globals and helpers cheaply; use
+`annotate_native_function` when you also want comments and a refreshed dossier.
 Ghidra name edits preserve the existing namespace. Supply either a leaf name
 such as `renamed` or a fully qualified name in that namespace, such as
 `alpha::renamed`. The returned qualified name can be reused as an idempotent

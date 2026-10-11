@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +16,12 @@ import {
 import { projectHarmonyApplicationEvidence } from "../../../src/application/harmony/HarmonyApplicationService.js";
 import { createDirectAnalysis } from "../../../src/composition/directAnalysis.js";
 import { harmonyApplicationProjectionResultSchema } from "../../../src/domain/harmony/harmonyApplication.js";
+import { artifactInventoryResultSchema } from "../../../src/domain/artifactGraph.js";
+import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
+import {
+  ZIP_PACKAGE_FORMATS,
+  ZIP_NON_ENTRY_TAIL_LIMITATION,
+} from "../../../src/domain/zipPackageFormat.js";
 
 const { runProviderAnalysis } = createDirectAnalysis({});
 const elf = Uint8Array.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]);
@@ -156,6 +163,12 @@ describe("HarmonyOS packaging boundaries", () => {
     const path = await writeApplicationZip("rea-harmony-fa-", "Legacy.hap", [
       { path: "config.json", content: '{"app":{}}' },
       { path: "assets/js/default.js", content: "legacy();" },
+      { path: "assets/entry/resources.index", content: "resource index" },
+      {
+        path: "assets/entry/resources/base/element/strings.json",
+        content: "{}",
+      },
+      { path: "assets/feature/resources/rawfile/icon.png", content: "image" },
     ]);
     const inventory = await inventoryApplicationPackage(path);
     const result = projectHarmonyApplicationEvidence({
@@ -166,6 +179,11 @@ describe("HarmonyOS packaging boundaries", () => {
     );
     expect(projection.packaging_model).toBe("fa");
     expect(projection.runtime_families).toEqual(["javascript"]);
+    expect(projection.components.resources.map(({ path }) => path)).toEqual([
+      "assets/entry/resources.index",
+      "assets/entry/resources/base/element/strings.json",
+      "assets/feature/resources/rawfile/icon.png",
+    ]);
   });
 
   it("rejects non-HarmonyOS inventory Evidence", async () => {
@@ -192,5 +210,66 @@ describe("HarmonyOS packaging boundaries", () => {
       error: "Analysis failed",
       code: "target_unavailable",
     });
+  });
+});
+
+describe("HarmonyOS inventory coverage", () => {
+  it.each(ZIP_PACKAGE_FORMATS)(
+    "retains archive identity and ZIP coverage for %s",
+    async (format) => {
+      const suffix = format === "app-pack" ? "app" : format;
+      const path = await writeApplicationZip(
+        "rea-package-family-",
+        `Fixture.${suffix}`,
+        [{ path: "module.json", content: "{}" }],
+      );
+      const target = await parseBinaryTarget(path);
+      if (!target.ok) throw target.error;
+      expect(target.value).toMatchObject({ kind: "archive", format });
+      const evidence = await inventoryApplicationPackage(path);
+      const inventory = artifactInventoryResultSchema.parse(
+        evidence.normalized_result,
+      );
+      expect(
+        inventory.occurrences.find(({ logical_path }) => logical_path === "."),
+      ).toMatchObject({
+        artifact_kind: "container",
+        artifact_format: format,
+      });
+      expect(inventory.limitations).toContain(ZIP_NON_ENTRY_TAIL_LIMITATION);
+    },
+  );
+
+  it("preserves unavailable encrypted component paths and qualifies absence", async () => {
+    const root = await createTestTempDirectory("rea-harmony-encrypted-");
+    const path = join(root, "Locked.hap");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add("module.json", new TextReader("{}"));
+    await writer.add("ets/modules.abc", new TextReader("opaque bytecode"), {
+      password: "fixture-only",
+    });
+    await writeFile(path, await writer.close());
+    const evidence = await inventoryApplicationPackage(path);
+    const projection = requireDeterministicProjection(
+      projectHarmonyApplicationEvidence,
+      evidence,
+      harmonyApplicationProjectionResultSchema,
+    );
+    expect(projection.components.bytecode).toEqual([]);
+    expect(projection.unavailable_components).toEqual([
+      expect.objectContaining({
+        path: "ets/modules.abc",
+        artifact_id: null,
+        sha256: null,
+        encrypted: true,
+      }),
+    ]);
+    expect(projection.coverage).toEqual({
+      status: "partial",
+      inventory_complete: true,
+    });
+    expect(projection.limitations).toContainEqual(
+      expect.stringContaining("component and runtime absence is unknown"),
+    );
   });
 });

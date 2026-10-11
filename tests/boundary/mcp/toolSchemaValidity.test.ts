@@ -4,6 +4,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { advertisedInputExamples } from "../../../src/contracts/advertisedInputExamples.js";
 import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
 import { emptyArraySchema } from "../../../src/domain/emptyArraySchema.js";
 import { processScenarioSchema } from "../../../src/domain/process/processScenario.js";
@@ -353,8 +354,9 @@ describe("MCP JSON Schema validity", () => {
         const tool = byName.get(contract.name);
         expect(tool?.title?.trim(), contract.name).toBeTruthy();
         expect(tool?.description?.trim(), contract.name).toBeTruthy();
+        const examples = advertisedInputExamples(contract);
         expect(tool?.inputSchema.examples, contract.name).toEqual(
-          contract.examples.map(({ input }) => input),
+          examples.length === 0 ? undefined : examples,
         );
         for (const example of contract.examples)
           expect(
@@ -456,6 +458,95 @@ describe("MCP root input schemas", () => {
 it(
   "advertises and enforces the process-owned environment key constraint",
   advertiseAndEnforceProcessEnvironmentKeyConstraint,
+);
+
+const advertiseAndEnforceItemSelectorCollectionConstraints =
+  async (): Promise<void> => {
+    const contract = TOOL_CONTRACTS.find(
+      ({ name }) => name === "inspect_analysis_view",
+    );
+    if (contract === undefined)
+      throw new Error("inspect_analysis_view contract was not registered");
+
+    const server = new McpServer({
+      name: "item-selector-schema",
+      version: "0",
+    });
+    server.registerTool(
+      contract.name,
+      toolRegistrationOptions(contract),
+      async () => ({
+        content: [],
+      }),
+    );
+    const client = new Client({ name: "item-selector-schema", version: "0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const advertised = (await client.listTools()).tools.find(
+        ({ name }) => name === contract.name,
+      );
+      if (advertised === undefined)
+        throw new Error("inspect_analysis_view tool was not advertised");
+
+      const validate = new Ajv2020({
+        strict: false,
+        validateFormats: false,
+      }).compile(advertised.inputSchema);
+      const source = {
+        kind: "retained-evidence",
+        evidence_id: `ev_${"a".repeat(64)}`,
+      };
+      const itemInput = (collection: string, selector: unknown) => ({
+        source,
+        view: { kind: "item", collection, selector },
+      });
+      const nodeId = `jag_node_${"b".repeat(64)}`;
+      // Collection-specific selector constraints must survive JSON Schema
+      // conversion: the advertised schema rejects exactly what runtime
+      // input validation rejects.
+      const invalid: ReadonlyArray<readonly [string, unknown]> = [
+        ["modules", { index: 0 }],
+        ["modules", { name: "entry" }],
+        ["sections", { path: "/src/entry.js" }],
+        ["symbols", { node_id: nodeId }],
+      ];
+      const valid: ReadonlyArray<readonly [string, unknown]> = [
+        ["modules", { path: "/src/entry.js" }],
+        ["modules", { node_id: nodeId }],
+        ["sections", { index: 0 }],
+        ["sections", { name: ".text" }],
+        ["symbols", { index: 0 }],
+        ["symbols", { name: "main" }],
+      ];
+      for (const [collection, selector] of invalid) {
+        const input = itemInput(collection, selector);
+        const label = `${collection}/${Object.keys(selector as object)[0]}`;
+        expect(contract.inputSchema.safeParse(input).success, label).toBe(
+          false,
+        );
+        expect(validate(input), `advertised schema rejects ${label}`).toBe(
+          false,
+        );
+      }
+      for (const [collection, selector] of valid) {
+        const input = itemInput(collection, selector);
+        const label = `${collection}/${Object.keys(selector as object)[0]}`;
+        expect(contract.inputSchema.safeParse(input).success, label).toBe(true);
+        expect(validate(input), `advertised schema accepts ${label}`).toBe(
+          true,
+        );
+      }
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+    }
+  };
+
+it(
+  "advertises and enforces the item selector collection constraints",
+  advertiseAndEnforceItemSelectorCollectionConstraints,
 );
 
 describe("MCP process input JSON Schema", () => {

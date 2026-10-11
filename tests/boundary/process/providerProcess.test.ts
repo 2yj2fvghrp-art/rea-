@@ -202,9 +202,11 @@ describe("provider process output and cleanup primitives", () => {
     expect(snapshot).toMatchObject({
       stdout: {
         bytes: outputBytes,
+        observedBytes: outputBytes,
       },
       stderr: {
         bytes: outputBytes,
+        observedBytes: outputBytes,
       },
       exitCode: 23,
       signal: null,
@@ -379,6 +381,20 @@ describe("provider process host injection", () => {
           spawned.process.once("close", () => resolve()),
         );
     }
+  });
+});
+
+describe("provider process memory limits", () => {
+  it("refuses a memory limit that the selected launcher cannot enforce", async () => {
+    await expect(
+      spawnOwnedProviderProcess({
+        command: `${tmpdir()}/rea-provider-must-not-spawn-without-limit`,
+        arguments: [],
+        runId: "provider-process-unenforceable-limit-run",
+        platform: "linux",
+        memoryLimitBytes: 704 * 1024 * 1024,
+      }),
+    ).rejects.toThrow("require the Windows Job Object launcher");
   });
 });
 

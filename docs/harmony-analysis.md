@@ -26,8 +26,9 @@ project the graph; CLI and MCP use the same workflow and return
 artifact-bound Evidence inline:
 
 ```sh
-rea inspect-artifact /path/to/Example.hap > inspection.json
-rea project-harmony-application-graph inspection.json
+rea inspect-artifact /path/to/Example.hap --format json > inspection.json
+node --input-type=module -e 'import { readFileSync } from "node:fs"; console.log(JSON.stringify({ inventory_evidence: [JSON.parse(readFileSync("inspection.json", "utf8"))] }));' > projection-input.json
+rea project-harmony-application-graph projection-input.json --format json
 ```
 
 The MCP tool `project_harmony_application_graph` takes the same
@@ -37,6 +38,8 @@ The MCP tool `project_harmony_application_graph` takes the same
   resources, native libraries, JavaScript, signing)
 - a packaging-model hint: Stage is claimed only from a `module.json` entry,
   FA only from `config.json`, otherwise `unknown`
+- FA resources under `assets/<module>/resources/` as well as Stage `resources/`
+- unavailable component paths with unknown IDs and hashes, including encrypted entries; these make projection coverage partial
 - App Pack child package paths without recursive inventory
 - runtime-family hints (`ark`, `native`, `javascript`) from paths and formats
 - path-based N-API bridge hypotheses between bytecode and `libs/<abi>` native
@@ -51,25 +54,26 @@ closed on packages whose inventory cannot be authenticated.
 
 ## Verification lane
 
-`npm run fixtures:harmony` downloads the pinned VHome 2.6.14-beta unsigned
-HAP release (a real Stage-model package produced by the official OpenHarmony
-toolchain) with SHA-256 verification into `_reference/harmony-integration/`.
-The upstream project declares no license, so the fixture is downloaded at
-verification time and never redistributed. The upstream repository rotates
-and replaces release assets; a SHA-256 mismatch means the pin must be
-re-examined against the current upstream asset, not retried.
+`npm run fixtures:harmony` downloads the SHA-256-pinned 1.0.1 HAP release
+from the MIT-licensed [harmony-next-pipeline source repository](https://github.com/ohosvscode/harmony-next-pipeline)
+into ignored `_reference/harmony-integration/`. The pin records the source
+revision, release asset ID, size, and digest. The downloaded artifact is not
+redistributed; bundled component licenses have not been independently audited.
 
 ```sh
 npm run fixtures:harmony
-REA_HARMONY_TEST_HAP=_reference/harmony-integration/VHome-2.6.14-beta-unsigned.hap \
+REA_HARMONY_TEST_HAP=_reference/harmony-integration/entry-default-unsigned.hap \
   npm run verify:harmony
 ```
 
-The lane exercises the compiled CLI and a stdio MCP server against the real
-package: `inspect_artifact` authenticity, projection determinism, Stage-model
-classification, exact bytecode/native-library/resource component sets, the
-unsigned-build signing boundary, N-API bridge hypotheses, complete-inventory
-coverage, and CLI/MCP result parity. The pinned package is an unsigned build,
-so the lane asserts the signing component is empty; an empty signing list
-never means a package is unsigned, because packaging-tool signatures live in
-the ZIP signing block rather than archive entries.
+The lane exercises the compiled CLI and actual SDK-connected stdio MCP:
+`inspect_artifact` authenticity, projection determinism, Stage-model path hints,
+exact manifest/bytecode/resource component sets, empty native and bridge sets,
+complete-inventory coverage, and CLI/MCP parity. It checks that this fixture has
+no META-INF signing entries; that does not establish whether the package is signed.
+
+The release artifact's compiler/SDK versions and reproducible source build have
+not been independently established. This lane does not complete the pinned
+toolchain acceptance in #1431 and does not verify Ark decoding or signatures.
+Set `REA_HARMONY_ENTRYPOINT` to an installed package's `scripts/rea.mjs` to run
+the same checks against that package; the default lane uses the repository build.

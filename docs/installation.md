@@ -36,7 +36,26 @@ Setup continues to pin persistent MCP registrations to the exact version that
 performed setup. Running current setup later migrates unversioned or older
 managed registrations through the normal reviewed setup transaction.
 
+With Bun, `bunx rea-agents setup` (or `bunx rea-agents@latest setup`) is the
+equivalent entry point. Setup run through `npx` registers
+`npx -y rea-agents@<version> mcp`; setup run through `bunx` or `bun x` registers
+`bunx rea-agents@<version> mcp`. On Windows, setup wraps either command in
+`cmd.exe /d /c` so clients can start the runner's command shim. Neither
+registration points into the runner's temporary package cache.
+
 REA supports Node.js 22.x (>=22.19), 24.x (>=24.11), and 26+. Node.js 23, 25, and prereleases are unsupported. It uses the npm already paired with that runtime and never upgrades Node.js, npm, or Homebrew.
+
+When REA runs on Bun, the `rea doctor` `node` check reports the Bun version and
+the Node.js compatibility version Bun declares, and passes when that
+compatibility version is in the supported range. Bun does not enforce the V8
+heap flags REA gives its owned helper processes, so Evidence that reports those
+limits on Node.js records them as unavailable under Bun. On Windows, the owned
+Job Object of each JavaScript helper (source analyzer, source-map codec and HAR
+decoder) instead limits its committed memory to that helper's heap budget plus
+a 512 MiB reserve for Bun itself, and Evidence reports that limit. This needs
+the matching bundled Windows native artifact; an artifact without the control
+refuses to start the helper rather than running it unlimited. CI tests Node.js
+only.
 
 Running `npm install rea-agents` without `--global` installs the executable only
 in the current project's `node_modules/.bin`; it does not make `rea` available
@@ -68,13 +87,15 @@ selects the npm release, and persistent MCP registrations are pinned to the
 version that performed setup. Installing newer instructions does not update a
 running server or its registration.
 
-The release checked on **2026-10-07** was **5.0.0** (133 MCP tools), published
-from the fixed checkpoint
-[`b33236ec`](https://github.com/morluto/rea/releases/tag/rea-agents-5.0.0).
-The public CLI, MCP catalog and target-free session, and isolated update from
-4.1.0 to 5.0.0 were verified through npm. The artifact includes Windows native
-controls, Android/JADX and firmware tools, Ghidra function annotations, and
-retained application-Evidence references.
+The npm release checked on **2026-10-11** was **6.4.0**, published from
+[`a56f7bb6`](https://github.com/morluto/rea/commit/a56f7bb668ab23fec8d33f7af353ac7ed2fe1895).
+The actual registry package accepted dry-run setup plans for all 17 client IDs
+listed below, including Qwen Code, Pi and Hermes. OpenCode's plan selected
+`OPENCODE_CONFIG_DIR` even when that directory did not yet exist. These checks
+used an isolated home on macOS with Node 24; they verify planning and argument
+admission, without writing client configuration or establishing live integration
+with every client. This resolves the npm 6.3.0 setup gaps tracked in
+[#1650](https://github.com/morluto/rea/issues/1650).
 
 Main's catalog describes the current code. A source build or a subsequent
 release containing changes after this checkpoint is required for newer
@@ -141,6 +162,25 @@ listed after the table because its connector is not one of these files:
 | OMP                | `omp`            |
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
+
+For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
+chat with REA's full input-schema profile before sending a model request
+(`compaction_static_context_blocked`; [#1554](https://github.com/morluto/rea/issues/1554)).
+For the native offline OpenAI-compatible BYOK adapter, full-profile chat and
+analysis also passed with a distinct `COPILOT_PROVIDER_MODEL_ID` such as
+`rea-gpt-4.1`, `COPILOT_PROVIDER_WIRE_MODEL=gpt-4.1`, and that distinct ID selected
+through `copilot --model rea-gpt-4.1`. The local fixture requested
+`COPILOT_PROVIDER_MAX_PROMPT_TOKENS=1000000`; configure the limit supported by
+your backend. This keeps every full schema and the actual wire model intact.
+It does not establish the effective client budget or fix the built-in-ID path.
+The existing compact profile passed native chat and analysis with the complete
+tool inventory on Linux using a loopback model fixture. After setup, add
+`"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` to the `env` object of the
+`mcpServers.rea` entry in Copilot's `mcp-config.json`, preserving its other
+settings, then restart the client. Compact advertisements can reduce nested
+schema constraints; REA still validates complete canonical inputs. Full-profile
+`gpt-5.4` metadata is also verified locally. Live model API acceptance and
+Windows remain unverified; see [native client verification](testing.md).
 
 For [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md),
 setup writes a `type: "stdio"` entry under `mcpServers.rea` in the user-level
@@ -334,6 +374,12 @@ Hopper installation or any file write. Declining or pressing Ctrl-C makes no
 changes. Agent configuration writes preserve unrelated entries and comments,
 create backups, use atomic replacement, and verify their result. Setup and
 uninstall retain an existing `.rea.backup` rather than replacing the first snapshot.
+Setup also retains valid environment overrides in REA's existing server entry,
+such as `REA_MCP_INPUT_SCHEMA_PROFILE` and `REA_MCP_MAX_RESPONSE_BYTES`.
+Detected provider settings replace only matching environment keys.
+Setup and doctor report a malformed REA environment map or invalid runtime
+setting before setup writes files. Repair the named setting in the client
+configuration; setup does not silently discard the rest of the map.
 
 After setup, REA reports which agents, analysis tools, and workflow files passed
 its final checks. Restart any agent named in the completion message, then begin
@@ -373,9 +419,21 @@ rea setup --yes --all-detected --install-hopper --json
 Setup pins package-runner MCP registrations to the exact installed REA version,
 installs the matching skill and on-demand references in the same plan, and adds
 `startup_timeout_sec = 30` for Codex and Grok Build. `rea update` installs the exact resolved
-release into the npm prefix that owns the running package, then checks the new
-executable's version before reporting success. It does not reopen onboarding.
-Release lookup and installation both use npm's configured registry.
+release into the npm prefix or Bun global directory that owns the running
+package, then checks the new executable's version before reporting success. It
+does not reopen onboarding. For npm installations, release lookup and
+installation both use npm's configured registry. Bun global updates require
+Bun 1.2.17 or later, which introduced `bun info`. The updater checks `bun --version`
+first and stops with an instruction to upgrade Bun manually if the version is
+older or cannot be parsed; it does not upgrade Bun itself.
+For supported Bun global installations, `bun info` and
+`bun add --global --ignore-scripts` use Bun's configured registry
+and run inside the owning Bun global directory (`BUN_INSTALL_GLOBAL_DIR`, else
+`$BUN_INSTALL/install/global`, else `$XDG_CACHE_HOME/.bun/install/global`,
+else `~/.bun/install/global`), never in the caller's current project. A Bun
+global directory without its `package.json` is not treated as an owned
+installation, because Bun would install into the nearest ancestor project
+instead.
 Its maintenance plan selects only existing REA registrations and an already
 installed REA skill. Run the returned scoped setup command to review and approve
 those changes, then restart affected agents. The plan is returned in terminal,
@@ -416,7 +474,7 @@ vendor-defined limits, and a paid license is optional. REA reuses any detected
 installation and preserves Hopper during uninstall.
 
 The supported native host baseline is macOS 12+, Ubuntu 24.04+, Fedora 41+,
-Nobara 44+, 64-bit Arch Linux, or CachyOS. Ghidra and IDA have their own provider-specific
+Nobara 44+, 64-bit Arch Linux, CachyOS, or Omarchy. Ghidra and IDA have their own provider-specific
 host requirements; Windows Ghidra uses the [experimental P0 boundary](windows-ghidra-p0.md).
 
 On macOS, approved setup downloads the official DMG, checks its published size
@@ -598,8 +656,10 @@ dossiers, instructions, recovered data types, measured load mappings, loaded
 memory bytes, and observed file offsets. Independent load-image attestation
 supports DOS MZ and explicitly selected COM; PE returns its measurements with that limitation.
 On Linux and macOS, `annotate_native_function` also edits a function name and/or
-entry comments atomically and returns refreshed analysis. These session metadata
-edits leave executable bytes unchanged and are discarded on close. GUI controls
+entry comments atomically and returns refreshed analysis, and `set_address_name`
+and `set_addresses_names` name a function entry or any other mapped address
+(creating or renaming its primary label) with per-address success results. These
+session metadata edits leave executable bytes unchanged and are discarded on close. GUI controls
 require Hopper; Windows P0 remains read-only.
 
 Windows P0 admits native x86 and x86-64 PE applications and DLLs on fixed local NTFS volumes.
@@ -628,7 +688,7 @@ rea providers --json
 
 `rea setup` can configure supported Windows agents and install the bundled
 REA skill after approval. Direct registrations use Node to launch REA's entry
-script; package-runner registrations use the pinned `npx` command. Hopper
+script; package-runner registrations use the pinned `npx` or `bunx` command. Hopper
 installation remains unavailable on Windows. Setup never installs Ghidra,
 Java, or Python. It preserves valid detected Ghidra/JDK settings in agent
 registrations. See [Windows Ghidra P0](windows-ghidra-p0.md) for provider diagnostics.
@@ -683,6 +743,27 @@ Operations run until a result, caller cancellation, or provider shutdown; there
 is no fixed per-operation or response-size ceiling. Unresolved computed calls
 remain unknown, reference-kind provenance is preserved, and provider-specific
 pseudocode is never treated as original source or Hopper-equivalent text.
+
+### Ghidra import language and analysis seeds
+
+Ghidra detects the language from the executable header. To set it (for example, Borland C++ PE images):
+
+```bash
+export REA_GHIDRA_LANGUAGE_ID="x86:LE:32:default"
+export REA_GHIDRA_COMPILER_SPEC_ID="borlandcpp"   # optional; requires a language
+```
+
+REA passes `-processor`/`-cspec`, checks both against the installation's `.ldefs`, and records them in the analysis profile. DOS imports reject an override.
+
+To seed code that auto-analysis cannot reach (computed jumps, pointers in data):
+
+```bash
+export REA_GHIDRA_SEED_FILE=/absolute/path/to/seeds.tsv
+```
+
+Each line is `address<TAB>kind[<TAB>name]`, where kind is `function`, `code` or `label` (a label needs a name). Addresses are `0x` hex in the default space; `#` lines are comments. A pre-script applies seeds before auto-analysis: functions from the highest address down, then code, then labels. The seed digest is part of the analysis profile, and the session fails if the applied seeds differ. Result limitations report the outcome counts; a seed fails when it overlaps an instruction Ghidra already decoded.
+
+Label seeds can name mapped uninitialized storage such as `.bss`; function and code seeds require initialized bytes.
 
 ### Ghidra heap and CPU controls
 
@@ -774,7 +855,7 @@ Ghidra/JDK installation; neither is inferred from startup alone.
 
 ## Diagnose, update, and remove
 
-`rea doctor --json` is strictly read-only. `rea update` updates only the npm installation that owns the running CLI. Source checkouts and package-runner copies must be updated through the mechanism that owns them; a fresh package-runner invocation can use `npx rea-agents@latest`. `rea uninstall` removes only REA-owned agent registrations and skill files; `--purge-data` additionally removes REA cache and state paths.
+`rea doctor --json` is strictly read-only. `rea update` updates only the npm or Bun global installation that owns the running CLI. Source checkouts and package-runner copies must be updated through the mechanism that owns them; a fresh package-runner invocation can use `npx rea-agents@latest` or `bunx rea-agents@latest`. `rea uninstall` removes only REA-owned agent registrations and skill files; `--purge-data` additionally removes REA cache and state paths.
 
 ```bash
 rea update
@@ -810,7 +891,7 @@ For a client that requires manual configuration, use:
   "mcpServers": {
     "rea": {
       "command": "npx",
-      "args": ["-y", "rea-agents@6.3.0", "mcp"]
+      "args": ["-y", "rea-agents@6.4.0", "mcp"]
     }
   }
 }
@@ -819,6 +900,7 @@ For a client that requires manual configuration, use:
 <!-- x-release-please-end -->
 
 Persistent registrations should use one exact package version. `rea setup`
-writes the same package-runner shape and pins it to the exact version that
-performed setup. Run current setup to refresh an older registration, then
-restart the client.
+writes the same package-runner shape, or `bunx rea-agents@<version> mcp` when
+setup runs through `bunx`, and pins it to the exact version that performed
+setup. Run current setup to refresh an older registration, then restart the
+client.

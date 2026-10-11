@@ -15,6 +15,7 @@ import {
   projectionCoverage,
   projectionDigest,
   projectionEvidenceIdSchema,
+  projectionPathSchema,
 } from "../mobileApplicationGraphProjection.js";
 
 const evidenceIdSchema = projectionEvidenceIdSchema;
@@ -42,6 +43,16 @@ export const harmonyApplicationProjectionResultSchema = z.strictObject({
     javascript: z.array(componentSchema),
     signing: z.array(componentSchema),
   }),
+  unavailable_components: z.array(
+    z.strictObject({
+      path: projectionPathSchema,
+      artifact_id: z.null(),
+      sha256: z.null(),
+      format: z.string().min(1),
+      encrypted: z.boolean(),
+      limitations: z.array(z.string()),
+    }),
+  ),
   app_pack_children: z.array(componentSchema),
   runtime_families: z.array(
     z.enum(["ark", "native", "javascript", "react-native", "flutter", "unity"]),
@@ -78,6 +89,19 @@ export const projectHarmonyApplication = (
   );
   const rootFormat = harmonyRootFormat(inventory.manifest.root_format);
   const all = projectedComponents(inventory);
+  const unavailable = inventory.occurrences
+    .filter(
+      (occurrence) =>
+        occurrence.logical_path !== "." && occurrence.artifact_id === null,
+    )
+    .map((occurrence) => ({
+      path: occurrence.logical_path,
+      artifact_id: null,
+      sha256: null,
+      format: occurrence.artifact_format,
+      encrypted: occurrence.encrypted,
+      limitations: occurrence.limitations,
+    }));
   const classified = classify(all);
   const bridgeProjection = bridgeCandidates(
     classified.bytecode,
@@ -86,6 +110,11 @@ export const projectHarmonyApplication = (
   const limitations = [
     ...(!inventory.complete
       ? ["Source inventory pages are incomplete; absence is unknown."]
+      : []),
+    ...(unavailable.length > 0
+      ? [
+          "Some inventoried occurrences have no authenticated content identity. Their paths and limitations are retained in unavailable_components; component and runtime absence is unknown.",
+        ]
       : []),
     "Manifest, module, resource, and signing semantics require a dedicated HarmonyOS provider; this projection reports exact inventory paths and hashes only.",
     "The packaging model is a path-presence heuristic: a Stage model is claimed only from module.json and a FA model only from config.json; both can coexist with unusual layouts.",
@@ -113,6 +142,7 @@ export const projectHarmonyApplication = (
       .sort(compareProjectionStrings),
     packaging_model: packagingModel(classified.manifests),
     components: classified,
+    unavailable_components: unavailable,
     app_pack_children:
       rootFormat === "app-pack"
         ? all.filter(({ path }) => /\.(?:hap|hsp)$/iu.test(path))
@@ -122,7 +152,8 @@ export const projectHarmonyApplication = (
     bridge_candidate_coverage: bridgeProjection.coverage,
     coverage: projectionCoverage(
       inventory,
-      bridgeProjection.coverage.status === "complete",
+      bridgeProjection.coverage.status === "complete" &&
+        unavailable.length === 0,
     ),
     limitations,
   };
@@ -160,7 +191,8 @@ const classify = (all: readonly Component[]) => ({
   bytecode: all.filter(({ path }) => /\.(?:abc|pa)$/iu.test(path)),
   resources: all.filter(
     ({ path }) =>
-      /(?:^|\/)resources\.index$/iu.test(path) || /^resources\//iu.test(path),
+      /(?:^|\/)resources\.index$/iu.test(path) ||
+      /^(?:resources\/|assets\/[^/]+\/resources\/)/iu.test(path),
   ),
   native_libraries: all.filter(
     ({ path, format }) =>

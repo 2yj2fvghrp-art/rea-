@@ -1,13 +1,21 @@
 /** ZIP-backed application package families that share the hardened archive reader. */
-export type ZipPackageFormat =
-  | "zip"
-  | "ipa"
-  | "apk"
-  | "msix"
-  | "appx"
-  | "hap"
-  | "hsp"
-  | "app-pack";
+export const ZIP_PACKAGE_FORMATS = [
+  "zip",
+  "ipa",
+  "apk",
+  "msix",
+  "appx",
+  "hap",
+  "hsp",
+  "app-pack",
+] as const;
+export type ZipPackageFormat = (typeof ZIP_PACKAGE_FORMATS)[number];
+
+/** All ZIP package families share archive ownership and inventory coverage. */
+export const isZipPackageFormat = (
+  format: string,
+): format is ZipPackageFormat =>
+  ZIP_PACKAGE_FORMATS.some((candidate) => candidate === format);
 
 /** Recognize local-header, empty-archive, or split-archive ZIP signatures, not archive validity. */
 export const hasZipSignature = (bytes: Uint8Array): boolean =>

@@ -14,6 +14,11 @@ import {
   semanticContainer,
   semanticSlotAtPath,
 } from "./javascriptSemanticSlots.js";
+import {
+  semanticClassCandidates,
+  semanticClassPropertyReferences,
+  semanticObjectPropertyReferences,
+} from "./javascriptSemanticObjectReferences.js";
 import { semanticIterationSources } from "./javascriptSemanticIterationSources.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
 import { createSemanticReturnedReferences } from "./javascriptSemanticReturnedReferences.js";
@@ -25,27 +30,23 @@ import {
   type JavaScriptSemanticPropertyPath,
 } from "./javascriptSemanticPropertyPaths.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
-import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
+import { traverseJavaScriptAstSteps } from "./javascriptSemanticTraversal.js";
 import {
   semanticStaticPropertyKey,
+  semanticMemberWriteTargets,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 
 type PropertyPath = JavaScriptSemanticPropertyPath;
 type ValueEffect = "write" | "escape";
 
-/** Preserve uncertainty from property writes and references exposed to calls. */
-export const collectSemanticMemberMutations = (
+/** Preserve uncertainty from property writes and references exposed to calls, yielding during traversal and fixpoint iteration. */
+export function* collectSemanticMemberMutationsSteps(
   program: t.Program,
   state: JavaScriptSemanticAnalysisState,
-): void => {
+): Generator<void, void> {
   const parents = state.parentsByNode;
-  traverseJavaScriptAst(program, {
-    enter: (node, parent) => {
-      if (parent !== null) parents.set(node, parent);
-    },
-  });
-  const normalizePath = observableMutationPaths(state);
+  const observablePaths = observableMutationPaths(state);
   const returnedReferences = createSemanticReturnedReferences(state);
   const recordedEffects = new Set<string>();
   const selections = new Map<string, readonly string[]>();
@@ -125,18 +126,57 @@ export const collectSemanticMemberMutations = (
           continue;
         }
         // An alias restored from a saved reference can revisit the same binding
-        // at an earlier capture. Only a repeated lifetime closes a cycle.
-        const lifetime = JSON.stringify([
+        // at an earlier capture or a shorter getter-receiver path. Only a
+        // repeated capture and path closes a cycle.
+        const capture = [
           binding.bindingId,
           current.originAt?.start,
           current.originAt?.end,
-        ]);
+        ];
+        const lifetime = JSON.stringify([...capture, current.path]);
         if (current.bindings.has(lifetime)) continue;
+        // A self alias such as `node = node[key]` revisits its capture with the
+        // same prefix added on every cycle, so exact paths never repeat. When
+        // that prefix can never be pruned, escaping it once covers every longer
+        // effect, including writes below shared children.
+        // Only a capture already on this alias chain can repeat a prefix.
+        const captureKey = JSON.stringify(capture);
+        const revisited = current.bindings.has(captureKey);
+        let repeatedPrefix: PropertyPath | undefined;
+        for (
+          let start = 1;
+          revisited && start <= current.path.length;
+          start++
+        ) {
+          const suffix = current.path.slice(start);
+          if (!current.bindings.has(JSON.stringify([...capture, suffix])))
+            continue;
+          repeatedPrefix = current.path.slice(0, start);
+          break;
+        }
+        if (
+          repeatedPrefix !== undefined &&
+          observablePaths.repeatsUnpruned(binding.bindingId, repeatedPrefix)
+        ) {
+          markValue(
+            current.node,
+            repeatedPrefix,
+            new Set(),
+            "escape",
+            mutation,
+            current.originAt,
+          );
+          continue;
+        }
         // Union compatible copied-slot selections at each binding. Carrying every
         // combination of exclusions through branch diamonds is exponential.
         // Preserve paths that can change observed slots or Array prototype
         // effects; canonicalize suffixes that cannot distinguish lattice facts.
-        let path = normalizePath(binding.bindingId, current.path, effect);
+        let path = observablePaths.normalize(
+          binding.bindingId,
+          current.path,
+          effect,
+        );
         if (path === null) continue;
         const selectorIndex = path.findIndex(
           (key) => key !== null && typeof key === "object",
@@ -207,7 +247,7 @@ export const collectSemanticMemberMutations = (
         const primitiveWrite =
           value?.status === "literal" || value?.status === "union";
         recordedEffects.add(identity);
-        const nested = new Set([...current.bindings, lifetime]);
+        const nested = new Set([...current.bindings, lifetime, captureKey]);
         const origins =
           current.originAt === undefined
             ? binding
@@ -291,7 +331,7 @@ export const collectSemanticMemberMutations = (
         (path[0] === "constructor" && path[1] === "prototype"))
     )
       arrayIterationUnknown = true;
-    return referencedValues(expression, path, effect);
+    return referencedValues(expression, path, effect, state);
   }
   // Expanding a value below its references depends only on syntax, not on the
   // escape site. Escaping an object reaches every method's results, so
@@ -361,28 +401,16 @@ export const collectSemanticMemberMutations = (
       markEscaped(expression.object, mutation);
   };
   const markTarget = (node: t.Node, mutation: t.Node): void => {
-    if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node))
+    for (const target of semanticMemberWriteTargets(node))
       markValue(
-        node.object,
-        [semanticStaticPropertyKey(node.property, node.computed)],
+        target.object,
+        [semanticStaticPropertyKey(target.property, target.computed)],
         new Set(),
         "write",
         mutation,
       );
-    else if (t.isRestElement(node)) markTarget(node.argument, mutation);
-    else if (t.isAssignmentPattern(node)) markTarget(node.left, mutation);
-    else if (t.isArrayPattern(node)) {
-      for (const element of node.elements)
-        if (element !== null) markTarget(element, mutation);
-    } else if (t.isObjectPattern(node)) {
-      for (const property of node.properties)
-        markTarget(
-          t.isRestElement(property) ? property.argument : property.value,
-          mutation,
-        );
-    }
   };
-  traverseJavaScriptAst(program, {
+  yield* traverseJavaScriptAstSteps(program, {
     enter: (node, parent) => {
       for (const source of semanticIterationSources(node, parent))
         deferIterable({
@@ -435,7 +463,8 @@ export const collectSemanticMemberMutations = (
     const effectsBefore = recordedEffects.size;
     const iterablesBefore = iterableReferences.length;
     const iterationBefore: boolean = arrayIterationUnknown;
-    for (const reference of pendingReferences.splice(0)) {
+    for (const [index, reference] of pendingReferences.splice(0).entries()) {
+      if (index % 64 === 0) yield;
       const { initializer } = reference;
       if (referenceSourcesInactive(initializer, state))
         pendingReferences.push(reference);
@@ -480,7 +509,8 @@ export const collectSemanticMemberMutations = (
           reference.originAt,
         );
     }
-    for (const reference of [...iterableReferences]) {
+    for (const [index, reference] of [...iterableReferences].entries()) {
+      if (index % 64 === 0) yield;
       if (referenceSourcesInactive(reference, state)) continue;
       if (reference.iterationOnly) {
         const expanded = expandedIterationReferences(reference, state);
@@ -518,7 +548,7 @@ export const collectSemanticMemberMutations = (
   // Gathering effects can evaluate a primitive projection before its object
   // escapes. Final values must use the completed mutation state.
   clearSemanticPrimitiveBindingValues(state);
-};
+}
 
 interface ReferencedValue {
   readonly node: t.Node;
@@ -621,6 +651,7 @@ const referencedValues = (
   node: t.Node,
   path: PropertyPath,
   effect: ValueEffect,
+  state: JavaScriptSemanticAnalysisState,
 ): readonly ReferencedValue[] => {
   if (effect === "escape" && t.isFunction(node))
     return semanticCallableResultExpressions(node).flatMap(
@@ -631,8 +662,32 @@ const referencedValues = (
   if (t.isObjectExpression(node) || t.isArrayExpression(node)) {
     if (effect === "write" && path.length < 2) return [];
     return t.isObjectExpression(node)
-      ? objectReferencedValues(node, path)
+      ? semanticObjectPropertyReferences(node, path, state)
       : arrayReferencedValues(node, path);
+  }
+  if (t.isClass(node)) {
+    const [key, ...remaining] = path;
+    if (key === undefined) return [];
+    // Replacing or deleting the getter's property does not use the value it
+    // would return. Only a deeper path can mutate the returned object.
+    if (effect === "write" && remaining.length === 0) return [];
+    return semanticClassPropertyReferences(
+      { owner: node, kind: "static" },
+      [key, ...remaining],
+      state,
+    );
+  }
+  if (t.isNewExpression(node)) {
+    const [key, ...remaining] = path;
+    if (key === undefined) return [];
+    if (effect === "write" && remaining.length === 0) return [];
+    return semanticClassCandidates(node.callee, state).flatMap((klass) =>
+      semanticClassPropertyReferences(
+        { owner: klass, kind: "instance" },
+        [key, ...remaining],
+        state,
+      ),
+    );
   }
   if (t.isAssignmentExpression(node))
     return node.operator === "||=" || node.operator === "??="
@@ -668,10 +723,10 @@ type MutationObservableOrigin =
   | "opaque";
 
 interface MutationObserverNode {
-  readonly origins: Set<MutationObservableOrigin>;
-  readonly sources: Set<MutationObserverNode>;
-  readonly dependents: Set<MutationObserverNode>;
-  readonly projections: Map<string, MutationObserverNode>;
+  origins?: Set<MutationObservableOrigin>;
+  sources?: Set<MutationObserverNode>;
+  dependents?: Set<MutationObserverNode>;
+  projections?: Map<string, MutationObserverNode>;
   readonly read?: {
     readonly source: MutationObserverNode;
     readonly key: PropertyPath[number];
@@ -680,11 +735,17 @@ interface MutationObserverNode {
 
 const observableMutationPaths = (
   state: JavaScriptSemanticAnalysisState,
-): ((
-  bindingId: string,
-  path: PropertyPath,
-  effect: ValueEffect,
-) => PropertyPath | null) => {
+): {
+  readonly normalize: (
+    bindingId: string,
+    path: PropertyPath,
+    effect: ValueEffect,
+  ) => PropertyPath | null;
+  readonly repeatsUnpruned: (
+    bindingId: string,
+    prefix: PropertyPath,
+  ) => boolean;
+} => {
   const bindingNodes = new Map<string, MutationObserverNode>();
   const expressions = new WeakMap<t.Node, MutationObserverNode>();
   const pendingExpressions: {
@@ -698,22 +759,17 @@ const observableMutationPaths = (
     queued.add(node);
     pending.push(node);
   };
-  const create = (
-    read?: MutationObserverNode["read"],
-  ): MutationObserverNode => ({
-    origins: new Set(),
-    sources: new Set(),
-    dependents: new Set(),
-    projections: new Map(),
-    ...(read === undefined ? {} : { read }),
-  });
+  const create = (read?: MutationObserverNode["read"]): MutationObserverNode =>
+    // Most bindings have no object origin or property projection. Materialize
+    // each collection only when it contains a fact or relationship.
+    read === undefined ? {} : { read };
   const link = (
     source: MutationObserverNode,
     target: MutationObserverNode,
   ): void => {
-    if (target.sources.has(source)) return;
-    target.sources.add(source);
-    source.dependents.add(target);
+    if (target.sources?.has(source) === true) return;
+    (target.sources ??= new Set()).add(source);
+    (source.dependents ??= new Set()).add(target);
     schedule(target);
   };
   const expressionNode = (node: t.Node): MutationObserverNode => {
@@ -734,11 +790,11 @@ const observableMutationPaths = (
       const identity = JSON.stringify(
         key === null || typeof key === "object" ? key : String(key),
       );
-      let selected = observer.projections.get(identity);
+      let selected = observer.projections?.get(identity);
       if (selected === undefined) {
         selected = create({ source: observer, key });
-        observer.projections.set(identity, selected);
-        observer.dependents.add(selected);
+        (observer.projections ??= new Map()).set(identity, selected);
+        (observer.dependents ??= new Set()).add(selected);
         schedule(selected);
       }
       observer = selected;
@@ -750,15 +806,21 @@ const observableMutationPaths = (
   for (const binding of state.bindingsById.values()) {
     const observer = bindingNodes.get(binding.bindingId);
     if (observer === undefined) continue;
-    for (const initializer of binding.initializers)
+    for (const initializer of binding.initializers) {
+      const expression = unwrapJavaScriptExpression(initializer.node).node;
+      // Preserve member paths through class values and local instances so
+      // getter-result aliases can be resolved at the accessor boundary.
+      if (t.isClass(expression) || t.isNewExpression(expression))
+        (observer.origins ??= new Set()).add("opaque");
       link(
         project(expressionNode(initializer.node), initializer.projection),
         observer,
       );
+    }
     // Preserve exact paths where copies, defaults or iteration need their
     // reference-specific projections; an opaque origin prevents pruning.
     if (binding.referenceInitializers.length > 0)
-      observer.origins.add("opaque");
+      (observer.origins ??= new Set()).add("opaque");
     for (const initializer of binding.referenceInitializers) {
       for (const source of [
         initializer,
@@ -775,7 +837,7 @@ const observableMutationPaths = (
         if (selected === undefined) break;
         const { expression, observer } = selected;
         if (t.isObjectExpression(expression) || t.isArrayExpression(expression))
-          observer.origins.add(expression);
+          (observer.origins ??= new Set()).add(expression);
         else if (t.isIdentifier(expression)) {
           const binding = resolveSemanticBindingState(
             state,
@@ -785,11 +847,12 @@ const observableMutationPaths = (
           if (binding !== undefined) {
             const origin = bindingNodes.get(binding.bindingId);
             if (origin !== undefined) link(origin, observer);
-          } else if (expression.name === "Array") observer.origins.add("array");
+          } else if (expression.name === "Array")
+            (observer.origins ??= new Set()).add("array");
           else if (
             ["globalThis", "global", "window", "self"].includes(expression.name)
           )
-            observer.origins.add("ambient");
+            (observer.origins ??= new Set()).add("ambient");
         } else if (
           t.isMemberExpression(expression) ||
           t.isOptionalMemberExpression(expression)
@@ -804,7 +867,12 @@ const observableMutationPaths = (
             observer,
           );
         else
-          for (const reference of referencedValues(expression, [], "escape"))
+          for (const reference of referencedValues(
+            expression,
+            [],
+            "escape",
+            state,
+          ))
             link(
               project(expressionNode(reference.node), reference.path),
               observer,
@@ -816,21 +884,21 @@ const observableMutationPaths = (
       queued.delete(observer);
       let changed = false;
       const add = (origin: MutationObservableOrigin): void => {
-        if (observer.origins.has(origin)) return;
-        observer.origins.add(origin);
+        if (observer.origins?.has(origin) === true) return;
+        (observer.origins ??= new Set()).add(origin);
         changed = true;
       };
-      for (const source of observer.sources)
-        for (const origin of source.origins) add(origin);
+      for (const source of observer.sources ?? [])
+        for (const origin of source.origins ?? []) add(origin);
       if (observer.read !== undefined) {
         const { source, key } = observer.read;
         if (key === null || typeof key === "object") {
           // Dynamic keys and copied-slot masks retain their original paths.
           // Enumerating their exclusion combinations would recreate the growth
           // that the mutation collector's selection union already prevents.
-          if (source.origins.size > 0) add("opaque");
+          if ((source.origins?.size ?? 0) > 0) add("opaque");
         } else
-          for (const origin of source.origins) {
+          for (const origin of source.origins ?? []) {
             if (typeof origin === "string") {
               if (origin === "array-prototype" || origin === "opaque")
                 add(origin);
@@ -849,6 +917,7 @@ const observableMutationPaths = (
                 origin,
                 [key],
                 "escape",
+                state,
               )) {
                 link(
                   project(expressionNode(reference.node), reference.path),
@@ -867,11 +936,15 @@ const observableMutationPaths = (
           }
       }
       if (changed)
-        for (const dependent of observer.dependents) schedule(dependent);
+        for (const dependent of observer.dependents ?? []) schedule(dependent);
     }
   };
   settle();
-  return (bindingId, path, effect) => {
+  const normalize = (
+    bindingId: string,
+    path: PropertyPath,
+    effect: ValueEffect,
+  ): PropertyPath | null => {
     let observer = bindingNodes.get(bindingId);
     if (observer === undefined) return path;
     if (path.some((key) => key !== null && typeof key === "object"))
@@ -879,73 +952,58 @@ const observableMutationPaths = (
     if (effect === "escape") {
       observer = project(observer, path);
       settle();
-      return observer.origins.size === 0 ? null : path;
+      return (observer.origins?.size ?? 0) === 0 ? null : path;
     }
-    if (observer.origins.size === 0) return path.length === 0 ? path : [null];
+    if ((observer.origins?.size ?? 0) === 0)
+      return path.length === 0 ? path : [null];
     for (let offset = 0; offset < path.length; offset++) {
       const key = path[offset];
       if (key === undefined) break;
       observer = project(observer, [key]);
       settle();
-      if (observer.origins.size === 0 && offset + 1 < path.length)
+      if ((observer.origins?.size ?? 0) === 0 && offset + 1 < path.length)
         return [...path.slice(0, offset + 1), null];
     }
     return path;
   };
-};
-
-const objectReferencedValues = (
-  node: t.ObjectExpression,
-  path: PropertyPath,
-): readonly ReferencedValue[] => {
-  const [key, ...remaining] = path;
-  const references: ReferencedValue[] = [];
-  const overwritten = new Set<string>();
-  for (const property of [...node.properties].reverse()) {
-    if (t.isSpreadElement(property)) {
-      const selected = key ?? null;
-      if (typeof selected !== "object" && overwritten.has(String(selected)))
-        continue;
-      references.push({
-        node: property.argument,
-        path: [
-          typeof selected === "object"
-            ? {
-                ...selected,
-                excludedKeys: [
-                  ...new Set([
-                    ...(selected?.excludedKeys ?? []),
-                    ...overwritten,
-                  ]),
-                ].sort(compareUnicodeCodePoints),
-              }
-            : selected,
-          ...remaining,
-        ],
-      });
-      continue;
+  // A projection's origins depend only on its source origins and key. Once
+  // repeating a prefix revisits an origin set, every longer repetition stays
+  // observable and normalization can never prune it. The answer depends only
+  // on the binding and prefix, so every revisit of a long chain shares it.
+  const repeated = new Map<string, boolean>();
+  const repeatsUnpruned = (
+    bindingId: string,
+    prefix: PropertyPath,
+  ): boolean => {
+    const key = JSON.stringify([bindingId, prefix]);
+    const cached = repeated.get(key);
+    if (cached !== undefined) return cached;
+    let observer = bindingNodes.get(bindingId);
+    const signatures = new Set<string>();
+    let result = false;
+    while (observer !== undefined && prefix.length > 0) {
+      observer = project(observer, prefix);
+      settle();
+      if ((observer.origins?.size ?? 0) === 0) break;
+      const signature = JSON.stringify(
+        [...(observer.origins ?? [])]
+          .map((origin) =>
+            typeof origin === "string"
+              ? origin
+              : `${String(origin.start)}:${String(origin.end)}`,
+          )
+          .sort(compareUnicodeCodePoints),
+      );
+      if (signatures.has(signature)) {
+        result = true;
+        break;
+      }
+      signatures.add(signature);
     }
-    const name = semanticStaticPropertyKey(property.key, property.computed);
-    if (name !== null && overwritten.has(name)) continue;
-    if (name === null || semanticPropertyPathKeyMatches(key ?? null, name))
-      references.push({
-        node: t.isObjectProperty(property) ? property.value : property,
-        path: remaining,
-      });
-    // A prototype setter does not replace an own property from a spread.
-    if (
-      name !== null &&
-      !(t.isObjectMethod(property) && property.kind !== "method") &&
-      !(
-        t.isObjectProperty(property) &&
-        !property.computed &&
-        !property.shorthand &&
-        name === "__proto__"
-      )
-    )
-      overwritten.add(name);
-  }
-  return references;
+    repeated.set(key, result);
+    return result;
+  };
+  return { normalize, repeatsUnpruned };
 };
 
 const arrayReferencedValues = (

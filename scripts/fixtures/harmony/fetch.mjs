@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { link, mkdir, open, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import fixture from "./vhome.json" with { type: "json" };
+import fixture from "./pipeline.json" with { type: "json" };
 
 const args = process.argv.slice(2);
 if (args.length > 1)
@@ -42,14 +42,22 @@ try {
       );
     const handle = await open(temporary, "wx", 0o600);
     const hash = createHash("sha256");
+    let bytes = 0;
     try {
       for await (const chunk of response.body) {
+        bytes += chunk.length;
+        if (bytes > fixture.bytes)
+          throw new Error(`Download exceeds the pinned ${fixture.bytes} bytes`);
         hash.update(chunk);
         await handle.writeFile(chunk);
       }
     } finally {
       await handle.close();
     }
+    if (bytes !== fixture.bytes)
+      throw new Error(
+        `Download size mismatch: expected ${fixture.bytes}, received ${bytes}`,
+      );
     const digest = hash.digest("hex");
     if (digest !== fixture.sha256)
       throw new Error(
