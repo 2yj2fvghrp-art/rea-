@@ -6,10 +6,7 @@ import {
   stringify as stringifyYaml,
 } from "yaml";
 
-import type {
-  ClientConfigurationDocument,
-  ClientConfigurationFormat,
-} from "./ClientConfigurationDocument.js";
+import type { ClientConfigurationDocument } from "./ClientConfigurationDocument.js";
 
 /**
  * DeepSeek Harness registers MCP clients through a Cordis YAML patch sequence
@@ -454,6 +451,3 @@ export const dshPreservedConfigFields = (
     if (!DSH_OWNED_CONFIG_KEYS.has(key)) preserved[key] = field;
   return preserved;
 };
-
-/** Type-only anchor keeping the format union honest for future callers. */
-export type DshConfigurationFormat = Extract<ClientConfigurationFormat, "dsh">;
