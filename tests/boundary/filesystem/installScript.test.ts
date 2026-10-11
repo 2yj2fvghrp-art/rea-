@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -200,6 +200,59 @@ describe("truncated installer download", { timeout: 20_000 }, () => {
     });
   });
 });
+
+describe(
+  "installer download truncated in its final invocation",
+  {
+    timeout: 60_000,
+  },
+  () => {
+    it("never runs main without the caller's flags at any tail truncation", async () => {
+      const source = await readFile(join(process.cwd(), "install.sh"));
+      const groupStart = source.lastIndexOf("\n{\n") + 1;
+      const groupEnd = source.lastIndexOf("\n}\n") + 2;
+      const mainEnd = source.lastIndexOf("\n}\n", groupStart - 2) + 3;
+      expect(mainEnd).toBeGreaterThan(2);
+      expect(groupStart).toBeGreaterThan(mainEnd);
+      expect(groupEnd).toBeGreaterThan(groupStart);
+      expect(source.subarray(groupStart, groupEnd).toString()).toContain(
+        'main "$@"',
+      );
+      for (let offset = mainEnd; offset <= source.length; offset += 1) {
+        const fixture = await createFixture();
+        const result = await runPipedInstaller(
+          fixture,
+          source.subarray(0, offset),
+          ["--dry-run"],
+        );
+        const context = `truncated at byte ${offset}: ${JSON.stringify(
+          source.subarray(groupStart, offset).toString(),
+        )}`;
+        await expect(
+          readFile(fixture.npmLog, "utf8"),
+          context,
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          readFile(fixture.reaLog, "utf8"),
+          context,
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        if (offset >= groupEnd) {
+          expect(result.code, context).toBe(0);
+          expect(result.stdout, context).toContain("no changes made");
+        } else if (offset > groupStart) {
+          expect(result.code, context).not.toBe(0);
+          expect(result.stdout, context).toBe("");
+          expect(result.stderr, context).toMatch(
+            /syntax error|unexpected EOF/u,
+          );
+        } else {
+          expect(result.code, context).toBe(0);
+          expect(result.stdout, context).toBe("");
+        }
+      }
+    });
+  },
+);
 
 describe("Linux user-prefix installer", { timeout: 20_000 }, () => {
   it("prints the executed arguments as a reusable command with shell metacharacters", async () => {
@@ -451,6 +504,43 @@ const runInstaller = async (
       FAKE_NPM_PREFIX: join(fixture.home, ".npm-global"),
       ...overrides,
     },
+  });
+
+/** Run the installer as `curl ... | bash -s -- ARGS` does: source on stdin. */
+const runPipedInstaller = async (
+  fixture: InstallerFixture,
+  source: Uint8Array,
+  args: readonly string[],
+): Promise<{
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> =>
+  new Promise((resolve, reject) => {
+    const child = spawn("/bin/bash", ["-s", "--", ...args], {
+      env: {
+        ...process.env,
+        HOME: fixture.home,
+        TMPDIR: fixture.temporary,
+        PATH: `${fixture.bin}:/usr/bin:/bin`,
+        FAKE_NPM_LOG: fixture.npmLog,
+        FAKE_REA_LOG: fixture.reaLog,
+        FAKE_REA_SOURCE: join(fixture.bin, "rea-source"),
+        FAKE_NPM_PREFIX: join(fixture.home, ".npm-global"),
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(source);
   });
 
 const shellQuote = (value: string): string =>

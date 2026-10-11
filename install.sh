@@ -28,7 +28,8 @@ EOF
 }
 
 # Everything runs from main so that a truncated download cannot execute a
-# partial script: bash only runs main after reading the final line.
+# partial script: bash only runs main from the brace group at the end of the
+# file, after reading its closing brace.
 main() {
   while (($# > 0)); do
     case "$1" in
@@ -129,4 +130,11 @@ main() {
   fi
 }
 
-main "$@"
+# A bare `main "$@"` line is not enough: a download cut off right after
+# `main` would be a complete command at EOF and run main without the caller's
+# flags (so `bash -s -- --dry-run` could install). Inside this group, every
+# truncation before the closing brace is a syntax error and nothing runs.
+{
+  main "$@"
+  exit $?
+}
