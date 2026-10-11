@@ -122,6 +122,15 @@ try {
       new URL("../tests/fixtures/wasm/custom-names.wat", import.meta.url),
       "utf8",
     ),
+    `(module
+  (memory 1)
+  (data "x")
+  (func (export "init")
+    i32.const 0
+    i32.const 0
+    i32.const 1
+    memory.init 0
+    data.drop 0))\n`,
   ].map((source) => ({ source, debugNames: false }));
   sources.push(
     {
@@ -243,6 +252,22 @@ try {
     if (debugNames) {
       assert.ok(report.headers.includes("\nmodule name: <named>\n"));
       assert.deepEqual(report.exports, ['(export "answer" (func 0))']);
+    }
+    if (index === 4) {
+      assert.match(
+        headers,
+        /^DataCount start=0x[\da-f]+ end=0x[\da-f]+ \(size=0x[\da-f]+\) count: 1$/m,
+      );
+      assert.deepEqual(
+        report.sections.find(({ kind }) => kind === "DataCount"),
+        {
+          kind: "DataCount",
+          start: 0x23,
+          end: 0x24,
+          bytes: 1,
+          description: "count: 1",
+        },
+      );
     }
     const bundleReply = await client.callTool({
       name: "get_evidence_bundle",
