@@ -493,6 +493,10 @@ a later fallback.
 ESM relative module paths, legacy package subpaths without exports, and selected
 package exports targets use URL suffix handling and one percent-decoding pass.
 Bare specifiers retain their complete query/fragment text for exports key matching.
+For dependency lookup, ESM constructs a package metadata URL instead of treating
+the parsed package name as a literal directory. A root request such as `legacy?x`
+does not load either `node_modules/legacy?x` or `node_modules/legacy`; an exact
+self-reference with that metadata name can still select its exports first.
 Without an exports map, ESM subpaths select exact files; directory imports and
 extension fallback are refused. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with

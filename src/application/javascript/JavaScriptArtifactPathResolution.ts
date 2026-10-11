@@ -247,14 +247,30 @@ const bareModuleCandidate = (
     ]);
   const self = packageSelfCandidate(input, request);
   if (self !== null) return self;
+  // ESM constructs a package.json URL; its parsed identity is not a literal
+  // dependency directory. Self resolution above still uses the exact name.
+  let dependencyDirectory = posix.join("node_modules", request.packageName);
+  if (input.moduleKind === "import") {
+    const metadataUrl = new URL(
+      `./node_modules/${request.packageName}/package.json`,
+      PACKAGE_ARTIFACT_ROOT_URL,
+    );
+    if (!metadataUrl.pathname.endsWith("/package.json"))
+      return unresolvedCandidate("external", [
+        `ESM package name ${JSON.stringify(request.packageName)} produces a dependency URL whose pathname does not name package.json; no literal or suffix-stripped package directory was searched.`,
+      ]);
+    const decoded = decodeModuleUrlPath(
+      metadataUrl.pathname.slice(PACKAGE_ARTIFACT_ROOT_URL.pathname.length),
+    );
+    if (typeof decoded !== "string") return decoded;
+    const confined = confineCandidate(decoded);
+    if (typeof confined !== "string") return confined;
+    dependencyDirectory = posix.dirname(confined);
+  }
   const source = input.files.get(input.sourcePath);
   let directory = posix.dirname(input.sourcePath);
   while (true) {
-    const candidate = posix.join(
-      directory,
-      "node_modules",
-      request.packageName,
-    );
+    const candidate = posix.join(directory, dependencyDirectory);
     const metadata = readPackageMetadata(input, candidate);
     if (request.dependencyExportsEligible && metadata.kind !== "absent")
       return resolvePackageDependency(input, candidate, request, metadata);

@@ -5,12 +5,10 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { expect } from "vitest";
-import { z } from "zod";
 
-import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
-import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 
 type SelfNameCase = {
   readonly directory: string;
@@ -89,6 +87,28 @@ const cases = [
     esmValue: "valid scoped self",
     requireValue: "valid scoped self",
   },
+  {
+    directory: "query-self-name",
+    packageName: "self?x",
+    exportKey: ".",
+    specifier: "self?x",
+    selfValue: "query self",
+    esmTarget: "query-self-name/self.cjs",
+    requireTarget: "query-self-name/self.cjs",
+    esmValue: "query self",
+    requireValue: "query self",
+  },
+  {
+    directory: "fragment-self-name",
+    packageName: "@scope/self#entry",
+    exportKey: ".",
+    specifier: "@scope/self#entry",
+    selfValue: "fragment self",
+    esmTarget: "fragment-self-name/self.cjs",
+    requireTarget: "fragment-self-name/self.cjs",
+    esmValue: "fragment self",
+    requireValue: "fragment self",
+  },
 ] satisfies readonly SelfNameCase[];
 
 const sourceFor = (specifier: string, moduleKind: "import" | "require") =>
@@ -155,26 +175,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       });
     }
 
-    let document: unknown;
-    if (surface === "CLI") {
-      const response = await cli.run({
-        arguments: ["analyze-javascript-application", root, "--format", "json"],
-        environment: { REA_LOG_LEVEL: "silent" },
-      });
-      expect(response.exitCode, response.stderr).toBe(0);
-      document = response.json;
-    } else {
-      const { call } = await connectLocalToolsMcp();
-      const response = await call("analyze_javascript_application", {
-        input_path: root,
-        format: "directory",
-      });
-      expect(response.isError, JSON.stringify(response)).not.toBe(true);
-      document = response.structuredContent;
-    }
-    const { graph } = z
-      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
-      .parse(document).normalized_result;
+    const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
     for (const item of cases)
       for (const [moduleKind, target] of [
         ["import", item.esmTarget],
