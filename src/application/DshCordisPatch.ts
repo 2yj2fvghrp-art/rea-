@@ -341,7 +341,17 @@ const applyDshEnvConfig = (
     config.set("env", yamlDocument.createNode(desiredEnv));
     return;
   }
-  const existing = config.get("env");
+  const envNode: unknown = config.get("env", true);
+  let existing = isAlias(envNode) ? envNode.resolve(yamlDocument) : envNode;
+  // `env: *rea-env` shares the anchored map. Clone before editing so the
+  // active row keeps tagged values without rewriting the anchor in place.
+  if (isAlias(envNode) && isMap(existing)) {
+    const cloned = existing.clone();
+    if (isMap(cloned)) {
+      config.set("env", cloned as never);
+      existing = cloned;
+    }
+  }
   if (!isMap(existing)) {
     config.set("env", yamlDocument.createNode(desiredEnv));
     return;
@@ -379,12 +389,14 @@ const cordisEnvironmentExpressions = (text: string): ReadonlySet<string> => {
   if (!isSeq(root)) return new Set();
   const winning = dshWinningConfigNode(root.items, yamlDocument);
   if (!isMap(winning)) return new Set();
-  const env = winning.get("env");
+  const envNode: unknown = winning.get("env", true);
+  const env = isAlias(envNode) ? envNode.resolve(yamlDocument) : envNode;
   if (!isMap(env)) return new Set();
   const keys = new Set<string>();
   for (const key of yamlMapStringKeys(env)) {
-    const node = env.get(key, true);
-    if (isScalar(node) && node.tag === JAVASCRIPT_TAG_NAME) keys.add(key);
+    const node: unknown = env.get(key, true);
+    const scalar = isAlias(node) ? node.resolve(yamlDocument) : node;
+    if (isScalar(scalar) && scalar.tag === JAVASCRIPT_TAG_NAME) keys.add(key);
   }
   return keys;
 };
@@ -482,6 +494,25 @@ export const serializeDshDocument = (
     return `${stringifyYaml(freshPatchList())}`;
   }
   const winningConfig = dshWinningConfigNode(root.items, yamlDocument);
+  // Record insert aliases that carry REA before any edit empties their
+  // anchor. Uninstall removes the anchored row first; the later alias must
+  // still be dropped or serialization keeps a dangling alias and restores.
+  const ownedInsertAliases = new Set<unknown>();
+  for (const candidate of root.items) {
+    if (!isMap(candidate)) continue;
+    const candidateOperation = candidate as unknown as YAMLMap<
+      unknown,
+      unknown
+    >;
+    const candidateInsert: unknown = candidateOperation.get("insert", true);
+    if (!isAlias(candidateInsert)) continue;
+    const resolved = candidateInsert.resolve(yamlDocument);
+    if (
+      isSeq(resolved) &&
+      resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument))
+    )
+      ownedInsertAliases.add(candidateInsert);
+  }
   let carried = false;
   type PatchItem = (typeof root.items)[number];
   root.items = root.items.flatMap((item): PatchItem[] => {
@@ -497,8 +528,9 @@ export const serializeDshDocument = (
     if (isAlias(insertNode)) {
       const resolved = insertNode.resolve(yamlDocument);
       const carriesRea =
-        isSeq(resolved) &&
-        resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument));
+        ownedInsertAliases.has(insertNode) ||
+        (isSeq(resolved) &&
+          resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument)));
       if (!carriesRea) return [item];
       // The list already belongs to another insert operation. Dropping this
       // alias avoids loading that list twice. A list anchored outside any
@@ -508,7 +540,7 @@ export const serializeDshDocument = (
         const otherOperation = other as unknown as YAMLMap<unknown, unknown>;
         return (otherOperation.get("insert", true) as unknown) === resolved;
       });
-      if (anchoredOnAnotherInsert) return [];
+      if (anchoredOnAnotherInsert || !isSeq(resolved)) return [];
       const cloned = resolved.clone();
       if (!isSeq(cloned)) return [item];
       operation.set("insert", cloned as never);

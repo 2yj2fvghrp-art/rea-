@@ -1209,4 +1209,93 @@ describe("DeepSeek Harness alias identity", () => {
   });
 });
 
+describe("DeepSeek Harness alias cleanup", () => {
+  it("keeps tags when the environment map is an alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &reaEnv
+  TOKEN: !!js process.env.TOKEN
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env: *reaEnv
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.env.TOKEN");
+    expect(text).not.toContain("stale-launcher");
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("does not validate an aliased Cordis path expression as a literal", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &expr !!js process.env.GHIDRA_INSTALL_DIR
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          GHIDRA_INSTALL_DIR: *expr
+`,
+    );
+
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(await readFile(client.configPath, "utf8")).toContain(
+      "!!js process.env.GHIDRA_INSTALL_DIR",
+    );
+  });
+
+  it("removes an aliased insert list on uninstall", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert: &rows
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+- insert: *rows
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("rea-mcp");
+    expect(text).not.toContain("*rows");
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
