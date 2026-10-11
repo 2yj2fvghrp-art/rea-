@@ -128,6 +128,8 @@ class LateSilentLauncher implements BridgeLauncher {
 /**
  * Bridge fixture whose health handshake returns an invalid payload, so
  * parseHopperServerInfo rejects it with HopperProtocolError.
+ * Note: assumes the client's first bridge request is `health`; any
+ * auth/preamble request added before it would hit the -32601 branch.
  */
 class BadHealthLauncher implements BridgeLauncher {
   #server: Server | undefined;
