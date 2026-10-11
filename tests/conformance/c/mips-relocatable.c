@@ -20,6 +20,8 @@ struct rea_mips_rel_pair rea_mips_rel_pair = { 0x1111, 0x2222 };
 /* Places rea_mips_rel_carry past a signed 16-bit low-half boundary. */
 char rea_mips_rel_padding[0x8000] = { 1 };
 int rea_mips_rel_carry = 0x3333;
+/* Referenced only by rea_mips_rel_highs, so its single LO16 stays unique. */
+int rea_mips_rel_highs_target = 0x4444;
 static const char rea_mips_rel_marker[] = "rea-mips-relocatable-fixture";
 
 __attribute__((noinline)) int rea_mips_rel_leaf(int value)
@@ -47,9 +49,10 @@ __attribute__((noinline)) int rea_mips_rel_scaled(int value)
 }
 
 /* Most GCC-built kernel modules checked contain LO16s that resolve several
- * pending HI16s; Clang does not produce that from C. Two lui of the same
- * symbol make LLVM's relocation sort leave one HI16 pending until a later
- * LO16 that also resolves another HI16, including the carry.
+ * pending HI16s; Clang does not produce that from C. Two %hi and exactly one
+ * %lo of a symbol nothing else references: any assembler that orders each
+ * HI16 before a matching LO16 (GNU as, every LLVM version) must emit both
+ * HI16s ahead of that single LO16, which therefore resolves both.
  */
 __asm__(".text\n"
         ".globl rea_mips_rel_highs\n"
@@ -57,11 +60,11 @@ __asm__(".text\n"
         ".set push\n"
         ".set noreorder\n"
         "rea_mips_rel_highs:\n"
-        "    lui $2, %hi(rea_mips_rel_carry)\n"
-        "    lui $3, %hi(rea_mips_rel_carry)\n"
-        "    addiu $2, $2, %lo(rea_mips_rel_carry)\n"
+        "    lui $2, %hi(rea_mips_rel_highs_target)\n"
+        "    lui $3, %hi(rea_mips_rel_highs_target)\n"
+        "    addiu $2, $2, %lo(rea_mips_rel_highs_target)\n"
         "    jr $31\n"
-        "    addiu $3, $3, %lo(rea_mips_rel_carry)\n"
+        "    move $3, $2\n"
         ".set pop\n"
         ".size rea_mips_rel_highs, .-rea_mips_rel_highs\n");
 
