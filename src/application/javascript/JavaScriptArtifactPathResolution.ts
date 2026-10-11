@@ -198,6 +198,8 @@ const bareModuleCandidate = (
     return unresolvedCandidate("external", [
       "The bare specifier is a Node builtin, package import map, or invalid package name.",
     ]);
+  const self = commonJsSelfCandidate(input, declared);
+  if (self !== null) return self;
   const subpath =
     declared === packageName ? "." : `.${declared.slice(packageName.length)}`;
   const source = input.files.get(input.sourcePath);
@@ -221,6 +223,44 @@ const bareModuleCandidate = (
   ]);
 };
 
+/** Self references use the nearest package scope before dependency lookup. */
+const commonJsSelfCandidate = (
+  input: ResolveArtifactPathInput,
+  declared: string,
+): CandidateResolution | null => {
+  if (input.moduleKind !== "require" || !input.files.has(input.sourcePath))
+    return null;
+  let directory = posix.dirname(input.sourcePath);
+  while (posix.basename(directory) !== "node_modules") {
+    const metadata = readPackageMetadata(input, directory);
+    if (metadata.kind === "unavailable")
+      return unresolvedCandidate("unavailable", [metadata.limitation]);
+    if (metadata.kind === "available") {
+      if (
+        metadata.name === undefined ||
+        metadata.exports === undefined ||
+        (declared !== metadata.name &&
+          !declared.startsWith(`${metadata.name}/`))
+      )
+        return null;
+      const subpath =
+        declared === metadata.name
+          ? "."
+          : `.${declared.slice(metadata.name.length)}`;
+      // Self resolution does not apply the CommonJS dependency-name matcher.
+      return resolvePackageExports(
+        input,
+        metadata.path,
+        subpath,
+        metadata.exports,
+      );
+    }
+    if (directory === "." || directory === "") break;
+    directory = posix.dirname(directory);
+  }
+  return null;
+};
+
 /** Package roots and exact subpaths share metadata and exports selection. */
 const resolvePackageSpecifier = (
   input: ResolveArtifactPathInput,
@@ -233,9 +273,9 @@ const resolvePackageSpecifier = (
     return unresolvedCandidate("unavailable", [metadata.limitation]);
   const rawExports =
     exportsEligible && metadata.kind === "available"
-      ? Reflect.get(metadata.value, "exports")
+      ? metadata.exports
       : undefined;
-  if (rawExports === undefined || rawExports === null) {
+  if (rawExports === undefined) {
     if (subpath === ".")
       return (
         resolveFileCandidates(input, fileCandidates(directory)) ??
@@ -247,8 +287,21 @@ const resolvePackageSpecifier = (
       ? resolveCandidate(input, candidate, new Set())
       : candidate;
   }
+  return resolvePackageExports(
+    input,
+    posix.join(directory, "package.json"),
+    subpath,
+    rawExports,
+  );
+};
+
+const resolvePackageExports = (
+  input: ResolveArtifactPathInput,
+  packagePath: string,
+  subpath: string,
+  rawExports: string | object,
+): CandidateResolution => {
   const exported = selectPackageExport(rawExports, subpath, input.moduleKind);
-  const packagePath = posix.join(directory, "package.json");
   if (exported.status === "rejected")
     return unresolvedCandidate("rejected", [
       `Package metadata ${packagePath}: ${exported.limitation}`,
@@ -425,7 +478,10 @@ type PackageMetadata =
   | {
       readonly kind: "available";
       readonly path: string;
-      readonly value: object;
+      readonly name: string | undefined;
+      readonly exports: string | object | undefined;
+      readonly main: unknown;
+      readonly module: unknown;
     }
   | { readonly kind: "absent" }
   | { readonly kind: "unavailable"; readonly limitation: string };
@@ -457,12 +513,27 @@ const readPackageMetadata = (
       limitation: `Directory package metadata ${path} is not valid package JSON.`,
     };
   }
-  return typeof value === "object" && value !== null
-    ? { kind: "available", path, value }
-    : {
-        kind: "unavailable",
-        limitation: `Directory package metadata ${path} is not valid package JSON.`,
-      };
+  if (typeof value !== "object" || value === null)
+    return {
+      kind: "unavailable",
+      limitation: `Directory package metadata ${path} is not valid package JSON.`,
+    };
+  const name = Reflect.get(value, "name");
+  const exports = Reflect.get(value, "exports");
+  return {
+    kind: "available",
+    path,
+    name: typeof name === "string" ? name : undefined,
+    // Node's package reader ignores scalar root exports other than strings.
+    // Nested targets retain their raw values for exports validation.
+    exports:
+      typeof exports === "string" ||
+      (typeof exports === "object" && exports !== null)
+        ? exports
+        : undefined,
+    main: Reflect.get(value, "main"),
+    module: Reflect.get(value, "module"),
+  };
 };
 
 /** File and directory lookup never interprets a nested directory's exports. */
@@ -497,10 +568,8 @@ const resolveDirectory = (
       `Directory package entrypoint cycle includes ${metadata.path}.`,
     ]);
   const preferred = [
-    Reflect.get(metadata.value, "main"),
-    ...(input.moduleKind === undefined
-      ? [Reflect.get(metadata.value, "module")]
-      : []),
+    metadata.main,
+    ...(input.moduleKind === undefined ? [metadata.module] : []),
   ];
   const entry = preferred.find((value) => value !== undefined);
   if (entry === undefined)

@@ -26,7 +26,10 @@ const createPackageSubpathFixture = async () => {
     'const selected = require("@scope/selected");',
     'const blocked = require("blocked");',
     'const literal = require("fi%xture");',
+    'const scalar = require("scalar");',
+    'const self = require("../node_modules/fi%xture/run.cjs");',
   ].join("\n");
+  const selfSource = 'const self = require("fi%xture"); module.exports = self;';
   const files = {
     "src/main.cjs": source,
     "src/node_modules/fixture/parser.js": "module.exports = 1;",
@@ -63,9 +66,15 @@ const createPackageSubpathFixture = async () => {
     }),
     "node_modules/fi%xture.js": "module.exports = 'literal sibling';",
     "node_modules/fi%xture/package.json": JSON.stringify({
+      name: "fi%xture",
       exports: "./actual.cjs",
+      main: "./legacy.cjs",
     }),
     "node_modules/fi%xture/actual.cjs": "module.exports = 'export';",
+    "node_modules/fi%xture/legacy.cjs": "module.exports = 'legacy';",
+    "node_modules/fi%xture/run.cjs": selfSource,
+    "node_modules/scalar.js": "module.exports = 'scalar sibling';",
+    "node_modules/scalar/package.json": JSON.stringify({ exports: false }),
   };
   await Promise.all(
     Object.entries(files).map(async ([path, content]) => {
@@ -74,13 +83,13 @@ const createPackageSubpathFixture = async () => {
       await writeFile(absolute, content);
     }),
   );
-  return { root, source };
+  return { root, source, selfSource };
 };
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "resolves package subpaths with source provenance through %s",
   async (surface, { cli }) => {
-    const { root, source } = await createPackageSubpathFixture();
+    const { root, source, selfSource } = await createPackageSubpathFixture();
     const nativeRequire = createRequire(join(root, "src/main.cjs"));
     const expectedTargets = {
       "fixture/parser": "src/node_modules/fixture/parser.js",
@@ -90,6 +99,8 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "exported/parser": "node_modules/exported/parser.cjs",
       "@scope/selected": "node_modules/@scope/selected/actual.cjs",
       "fi%xture": "node_modules/fi%xture.js",
+      scalar: "node_modules/scalar.js",
+      "../node_modules/fi%xture/run.cjs": "node_modules/fi%xture/run.cjs",
     };
     for (const [specifier, target] of Object.entries(expectedTargets))
       expect(
@@ -102,6 +113,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     expect(() => nativeRequire.resolve("exported/missing")).toThrow(
       expect.objectContaining({ code: "MODULE_NOT_FOUND" }),
     );
+    const selfPath = "node_modules/fi%xture/run.cjs";
+    expect(
+      relative(
+        root,
+        createRequire(join(root, selfPath)).resolve("fi%xture"),
+      ).replaceAll("\\", "/"),
+    ).toBe("node_modules/fi%xture/actual.cjs");
 
     let document: unknown;
     if (surface === "CLI") {
@@ -126,30 +144,15 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const imports = graph.edges.filter(
       ({ properties }) => properties.module_link_kind === "require",
     );
-    const sourceDigest = createHash("sha256").update(source).digest("hex");
-    for (const [specifier, target] of Object.entries(expectedTargets))
-      expect(imports).toContainEqual(
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            specifier,
-            resolved_path: target,
-            resolution_status: "resolved",
-          }),
-          evidence: expect.objectContaining({
-            artifact: expect.objectContaining({
-              available: true,
-              sha256: sourceDigest,
-            }),
-            location: expect.objectContaining({
-              available: true,
-              value: expect.objectContaining({
-                kind: "source-range",
-                source: "src/main.cjs",
-              }),
-            }),
-          }),
-        }),
-      );
+    for (const observation of [
+      { sourcePath: "src/main.cjs", source, targets: expectedTargets },
+      {
+        sourcePath: selfPath,
+        source: selfSource,
+        targets: { "fi%xture": "node_modules/fi%xture/actual.cjs" },
+      },
+    ])
+      expectResolvedImports(imports, observation);
     for (const [specifier, status] of [
       ["exported/parser/", "external"],
       ["exported/hidden", "external"],
@@ -188,3 +191,41 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       });
   },
 );
+
+const expectResolvedImports = (
+  imports: z.infer<
+    typeof javascriptApplicationAnalysisResultSchema
+  >["graph"]["edges"],
+  observation: {
+    readonly sourcePath: string;
+    readonly source: string;
+    readonly targets: Readonly<Record<string, string>>;
+  },
+): void => {
+  const sourceDigest = createHash("sha256")
+    .update(observation.source)
+    .digest("hex");
+  for (const [specifier, target] of Object.entries(observation.targets))
+    expect.soft(imports).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          specifier,
+          resolved_path: target,
+          resolution_status: "resolved",
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            available: true,
+            sha256: sourceDigest,
+          }),
+          location: expect.objectContaining({
+            available: true,
+            value: expect.objectContaining({
+              kind: "source-range",
+              source: observation.sourcePath,
+            }),
+          }),
+        }),
+      }),
+    );
+};
