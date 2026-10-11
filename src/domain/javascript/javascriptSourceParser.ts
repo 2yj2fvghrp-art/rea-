@@ -41,9 +41,6 @@ export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
 export const isExplicitModuleSourcePath = (path?: string): boolean =>
   /\.m[jt]s$/iu.test(path ?? "");
 
-/** Module mode established outside the syntax, such as a package `"type": "module"`. */
-export type JavaScriptModuleScope = "module" | "unknown";
-
 export interface RecoveredJavaScriptParse {
   readonly file: ParsedJavaScriptSource;
   /** Errors that apply only if a source of unknown mode is an ES module. */
@@ -60,7 +57,6 @@ export const parseRecoveredJavaScript = (
   source: string,
   sourcePath: string | undefined,
   options: Omit<ParserOptions, "sourceType" | "errorRecovery">,
-  scope: JavaScriptModuleScope = "unknown",
 ): RecoveredJavaScriptParse => {
   // `.cjs` is CommonJS by extension, so module-only errors cannot apply.
   if (/\.cjs$/iu.test(sourcePath ?? ""))
@@ -72,7 +68,7 @@ export const parseRecoveredJavaScript = (
       }),
       moduleOnlyErrors: [],
     };
-  if (scope === "module" || isExplicitModuleSourcePath(sourcePath))
+  if (isExplicitModuleSourcePath(sourcePath))
     return {
       file: parse(source, {
         ...options,

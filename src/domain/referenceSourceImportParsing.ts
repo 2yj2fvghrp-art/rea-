@@ -9,7 +9,6 @@ import { traverseJavaScriptAst } from "./javascript/javascriptSemanticTraversal.
 import {
   parseRecoveredJavaScript,
   parserPluginsForPath,
-  type JavaScriptModuleScope,
 } from "./javascript/javascriptSourceParser.js";
 import { unshadowedReferenceSourceRequireCalls } from "./referenceSourceRequireBindings.js";
 import {
@@ -273,7 +272,6 @@ const parseWithBabel = (
   path: string,
   source: string,
   language: string | null,
-  scope: JavaScriptModuleScope,
 ): {
   ast: File | undefined;
   reasons: readonly string[];
@@ -295,7 +293,6 @@ const parseWithBabel = (
         allowUndeclaredExports: true,
         plugins,
       },
-      scope,
     );
     return {
       ast,
@@ -316,7 +313,6 @@ export const parseReferenceSourceImports = (
   path: string,
   bytes: Uint8Array,
   language: string | null,
-  scope: JavaScriptModuleScope = "unknown",
 ): ReferenceSourceImportParseResult => {
   if (language !== null && !codeSourceLanguages.has(language))
     return { relationships: [], parse_failures: [], limitations: [] };
@@ -342,7 +338,6 @@ export const parseReferenceSourceImports = (
     path,
     source,
     language,
-    scope,
   );
   const limitations =
     moduleOnlyErrors.length === 0

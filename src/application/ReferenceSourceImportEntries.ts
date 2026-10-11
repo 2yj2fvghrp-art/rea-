@@ -13,7 +13,6 @@ import {
 } from "../domain/referenceSourceClassification.js";
 import type { HistoricalSourceGraphInput } from "../domain/referenceSourceGraph.js";
 import { parseReferenceSourceImports } from "../domain/referenceSourceImportParsing.js";
-import type { JavaScriptModuleScope } from "../domain/javascript/javascriptSourceParser.js";
 import type {
   ReferenceSourceEntry,
   ReferenceSourceRead,
@@ -124,65 +123,16 @@ const resolveInternalSpecifier = (
 
 type ReadFile = Extract<ReferenceSourceEntry, { status: "read"; kind: "file" }>;
 
-/** Package directories mapped to whether their package.json declares `"type": "module"`. */
-const packageModuleScopes = (
-  entries: ReferenceSourceRead["entries"],
-): ReadonlyMap<string, boolean> => {
-  const scopes = new Map<string, boolean>();
-  for (const entry of entries) {
-    if (posix.basename(entry.path) !== "package.json") continue;
-    // An unreadable or linked manifest still bounds the scope, with an unknown type.
-    if (entry.status !== "read" || entry.kind !== "file") {
-      scopes.set(posix.dirname(entry.path), false);
-      continue;
-    }
-    let declared: unknown;
-    try {
-      declared = (
-        JSON.parse(new TextDecoder().decode(entry.bytes)) as { type?: unknown }
-      ).type;
-    } catch {
-      declared = undefined;
-    }
-    scopes.set(posix.dirname(entry.path), declared === "module");
-  }
-  return scopes;
-};
-
-/**
- * Node selects a `.js` file's mode from its nearest package.json. Only
- * `"type": "module"` is decisive; bundlers also treat other `.js` as modules.
- */
-const moduleScope = (
-  path: string,
-  scopes: ReadonlyMap<string, boolean>,
-): JavaScriptModuleScope => {
-  if (!path.toLowerCase().endsWith(".js")) return "unknown";
-  for (let directory = posix.dirname(path); ;) {
-    const module = scopes.get(directory);
-    if (module !== undefined) return module ? "module" : "unknown";
-    const parent = posix.dirname(directory);
-    if (parent === directory) return "unknown";
-    directory = parent;
-  }
-};
-
 const appendFile = (
   entry: ReadFile,
   lookupPath: ReferenceSourcePathLookup,
-  scopes: ReadonlyMap<string, boolean>,
   output: ParsedReferenceSourceEntries,
 ): void => {
   const language = detectReferenceSourceLanguage(entry.path);
   const parsed =
     language === null || !PARSEABLE_REFERENCE_SOURCE_LANGUAGES.has(language)
       ? undefined
-      : parseReferenceSourceImports(
-          entry.path,
-          entry.bytes,
-          language,
-          moduleScope(entry.path, scopes),
-        );
+      : parseReferenceSourceImports(entry.path, entry.bytes, language);
   output.entries.push({
     path: entry.path,
     kind: "file",
@@ -216,11 +166,10 @@ const appendFile = (
 const appendReadEntry = (
   entry: Extract<ReferenceSourceEntry, { status: "read" }>,
   lookupPath: ReferenceSourcePathLookup,
-  scopes: ReadonlyMap<string, boolean>,
   output: ParsedReferenceSourceEntries,
 ): void => {
   if (entry.kind === "file") {
-    appendFile(entry, lookupPath, scopes, output);
+    appendFile(entry, lookupPath, output);
     return;
   }
   const classifications = classifyReferenceSourcePath(entry.path);
@@ -264,11 +213,10 @@ export const parseReferenceSourceEntries = (
     limitations: [...read.limitations],
   };
   const lookupPath = createReferenceSourcePathLookup(filePaths);
-  const scopes = packageModuleScopes(read.entries);
   for (const entry of read.entries) {
     if (signal?.aborted === true) break;
     if (entry.status === "failed") output.entries.push(failedEntry(entry));
-    else appendReadEntry(entry, lookupPath, scopes, output);
+    else appendReadEntry(entry, lookupPath, output);
   }
   return output;
 };
