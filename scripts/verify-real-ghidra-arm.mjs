@@ -271,23 +271,28 @@ try {
   ].filter((candidate) => candidate !== undefined);
   const compiler = process.env.REA_ARM_CLANG ?? "clang";
   const v8Path = join(workspace, "arm-v8a.elf");
-  const v8Source = join(workspace, "arm-v8a.S");
-  await writeFile(v8Source, ".global _start\n_start: mov r0,#42\n");
+  // Built from the same conformance sources as the fixture: pure assembly
+  // records no float convention, and the lane's other gates must stay green
+  // so the refusal can only come from the declared ISA.
   await execute(
     compiler,
     [
       "--target=arm-linux-gnueabihf",
-      "-march=armv8-a+crc",
+      "-march=armv8-a+crc+fp",
       "-mfloat-abi=hard",
       "-fno-pic",
       "-fuse-ld=lld",
       "-nostdlib",
       "-static",
-      "-Wl,-e,_start",
+      "-O0",
+      "-Wl,-e,rea_arm_entry",
       "-Wl,--build-id=none",
+      fileURLToPath(new URL("../tests/conformance/c/arm.c", import.meta.url)),
+      fileURLToPath(
+        new URL("../tests/conformance/ghidra/arm-probe.S", import.meta.url),
+      ),
       "-o",
       v8Path,
-      v8Source,
     ],
     { timeout: 60000 },
   );
