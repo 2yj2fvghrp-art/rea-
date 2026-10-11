@@ -205,7 +205,7 @@ const bareModuleCandidate = (
   while (true) {
     const candidate = posix.join(directory, "node_modules", packageName);
     const metadata = readPackageMetadata(input, candidate);
-    if (metadata.kind !== "absent")
+    if (packageExportsEligible(input) && metadata.kind !== "absent")
       return resolvePackageSpecifier(input, candidate, subpath, metadata);
     if (subpath === ".") {
       const direct = resolveFileCandidates(input, fileCandidates(candidate));
@@ -228,10 +228,11 @@ const resolvePackageSpecifier = (
   subpath: string,
   metadata: PackageMetadata,
 ): CandidateResolution => {
-  if (metadata.kind === "unavailable")
+  const exportsEligible = packageExportsEligible(input);
+  if (exportsEligible && metadata.kind === "unavailable")
     return unresolvedCandidate("unavailable", [metadata.limitation]);
   const rawExports =
-    metadata.kind === "available"
+    exportsEligible && metadata.kind === "available"
       ? Reflect.get(metadata.value, "exports")
       : undefined;
   if (rawExports === undefined || rawExports === null) {
@@ -288,6 +289,16 @@ const barePackageName = (specifier: string): string | null => {
       ? `${segments[0]}/${segments[1]}`
       : null;
   return segments[0] === "" ? null : (segments[0] ?? null);
+};
+
+const packageExportsEligible = (input: ResolveArtifactPathInput): boolean => {
+  if (input.moduleKind !== "require") return true;
+  // Node's CommonJS exports matcher excludes percent-containing package names.
+  // Compare the captured name so a scoped name cannot fall back to its scope.
+  const match = /^((?:@[^/\\%]+\/)?[^./\\%][^/\\%]*)(\/.*)?$/.exec(
+    input.declaredPath,
+  );
+  return match?.[1] === barePackageName(input.declaredPath);
 };
 
 const hasContainerDirectory = (

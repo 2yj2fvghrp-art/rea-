@@ -25,6 +25,7 @@ const createPackageSubpathFixture = async () => {
     'const packageDirectory = require("fixture/");',
     'const selected = require("@scope/selected");',
     'const blocked = require("blocked");',
+    'const literal = require("fi%xture");',
   ].join("\n");
   const files = {
     "src/main.cjs": source,
@@ -60,6 +61,11 @@ const createPackageSubpathFixture = async () => {
     "node_modules/blocked/package.json": JSON.stringify({
       exports: { ".": null },
     }),
+    "node_modules/fi%xture.js": "module.exports = 'literal sibling';",
+    "node_modules/fi%xture/package.json": JSON.stringify({
+      exports: "./actual.cjs",
+    }),
+    "node_modules/fi%xture/actual.cjs": "module.exports = 'export';",
   };
   await Promise.all(
     Object.entries(files).map(async ([path, content]) => {
@@ -83,6 +89,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "nested/parser": "node_modules/nested/parser/entry.js",
       "exported/parser": "node_modules/exported/parser.cjs",
       "@scope/selected": "node_modules/@scope/selected/actual.cjs",
+      "fi%xture": "node_modules/fi%xture.js",
     };
     for (const [specifier, target] of Object.entries(expectedTargets))
       expect(
