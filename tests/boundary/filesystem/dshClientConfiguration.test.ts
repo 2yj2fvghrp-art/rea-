@@ -1104,4 +1104,109 @@ describe("DeepSeek Harness alias targets", () => {
   });
 });
 
+describe("DeepSeek Harness alias identity", () => {
+  it("keeps unrelated rows when the insert list is anchored outside an operation", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &rows
+  - id: other-tool
+    name: other
+    config:
+      command: keep-me
+  - id: rea-mcp
+    name: "@deepseek-ai/dsh-mcp-client"
+    config:
+      serverName: rea
+      transport: stdio
+      command: stale-launcher
+      args: [mcp]
+- insert: *rows
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert?: { id?: string; config?: { command?: string } }[];
+    }[];
+    const inserted = patches.flatMap((patch) => patch.insert ?? []);
+    expect(inserted.filter((entry) => entry.id === "other-tool")).toHaveLength(
+      1,
+    );
+    expect(inserted.filter((entry) => entry.id === "rea-mcp")).toEqual([
+      expect.objectContaining({
+        config: expect.objectContaining({ command: command[0] }),
+      }),
+    ]);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("keeps an aliased Cordis tag on an environment value", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &expr !!js process.env.TOKEN
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          TOKEN: *expr
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.env.TOKEN");
+    expect(text).toContain("*expr");
+    expect(text).not.toContain("stale-launcher");
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("recognizes an aliased entry id", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &entryId rea-mcp
+- insert:
+    - id: *entryId
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert?: { id?: string }[];
+    }[];
+    expect(
+      patches.flatMap((patch) =>
+        (patch.insert ?? []).filter((entry) => entry.id === "rea-mcp"),
+      ),
+    ).toHaveLength(1);
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    expect(await readFile(client.configPath, "utf8")).not.toContain("*entryId");
+  });
+});
+
 const textOf = (value: unknown): string => String(value);

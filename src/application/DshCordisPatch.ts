@@ -303,13 +303,21 @@ const dshWinningConfigNode = (
     if (isSeq(insert)) {
       for (const entry of insert.items) {
         const entryMap = nodeMap(entry, yamlDocument);
-        if (entryMap?.get("id") !== DSH_ENTRY_ID) continue;
+        if (
+          entryMap === undefined ||
+          mapEntryId(entryMap, yamlDocument) !== DSH_ENTRY_ID
+        )
+          continue;
         established = true;
         winning = nodeMap(entryMap.get("config", true), yamlDocument);
       }
       continue;
     }
-    if (!established || item.get("id") !== DSH_ENTRY_ID || !item.has("config"))
+    if (
+      !established ||
+      mapEntryId(item, yamlDocument) !== DSH_ENTRY_ID ||
+      !item.has("config")
+    )
       continue;
     winning = nodeMap(item.get("config", true), yamlDocument);
   }
@@ -343,7 +351,10 @@ const applyDshEnvConfig = (
     if (!retained.has(key)) existing.delete(key);
   for (const [key, value] of Object.entries(desiredEnv)) {
     const current = existing.get(key, true);
-    if (isScalar(current) && current.value === value) continue;
+    const scalar = isAlias(current) ? current.resolve(yamlDocument) : current;
+    // An alias of an unchanged tagged scalar stays, so `!!js` on the anchor
+    // is still what Harness evaluates.
+    if (isScalar(scalar) && scalar.value === value) continue;
     existing.set(key, yamlDocument.createNode(value));
   }
 };
@@ -477,29 +488,42 @@ export const serializeDshDocument = (
     if (isAlias(item))
       return aliasOwnsReaEntry(item, yamlDocument) ? [] : [item];
     if (!isMap(item)) return [item];
-    const insertNode = item.get("insert", true);
+    // Seq members type as node-keyed maps; alias values need the loose view.
+    const operation = item as unknown as YAMLMap<unknown, unknown>;
+    const insertNode: unknown = operation.get("insert", true);
     // `insert: *rows` is an alias of another operation's list. Editing the
     // anchored list and keeping the alias would still load the row twice.
+    let insert: unknown = insertNode;
     if (isAlias(insertNode)) {
       const resolved = insertNode.resolve(yamlDocument);
-      if (
+      const carriesRea =
         isSeq(resolved) &&
-        resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument))
-      )
-        return [];
-      return [item];
+        resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument));
+      if (!carriesRea) return [item];
+      // The list already belongs to another insert operation. Dropping this
+      // alias avoids loading that list twice. A list anchored outside any
+      // insert is copied so its unrelated rows stay in this operation.
+      const anchoredOnAnotherInsert = root.items.some((other) => {
+        if (other === item || !isMap(other)) return false;
+        const otherOperation = other as unknown as YAMLMap<unknown, unknown>;
+        return (otherOperation.get("insert", true) as unknown) === resolved;
+      });
+      if (anchoredOnAnotherInsert) return [];
+      const cloned = resolved.clone();
+      if (!isSeq(cloned)) return [item];
+      operation.set("insert", cloned as never);
+      insert = cloned;
     }
-    const insert = insertNode;
     if (!isSeq(insert)) {
       // Direct patches to the REA row are superseded by the rewritten entry
       // and would otherwise override it again at their position.
-      return (item.get("id") as unknown) === DSH_ENTRY_ID ? [] : [item];
+      return mapEntryId(operation, yamlDocument) === DSH_ENTRY_ID ? [] : [item];
     }
     removeAliasedReaEntries(insert, yamlDocument);
     if (insert.items.length === 0) return [];
     const carrying = insert.items
       .map((entry, index) =>
-        isMap(entry) && (entry.get("id") as unknown) === DSH_ENTRY_ID
+        isMap(entry) && mapEntryId(entry, yamlDocument) === DSH_ENTRY_ID
           ? index
           : -1,
       )
@@ -552,12 +576,25 @@ const nodeMap = (
   return isMap(node) ? node : undefined;
 };
 
+/** Entry id, following an alias such as `id: *entry-id`. */
+const mapEntryId = (
+  map: YAMLMap<unknown, unknown>,
+  yamlDocument: Document,
+): unknown => {
+  const id = map.get("id", true);
+  if (isAlias(id)) {
+    const resolved = id.resolve(yamlDocument);
+    return isScalar(resolved) ? resolved.value : resolved;
+  }
+  return isScalar(id) ? id.value : id;
+};
+
 /** An alias of an insertion or direct patch that carries the REA entry id. */
 const aliasOwnsReaEntry = (node: unknown, yamlDocument: Document): boolean => {
   if (!isAlias(node)) return false;
   const map = nodeMap(node, yamlDocument);
   if (map === undefined) return false;
-  if (map.get("id") === DSH_ENTRY_ID) return true;
+  if (mapEntryId(map, yamlDocument) === DSH_ENTRY_ID) return true;
   const insert = map.get("insert");
   return (
     isSeq(insert) &&
@@ -565,8 +602,10 @@ const aliasOwnsReaEntry = (node: unknown, yamlDocument: Document): boolean => {
   );
 };
 
-const entryOwnsRea = (node: unknown, yamlDocument: Document): boolean =>
-  nodeMap(node, yamlDocument)?.get("id") === DSH_ENTRY_ID;
+const entryOwnsRea = (node: unknown, yamlDocument: Document): boolean => {
+  const map = nodeMap(node, yamlDocument);
+  return map !== undefined && mapEntryId(map, yamlDocument) === DSH_ENTRY_ID;
+};
 
 const removeAliasedReaEntries = (
   sequence: { items: unknown[] },
