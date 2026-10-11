@@ -20,7 +20,6 @@ import {
   sha256Bytes,
 } from "./ManagedMetadataHeaps.js";
 import {
-  firstMatchListOwners,
   memberListIndexSize,
   memberListTable,
 } from "./ManagedMemberPointers.js";
@@ -153,33 +152,6 @@ export const typeRanges = (
   for (let row = 1; row <= (typeTable?.rowCount ?? 0); row += 1)
     ranges.push(readTypeRange(bytes, layout, row, issues));
   return ranges;
-};
-
-/**
- * Resolve the first type whose field or method list contains a list
- * position, without rescanning type ranges for each member.
- */
-export const createDeclaringTypeLookup = (
-  ranges: readonly TypeRange[],
-  table: "field" | "method",
-  positions: number,
-): ((
-  position: number,
-) => { readonly token: string; readonly fullName: string | null } | null) => {
-  const owners = firstMatchListOwners(
-    ranges.map((range) =>
-      table === "field"
-        ? { start: range.fieldStart, end: range.fieldEnd }
-        : { start: range.methodStart, end: range.methodEnd },
-    ),
-    positions,
-  );
-  return (position) => {
-    const owner = ranges[(owners[position] ?? 0) - 1];
-    return owner === undefined
-      ? null
-      : { token: owner.token, fullName: owner.fullName };
-  };
 };
 
 export const parseTypes = (
