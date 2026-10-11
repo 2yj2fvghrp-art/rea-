@@ -45,7 +45,9 @@ terminal runs under Rosetta. Check that
 it. That breaks Intel programs that use the same names. Use an unprotected ARM
 Python, not Apple `/usr/bin/python3`. A venv from the Apple interpreter stays
 protected and purges `DYLD` at launch. Recreate the venv with the ARM
-interpreter and activate it. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
+interpreter, activate it, and reinstall with
+`python3 -m pip install -r website/requirements.txt`. A rebuilt venv is empty
+without this step. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
 `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` inside the ARM shell. Verify
 with `python3 -c "import ctypes.util;
 print(ctypes.util.find_library('cairo'))"`. The result should point at
