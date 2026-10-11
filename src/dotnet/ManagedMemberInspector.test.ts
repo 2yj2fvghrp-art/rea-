@@ -10,6 +10,7 @@ import { comparisonLimitations } from "../domain/managed/managedMemberComparison
 
 import {
   buildManagedPeFixture,
+  buildNativePeFixture,
   managedPeFixtureTarget,
 } from "./ManagedPe.fixture.js";
 
@@ -185,6 +186,17 @@ describe("managed exported types", () => {
       },
     ]);
     expect(result.coverage).toEqual({ state: "complete", issues: [] });
+  });
+
+  it("leaves exported types unknown when CLI metadata is unavailable", () => {
+    const bytes = buildNativePeFixture();
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.coverage.state).toBe("unavailable");
+    expect(result.exported_types).toBeNull();
   });
 
   it("reads member Evidence recorded before exported types as unexamined", () => {

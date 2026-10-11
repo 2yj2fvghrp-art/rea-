@@ -61,7 +61,7 @@ const unavailable = (
         requires_mvid: null,
       },
       types: [],
-      exported_types: [],
+      exported_types: null,
       fields: [],
       methods: [],
       member_refs: [],
