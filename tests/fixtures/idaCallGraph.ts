@@ -48,7 +48,23 @@ export const graphRow = (
   },
 ];
 
+/** A realistic reply for a callee that makes no further calls. */
+const leafGraphRow = (root: string): JsonValue => [
+  {
+    root,
+    nodes: [{ addr: root, name: FUNCTIONS[root]?.name ?? null, depth: 0 }],
+    edges: [],
+    max_depth: 1,
+    truncated: false,
+    limit_reason: null,
+    max_edges_per_func: 200,
+    per_func_capped: false,
+  },
+];
+
 export interface Upstream {
+  /** Answer any other single root with a leaf graph instead of rejecting it. */
+  readonly leafRoots?: boolean;
   /** Advertise the fake server's tools; omit for the default full set. */
   readonly tools?: readonly string[];
   /** Items the fake `callees` tool reports for the procedure. */
@@ -88,14 +104,17 @@ export const callGraphSession = async (
     if (name === "callees")
       return [{ callees: [...upstream.callees], more: false }];
     if (name === "callgraph") {
-      if (
-        JSON.stringify(args.roots) !== JSON.stringify(["0x1000"]) ||
-        args.max_depth !== 1
-      )
+      const requested = Array.isArray(args.roots) ? args.roots : [];
+      const rootKnown =
+        JSON.stringify(requested) === JSON.stringify(["0x1000"]) ||
+        (upstream.leafRoots === true && requested.length === 1);
+      if (!rootKnown || args.max_depth !== 1)
         throw new Error(
           `Unexpected callgraph request: ${JSON.stringify(args)}`,
         );
-      return upstream.callgraph;
+      return String(requested[0]) === "0x1000"
+        ? upstream.callgraph
+        : leafGraphRow(String(requested[0]));
     }
     return undefined;
   };

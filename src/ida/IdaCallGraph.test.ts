@@ -56,6 +56,25 @@ describe("architecture gate for the call graph source", () => {
     ).toBe(expected);
   });
 
+  it.each([
+    ["a native PE", false, true],
+    ["a managed PE that IDA may load with the CLI loader", true, false],
+  ])("treats %s as x86-only: %s", (_label, managed, expected) => {
+    expect(
+      isX86OnlyTarget({
+        path: "/fixture",
+        sha256: "a".repeat(64),
+        kind: "executable",
+        format: "pe",
+        architecture: "x86_64",
+        availableArchitectures: ["x86_64"],
+        executableRole: "application",
+        managed,
+      }),
+      "a managed image is not proven to be processed as x86",
+    ).toBe(expected);
+  });
+
   it("never treats a non-executable target as x86-only", () => {
     expect(
       isX86OnlyTarget({
@@ -165,9 +184,9 @@ describe("reading callees from a depth-one call graph", () => {
 
     expect(
       result.limitations,
-      "root edges reached the per-function cap",
+      "reaching the cap is uncertain, so it is reported as possible truncation",
     ).toEqual([
-      "Upstream callgraph was truncated; additional callees remain unknown.",
+      "Upstream callgraph may be truncated; additional callees may remain unknown.",
     ]);
   });
 

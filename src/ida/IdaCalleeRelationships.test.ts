@@ -29,7 +29,7 @@ const observedTools = (rawResult: unknown): string[] =>
     .observations.map(({ tool }) => tool);
 
 const EMPTY_CALLEES_LIMITATION =
-  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
+  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; REA adds edges from the upstream call graph when it is available, and that graph reports calls to recognized functions only, so other call targets remain unknown.";
 
 const callees = async (client: IdaSessionClient) => {
   const result = await client.execute("procedure_callees", {
@@ -170,33 +170,42 @@ describe("headless IDA call graph degradation", () => {
   );
 
   it.each([
-    ["a truncated graph", { truncated: true, limit_reason: "edges" }],
-    ["a saturated per-function cap", { max_edges_per_func: 2 }],
-  ])("keeps the edges seen and reports %s", async (_label, extra) => {
-    const { client } = await session({
-      callees: [],
-      callgraph: graphRow(
-        [edge("0x1000", "0x2000"), edge("0x1000", "0x3000")],
-        extra,
-      ),
-    });
-    try {
-      const execution = await callees(client);
+    [
+      "a truncated graph",
+      { truncated: true, limit_reason: "edges" },
+      "Upstream callgraph was truncated; additional callees remain unknown.",
+    ],
+    [
+      "a saturated per-function cap",
+      { max_edges_per_func: 2 },
+      "Upstream callgraph may be truncated; additional callees may remain unknown.",
+    ],
+  ])(
+    "keeps the edges seen and reports %s",
+    async (_label, extra, limitation) => {
+      const { client } = await session({
+        callees: [],
+        callgraph: graphRow(
+          [edge("0x1000", "0x2000"), edge("0x1000", "0x3000")],
+          extra,
+        ),
+      });
+      try {
+        const execution = await callees(client);
 
-      expect(execution.result, "the observed edges are kept").toEqual([
-        "0x2000",
-        "0x3000",
-      ]);
-      expect(
-        execution.limitations,
-        "omitted callees are reported as unknown",
-      ).toContain(
-        "Upstream callgraph was truncated; additional callees remain unknown.",
-      );
-    } finally {
-      expect((await client.close()).ok).toBe(true);
-    }
-  });
+        expect(execution.result, "the observed edges are kept").toEqual([
+          "0x2000",
+          "0x3000",
+        ]);
+        expect(
+          execution.limitations,
+          "omitted callees are reported as unknown",
+        ).toContain(limitation);
+      } finally {
+        expect((await client.close()).ok).toBe(true);
+      }
+    },
+  );
 });
 
 describe("headless IDA call graph availability and cancellation", () => {
