@@ -187,21 +187,27 @@ describe("DeepSeek Harness Cordis patch registration", () => {
         transport: stdio
         command: stale-launcher
         args: [mcp]
+        env:
+          GHIDRA_INSTALL_DIR: /caller/nondefault/ghidra
 `,
     );
 
-    // The non-canonical entry reads back as absent, so setup rewrites it with
-    // the canonical package name rather than reporting unchanged.
+    // The non-canonical entry reads back as stale, so setup rewrites it with
+    // the canonical package name rather than reporting unchanged, and the
+    // row's configured environment survives the identity repair.
     expect(
       (await configureClientConfiguration(client, {}, command)).status,
     ).toBe("configured");
     const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
-      insert: { id: string; name: string }[];
+      insert: { id: string; name: string; config?: { env?: unknown } }[];
     }[];
     expect(patches).toHaveLength(1);
     expect(patches[0]?.insert).toHaveLength(1);
     expect(patches[0]?.insert[0]?.id).toBe("rea-mcp");
     expect(patches[0]?.insert[0]?.name).toBe("@deepseek-ai/dsh-mcp-client");
+    expect(patches[0]?.insert[0]?.config?.env).toEqual({
+      GHIDRA_INSTALL_DIR: "/caller/nondefault/ghidra",
+    });
     expect(textOf(await readFile(client.configPath, "utf8"))).not.toContain(
       "not-the-harness-client",
     );
@@ -514,6 +520,73 @@ describe("DeepSeek Harness registration state", () => {
     expect(patches[0]?.insert[0]?.config.env).toEqual({
       GHIDRA_INSTALL_DIR: "/caller/nondefault/ghidra",
     });
+  });
+
+  it("treats a direct-only registration as absent even when its config matches", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- id: rea-mcp
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: rea
+    transport: stdio
+    command: ${command[0]}
+    args: [${command.slice(1).join(", ")}]
+`,
+    );
+
+    // A direct patch needs an inserted row to target; with none, Harness has
+    // no entry, so the registration is absent rather than aligned.
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "missing" });
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: unknown[];
+    }[];
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.insert).toHaveLength(1);
+  });
+
+  it("keeps caller-owned config fields across a refresh", async () => {
+    const { client } = await harnessClient();
+    const withCwd = (text: string): string =>
+      text.replace("args: [mcp]", "args: [mcp]\n        cwd: /custom/workdir");
+    await writeFile(
+      client.configPath,
+      withCwd(`- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+`),
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: { config: { cwd?: unknown; command?: unknown } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.cwd).toBe("/custom/workdir");
+    expect(patches[0]?.insert[0]?.config.command).toBe(command[0]);
+
+    // An otherwise-matching row with caller fields is current, not stale.
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
   });
 });
 

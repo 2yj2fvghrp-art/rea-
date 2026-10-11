@@ -5,6 +5,7 @@ import {
   clientConfigurationValuesEqual,
   clientServerListedDisabled,
   clientServerPath,
+  effectiveClientServer,
   legacyClientServerPath,
   OMP_DISABLED_SERVERS_KEY,
   parseClientConfiguration,
@@ -12,6 +13,7 @@ import {
   withClientServers,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
+import { dshPreservedConfigFields } from "./DshCordisPatch.js";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -425,7 +427,19 @@ const clientConfigurationDesired = (
     command.length === 0 ? [PRODUCT_IDENTITY.cliBinary, "mcp"] : command,
     environment.value,
   );
+  // A Harness row may carry caller-owned config fields, such as the working
+  // directory the native verifier sets; a refresh keeps them instead of
+  // silently changing the launch context.
+  const preserved =
+    format === "dsh"
+      ? dshPreservedConfigFields(
+          parsed === undefined
+            ? undefined
+            : effectiveClientServer(parsed, PRODUCT_IDENTITY.mcpServerKey),
+        )
+      : {};
   return {
+    ...preserved,
     ...registration,
     ...(client.name === "codex" || client.name === "grok_build"
       ? {

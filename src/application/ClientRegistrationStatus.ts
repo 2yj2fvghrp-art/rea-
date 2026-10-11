@@ -219,6 +219,10 @@ const registrationAligned = (
     (registration.serverName !== "rea" || registration.transport !== "stdio")
   )
     return false;
+  // A projected foreign package name means the row exists but is not the
+  // canonical Harness MCP client insertion.
+  if (client.format === "dsh" && registration.package !== undefined)
+    return false;
   // OMP and Pi infer stdio for a command entry without an explicit type.
   if (
     (client.format === "omp" || client.format === "pi") &&

@@ -61,10 +61,11 @@ export const parseDshCordisDocument = (
 /**
  * The effective config of the REA entry under Cordis patch semantics: patches
  * apply in order, an insert replaces the row named by id, and a later direct
- * `{ id, config }` operation replaces that row's whole config. The entry reads
- * back only when the winning writer left the canonical Harness MCP client
- * package as its name; a wrong or missing package name reads back as absent so
- * the next setup rewrites exactly one canonical entry.
+ * `{ id, config }` operation replaces that row's whole config only once an
+ * insertion established the row. The entry reads back as a server record even
+ * when the winning writer left a wrong or missing package name, so a repair
+ * preserves the row's configured environment; the foreign name is projected
+ * into the record so alignment and comparison treat the row as stale.
  */
 const dshEntryConfig = (
   patches: readonly unknown[],
@@ -72,6 +73,7 @@ const dshEntryConfig = (
   let name: unknown;
   let config: Record<string, unknown> | undefined;
   let disabled: unknown;
+  let established = false;
   const configOf = (value: unknown): Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value)
       ? { ...(value as Record<string, unknown>) }
@@ -85,12 +87,14 @@ const dshEntryConfig = (
         name = Reflect.get(entry, "name");
         config = configOf(Reflect.get(entry, "config"));
         disabled = Reflect.get(entry, "disabled");
+        established = true;
       }
       continue;
     }
-    // A direct patch to the row replaces its config and, when present, its
-    // name; the repository verifier uses these operations natively.
+    // A direct patch targets a row an insertion must have established; a
+    // dangling operation with no row configures nothing Harness can load.
     if (Reflect.get(op, "id") !== DSH_ENTRY_ID) continue;
+    if (!established) continue;
     const opName = Reflect.get(op, "name");
     if (opName !== undefined) name = opName;
     if (Reflect.has(op as object, "config"))
@@ -98,11 +102,21 @@ const dshEntryConfig = (
     if (Reflect.has(op as object, "disabled"))
       disabled = Reflect.get(op, "disabled");
   }
-  if (name !== DSH_CLIENT_PACKAGE) return undefined;
+  if (!established) return undefined;
   // Cordis keeps activation beside the config, and a disabled row never loads
   // REA tools; project it into the server record so doctor and setup treat a
-  // matching command on a disabled row as stale instead of aligned.
-  return disabled === true ? { ...config, disabled: true } : config;
+  // matching command on a disabled row as stale instead of aligned. A foreign
+  // package name is projected the same way instead of hiding the row's config.
+  return {
+    ...config,
+    ...(disabled === true ? { disabled: true } : {}),
+    ...(name === DSH_CLIENT_PACKAGE
+      ? {}
+      : {
+          package:
+            typeof name === "string" ? name : "non-string package declaration",
+        }),
+  };
 };
 
 /** The canonical row REA writes for its entry, minus Cordis activation state. */
@@ -300,6 +314,33 @@ export const dshClientRegistrationEntry = (
       ? {}
       : { env: { ...environment } }),
   };
+};
+
+/** Keys REA owns inside a Harness registration config; the rest is caller territory. */
+const DSH_OWNED_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  "serverName",
+  "transport",
+  "command",
+  "args",
+  "env",
+  "disabled",
+  "package",
+]);
+
+/**
+ * Keep a caller's non-REA config fields, such as the working directory the
+ * native verifier sets, across a registration refresh; REA-owned keys are
+ * regenerated, never inherited.
+ */
+export const dshPreservedConfigFields = (
+  value: unknown,
+): Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return {};
+  const preserved: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(value as Record<string, unknown>))
+    if (!DSH_OWNED_CONFIG_KEYS.has(key)) preserved[key] = field;
+  return preserved;
 };
 
 /** Type-only anchor keeping the format union honest for future callers. */
