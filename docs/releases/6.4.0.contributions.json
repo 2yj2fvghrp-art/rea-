@@ -3,7 +3,7 @@
   "repository": "morluto/rea",
   "version": "6.4.0",
   "base": "74cf9e1401fcd89482fe39c27cc898f5858e9b72",
-  "target": "89ea2cad1977b73a4ddf5818d54f5bc51cdae2b6",
+  "target": "92dac97102190395613c868b1582efc8a4f054c8",
   "commits": [
     {
       "sha": "08ec2bf82fa88f5e8caa2b7da9093636731dc55c",
@@ -6501,6 +6501,31 @@
         }
       ],
       "pullRequests": [1687]
+    },
+    {
+      "sha": "92dac97102190395613c868b1582efc8a4f054c8",
+      "subject": "docs(website): add beginner help to the native analysis guide (#1689)",
+      "body": "docs(website): add beginner help to the native analysis guide (#1689)\n\nAdd a short glossary, an analysis-tool chooser linked to native setup,\na note that REA does not include DX-Ball, and help for copying a file's\nfull path.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+      "parents": ["89ea2cad1977b73a4ddf5818d54f5bc51cdae2b6"],
+      "authors": [
+        {
+          "name": "Kaoru0822",
+          "email": "aisakamimaki@gmail.com",
+          "user": {
+            "login": "kaoru0822-kitauji",
+            "__typename": "User"
+          }
+        },
+        {
+          "name": "Claude Opus 5.5",
+          "email": "noreply@anthropic.com",
+          "user": {
+            "login": "claude",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": [1689]
     }
   ],
   "pullRequests": [
@@ -9321,6 +9346,19 @@
       },
       "mergeCommit": {
         "oid": "ea06264a5656ef4b4f52058895030f89d799d7ff"
+      },
+      "issues": []
+    },
+    {
+      "number": 1689,
+      "title": "docs(website): add beginner help to the native analysis guide",
+      "url": "https://github.com/morluto/rea/pull/1689",
+      "author": {
+        "login": "kaoru0822-kitauji",
+        "__typename": "User"
+      },
+      "mergeCommit": {
+        "oid": "92dac97102190395613c868b1582efc8a4f054c8"
       },
       "issues": []
     }
