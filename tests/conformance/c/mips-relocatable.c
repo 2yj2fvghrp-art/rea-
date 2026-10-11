@@ -1,7 +1,8 @@
 /* Relocatable (ET_REL) static-analysis fixture, built with -c -G0 and never
  * executed or linked by REA. It exercises the relocations Linux MIPS kernel
  * modules use: R_MIPS_26 calls, HI16/LO16 address pairs (one HI16 shared by
- * several LO16s, and a LO16 >= 0x8000 that forces a HI16 carry), R_MIPS_32
+ * several LO16s, two HI16s resolved by one LO16, and a LO16 >= 0x8000 that
+ * forces a HI16 carry), R_MIPS_32
  * data words, and undefined external code and data symbols. powf is an
  * external whose float prototype Ghidra's C library archive supplies by name,
  * so soft-float builds must give it the soft-float prototype too.
@@ -44,6 +45,25 @@ __attribute__((noinline)) int rea_mips_rel_scaled(int value)
     float scaled = powf(1.5f, 2.5f);
     return value ^ *(int *)&scaled;
 }
+
+/* Most GCC-built kernel modules checked contain LO16s that resolve several
+ * pending HI16s; Clang does not produce that from C. Two lui of the same
+ * symbol make LLVM's relocation sort leave one HI16 pending until a later
+ * LO16 that also resolves another HI16, including the carry.
+ */
+__asm__(".text\n"
+        ".globl rea_mips_rel_highs\n"
+        ".type rea_mips_rel_highs, @function\n"
+        ".set push\n"
+        ".set noreorder\n"
+        "rea_mips_rel_highs:\n"
+        "    lui $2, %hi(rea_mips_rel_carry)\n"
+        "    lui $3, %hi(rea_mips_rel_carry)\n"
+        "    addiu $2, $2, %lo(rea_mips_rel_carry)\n"
+        "    jr $31\n"
+        "    addiu $3, $3, %lo(rea_mips_rel_carry)\n"
+        ".set pop\n"
+        ".size rea_mips_rel_highs, .-rea_mips_rel_highs\n");
 
 int rea_mips_rel_entry(int value)
 {
