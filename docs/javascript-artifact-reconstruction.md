@@ -428,6 +428,8 @@ same conditional and invalid-entry handling as nested exports arrays.
 Nonempty arrays containing only inactive conditions remain unmatched, allowing
 the enclosing condition object to continue to a later active condition.
 Empty arrays and explicit null targets keep their blocking outcome.
+Refusal evidence distinguishes those source values and retains condition names
+from unmatched nested targets rather than reporting array indices.
 For imports and requires, the active Node conditions include `module-sync`;
 earlier active conditions retain precedence over later ones.
 

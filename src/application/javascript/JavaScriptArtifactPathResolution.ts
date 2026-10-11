@@ -315,7 +315,7 @@ const resolvePackageImportAlias = (
     ]);
   if (selected.status === "blocked")
     return unresolvedCandidate("external", [
-      `Package metadata ${metadata.path} blocks import alias ${specifier} with an explicit null imports target.`,
+      `Package metadata ${metadata.path} blocks import alias ${specifier} with ${selected.cause === "null" ? "an explicit null imports target" : "an empty imports target array"}.`,
     ]);
   if (selected.status === "non-relative") {
     const target = classifyPackageImportTargetString(selected.value);
@@ -334,7 +334,7 @@ const selectPackageImportTarget = (
 ):
   | { readonly status: "value"; readonly value: string }
   | { readonly status: "non-relative"; readonly value: string }
-  | { readonly status: "blocked" }
+  | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly status: "unmatched"; readonly declared: readonly string[] }
   | { readonly status: "rejected"; readonly limitation: string } => {
   const selected = selectExportTarget(
@@ -347,10 +347,10 @@ const selectPackageImportTarget = (
   if (selected.kind === "unmatched")
     return {
       status: "unmatched",
-      declared:
-        typeof value === "object" && value !== null ? Object.keys(value) : [],
+      declared: selected.declared,
     };
-  if (selected.kind === "blocked") return { status: "blocked" };
+  if (selected.kind === "blocked")
+    return { status: "blocked", cause: selected.cause };
   if (selected.kind === "non-relative")
     return { status: "non-relative", value: selected.value };
   return { status: "value", value: selected.value };
@@ -432,7 +432,7 @@ const resolvePackageExports = (
     ]);
   if (exported.status === "blocked")
     return unresolvedCandidate("external", [
-      `Directory package metadata ${packagePath} blocks subpath ${subpath} with an explicit null exports target.`,
+      `Directory package metadata ${packagePath} blocks subpath ${subpath} with ${exported.cause === "null" ? "an explicit null exports target" : "an empty exports target array"}.`,
     ]);
   return resolveExportTarget(input, packagePath, exported.value);
 };
@@ -760,10 +760,12 @@ const fileCandidates = (candidate: string): readonly string[] => [
 const indexCandidates = (candidate: string): readonly string[] =>
   EXTENSIONS.map((extension) => posix.join(candidate, `index${extension}`));
 
+type PackageTargetBlockCause = "null" | "empty-array";
+
 type PackageExportOutcome =
   | { readonly status: "value"; readonly value: string }
   | { readonly status: "rejected"; readonly limitation: string }
-  | { readonly status: "blocked" }
+  | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly status: "unmatched"; readonly declared: readonly string[] };
 
 /** Only exact non-directory keys participate; wildcard expansion is unsupported. */
@@ -803,12 +805,10 @@ const selectPackageExport = (
   if (selected.kind === "unmatched")
     return {
       status: "unmatched",
-      declared:
-        typeof target === "object" && target !== null
-          ? Object.keys(target)
-          : declared,
+      declared: selected.declared,
     };
-  if (selected.kind === "blocked") return { status: "blocked" };
+  if (selected.kind === "blocked")
+    return { status: "blocked", cause: selected.cause };
   if (selected.kind === "non-relative")
     return {
       status: "rejected",
@@ -820,8 +820,8 @@ const selectPackageExport = (
 type ExportTargetOutcome =
   | { readonly kind: "value"; readonly value: string }
   | { readonly kind: "non-relative"; readonly value: string }
-  | { readonly kind: "blocked" }
-  | { readonly kind: "unmatched" }
+  | { readonly kind: "blocked"; readonly cause: PackageTargetBlockCause }
+  | { readonly kind: "unmatched"; readonly declared: readonly string[] }
   | { readonly kind: "invalid"; readonly limitation: string }
   | { readonly kind: "invalid-config"; readonly limitation: string };
 
@@ -881,20 +881,26 @@ const selectArrayPackageTarget = (
   conditions: ReadonlySet<string>,
   mapKind: "exports" | "imports",
 ): ExportTargetOutcome => {
-  if (value.length === 0) return { kind: "blocked" };
-  let lastOutcome: ExportTargetOutcome = { kind: "unmatched" };
+  if (value.length === 0) return { kind: "blocked", cause: "empty-array" };
+  let lastRefusal:
+    | Extract<ExportTargetOutcome, { readonly kind: "invalid" | "blocked" }>
+    | undefined;
+  const declared = new Set<string>();
   for (const entry of value) {
     const nested = selectExportTarget(entry, conditions, mapKind);
     // Node's array fallback catches invalid targets, not invalid configuration.
     if (nested.kind === "invalid-config") return nested;
-    if (nested.kind === "unmatched") continue;
+    if (nested.kind === "unmatched") {
+      for (const condition of nested.declared) declared.add(condition);
+      continue;
+    }
     if (nested.kind === "invalid" || nested.kind === "blocked") {
-      lastOutcome = nested;
+      lastRefusal = nested;
       continue;
     }
     return nested;
   }
-  return lastOutcome;
+  return lastRefusal ?? { kind: "unmatched", declared: [...declared] };
 };
 
 /**
@@ -911,7 +917,7 @@ const selectExportTarget = (
 ): ExportTargetOutcome => {
   if (typeof value === "string")
     return selectStringPackageTarget(value, mapKind);
-  if (value === null) return { kind: "blocked" };
+  if (value === null) return { kind: "blocked", cause: "null" };
   if (Array.isArray(value))
     return selectArrayPackageTarget(value, conditions, mapKind);
   if (typeof value !== "object")
@@ -928,12 +934,15 @@ const selectExportTarget = (
         limitation: `The package exports configuration contains numeric condition key ${JSON.stringify(key)}.`,
       };
   }
+  const declared = new Set<string>();
   for (const [condition, target] of Object.entries(value)) {
+    declared.add(condition);
     if (!conditions.has(condition)) continue;
     const nested = selectExportTarget(target, conditions, mapKind);
     if (nested.kind !== "unmatched") return nested;
+    for (const name of nested.declared) declared.add(name);
   }
-  return { kind: "unmatched" };
+  return { kind: "unmatched", declared: [...declared] };
 };
 
 /**

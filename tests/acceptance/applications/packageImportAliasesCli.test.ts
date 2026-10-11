@@ -29,6 +29,32 @@ const fallbackAliases = {
   },
 };
 const resolvedAliases = [...literalAliases, ...Object.keys(fallbackAliases)];
+const refusedAliases = {
+  "#empty": { target: [], limitation: "an empty imports target array" },
+  "#empty-active": {
+    target: { node: [] },
+    limitation: "an empty imports target array",
+  },
+  "#null-last": {
+    target: [[], null],
+    limitation: "an explicit null imports target",
+  },
+  "#empty-last": {
+    target: [null, []],
+    limitation: "an empty imports target array",
+  },
+  "#inactive": {
+    target: [{ browser: "./browser.cjs" }],
+    limitation: "it declares browser.",
+  },
+  "#nested-inactive": {
+    target: [
+      [{ browser: "./browser.cjs" }, { "rea-inactive": "./inactive.cjs" }],
+    ],
+    limitation: "it declares browser, rea-inactive.",
+  },
+};
+const allAliases = [...resolvedAliases, ...Object.keys(refusedAliases)];
 
 const createPackageImportAliasFixture = async () => {
   const root = await createTestTempDirectory("rea-package-import-aliases-");
@@ -36,11 +62,9 @@ const createPackageImportAliasFixture = async () => {
     'const config = require("#config");',
     'const nested = require("./node_modules/fixture/index.cjs");',
     'const missing = require("#missing");',
-    ...resolvedAliases.map(
-      (specifier) => `require(${JSON.stringify(specifier)});`,
-    ),
+    ...allAliases.map((specifier) => `require(${JSON.stringify(specifier)});`),
   ].join("\n");
-  const moduleSource = resolvedAliases
+  const moduleSource = allAliases
     .map((specifier) => `import ${JSON.stringify(specifier)};`)
     .join("\n");
   const nestedSource = [
@@ -56,6 +80,12 @@ const createPackageImportAliasFixture = async () => {
           literalAliases.map((specifier) => [specifier, "./config.cjs"]),
         ),
         ...fallbackAliases,
+        ...Object.fromEntries(
+          Object.entries(refusedAliases).map(([specifier, { target }]) => [
+            specifier,
+            target,
+          ]),
+        ),
       },
     }),
     "main.cjs": mainSource,
@@ -138,6 +168,22 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const imports = graph.edges.filter(
       ({ properties }) => properties.module_link_kind === "require",
     );
+    for (const [specifier, { limitation }] of Object.entries(refusedAliases))
+      for (const [moduleKind, sourcePath, source] of [
+        ["require", "main.cjs", mainSource],
+        ["import", "main.mjs", moduleSource],
+      ] as const)
+        expect(graph.edges).toContainEqual(
+          expect.objectContaining({
+            properties: expect.objectContaining({
+              module_link_kind: moduleKind,
+              specifier,
+              resolved_path: null,
+              resolution_status: "external",
+            }),
+            evidence: sourceEvidence(sourcePath, source, limitation),
+          }),
+        );
     expect(imports).toContainEqual(
       expect.objectContaining({
         properties: expect.objectContaining({
@@ -178,7 +224,11 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
   },
 );
 
-const sourceEvidence = (sourcePath: string, source: string): unknown =>
+const sourceEvidence = (
+  sourcePath: string,
+  source: string,
+  limitation?: string,
+): unknown =>
   expect.objectContaining({
     artifact: expect.objectContaining({
       available: true,
@@ -191,4 +241,11 @@ const sourceEvidence = (sourcePath: string, source: string): unknown =>
         source: sourcePath,
       }),
     }),
+    ...(limitation === undefined
+      ? {}
+      : {
+          limitations: expect.arrayContaining([
+            expect.stringContaining(limitation),
+          ]),
+        }),
   });

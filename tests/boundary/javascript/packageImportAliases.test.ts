@@ -230,31 +230,85 @@ describe("inactive package target arrays compared with Node", () => {
         });
     }
   });
+});
 
+describe("package target refusal evidence compared with Node", () => {
   it("keeps empty, null, invalid, and unmatched array outcomes distinct", async () => {
     const root = await createTestTempDirectory("rea-inactive-package-refusal-");
     const inactive = { browser: "./browser.cjs" };
     const contents = await writeTree(root, {
       "package.json": JSON.stringify({
         imports: {
+          "#empty-direct": [],
           "#empty": { node: [], default: "./fallback.cjs" },
           "#null": { node: [null, inactive], default: "./fallback.cjs" },
+          "#null-last": [[], null],
+          "#empty-last": [null, []],
           "#invalid": {
             node: ["../outside.cjs", inactive],
             default: "./fallback.cjs",
           },
           "#unmatched": [inactive],
+          "#unmatched-nested": [
+            [inactive, { "rea-inactive": "./inactive.cjs" }],
+          ],
+          "#unmatched-active": { node: [inactive] },
         },
       }),
       "main.cjs": "module.exports = 1;",
       "fallback.cjs": "module.exports = 1;",
     });
     const inventoried = inventory(contents);
-    for (const [specifier, errorCode, status] of [
-      ["#empty", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
-      ["#null", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
-      ["#invalid", "ERR_INVALID_PACKAGE_TARGET", "rejected"],
-      ["#unmatched", "ERR_PACKAGE_IMPORT_NOT_DEFINED", "external"],
+    for (const [specifier, errorCode, status, limitation] of [
+      [
+        "#empty-direct",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "an empty imports target array",
+      ],
+      [
+        "#empty",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "an empty imports target array",
+      ],
+      [
+        "#null",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "an explicit null imports target",
+      ],
+      [
+        "#null-last",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "an explicit null imports target",
+      ],
+      [
+        "#empty-last",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "an empty imports target array",
+      ],
+      ["#invalid", "ERR_INVALID_PACKAGE_TARGET", "rejected", "../outside.cjs"],
+      [
+        "#unmatched",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "it declares browser.",
+      ],
+      [
+        "#unmatched-nested",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "it declares browser, rea-inactive.",
+      ],
+      [
+        "#unmatched-active",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "it declares node, browser.",
+      ],
     ] as const) {
       expect(
         (await nodeRequireTarget(join(root, "main.cjs"), specifier)).error_code,
@@ -273,10 +327,7 @@ describe("inactive package target arrays compared with Node", () => {
           resolution_status: status,
           resolved_path: null,
         });
-        if (specifier === "#unmatched")
-          expect(result.limitations.join(" ")).not.toContain("explicit null");
-        else if (specifier !== "#invalid")
-          expect(result.limitations.join(" ")).toContain("explicit null");
+        expect(result.limitations.join(" "), specifier).toContain(limitation);
       }
     }
   });
