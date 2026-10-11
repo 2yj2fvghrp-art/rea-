@@ -218,7 +218,7 @@ describe("production stdio runtime", () => {
         record.level >= 50,
     );
     expect(fatal).toEqual([]);
-  }, 15_000);
+  });
 
   it.runIf(process.platform === "darwin")(
     "serves a database-kind initial target without a fatal record on macOS",
