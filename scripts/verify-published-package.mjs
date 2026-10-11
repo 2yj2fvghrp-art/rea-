@@ -11,6 +11,10 @@ import { lt, rcompare } from "semver";
 
 import { CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
 import { TOOL_CONTRACTS } from "../dist/contracts/toolContracts.js";
+import {
+  requireMcpLifecycleResult,
+  sortVerifierNames,
+} from "./lib/mcp-verifier-results.mjs";
 import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 
 const verifierRun = createVerifierRun();
@@ -73,12 +77,21 @@ try {
     throw new Error(
       `Published MCP exposed an invalid canonical tool catalog (${String(publishedToolCount)} tools, unknown: ${unknownToolNames.join(", ") || "none"}, missing: ${missingToolNames.join(", ") || "none"})`,
     );
-  const status = await client.callTool({
+  const statusReply = await client.callTool({
     name: "binary_session",
     arguments: {},
   });
-  if (status.isError === true)
-    throw new Error("Published target-free MCP session check failed");
+  const status = requireMcpLifecycleResult(statusReply, "binary_session");
+  const availabilityNames = sortVerifierNames(
+    status.tool_availability.map(({ name }) => name),
+  );
+  if (
+    JSON.stringify(availabilityNames) !==
+    JSON.stringify(sortVerifierNames(canonicalToolNames))
+  )
+    throw new Error(
+      "Published binary_session omitted canonical tool availability",
+    );
   update = await verifyPublishedUpdate({ version, canaryRoot });
 } catch (cause) {
   throw new Error(`Published package verification failed: ${stderr}`, {

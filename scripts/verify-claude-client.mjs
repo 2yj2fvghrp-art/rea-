@@ -11,6 +11,10 @@ import {
   toolContract,
 } from "../dist/contracts/toolContracts.js";
 import { exec } from "./lib/verify-package-core.mjs";
+import {
+  expandMcpSessionStatus,
+  sortVerifierNames,
+} from "./lib/mcp-verifier-results.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 import { createAnthropicModelFixture } from "./verify/clients/anthropic-model-fixture.mjs";
 
@@ -124,10 +128,12 @@ const fixture = await createAnthropicModelFixture({
       0,
       -"analyze_javascript_application".length,
     );
-    const expected = TOOL_CONTRACTS.map((t) => prefix + t.name).sort();
+    const expected = sortVerifierNames(
+      TOOL_CONTRACTS.map((t) => prefix + t.name),
+    );
     const reaTools = tools.filter((t) => t.name.startsWith(prefix));
     assert.deepEqual(
-      reaTools.map((t) => t.name).sort(),
+      sortVerifierNames(reaTools.map((t) => t.name)),
       expected,
       "Claude must forward the complete REA catalog after connection",
     );
@@ -150,11 +156,15 @@ const fixture = await createAnthropicModelFixture({
         body.messages,
         (value) =>
           Boolean(value.result?.server_identity) &&
-          Array.isArray(value.result?.tool_availability),
+          Array.isArray(value.result?.tool_availability?.groups),
       );
       if (observedStatus) {
-        const status =
+        const parsedStatus =
           toolContract("binary_session").outputSchema.parse(observedStatus);
+        const status = {
+          ...parsedStatus,
+          result: expandMcpSessionStatus(parsedStatus.result),
+        };
         assert.deepEqual(
           status.result.server_identity.catalog,
           CATALOG_IDENTITY,
@@ -166,8 +176,10 @@ const fixture = await createAnthropicModelFixture({
           "binary_session must not inline the duplicated canonical tool catalog",
         );
         assert.deepEqual(
-          status.result.tool_availability.map((entry) => entry.name).sort(),
-          TOOL_CONTRACTS.map((contract) => contract.name).sort(),
+          sortVerifierNames(
+            status.result.tool_availability.map((entry) => entry.name),
+          ),
+          sortVerifierNames(TOOL_CONTRACTS.map((contract) => contract.name)),
           "binary_session must retain complete canonical tool availability",
         );
         sessionStatusSeen = true;
