@@ -8,14 +8,18 @@ import {
 } from "../../tests/fixtures/idaMcp.js";
 import { IdaSessionClient } from "./IdaSessionClient.js";
 import { functionDossierSchema } from "../domain/hopperValues.js";
-import { jsonValueSchema } from "../domain/jsonValue.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
-const fixture = async (mode: "attached" | "headless" = "attached") => {
+const fixture = async (
+  mode: "attached" | "headless" = "attached",
+  timeoutMs = 1000,
+) => {
   const { root, target } = await createIdaTarget();
   roots.push(root);
   const producer = new RecordingIdaMcp(target, mode);
@@ -25,7 +29,7 @@ const fixture = async (mode: "attached" | "headless" = "attached") => {
       args: [],
       env: {},
       mode,
-      timeoutMs: 1000,
+      timeoutMs,
       workspaceRoot: root,
     },
     target,
@@ -326,6 +330,132 @@ describe("attached IDA function observations", () => {
     expect((await close).ok).toBe(true);
     expect(producer.closes).toBe(1);
   });
+});
+
+const busyHealth = (busyTool?: JsonValue): JsonValue => ({
+  status: "busy",
+  uptime_sec: 1.041,
+  ...(busyTool === undefined ? {} : { busy_tool: busyTool }),
+  busy_sec: 0,
+  queued_calls: 0,
+});
+const healthCalls = (producer: { calls: { name: string }[] }) =>
+  producer.calls.filter(({ name }) => name === "server_health").length;
+
+describe("headless IDA transient busy health", () => {
+  it("re-reads server_health until the worker reports ok", async () => {
+    const { producer, client } = await fixture("headless");
+    let busyReads = 2;
+    producer.overrideCall = (name) =>
+      name === "server_health" && busyReads-- > 0
+        ? busyHealth("config_json_get")
+        : undefined;
+
+    const result = await client.execute("health", {});
+
+    expect(result.ok, "a transient busy worker is waited out").toBe(true);
+    expect(
+      healthCalls(producer),
+      "two busy reads and the ok read that settles the identity",
+    ).toBe(3);
+    await client.close();
+  });
+
+  it("returns a retryable timeout naming the busy tool when the worker never settles", async () => {
+    const { producer, client } = await fixture("headless", 300);
+    producer.overrideCall = (name) =>
+      name === "server_health" ? busyHealth("config_json_get") : undefined;
+
+    const result = await client.execute("health", {});
+
+    if (result.ok) throw new Error("expected a busy timeout");
+    expect(result.error._tag, "the neutral timeout class is used").toBe(
+      "AnalysisTimeoutError",
+    );
+    const projected = projectAnalysisError(result.error);
+    expect(projected.code, "the outcome is a provider timeout").toBe(
+      "provider_timeout",
+    );
+    expect(projected.retryable, "the caller may retry").toBe(true);
+    expect(
+      projected.details,
+      "the observed busy tool is named in the operation",
+    ).toMatchObject({
+      operation: expect.stringContaining("config_json_get"),
+      timeout_ms: 300,
+    });
+    expect(projected.message, "the message names the busy tool").toContain(
+      "config_json_get",
+    );
+    expect(projected.message, "no Hopper wording leaks in").not.toContain(
+      "Hopper",
+    );
+    await client.close();
+  });
+
+  it("never invents a busy tool the worker did not report", async () => {
+    const { producer, client } = await fixture("headless", 300);
+    producer.overrideCall = (name) =>
+      name === "server_health" ? busyHealth() : undefined;
+
+    const result = await client.execute("health", {});
+
+    if (result.ok) throw new Error("expected a busy timeout");
+    expect(
+      projectAnalysisError(result.error).message,
+      "an omitted busy_tool is reported as unknown",
+    ).toContain("unknown");
+    await client.close();
+  });
+
+  it("ends the wait at once when the caller aborts", async () => {
+    const { producer, client } = await fixture("headless", 30_000);
+    producer.overrideCall = (name) =>
+      name === "server_health" ? busyHealth("config_json_get") : undefined;
+    const controller = new AbortController();
+    const started = Date.now();
+    const call = client.execute("health", {}, { signal: controller.signal });
+    while (healthCalls(producer) < 2) {
+      if (Date.now() - started > 5_000) throw new Error("never polled");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    controller.abort();
+    const result = await call;
+
+    if (result.ok) throw new Error("expected cancellation");
+    expect(result.error._tag, "cancellation keeps today's outcome").toBe(
+      "AnalysisCancelledError",
+    );
+    expect(
+      Date.now() - started,
+      "the wait does not run to the registration deadline",
+    ).toBeLessThan(5_000);
+    await client.close();
+  });
+
+  it.each([
+    ["an unknown status", { status: "starting" }],
+    ["a non-string busy_tool", busyHealth(5)],
+    ["a payload without a status", { uptime_sec: 1 }],
+  ])(
+    "keeps %s as unreadable output without waiting",
+    async (_label, payload) => {
+      const { producer, client } = await fixture("headless");
+      producer.overrideCall = (name) =>
+        name === "server_health" ? jsonValueSchema.parse(payload) : undefined;
+
+      const result = await client.execute("health", {});
+
+      if (result.ok) throw new Error("expected unreadable output");
+      expect(
+        projectAnalysisError(result.error).code,
+        "only the narrow busy shape enters the wait",
+      ).toBe("unreadable_output");
+      expect(healthCalls(producer), "no re-read happened").toBe(1);
+      await client.close();
+    },
+  );
 });
 
 describe("headless IDA lifecycle boundaries", () => {
