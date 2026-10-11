@@ -798,8 +798,10 @@ through the compiled CLI and stdio MCP server. With the same Ghidra/JDK
 prerequisites, it checks preparation and bridge startup, verified load mappings,
 instruction and byte readback, canonical-entry session reuse, replacement when
 the entry changes without `provider_id`, unchanged source bytes, and owned
-cleanup. Other raw CPU families remain covered by deterministic tests rather
-than this real-provider lane. See [raw binary analysis](raw-binary.md).
+cleanup. Six-byte x86 and x86_64 controls also verify supported compiler
+specifications, independent mappings, unchanged bytes, and decompilation of a
+known return value. AArch64 remains covered by deterministic tests rather than
+this real-provider lane. See [raw binary analysis](raw-binary.md).
 
 ## Apple Interface Builder archives
 

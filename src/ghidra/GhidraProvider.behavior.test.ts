@@ -1876,6 +1876,51 @@ describe("Ghidra disabled analyzer options", () => {
     ]);
   });
 
+  it("binds analyzer overrides and raw import settings in one profile", async () => {
+    const launchers: GhidraHeadlessLauncher[] = [];
+    const ghidra = configuredProvider(
+      { REA_GHIDRA_DISABLED_ANALYZERS: "Decompiler Switch Analysis" },
+      (options) => {
+        launchers.push(options.launcher as GhidraHeadlessLauncher);
+        return {
+          start: () => Promise.resolve(ok(sessionInfo())),
+          callTool: () => Promise.resolve(ok(null)),
+          close: () => Promise.resolve(ok(null)),
+        };
+      },
+    );
+    const target: BinaryTarget = {
+      path: "/tmp/entry.bin",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "raw-binary",
+      architecture: "x86",
+      availableArchitectures: ["x86"],
+      entryPoint: "0x1000",
+      entryPointSource: "0x1000",
+    };
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    if (!resolved.ok || resolved.value.profile === null)
+      throw new Error("expected a bound raw-binary profile");
+    expect(resolved.value.profile.parameters).toMatchObject({
+      target_format: "raw-binary",
+      entry_point: "0x1000",
+      analyzer_preset: "ghidra-default+disabled:Decompiler Switch Analysis",
+      analysis_options: { disabled_analyzers: ["Decompiler Switch Analysis"] },
+    });
+    const client = ghidra.createClient(target, resolved.value.profile);
+    expect(launchers).toHaveLength(1);
+    expect(launchers[0]?.options).toMatchObject({
+      disabledAnalyzers: ["Decompiler Switch Analysis"],
+      rawBinary: {
+        languageId: "x86:LE:32:default",
+        compilerSpecId: "gcc",
+        baseAddr: "0x1000",
+      },
+    });
+    await client.close();
+  });
+
   it("refuses a profile resolved without or with other analyzer options", async () => {
     const target = executableTarget("elf", "x86_64");
     const plainProvider = configuredProvider({});

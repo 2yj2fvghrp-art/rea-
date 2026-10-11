@@ -71,6 +71,13 @@ export const resolveGhidraAnalysisProfile = async (
     : null;
   if (pspExtension !== null && !pspExtension.ok) return pspExtension;
   const provider = { ...identity, version: installation.providerVersion };
+  const analyzerParameters =
+    disabledAnalyzers === undefined || disabledAnalyzers.length === 0
+      ? { analyzer_preset: "ghidra-default" }
+      : {
+          analyzer_preset: `ghidra-default+disabled:${disabledAnalyzers.join(",")}`,
+          analysis_options: { disabled_analyzers: [...disabledAnalyzers] },
+        };
   if (target.format === "raw-binary") {
     if (languageOverride !== undefined)
       return Promise.resolve(
@@ -117,7 +124,7 @@ export const resolveGhidraAnalysisProfile = async (
           language_selection: "caller-supplied-v1",
           entry_point: target.entryPoint,
           entry_seed: "external-entry-and-function-before-analysis-v1",
-          analyzer_preset: "ghidra-default",
+          ...analyzerParameters,
         }),
       }),
     );
@@ -219,17 +226,7 @@ export const resolveGhidraAnalysisProfile = async (
               entry_seed: "external-entry-and-function-before-analysis-v1",
             }
           : {}),
-        analyzer_preset:
-          disabledAnalyzers === undefined || disabledAnalyzers.length === 0
-            ? "ghidra-default"
-            : `ghidra-default+disabled:${disabledAnalyzers.join(",")}`,
-        ...(disabledAnalyzers === undefined || disabledAnalyzers.length === 0
-          ? {}
-          : {
-              analysis_options: {
-                disabled_analyzers: [...disabledAnalyzers],
-              },
-            }),
+        ...analyzerParameters,
         ...ghidraMipsProfileParameters(target),
         ...(pspExtension?.ok === true
           ? {
