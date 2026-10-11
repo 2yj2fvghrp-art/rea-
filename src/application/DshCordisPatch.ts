@@ -57,25 +57,33 @@ export const parseDshCordisDocument = (
   };
 };
 
-/** The REA entry's config in a patch list, wherever its insert op carries it. */
+/**
+ * The config of the one canonical REA entry in a patch list: matching id and
+ * the Harness MCP client package as its name, with no duplicate. An entry
+ * carrying the id under a wrong or missing package name, or several entries,
+ * is not a registration REA can vouch for; it reads back as absent so the
+ * next setup rewrites exactly one canonical entry.
+ */
 const dshEntryConfig = (
   patches: readonly unknown[],
 ): Record<string, unknown> | undefined => {
+  let canonical: Record<string, unknown> | undefined;
   for (const op of patches) {
     if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
     const inserted = Reflect.get(op, "insert");
     if (!Array.isArray(inserted)) continue;
-    for (const entry of inserted)
-      if (isInsertEntry(entry)) {
-        const config = Reflect.get(entry, "config");
-        return typeof config === "object" &&
-          config !== null &&
-          !Array.isArray(config)
+    for (const entry of inserted) {
+      if (!isInsertEntry(entry)) continue;
+      if (Reflect.get(entry, "name") !== DSH_CLIENT_PACKAGE) continue;
+      if (canonical !== undefined) return undefined;
+      const config = Reflect.get(entry, "config");
+      canonical =
+        typeof config === "object" && config !== null && !Array.isArray(config)
           ? { ...(config as Record<string, unknown>) }
           : {};
-      }
+    }
   }
-  return undefined;
+  return canonical;
 };
 
 /**
@@ -96,7 +104,7 @@ export const withDshServer = (
     if (!Array.isArray(inserted)) continue;
     const next = inserted.map((entry) =>
       isInsertEntry(entry)
-        ? { ...entry, config: { ...desired } }
+        ? { ...entry, name: DSH_CLIENT_PACKAGE, config: { ...desired } }
         : (entry as unknown),
     );
     if (next.some(isInsertEntry)) {
@@ -203,6 +211,7 @@ export const serializeDshDocument = (
 /** Registration entry config shape for the Harness MCP client. */
 export const dshClientRegistrationEntry = (
   command: readonly string[],
+  environment: Readonly<Record<string, string>> = {},
 ): Record<string, unknown> => {
   const [executable = "rea", ...args] = command;
   return {
@@ -210,6 +219,9 @@ export const dshClientRegistrationEntry = (
     transport: "stdio",
     command: executable,
     args,
+    ...(Object.keys(environment).length === 0
+      ? {}
+      : { env: { ...environment } }),
   };
 };
 

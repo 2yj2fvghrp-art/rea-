@@ -53,18 +53,18 @@ describe("DeepSeek Harness configuration paths", () => {
   });
 });
 
-describe("DeepSeek Harness Cordis patch registration", () => {
-  const harnessClient = async () => {
-    const home = await createTestTempDirectory("rea-dsh-");
-    const client = supportedClients(home, process.platform, {}).find(
-      ({ name }) => name === "dsh",
-    );
-    if (client?.markerPath === undefined)
-      throw new Error("missing DeepSeek Harness client");
-    await mkdir(client.markerPath, { recursive: true });
-    return { home, client };
-  };
+const harnessClient = async () => {
+  const home = await createTestTempDirectory("rea-dsh-");
+  const client = supportedClients(home, process.platform, {}).find(
+    ({ name }) => name === "dsh",
+  );
+  if (client?.markerPath === undefined)
+    throw new Error("missing DeepSeek Harness client");
+  await mkdir(client.markerPath, { recursive: true });
+  return { home, client };
+};
 
+describe("DeepSeek Harness Cordis patch registration", () => {
   it("appends the rea-mcp insert, preserves user patches, and reads back", async () => {
     const { home, client } = await harnessClient();
     await writeFile(
@@ -173,6 +173,65 @@ describe("DeepSeek Harness Cordis patch registration", () => {
     expect(textOf(await readFile(client.configPath, "utf8"))).not.toContain(
       "stale-launcher",
     );
+  });
+
+  it("rewrites a wrong-package rea-mcp entry into the canonical one", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: not-the-harness-client
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+`,
+    );
+
+    // The non-canonical entry reads back as absent, so setup rewrites it with
+    // the canonical package name rather than reporting unchanged.
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const patches = parseYaml(await readFile(client.configPath, "utf8")) as {
+      insert: { id: string; name: string }[];
+    }[];
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.insert).toHaveLength(1);
+    expect(patches[0]?.insert[0]?.id).toBe("rea-mcp");
+    expect(patches[0]?.insert[0]?.name).toBe("@deepseek-ai/dsh-mcp-client");
+    expect(textOf(await readFile(client.configPath, "utf8"))).not.toContain(
+      "not-the-harness-client",
+    );
+  });
+});
+
+describe("DeepSeek Harness registration identity", () => {
+  it("reports a foreign server name as stale instead of aligned", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: other
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+`,
+    );
+
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "stale" });
   });
 
   it("creates the patch list for an absent file and empties it on uninstall", async () => {

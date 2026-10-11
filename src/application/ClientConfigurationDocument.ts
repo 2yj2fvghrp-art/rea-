@@ -1417,7 +1417,7 @@ export const clientRegistrationEntry = (
         ...(Object.keys(environment).length === 0 ? {} : { env: environment }),
       };
     case "dsh":
-      return dshClientRegistrationEntry(command);
+      return dshClientRegistrationEntry(command, environment);
     case "hermes":
       // Hermes reads stdio servers from `mcp_servers.<name>` and connects them
       // unless `enabled` is false, so the entry states it explicitly.
