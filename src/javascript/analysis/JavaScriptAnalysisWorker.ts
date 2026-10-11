@@ -56,26 +56,14 @@ import {
   type JavaScriptWorkerMessage,
 } from "./JavaScriptAnalysisWorkerProtocol.js";
 
-// Admission charges each decoded static checkpoint at this multiple of its
-// protocol bytes; the protocol bounds a checkpoint's bytes.
-const STATIC_CHECKPOINT_RETENTION_FACTOR = 6;
-const STATIC_CHECKPOINT_RETENTION_BYTES =
-  DEFAULTS.checkpointBytes * STATIC_CHECKPOINT_RETENTION_FACTOR;
-
 const OPERATION = "analyze_javascript_application";
 const PROVIDER = "javascript-static-analysis";
 const MIB = 1024 * 1024;
+const STATIC_CHECKPOINT_RETENTION_EXPANSION = 6;
 const pendingCleanup = new Set<JavaScriptAnalysisWorker>();
 /** The worker runs on this executable; Bun accepts but ignores V8 heap flags. */
 const WORKER_HEAP_FLAGS_ENFORCED =
   javaScriptRuntime(process.versions).id === "node";
-
-// Parent admission is bounded by the CLI/MCP process heap, not the worker's.
-// That process runs on the same runtime, so only Node.js honors heap flags.
-const parentResultRemediation = (): string =>
-  WORKER_HEAP_FLAGS_ENFORCED
-    ? `The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap in MiB, for example NODE_OPTIONS=--max-old-space-size=${String(Math.ceil((getHeapStatistics().heap_size_limit * 2) / MIB))} (twice the current limit), then rerun. The failure reason states which facts were retained before the limit.`
-    : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. The failure reason states which facts were retained before the limit.";
 
 /** One sequential owned worker, retained between source files and closed after analysis. */
 export class JavaScriptAnalysisWorker {
@@ -93,7 +81,6 @@ export class JavaScriptAnalysisWorker {
   #estimatedRetainedBytes = 0;
   #applicationProjectionFailure: AnalysisResourceConstraintError | undefined;
   #parentCapacityExhausted = false;
-  #retainedStaticBytes = 0;
   #sourcesRemaining: number | undefined;
   readonly #resultBudgetBytes: number;
   /** Null when the runtime enforces the V8 heap flags instead. */
@@ -265,7 +252,6 @@ export class JavaScriptAnalysisWorker {
                 parent_result_budget_bytes: this.#resultBudgetBytes,
                 parent_result_budget_exhausted: true,
               },
-              { remediationAction: parentResultRemediation() },
             );
           offeredResultBudget =
             this.#applicationProjectionFailure !== undefined &&
@@ -340,10 +326,14 @@ export class JavaScriptAnalysisWorker {
               {
                 ...this.#limits(),
                 parent_result_budget_bytes: this.#resultBudgetBytes,
-                parent_result_admission_bytes: remaining,
+                parent_available_result_budget_bytes: remaining,
                 module_transfer_bytes: descriptor.module_bytes,
+                module_retention_estimate_bytes: moduleEstimate,
               },
-              { remediationAction: parentResultRemediation() },
+              {
+                remediationAction:
+                  "Use the retained static facts or analyze fewer source files. This limit belongs to the parent result budget; increasing the worker heap alone does not increase it.",
+              },
             ),
           });
           break;
@@ -374,14 +364,16 @@ export class JavaScriptAnalysisWorker {
                 {
                   ...this.#limits(),
                   parent_result_budget_bytes: this.#resultBudgetBytes,
-                  parent_result_admission_bytes: Math.max(
-                    0,
-                    remaining - moduleEstimate,
-                  ),
+                  parent_available_result_budget_bytes: remaining,
+                  module_retention_estimate_bytes: moduleEstimate,
+                  graph_retention_estimate_bytes: graphEstimate,
                   graph_transfer_bytes: descriptor.graph_bytes,
                   graph_records: descriptor.graph_records,
                 },
-                { remediationAction: parentResultRemediation() },
+                {
+                  remediationAction:
+                    "Use the retained static and module facts or analyze fewer source files. This limit belongs to the parent result budget; increasing the worker heap alone does not increase it.",
+                },
               ),
             });
         break;
@@ -603,16 +595,16 @@ export class JavaScriptAnalysisWorker {
     const value: unknown = JSON.parse(text);
     const facts = javaScriptWorkerStaticAnalysisSchema.parse(value);
     const remaining = this.#remainingTotalResultBudget();
-    const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_FACTOR;
+    const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
     this.#parentCapacityExhausted = retainedBytes > remaining;
     this.#estimatedRetainedBytes += retainedBytes;
-    this.#retainedStaticBytes += retainedBytes;
     const expandedBytes = estimateJavaScriptStaticApplicationProjection(
       facts,
       bytes,
       sourcePath,
     );
-    if (expandedBytes <= this.#remainingResultBudget())
+    const availableResultBudget = this.#remainingResultBudget();
+    if (expandedBytes <= availableResultBudget)
       this.#estimatedRetainedBytes += expandedBytes;
     else
       this.#applicationProjectionFailure = new AnalysisResourceConstraintError(
@@ -621,10 +613,13 @@ export class JavaScriptAnalysisWorker {
         `Expanded application relationships for ${sourcePath} exceed the parent's result budget; complete static facts were retained on the file node`,
         {
           parent_result_budget_bytes: this.#resultBudgetBytes,
-          parent_result_admission_bytes: this.#remainingResultBudget(),
+          parent_available_result_budget_bytes: availableResultBudget,
           application_projection_required_bytes: expandedBytes,
         },
-        { remediationAction: parentResultRemediation() },
+        {
+          remediationAction:
+            "Read the complete static facts on the file node or analyze fewer source files. Expanded application relationships exceed the parent result budget; increasing the worker heap alone does not increase it.",
+        },
       );
     return facts;
   }
@@ -661,20 +656,18 @@ export class JavaScriptAnalysisWorker {
     );
   }
   #remainingResultBudget(): number {
-    // Future sources need their compact observations before current modules
-    // consume capacity with expanded relationships. Each future source can
-    // retain at most one bounded static checkpoint, so reserve that much per
-    // remaining source within the shared static pool. A final or sole source
-    // can use the unused reserve as well.
-    const sourcesRemaining = this.#sourcesRemaining ?? 0;
-    const staticReserve = Math.min(
-      Math.max(
-        0,
-        Math.floor((this.#resultBudgetBytes * 4) / 5) -
-          this.#retainedStaticBytes,
-      ),
-      sourcesRemaining * STATIC_CHECKPOINT_RETENTION_BYTES,
-    );
+    // One sequential worker produces one next checkpoint at a time. Reserve
+    // its maximum protocol size at the same retained expansion used on receipt;
+    // earlier checkpoints are already charged to estimatedRetainedBytes.
+    // Reserving every unexamined source's maximum would reject useful results
+    // merely because many small files remain. Actual retained growth and live
+    // heap capacity are checked again for every checkpoint and transfer.
+    const checkpointReserve =
+      DEFAULTS.checkpointBytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
+    const staticReserve =
+      this.#sourcesRemaining !== undefined && this.#sourcesRemaining > 0
+        ? checkpointReserve
+        : 0;
     return Math.max(0, this.#remainingTotalResultBudget() - staticReserve);
   }
   #remainingTotalResultBudget(): number {
