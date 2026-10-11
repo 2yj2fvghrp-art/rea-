@@ -302,8 +302,12 @@ const DIRECTORY_MEMBER_FORMATS: readonly ArtifactInventoryResult["manifest"]["ro
 const directoryProbes = (
   inventory: ArtifactInventoryResult,
 ): ArtifactInspectionResult["next_probes"] => {
+  // A symlink keeps the role its path suggests, but inventory and the
+  // analyzers never follow it, so it cannot supply member bytes.
   const present = new Set(
-    inventory.occurrences.map(({ artifact_format }) => artifact_format),
+    inventory.occurrences
+      .filter(({ entry_kind }) => entry_kind !== "symlink")
+      .map(({ artifact_format }) => artifact_format),
   );
   const members = DIRECTORY_MEMBER_FORMATS.filter((format) =>
     present.has(format),

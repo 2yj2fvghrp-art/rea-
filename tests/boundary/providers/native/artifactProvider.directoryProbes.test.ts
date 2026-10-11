@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { createPackageWithOptions } from "@electron/asar";
@@ -76,6 +76,42 @@ describe("directory inspection probes", () => {
 
     expect(await probeOperations(bundle)).toEqual([
       "analyze_javascript_application",
+      "open_binary",
+      "inspect_plist",
+    ]);
+  });
+
+  it("proposes JavaScript analysis for TypeScript sources the analyzer reads", async () => {
+    const root = await createTestTempDirectory("rea-artifact-typescript-");
+    const bundle = join(root, "Fixture.app");
+    await writeTree(bundle, {
+      "Contents/MacOS/Fixture": MACH_O_64,
+      "Contents/Info.plist": INFO_PLIST,
+      "Contents/Resources/app/main.ts": "export const ok = true;\n",
+    });
+
+    expect(await probeOperations(bundle)).toEqual([
+      "analyze_javascript_application",
+      "open_binary",
+      "inspect_plist",
+    ]);
+  });
+
+  it("does not propose JavaScript analysis for a symlink the analyzers never follow", async () => {
+    const root = await createTestTempDirectory("rea-artifact-symlink-");
+    const bundle = join(root, "Fixture.app");
+    await writeTree(bundle, {
+      "Contents/MacOS/Fixture": MACH_O_64,
+      "Contents/Info.plist": INFO_PLIST,
+    });
+    await writeTree(root, { "outside.js": "console.log('outside');\n" });
+    await mkdir(join(bundle, "Contents/Resources"));
+    await symlink(
+      join(root, "outside.js"),
+      join(bundle, "Contents/Resources/main.js"),
+    );
+
+    expect(await probeOperations(bundle)).toEqual([
       "open_binary",
       "inspect_plist",
     ]);
