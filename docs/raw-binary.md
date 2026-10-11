@@ -50,6 +50,8 @@ The mapped start is independent of Ghidra's program image base, which remains
 `0x0` for BinaryLoader. Ghidra may report additional language-defined entry
 points, including unmapped ARM vectors. Load-image verification requires the
 caller-supplied entry and preserves those other entries as observations.
+Independent raw verification streams the complete private snapshot digest and
+extent with bounded memory and supports cancellation during the read.
 
 Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 continues to admit
 PE applications only.

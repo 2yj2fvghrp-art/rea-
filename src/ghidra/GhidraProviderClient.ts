@@ -93,7 +93,12 @@ import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 export type GhidraProviderClientFactory = (
   options: GhidraClientOptions,
 ) => Pick<GhidraClient, "start" | "callTool" | "close"> &
-  Partial<Pick<GhidraClient, "runtimeLineage" | "readTargetSnapshot">>;
+  Partial<
+    Pick<
+      GhidraClient,
+      "runtimeLineage" | "readTargetSnapshot" | "hashTargetSnapshot"
+    >
+  >;
 
 type GhidraProviderClientInstance = ReturnType<GhidraProviderClientFactory>;
 

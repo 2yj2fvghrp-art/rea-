@@ -15,15 +15,12 @@ import {
   attestGhidraRawBinaryLoadImage,
 } from "./GhidraLoadImageValues.js";
 import type { NativeAotPeResult } from "../domain/native/nativeAotPe.js";
-import type { GhidraTargetSnapshot } from "./GhidraClient.js";
+import type { GhidraClient } from "./GhidraClient.js";
 import type { GhidraSessionError } from "./GhidraSessionError.js";
 
-type LoadImageSnapshotClient = {
-  readonly readTargetSnapshot?: (
-    maximumBytes?: number,
-    signal?: AbortSignal,
-  ) => Promise<Result<GhidraTargetSnapshot, GhidraSessionError>>;
-};
+type LoadImageSnapshotClient = Partial<
+  Pick<GhidraClient, "hashTargetSnapshot" | "readTargetSnapshot">
+>;
 
 type NativeLoadImageAttestationInput = {
   readonly target: BinaryTarget;
@@ -118,6 +115,33 @@ export const attestGhidraNativeLoadImage = async (
       ),
     );
   }
+  if (target.format === "raw-binary") {
+    if (client.hashTargetSnapshot === undefined)
+      return err(
+        new ProviderAdapterError("ghidra", operation, {
+          diagnostics: {
+            reason:
+              "The Ghidra client does not expose its immutable target snapshot identity for independent raw-binary load-image verification.",
+          },
+        }),
+      );
+    const snapshot = await client.hashTargetSnapshot(signal);
+    if (!snapshot.ok) return err(mapSessionError(snapshot.error));
+    if (isSignalAborted(signal))
+      return err(new AnalysisCancelledError(operation));
+    const attested = attestGhidraRawBinaryLoadImage(
+      snapshot.value,
+      target,
+      observations,
+    );
+    return attested.ok
+      ? ok(jsonValueSchema.parse(attested.value))
+      : err(
+          new ProviderAdapterError("ghidra", operation, {
+            diagnostics: { reason: attested.error },
+          }),
+        );
+  }
   if (client.readTargetSnapshot === undefined)
     return err(
       new ProviderAdapterError("ghidra", operation, {
@@ -127,7 +151,7 @@ export const attestGhidraNativeLoadImage = async (
         },
       }),
     );
-  const snapshot = await client.readTargetSnapshot();
+  const snapshot = await client.readTargetSnapshot(undefined, signal);
   if (!snapshot.ok) return err(mapSessionError(snapshot.error));
   if (snapshot.value.kind !== "captured")
     return err(
@@ -138,20 +162,11 @@ export const attestGhidraNativeLoadImage = async (
         },
       }),
     );
-  const attested =
-    target.format === "raw-binary"
-      ? attestGhidraRawBinaryLoadImage(
-          snapshot.value.bytes,
-          target,
-          observations,
-        )
-      : (target.format === "dos-com"
-          ? attestGhidraDosComLoadImage
-          : attestGhidraDosLoadImage)(
-          snapshot.value.bytes,
-          target.sha256 ?? "",
-          observations,
-        );
+  const attested = (
+    target.format === "dos-com"
+      ? attestGhidraDosComLoadImage
+      : attestGhidraDosLoadImage
+  )(snapshot.value.bytes, target.sha256 ?? "", observations);
   if (!attested.ok)
     return err(
       new ProviderAdapterError("ghidra", operation, {

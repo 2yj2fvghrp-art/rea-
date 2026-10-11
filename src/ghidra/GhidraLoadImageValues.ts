@@ -332,17 +332,17 @@ const hexAddress = (value: bigint): string => `0x${value.toString(16)}`;
 
 /** Verify a caller-supplied raw-binary mapping against measured Ghidra import facts. */
 export const attestGhidraRawBinaryLoadImage = (
-  bytes: Buffer,
+  snapshot: { readonly sha256: string; readonly bytes: number },
   target: Extract<BinaryTarget, { format: "raw-binary" }>,
   observations: NativeLoadImageObservation,
 ): Result<NativeLoadImage, string> => {
-  if (sha256(bytes) !== target.sha256)
+  if (snapshot.sha256 !== target.sha256)
     return err(
       "Ghidra raw-binary snapshot digest does not match the admitted target",
     );
   const language = ghidraRawBinaryLanguage(target.architecture);
   const base = BigInt(target.entryPoint);
-  const last = hexAddress(base + BigInt(bytes.length) - 1n);
+  const last = hexAddress(base + BigInt(snapshot.bytes) - 1n);
   const checks: NativeLoadImageCheck[] = [];
   const check = (
     name: string,
@@ -372,7 +372,7 @@ export const attestGhidraRawBinaryLoadImage = (
   // BinaryLoader's block base is independent of the Program image base.
   check("image_base", "0x0", observations.image_base);
   check("source_file_count", 1, observations.source_files.length);
-  check("source_file_size", bytes.length, source?.size ?? null);
+  check("source_file_size", snapshot.bytes, source?.size ?? null);
   check("original_file_sha256", target.sha256, source?.original_sha256 ?? null);
   check("modified_file_sha256", target.sha256, source?.modified_sha256 ?? null);
   check("mapping_count", 1, observations.mappings.length);
@@ -393,14 +393,14 @@ export const attestGhidraRawBinaryLoadImage = (
   check("mapping.end", last, mapping?.end ?? null, 0, mapping?.end ?? null);
   check(
     "mapping.length",
-    bytes.length,
+    snapshot.bytes,
     mapping?.length ?? null,
     0,
     mapping?.start ?? null,
   );
   check(
     "mapping.sha256",
-    sha256(bytes),
+    snapshot.sha256,
     mapping?.sha256 ?? null,
     0,
     mapping?.start ?? null,
@@ -421,7 +421,7 @@ export const attestGhidraRawBinaryLoadImage = (
       language_id: language.languageId,
       compiler_spec_id: language.compilerSpecId,
       base_address: target.entryPoint,
-      file_bytes: bytes.length,
+      file_bytes: snapshot.bytes,
       entry: { address: target.entryPoint, file_offset: 0 },
       observations,
       checks,
