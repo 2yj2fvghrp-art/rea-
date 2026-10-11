@@ -311,14 +311,20 @@ export class HopperClient {
     signal?: AbortSignal,
   ): Promise<Result<HopperServerInfo, AnalysisError>> {
     if (isAborted(signal)) return err(new HopperCancelledError());
-    this.#operationFailure = undefined;
     if (
       this.#socket !== undefined ||
       this.#resources.launch !== undefined ||
       this.#resources.runtimeRoot !== undefined
     ) {
+      // A retry blocked by retained resources must not clear a recorded
+      // startup failure: wiping it here would make operationHealth()
+      // report idle for a client whose next start is still wedged, so a
+      // same-target open_binary would fast-path it instead of retrying
+      // cleanup. The failure is cleared below once a fresh attempt
+      // actually proceeds.
       return err(new HopperProtocolError("Hopper client is already started"));
     }
+    this.#operationFailure = undefined;
     this.#resources.shutdownConfirmed = false;
     const deadline = new ProviderStartupDeadline(
       this.#options.startupTimeoutMs,
