@@ -278,16 +278,34 @@ export class JavaScriptAnalysisWorker {
         }
         if (response.kind === "failure") {
           if (response.reason === "resource") {
+            const semanticBudget =
+              response.limits?.semantic_result_budget_bytes;
+            const parentAdmission =
+              semanticBudget === 0 ||
+              response.message.includes("parent reserved") ||
+              response.message.includes("parent's");
             result = err({
               javascript,
               module,
               projection,
-              error: new AnalysisResourceConstraintError(
-                OPERATION,
-                response.resource ?? "memory",
-                `${file.path}: ${response.message}`,
-                { ...this.#limits(), ...response.limits },
-              ),
+              error: parentAdmission
+                ? this.#parentAdmissionError(
+                    semanticBudget === 0
+                      ? `The parent's result-admission budget cannot start semantic analysis of ${file.path}; static facts were retained`
+                      : `${file.path}: ${response.message}`,
+                    typeof semanticBudget === "number" ? semanticBudget : 0,
+                    {
+                      ...response.limits,
+                      semantic_result_budget_bytes:
+                        typeof semanticBudget === "number" ? semanticBudget : 0,
+                    },
+                  )
+                : new AnalysisResourceConstraintError(
+                    OPERATION,
+                    response.resource ?? "memory",
+                    `${file.path}: ${response.message}`,
+                    { ...this.#limits(), ...response.limits },
+                  ),
             });
             break;
           }
@@ -723,11 +741,11 @@ export class JavaScriptAnalysisWorker {
   #futureStaticReserve(): number {
     const remaining = this.#sourcesRemaining;
     if (remaining === undefined || remaining <= 0) return 0;
-    // Each later source still submits one static checkpoint. The protocol
-    // bounds that checkpoint, and checkpoint admission charges six retained
-    // bytes per checkpoint byte. A fraction of the whole parent budget does
-    // not distinguish one later file from many.
-    return remaining * DEFAULTS.checkpointBytes * 6;
+    // Reserve only the next static checkpoint. Each later file releases that
+    // reserve when it starts, so one module is not charged for every
+    // subsequent source. The protocol bounds a checkpoint at 8 MiB, and
+    // checkpoint admission charges six retained bytes per checkpoint byte.
+    return DEFAULTS.checkpointBytes * 6;
   }
   #parentAdmissionError(
     reason: string,
