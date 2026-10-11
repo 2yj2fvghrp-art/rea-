@@ -204,6 +204,11 @@ source-map items retain the script's `declared_url` separately from the observed
 failed fetches retain the last response URL observed within the approved origins;
 `effective_url` is `null` when no response was observed. query parameters are
 preserved, and both URLs count toward the inline evidence budget.
+Current fetches emit a string or null; historical observations may omit
+`effective_url` without changing their stored content or Evidence identity.
+An observed URL must fit before its response body is read. If it cannot fit,
+remaining map results are explicitly unknown; failed cancellation retains its
+cleanup context and resource constraint.
 
 ## Non-goals and threat model
 

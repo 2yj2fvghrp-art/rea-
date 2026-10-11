@@ -1111,38 +1111,57 @@ describe("source-map output admission", () => {
     },
   );
 
-  it("admits a complete maximum-size map set when its real output fits", async () => {
-    const localOrigin = "http://127.0.0.1";
-    const mapUrl = `${localOrigin}/m`;
-    const requests = Array.from({ length: 50_000 }, (_, index) => ({
-      ...request,
-      scriptKey: `scr_${index.toString(16).padStart(64, "0")}`,
-      declaredUrl: mapUrl,
-      fetchUrl: mapUrl,
-    }));
-    const map = JSON.stringify({
-      version: 3,
-      names: [],
-      sources: ["x"],
-      mappings: "AAAA",
-    });
-    const result = await fetchWebSourceMaps(
-      requests,
-      input({ allowed_origins: [localOrigin] }),
-      undefined,
-      {
-        timeoutMs: 120_000,
-        fetch: () => Promise.resolve(new Response(map, { status: 200 })),
-      },
-    );
+  it.each([
+    { localOrigin: "http://[::1]:1", expectedStatus: "included" },
+    { localOrigin: "http://127.0.0.1:9222", expectedStatus: "partial" },
+  ])(
+    "admits a maximum-size map set according to its actual output at $localOrigin",
+    async ({ localOrigin, expectedStatus }) => {
+      const mapUrl = `${localOrigin}/m`;
+      const requests = Array.from({ length: 50_000 }, (_, index) => ({
+        ...request,
+        scriptKey: `scr_${index.toString(16).padStart(64, "0")}`,
+        declaredUrl: mapUrl,
+        fetchUrl: mapUrl,
+      }));
+      const map = JSON.stringify({
+        version: 3,
+        names: [],
+        sources: ["x"],
+        mappings: "AAAA",
+      });
+      const result = await fetchWebSourceMaps(
+        requests,
+        input({ allowed_origins: [localOrigin] }),
+        undefined,
+        {
+          timeoutMs: 120_000,
+          fetch: () => Promise.resolve(new Response(map, { status: 200 })),
+        },
+      );
 
-    expect(result.status).toBe("included");
-    expect(result.limitation).toBeUndefined();
-    expect(result.items).toHaveLength(requests.length);
-    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
-      32 * 1_024 * 1_024,
-    );
-  }, 120_000);
+      expect(result.status).toBe(expectedStatus);
+      if (expectedStatus === "included") {
+        expect(result.limitation).toBeUndefined();
+        expect(result.items).toHaveLength(requests.length);
+      } else {
+        expect(result.items.length).toBeLessThan(requests.length);
+        expect(result.limitation).toContain(
+          `${String(requests.length - result.items.length)} requested maps`,
+        );
+        expect(
+          (Buffer.byteLength(JSON.stringify(result.items[0])) + 1) *
+            requests.length,
+        ).toBeGreaterThan(32 * 1_024 * 1_024);
+      }
+      expect(result.processed).toBe(result.items.length);
+      expect(result.requested).toBe(requests.length);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        32 * 1_024 * 1_024,
+      );
+    },
+    120_000,
+  );
 
   it("reserves large failure contexts and reports unprocessed requests as unknown", async () => {
     const largeDeclaredUrl = `${origin}/${"u".repeat(8 * 1_024 * 1_024)}`;

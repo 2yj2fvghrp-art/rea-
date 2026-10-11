@@ -6,6 +6,8 @@ import {
 } from "../javascript/sourceMaps/DecodedSourceMap.js";
 
 import { sanitizeBrowserUrl } from "../domain/browserObservation.js";
+import { AnalysisResourceConstraintError } from "../domain/analysisErrorCore.js";
+import type { AnalysisErrorOptions } from "../domain/analysisErrorBase.js";
 import { isUrlLikeModuleSpecifier } from "../domain/webBundleAnalyzerAst.js";
 import { analyzeParsedJavaScriptReferences } from "../domain/javascript/javascriptSemanticAnalysis.js";
 import { traverseJavaScriptAst } from "../domain/javascript/javascriptSemanticTraversal.js";
@@ -129,8 +131,9 @@ export const fetchWebSourceMaps = async (
         const failureBytes =
           sourceMapFailureReservation(
             request,
-            item.effective_url,
+            item.effective_url ?? null,
             item.limitation,
+            item.status,
           ) + 1;
         if (failureBytes > SOURCE_MAP_OUTPUT_BYTES - expandedBytesBeforeItem) {
           limitation = sourceMapOutputLimitation(
@@ -143,6 +146,11 @@ export const fetchWebSourceMaps = async (
       }
       items.push(item);
     }
+  } catch (cause: unknown) {
+    if (signal?.aborted === true) throw cause;
+    if (cause instanceof SourceMapFormatFailure && cause.reason === "limit")
+      limitation = sourceMapOutputLimitation(requests.length - items.length);
+    else throw cause;
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortFromCaller);
@@ -245,6 +253,29 @@ const fetchOne = async (
         effectiveUrl,
       );
     const { response, fetchedUrl } = fetched;
+    try {
+      // Admit the resolution identity before reading or retaining its body.
+      consumeExpandedBytes(budget.decodedRecords, jsonBytes(fetchedUrl) - 4);
+    } catch (cause: unknown) {
+      try {
+        await response.body?.cancel();
+      } catch (cleanupCause: unknown) {
+        if (cause instanceof SourceMapFormatFailure && cause.reason === "limit")
+          throw sourceMapOutputError(cause, {
+            cause: new AggregateError(
+              [cause, cleanupCause],
+              "Source-map response cleanup failed after its output exceeded capacity.",
+            ),
+            cleanup: {
+              reason:
+                "Source-map response cancellation failed after its output exceeded capacity.",
+              resources: ["source-map-response"],
+            },
+          });
+        throw cause;
+      }
+      throw cause;
+    }
     if (!response.ok) {
       await response.body?.cancel();
       return emptySourceMapItem(
@@ -271,6 +302,9 @@ const fetchOne = async (
       },
     );
   } catch (cause: unknown) {
+    if (cause instanceof AnalysisResourceConstraintError) throw cause;
+    if (cause instanceof SourceMapFormatFailure && cause.reason === "limit")
+      throw cause;
     if (
       signal?.aborted === true &&
       !(signal.reason instanceof SourceMapDeadlineError)
@@ -506,8 +540,8 @@ const normalizeSourceMap = (
     });
     context.budget.expandedBytes =
       retainedBytesBeforeMap -
-      sourceMapFailureReservation(request) +
-      sourceMapSuccessReservation(request, fetchedUrl);
+      SOURCE_MAP_FAILURE_ENVELOPE_BYTES +
+      SOURCE_MAP_SUCCESS_ENVELOPE_BYTES;
     consumeExpandedBytes(
       context.budget,
       jsonBytes(text) +
@@ -839,6 +873,18 @@ const expandedOutputFailure = (): SourceMapFormatFailure =>
     `Expanded source-map evidence exceeds the ${WEB_SOURCE_MAP_LIMITS.outputBytes / (1024 * 1024)} MiB public representation budget.`,
   );
 
+const sourceMapOutputError = (
+  cause: SourceMapFormatFailure,
+  options?: AnalysisErrorOptions,
+): AnalysisResourceConstraintError =>
+  new AnalysisResourceConstraintError(
+    "analyze_web_bundle",
+    "transport",
+    cause.message,
+    { maximum_source_map_output_bytes: SOURCE_MAP_OUTPUT_BYTES },
+    { cause, ...options },
+  );
+
 const resolvedSourceLimitFailure = (): SourceMapFormatFailure =>
   new SourceMapFormatFailure(
     "limit",
@@ -862,58 +908,45 @@ const artifactMetadataBytes = (mediaType: string, text: string): number =>
     }),
   ) - 2;
 
+// Price invariant envelopes once using the producer's representation. Dynamic
+// identities keep their own charges when the map's envelope changes.
+const EMPTY_SOURCE_MAP_FAILURE = emptySourceMapItem(
+  { scriptKey: "", declaredUrl: "", fetchUrl: "" },
+  "fetch_failed",
+  "x".repeat(SOURCE_MAP_FAILURE_LIMITATION_RESERVE),
+);
+const SOURCE_MAP_FAILURE_ENVELOPE_BYTES =
+  Buffer.byteLength(JSON.stringify(EMPTY_SOURCE_MAP_FAILURE)) - 4;
+const SOURCE_MAP_SUCCESS_ENVELOPE_BYTES =
+  Buffer.byteLength(
+    JSON.stringify({
+      ...EMPTY_SOURCE_MAP_FAILURE,
+      status: "included",
+      limitation: null,
+    }),
+  ) - 4;
+
 const sourceMapFailureReservation = (
   request: WebSourceMapRequest,
   effectiveUrl: string | null = null,
   limitation?: string,
-): number => {
-  const envelope = emptySourceMapItem(
-    { ...request, declaredUrl: "", scriptKey: "" },
-    "fetch_failed",
-    "x".repeat(SOURCE_MAP_FAILURE_LIMITATION_RESERVE),
-  );
-  return (
-    Buffer.byteLength(JSON.stringify(envelope)) -
-    4 +
-    jsonBytes(request.declaredUrl) +
-    jsonBytes(request.scriptKey) +
-    (effectiveUrl === null ? 0 : jsonBytes(effectiveUrl) - 4) +
-    Math.max(
-      0,
-      (limitation === undefined ? 0 : jsonBytes(limitation)) -
-        SOURCE_MAP_FAILURE_LIMITATION_RESERVE -
-        2,
-    )
-  );
-};
-
-const sourceMapSuccessReservation = (
-  request: WebSourceMapRequest,
-  effectiveUrl: string,
-): number => {
-  const context = sourceMapContext({
-    ...request,
-    declaredUrl: "",
-    scriptKey: "",
-  });
-  const envelope = {
-    ...context,
-    status: "included",
-    artifact: null,
-    original_sources: [],
-    original_module_edges: [],
-    mappings: [],
-    limitation: null,
-  };
-  return (
-    Buffer.byteLength(JSON.stringify(envelope)) -
-    4 +
-    jsonBytes(request.declaredUrl) +
-    jsonBytes(request.scriptKey) +
-    jsonBytes(effectiveUrl) -
-    4
-  );
-};
+  status: Extract<
+    SourceMapItem,
+    { readonly artifact: null }
+  >["status"] = "fetch_failed",
+): number =>
+  SOURCE_MAP_FAILURE_ENVELOPE_BYTES +
+  jsonBytes(request.declaredUrl) +
+  jsonBytes(request.scriptKey) +
+  (effectiveUrl === null ? 0 : jsonBytes(effectiveUrl) - 4) +
+  Math.max(
+    0,
+    (limitation === undefined ? 0 : jsonBytes(limitation)) -
+      SOURCE_MAP_FAILURE_LIMITATION_RESERVE -
+      2,
+  ) +
+  jsonBytes(status) -
+  jsonBytes("fetch_failed");
 
 const sourceEntryOverheadBytes = (): number =>
   Buffer.byteLength('{"source":,"artifact":null}');
