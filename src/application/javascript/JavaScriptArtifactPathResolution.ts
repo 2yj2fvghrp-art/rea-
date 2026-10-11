@@ -108,6 +108,13 @@ export const resolveArtifactPathByContext = (
 };
 
 const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
+  // Package import keys are literal lookup identities, not artifact paths.
+  // The selected target is admitted separately by resolveExportTarget.
+  if (
+    input.context === "module-specifier" &&
+    input.declaredPath.startsWith("#")
+  )
+    return resolvePackageImportAlias(input, input.declaredPath);
   const rejected = rejectDeclaration(input.declaredPath);
   if (rejected !== null) return rejected;
   const candidate = contextualCandidate(input);
@@ -150,9 +157,6 @@ const contextualCandidate = (
       : input.declaredPath;
   if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
-    // Hash aliases are package import keys, not URL fragments.
-    if (input.declaredPath.startsWith("#"))
-      return resolvePackageImportAlias(input, input.declaredPath);
     const fileUrl = fileUrlPath(declared);
     if (fileUrl !== undefined) return fileUrl;
     if (hasScheme(declared))
@@ -209,8 +213,6 @@ const bareModuleCandidate = (
   input: ResolveArtifactPathInput,
   declared: string,
 ): CandidateResolution => {
-  if (declared.startsWith("#"))
-    return resolvePackageImportAlias(input, declared);
   const packageName = barePackageName(declared);
   if (packageName === null || isBuiltin(declared))
     return unresolvedCandidate("external", [

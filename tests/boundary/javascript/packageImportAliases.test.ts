@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -115,6 +116,65 @@ const resolveAlias = (
     moduleKind,
     files,
   });
+
+describe("literal package import keys compared with Node", () => {
+  it("matches literal imports keys containing path-like bytes in both Node loaders", async () => {
+    const root = await createTestTempDirectory("rea-import-alias-literal-");
+    const specifiers = ["#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({
+        imports: Object.fromEntries(
+          specifiers.map((specifier) => [specifier, "./target.cjs"]),
+        ),
+      }),
+      "main.cjs": "module.exports = 1;",
+      "target.cjs": "module.exports = 1;",
+    });
+    const inventoried = inventory(contents);
+    for (const specifier of specifiers) {
+      const required = await nodeRequireTarget(
+        join(root, "main.cjs"),
+        specifier,
+      );
+      expect(required.error_code).toBeNull();
+      expect(posixRelative(root, required.target ?? "")).toBe("target.cjs");
+      const imported = await nodeImportTarget(root, specifier);
+      expect(imported.error_code).toBeNull();
+      expect(posixRelative(root, fileURLToPath(imported.target ?? ""))).toBe(
+        "target.cjs",
+      );
+      for (const moduleKind of ["require", "import"] as const)
+        expect(
+          resolveAlias(inventoried, specifier, "main.cjs", moduleKind),
+          JSON.stringify({ specifier, moduleKind }),
+        ).toMatchObject({
+          declared_path: specifier,
+          resolution_status: "resolved",
+          resolved_path: "target.cjs",
+        });
+    }
+  });
+
+  it("still rejects unsafe selected targets for literal imports keys", async () => {
+    const root = await createTestTempDirectory("rea-import-alias-target-");
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({
+        imports: { "#x%2Fy": "./nested%2Ftarget.cjs" },
+      }),
+      "main.cjs": "module.exports = 1;",
+      "nested/target.cjs": "module.exports = 1;",
+    });
+    const inventoried = inventory(contents);
+    const required = await nodeRequireTarget(join(root, "main.cjs"), "#x%2Fy");
+    expect(required.error_code).toBe("ERR_INVALID_MODULE_SPECIFIER");
+    const imported = await nodeImportTarget(root, "#x%2Fy");
+    expect(imported.error_code).toBe("ERR_INVALID_MODULE_SPECIFIER");
+    for (const moduleKind of ["require", "import"] as const)
+      expect(
+        resolveAlias(inventoried, "#x%2Fy", "main.cjs", moduleKind),
+      ).toMatchObject({ resolution_status: "rejected", resolved_path: null });
+  });
+});
 
 describe("package import aliases compared with Node", () => {
   it("matches Node require and import for an exact root alias", async () => {

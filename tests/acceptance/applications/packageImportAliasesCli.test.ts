@@ -11,13 +11,21 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
+const literalAliases = ["#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
+
 const createPackageImportAliasFixture = async () => {
   const root = await createTestTempDirectory("rea-package-import-aliases-");
   const mainSource = [
     'const config = require("#config");',
     'const nested = require("./node_modules/fixture/index.cjs");',
     'const missing = require("#missing");',
+    ...literalAliases.map(
+      (specifier) => `require(${JSON.stringify(specifier)});`,
+    ),
   ].join("\n");
+  const moduleSource = literalAliases
+    .map((specifier) => `import ${JSON.stringify(specifier)};`)
+    .join("\n");
   const nestedSource = [
     'const config = require("#config");',
     "module.exports = config;",
@@ -25,9 +33,15 @@ const createPackageImportAliasFixture = async () => {
   const files = {
     "package.json": JSON.stringify({
       name: "app",
-      imports: { "#config": "./config.cjs" },
+      imports: {
+        "#config": "./config.cjs",
+        ...Object.fromEntries(
+          literalAliases.map((specifier) => [specifier, "./config.cjs"]),
+        ),
+      },
     }),
     "main.cjs": mainSource,
+    "main.mjs": moduleSource,
     "config.cjs": "module.exports = 'app-config';",
     "node_modules/fixture/package.json": JSON.stringify({
       name: "fixture",
@@ -43,13 +57,13 @@ const createPackageImportAliasFixture = async () => {
       await writeFile(absolute, content);
     }),
   );
-  return { root, mainSource, nestedSource };
+  return { root, mainSource, moduleSource, nestedSource };
 };
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "resolves exact package import aliases with package scope through %s",
   async (surface, { cli }) => {
-    const { root, mainSource, nestedSource } =
+    const { root, mainSource, moduleSource, nestedSource } =
       await createPackageImportAliasFixture();
     const nativeRequire = createRequire(join(root, "main.cjs"));
     expect(
@@ -87,6 +101,22 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const { graph } = z
       .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
       .parse(document).normalized_result;
+    for (const specifier of literalAliases)
+      for (const [moduleKind, sourcePath, source] of [
+        ["require", "main.cjs", mainSource],
+        ["import", "main.mjs", moduleSource],
+      ] as const)
+        expect(graph.edges).toContainEqual(
+          expect.objectContaining({
+            properties: expect.objectContaining({
+              module_link_kind: moduleKind,
+              specifier,
+              resolved_path: "config.cjs",
+              resolution_status: "resolved",
+            }),
+            evidence: sourceEvidence(sourcePath, source),
+          }),
+        );
     const imports = graph.edges.filter(
       ({ properties }) => properties.module_link_kind === "require",
     );
