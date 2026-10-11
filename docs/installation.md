@@ -597,6 +597,11 @@ if document closure is unconfirmed, REA retains the backing image and reports
 MCP-exit behavior.
 Startup deadlines report missing bridge readiness and preserve the launcher
 outcome; a successful helper exit does not prove that a loader dialog completed.
+If an owned provider process exits, request failures preserve its observed exit
+code or signal and bounded output in `details.launcher`. An exit can precede
+output-stream closure; `output_closed: false` keeps that uncertainty explicit.
+Later requests retain the known exit instead of reducing it to socket loss.
+An external GUI's helper exit does not establish that the GUI itself exited.
 Cursor navigation returns the observed object start when Hopper snaps an interior
 address; adjacent-object navigation rejects unmapped inputs and document ends.
 Native API text rejects NUL characters and unpaired Unicode surrogates before
