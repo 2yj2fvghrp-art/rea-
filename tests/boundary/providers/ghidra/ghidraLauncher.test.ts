@@ -160,6 +160,79 @@ describe("Ghidra headless launcher", () => {
   });
 });
 
+describe("Ghidra configured import language and seeds", () => {
+  const base = {
+    platform: "darwin" as const,
+    projectRoot: "/tmp/project",
+    targetPath: "/tmp/target",
+    bridgeScriptPath: "/package/bridge/ReaGhidraBridge.java",
+    descriptorPath: "/tmp/session.json",
+    ghidraLogPath: "/tmp/ghidra.log",
+    scriptLogPath: "/tmp/script.log",
+  };
+
+  it("passes a configured language and compiler spec to the import", () => {
+    const arguments_ = ghidraHeadlessArguments({
+      ...base,
+      languageOverride: {
+        languageId: "x86:LE:32:default",
+        compilerSpecId: "borlandcpp",
+      },
+    });
+    expectOptions(arguments_, [
+      ["-processor", "x86:LE:32:default"],
+      ["-cspec", "borlandcpp"],
+    ]);
+    expect(arguments_).not.toContain("-loader");
+    expect(arguments_.indexOf("-processor")).toBeGreaterThan(
+      arguments_.indexOf("-import"),
+    );
+  });
+
+  it("lets Ghidra choose the language default compiler spec", () => {
+    const arguments_ = ghidraHeadlessArguments({
+      ...base,
+      languageOverride: { languageId: "x86:LE:32:default" },
+    });
+    expectOptions(arguments_, [["-processor", "x86:LE:32:default"]]);
+    expect(arguments_).not.toContain("-cspec");
+  });
+
+  it("never combines a configured language with a DOS import", () => {
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...base,
+        dosMz: true,
+        languageOverride: { languageId: "x86:LE:32:default" },
+      }),
+    ).toThrow(/cannot be combined with a DOS import/u);
+  });
+
+  it("applies seeds after loader preparation and before analysis scripts", () => {
+    const arguments_ = ghidraHeadlessArguments({
+      ...base,
+      dosCom: true,
+      seedPath: "/tmp/runtime/seeds/seeds.tsv",
+    });
+    const prepare = arguments_.indexOf(
+      join("/package/bridge", "ReaGhidraPrepareCom.java"),
+    );
+    const seeds = arguments_.indexOf(
+      join("/package/bridge", "ReaGhidraApplySeeds.java"),
+    );
+    expect(arguments_[seeds - 1]).toBe("-preScript");
+    expect(arguments_[seeds + 1]).toBe("/tmp/runtime/seeds/seeds.tsv");
+    expect(prepare).toBeLessThan(seeds);
+    expect(seeds).toBeLessThan(arguments_.indexOf("-postScript"));
+  });
+
+  it("adds no seed script without a seed snapshot", () => {
+    expect(ghidraHeadlessArguments(base)).not.toContain(
+      join("/package/bridge", "ReaGhidraApplySeeds.java"),
+    );
+  });
+});
+
 describe("Ghidra Windows launcher", () => {
   it("keeps analysis repair outside Windows P0 authority", () => {
     const args = ghidraHeadlessArguments({

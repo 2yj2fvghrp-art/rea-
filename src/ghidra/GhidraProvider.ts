@@ -20,7 +20,7 @@ import {
   jsonValueSchema,
   type JsonValue,
 } from "../domain/jsonValue.js";
-import { ok } from "../domain/result.js";
+import { err, ok } from "../domain/result.js";
 import type { Logger } from "pino";
 import { GhidraClient } from "./GhidraClient.js";
 import {
@@ -30,6 +30,12 @@ import {
   type GhidraInstallationInspection,
 } from "./GhidraInstallation.js";
 import { resolveGhidraAnalysisProfile } from "./GhidraAnalysisProfile.js";
+import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { resolveGhidraAnalysisSeeds } from "./GhidraAnalysisSeeds.js";
+import {
+  admitGhidraLanguageOverride,
+  readGhidraLanguageCatalog,
+} from "./GhidraLanguageCatalog.js";
 import { ghidraMipsUnsupportedReason } from "./GhidraMipsProfile.js";
 import { resolveGhidraExtensions } from "./extensions/GhidraExtensions.js";
 import {
@@ -184,8 +190,18 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       GHIDRA_PROVIDER_IDENTITY,
       installation,
       options?.signal,
+      this.config.ghidraLanguageOverride,
     );
     if (!resolved.ok || resolved.value.profile === null) return resolved;
+    const override = this.config.ghidraLanguageOverride;
+    if (override !== undefined && installation.status === "available") {
+      const refused = admitGhidraLanguageOverride(
+        override,
+        await readGhidraLanguageCatalog(installation.installDir),
+        installation.providerVersion,
+      );
+      if (refused !== null) return err(refused);
+    }
     const extensions = await resolveGhidraExtensions(
       this.config,
       target,
@@ -193,12 +209,22 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       options?.signal,
     );
     if (!extensions.ok) return extensions;
-    if (extensions.value.length === 0) return resolved;
+    if (options?.signal?.aborted === true)
+      return err(new AnalysisCancelledError("open_binary"));
+    const seeds = await resolveGhidraAnalysisSeeds(this.config.ghidraSeedFile);
+    if (!seeds.ok) return seeds;
+    if (extensions.value.length === 0 && seeds.value === undefined)
+      return resolved;
     return ok({
       ...resolved.value,
       profile: createAnalysisProfile(resolved.value.profile.provider, {
         ...resolved.value.profile.parameters,
-        analysis_extensions: jsonValueSchema.parse(extensions.value),
+        ...(extensions.value.length === 0
+          ? {}
+          : { analysis_extensions: jsonValueSchema.parse(extensions.value) }),
+        ...(seeds.value === undefined
+          ? {}
+          : { analysis_seeds: jsonValueSchema.parse(seeds.value) }),
       }),
     });
   }
