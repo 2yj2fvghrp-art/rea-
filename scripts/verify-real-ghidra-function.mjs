@@ -686,7 +686,7 @@ const SIGNED_RELATIVE_SWITCH_CASES = [
   { value: 4, immediate: 204 },
 ];
 
-export async function verifyRelativeSignedSwitch(client) {
+export async function verifyRelativeSignedSwitch(client, selectorBias = 0) {
   const names = await inventoryCall(client, "list_names", {
     document: null,
     address: null,
@@ -706,9 +706,50 @@ export async function verifyRelativeSignedSwitch(client) {
     throw new Error(
       `Exact signed halfword relative table unavailable: ${JSON.stringify(dossier.native_api)}`,
     );
-  for (const { value, immediate } of SIGNED_RELATIVE_SWITCH_CASES) {
+  const expectedValues = SIGNED_RELATIVE_SWITCH_CASES.map(
+    ({ value }) => value + selectorBias,
+  );
+  if (
+    table.mappings.some(
+      (mapping) =>
+        mapping.case_value !== null &&
+        !expectedValues.includes(mapping.case_value),
+    )
+  )
+    throw new Error(
+      `Signed relative switch emitted an unsupported case label: ${JSON.stringify(table)}`,
+    );
+  if (table.mappings.length !== SIGNED_RELATIVE_SWITCH_CASES.length)
+    throw new Error(
+      `Signed relative switch has unexpected mappings: ${JSON.stringify(table)}`,
+    );
+  if (selectorBias !== 0) {
+    if (
+      !table.limitations.some((limitation) =>
+        limitation.includes("table indices are not proven"),
+      ) ||
+      !table.mappings.some((mapping) => mapping.case_value === null) ||
+      table.mappings.some((mapping) => mapping.case_value === selectorBias + 3)
+    )
+      throw new Error(
+        `Normalized selector must retain unknown case evidence: ${JSON.stringify(table)}`,
+      );
+  }
+  for (const { value: tableIndex, immediate } of SIGNED_RELATIVE_SWITCH_CASES) {
+    const value = tableIndex + selectorBias;
+    // Without a proven relationship between the machine index and the typed
+    // switch selector, the CBZ-only case must stay unknown rather than being
+    // assigned the normalized index or Ghidra's unreachable base destination.
+    if (selectorBias !== 0 && tableIndex === 3) continue;
     const mapping = table.mappings.find((item) => item.case_value === value);
-    if (mapping === undefined || mapping.confidence !== "high")
+    if (
+      mapping === undefined ||
+      mapping.confidence !== "high" ||
+      (selectorBias !== 0 &&
+        !mapping.evidence.some(
+          (evidence) => evidence.source === "ghidra-clang-case-token",
+        ))
+    )
       throw new Error(
         `Signed relative switch case ${value} was not verified: ${JSON.stringify(table)}`,
       );
@@ -734,6 +775,7 @@ export async function verifyRelativeSignedSwitch(client) {
   return {
     entry_size: 2,
     signed: true,
+    selector_bias: selectorBias,
     dispatch_address: table.dispatch_address,
     mappings: table.mappings.length,
   };

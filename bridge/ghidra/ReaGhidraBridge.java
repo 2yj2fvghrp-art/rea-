@@ -2114,6 +2114,33 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.add("data_sources", dataSources);
         Address[] targets = jumpTable.getCases();
         TypedJumpTableCases typedCases = typedJumpTableCases(jumpTable, caseTokens);
+        // Table indices identify the register bounded by CMP. Typed labels may
+        // instead identify a selector before normalization (for example, SUB
+        // index, selector, #10). Do not merge those distinct value identities.
+        if (recoveredAArch64 != null && recoveredAArch64.priorSelectorDefinition != null) {
+            typedCases.limitations.add(
+                "REA decoded the relative table, but the compared selector has an earlier register definition at " +
+                canonicalAddress(recoveredAArch64.priorSelectorDefinition) + "; its table indices are not proven to use the typed switch selector's case values. Ghidra's typed labels are retained and additional case labels remain unknown."
+            );
+            recoveredAArch64 = null;
+        }
+        if (recoveredAArch64 != null) {
+            for (Map.Entry<Long, Address> typed : typedCases.cases.entrySet()) {
+                long value = typed.getKey();
+                if (value < 0 || value >= recoveredAArch64.mappings.size()) {
+                    typedCases.limitations.add("Typed case labels and decoded table indices do not use a verified common selector; Ghidra's typed labels are retained.");
+                    recoveredAArch64 = null;
+                    break;
+                }
+                RecoveredAArch64Mapping decoded = recoveredAArch64.mappings.get((int) value);
+                boolean divertedZero = decoded.nullEntry && typed.getValue().equals(recoveredAArch64.unreachableZeroTarget);
+                if (!typed.getValue().equals(decoded.targetAddress) && !divertedZero) {
+                    typedCases.limitations.add("Typed case evidence and the decoded relative table disagree on a destination; Ghidra's typed labels are retained.");
+                    recoveredAArch64 = null;
+                    break;
+                }
+            }
+        }
         JsonArray mappings = new JsonArray();
         JsonArray defaultTargets = new JsonArray();
         for (Address target : typedCases.defaults) {
@@ -2125,8 +2152,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Address unreachable = recoveredAArch64.unreachableZeroTarget;
             coveredTargets.add(unreachable);
             for (RecoveredAArch64Mapping recovered : recoveredAArch64.mappings) {
-                if (recovered.nullEntry && unreachable.equals(typedCases.cases.get((long) recovered.caseValue))) {
-                    typedCases.cases.remove((long) recovered.caseValue);
+                if (recovered.nullEntry && unreachable.equals(typedCases.cases.get((long) recovered.tableIndex))) {
+                    typedCases.cases.remove((long) recovered.tableIndex);
                 }
             }
             typedCases.limitations.add(
@@ -2141,21 +2168,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 RecoveredAArch64Mapping recovered = recoveredAArch64.mappings.get(index);
                 if (
                     typedCases.unknownTargets.contains(recovered.targetAddress) ||
-                    typedCases.ambiguousValues.contains((long) recovered.caseValue)
+                    typedCases.ambiguousValues.contains((long) recovered.tableIndex)
                 ) continue;
-                Address typedTarget = typedCases.cases.get((long) recovered.caseValue);
-                if (typedTarget != null && !typedTarget.equals(recovered.targetAddress)) {
-                    typedCases.cases.remove((long) recovered.caseValue);
-                    typedCases.ambiguousValues.add((long) recovered.caseValue);
-                    typedCases.unknownTargets.add(typedTarget);
-                    typedCases.unknownTargets.add(recovered.targetAddress);
-                    typedCases.limitations.add(
-                        "Typed case evidence and the verified relative table disagree on a destination; both destinations remain unknown for that case."
-                    );
-                    continue;
-                }
                 JsonObject mapping = new JsonObject();
-                mapping.addProperty("case_value", recovered.caseValue);
+                mapping.addProperty("case_value", recovered.tableIndex);
                 String targetAddress = canonicalAddress(recovered.targetAddress);
                 mapping.addProperty("target_address", targetAddress);
                 mapping.addProperty("confidence", "high");
@@ -2164,8 +2180,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     inferenceEvidence(
                         "jump-table",
                         "ghidra-instruction-and-memory",
-                        "Case value " + recovered.caseValue + (recoveredAArch64.entrySize == 1 ? " indexes byte " : " indexes halfword at byte offset ") +
-                        (recovered.caseValue * recoveredAArch64.entrySize) + " at " + canonicalAddress(recoveredAArch64.tableAddress) +
+                        "Case value " + recovered.tableIndex + (recoveredAArch64.entrySize == 1 ? " indexes byte " : " indexes halfword at byte offset ") +
+                        (recovered.tableIndex * recoveredAArch64.entrySize) + " at " + canonicalAddress(recoveredAArch64.tableAddress) +
                         (recovered.nullEntry
                             ? "; the entry is zero, so the CBZ before the dispatch branches to " + targetAddress + "."
                             : "; the loaded " + (recoveredAArch64.signedEntries ? "signed" : "unsigned") +
@@ -2175,7 +2191,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     )
                 );
                 mapping.add("evidence", evidence);
-                if (!typedCases.cases.containsKey((long) recovered.caseValue)) {
+                if (!typedCases.cases.containsKey((long) recovered.tableIndex)) {
                     mappings.add(mapping);
                 }
                 coveredTargets.add(recovered.targetAddress);
@@ -2379,18 +2395,18 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     private static final class RecoveredAArch64Mapping {
-        private final int caseValue;
+        private final int tableIndex;
         private final Address targetAddress;
         private final long encodedEntry;
         private final boolean nullEntry;
 
         private RecoveredAArch64Mapping(
-            int caseValue,
+            int tableIndex,
             Address targetAddress,
             long encodedEntry,
             boolean nullEntry
         ) {
-            this.caseValue = caseValue;
+            this.tableIndex = tableIndex;
             this.targetAddress = targetAddress;
             this.encodedEntry = encodedEntry;
             this.nullEntry = nullEntry;
@@ -2401,6 +2417,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         private final Address tableAddress;
         private final Address branchBase;
         private final int entrySize;
+        private final Address priorSelectorDefinition;
         private final boolean signedEntries;
         private final int offsetShift;
         private final String guardMnemonic;
@@ -2413,6 +2430,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Address tableAddress,
             Address branchBase,
             int entrySize,
+            Address priorSelectorDefinition,
             boolean signedEntries,
             int offsetShift,
             String guardMnemonic,
@@ -2424,6 +2442,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             this.tableAddress = tableAddress;
             this.branchBase = branchBase;
             this.entrySize = entrySize;
+            this.priorSelectorDefinition = priorSelectorDefinition;
             this.signedEntries = signedEntries;
             this.offsetShift = offsetShift;
             this.guardMnemonic = guardMnemonic;
@@ -2662,9 +2681,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
 
         List<RecoveredAArch64Mapping> mappings = new ArrayList<>();
         Set<String> mappedTargets = new HashSet<>();
-        for (int caseValue = 0; caseValue < entryCount; caseValue += 1) {
+        for (int tableIndex = 0; tableIndex < entryCount; tableIndex += 1) {
             monitor.checkCancelled();
-            Address entry = tableAddress.add((long) caseValue * entrySize);
+            Address entry = tableAddress.add((long) tableIndex * entrySize);
             if (!currentProgram.getMemory().contains(entry)) return null;
             long encoded;
             if (entrySize == 1) {
@@ -2676,7 +2695,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 encoded = signedEntries ? value : value & 0xffffL;
             }
             if (encoded == 0 && nullTarget != null) {
-                mappings.add(new RecoveredAArch64Mapping(caseValue, nullTarget, encoded, true));
+                mappings.add(new RecoveredAArch64Mapping(tableIndex, nullTarget, encoded, true));
                 continue;
             }
             Address target;
@@ -2689,7 +2708,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             String canonicalTarget = canonicalAddress(target);
             if (!recoveredTargetSet.contains(canonicalTarget)) return null;
             mappedTargets.add(canonicalTarget);
-            mappings.add(new RecoveredAArch64Mapping(caseValue, target, encoded, false));
+            mappings.add(new RecoveredAArch64Mapping(tableIndex, target, encoded, false));
         }
         if (mappedTargets.contains(canonicalAddress(defaultTarget))) return null;
         // Ghidra's recovered destinations must be fully accounted for by the
@@ -2711,10 +2730,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
             accountedTargets.add(canonicalAddress(branchBase));
         }
         if (!accountedTargets.containsAll(recoveredTargetSet)) return null;
+        int selectorWriter = latestWriter(instructions, compareIndex, comparedRegister);
         return new RecoveredAArch64RelativeTable(
             tableAddress,
             branchBase,
             entrySize,
+            selectorWriter < 0 ? null : instructions.get(selectorWriter).getAddress(),
             signedEntries,
             offsetShift,
             guardMnemonic,
