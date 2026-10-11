@@ -2606,6 +2606,12 @@ pre code {
     --dino-crash: #f38ba8;
     --dino-eye: #181825;
   }
+  .reconstruction-flywheel [stroke="#294f82"] {
+    stroke: var(--accent);
+  }
+  .reconstruction-flywheel [stroke="#5b6570"] {
+    stroke: var(--muted);
+  }
   .skip-link,
   .button,
   .dino-buttons .button {
