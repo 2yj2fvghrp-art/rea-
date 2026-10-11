@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DOMParser, onWarningStopParsing } from "@xmldom/xmldom";
 
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
@@ -15,24 +16,29 @@ const MAX_LDEFS_BYTES = 4 * 1024 * 1024;
 // Processor modules ship under Processors; installed extensions may add more.
 const LANGUAGE_ROOTS = ["Ghidra/Processors", "Ghidra/Extensions"] as const;
 
-const attribute = (element: string, name: string): string | undefined =>
-  new RegExp(`\\s${name}\\s*=\\s*"([^"]*)"`, "u").exec(element)?.[1];
-
 /** Parse the `<language>` elements of one `.ldefs` document. */
 export const parseGhidraLanguageDefinitions = (
   text: string,
 ): readonly GhidraLanguageDefinition[] => {
   const definitions: GhidraLanguageDefinition[] = [];
-  for (const block of text.matchAll(
-    /<language\b([^>]*)>([\s\S]*?)<\/language>/gu,
-  )) {
-    const id = attribute(block[1] ?? "", "id");
-    if (id === undefined) continue;
-    const compilerSpecIds = [
-      ...(block[2] ?? "").matchAll(/<compiler\b([^>]*)\/?>/gu),
-    ]
-      .map((compiler) => attribute(compiler[1] ?? "", "id"))
-      .filter((value): value is string => value !== undefined);
+  const document = new DOMParser({
+    onError: onWarningStopParsing,
+  }).parseFromString(text, "application/xml");
+  const root = document.documentElement;
+  if (root?.tagName !== "language_definitions")
+    throw new SyntaxError("Expected Ghidra language_definitions XML root");
+  for (const language of Array.from(root.getElementsByTagName("language"))) {
+    if (language.parentNode !== root) continue;
+    const id = language.getAttribute("id");
+    if (id === null) continue;
+    const compilerSpecIds: string[] = [];
+    for (const compiler of Array.from(
+      language.getElementsByTagName("compiler"),
+    )) {
+      if (compiler.parentNode !== language) continue;
+      const compilerId = compiler.getAttribute("id");
+      if (compilerId !== null) compilerSpecIds.push(compilerId);
+    }
     definitions.push({ id, compilerSpecIds });
   }
   return definitions;

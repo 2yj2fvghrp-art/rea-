@@ -141,6 +141,35 @@ describe("Ghidra language override configuration", () => {
 });
 
 describe("Ghidra language catalog", () => {
+  it("reads quoted and escaped XML attributes without admitting comments or CDATA", () => {
+    const catalog = parseGhidraLanguageDefinitions(`<language_definitions>
+      <!-- <language id="removed"><compiler id="removed"/></language> -->
+      <language id='x86:LE:32:default'>
+        <description><![CDATA[<compiler id="not-a-compiler"/>]]></description>
+        <!-- <compiler id="removed"/> -->
+        <compiler id='borland&#99;pp' name='Borland &amp; C++'/>
+      </language>
+    </language_definitions>`);
+    expect(catalog).toEqual([
+      { id: "x86:LE:32:default", compilerSpecIds: ["borlandcpp"] },
+    ]);
+    expect(
+      admitGhidraLanguageOverride(
+        { languageId: "x86:LE:32:default", compilerSpecId: "removed" },
+        catalog,
+        "12.1.4",
+      ),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    '<language_definitions><language id="x86:LE:32:default"></language_definitions>',
+    "<language_definitions><language id=x86:LE:32:default/></language_definitions>",
+    '<other><language id="x86:LE:32:default"/></other>',
+  ])("rejects malformed language-definition documents", (text) => {
+    expect(() => parseGhidraLanguageDefinitions(text)).toThrow();
+  });
+
   it("parses language IDs and their compiler specs", async () => {
     expect(parseGhidraLanguageDefinitions(X86_LDEFS)).toEqual([
       {
@@ -191,6 +220,29 @@ describe("Ghidra language catalog", () => {
 });
 
 describe("Ghidra language override profile", () => {
+  it("returns a provider failure for a malformed installed language definition", async () => {
+    const path = join(
+      installDir,
+      "Ghidra/Processors/x86/data/languages/broken.ldefs",
+    );
+    await writeFile(
+      path,
+      "<language_definitions><language></language_definitions>",
+    );
+    try {
+      const resolved = await provider({
+        REA_GHIDRA_LANGUAGE_ID: "x86:LE:32:default",
+      }).resolveAnalysisProfile(pe);
+      if (resolved.ok) throw new Error("Expected a language catalog failure");
+      expect(resolved.error).toMatchObject({
+        providerId: "ghidra",
+        operation: "resolve_analysis_profile",
+      });
+    } finally {
+      await rm(path);
+    }
+  });
+
   it("commits the configured language and compiler spec", async () => {
     const resolved = await provider({
       REA_GHIDRA_LANGUAGE_ID: "x86:LE:32:default",

@@ -61,7 +61,8 @@ public final class ReaGhidraApplySeeds extends GhidraScript {
         // Highest address first: a function body computed before analysis stops at
         // an existing function entry, so later creations cannot swallow earlier ones.
         seeds.sort((left, right) -> {
-            if (left.address() == null || right.address() == null) return 0;
+            if (left.address() == null) return right.address() == null ? 0 : 1;
+            if (right.address() == null) return -1;
             return right.address().compareTo(left.address());
         });
         int unmapped = 0;
@@ -76,7 +77,7 @@ public final class ReaGhidraApplySeeds extends GhidraScript {
                 MemoryBlock block = seed.address() == null
                     ? null
                     : currentProgram.getMemory().getBlock(seed.address());
-                if (block == null || !block.isInitialized()) {
+                if (block == null || (!pass.equals("label") && !block.isInitialized())) {
                     unmapped++;
                     continue;
                 }

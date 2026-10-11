@@ -21,6 +21,7 @@ import {
   type JsonValue,
 } from "../domain/jsonValue.js";
 import { err, ok } from "../domain/result.js";
+import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import type { Logger } from "pino";
 import { GhidraClient } from "./GhidraClient.js";
 import {
@@ -195,9 +196,23 @@ export class GhidraProvider implements AnalysisProviderCandidate {
     if (!resolved.ok || resolved.value.profile === null) return resolved;
     const override = this.config.ghidraLanguageOverride;
     if (override !== undefined && installation.status === "available") {
+      let catalog: Awaited<ReturnType<typeof readGhidraLanguageCatalog>>;
+      try {
+        catalog = await readGhidraLanguageCatalog(installation.installDir);
+      } catch (cause: unknown) {
+        return err(
+          new ProviderAdapterError("ghidra", "resolve_analysis_profile", {
+            cause,
+            diagnostics: {
+              reason:
+                "Could not read the installed Ghidra language definitions.",
+            },
+          }),
+        );
+      }
       const refused = admitGhidraLanguageOverride(
         override,
-        await readGhidraLanguageCatalog(installation.installDir),
+        catalog,
         installation.providerVersion,
       );
       if (refused !== null) return err(refused);
