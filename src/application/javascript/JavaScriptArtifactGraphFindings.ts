@@ -406,8 +406,11 @@ const resolveReference = (
                 reference.kind === "dynamic-import"
               ? "import"
               : undefined,
-          reference.kind === "require" ||
-            reference.kind === "static-import" ||
+          // Only unshadowable syntactic kinds carry enough provenance here:
+          // a static "require" reference may invoke a lexically shadowed local
+          // function, while genuine CommonJS requires resolve through the
+          // scope-aware module-link path in JavaScriptModuleRelationships.
+          reference.kind === "static-import" ||
             reference.kind === "dynamic-import"
             ? true
             : undefined,

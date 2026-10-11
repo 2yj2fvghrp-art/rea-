@@ -351,6 +351,101 @@ describe("NodeNext emitted-extension path resolution", () => {
   });
 });
 
+describe("NodeNext emitted-extension package targets", () => {
+  it("substitutes a TypeScript source for a package exports target", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.ts",
+    });
+  });
+
+  it("substitutes a TypeScript source for a package main entry", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"main":"./dist/index.js"}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.ts",
+    });
+  });
+
+  it("keeps an existing emitted package target ahead of its TypeScript source", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.js", "root"),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.js",
+    });
+  });
+
+  it("does not substitute package targets without the module-origin opt-in", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+});
+
 describe("contextual JavaScript package path resolution", () => {
   it("follows package entrypoints beyond the former recursion ceiling", () => {
     const files = fileMap([

@@ -344,6 +344,13 @@ const resolveExportTarget = (
   if (typeof candidate !== "string") return candidate;
   return (
     resolveFileCandidates(input, [candidate]) ??
+    // A package's exports field names the emitted file; when only its TypeScript
+    // source is inventoried, the same NodeNext substitution applies. The exact
+    // emitted file keeps priority.
+    resolveFileCandidates(
+      input,
+      emittedExtensionCounterparts(input, candidate),
+    ) ??
     exactExportsTargetNotFound(candidate)
   );
 };
@@ -614,7 +621,14 @@ const resolveDirectory = (
     resolveFileCandidates(entryInput, [
       ...fileCandidates(confined),
       ...indexCandidates(confined),
-    ]) ?? resolveFileCandidates(input, indexCandidates(directory));
+    ]) ??
+    // The main field names the emitted entrypoint; substitute its TypeScript
+    // source under the same opt-in as any other module specifier.
+    resolveFileCandidates(
+      input,
+      emittedExtensionCounterparts(input, confined),
+    ) ??
+    resolveFileCandidates(input, indexCandidates(directory));
   if (selected !== null) return selected;
   return resolveCandidate(
     entryInput,
