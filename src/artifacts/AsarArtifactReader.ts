@@ -32,6 +32,7 @@ import { closeAsarHandle, readValidatedAsarEntry } from "./AsarEntryStream.js";
 import { admitAsarHeader } from "./AsarHeader.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
+import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 /**
  * Official Electron ASAR adapter with range-streamed member reads.
@@ -83,7 +84,7 @@ export class AsarArtifactReader implements ArtifactReader {
       }
       abortIfNeeded(signal);
       paths = listPackage(snapshotPath, { isPack: false }).sort((left, right) =>
-        left.localeCompare(right, "en"),
+        compareUnicodeCodePoints(left, right),
       );
       const archiveMetadata = await lstat(snapshotPath);
       if (!archiveMetadata.isFile() || archiveMetadata.isSymbolicLink())
