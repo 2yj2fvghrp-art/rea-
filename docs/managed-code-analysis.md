@@ -131,7 +131,9 @@ as .NET `System.Runtime.dll` provide their types this way: `forwarder: true`
 marks a type forwarder, and `implementation_token` names the AssemblyRef, File,
 or enclosing ExportedType row that implements it. REA does not load the
 implementing assembly to resolve the forwarded definition, and
-`compare_managed_members` does not compare exported types.
+`compare_managed_members` does not compare exported types. Member Evidence
+recorded before this field existed reads back with `exported_types: null`,
+which means the table was not examined.
 
 CLI `#GUID` heap values retain their exact 16-byte GUID text. REA does not impose
 RFC 4122 UUID version or variant bits on MVID, EncId, or EncBaseId because

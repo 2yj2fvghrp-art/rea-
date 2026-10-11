@@ -432,7 +432,9 @@ export const managedMemberInspectionSchema = z.object({
     requires_mvid: cliMetadataGuidSchema.nullable(),
   }),
   types: z.array(managedTypeSchema),
-  exported_types: z.array(managedExportedTypeSchema),
+  // Member Evidence recorded before ExportedType rows were read omits this
+  // field; null means the table was not examined, not that it was empty.
+  exported_types: z.array(managedExportedTypeSchema).nullable().default(null),
   fields: z.array(managedFieldSchema),
   methods: z.array(managedMethodSchema),
   member_refs: z.array(managedMemberReferenceSchema),

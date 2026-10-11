@@ -5,6 +5,8 @@ import { ManagedDecodeBudget } from "./ManagedDecodeBudget.js";
 import { edges } from "./ManagedMemberRows.js";
 import type { ManagedMethod } from "./ManagedMemberInspectorCore.js";
 import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
+import { managedMemberInspectionSchema } from "../domain/managed/managedArtifact.js";
+import { comparisonLimitations } from "../domain/managed/managedMemberComparisonCoverage.js";
 
 import {
   buildManagedPeFixture,
@@ -183,6 +185,20 @@ describe("managed exported types", () => {
       },
     ]);
     expect(result.coverage).toEqual({ state: "complete", issues: [] });
+  });
+
+  it("reads member Evidence recorded before exported types as unexamined", () => {
+    const bytes = buildManagedPeFixture();
+    const { exported_types: _omitted, ...legacy } = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    const parsed = managedMemberInspectionSchema.parse(legacy);
+
+    expect(parsed.exported_types).toBeNull();
+    expect(comparisonLimitations(parsed, parsed)).toContain(
+      "At least one managed member observation predates ExportedType inspection; its exported and forwarded types are unknown.",
+    );
   });
 
   it("retains an exported type whose implementation is out of range as partial", () => {
