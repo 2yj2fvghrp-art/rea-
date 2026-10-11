@@ -157,6 +157,13 @@ const cpuSubtypeCode = (
   return (0x80000000 | (parsedVersion << 24) | subtype) >>> 0;
 };
 
+/** The subtype bits a lipo record names, without its capability byte. */
+export const lipoSubtypeBits = (value: string | null): number | null => {
+  if (value === null) return null;
+  const subtype = unsigned32(value) ?? CPU_SUBTYPES[value];
+  return subtype === undefined ? null : subtype & 0x00ffffff;
+};
+
 /** lipo names the LIB64 capability and prints other capability bits in hex. */
 const capabilityBits = (capabilities: string | undefined): number | null => {
   if (capabilities === "CPU_SUBTYPE_LIB64") return 0x80;
