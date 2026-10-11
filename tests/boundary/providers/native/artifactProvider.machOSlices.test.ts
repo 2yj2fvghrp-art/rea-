@@ -342,4 +342,10 @@ describe("artifact Mach-O LIB64 slices", () => {
       ["slices/arm64", 8192],
     ]);
   });
+
+  it("still rejects a blank-capability subtype that names other bits", async () => {
+    await expect(lib64Slices("CPU_SUBTYPE_X86_64_H")).rejects.toMatchObject({
+      reason: "integrity",
+    });
+  });
 });
