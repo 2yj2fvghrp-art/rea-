@@ -25,6 +25,7 @@ import {
 import { parseTypes, typeRanges } from "./ManagedMemberInspectorCore.js";
 import {
   edges,
+  parseExportedTypes,
   parseFields,
   parseMemberRefs,
   parseMethods,
@@ -63,6 +64,7 @@ const unavailable = (
       fields: [],
       methods: [],
       member_refs: [],
+      exported_types: [],
       call_edges: [],
       field_accesses: [],
       coverage: {
@@ -120,6 +122,8 @@ export const inspectManagedMembersBytes = (
     const fields = parseFields(bytes, layout, ranges);
     const memberRefs = parseMemberRefs(bytes, layout);
     issues.push(...memberRefs.issues);
+    const exportedTypes = parseExportedTypes(bytes, layout);
+    issues.push(...exportedTypes.issues);
     const methods = parseMethods({
       bytes,
       layout,
@@ -168,6 +172,7 @@ export const inspectManagedMembersBytes = (
           fields: fields.fields,
           methods: methods.methods,
           member_refs: memberRefs.refs,
+          exported_types: exportedTypes.exportedTypes,
           call_edges: related.callEdges,
           field_accesses: related.fieldAccesses,
           coverage: {

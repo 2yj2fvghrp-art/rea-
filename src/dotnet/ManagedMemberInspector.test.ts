@@ -514,3 +514,86 @@ it.each([
     }
   },
 );
+
+describe("managed exported types", () => {
+  it("projects ExportedType forwarders with implementation scopes", () => {
+    const bytes = buildManagedPeFixture({
+      references: ["System.Runtime", "System.Runtime.Extensions"],
+      exportedTypes: [
+        {
+          flags: 0x0010_0001,
+          typeDefId: 7,
+          name: "Uri",
+          namespace: "System",
+          implementationRaw: (1 << 2) | 1,
+        },
+        {
+          typeDefId: 12,
+          name: "Internal",
+          implementationRaw: (2 << 2) | 1,
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.metadata.table_row_counts.ExportedType).toBe(2);
+    expect(result.exported_types).toEqual([
+      expect.objectContaining({
+        token: "0x27000001",
+        flags: 0x0010_0001,
+        type_def_id: 7,
+        full_name: "System.Uri",
+        implementation_token: "0x23000001",
+      }),
+      expect.objectContaining({
+        token: "0x27000002",
+        flags: 0,
+        type_def_id: 12,
+        full_name: "Internal",
+        implementation_token: "0x23000002",
+      }),
+    ]);
+    expect(result.coverage).toMatchObject({
+      state: "complete",
+      issues: [],
+    });
+  });
+
+  it("degrades to partial coverage when an implementation index is null", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        {
+          typeDefId: 7,
+          name: "Uri",
+          namespace: "System",
+          implementationRaw: 0,
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types).toEqual([
+      expect.objectContaining({
+        token: "0x27000001",
+        type_def_id: 7,
+        full_name: "System.Uri",
+        implementation_token: null,
+      }),
+    ]);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        expect.objectContaining({
+          code: "invalid-row",
+          scope: "metadata.ExportedType:0x27000001",
+        }),
+      ],
+    });
+  });
+});

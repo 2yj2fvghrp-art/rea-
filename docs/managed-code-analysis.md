@@ -131,6 +131,18 @@ RFC 4122 UUID version or variant bits on MVID, EncId, or EncBaseId because
 ECMA-335 metadata does not require those bit patterns. Tokens and RVAs are
 build-local coordinates, not durable cross-build identities or native addresses.
 
+## Facade assemblies and exported types
+
+`inspect_managed_members` projects the `ExportedType` metadata table into
+`exported_types`: each row's flags, the forwarded `type_def_id`, the full
+namespace-qualified name, and the `implementation_token` scope (an
+`AssemblyRef` for the type forwarders that make up .NET facades, a `File` for
+multi-module assemblies, or a nested `ExportedType`). Facade assemblies such
+as `System.Runtime.dll` declare almost no `TypeDef` rows of their own; their
+usable surface lives in this table, so an empty or partial projection would
+misreport the assembly. Implementation columns that decode to null or
+out-of-range rows produce `invalid-row` issues and `partial` coverage.
+
 ## Decoded-CIL fingerprint
 
 `inspect_managed_members` exposes two method CIL hashes with different byte

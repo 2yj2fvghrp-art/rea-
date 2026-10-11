@@ -14,6 +14,7 @@ import {
   type ManagedCallEdge,
   type ManagedField,
   type ManagedFieldAccess,
+  type ManagedExportedType,
   type ManagedMemberRef,
   type ManagedMethod,
   type MemberRefCore,
@@ -141,6 +142,72 @@ export const parseMemberRefs = (
     }, issues);
   }
   return { refs, core, issues };
+};
+
+/** ExportedType rows name types this assembly provides through forwarders. */
+export const parseExportedTypes = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+): {
+  readonly exportedTypes: readonly ManagedExportedType[];
+  readonly issues: readonly ManagedParseIssue[];
+} => {
+  const exportedTypes: ManagedExportedType[] = [];
+  const issues: ManagedParseIssue[] = [];
+  const table = layout.table(39);
+  for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
+    readManagedValue(() => {
+      const cursor = metadataRowCursor(bytes, layout, 39, row);
+      const flags = cursor.readUInt32();
+      const typeDefId = cursor.readUInt32();
+      const name = readMetadataString(
+        bytes,
+        layout,
+        cursor.readIndex(layout.stringIndexSize),
+        layout.strings.size,
+      );
+      const namespace = readMetadataString(
+        bytes,
+        layout,
+        cursor.readIndex(layout.stringIndexSize),
+        layout.strings.size,
+      );
+      const implementationRaw = cursor.readIndex(
+        layout.codedIndexSize("Implementation"),
+      );
+      const token = metadataToken(39, row);
+      const implementationReason = metadataCodedTokenInvalidReason(
+        implementationRaw,
+        2,
+        [38, 35, 39],
+        layout.rowCounts,
+      );
+      if (implementationReason !== null || implementationRaw === 0)
+        issues.push({
+          code: "invalid-row",
+          scope: `metadata.ExportedType:${token}`,
+          offset: cursor.start,
+          detail:
+            implementationReason === null
+              ? "ExportedType implementation coded index 0x0 is null, but the Implementation column must reference a row"
+              : `ExportedType implementation coded index 0x${implementationRaw.toString(16)} is invalid: ${implementationReason}`,
+        });
+      exportedTypes.push({
+        token,
+        row_offset: cursor.start,
+        flags,
+        type_def_id: typeDefId,
+        full_name: namespace.length === 0 ? name : `${namespace}.${name}`,
+        implementation_token: metadataCodedToken(
+          implementationRaw,
+          2,
+          [38, 35, 39],
+          layout.rowCounts,
+        ),
+      });
+    }, issues);
+  }
+  return { exportedTypes, issues };
 };
 
 interface ParseMethodsInput {

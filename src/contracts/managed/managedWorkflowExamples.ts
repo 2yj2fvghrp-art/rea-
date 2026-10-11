@@ -50,6 +50,7 @@ const emptyManagedMembers = (
   fields: [],
   methods: [],
   member_refs: [],
+  exported_types: [],
   call_edges: [],
   field_accesses: [],
   coverage: { state: "complete", issues: [] },

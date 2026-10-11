@@ -199,6 +199,15 @@ const managedMemberReferenceSchema = z.object({
   signature: managedSignatureSchema,
 });
 
+const managedExportedTypeSchema = z.object({
+  token: tokenSchema,
+  row_offset: offsetSchema,
+  flags: z.number().int().min(0).max(0xffff_ffff),
+  type_def_id: z.number().int().min(0).max(0xffff_ffff),
+  full_name: z.string(),
+  implementation_token: tokenSchema.nullable(),
+});
+
 const managedModuleReferenceSchema = z.object({
   token: tokenSchema,
   row_offset: offsetSchema,
@@ -423,6 +432,7 @@ export const managedMemberInspectionSchema = z.object({
   fields: z.array(managedFieldSchema),
   methods: z.array(managedMethodSchema),
   member_refs: z.array(managedMemberReferenceSchema),
+  exported_types: z.array(managedExportedTypeSchema),
   call_edges: z.array(managedCallEdgeSchema),
   field_accesses: z.array(managedFieldAccessSchema),
   coverage: z.object({

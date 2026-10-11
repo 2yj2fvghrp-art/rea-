@@ -24,6 +24,8 @@ export type ManagedType = ManagedMemberInspection["types"][number];
 export type ManagedField = ManagedMemberInspection["fields"][number];
 export type ManagedMethod = ManagedMemberInspection["methods"][number];
 export type ManagedMemberRef = ManagedMemberInspection["member_refs"][number];
+export type ManagedExportedType =
+  ManagedMemberInspection["exported_types"][number];
 export type ManagedCallEdge = ManagedMemberInspection["call_edges"][number];
 export type ManagedFieldAccess =
   ManagedMemberInspection["field_accesses"][number];
