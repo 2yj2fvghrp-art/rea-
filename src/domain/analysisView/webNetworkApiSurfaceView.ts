@@ -91,6 +91,9 @@ const recordedPath = (url: string): string | null => {
   if (scheme === null) return null;
   const rest = url.slice(scheme[0].length);
   const authorityEnd = rest.search(/[/?#]/u);
+  const authority = authorityEnd < 0 ? rest : rest.slice(0, authorityEnd);
+  // An empty or backslashed authority lets WHATWG move text between authority and path.
+  if (authority.length === 0 || authority.includes("\\")) return null;
   if (authorityEnd < 0 || rest[authorityEnd] !== "/") return "/";
   const path = rest.slice(authorityEnd);
   const end = path.search(/[?#]/u);
@@ -232,7 +235,13 @@ export const projectWebNetworkApiSurfaceView = (
         return `{${rule}}`;
       })
       .join("/");
-    const key = JSON.stringify([method, parsedUrl.origin, template]);
+    // Rule positions keep a recorded literal "{numeric}" apart from a templated one.
+    const key = JSON.stringify([
+      method,
+      parsedUrl.origin,
+      template,
+      segments.map((segment) => [segment.segment_index, segment.rule]),
+    ]);
     let group = buckets.get(key);
     if (group === undefined) {
       for (const segment of segments)

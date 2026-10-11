@@ -243,8 +243,13 @@ it("charges only templated segments and keeps recorded dot segments", () => {
 
 it("excludes slashless URL spellings instead of reading their paths", () => {
   const capture = analysisViewCaptureFixture();
-  capture.records = capture.records.slice(0, 2);
-  const urls = ["https:user:pass@example.test/path", "https:123/456"];
+  capture.records = capture.records.slice(0, 4);
+  const urls = [
+    "https:user:pass@example.test/path",
+    "https:123/456",
+    "https:///user:pass@example.test/path",
+    "https://\\user:pass@example.test/path",
+  ];
   capture.records.forEach((record, index) => {
     record.reported = { request: { method: "GET", url: urls[index] ?? null } };
   });
@@ -255,6 +260,8 @@ it("excludes slashless URL spellings instead of reading their paths", () => {
   expect(result.value.excluded_records).toEqual([
     { ordinal: 0, reason: "url-unparseable" },
     { ordinal: 1, reason: "url-unparseable" },
+    { ordinal: 2, reason: "url-unparseable" },
+    { ordinal: 3, reason: "url-unparseable" },
   ]);
   expect(JSON.stringify(result.value)).not.toContain("pass");
 });
@@ -276,4 +283,23 @@ it("charges repeated observed values once when merging", () => {
     throw new Error("Expected surface");
   expect(result.value.groups).toHaveLength(1);
   expect(result.value.groups[0]?.templated_segments).toHaveLength(800);
+});
+
+it("keeps a recorded literal placeholder apart from a templated segment", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 2);
+  const urls = [
+    "https://api.example.test/users/{numeric}",
+    "https://api.example.test/users/123",
+  ];
+  capture.records.forEach((record, index) => {
+    record.reported = { request: { method: "GET", url: urls[index] ?? null } };
+  });
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups).toHaveLength(2);
+  expect(
+    result.value.groups.map((group) => group.templated_segments.length).sort(),
+  ).toEqual([0, 1]);
 });
