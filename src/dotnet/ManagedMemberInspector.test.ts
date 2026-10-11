@@ -551,7 +551,6 @@ it.each([
     [0x0f, 0x20, 0x0d, 0x08],
     "i4 modopt:13*",
   ],
-  ["typed reference", [0x16], "typedbyref"],
   [
     "adjacent modifiers in source order",
     [0x1f, 0x05, 0x20, 0x09, 0x08],
@@ -593,6 +592,14 @@ it.each([
   ["truncated function pointer", [0x1b, 0x00, 0x01, 0x08]],
   ["function pointer with a field header", [0x1b, 0x06, 0x00, 0x01]],
   ["function pointer with a reserved flag", [0x1b, 0x80, 0x00, 0x01]],
+  [
+    "function pointer with explicit-this but no has-this",
+    [0x1b, 0x40, 0x00, 0x01],
+  ],
+  ["typed reference field", [0x16]],
+  ["modified typed reference field", [0x20, 0x09, 0x16]],
+  ["typed reference generic argument", [0x15, 0x12, 0x05, 0x01, 0x16]],
+  ["typed reference array element", [0x1d, 0x16]],
 ])("reports a %s as malformed", (_name, type) => {
   expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
     kind: "unknown",
@@ -614,6 +621,23 @@ it("rejects array ranks beyond the CLR limit before rendering dimensions", () =>
   ).toMatchObject({
     parse_status: "decoded",
     field_type: `i4[${",".repeat(31)}]`,
+  });
+});
+
+it("decodes typed references in parameter and return positions", () => {
+  expect(
+    signature(Buffer.from([0x00, 0x02, 0x16, 0x20, 0x09, 0x16, 0x08])),
+  ).toMatchObject({
+    kind: "method",
+    parse_status: "decoded",
+    return_type: "typedbyref",
+    parameter_types: ["typedbyref modopt:9", "i4"],
+  });
+  expect(
+    signature(Buffer.from([0x06, 0x1b, 0x20, 0x01, 0x01, 0x16])),
+  ).toMatchObject({
+    parse_status: "decoded",
+    field_type: "fnptr[default has-this](typedbyref)->void",
   });
 });
 

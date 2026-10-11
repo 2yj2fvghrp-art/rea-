@@ -374,6 +374,9 @@ type TypeContinuation =
       readonly kind: "list";
       remaining: number;
       readonly items: string[];
+      // Function pointer items are RetType/Param positions, which admit
+      // TYPEDBYREF; generic arguments are Type positions, which do not.
+      readonly signatureItems: boolean;
       readonly render: (items: readonly string[]) => string;
     };
 
@@ -467,9 +470,22 @@ const arrayShape = (
   return { value: `[${dimensions.join(",")}]`, next };
 };
 
+// TYPEDBYREF may follow custom modifiers in a RetType or Param position but is
+// never a field type or part of another type.
+const typedByRefAllowed = (
+  stack: readonly TypeContinuation[],
+  signatureItem: boolean,
+): boolean => {
+  const frame = stack.findLast(({ kind }) => kind !== "modifiers");
+  return frame === undefined
+    ? signatureItem
+    : frame.kind === "list" && frame.signatureItems;
+};
+
 const readTypeSignature = (
   blob: Buffer,
   offset: number,
+  signatureItem: boolean,
 ): { readonly value: string; readonly next: number } => {
   const stack: TypeContinuation[] = [];
   let cursor = offset;
@@ -504,6 +520,11 @@ const readTypeSignature = (
       value = `${kind === 0x1e ? "mvar" : "var"}:${String(variable.value)}`;
       cursor = variable.next;
     } else if (kind === 0x16) {
+      if (!typedByRefAllowed(stack, signatureItem))
+        return malformedSignature(
+          "TYPEDBYREF is only valid as a parameter or return type",
+          cursor,
+        );
       value = "typedbyref";
       cursor += 1;
     } else if (kind === 0x14) {
@@ -528,6 +549,7 @@ const readTypeSignature = (
         kind: "list",
         remaining: argumentCount.value,
         items: [],
+        signatureItems: false,
         render: (items) => `${head}<${items.join(",")}>`,
       });
       cursor = argumentCount.next;
@@ -535,7 +557,8 @@ const readTypeSignature = (
       const header = readMethodSignatureHeader(blob, cursor + 1);
       if (
         !FUNCTION_POINTER_CONVENTIONS.has(header.first & 0x0f) ||
-        (header.first & 0x80) !== 0
+        (header.first & 0x80) !== 0 ||
+        ((header.first & 0x40) !== 0 && (header.first & 0x20) === 0)
       )
         return malformedSignature(
           `function pointer calling convention 0x${header.first.toString(16)} does not head a method signature`,
@@ -550,6 +573,7 @@ const readTypeSignature = (
         kind: "list",
         remaining: header.parameterCount + 1,
         items: [],
+        signatureItems: true,
         render: ([returnType, ...parameters]) =>
           `fnptr[${head}](${parameters.join(",")})->${returnType ?? ""}`,
       });
@@ -620,7 +644,7 @@ export const signature = (
       throw managedFailure("invalid-blob", "signature", "empty signature", 0);
     const first = blob[0] ?? 0;
     if ((first & 0x0f) === 6) {
-      const fieldType = readTypeSignature(blob, 1);
+      const fieldType = readTypeSignature(blob, 1, false);
       return {
         ...raw,
         kind: "field",
@@ -636,11 +660,11 @@ export const signature = (
       };
     }
     const header = readMethodSignatureHeader(blob, 0);
-    const returnType = readTypeSignature(blob, header.next);
+    const returnType = readTypeSignature(blob, header.next, true);
     let offset = returnType.next;
     const parameters: string[] = [];
     for (let index = 0; index < header.parameterCount; index += 1) {
-      const parameter = readTypeSignature(blob, offset);
+      const parameter = readTypeSignature(blob, offset, true);
       parameters.push(parameter.value);
       offset = parameter.next;
     }
