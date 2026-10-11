@@ -19,7 +19,10 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const source = [
       'import rootValue from "rea-self-fixture";',
       'import feature from "rea-self-fixture/feature";',
-      "console.log(rootValue, feature);",
+      'import punctuated from "rea-self-fixture/feature?cache=1";',
+      'import missingQuery from "rea-self-fixture/feature?cache=2";',
+      'import missingFragment from "rea-self-fixture/feature#entry";',
+      "console.log(rootValue, feature, punctuated, missingQuery, missingFragment);",
     ].join("\n");
     const files = {
       "package.json": JSON.stringify({
@@ -27,11 +30,16 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         exports: {
           ".": { import: "./root.cjs", require: "./require.cjs" },
           "./feature": { import: "./feature.cjs", require: "./require.cjs" },
+          "./feature?cache=1": {
+            import: "./punctuated.cjs",
+            require: "./require.cjs",
+          },
         },
       }),
       "main.mjs": source,
       "root.cjs": "module.exports = 11;",
       "feature.cjs": "module.exports = 22;",
+      "punctuated.cjs": "module.exports = 33;",
       "require.cjs": "module.exports = -1;",
     };
     await Promise.all(
@@ -39,12 +47,39 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         writeFile(join(root, path), text),
       ),
     );
-    const native = await promisify(execFile)(
-      process.execPath,
-      [join(root, "main.mjs")],
-      { timeout: 5_000 },
-    );
-    expect(native.stdout.trim()).toBe("11 22");
+    if (surface === "CLI") {
+      const native = await promisify(execFile)(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `const requests = ${JSON.stringify([
+            "rea-self-fixture",
+            "rea-self-fixture/feature",
+            "rea-self-fixture/feature?cache=1",
+            "rea-self-fixture/feature?cache=2",
+            "rea-self-fixture/feature#entry",
+          ])};
+          const results = await Promise.all(requests.map(async (specifier) => {
+            try {
+              const loaded = await import(specifier);
+              return { value: loaded.default, error: null };
+            } catch (error) {
+              return { value: null, error: error.code };
+            }
+          }));
+          console.log(JSON.stringify(results));`,
+        ],
+        { cwd: root, timeout: 5_000 },
+      );
+      expect(JSON.parse(native.stdout)).toEqual([
+        { value: 11, error: null },
+        { value: 22, error: null },
+        { value: 33, error: null },
+        { value: null, error: "ERR_PACKAGE_PATH_NOT_EXPORTED" },
+        { value: null, error: "ERR_PACKAGE_PATH_NOT_EXPORTED" },
+      ]);
+    }
 
     let document: unknown;
     if (surface === "CLI") {
@@ -69,6 +104,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     for (const [specifier, path] of [
       ["rea-self-fixture", "root.cjs"],
       ["rea-self-fixture/feature", "feature.cjs"],
+      ["rea-self-fixture/feature?cache=1", "punctuated.cjs"],
     ])
       expect(graph.edges).toContainEqual(
         expect.objectContaining({
@@ -78,6 +114,29 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             specifier,
             resolved_path: path,
             resolution_status: "resolved",
+          }),
+          evidence: expect.objectContaining({
+            artifact: expect.objectContaining({
+              sha256: createHash("sha256").update(source).digest("hex"),
+            }),
+            location: expect.objectContaining({
+              value: expect.objectContaining({ source: "main.mjs" }),
+            }),
+          }),
+        }),
+      );
+    for (const specifier of [
+      "rea-self-fixture/feature?cache=2",
+      "rea-self-fixture/feature#entry",
+    ])
+      expect(graph.edges).toContainEqual(
+        expect.objectContaining({
+          relation: "imports",
+          properties: expect.objectContaining({
+            module_link_kind: "import",
+            specifier,
+            resolved_path: null,
+            resolution_status: "external",
           }),
           evidence: expect.objectContaining({
             artifact: expect.objectContaining({
