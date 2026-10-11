@@ -47,11 +47,6 @@ const session = async () => {
   return { client, tools: new EnhancedTools(client) };
 };
 
-const errorCodes = (value: JsonValue): string[] =>
-  JSON.stringify(value)
-    .match(/"code":"[a-z_]+"/gu)
-    ?.map((match) => match.slice(8, -1)) ?? [];
-
 describe("provider-derived selectors in IDA composed workflows", () => {
   it("records an external callee IDA cannot resolve as a producer fault in the call graph", async () => {
     const { client, tools } = await session();
@@ -60,9 +55,18 @@ describe("provider-derived selectors in IDA composed workflows", () => {
 
       if (!result.ok) throw result.error;
       expect(
-        errorCodes(result.value),
-        "the derived node is not blamed on the caller",
-      ).toEqual(["unreadable_output"]);
+        result.value,
+        "the resolved root stays ok and only the derived node carries the producer fault",
+      ).toMatchObject({
+        "0": [{ address: "0x1000", status: "ok" }],
+        "1": [
+          {
+            address: "0x2000",
+            status: "error",
+            error: { code: "unreadable_output" },
+          },
+        ],
+      });
     } finally {
       expect((await client.close()).ok).toBe(true);
     }
@@ -75,9 +79,11 @@ describe("provider-derived selectors in IDA composed workflows", () => {
 
       if (!result.ok) throw result.error;
       expect(
-        errorCodes(result.value),
-        "the derived failure is not blamed on the caller",
-      ).toEqual(["unreadable_output"]);
+        result.value,
+        "the failure belongs to the derived address and is not blamed on the caller",
+      ).toMatchObject({
+        failures: [{ address: "0x2000", error: { code: "unreadable_output" } }],
+      });
     } finally {
       expect((await client.close()).ok).toBe(true);
     }
@@ -103,9 +109,21 @@ describe("provider-derived selectors in IDA composed workflows", () => {
       );
       if (!batch.ok) throw batch.error;
       expect(
-        errorCodes(batch.value),
-        "the unresolved batch item and its fallback retry are caller input",
-      ).toEqual(["invalid_request", "invalid_request"]);
+        batch.value,
+        "the unresolved batch item and its fallback retry are both caller input",
+      ).toMatchObject({
+        items: [
+          {
+            address: "nosuch",
+            procedure: {
+              status: "unknown",
+              error: { code: "invalid_request" },
+            },
+            status: "error",
+            error: { code: "invalid_request" },
+          },
+        ],
+      });
     } finally {
       expect((await client.close()).ok).toBe(true);
     }

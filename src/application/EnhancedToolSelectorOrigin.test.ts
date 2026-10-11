@@ -20,8 +20,10 @@ interface RecordedCall {
 /** Port that knows `main` (0x1000, calling 0x2000) and rejects `nosuch`. */
 const recordingPort = () => {
   const calls: RecordedCall[] = [];
+  const sentParameters: Readonly<Record<string, JsonValue>>[] = [];
   const port: AnalysisOperationPort = {
     execute: async (operation, parameters, options) => {
+      sentParameters.push(parameters);
       calls.push({
         operation,
         procedure: parameters.procedure,
@@ -45,7 +47,7 @@ const recordingPort = () => {
       }
     },
   };
-  return { calls, tools: new EnhancedTools(port) };
+  return { calls, sentParameters, tools: new EnhancedTools(port) };
 };
 
 const of = (
@@ -119,5 +121,22 @@ describe("selector origin of composed workflows", () => {
       ["0x1000", "provider"],
       ["nosuch", undefined],
     ]);
+  });
+
+  it("never copies the origin into the parameters sent to the provider", async () => {
+    const { sentParameters, tools } = recordingPort();
+
+    await tools.execute("get_call_graph", { address: "main" });
+    await tools.execute("trace_call_path", { start: "main" });
+    await tools.execute("batch_decompile", { addresses: ["main"] });
+
+    expect(
+      sentParameters.length,
+      "workflows issued provider calls",
+    ).toBeGreaterThan(0);
+    expect(
+      sentParameters.some((parameters) => "selectorOrigin" in parameters),
+      "the origin travels in the options only, never in Evidence-bound parameters",
+    ).toBe(false);
   });
 });
