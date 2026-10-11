@@ -384,12 +384,14 @@ describe("headless IDA transient busy health", () => {
       operation: expect.stringContaining("config_json_get"),
       timeout_ms: 300,
     });
-    expect(projected.message, "the message names the busy tool").toContain(
-      "config_json_get",
-    );
-    expect(projected.message, "no Hopper wording leaks in").not.toContain(
-      "Hopper",
-    );
+    expect(
+      result.error.message,
+      "the error message names the busy tool",
+    ).toContain("config_json_get");
+    expect(
+      `${result.error.message} ${projected.message}`,
+      "no Hopper wording leaks in",
+    ).not.toContain("Hopper");
     await client.close();
   });
 
@@ -402,9 +404,9 @@ describe("headless IDA transient busy health", () => {
 
     if (result.ok) throw new Error("expected a busy timeout");
     expect(
-      projectAnalysisError(result.error).message,
+      result.error.message,
       "an omitted busy_tool is reported as unknown",
-    ).toContain("unknown");
+    ).toContain("still busy in unknown");
     await client.close();
   });
 
