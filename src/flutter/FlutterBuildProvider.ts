@@ -194,6 +194,33 @@ const openEntrySafely = async (
   };
 };
 
+/**
+ * Check that an ELF header beyond the magic carries parseable structure:
+ * e_type is a known value and at least one table offset is non-zero.
+ * This catches headers whose magic survived corruption but whose
+ * offsets were zeroed, which the byte scanner alone cannot detect.
+ */
+const elfHeaderStructurallyValid = (
+  firstChunk: Buffer | undefined,
+  totalBytes: number,
+): boolean => {
+  if (firstChunk === undefined || firstChunk.length < 20) return false;
+  const eType = firstChunk.readUInt16LE(0x10);
+  if (eType !== 1 && eType !== 2 && eType !== 3) return false;
+  const is64 = firstChunk[4] === 2;
+  const shoff = is64
+    ? Number(firstChunk.readBigUInt64LE(0x28))
+    : firstChunk.readUInt32LE(0x20);
+  const phoff = is64
+    ? Number(firstChunk.readBigUInt64LE(0x20))
+    : firstChunk.readUInt32LE(0x1c);
+  if (shoff === 0 && phoff === 0) return false;
+  const shnum = firstChunk.readUInt16LE(is64 ? 0x3c : 0x30);
+  const phnum = firstChunk.readUInt16LE(is64 ? 0x38 : 0x2c);
+  if (shnum === 0 && phnum === 0) return false;
+  return true;
+};
+
 export interface FlutterProviderOptions {
   readonly environment?: Readonly<Record<string, string | undefined>>;
   /** Deterministic root removal for tests; production removes recursively. */
@@ -425,6 +452,7 @@ export class FlutterBuildProvider {
         const labeledScanner = new LabeledStringScanner();
         let bytes = 0;
         let firstBytes: Buffer | null = null;
+        let firstChunk: Buffer | undefined;
         for await (const chunk of stream) {
           if (abortReason !== undefined)
             return err(
@@ -433,7 +461,10 @@ export class FlutterBuildProvider {
               }),
             );
           const view = chunk as Buffer;
-          if (firstBytes === null) firstBytes = view.subarray(0, 4);
+          if (firstBytes === null) {
+            firstBytes = view.subarray(0, 4);
+            firstChunk = view;
+          }
           bytes += view.byteLength;
           if (bytes > LIBRARY_MAX_BYTES)
             return err(
@@ -476,13 +507,21 @@ export class FlutterBuildProvider {
               present: true,
               bytes,
               sha256: digest,
+              // ELF validity requires the magic AND parseable header
+              // fields: e_type (offset 0x10, 2 bytes) must be a known
+              // type, and at least one of the section/program header
+              // offsets must be non-zero. A file with valid magic but
+              // zeroed offsets is structurally broken — the byte scanner
+              // may still find hash patterns, but the ELF is not
+              // parseable and the result cannot claim completeness.
               elfHeaderValid:
                 firstBytes !== null &&
                 firstBytes.length === 4 &&
                 firstBytes[0] === 0x7f &&
                 firstBytes[1] === 0x45 &&
                 firstBytes[2] === 0x4c &&
-                firstBytes[3] === 0x46,
+                firstBytes[3] === 0x46 &&
+                elfHeaderStructurallyValid(firstChunk, bytes),
               sources: scan.sources,
               candidates: scan.candidates,
             },

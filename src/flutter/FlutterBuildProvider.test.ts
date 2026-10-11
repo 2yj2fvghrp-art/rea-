@@ -30,7 +30,20 @@ const TOOLCHAIN_LINE =
 
 const libapp = (hash: string): Buffer =>
   Buffer.concat([
-    Buffer.from([0x7f, 0x45, 0x4c, 0x46]),
+    // A minimal ELF64 header with valid type, table offsets, and counts,
+    // so the structural validity check passes alongside the magic.
+    (() => {
+      const header = Buffer.alloc(64);
+      header.writeUInt32LE(0x464c457f, 0); // magic
+      header[4] = 2; // ELFCLASS64
+      header[5] = 1; // little-endian
+      header.writeUInt16LE(3, 0x10); // ET_DYN
+      header.writeBigUInt64LE(BigInt(64), 0x20); // e_phoff
+      header.writeBigUInt64LE(BigInt(128), 0x28); // e_shoff
+      header.writeUInt16LE(1, 0x38); // e_phnum
+      header.writeUInt16LE(2, 0x3c); // e_shnum
+      return header;
+    })(),
     Buffer.from("payload-prefix\x00"),
     snapshotSection(hash),
     Buffer.from("middle\x00"),
