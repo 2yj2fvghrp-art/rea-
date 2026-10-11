@@ -10,7 +10,13 @@ This operation requires Node.js 24.x >=24.15 or 26+ with the native
 the copied database. Other REA features retain their published Node.js 22.x,
 24.x or 26+ requirements.
 
+`rea capabilities` reports `inspect_sqlite_database` availability and the
+runtime requirement without opening a database. Unsupported runtimes show
+`available: false`, `availability_code: "unsupported_version"`, and an upgrade
+note while the inventory command still succeeds.
+
 ```sh
+rea capabilities --json
 rea inspect-sqlite-database ./application.sqlite --json
 rea inspect-sqlite-database ./application.sqlite --table settings --row-limit 20 --json
 ```

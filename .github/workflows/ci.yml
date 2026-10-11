@@ -180,6 +180,7 @@ jobs:
       - name: Verify SQLite inspection and cleanup on supported runtimes
         run: >-
           node node_modules/vitest/vitest.mjs run
+          src/application/sqlite/SqliteDatabaseCapability.test.ts
           src/application/sqlite/SqliteDatabaseService.test.ts
           tests/acceptance/sqliteDatabaseCli.test.ts
           tests/boundary/sqlite/sqliteDatabaseCleanup.test.ts

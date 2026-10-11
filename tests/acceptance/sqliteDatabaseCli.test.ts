@@ -13,6 +13,58 @@ import { cliTest } from "../support/cli/cliFixture.js";
 const digest = (bytes: Buffer): string =>
   createHash("sha256").update(bytes).digest("hex");
 
+cliTest(
+  "discovers SQLite runtime availability before inspecting a database through CLI and MCP",
+  async ({ cli }) => {
+    const result = await cli.run({
+      arguments: ["capabilities", "--json"],
+      environment: { REA_LOG_LEVEL: "silent" },
+    });
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+    expect(result.json).toMatchObject({
+      open: false,
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          operation: "inspect_sqlite_database",
+          available: SQLITE_NATIVE_LIMITS_AVAILABLE,
+          reason: SQLITE_NATIVE_LIMITS_AVAILABLE
+            ? null
+            : expect.stringContaining("Node.js 24.x >=24.15 or 26+"),
+          availability_code: SQLITE_NATIVE_LIMITS_AVAILABLE
+            ? null
+            : "unsupported_version",
+          limitations: [expect.stringContaining("DatabaseSync.limits")],
+          effects: {
+            mutates_artifact: false,
+            launches_process: true,
+            may_show_ui: false,
+            may_access_network: false,
+            may_write_filesystem: true,
+            changes_permissions: false,
+            requires_root: false,
+          },
+        }),
+      ]),
+    });
+    const { call } = await connectLocalToolsMcp();
+    const response = await call("binary_session", {});
+    expect(response.isError).not.toBe(true);
+    expect(response.structuredContent).toMatchObject({
+      result: {
+        tool_availability: expect.arrayContaining([
+          expect.objectContaining({
+            name: "inspect_sqlite_database",
+            available: SQLITE_NATIVE_LIMITS_AVAILABLE,
+            remediation: SQLITE_NATIVE_LIMITS_AVAILABLE
+              ? null
+              : expect.stringContaining("Node.js 24.x >=24.15 or 26+"),
+          }),
+        ]),
+      },
+    });
+  },
+);
+
 cliTest.skipIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
   "reports the required native SQLite limits capability through CLI and MCP",
   async ({ cli }) => {
