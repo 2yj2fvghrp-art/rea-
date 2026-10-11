@@ -172,13 +172,14 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const runtimeParent = join(workspace, "runtime with spaces");
 await mkdir(runtimeParent);
 const callerDirectory = join(workspace, "caller cwd with spaces");
-// Sorted: line 443 compares readdir(callerDirectory).sort() against this list.
+// Keep sorted for comparison with the final caller-directory listing.
 const scriptCollisions = [
   "ReaGhidraAnalysisOptions.java",
   "ReaGhidraApplySeeds.java",
   "ReaGhidraBridge.java",
   "ReaGhidraNoReturnFix.java",
   "ReaGhidraPrepareCom.java",
+  "ReaGhidraPrepareRaw.java",
 ];
 await mkdir(callerDirectory);
 for (const name of scriptCollisions) await mkdir(join(callerDirectory, name));
@@ -396,15 +397,15 @@ try {
           return evidence.normalized_result;
         },
       );
-    const expected = (
+    const { GHIDRA_MUTATING_OPERATIONS, GHIDRA_SESSION_CAPABILITIES } =
       await import(
         pathToFileURL(join(packageRoot, "dist/ghidra/GhidraSessionValues.js"))
-      )
-    ).GHIDRA_SESSION_CAPABILITIES.filter(
+      );
+    const expected = GHIDRA_SESSION_CAPABILITIES.filter(
       (name) =>
         name !== "ping" &&
         name !== "shutdown" &&
-        name !== "annotate_native_function",
+        !GHIDRA_MUTATING_OPERATIONS.has(name),
     );
     assert.ok(
       expected.every((name) => report.mcpOperations.includes(name)),
@@ -442,7 +443,10 @@ try {
     token,
     "Analysis changed caller token authority.",
   );
-  assert.deepEqual((await readdir(callerDirectory)).sort(), scriptCollisions);
+  assert.deepEqual(
+    (await readdir(callerDirectory)).sort(),
+    [...scriptCollisions].sort(),
+  );
   for (const name of scriptCollisions)
     assert.deepEqual(await readdir(join(callerDirectory, name)), []);
   report.callerScriptCollisionsPreserved = true;
