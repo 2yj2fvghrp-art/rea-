@@ -759,8 +759,8 @@ override in `analyzer_preset` (for example
 `ghidra-default+disabled:Objective-C Message Analyzer`), and a session fails to
 open when its committed profile and the setting differ. A name starts with a
 letter or digit and contains only letters, digits, spaces, periods, underscores,
-and hyphens; at most 32 names are admitted. Disabling an analyzer skips the
-facts it would have produced.
+and hyphens; at most 32 names are admitted, each at most 120 characters.
+Disabling an analyzer skips the facts it would have produced.
 
 ### Ghidra heap and CPU controls
 
