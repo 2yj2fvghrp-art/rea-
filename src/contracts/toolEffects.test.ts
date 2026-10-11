@@ -22,7 +22,8 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   inspect_macho: "runs host Mach-O inspection tools, not the target",
   inspect_evm_interface:
     "decodes bytecode in REA's bundled worker without executing it",
-  inspect_wasm_artifact: "states that it does not execute the WASM artifact",
+  inspect_wasm_artifact:
+    "WABT validates and decompiles the module without executing it",
   identify_flutter_build:
     "identifies the build through execution-free APK parsing",
   inspect_dart_aot: "inspects snapshot bytes without executing them",

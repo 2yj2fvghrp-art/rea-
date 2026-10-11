@@ -231,6 +231,11 @@ unknown instead of silently treating them as absent or verified.
 Plain `.ts` artifact sources use TypeScript syntax without JSX, including
 angle-bracket type assertions. `.tsx` and `.jsx` retain JSX parsing.
 
+Relative TypeScript imports can name their emitted `.js`, `.mjs`, or `.cjs`
+counterparts while resolving to inventoried source files. This substitution
+requires import or require semantics. Literal Electron preload, renderer, and
+utility-process runtime paths retain the runtime filename selected by the caller.
+
 Selected bounded text is then parsed as inert data to recover:
 
 - `package.json` metadata and declared main or renderer entrypoints;
@@ -482,8 +487,12 @@ and one percent-decoding pass. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with
 `./` and exclude `.`, `..`, and `node_modules` path segments, including their
 encoded forms, before URL normalization. Arrays skip invalid exports targets
-in declared order; URL decoding and file lookup failures for a selected target
-do not select a later entry. Rejected references retain the package metadata
+in declared order, including URLs that escape the package root after normalization.
+Selected package targets use the normalized URL path for lookup; tabs and
+newlines in the URL text are removed by the URL parser. CommonJS package targets
+reject encoded separators anywhere in the selected URL; ESM checks its pathname.
+URL decoding and file lookup failures for a selected target do not select a
+later entry. Rejected references retain the package metadata
 path, original target, failed constraint, and importing source location.
 
 HTML script references resolve to exact inventoried files after applying the
