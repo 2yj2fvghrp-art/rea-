@@ -6,7 +6,6 @@ import {
   open as openFile,
   rm,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +34,7 @@ import {
   type ArtifactEntry,
 } from "../artifacts/ArtifactReader.js";
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
   BuildIdScanner,
   LabeledStringScanner,
@@ -108,6 +108,7 @@ interface LibraryFacts {
     sha256: string | null;
     buildId: string | null;
     dartVersion: string | null;
+    dartVersionCapped: boolean;
     toolchainLines: readonly string[];
     toolchainCapped: boolean;
   };
@@ -128,6 +129,7 @@ const emptyFacts = (): LibraryFacts => ({
     sha256: null,
     buildId: null,
     dartVersion: null,
+    dartVersionCapped: false,
     toolchainLines: [],
     toolchainCapped: false,
   },
@@ -151,6 +153,14 @@ const mapReaderFailure = (
   if (cause instanceof AnalysisError) return cause;
   if (isCancellation(cause))
     return new AnalysisCancelledError(operation, { cause });
+  if (cause instanceof ArtifactReaderFailure && cause.reason === "limit")
+    return new AnalysisResourceConstraintError(
+      operation,
+      "memory",
+      cause.message,
+      { max_metadata_read_bytes: APK_METADATA_READ_MAX_BYTES },
+      { cause },
+    );
   const message = cause instanceof Error ? cause.message : String(cause);
   return new AnalysisInputError(operation, { cause }, [
     {
@@ -234,7 +244,10 @@ export interface FlutterProviderOptions {
 export class FlutterBuildProvider {
   readonly environment: Readonly<Record<string, string | undefined>>;
 
-  private readonly ownedRoots = new Set<string>();
+  private readonly ownedRoots = new Map<
+    string,
+    Set<{ close(): Promise<void> }>
+  >();
   private readonly removeRoot: (path: string) => Promise<void>;
 
   constructor(options: FlutterProviderOptions = {}) {
@@ -256,7 +269,7 @@ export class FlutterBuildProvider {
     signal: AbortSignal | undefined,
   ): Promise<OwnedSnapshot> {
     const root = await mkdtemp(join(tmpdir(), "rea-flutter-"));
-    this.ownedRoots.add(root);
+    this.ownedRoots.set(root, new Set());
     const snapshotPath = join(root, "input.apk");
     try {
       // Pin the admitted source: capture its identity before the copy and
@@ -266,25 +279,25 @@ export class FlutterBuildProvider {
       // stops the write promptly instead of draining the whole file.
       const before = await stat(path);
       checkApkSize(operation, before.size);
-      const output = await openFile(snapshotPath, "wx");
-      try {
-        const copyStream = createReadStream(
-          path,
-          signal === undefined ? {} : { signal },
-        );
-        let copiedBytes = 0;
-        for await (const chunk of copyStream) {
-          if (signal?.aborted === true)
-            throw new AnalysisCancelledError(operation, {
-              cause: signal.reason,
-            });
-          copiedBytes += (chunk as Buffer).byteLength;
-          checkApkSize(operation, copiedBytes);
-          await output.writeFile(chunk as Buffer);
-        }
-      } finally {
-        await output.close();
+      const output = this.ownResource(
+        root,
+        new OwnedFileHandle(await openFile(snapshotPath, "wx")),
+      );
+      const copyStream = createReadStream(
+        path,
+        signal === undefined ? {} : { signal },
+      );
+      let copiedBytes = 0;
+      for await (const chunk of copyStream) {
+        if (signal?.aborted === true)
+          throw new AnalysisCancelledError(operation, {
+            cause: signal.reason,
+          });
+        copiedBytes += (chunk as Buffer).byteLength;
+        checkApkSize(operation, copiedBytes);
+        await output.handle.writeFile(chunk as Buffer);
       }
+      await this.releaseResource(root, output);
       const after = await stat(path);
       if (
         before.size !== after.size ||
@@ -313,9 +326,38 @@ export class FlutterBuildProvider {
     }
   }
 
-  /** Best-effort root removal that retains ownership when it fails. */
+  private readerFor(snapshot: OwnedSnapshot): ZipArtifactReader {
+    return this.ownResource(
+      snapshot.root,
+      new ZipArtifactReader(snapshot.path, "apk", APK_METADATA_READ_MAX_BYTES),
+    );
+  }
+
+  private ownResource<T extends { close(): Promise<void> }>(
+    root: string,
+    resource: T,
+  ): T {
+    this.ownedRoots.get(root)!.add(resource);
+    return resource;
+  }
+
+  private async releaseResource(
+    root: string,
+    resource: { close(): Promise<void> },
+  ): Promise<void> {
+    await resource.close();
+    this.ownedRoots.get(root)?.delete(resource);
+  }
+
+  /** Close every owned handle before removing its root; retain any failure. */
   private async discardRoot(root: string): Promise<boolean> {
+    const resources = this.ownedRoots.get(root);
+    if (resources === undefined) return true;
     try {
+      await Promise.allSettled(
+        [...resources].map((resource) => this.releaseResource(root, resource)),
+      );
+      if (resources.size > 0) return false;
       await this.removeRoot(root);
       this.ownedRoots.delete(root);
       return true;
@@ -337,7 +379,7 @@ export class FlutterBuildProvider {
   /** Retain failed snapshot cleanup ownership and retry it on close. */
   async close(): Promise<void> {
     const failures: unknown[] = [];
-    for (const root of [...this.ownedRoots]) {
+    for (const root of [...this.ownedRoots.keys()]) {
       if (!(await this.discardRoot(root)))
         failures.push(new Error(`snapshot root retained: ${root}`));
     }
@@ -380,11 +422,7 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisInputError(request.operation, { cause }));
     }
-    const reader = new ZipArtifactReader(
-      snapshot.path,
-      "apk",
-      APK_METADATA_READ_MAX_BYTES,
-    );
+    const reader = this.readerFor(snapshot);
     try {
       const flutterEntries = new Map<
         string,
@@ -554,6 +592,7 @@ export class FlutterBuildProvider {
             sha256: value.libflutter.sha256,
             build_id: value.libflutter.buildId,
             dart_version: value.libflutter.dartVersion,
+            dart_version_capped: value.libflutter.dartVersionCapped,
             toolchain_lines: [...value.libflutter.toolchainLines],
             toolchain_capped: value.libflutter.toolchainCapped,
           },
@@ -567,6 +606,7 @@ export class FlutterBuildProvider {
               entry.libapp.snapshot_hash_sources !== 2 ||
               entry.libapp.elf_header_valid !== true)) ||
           entry.libflutter.toolchain_capped ||
+          entry.libflutter.dart_version_capped ||
           entry.libapp.present !== entry.libflutter.present,
       );
       return ok(
@@ -587,7 +627,13 @@ export class FlutterBuildProvider {
                 .filter((entry) => entry.libflutter.toolchain_capped)
                 .map(
                   (entry) =>
-                    `lib/${entry.abi}/libflutter.so carries more distinct toolchain lines than the 4-line projection`,
+                    `lib/${entry.abi}/libflutter.so has toolchain labels omitted by the complete-label grammar or the 4-line projection`,
+                ),
+              ...abis
+                .filter((entry) => entry.libflutter.dart_version_capped)
+                .map(
+                  (entry) =>
+                    `lib/${entry.abi}/libflutter.so has Dart version labels omitted by the complete-label grammar or the single-version projection`,
                 ),
               "The snapshot hash sits 20 bytes after each snapshot magic in the AOT payload; findings are observations of that layout",
               "ELF header validity checks the supported header layout and declared table extents; identification does not resolve symbols or validate table contents",
@@ -624,11 +670,6 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisProtocolError(request.operation, { cause }));
     } finally {
-      // A failed reader close retains its root ownership (and the root
-      // itself) so close() can retry; the observation may still succeed.
-      await reader.close().catch(() => {
-        void this.discardRoot(snapshot.root);
-      });
       await this.discardRoot(snapshot.root);
     }
   }
@@ -655,11 +696,7 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisInputError("inspect_dart_aot", { cause }));
     }
-    const reader = new ZipArtifactReader(
-      snapshot.path,
-      "apk",
-      APK_METADATA_READ_MAX_BYTES,
-    );
+    const reader = this.readerFor(snapshot);
     try {
       const candidates: { entry: ArtifactEntry; abi: string }[] = [];
       for await (const entry of await collectEntriesSafely(
@@ -671,18 +708,6 @@ export class FlutterBuildProvider {
         if (entry.kind !== "file") continue;
         const match = /^lib\/([^/]+)\/libapp\.so$/u.exec(entry.path);
         if (match === null) continue;
-        if (
-          entry.declaredSize !== null &&
-          entry.declaredSize > LIBRARY_MAX_BYTES
-        )
-          return err(
-            new AnalysisResourceConstraintError(
-              "inspect_dart_aot",
-              "file-size",
-              `${entry.path} declares ${String(entry.declaredSize)} bytes, exceeding the ${String(LIBRARY_MAX_BYTES)}-byte read budget`,
-              { max_library_bytes: LIBRARY_MAX_BYTES, entry_path: entry.path },
-            ),
-          );
         candidates.push({ entry, abi: match[1]! });
       }
       if (candidates.length === 0)
@@ -725,7 +750,10 @@ export class FlutterBuildProvider {
         );
       const imagePath = join(snapshot.root, "libapp.so");
       const imageHash = createHash("sha256");
-      await writeFile(imagePath, Buffer.alloc(0), { flag: "w" });
+      const imageWriter = this.ownResource(
+        snapshot.root,
+        new OwnedFileHandle(await openFile(imagePath, "wx")),
+      );
       {
         const stream = await openEntrySafely(
           reader,
@@ -750,32 +778,33 @@ export class FlutterBuildProvider {
               ),
             );
           imageHash.update(view);
-          await writeFile(imagePath, view, { flag: "a" });
+          await imageWriter.handle.writeFile(view);
         }
       }
+      await this.releaseResource(snapshot.root, imageWriter);
       const imageSha256 = imageHash.digest("hex");
       // Allocate exactly the budget-checked size before reading, so the
       // buffer cannot exceed the declared library size plus one byte.
       const image = Buffer.alloc(declared + 1);
       let imageLength = 0;
       {
-        const file = await openFile(imagePath, "r");
-        try {
-          while (imageLength < image.length) {
-            if (signal?.aborted === true)
-              return err(new AnalysisCancelledError("inspect_dart_aot"));
-            const result = await file.read(
-              image,
-              imageLength,
-              image.length - imageLength,
-              null,
-            );
-            if (result.bytesRead === 0) break;
-            imageLength += result.bytesRead;
-          }
-        } finally {
-          await file.close();
+        const file = this.ownResource(
+          snapshot.root,
+          new OwnedFileHandle(await openFile(imagePath, "r")),
+        );
+        while (imageLength < image.length) {
+          if (signal?.aborted === true)
+            return err(new AnalysisCancelledError("inspect_dart_aot"));
+          const result = await file.handle.read(
+            image,
+            imageLength,
+            image.length - imageLength,
+            null,
+          );
+          if (result.bytesRead === 0) break;
+          imageLength += result.bytesRead;
         }
+        await this.releaseResource(snapshot.root, file);
       }
       const bounded = image.subarray(0, imageLength);
       const symbolNames = [
@@ -948,9 +977,6 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisProtocolError("inspect_dart_aot", { cause }));
     } finally {
-      await reader.close().catch(() => {
-        void this.discardRoot(snapshot.root);
-      });
       await this.discardRoot(snapshot.root);
     }
   }

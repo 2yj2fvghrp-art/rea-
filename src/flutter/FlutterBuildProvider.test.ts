@@ -22,6 +22,7 @@ import {
   type FlutterOperation,
 } from "../domain/flutter/flutterBuildAnalysis.js";
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -669,5 +670,199 @@ it.each([
     expect(result.error).toMatchObject({ operation });
     expect(projectAnalysisError(result.error).code).toBe("cancelled");
     expect(removedRoots).toHaveLength(1);
+  },
+);
+
+it.each([undefined, "arm64-v8a", "x86_64", "mips"])(
+  "applies the library cap only to selected ABI %s",
+  async (abi) => {
+    const path = await buildApk("mixed-sizes.apk", [
+      { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+      { path: "lib/x86_64/libapp.so", bytes: aotImage() },
+    ]);
+    const originalEntries = ZipArtifactReader.prototype.entries;
+    const inventory = vi
+      .spyOn(ZipArtifactReader.prototype, "entries")
+      .mockImplementation(async function* (this: ZipArtifactReader, signal) {
+        for await (const entry of originalEntries.call(this, signal))
+          yield entry.path.includes("x86_64")
+            ? { ...entry, declaredSize: 256 * 1024 ** 2 + 1 }
+            : entry;
+      });
+    const reads = vi.spyOn(ZipArtifactReader.prototype, "open");
+    onTestFinished(() => {
+      inventory.mockRestore();
+      reads.mockRestore();
+    });
+    const provider = new FlutterBuildProvider({ environment: {} });
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({
+      operation: "inspect_dart_aot",
+      input: { path, ...(abi === undefined ? {} : { abi }) },
+    });
+    if (abi === "x86_64" || abi === "mips") {
+      if (result.ok) throw new Error("expected selected-ABI refusal");
+      expect(projectAnalysisError(result.error).code).toBe(
+        abi === "x86_64" ? "resource_constraint" : "unsupported_target",
+      );
+      expect(reads).not.toHaveBeenCalled();
+    } else {
+      if (!result.ok) throw result.error;
+      expect(
+        flutterResultSchemas.inspect_dart_aot.parse(result.value.result).abi,
+      ).toBe("arm64-v8a");
+      expect(reads.mock.calls.map(([entry]) => entry.path)).toEqual([
+        "lib/arm64-v8a/libapp.so",
+      ]);
+    }
+  },
+);
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s preserves a real ZIP metadata budget refusal",
+  async (operation) => {
+    const root = await createTestTempDirectory("rea-flutter-metadata-");
+    const path = join(root, "large-directory.apk");
+    const writer = new ZipWriter(new Uint8ArrayWriter(), {
+      useWebWorkers: false,
+    });
+    const comment = "x".repeat(65535);
+    for (let index = 0; index < 129; index += 1)
+      await writer.add(
+        `assets/empty-${String(index)}`,
+        new Uint8ArrayReader(new Uint8Array()),
+        { comment, level: 0 },
+      );
+    await writeFile(path, await writer.close());
+    const provider = new FlutterBuildProvider({ environment: {} });
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({ operation, input: { path } });
+    if (result.ok) throw new Error("expected metadata capacity refusal");
+    expect(projectAnalysisError(result.error).code).toBe("resource_constraint");
+    expect(result.error).toMatchObject({
+      operation,
+      reportedLimits: { max_metadata_read_bytes: 8 * 1024 ** 2 },
+    });
+    expect(result.error.message).toContain("ZIP metadata read requires");
+  },
+);
+
+it("refuses an AOT image whose snapshot names are all undefined imports", async () => {
+  const image = aotImage();
+  const table = Number(
+    image.readBigUInt64LE(Number(image.readBigUInt64LE(0x28)) + 64 + 0x18),
+  );
+  for (let index = 0; index < 4; index += 1)
+    image.writeUInt16LE(0, table + index * 24 + 6);
+  await expect(analyzeImage(image, "inspect_dart_aot")).rejects.toMatchObject({
+    _tag: "AnalysisUnsupportedTargetError",
+  });
+});
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s retains a reader whose close failed before removing its root",
+  async (operation) => {
+    const path = await buildApk("reader-close.apk", [
+      { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+    ]);
+    const readers = new Set<ZipArtifactReader>();
+    const originalClose = ZipArtifactReader.prototype.close;
+    let failClose = true;
+    const close = vi
+      .spyOn(ZipArtifactReader.prototype, "close")
+      .mockImplementation(async function (this: ZipArtifactReader) {
+        readers.add(this);
+        if (failClose) throw new Error("file handle close refused");
+        await originalClose.call(this);
+      });
+    const removeRoot = vi.fn((root: string) =>
+      rm(root, { recursive: true, force: true }),
+    );
+    const provider = new FlutterBuildProvider({ environment: {}, removeRoot });
+    onTestFinished(async () => {
+      failClose = false;
+      await provider.close();
+      for (const reader of readers) await originalClose.call(reader);
+      close.mockRestore();
+    });
+    const result = await provider.execute({ operation, input: { path } });
+    if (!result.ok) throw result.error;
+    expect(removeRoot).not.toHaveBeenCalled();
+    await expect(provider.close()).rejects.toThrow("snapshot cleanup failed");
+    expect(removeRoot).not.toHaveBeenCalled();
+    failClose = false;
+    await provider.close();
+    expect(close).toHaveBeenCalledTimes(3);
+    expect(removeRoot).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("reports omitted Dart labels independently of toolchain labels", async () => {
+  const path = await buildApk("dart-label.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+    {
+      path: "lib/arm64-v8a/libflutter.so",
+      bytes: Buffer.concat([
+        libflutter(),
+        Buffer.from(`Dart VM version:${"x".repeat(201)}\0`),
+      ]),
+    },
+  ]);
+  const provider = new FlutterBuildProvider({ environment: {} });
+  onTestFinished(() => provider.close());
+  const result = await provider.execute({
+    operation: "identify_flutter_build",
+    input: { path },
+  });
+  if (!result.ok) throw result.error;
+  const value = flutterResultSchemas.identify_flutter_build.parse(
+    result.value.result,
+  );
+  expect(value.coverage).toBe("partial");
+  expect(value.abis[0]?.libflutter).toMatchObject({
+    dart_version: null,
+    dart_version_capped: true,
+    toolchain_capped: false,
+  });
+});
+
+it.each([0, 1, 2])(
+  "retains failed local file-handle closure at acquisition stage %i",
+  async (stage) => {
+    const path = await buildApk("file-close.apk", [
+      { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+    ]);
+    // Close order: snapshot writer, extracted-image writer, image reader.
+    const owners: OwnedFileHandle[] = [];
+    const originalClose = OwnedFileHandle.prototype.close;
+    let failing = true;
+    const close = vi
+      .spyOn(OwnedFileHandle.prototype, "close")
+      .mockImplementation(async function (this: OwnedFileHandle) {
+        if (!owners.includes(this)) owners.push(this);
+        if (failing && owners[stage] === this)
+          throw new Error("handle close refused");
+        await originalClose.call(this);
+      });
+    const removeRoot = vi.fn((root: string) =>
+      rm(root, { recursive: true, force: true }),
+    );
+    const provider = new FlutterBuildProvider({ environment: {}, removeRoot });
+    onTestFinished(async () => {
+      failing = false;
+      await provider.close();
+      for (const owner of owners) await originalClose.call(owner);
+      close.mockRestore();
+    });
+    const result = await provider.execute({
+      operation: "inspect_dart_aot",
+      input: { path },
+    });
+    expect(result.ok).toBe(false);
+    expect(removeRoot).not.toHaveBeenCalled();
+    await expect(provider.close()).rejects.toThrow("snapshot cleanup failed");
+    failing = false;
+    await provider.close();
+    expect(removeRoot).toHaveBeenCalledTimes(1);
   },
 );

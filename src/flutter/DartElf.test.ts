@@ -102,6 +102,40 @@ describe("readElfSymbol", () => {
       "ELF section header table is missing or out of bounds",
     );
   });
+
+  it.each([false, true])(
+    "ignores undefined entries with loadable values (stripped: %s)",
+    (stripped) => {
+      const image = stripped
+        ? strippedImageWithSections()
+        : imageWithSections();
+      const table = stripped
+        ? Number(
+            image.readBigUInt64LE(
+              Number(image.readBigUInt64LE(64 + 56 + 8)) + 8,
+            ),
+          )
+        : Number(
+            image.readBigUInt64LE(
+              Number(image.readBigUInt64LE(0x28)) + 64 + 0x18,
+            ),
+          );
+      for (const sectionIndex of [
+        0,
+        0xfff2,
+        0xffff,
+        ...(stripped ? [] : [0x1234]),
+      ]) {
+        image.writeUInt16LE(sectionIndex, table + 6);
+        expect(readElfSymbol(image, "_kDartVmSnapshotData")).toHaveProperty(
+          "failure",
+        );
+        expect(readElfSymbol(image, "_kDartIsolateSnapshotData")).toMatchObject(
+          { symbol: { offset: 0x800, size: 52 } },
+        );
+      }
+    },
+  );
 });
 
 describe("readSnapshotHeader", () => {

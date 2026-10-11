@@ -69,6 +69,10 @@ ABIs alphabetically).
   carries. Release engine builds often strip the `Dart VM version` string —
   absence is reported as `null`, not guessed. Android clang/LLVM toolchain
   lines are reported verbatim as build provenance.
+- Labeled strings must fit their complete grammar. `dart_version_capped`
+  and `toolchain_capped` independently report labels omitted by grammar or
+  projection bounds; either makes identification coverage partial. Values
+  split across read chunks are retained without publishing truncated prefixes.
 - **`coverage: "partial"`** also appears when an ABI carries `libapp.so`
   without `libflutter.so` (or vice versa).
 - The APK itself is digested before parsing, so `target.sha256` binds the
@@ -79,13 +83,17 @@ ABIs alphabetically).
 - **Owned snapshots.** Both operations copy the admitted APK into a
   provider-owned, read-only snapshot before digesting and parsing, so a
   concurrently modified original cannot mix into one observation; failed
-  snapshot cleanup is retained and retried on `close()`.
+  reader closure and snapshot cleanup are retained and retried on `close()`.
+  The snapshot is removed only after its reader closes successfully.
 - **Bounded reads.** APK snapshots are bounded at 2 GiB, including while
   copying. Identification permits 768 MiB of cumulative library extraction;
   declared sizes are checked before extraction. Library reads are bounded at 256 MiB each and ZIP
   metadata at 8 MiB; the AOT image buffer is allocated at exactly the
   declared size before reading. Exceeded budgets report
   `resource_constraint`.
+- **Selected ABI.** AOT inspection applies the library budget to the selected
+  ABI after selection; an oversized unselected library does not block it.
+  Undefined dynamic-symbol imports are not treated as snapshot exports.
 - REA performs **no hash-to-SDK lookup**: mapping the snapshot hash to a
   Dart SDK release requires an external dataset and is deliberately out of
   scope for this family.

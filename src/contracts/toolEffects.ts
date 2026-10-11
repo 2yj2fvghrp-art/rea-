@@ -7,7 +7,17 @@ export interface ToolEffects {
   readonly launchesProcess: boolean;
   readonly accessesNetwork: boolean;
   readonly changesUiState: boolean;
+  /** Can overwrite, clear, or drop state that the caller cannot recover from REA. */
   readonly mayDiscardData: boolean;
+  /**
+   * Runs or drives code REA does not own on the host: the analysis target, a
+   * caller-selected executable, or the application loaded into one. Running
+   * REA's own pinned helpers or operator-configured analysis engines does not
+   * count.
+   */
+  readonly executesForeignCode: boolean;
+  /** Changes an attached Android device: packages, files, or running apps. */
+  readonly mutatesDevice: boolean;
   readonly idempotent: boolean;
 }
 
@@ -27,6 +37,8 @@ const effects = (overrides: Partial<ToolEffects> = {}): ToolEffects => ({
   accessesNetwork: false,
   changesUiState: false,
   mayDiscardData: false,
+  executesForeignCode: false,
+  mutatesDevice: false,
   idempotent: true,
   ...overrides,
 });
@@ -186,6 +198,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     launchesProcess: true,
     writesFilesystem: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   capture_adb_screen: effects({
@@ -247,6 +260,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   uninstall_adb_package: effects({
@@ -254,6 +268,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   start_adb_app: effects({
@@ -261,6 +276,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   start_adb_activity: effects({
@@ -268,6 +284,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   stop_adb_app: effects({
@@ -275,6 +292,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    mutatesDevice: true,
     idempotent: false,
   }),
   search_android_classes: effects({
@@ -302,6 +320,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     writesFilesystem: true,
+    mayDiscardData: true,
   }),
   inspect_native_load_image: evidence,
   inspect_native_dispatch_metadata: evidence,
@@ -338,11 +357,31 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   resolve_containing_procedure: evidence,
   search_procedures: evidence,
   search_strings: evidence,
-  set_address_name: effects({ mutatesTarget: true, mutatesSession: true }),
-  set_addresses_names: effects({ mutatesTarget: true, mutatesSession: true }),
-  set_bookmark: effects({ mutatesTarget: true, mutatesSession: true }),
-  set_comment: effects({ mutatesTarget: true, mutatesSession: true }),
-  set_inline_comment: effects({ mutatesTarget: true, mutatesSession: true }),
+  set_address_name: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    mayDiscardData: true,
+  }),
+  set_addresses_names: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    mayDiscardData: true,
+  }),
+  set_bookmark: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    mayDiscardData: true,
+  }),
+  set_comment: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    mayDiscardData: true,
+  }),
+  set_inline_comment: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    mayDiscardData: true,
+  }),
   unset_bookmark: effects({
     mutatesTarget: true,
     mutatesSession: true,
@@ -373,6 +412,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     accessesNetwork: true,
     changesUiState: true,
     mayDiscardData: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   // The owned process can change files, show UI and use the network.
@@ -382,6 +422,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     launchesProcess: true,
     accessesNetwork: true,
     changesUiState: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   inspect_macho: nativeEvidence,
@@ -427,6 +468,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     accessesNetwork: true,
     changesUiState: true,
     mayDiscardData: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   list_electron_targets: browserEvidence,
@@ -439,6 +481,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     accessesNetwork: true,
     changesUiState: true,
     mayDiscardData: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   list_javascript_runtime_targets: browserEvidence,
@@ -487,6 +530,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     writesFilesystem: true,
     launchesProcess: true,
     accessesNetwork: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   compare_process_captures: sessionEvidence,
@@ -514,9 +558,15 @@ export const annotationsFromEffects = (
     value.launchesProcess ||
     value.accessesNetwork ||
     value.changesUiState ||
-    value.mayDiscardData
+    value.mayDiscardData ||
+    value.executesForeignCode ||
+    value.mutatesDevice
   ),
-  destructiveHint: value.mayDiscardData,
+  // MCP defines destructive as possibly non-additive changes to the
+  // environment. Running foreign code or changing a device cannot be bounded
+  // to additive effects, so either one is destructive even without data loss.
+  destructiveHint:
+    value.mayDiscardData || value.executesForeignCode || value.mutatesDevice,
   idempotentHint: value.idempotent,
   openWorldHint: value.launchesProcess || value.accessesNetwork,
 });

@@ -107,8 +107,9 @@ if (options.apk !== null) {
       check(
         "AOT hash agrees with the identification result",
         aot.libapp.snapshot_hash !== null &&
+          aot.libapp.snapshot_hash_sources === 2 &&
           aot.libapp.snapshot_hash ===
-            identified.abis.find((abi) => abi.libapp.present)?.libapp
+            identified.abis.find((abi) => abi.abi === aot.abi)?.libapp
               .snapshot_hash,
       );
       check(
@@ -135,6 +136,12 @@ if (options.apk !== null) {
             .filter((section) => section.name.endsWith("Data"))
             .every((section) => section.magic_valid),
         `${perAbi.libapp.sections.length} section(s), abi=${perAbi.abi}`,
+      );
+      check(
+        `AOT hash agrees with identification for ${abi.abi}`,
+        perAbi.libapp.snapshot_hash !== null &&
+          perAbi.libapp.snapshot_hash_sources === 2 &&
+          perAbi.libapp.snapshot_hash === abi.libapp.snapshot_hash,
       );
     }
   }

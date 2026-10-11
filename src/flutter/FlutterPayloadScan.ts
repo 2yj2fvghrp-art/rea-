@@ -184,14 +184,15 @@ export class BuildIdScanner {
 /** Labeled strings worth reporting when a build carries them. */
 export interface LabeledStringScan {
   readonly dartVersion: string | null;
+  readonly dartVersionCapped: boolean;
   readonly toolchainLines: readonly string[];
   /** True when further distinct matching lines were observed past the cap. */
   readonly toolchainCapped: boolean;
 }
 
-const DART_VERSION_PATTERN = /Dart VM version:[^\x00\n]{0,200}/u;
+const DART_VERSION_PATTERN = /^Dart VM version:[^\x00\n]{0,200}$/u;
 const TOOLCHAIN_PATTERN =
-  /Android \([^)\x00\n]{0,80}\) clang version [^\x00\n]{0,500}|based on LLVM \d[^\x00\n]{0,80}/u;
+  /^(?:Android \([^)\x00\n]{0,80}\) clang version [^\x00\n]{0,500}|based on LLVM \d[^\x00\n]{0,80})$/u;
 const MAX_TOOLCHAIN_LINES = 4;
 /**
  * Carry spans chunk boundaries for either accepted pattern. The toolchain
@@ -209,25 +210,25 @@ const CARRY_BYTES = 640;
  */
 export class LabeledStringScanner {
   #dartVersion: string | null = null;
+  #dartVersionCapped = false;
   private readonly toolchainLines: string[] = [];
   private carry = "";
+  private overflowed = false;
   #ended = false;
   #toolchainCapped = false;
 
   push(chunk: Uint8Array): void {
-    let run = "";
     for (const byte of chunk) {
-      if (byte >= 0x20 && byte < 0x7f) run += String.fromCharCode(byte);
-      else {
-        // A delimiter terminated the run: commit the whole string, then
-        // clear the carry so the next run is not concatenated onto it.
-        this.#consider(this.carry + run);
+      if (byte >= 0x20 && byte < 0x7f) {
+        if (this.carry.length < CARRY_BYTES)
+          this.carry += String.fromCharCode(byte);
+        else this.overflowed = true;
+      } else {
+        this.#consider(this.carry);
         this.carry = "";
-        run = "";
+        this.overflowed = false;
       }
     }
-    // Retain the unfinished tail; it may still grow past a chunk boundary.
-    this.carry = (this.carry + run).slice(-CARRY_BYTES);
   }
 
   /** Commit any retained tail, e.g. when the stream ends mid-string. */
@@ -236,26 +237,28 @@ export class LabeledStringScanner {
     this.#ended = true;
     this.#consider(this.carry);
     this.carry = "";
+    this.overflowed = false;
   }
 
   #consider(text: string): void {
-    // A run longer than any accepted pattern is rejected, not truncated:
-    // publishing a prefix as verbatim would fabricate evidence. Only a run
-    // that starts like a labeled line claims the toolchain cap, so an
-    // unrelated overlong string (a license, debug spew) is skipped silently.
-    if (text.length > CARRY_BYTES) {
-      if (text.startsWith("Dart VM version:") || text.startsWith("Android ("))
-        this.#toolchainCapped = true;
+    // Keep a bounded prefix plus overflow state, never a sliding suffix.
+    // Every accepted label must consume its whole printable run so a
+    // pattern's shorter grammar cannot publish a fabricated prefix.
+    if (text.startsWith("Dart VM version:")) {
+      if (this.overflowed || !DART_VERSION_PATTERN.test(text))
+        this.#dartVersionCapped = true;
+      else if (this.#dartVersion === null) this.#dartVersion = text;
+      else if (this.#dartVersion !== text) this.#dartVersionCapped = true;
       return;
     }
-    if (this.#dartVersion === null) {
-      const match = DART_VERSION_PATTERN.exec(text);
-      if (match !== null) this.#dartVersion = match[0].trim();
+    if (!text.startsWith("Android (") && !text.startsWith("based on LLVM "))
+      return;
+    if (this.overflowed || !TOOLCHAIN_PATTERN.test(text)) {
+      this.#toolchainCapped = true;
+      return;
     }
-    const match = TOOLCHAIN_PATTERN.exec(text);
-    if (match === null) return;
-    const line = match[0].trim();
-    if (line === "" || this.toolchainLines.includes(line)) return;
+    const line = text;
+    if (this.toolchainLines.includes(line)) return;
     if (this.toolchainLines.length < MAX_TOOLCHAIN_LINES)
       this.toolchainLines.push(line);
     else this.#toolchainCapped = true;
@@ -265,6 +268,7 @@ export class LabeledStringScanner {
     if (!this.#ended) this.end();
     return {
       dartVersion: this.#dartVersion,
+      dartVersionCapped: this.#dartVersionCapped,
       toolchainLines: [...this.toolchainLines],
       toolchainCapped: this.#toolchainCapped,
     };

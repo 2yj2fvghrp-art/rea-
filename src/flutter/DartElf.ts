@@ -242,13 +242,33 @@ export const readElfSymbol = (
   /** Read one dynsym entry; null when its fields do not parse. */
   const readEntry = (
     base: number,
-  ): { nameOffset: number; stValue: number; stSize: number } | null => {
+  ): {
+    nameOffset: number;
+    stValue: number;
+    stSize: number;
+    sectionIndex: number;
+  } | null => {
     const nameOffset = reader.u32(base);
     const stValue = is64 ? reader.u64(base + 8) : reader.u32(base + 4);
     const stSize = is64 ? reader.u64(base + 16) : reader.u32(base + 8);
-    if (nameOffset === null || stValue === null || stSize === null) return null;
-    return { nameOffset, stValue, stSize };
+    const sectionIndex = reader.u16(base + (is64 ? 6 : 14));
+    if (
+      nameOffset === null ||
+      stValue === null ||
+      stSize === null ||
+      sectionIndex === null
+    )
+      return null;
+    return { nameOffset, stValue, stSize, sectionIndex };
   };
+
+  // SHN_ABS is defined independently of a section. Common/extended and
+  // other reserved indices need semantics this parser cannot establish.
+  const hasDefinition = (sectionIndex: number): boolean =>
+    sectionIndex === 0xfff1 ||
+    (sectionIndex > 0 &&
+      sectionIndex < 0xff00 &&
+      (dynamicFallback || sectionIndex < e_shnum));
 
   /** Map one located symbol to its file offset, refusing unmappable values. */
   const resolve = (
@@ -304,6 +324,9 @@ export const readElfSymbol = (
     for (let entry = 0; entry < size / entrySize; entry += 1) {
       const parsed = readEntry(offset + entry * entrySize);
       if (parsed === null) continue;
+      // An undefined import is not an exported definition, regardless of
+      // whether a malformed st_value happens to map to file-backed bytes.
+      if (!hasDefinition(parsed.sectionIndex)) continue;
       // Bound the name lookup to the linked string table: a st_name
       // outside the table or a terminator beyond it reads unrelated
       // payload bytes, not a symbol name.
@@ -362,6 +385,7 @@ export const readElfSymbol = (
         ) {
           const parsed = readEntry(base);
           if (parsed === null) break;
+          if (!hasDefinition(parsed.sectionIndex)) continue;
           if (
             stringTableBytes !== null &&
             parsed.nameOffset >= stringTableBytes
@@ -494,6 +518,7 @@ export const buildElf64Image = (
     image.writeUInt32LE(nameOffsets[index]!, base);
     image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
     image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
+    image.writeUInt16LE(1, base + 6); // Defined export (not SHN_UNDEF).
     image[base + 4] = 0x10; // GLOBAL FUNC
   });
   return image;
@@ -569,6 +594,7 @@ export const buildStrippedElf64Image = (
     image.writeUInt32LE(nameOffsets[index]!, base);
     image.writeBigUInt64LE(BigInt(symbol.value), base + 8);
     image.writeBigUInt64LE(BigInt(symbol.size), base + 16);
+    image.writeUInt16LE(1, base + 6); // Defined even when section headers are stripped.
   });
   return image;
 };

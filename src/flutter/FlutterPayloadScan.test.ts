@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -179,10 +178,10 @@ describe("LabeledStringScanner", () => {
 
   it("claims the cap only for an overlong run shaped like a toolchain line", () => {
     const overlongToolchain = `Android (${"r".repeat(700)}) clang version 9`;
-    for (const [text, capped] of [
-      [overlongToolchain, true],
-      [`Dart VM version: ${"3".repeat(700)}`, true],
-      [`based on LLVM 9 ${"x".repeat(700)}`, false],
+    for (const [text, toolchainCapped, dartVersionCapped] of [
+      [overlongToolchain, true, false],
+      [`Dart VM version: ${"3".repeat(700)}`, false, true],
+      [`based on LLVM 9 ${"x".repeat(700)}`, true, false],
     ] as const) {
       const scanner = new LabeledStringScanner();
       scanner.push(
@@ -190,16 +189,52 @@ describe("LabeledStringScanner", () => {
           Array.from(`\x00${text}\x00`, (character) => character.charCodeAt(0)),
         ),
       );
-      expect(scanner.result().toolchainCapped).toBe(capped);
+      expect(scanner.result()).toMatchObject({
+        toolchainCapped,
+        dartVersionCapped,
+        dartVersion: null,
+        toolchainLines: [],
+      });
     }
   });
-});
 
-function exists(path: string): boolean {
-  try {
-    readFileSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+  it.each([
+    { label: "Dart", line: `Dart VM version:${"x".repeat(200)}`, dart: true },
+    {
+      label: "Android clang",
+      line: `Android (${"r".repeat(80)}) clang version ${"x".repeat(500)}`,
+      dart: false,
+    },
+    { label: "LLVM", line: `based on LLVM 9${"x".repeat(80)}`, dart: false },
+  ])(
+    "requires the complete $label run at its own grammar boundary",
+    ({ line, dart }) => {
+      for (const suffix of ["", "x", "x".repeat(1000)]) {
+        const payload = Buffer.from(`${line}${suffix}\x00`);
+        for (const chunkSize of [1, 7, payload.length]) {
+          const scanner = new LabeledStringScanner();
+          for (let offset = 0; offset < payload.length; offset += chunkSize)
+            scanner.push(payload.subarray(offset, offset + chunkSize));
+          const valid = suffix === "";
+          expect(scanner.result()).toEqual({
+            dartVersion: dart && valid ? line : null,
+            dartVersionCapped: dart && !valid,
+            toolchainLines: !dart && valid ? [line] : [],
+            toolchainCapped: !dart && !valid,
+          });
+        }
+      }
+    },
+  );
+
+  it("preserves whitespace and separates distinct Dart-label omissions", () => {
+    assertSingleToolchainLine("based on LLVM 9  ");
+    const scanner = new LabeledStringScanner();
+    scanner.push(Buffer.from("Dart VM version: 3.1\0Dart VM version: 3.2\0"));
+    expect(scanner.result()).toMatchObject({
+      dartVersion: "Dart VM version: 3.1",
+      dartVersionCapped: true,
+      toolchainCapped: false,
+    });
+  });
+});
