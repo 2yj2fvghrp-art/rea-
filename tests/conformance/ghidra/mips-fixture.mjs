@@ -92,3 +92,73 @@ export async function buildMipsFixture(
     arguments: args,
   };
 }
+
+/**
+ * Build the source-owned ET_REL object. `-G0` keeps gp-relative relocations
+ * out, and `kernelModule` adds the soft-float long-call options Linux MIPS
+ * modules use, so every call becomes a HI16/LO16 pair.
+ */
+export async function buildMipsRelocatableFixture(
+  directory,
+  byteOrder,
+  kernelModule = false,
+) {
+  if (byteOrder !== "little" && byteOrder !== "big")
+    throw new Error("MIPS fixture byte order must be little or big");
+  const compiler = process.env.REA_MIPS_CLANG ?? "clang";
+  const target = byteOrder === "little" ? "mipsel-linux-gnu" : "mips-linux-gnu";
+  const source = fileURLToPath(
+    new URL("../c/mips-relocatable.c", import.meta.url),
+  );
+  const path = join(directory, `${target}${kernelModule ? "-module" : ""}.o`);
+  const args = [
+    `--target=${target}`,
+    "-march=mips32r2",
+    "-mabi=32",
+    ...(kernelModule ? ["-msoft-float", "-mlong-calls"] : []),
+    "-mno-abicalls",
+    "-fno-pic",
+    "-G0",
+    "-O1",
+    "-c",
+    source,
+    "-o",
+    path,
+  ];
+  const version = await execute(compiler, ["--version"], { timeout: 10000 });
+  await execute(compiler, args, { timeout: 60000 });
+  const bytes = await readFile(path);
+  const read16 =
+    byteOrder === "little"
+      ? bytes.readUInt16LE.bind(bytes)
+      : bytes.readUInt16BE.bind(bytes);
+  const read32 =
+    byteOrder === "little"
+      ? bytes.readUInt32LE.bind(bytes)
+      : bytes.readUInt32BE.bind(bytes);
+  if (
+    bytes.length < 52 ||
+    bytes.toString("hex", 0, 4) !== "7f454c46" ||
+    bytes[4] !== 1 ||
+    bytes[5] !== (byteOrder === "little" ? 1 : 2) ||
+    read16(16) !== 1 ||
+    read16(18) !== 8 ||
+    read32(36) !== 0x70001001
+  )
+    throw new Error(
+      "Compiler did not produce the declared ELF32/o32/MIPS32r2 relocatable fixture",
+    );
+  return {
+    path,
+    byte_order: byteOrder,
+    float_abi: kernelModule ? "soft" : "hard",
+    kernel_module_options: kernelModule,
+    flags: read32(36),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    source_sha256: createHash("sha256")
+      .update(await readFile(source))
+      .digest("hex"),
+    compiler: version.stdout.trim(),
+    arguments: args,
+  };
+}

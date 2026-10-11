@@ -117,9 +117,8 @@ describe("bounded Ghidra MIPS admission", () => {
 
   it.each([
     [{ elfClass: 64 }, "ELF32"],
-    [{ type: 1 }, "ET_EXEC"],
-    [{ type: 3 }, "ET_EXEC"],
-    [{ type: 0xffa0 }, "ET_EXEC"],
+    [{ type: 3 }, "ET_EXEC and ET_REL"],
+    [{ type: 0xffa0 }, "ET_EXEC and ET_REL"],
     [{ flags: 0x10a23001 }, "separate MIPS ABI flags"],
     [{ flags: 0x70001021 }, "o32"],
     [{ flags: 0x70000001 }, "o32"],
@@ -262,6 +261,31 @@ describe("soft-float MIPS storage", () => {
           "5 functions and 1 function-pointer definitions use __rea_soft_float.",
         ),
       ]),
+    );
+  });
+
+  it("admits relocatable objects under their own lane with coordinate limitations", async () => {
+    const relocatable = target({ type: 1 });
+    const { profile, client } = await session(relocatable, undefined);
+    expect(profile.parameters.mips_support_lane).toBe(
+      "elf32-rel-o32-arch32r2-standard-v1",
+    );
+    const executable = await session(target(), undefined);
+    expect(executable.profile.parameters.mips_support_lane).toBe(
+      "elf32-exec-o32-arch32r2-standard-v3",
+    );
+    const health = await client.execute("health", {});
+    if (!health.ok) throw health.error;
+    expect(health.value.limitations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("analysis coordinates"),
+        expect.stringContaining("EXTERNAL block"),
+      ]),
+    );
+    const executableHealth = await executable.client.execute("health", {});
+    if (!executableHealth.ok) throw executableHealth.error;
+    expect(executableHealth.value.limitations.join(" ")).not.toContain(
+      "Relocatable MIPS ELF",
     );
   });
 
