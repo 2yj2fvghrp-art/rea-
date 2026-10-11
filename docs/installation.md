@@ -68,13 +68,15 @@ selects the npm release, and persistent MCP registrations are pinned to the
 version that performed setup. Installing newer instructions does not update a
 running server or its registration.
 
-The npm release checked on **2026-10-10** was **6.3.0**, published from
+The npm release checked on **2026-10-11** was **6.3.0**, published from
 [`74cf9e14`](https://github.com/morluto/rea/commit/74cf9e1401fcd89482fe39c27cc898f5858e9b72),
-with bundled skill version 34. It does not include automatic Pi or Hermes
-registration: `setup --client pi` and `setup --client hermes` reject those IDs
-before writing configuration. Their setup workflows below require a source build
-or a later release containing those integrations; `@latest` alone cannot select
-unpublished changes.
+with bundled skill version 34. It does not include automatic Qwen Code, Pi, or
+Hermes registration: `setup --client qwen_code`, `setup --client pi`, and
+`setup --client hermes` reject those IDs before writing configuration. It also
+does not honor `OPENCODE_CONFIG_DIR` when selecting OpenCode's configuration
+directory. These workflows below require a source build or a later release
+containing the relevant changes; `@latest` alone cannot select unpublished
+changes.
 
 The earlier release checked on **2026-10-07** was **5.0.0** (133 MCP tools), published
 from the fixed checkpoint
@@ -153,6 +155,13 @@ listed after the table because its connector is not one of these files:
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
 (`compaction_static_context_blocked`; [#1554](https://github.com/morluto/rea/issues/1554)).
+For the native offline OpenAI-compatible BYOK adapter, full-profile chat and
+analysis also passed with a distinct `COPILOT_PROVIDER_MODEL_ID` such as
+`rea-gpt-4.1`, `COPILOT_PROVIDER_WIRE_MODEL=gpt-4.1`, and that distinct ID selected
+through `copilot --model rea-gpt-4.1`. The local fixture requested
+`COPILOT_PROVIDER_MAX_PROMPT_TOKENS=1000000`; configure the limit supported by
+your backend. This keeps every full schema and the actual wire model intact.
+It does not establish the effective client budget or fix the built-in-ID path.
 The existing compact profile passed native chat and analysis with the complete
 tool inventory on Linux using a loopback model fixture. After setup, add
 `"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` to the `env` object of the
@@ -192,7 +201,10 @@ but unavailable in a project. An extension that registers `/mcp` can replace
 Pi's built-in MCP support and use its own configuration instead. Run `/reload`
 in an existing Pi session after changing servers outside the session.
 
-For Qwen Code, setup registers `rea` in the `mcpServers` table of the
+For Qwen Code, automatic setup requires a build containing the integration;
+npm 6.3.0 does not include it. See
+[released package and main](#released-package-and-main). In a supported build,
+setup registers `rea` in the `mcpServers` table of the
 user-level `~/.qwen/settings.json`, or `$QWEN_HOME/settings.json` when configured.
 Setup and doctor follow Qwen Code's tilde and working-directory-relative home
 overrides. Qwen Code also discovers personal skills in `~/.agents/skills`,
@@ -281,7 +293,10 @@ for its native configuration contract.
 
 ### Other client settings
 
-For OpenCode, setup writes the V1 `mcp.rea` entry, which OpenCode V1 and V2
+For OpenCode, npm 6.3.0 does not honor `OPENCODE_CONFIG_DIR`; use a source build
+or a later release containing the override support when selecting a custom
+configuration directory. See [released package and main](#released-package-and-main).
+In a supported build, setup writes the V1 `mcp.rea` entry, which OpenCode V1 and V2
 both load. If the configuration already uses OpenCode V2's native
 `mcp.servers` table, setup registers REA there instead and replaces any earlier
 `mcp.rea` entry from REA. Setup honors `OPENCODE_CONFIG_DIR` and
@@ -360,6 +375,12 @@ Hopper installation or any file write. Declining or pressing Ctrl-C makes no
 changes. Agent configuration writes preserve unrelated entries and comments,
 create backups, use atomic replacement, and verify their result. Setup and
 uninstall retain an existing `.rea.backup` rather than replacing the first snapshot.
+Setup also retains valid environment overrides in REA's existing server entry,
+such as `REA_MCP_INPUT_SCHEMA_PROFILE` and `REA_MCP_MAX_RESPONSE_BYTES`.
+Detected provider settings replace only matching environment keys.
+Setup and doctor report a malformed REA environment map or invalid runtime
+setting before setup writes files. Repair the named setting in the client
+configuration; setup does not silently discard the rest of the map.
 
 After setup, REA reports which agents, analysis tools, and workflow files passed
 its final checks. Restart any agent named in the completion message, then begin

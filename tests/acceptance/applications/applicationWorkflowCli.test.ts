@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -8,22 +9,51 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { writeElectronApiAliasApplication } from "../../fixtures/electronApiAliasApplication.js";
 
 import {
   JAVASCRIPT_FEATURE_TRACE_EXAMPLE,
   JAVASCRIPT_APPLICATION_VERSION_COMPARISON_EXAMPLE,
   SOURCE_TO_BUNDLE_COMPARISON_EXAMPLE,
 } from "../../../src/contracts/javascript/javascriptApplicationWorkflowExamples.js";
-import { JAVASCRIPT_EXPORT_SHAPE_COMPARISON_EXAMPLE } from "../../../src/contracts/javascript/javascriptExportShapeComparisonExample.js";
 import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import {
   javascriptApplicationAnalysisResultSchema,
   type JavaScriptApplicationAnalysisResult,
 } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
+import { parseJavaScriptApplicationGraph } from "../../../src/domain/javascript/javascriptApplicationGraph.js";
 import { z } from "zod";
 
 const execute = promisify(execFile);
+const requireFixture = createRequire(import.meta.url);
 const temporary: string[] = [];
+const WEBPACK_FACTORY_BODY = `
+  const key = "dynamic";
+  const __webpack_require__ = {
+    d(target, definitions) {
+      for (const name of Object.keys(definitions))
+        Object.defineProperty(target, name, {
+          enumerable: true,
+          get: definitions[name],
+        });
+    },
+  };
+  exports[key] = 1;
+  exports["dot.key"] = 2;
+  exports[""] = 3;
+  exports.nested = {};
+  exports.nested.child = 6;
+  exports["nested.child"] = 7;
+  module.exports["module.dot"] = 5;
+  module["exports.decoy"] = 99;
+  Object.defineProperty(exports, "", {
+    value: 4,
+    configurable: true,
+    enumerable: true,
+  });
+  __webpack_require__.d(exports, { "from.helper": () => 7 });
+  exports = function ignored() { return 8; };
+`;
 
 afterEach(async () => {
   await Promise.all(
@@ -220,6 +250,59 @@ describe("JavaScript application path CLI", () => {
     expect(mcpResult.semantic_graph).toEqual(
       result.normalized_result.semantic_graph,
     );
+  }, 20_000);
+
+  it("preserves canonical Electron API aliases through CLI and stdio MCP", async () => {
+    const root = await createTestTempDirectory("rea-electron-api-alias-");
+    temporary.push(root);
+    await writeElectronApiAliasApplication(root);
+
+    const cliResult = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(
+        await runCli(["analyze-javascript-application", root, "--json"]),
+      ).normalized_result;
+    expect(cliResult.summary).toMatchObject({
+      browser_windows: 1,
+      explicit_web_preferences: 1,
+      preload_entrypoints: 1,
+      context_bridge_apis: 1,
+      exposed_api_members: 1,
+      ipc: {
+        operations: 2,
+        literal_channels: 1,
+        main_handlers: 1,
+        renderer_transmissions: 1,
+        paired_renderer_transmissions: 1,
+        unpaired_literal_renderer_transmissions: 0,
+      },
+    });
+    const graph = parseJavaScriptApplicationGraph(cliResult.graph);
+    const window = graph.nodes.find(({ kind }) => kind === "browser-window");
+    expect(window?.observations[0]?.evidence.location).toMatchObject({
+      available: true,
+      value: {
+        kind: "source-range",
+        source: "main.cjs",
+        start: { line: 6 },
+      },
+    });
+    const bridge = graph.nodes.find(
+      ({ kind }) => kind === "context-bridge-api",
+    );
+    expect(bridge?.observations[0]?.evidence.location).toMatchObject({
+      available: true,
+      value: {
+        kind: "source-range",
+        source: "preload.cjs",
+        start: { line: 5 },
+      },
+    });
+
+    const mcpResult = await analyzeThroughStdioMcp(root);
+    expect(mcpResult.summary).toEqual(cliResult.summary);
+    expect(mcpResult.graph).toEqual(cliResult.graph);
+    expect(mcpResult.semantic_graph).toEqual(cliResult.semantic_graph);
   }, 20_000);
 });
 
@@ -439,6 +522,160 @@ describe("empty property key application CLI", () => {
     },
     20_000,
   );
+});
+
+describe("Webpack factory CommonJS export keys", () => {
+  it("keeps exact static keys and omits computed names through CLI and MCP", async () => {
+    const root = await createTestTempDirectory("rea-webpack-export-keys-");
+    temporary.push(root);
+    const bundle = `globalThis.webpackChunkStaticExports.push([["main"], {
+      1: function(module, exports, __webpack_require__) {${WEBPACK_FACTORY_BODY}},
+      2: function(module) { module.exports = function realDefault() {}; },
+      3: function(module, exports) { exports = function ignoredDefault() {}; },
+      4: function(module) {
+        const key = "dynamic";
+        module.exports = { [key]: 1, stable: 2 };
+      },
+      5: function(module) { module.exports = { __proto__: {} }; },
+      6: function(module) {
+        module.exports = { ["__proto__"]: 1, __proto__() {} };
+      }
+    }]);`;
+    await writeFile(join(root, "bundle.js"), bundle);
+
+    // Execute the same factory body as CommonJS, outside the analyzer, to
+    // verify Node's alias behavior and the exact runtime object keys.
+    const oracleRoot = await createTestTempDirectory(
+      "rea-webpack-export-oracle-",
+    );
+    temporary.push(oracleRoot);
+    const oraclePath = join(oracleRoot, "oracle.cjs");
+    await writeFile(oraclePath, WEBPACK_FACTORY_BODY);
+    const actual = requireFixture(oraclePath) as Record<string, unknown>;
+    expect(Reflect.ownKeys(actual).sort()).toEqual([
+      "",
+      "dot.key",
+      "dynamic",
+      "from.helper",
+      "module.dot",
+      "nested",
+      "nested.child",
+    ]);
+    expect(actual).toMatchObject({
+      "": 4,
+      "dot.key": 2,
+      dynamic: 1,
+      "from.helper": 7,
+      "module.dot": 5,
+      nested: { child: 6 },
+      "nested.child": 7,
+    });
+    const prototypeSetterPath = join(oracleRoot, "prototype-setter.cjs");
+    const ownPrototypeKeyPath = join(oracleRoot, "own-prototype-key.cjs");
+    await Promise.all([
+      writeFile(prototypeSetterPath, "module.exports = { __proto__: {} }"),
+      writeFile(
+        ownPrototypeKeyPath,
+        'module.exports = { ["__proto__"]: 1, __proto__() {} }',
+      ),
+    ]);
+    expect(
+      Reflect.ownKeys(requireFixture(prototypeSetterPath) as object),
+    ).toEqual([]);
+    expect(
+      Reflect.ownKeys(requireFixture(ownPrototypeKeyPath) as object),
+    ).toEqual(["__proto__"]);
+
+    const aliasPath = join(oracleRoot, "alias.cjs");
+    const replacementPath = join(oracleRoot, "replacement.cjs");
+    await Promise.all([
+      writeFile(aliasPath, "exports = function ignored() {};"),
+      writeFile(
+        replacementPath,
+        "module.exports = function actual() { return 42; };",
+      ),
+    ]);
+    expect(requireFixture(aliasPath)).toEqual({});
+    const replacement: unknown = requireFixture(replacementPath);
+    if (typeof replacement !== "function")
+      throw new Error("Expected Node to load the replacement export");
+    expect(replacement()).toBe(42);
+
+    const applicationEvidenceSchema = z.object({
+      evidence_id: z.string(),
+      normalized_result: javascriptApplicationAnalysisResultSchema,
+    });
+    const cliEvidence = applicationEvidenceSchema.parse(
+      await runCli([
+        "analyze-javascript-application",
+        root,
+        "--artifact-format",
+        "directory",
+        "--json",
+      ]),
+    );
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve("scripts/rea.mjs"), "mcp"],
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH ?? "", REA_LOG_LEVEL: "silent" },
+      stderr: "pipe",
+    });
+    transport.stderr?.on("data", () => undefined);
+    const client = new Client({ name: "webpack-export-keys", version: "1" });
+    let mcpEvidence: z.infer<typeof applicationEvidenceSchema>;
+    try {
+      await client.connect(transport);
+      const response = await client.callTool({
+        name: "analyze_javascript_application",
+        arguments: { input_path: root, format: "directory" },
+      });
+      expect(response.isError).not.toBe(true);
+      mcpEvidence = applicationEvidenceSchema.parse(response.structuredContent);
+      expect(await client.ping()).toEqual({});
+    } finally {
+      try {
+        await client.close();
+      } finally {
+        await transport.close();
+      }
+    }
+    expect(mcpEvidence.evidence_id).toBe(cliEvidence.evidence_id);
+
+    const expectBundleExports = (
+      evidence: typeof cliEvidence,
+      moduleKey: string,
+      expected: readonly string[],
+    ) => {
+      const module = evidence.normalized_result.graph.nodes.find(
+        ({ kind, observations }) =>
+          kind === "javascript-module" &&
+          observations.some(
+            ({ properties }) =>
+              properties.runtime === "webpackChunkStaticExports" &&
+              properties.module_key === moduleKey,
+          ),
+      );
+      if (module === undefined)
+        throw new Error(`Missing webpack factory ${moduleKey}`);
+      expect(module.observations[0]?.properties.exports).toEqual(expected);
+    };
+    for (const evidence of [cliEvidence, mcpEvidence]) {
+      expectBundleExports(evidence, "1", [
+        "",
+        "dot.key",
+        "from.helper",
+        "module.dot",
+        "nested",
+        "nested.child",
+      ]);
+      expectBundleExports(evidence, "2", ["default"]);
+      expectBundleExports(evidence, "3", []);
+      expectBundleExports(evidence, "4", ["stable"]);
+      expectBundleExports(evidence, "5", []);
+      expectBundleExports(evidence, "6", ["__proto__"]);
+    }
+  }, 20_000);
 });
 
 describe("application workflow CLI input", () => {

@@ -53,7 +53,18 @@ google-chrome \
 
 REA does not launch, own, or terminate this browser. Use a dedicated profile and stop it yourself when the investigation is complete. Do not expose the debugging port on a non-loopback interface.
 
+On Linux, a reachable but locked desktop keyring can stall Chrome before its
+first navigation. For a dedicated investigation profile, add
+`--password-store=basic` to bypass that keyring. Empty or placeholder frame URLs
+then describe an unloaded page; REA continues to require an allowed, committed
+URL. See [the startup investigation](https://github.com/morluto/rea/issues/1384#issuecomment-6093781686).
+
 ## Request boundary
+
+CDP connections enforce the shared 64 MiB limit per WebSocket message. A larger
+reply, including a valid reply from Chrome, fails with `payload_limit`. The limit
+counts message bytes before JSON parsing; it does not bound the memory used by
+decoded strings or JSON objects.
 
 Discovery supplies a literal loopback CDP endpoint and returns all eligible
 page targets unless an exact HTTP(S) origin filter narrows the result. Follow-up
