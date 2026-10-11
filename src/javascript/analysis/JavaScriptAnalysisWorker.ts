@@ -56,6 +56,16 @@ import {
   type JavaScriptWorkerMessage,
 } from "./JavaScriptAnalysisWorkerProtocol.js";
 
+// Admission charges each decoded static checkpoint at this multiple of its
+// protocol bytes; the protocol bounds a checkpoint's bytes.
+const STATIC_CHECKPOINT_RETENTION_FACTOR = 6;
+const STATIC_CHECKPOINT_RETENTION_BYTES =
+  DEFAULTS.checkpointBytes * STATIC_CHECKPOINT_RETENTION_FACTOR;
+
+// Parent admission is bounded by the CLI/MCP process heap, not the worker's.
+const PARENT_RESULT_REMEDIATION =
+  "The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap (for example NODE_OPTIONS=--max-old-space-size), then rerun. Retained static and module facts remain usable.";
+
 const OPERATION = "analyze_javascript_application";
 const PROVIDER = "javascript-static-analysis";
 const MIB = 1024 * 1024;
@@ -252,6 +262,7 @@ export class JavaScriptAnalysisWorker {
                 parent_result_budget_bytes: this.#resultBudgetBytes,
                 parent_result_budget_exhausted: true,
               },
+              { remediationAction: PARENT_RESULT_REMEDIATION },
             );
           offeredResultBudget =
             this.#applicationProjectionFailure !== undefined &&
@@ -326,8 +337,10 @@ export class JavaScriptAnalysisWorker {
               {
                 ...this.#limits(),
                 parent_result_budget_bytes: this.#resultBudgetBytes,
+                parent_result_admission_bytes: remaining,
                 module_transfer_bytes: descriptor.module_bytes,
               },
+              { remediationAction: PARENT_RESULT_REMEDIATION },
             ),
           });
           break;
@@ -358,9 +371,14 @@ export class JavaScriptAnalysisWorker {
                 {
                   ...this.#limits(),
                   parent_result_budget_bytes: this.#resultBudgetBytes,
+                  parent_result_admission_bytes: Math.max(
+                    0,
+                    remaining - moduleEstimate,
+                  ),
                   graph_transfer_bytes: descriptor.graph_bytes,
                   graph_records: descriptor.graph_records,
                 },
+                { remediationAction: PARENT_RESULT_REMEDIATION },
               ),
             });
         break;
@@ -582,7 +600,7 @@ export class JavaScriptAnalysisWorker {
     const value: unknown = JSON.parse(text);
     const facts = javaScriptWorkerStaticAnalysisSchema.parse(value);
     const remaining = this.#remainingTotalResultBudget();
-    const retainedBytes = bytes * 6;
+    const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_FACTOR;
     this.#parentCapacityExhausted = retainedBytes > remaining;
     this.#estimatedRetainedBytes += retainedBytes;
     this.#retainedStaticBytes += retainedBytes;
@@ -600,8 +618,10 @@ export class JavaScriptAnalysisWorker {
         `Expanded application relationships for ${sourcePath} exceed the parent's result budget; complete static facts were retained on the file node`,
         {
           parent_result_budget_bytes: this.#resultBudgetBytes,
+          parent_result_admission_bytes: this.#remainingResultBudget(),
           application_projection_required_bytes: expandedBytes,
         },
+        { remediationAction: PARENT_RESULT_REMEDIATION },
       );
     return facts;
   }
@@ -639,16 +659,19 @@ export class JavaScriptAnalysisWorker {
   }
   #remainingResultBudget(): number {
     // Future sources need their compact observations before current modules
-    // consume capacity with expanded relationships. A final or sole source
+    // consume capacity with expanded relationships. Each future source can
+    // retain at most one bounded static checkpoint, so reserve that much per
+    // remaining source within the shared static pool. A final or sole source
     // can use the unused reserve as well.
-    const staticReserve =
-      this.#sourcesRemaining !== undefined && this.#sourcesRemaining > 0
-        ? Math.max(
-            0,
-            Math.floor((this.#resultBudgetBytes * 4) / 5) -
-              this.#retainedStaticBytes,
-          )
-        : 0;
+    const sourcesRemaining = this.#sourcesRemaining ?? 0;
+    const staticReserve = Math.min(
+      Math.max(
+        0,
+        Math.floor((this.#resultBudgetBytes * 4) / 5) -
+          this.#retainedStaticBytes,
+      ),
+      sourcesRemaining * STATIC_CHECKPOINT_RETENTION_BYTES,
+    );
     return Math.max(0, this.#remainingTotalResultBudget() - staticReserve);
   }
   #remainingTotalResultBudget(): number {
