@@ -62,6 +62,16 @@ export const parseRecoveredJavaScript = (
   options: Omit<ParserOptions, "sourceType" | "errorRecovery">,
   scope: JavaScriptModuleScope = "unknown",
 ): RecoveredJavaScriptParse => {
+  // `.cjs` is CommonJS by extension, so module-only errors cannot apply.
+  if (/\.cjs$/iu.test(sourcePath ?? ""))
+    return {
+      file: parse(source, {
+        ...options,
+        sourceType: "script",
+        errorRecovery: true,
+      }),
+      moduleOnlyErrors: [],
+    };
   if (scope === "module" || isExplicitModuleSourcePath(sourcePath))
     return {
       file: parse(source, {
@@ -98,10 +108,12 @@ export const parseJavaScriptSource = (
   sourcePath?: string,
 ): ParsedJavaScriptSource | null => {
   try {
-    return parseRecoveredJavaScript(source, sourcePath, {
+    return parse(source, {
+      sourceType: "unambiguous",
+      errorRecovery: true,
       attachComment: false,
       plugins: parserPluginsForPath(sourcePath),
-    }).file;
+    });
   } catch (cause: unknown) {
     // Unparseable source is represented by the null return.
     void cause;

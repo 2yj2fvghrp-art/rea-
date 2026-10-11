@@ -130,12 +130,12 @@ const packageModuleScopes = (
 ): ReadonlyMap<string, boolean> => {
   const scopes = new Map<string, boolean>();
   for (const entry of entries) {
-    if (
-      entry.status !== "read" ||
-      entry.kind !== "file" ||
-      posix.basename(entry.path) !== "package.json"
-    )
+    if (posix.basename(entry.path) !== "package.json") continue;
+    // An unreadable or linked manifest still bounds the scope, with an unknown type.
+    if (entry.status !== "read" || entry.kind !== "file") {
+      scopes.set(posix.dirname(entry.path), false);
       continue;
+    }
     let declared: unknown;
     try {
       declared = (

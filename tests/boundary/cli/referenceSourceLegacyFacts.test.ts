@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect } from "vitest";
@@ -14,8 +14,19 @@ cliTest(
   async ({ cli }) => {
     const repository = await createTestTempDirectory("rea-reference-legacy-");
     const source = join(repository, "source");
-    await mkdir(join(source, "pkg"), { recursive: true });
+    await mkdir(join(source, "pkg", "inner"), { recursive: true });
     await Promise.all([
+      // `.cjs` is CommonJS, so the strict-mode rule does not apply.
+      writeFile(
+        join(source, "legacy.cjs"),
+        "var messages = {};\ndelete messages;\n",
+      ),
+      // A linked manifest bounds the outer module scope with an unknown type.
+      symlink("missing.json", join(source, "pkg", "inner", "package.json")),
+      writeFile(
+        join(source, "pkg", "inner", "strict.js"),
+        "var messages = {};\ndelete messages;\n",
+      ),
       // A package type selects module mode for its `.js` files.
       writeFile(join(source, "pkg", "package.json"), '{"type":"module"}\n'),
       writeFile(
@@ -75,12 +86,14 @@ cliTest(
         reason: "Deleting local variable in strict mode. (2:0)",
       },
     ]);
-    // Without a package type the mode stays unknown, not forced to script.
-    expect(
-      graph.entries.find((entry) => entry.path === "legacy.js")?.limitations,
-    ).toEqual([
-      "Strict-mode errors apply only if this file is an ES module: Deleting local variable in strict mode. (2:0)",
-    ]);
+    // Without a decisive package type the mode stays unknown, not forced to script.
+    const limitations = (path: string) =>
+      graph.entries.find((entry) => entry.path === path)?.limitations;
+    for (const path of ["legacy.js", "pkg/inner/strict.js"])
+      expect(limitations(path)).toEqual([
+        "Strict-mode errors apply only if this file is an ES module: Deleting local variable in strict mode. (2:0)",
+      ]);
+    expect(limitations("legacy.cjs")).toEqual([]);
     expect(graph.languages).toEqual(["C#", "JSON", "JavaScript", "PHP"]);
     for (const path of ["Program.cs", "index.php"])
       expect(
