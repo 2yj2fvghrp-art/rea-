@@ -39,13 +39,14 @@ Check that `/opt/homebrew/lib/libcairo.dylib` reports `arm64`. An old Intel
 build in `/usr/local/lib` shadows the ARM build. The preview then fails with
 `incompatible architecture (have 'x86_64', need 'arm64')`. Keep
 `/usr/local/lib` intact. Do not move its files and do not link ARM files into
-it. That breaks Intel programs that use the same names. Use one shell for the
-next steps. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
-`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. Verify with
+it. That breaks Intel programs that use the same names. Enter an ARM shell
+with `arch -arm64 zsh`. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` inside it. Verify with
 `python3 -c "import ctypes.util; print(ctypes.util.find_library('cairo'))"`.
 The result should point at `/opt/homebrew`. Run the preview from that same
-shell with `arch -arm64 python3 scripts/website.py serve`. Do not open a new
-shell between the export and the serve. For other systems, see
+shell with `python3 scripts/website.py serve` and no `arch` prefix. A
+`DYLD` export before `arch` gets purged and the preview fails again. For other
+systems, see
 [CairoSVG's installation instructions](https://cairosvg.org/documentation/#installation).
 CI installs both packages explicitly before rendering the card.
 
