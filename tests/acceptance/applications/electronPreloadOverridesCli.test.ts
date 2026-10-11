@@ -69,7 +69,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     await Promise.all([
       writeFile(
         join(root, "main.js"),
-        `const { BrowserWindow } = require("electron");\n${sourceLines.join("\n")}\n`,
+        `${sourceLines.join("\n")}\nimport { BrowserWindow } from "electron";\n`,
       ),
       writeFile(join(root, "first.js"), 'throw new Error("inert preload");\n'),
       writeFile(join(root, "last.js"), 'throw new Error("inert preload");\n'),
@@ -103,7 +103,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         return (
           location?.available &&
           location.value.kind === "source-range" &&
-          location.value.start.line === index + 2
+          location.value.start.line === index + 1
         );
       });
       const observation = window?.observations[0];
@@ -131,9 +131,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             value: {
               kind: "source-range",
               source: "main.js",
-              start: { line: index + 2, column: 0 },
+              start: { line: index + 1, column: 0 },
               end: {
-                line: index + 2,
+                line: index + 1,
                 column: (sourceLines[index]?.length ?? 0) - 1,
               },
             },
