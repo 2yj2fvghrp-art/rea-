@@ -1,4 +1,6 @@
-import type { FileHandle } from "node:fs/promises";
+import type { JavaScriptSourceAnalysisPort } from "../domain/javascript/javascriptSourceAnalysis.js";
+import type { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
+import type { OwnedDirectoryHandle } from "../filesystem/OwnedDirectoryHandle.js";
 
 import type { ArtifactReader } from "./ArtifactReader.js";
 import { ArtifactReaderFailure } from "./ArtifactReader.js";
@@ -7,6 +9,16 @@ import type { SafeOutputTree } from "./SafeOutputTree.js";
 /** One artifact resource and its format-specific cleanup owner. */
 export type ArtifactResourceOwner =
   | {
+      readonly kind: "javascript-source-analysis";
+      readonly resource: string;
+      readonly analysis: JavaScriptSourceAnalysisPort;
+    }
+  | {
+      readonly kind: "directory-handle";
+      readonly resource: string;
+      readonly handle: OwnedDirectoryHandle;
+    }
+  | {
       readonly kind: "reader";
       readonly resource: string;
       readonly reader: ArtifactReader;
@@ -14,7 +26,7 @@ export type ArtifactResourceOwner =
   | {
       readonly kind: "file-handle";
       readonly resource: string;
-      readonly handle: FileHandle;
+      readonly handle: OwnedFileHandle;
     }
   | {
       readonly kind: "output-tree";
@@ -128,10 +140,14 @@ export class ArtifactResourceScope {
 
 const cleanup = async (owner: ArtifactResourceOwner): Promise<void> => {
   switch (owner.kind) {
+    case "javascript-source-analysis":
+      await owner.analysis.close();
+      return;
     case "reader":
       await owner.reader.close();
       return;
     case "file-handle":
+    case "directory-handle":
       await owner.handle.close();
       return;
     case "output-tree":
