@@ -130,7 +130,8 @@ const mapReaderFailure = (
 ): AnalysisError => {
   if (
     (cause instanceof Error && cause.name === "AbortError") ||
-    (cause as NodeJS.ErrnoException)?.code === "ABORT_ERR"
+    (cause as NodeJS.ErrnoException)?.code === "ABORT_ERR" ||
+    /cancelled/iu.test(cause instanceof Error ? cause.message : String(cause))
   )
     return new AnalysisCancelledError(operation, { cause });
   const message = cause instanceof Error ? cause.message : String(cause);
@@ -346,7 +347,12 @@ export class FlutterBuildProvider {
         string,
         { entry: ArtifactEntry; abi: string; kind: "libapp" | "libflutter" }
       >();
-      for await (const entry of reader.entries(options?.signal)) {
+      for await (const entry of await collectEntriesSafely(
+        reader,
+        request.operation,
+        snapshot.path,
+        options?.signal,
+      )) {
         if (entry.kind !== "file") continue;
         const match = /^lib\/([^/]+)\/(libapp|libflutter)\.so$/u.exec(
           entry.path,
@@ -373,7 +379,13 @@ export class FlutterBuildProvider {
       const facts = new Map<string, LibraryFacts>();
       let extractedTotal = 0;
       for (const { entry, abi, kind } of flutterEntries.values()) {
-        const stream = await reader.open(entry, options?.signal);
+        const stream = await openEntrySafely(
+          reader,
+          entry,
+          request.operation,
+          snapshot.path,
+          options?.signal,
+        );
         const hash = createHash("sha256");
         const snapshotScanner = new SnapshotHashScanner();
         const buildIdScanner = new BuildIdScanner();
@@ -408,17 +420,19 @@ export class FlutterBuildProvider {
             buildIdScanner.push(view);
             labeledScanner.push(view);
           }
+          // Enforce the cumulative cap inside the chunk loop so refusal
+          // happens before the remaining bytes are streamed and hashed.
+          if (extractedTotal + bytes > TOTAL_EXTRACTION_MAX_BYTES)
+            return err(
+              new AnalysisResourceConstraintError(
+                request.operation,
+                "file-size",
+                `cumulative library extraction across ${String(flutterEntries.size)} entries exceeds the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte budget`,
+                { max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES },
+              ),
+            );
         }
         extractedTotal += bytes;
-        if (extractedTotal > TOTAL_EXTRACTION_MAX_BYTES)
-          return err(
-            new AnalysisResourceConstraintError(
-              request.operation,
-              "file-size",
-              `cumulative library extraction across ${String(flutterEntries.size)} entries exceeds the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte budget`,
-              { max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES },
-            ),
-          );
         const digest = hash.digest("hex");
         const current = facts.get(abi) ?? emptyFacts();
         if (kind === "libapp") {
@@ -748,7 +762,7 @@ export class FlutterBuildProvider {
       // as two agreeing sources.
       const scannedRanges = new Set<string>();
       let aliasedDataSymbols = false;
-      const scanner = new SnapshotHashScanner();
+      const rangeScans: ReturnType<SnapshotHashScanner["result"]>[] = [];
       for (const section of sections) {
         if (!section.name.endsWith("Data")) continue;
         const range = `${String(section.offset)}:${String(section.size)}`;
@@ -757,11 +771,18 @@ export class FlutterBuildProvider {
           continue;
         }
         scannedRanges.add(range);
-        scanner.push(
+        // A fresh scanner per range: the carry from one noncontiguous
+        // slice cannot fabricate a record spanning into the next.
+        const rangeScanner = new SnapshotHashScanner();
+        rangeScanner.push(
           bounded.subarray(section.offset, section.offset + section.size),
         );
+        rangeScans.push(rangeScanner.result());
       }
-      const hashScan = scanner.result();
+      const hashScan = {
+        sources: rangeScans.reduce((total, scan) => total + scan.sources, 0),
+        candidates: [...new Set(rangeScans.flatMap((scan) => scan.candidates))],
+      };
       if (sections.length === 0)
         return err(
           new AnalysisUnsupportedTargetError(

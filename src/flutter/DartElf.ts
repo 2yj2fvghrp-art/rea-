@@ -236,7 +236,14 @@ export const readElfSymbol = (
     for (let entry = 0; entry < size / entrySize; entry += 1) {
       const parsed = readEntry(offset + entry * entrySize);
       if (parsed === null) continue;
-      const name = reader.cString(stringOffset + parsed.nameOffset, 256);
+      // Bound the name lookup to the linked string table: a st_name
+      // outside the table or a terminator beyond it reads unrelated
+      // payload bytes, not a symbol name.
+      if (parsed.nameOffset >= stringSize) continue;
+      const name = reader.cString(
+        stringOffset + parsed.nameOffset,
+        Math.min(256, stringSize - parsed.nameOffset),
+      );
       if (name !== symbolName) continue;
       return resolve(name, parsed.stValue, parsed.stSize);
     }
@@ -292,7 +299,12 @@ export const readElfSymbol = (
             parsed.nameOffset >= stringTableBytes
           )
             break;
-          const name = reader.cString(stringOffset + parsed.nameOffset, 256);
+          const name = reader.cString(
+            stringOffset + parsed.nameOffset,
+            stringTableBytes === null
+              ? 256
+              : Math.min(256, stringTableBytes - parsed.nameOffset),
+          );
           if (name === null) break;
           if (name !== symbolName) continue;
           return resolve(name, parsed.stValue, parsed.stSize);
