@@ -3,7 +3,7 @@
   "repository": "morluto/rea",
   "version": "6.4.0",
   "base": "74cf9e1401fcd89482fe39c27cc898f5858e9b72",
-  "target": "92dac97102190395613c868b1582efc8a4f054c8",
+  "target": "a99857df23544c960137ddbfa78c9d74782d94a7",
   "commits": [
     {
       "sha": "08ec2bf82fa88f5e8caa2b7da9093636731dc55c",
@@ -6526,6 +6526,57 @@
         }
       ],
       "pullRequests": [1689]
+    },
+    {
+      "sha": "4003151ec1bb770bedc83dd586caaddc003ee13b",
+      "subject": "fix(ci): allow browser runtime action transport latency",
+      "body": "fix(ci): allow browser runtime action transport latency\n",
+      "parents": ["92dac97102190395613c868b1582efc8a4f054c8"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "6b043dc3de7b39a16b5a04d71f6b50dbe8f848d3",
+      "subject": "fix(release): avoid duplicated contributor thanks",
+      "body": "fix(release): avoid duplicated contributor thanks\n",
+      "parents": ["4003151ec1bb770bedc83dd586caaddc003ee13b"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "a99857df23544c960137ddbfa78c9d74782d94a7",
+      "subject": "test(release): keep credits attached to their contribution",
+      "body": "test(release): keep credits attached to their contribution\n",
+      "parents": ["6b043dc3de7b39a16b5a04d71f6b50dbe8f848d3"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
     }
   ],
   "pullRequests": [
