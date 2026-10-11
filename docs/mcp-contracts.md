@@ -88,7 +88,7 @@ JSON Schema:
 
 Boundary tests pin every advertised compact schema to the budget, keep them
 valid JSON Schema that still accepts every canonical example, and hold the
-set of six reduced presentations as contracts evolve. Client verification
+set of five reduced presentations as contracts evolve. Client verification
 also checks provider-facing sizes and canonical examples after conversion by
 the actual Kimi Code CLI; local captures do not establish Moonshot acceptance.
 
