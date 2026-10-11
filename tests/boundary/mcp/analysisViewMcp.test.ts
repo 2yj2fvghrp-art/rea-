@@ -1,5 +1,6 @@
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from "@modelcontextprotocol/server";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
@@ -517,7 +518,9 @@ it("reads successive native source pages directly from a completed-result transp
     item: { text: pseudocode.slice(0, 64) },
     coverage: { examined: 64, next_offset: 64, exhausted: false },
   });
-  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(12_000);
+  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(
+    STDIO_DEFAULT_MAX_BUFFER_SIZE,
+  );
   const second = await client.callTool({
     name: call.name,
     arguments: {
