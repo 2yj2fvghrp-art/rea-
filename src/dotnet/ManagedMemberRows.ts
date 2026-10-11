@@ -275,8 +275,12 @@ const budgetedSignature = (
 ): ReturnType<typeof signature> => {
   const budget = managedDecodeBudget(layout);
   budget.admitTransient(bytes.length * 256, layout.blob.offset);
-  return admitManagedProjection(
-    signature(bytes, budget.digest(bytes, "sha256")),
-    budget,
-  );
+  try {
+    return admitManagedProjection(
+      signature(bytes, budget.digest(bytes, "sha256")),
+      budget,
+    );
+  } finally {
+    budget.releaseTransient();
+  }
 };

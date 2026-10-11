@@ -194,6 +194,9 @@ export const methodBody = (
       "malformed",
       cause instanceof Error ? cause.message : "Method body parse failed",
     );
+  } finally {
+    // IL and exception-section bookkeeping coexist until the body is built.
+    budget?.releaseTransient();
   }
 };
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { admitManagedProjection } from "./ManagedDecodeBudget.js";
+import {
+  admitManagedProjection,
+  ManagedDecodeBudget,
+} from "./ManagedDecodeBudget.js";
 import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
 
 describe("managed projection admission", () => {
@@ -17,5 +20,34 @@ describe("managed projection admission", () => {
     expect(() =>
       admitManagedProjection({ name: "€".repeat(23 * 1024 * 1024) }),
     ).toThrow(ManagedReaderFailure);
+  });
+
+  it("counts escaped JSON bytes exactly at the budget boundary", () => {
+    // Control escapes, quotes, three-byte text, surrogate pairs and lone
+    // surrogates each have a distinct JSON size; fill the rest with ASCII.
+    const mixed = "\u0001".repeat(4096) + '"\\' + "€😀\ud800\udc00\ud800";
+    const used = Buffer.byteLength(JSON.stringify(mixed));
+    const filled = (extra: number) =>
+      mixed + "a".repeat(64 * 1024 * 1024 - used + extra);
+
+    expect(() => admitManagedProjection(filled(0))).not.toThrow();
+    expect(() => admitManagedProjection(filled(1))).toThrow(
+      ManagedReaderFailure,
+    );
+  });
+});
+
+describe("managed decoding bounds", () => {
+  it("keeps concurrent decoding bounds within one budget until released", () => {
+    const budget = new ManagedDecodeBudget();
+    const bound = 40 * 1024 * 1024;
+
+    budget.admitTransient(bound, null);
+    expect(() => budget.admitTransient(bound, null)).toThrow(
+      ManagedReaderFailure,
+    );
+    expect(() => budget.reserve(bound, null)).toThrow(ManagedReaderFailure);
+    budget.releaseTransient();
+    expect(() => budget.admitTransient(bound, null)).not.toThrow();
   });
 });

@@ -489,7 +489,7 @@ export const parseExceptionRegions = (
       );
 
     const count = (size - 4) / clauseSize;
-    // The method body reserves the regions it retains.
+    // Accumulates with the method IL bound; the body reserves what it retains.
     budget?.admitTransient(count * 256, sectionOffset);
     for (const region of readExceptionClauses(
       bytes,
