@@ -19,13 +19,28 @@ interface ToolSchemas {
 }
 
 function schemaErrors(tools: readonly ToolSchemas[]): string[] {
-  const ajv = new Ajv2020({ strict: false, validateFormats: false });
+  // Compile each root in its own reference namespace while reusing Ajv's
+  // meta-schema validators. Identical contracts may share a content-based ID.
+  const ajv = new Ajv2020({
+    strict: false,
+    validateFormats: false,
+    addUsedSchema: false,
+  });
   return tools.flatMap((tool) =>
     ["inputSchema", "outputSchema"].flatMap((kind) => {
       const schema =
         kind === "inputSchema" ? tool.inputSchema : tool.outputSchema;
-      if (schema === undefined || ajv.validateSchema(schema)) return [];
-      return [`${tool.name}.${kind}: ${ajv.errorsText(ajv.errors)}`];
+      if (schema === undefined) return [];
+      try {
+        if (!ajv.validateSchema(schema))
+          return [`${tool.name}.${kind}: ${ajv.errorsText(ajv.errors)}`];
+        ajv.compile(schema);
+        return [];
+      } catch (cause: unknown) {
+        return [
+          `${tool.name}.${kind}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        ];
+      }
     }),
   );
 }
@@ -523,6 +538,38 @@ describe("MCP process input JSON Schema", () => {
 it("ships nonrecursive input and output schemas in the generated catalog", () => {
   expect(schemaErrors(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
   expect(recursiveReferences(GENERATED_MCP_TOOL_CATALOG)).toEqual([]);
+});
+
+it("rejects unresolved output-schema references even for uncalled tools", () => {
+  const errors = schemaErrors([
+    {
+      name: "dangling",
+      inputSchema: { type: "object" },
+      outputSchema: { $ref: "#/$defs/missing" },
+    },
+  ]);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain("dangling.outputSchema");
+});
+
+it("validates each tool independently when output schema IDs repeat", () => {
+  const outputSchema = { $id: "urn:rea:test:shared-output", type: "string" };
+  const errors = schemaErrors([
+    { name: "first", inputSchema: { type: "object" }, outputSchema },
+    {
+      name: "second",
+      inputSchema: { type: "object" },
+      outputSchema: { ...outputSchema },
+    },
+    {
+      name: "broken",
+      inputSchema: { type: "object" },
+      outputSchema: { $id: outputSchema.$id, $ref: "#/$defs/missing" },
+    },
+  ]);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain("broken.outputSchema");
+  expect(errors[0]).toContain("missing");
 });
 
 it("distinguishes recursive references from shared definitions", () => {
