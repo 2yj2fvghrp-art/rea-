@@ -136,7 +136,8 @@ when that count is nonzero, and derived Evidence only when no group was template
 and digit-bearing route names stay literal. No cross-sample merging occurs.
 
 Groups cite parent record ordinals and distinct statuses and MIME types (lowercase
-type/subtype without parameters). Flags report single samples, mixed statuses or mixed content types.
+type/subtype without parameters). A malformed media type is unknown, not a content
+type. Flags report single samples, mixed statuses or mixed content types.
 `coverage` pages groups; `records` separately reports examined, total and excluded
 parent records. Ordinal subsets carry a limitation. Null URLs are excluded as
 `url-redacted`; unparseable URLs, URLs without an origin, and spellings without
@@ -150,10 +151,12 @@ network activity. Native mitmproxy captures return a typed unsupported error.
 Parents inspected with `sensitive_values`, or whose Evidence does not record
 `sensitive_value_count`, also return a typed unsupported error: the view writes
 path templates and limitation text that it cannot check against declarations
-the parent does not retain. Each path is bounded before it is split. Newly
-retained templated segments, distinct observed values, and deduplication sets
-created on the first merge are charged against the 96 MiB reply budget before
-those sets are allocated; exceeding the budget returns `resource_constraint`.
+the parent does not retain. Each path is bounded before it is split, including
+its retained text. Newly retained templated segments, distinct observed values,
+and deduplication sets created on the first merge are charged against the 96 MiB
+reply budget before those sets are allocated; exceeding the budget returns
+`resource_constraint`. Limitations on the examined records are deduplicated onto
+the view.
 
 ## Resource and lifecycle boundaries
 

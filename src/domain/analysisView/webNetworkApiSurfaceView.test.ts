@@ -3,6 +3,7 @@ import {
   analysisViewCaptureFixture,
   analysisViewCaptureEvidence,
 } from "../../../tests/fixtures/analysisView.js";
+import { WEB_NETWORK_CAPTURE_LIMITS } from "../webNetworkCapture.js";
 import { projectAnalysisView } from "./analysisView.js";
 
 const project = (
@@ -325,6 +326,51 @@ it("keeps a recorded literal placeholder apart from a templated segment", () => 
   expect(
     result.value.groups.map((group) => group.templated_segments.length).sort(),
   ).toEqual([0, 1]);
+});
+
+it("rejects one literal path whose retained copies exceed the reply budget", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  const length = Math.floor(WEB_NETWORK_CAPTURE_LIMITS.outputBytes / 4) + 1;
+  capture.records[0]!.reported = {
+    request: {
+      method: "GET",
+      url: `https://api.example.test/${"a".repeat(length)}`,
+    },
+  };
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+});
+
+it("treats malformed media types as unknown and keeps examined record limitations", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 2);
+  const caveat =
+    "HAR text is producer-decoded Unicode. Original body bytes remain unknown.";
+  capture.records.forEach((record, index) => {
+    record.limitations = [caveat];
+    record.reported = {
+      request: { method: "GET", url: "https://api.example.test/a" },
+      response: {
+        status: 200,
+        content: { mimeType: index === 0 ? "text /plain" : "unknown" },
+      },
+    };
+  });
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups[0]).toMatchObject({
+    content_types: [],
+    flags: [],
+  });
+  expect(result.value.unknowns).not.toEqual([]);
+  expect(result.value.limitations).toContain(caveat);
+  expect(result.value.limitations.filter((item) => item === caveat)).toEqual([
+    caveat,
+  ]);
 });
 
 it("compares media types case-insensitively and counts templated groups across pages", () => {

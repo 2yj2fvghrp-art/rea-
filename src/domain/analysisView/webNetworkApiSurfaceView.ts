@@ -94,6 +94,13 @@ const SPLIT_SEGMENT_BYTES = 1024;
 // sets outlive the per-path split, so every group is charged before allocation.
 const DEDUP_SET_BYTES = 1024;
 
+// Template, map key, and canonical serialization each copy a retained path.
+const RETAINED_PATH_COPIES = 4;
+
+// type/subtype token after parameter stripping, per RFC 9110.
+const MEDIA_TYPE_ESSENCE =
+  /^[a-z0-9!#$%&'*+.^_`|~-]+\/[a-z0-9!#$%&'*+.^_`|~-]+$/u;
+
 // Serialized bytes one retained observed value adds beyond its own text.
 const OBSERVED_VALUE_BYTES = 16;
 
@@ -235,6 +242,14 @@ export const projectWebNetworkApiSurfaceView = (
       return overBudget(
         "One recorded path has more segments than the reply budget allows.",
       );
+    // A single literal segment still copies the whole path into the template and key.
+    if (
+      path.length * RETAINED_PATH_COPIES > budget ||
+      projectedBytes + path.length * 2 > budget
+    )
+      return overBudget(
+        "Retained path text would exceed the capture reply budget.",
+      );
     const segments: Group["templated_segments"] = [];
     const template = path
       .split("/")
@@ -259,6 +274,7 @@ export const projectWebNetworkApiSurfaceView = (
     ]);
     let group = buckets.get(key);
     if (group === undefined) {
+      projectedBytes += path.length * 2;
       for (const segment of segments)
         projectedBytes +=
           TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length;
@@ -316,7 +332,7 @@ export const projectWebNetworkApiSurfaceView = (
       typeof mime === "string"
         ? mime.split(";", 1).join("").trim().toLowerCase()
         : "";
-    if (essence.length > 0) group.content_types.push(essence);
+    if (MEDIA_TYPE_ESSENCE.test(essence)) group.content_types.push(essence);
     else unavailableResponse = true;
   }
   const groups = [...buckets.values()].sort(
@@ -353,15 +369,16 @@ export const projectWebNetworkApiSurfaceView = (
     ).length,
     groups: page,
     excluded_records: excluded,
-    limitations: [
+    limitations: uniqueSorted([
       ...parent.limitations,
+      ...capture.records.flatMap((record) => record.limitations),
       "Grouping does not establish handler identity, URL-space schemas or causality.",
       ...(capture.records.length < capture.total_records
         ? [
             "Parent contains an ordinal subset; the surface covers only retained records.",
           ]
         : []),
-    ],
+    ]),
     unknowns: unavailableResponse
       ? [
           "Some retained records have unavailable status or content type values.",
