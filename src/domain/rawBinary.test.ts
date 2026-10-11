@@ -68,22 +68,47 @@ describe("raw-binary admission", () => {
   it("rejects a 32-bit mapping that exceeds the architecture width", () => {
     const result = admitRawBinary({
       architecture: "arm",
-      entryPoint: "0xfffffffe",
-      fileBytes: 4,
+      entryPoint: "0xfffffffc",
+      fileBytes: 8,
     });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected overflow rejection");
-    expect(result.error).toContain("arm");
+    expect(result.error).toContain("arm address width");
   });
   it("allows a 64-bit mapping that would overflow 32-bit ARM", () => {
     expect(
       admitRawBinary({
         architecture: "arm64",
-        entryPoint: "0xfffffffe",
-        fileBytes: 4,
+        entryPoint: "0xfffffffc",
+        fileBytes: 8,
       }).ok,
     ).toBe(true);
   });
+  it.each(["arm", "arm64"])(
+    "rejects unaligned %s entries before provider selection",
+    (architecture) => {
+      for (const entryPoint of ["0x8000001", "0x8000002", "0x8000003"]) {
+        expect(
+          admitRawBinary({ architecture, entryPoint, fileBytes: 4 }),
+        ).toEqual({
+          ok: false,
+          error: `raw-binary ${architecture} entry_point ${entryPoint} must be 4-byte aligned`,
+        });
+      }
+    },
+  );
+  it.each(["x86", "x86_64"])(
+    "admits byte-aligned %s entries",
+    (architecture) => {
+      const admitted = admitRawBinary({
+        architecture,
+        entryPoint: "0x1001",
+        fileBytes: 1,
+      });
+      if (!admitted.ok) throw new Error(admitted.error);
+      expect(admitted.value.entryPoint).toBe("0x1001");
+    },
+  );
 });
 
 describe("raw-binary selection pairing", () => {

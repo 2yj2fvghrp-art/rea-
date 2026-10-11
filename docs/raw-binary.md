@@ -28,6 +28,9 @@ rea inspect-native-load-image /absolute/path/to/ecu.bin --target-format raw-bina
 `architecture` is one of `x86`, `x86_64`, `arm`, or `arm64`. `entry_point` is a
 hexadecimal address of the form `0x…`. The complete file is mapped starting at
 that address, and Ghidra seeds an `entry` function there before auto-analysis.
+ARM and AArch64 entries must be 4-byte aligned; x86 entries may be byte-aligned.
+`open_binary` and an open `binary_session` return the canonical `entry_point`
+for raw targets so callers can verify the selected mapping directly.
 Omitted `format` keeps header-based detection; architecture and entry without
 `format=raw-binary` are rejected.
 

@@ -82,6 +82,13 @@ export const admitRawBinary = (input: {
     );
   const entry = parseRawBinaryEntryPoint(input.entryPoint);
   if (!entry.ok) return entry;
+  if (
+    (architecture.data === "arm" || architecture.data === "arm64") &&
+    entry.value.value % 4n !== 0n
+  )
+    return err(
+      `raw-binary ${architecture.data} entry_point ${entry.value.canonical} must be 4-byte aligned`,
+    );
   const length = validateRawBinaryLength(input.fileBytes);
   if (!length.ok) return length;
   const last = entry.value.value + BigInt(input.fileBytes) - 1n;

@@ -39,6 +39,36 @@ cliTest(
 );
 
 cliTest(
+  "rejects an unaligned AArch64 entry before provider startup",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-raw-cli-alignment-");
+    const path = join(root, "image.bin");
+    await writeFile(path, Buffer.from("c0035fd6", "hex"));
+    const result = await cli.run({
+      arguments: [
+        "inspect",
+        path,
+        "--target-format",
+        "raw-binary",
+        "--architecture",
+        "arm64",
+        "--entry-point",
+        "0x8000001",
+        "--provider",
+        "ghidra",
+        "--json",
+      ],
+      environment: { HOME: root, XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.json).toMatchObject({
+      code: "target_unavailable",
+      details: { reason: expect.stringContaining("must be 4-byte aligned") },
+    });
+  },
+);
+
+cliTest(
   "stops Hopper from claiming a caller-supplied raw-binary image",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-raw-cli-hopper-");

@@ -72,13 +72,14 @@ try {
   const sessions = [];
   for (const entryPoint of ["0x08000000", "0x8000000", "0x09000000"]) {
     // Omit provider_id to exercise reuse of the current provider route.
-    await call("open_binary", {
+    const opened = await call("open_binary", {
       path,
       format: "raw-binary",
       architecture: "arm",
       entry_point: entryPoint,
     });
     const entry = `0x${BigInt(entryPoint).toString(16)}`;
+    assert.equal(opened.entry_point, entry);
     const image = await call("inspect_native_load_image");
     assert.equal(
       image.normalized_result.status,
@@ -97,6 +98,7 @@ try {
     assert.equal(image.analysis_profile.parameters.entry_point, entry);
     profiles.push(image.analysis_profile.digest);
     const status = await call("binary_session");
+    assert.equal(status.entry_point, entry);
     sessions.push(status.analysis_run.run_id);
     const memory = await call("read_bytes", {
       address: entry,
@@ -118,6 +120,20 @@ try {
   assert.notEqual(profiles[1], profiles[2]);
   assert.equal(sessions[0], sessions[1]);
   assert.notEqual(sessions[1], sessions[2]);
+  const rejected = await client.callTool({
+    name: "open_binary",
+    arguments: {
+      path,
+      format: "raw-binary",
+      architecture: "arm64",
+      entry_point: "0x8000001",
+    },
+  });
+  assert.equal(rejected.isError, true);
+  assert.match(JSON.stringify(rejected.content), /must be 4-byte aligned/);
+  const unchanged = await call("binary_session");
+  assert.equal(unchanged.analysis_run.run_id, sessions[2]);
+  assert.equal(unchanged.entry_point, "0x9000000");
   await call("close_binary");
 
   const { stdout } = await promisify(execFile)(
@@ -159,6 +175,8 @@ try {
     transport: { cli: true, stdio_mcp: true },
     canonical_entry_reuses_session: true,
     changed_entry_replaces_session: true,
+    lifecycle_entry_preserved: true,
+    invalid_entry_preserves_active_session: true,
     load_images_verified: true,
     original_unchanged: true,
   };

@@ -12,6 +12,7 @@ import { ProcessCaptureResourceScope } from "../process/capture/ProcessCaptureLi
 import { ProcessCaptureError } from "../process/capture/ProcessCaptureError.js";
 import { toolContract } from "../contracts/toolContracts.js";
 import type { AnalysisSnapshot } from "../domain/analysisSnapshot.js";
+import { binaryTargetSummary } from "../application/binary/BinaryTargetSummary.js";
 import { UnknownRegistryError } from "../domain/unknownRegistryError.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { Evidence } from "../domain/evidence.js";
@@ -219,13 +220,7 @@ const registerOpenLifecycleTool = ({
         ? server.delivery.toCallToolResult(
             {
               ok: true,
-              value: {
-                path: opened.value.path,
-                format: opened.value.format,
-                kind: opened.value.kind,
-                sha256: opened.value.sha256,
-                architecture: opened.value.architecture ?? null,
-              },
+              value: binaryTargetSummary(opened.value),
             },
             openContract,
           )
