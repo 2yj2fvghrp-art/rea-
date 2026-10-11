@@ -2,10 +2,13 @@
  * executed or linked by REA. It exercises the relocations Linux MIPS kernel
  * modules use: R_MIPS_26 calls, HI16/LO16 address pairs (one HI16 shared by
  * several LO16s, and a LO16 >= 0x8000 that forces a HI16 carry), R_MIPS_32
- * data words, and undefined external code and data symbols.
+ * data words, and undefined external code and data symbols. powf is an
+ * external whose float prototype Ghidra's C library archive supplies by name,
+ * so soft-float builds must give it the soft-float prototype too.
  */
 extern int rea_mips_rel_external(int value);
 extern int rea_mips_rel_external_data;
+extern float powf(float base, float exponent);
 
 struct rea_mips_rel_pair {
     int first;
@@ -36,9 +39,15 @@ int (*const rea_mips_rel_table[])(int) = {
     rea_mips_rel_external,
 };
 
+__attribute__((noinline)) int rea_mips_rel_scaled(int value)
+{
+    float scaled = powf(1.5f, 2.5f);
+    return value ^ *(int *)&scaled;
+}
+
 int rea_mips_rel_entry(int value)
 {
     return rea_mips_rel_leaf(value) + rea_mips_rel_far(value) +
         rea_mips_rel_external(value) + rea_mips_rel_external_data +
-        rea_mips_rel_table[value & 1](value);
+        rea_mips_rel_table[value & 1](value) + rea_mips_rel_scaled(value);
 }

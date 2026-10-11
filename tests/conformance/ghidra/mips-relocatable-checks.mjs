@@ -222,14 +222,30 @@ export function assertMipsRelocations({
   const coverage = {
     types: {},
     shared_hi16: false,
+    multiple_hi16: false,
     lo16_carry: false,
     external_code: false,
     external_data: false,
     unplaced: 0,
   };
-  let pending;
+  // HI16 entries wait for the next LO16 of their symbol, which resolves all of
+  // them; later LO16s of that symbol reuse the HI16s it resolved.
+  let outstanding = [];
+  let resolved = new Map();
+  let currentSection;
+  const requireResolved = () =>
+    assert.deepEqual(
+      outstanding.map((high) => hex(high.address)),
+      [],
+      "HI16 relocations without a following LO16",
+    );
   for (const relocation of checked) {
     const section = site(relocation);
+    if (relocation.section !== currentSection) {
+      requireResolved();
+      resolved = new Map();
+      currentSection = relocation.section;
+    }
     const address = segment(section.name).start + BigInt(relocation.offset);
     const original = read32(fileBytes, section.offset + relocation.offset);
     const memory = words.get(address);
@@ -249,20 +265,16 @@ export function assertMipsRelocations({
     if (target === null) {
       // Empty-section symbols have no address to recompute against.
       coverage.unplaced += 1;
-      pending = undefined;
       continue;
     }
     if (target.external === "code") coverage.external_code = true;
     if (target.external === "data") coverage.external_data = true;
-    if (pending !== undefined && pending.section !== relocation.section)
-      pending = undefined;
     if (relocation.type === 2) {
       assert.equal(
         BigInt(memory),
         (target.address + BigInt(original)) & 0xffffffffn,
         `R_MIPS_32 at ${hex(address)}`,
       );
-      pending = undefined;
     } else if (relocation.type === 4) {
       const addend = BigInt((original & 0x3ffffff) << 2);
       assert.equal(
@@ -275,21 +287,19 @@ export function assertMipsRelocations({
         ((target.address + addend) >> 2n) & 0x3ffffffn,
         `R_MIPS_26 at ${hex(address)}`,
       );
-      pending = undefined;
     } else if (relocation.type === 5) {
       assert.equal(
         memory >>> 16,
         original >>> 16,
         `HI16 opcode ${hex(address)}`,
       );
-      pending = {
-        section: relocation.section,
+      outstanding.push({
+        address,
         symbolIndex: relocation.symbolIndex,
-        target,
         originalHigh: original & 0xffff,
         memoryHigh: memory & 0xffff,
         lows: 0,
-      };
+      });
     } else {
       assert.equal(
         memory >>> 16,
@@ -298,25 +308,39 @@ export function assertMipsRelocations({
       );
       const low = signed16(original);
       const loaded = signed16(memory);
-      if (pending?.symbolIndex === relocation.symbolIndex) {
-        // The value an o32 lui/addiu (or load/store) pair actually forms.
+      const matched = outstanding.filter(
+        (high) => high.symbolIndex === relocation.symbolIndex,
+      );
+      if (matched.length > 0) {
+        outstanding = outstanding.filter((high) => !matched.includes(high));
+        resolved.set(relocation.symbolIndex, matched);
+        if (matched.length > 1) coverage.multiple_hi16 = true;
+      }
+      const highs = resolved.get(relocation.symbolIndex) ?? [];
+      // The value each o32 lui/addiu (or load/store) pair actually forms.
+      for (const high of highs) {
         const effective =
-          (BigInt(pending.memoryHigh << 16) + BigInt(loaded)) & 0xffffffffn;
+          (BigInt(high.memoryHigh << 16) + BigInt(loaded)) & 0xffffffffn;
         const expected =
-          (target.address + BigInt(pending.originalHigh << 16) + BigInt(low)) &
+          (target.address + BigInt(high.originalHigh << 16) + BigInt(low)) &
           0xffffffffn;
-        assert.equal(effective, expected, `HI16/LO16 pair at ${hex(address)}`);
-        pending.lows += 1;
-        if (pending.lows > 1) coverage.shared_hi16 = true;
+        assert.equal(
+          effective,
+          expected,
+          `HI16 at ${hex(high.address)} with LO16 at ${hex(address)}`,
+        );
+        high.lows += 1;
+        if (high.lows > 1) coverage.shared_hi16 = true;
         if ((memory & 0x8000) !== 0) coverage.lo16_carry = true;
-      } else {
+      }
+      if (highs.length === 0)
         assert.equal(
           BigInt(memory & 0xffff),
           (target.address + BigInt(low)) & 0xffffn,
           `Unpaired LO16 at ${hex(address)}`,
         );
-      }
     }
   }
+  requireResolved();
   return coverage;
 }

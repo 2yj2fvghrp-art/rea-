@@ -119,6 +119,8 @@ export async function buildMipsRelocatableFixture(
     "-mno-abicalls",
     "-fno-pic",
     "-G0",
+    // Keeps powf(1.5f, 2.5f) a real external call instead of a folded constant.
+    "-fno-builtin",
     "-O1",
     "-c",
     source,

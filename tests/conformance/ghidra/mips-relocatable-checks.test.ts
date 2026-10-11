@@ -183,3 +183,82 @@ describe("MIPS relocatable real-verifier expectations", () => {
     ).toBe(1);
   });
 });
+
+describe("MIPS relocatable HI16 entries resolved by one LO16", () => {
+  // lui $1; lui $3; jal (unrelated R_MIPS_26); lw: both HI16s pair with the LO16.
+  const multi = readelf.replace(
+    /Relocation section '\.rel\.text'[^]*?\n\n/u,
+    [
+      "Relocation section '.rel.text' at offset 0x100 contains 4 entries:",
+      " Offset     Info    Type                Sym. Value  Symbol's Name",
+      "00000000  00000205 R_MIPS_HI16            00008000   far_data",
+      "00000004  00000205 R_MIPS_HI16            00008000   far_data",
+      "00000008  00000104 R_MIPS_26              00000000   func",
+      "0000000c  00000206 R_MIPS_LO16            00008000   far_data",
+      "",
+      "",
+    ].join("\n"),
+  );
+  const bytes = Buffer.from(fileBytes);
+  bytes.writeUInt32LE(0x3c010000, 0x40); // lui $1, 0
+  bytes.writeUInt32LE(0x3c030000, 0x44); // lui $3, 0
+  bytes.writeUInt32LE(0x0c000000, 0x48); // jal 0
+  bytes.writeUInt32LE(0x8c220000, 0x4c); // lw $2, 0($1)
+  const ghidra = () => [
+    { address: "0x10000", type: 5, status: "PARTIAL" },
+    { address: "0x10004", type: 5, status: "PARTIAL" },
+    { address: "0x10008", type: 4, status: "APPLIED" },
+    { address: "0x1000c", type: 6, status: "APPLIED" },
+    { address: "0x10010", type: 2, status: "APPLIED" },
+    { address: "0x10014", type: 2, status: "APPLIED" },
+  ];
+  const loaded = () =>
+    new Map([
+      [0x10000n, 0x3c010002],
+      [0x10004n, 0x3c030002],
+      [0x10008n, 0x0c004000],
+      [0x1000cn, 0x8c228010],
+      [0x10010n, 0x10000],
+      [0x10014n, 0x19000],
+    ]);
+  const checkMulti = (
+    overrides: Partial<Parameters<typeof assertMipsRelocations>[0]> = {},
+  ) =>
+    check({
+      facts: parseMipsRelocatableReadelf(multi),
+      fileBytes: bytes,
+      ghidraRelocations: ghidra(),
+      words: loaded(),
+      ...overrides,
+    });
+
+  it("checks every HI16 against the LO16, across unrelated relocations", () => {
+    expect(checkMulti()).toMatchObject({
+      multiple_hi16: true,
+      lo16_carry: true,
+    });
+  });
+
+  it("rejects a bad earlier HI16 that a later HI16 would have hidden", () => {
+    const words = loaded();
+    words.set(0x10000n, 0x3c010001);
+    expect(() => checkMulti({ words })).toThrow(/HI16 at 0x10000 /u);
+  });
+
+  it("rejects a HI16 that no LO16 resolves", () => {
+    const unmatched = multi
+      .replace("contains 4 entries", "contains 3 entries")
+      .replace(
+        "0000000c  00000206 R_MIPS_LO16            00008000   far_data\n",
+        "",
+      );
+    expect(() =>
+      checkMulti({
+        facts: parseMipsRelocatableReadelf(unmatched),
+        ghidraRelocations: ghidra().filter(
+          (item) => item.address !== "0x1000c",
+        ),
+      }),
+    ).toThrow(/without a following LO16/u);
+  });
+});

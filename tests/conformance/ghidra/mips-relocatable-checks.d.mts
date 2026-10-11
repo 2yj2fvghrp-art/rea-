@@ -30,6 +30,7 @@ export interface MipsRelocatableFacts {
 export interface MipsRelocationCoverage {
   types: Record<string, number>;
   shared_hi16: boolean;
+  multiple_hi16: boolean;
   lo16_carry: boolean;
   external_code: boolean;
   external_data: boolean;

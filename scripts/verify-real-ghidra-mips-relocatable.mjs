@@ -203,6 +203,15 @@ async function verifyFixture(byteOrder, kernelModule) {
       "rea_mips_rel_external",
     ])
       assert.ok(dossier.pseudocode.includes(name), `Pseudocode lost ${name}`);
+    // powf's float prototype comes from Ghidra's C library archive; soft-float
+    // builds pass 1.5f/2.5f in $a0/$a1, hard-float builds in $f12/$f14.
+    const scaled = functionDossierSchema.parse(
+      await call("analyze_function", {
+        procedure: named("rea_mips_rel_scaled"),
+      }),
+    );
+    assert.match(scaled.pseudocode, /\bpowf\(1\.5,2\.5\)/u);
+    assert.doesNotMatch(scaled.pseudocode, /\bin_f\d+\b/u);
     await call("close_binary", { snapshot_path: snapshotPath });
     const snapshot = parseAnalysisSnapshot(
       JSON.parse(await readFile(snapshotPath, "utf8")),
@@ -215,7 +224,7 @@ async function verifyFixture(byteOrder, kernelModule) {
     );
     assert.equal(
       parameters.mips_soft_float_storage,
-      kernelModule ? "o32-integer-registers-v1" : undefined,
+      kernelModule ? "o32-soft-float-prototype-v1" : undefined,
     );
     assert.ok(
       snapshot.evidence_bundle.records.some((record) =>
@@ -224,6 +233,15 @@ async function verifyFixture(byteOrder, kernelModule) {
         ),
       ),
       "Relocatable limitation missing from retained Evidence",
+    );
+    assert.equal(
+      snapshot.evidence_bundle.records.some((record) =>
+        parseEvidence(record).limitations.some((item) =>
+          /Soft-float prototype outcome: [1-9]\d* functions/u.test(item),
+        ),
+      ),
+      kernelModule,
+      "Soft-float prototype must cover the archive-typed external in module builds",
     );
     await call("open_binary", {
       path: fixture.path,
