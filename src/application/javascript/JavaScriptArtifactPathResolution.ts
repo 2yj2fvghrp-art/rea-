@@ -328,24 +328,25 @@ const resolvePackageImportAlias = (
     return unresolvedCandidate("external", [
       `Wildcard package import aliases remain unresolved; package metadata ${metadata.path} has no exact imports key ${specifier}.`,
     ]);
-  const selected = selectPackageImportTarget(
+  const selected = selectExportTarget(
     lookup.target,
-    input.moduleKind,
-    metadata.path,
+    packageExportConditions(input.moduleKind),
+    packageMetadataUrl(metadata.path),
+    "imports",
   );
-  if (selected.status === "rejected")
+  if (selected.kind === "invalid" || selected.kind === "invalid-config")
     return unresolvedCandidate("rejected", [
       `Package metadata ${metadata.path}: ${selected.limitation}`,
     ]);
-  if (selected.status === "unmatched")
+  if (selected.kind === "unmatched")
     return unresolvedCandidate("external", [
       `Package metadata ${metadata.path} declares no imports target for alias ${specifier} under the active conditions; it declares ${selected.declared.join(", ") || "no conditions"}.`,
     ]);
-  if (selected.status === "blocked")
+  if (selected.kind === "blocked")
     return unresolvedCandidate("external", [
       `Package metadata ${metadata.path} blocks import alias ${specifier} with ${selected.cause === "null" ? "an explicit null imports target" : "an empty imports target array"}.`,
     ]);
-  if (selected.status === "non-relative") {
+  if (selected.kind === "non-relative") {
     const target = classifyPackageImportTargetString(selected.value);
     return unresolvedCandidate("external", [
       target.kind === "recursive"
@@ -354,40 +355,6 @@ const resolvePackageImportAlias = (
     ]);
   }
   return resolveExportTarget(input, metadata.path, selected, "imports");
-};
-
-const selectPackageImportTarget = (
-  value: unknown,
-  moduleKind: ResolveArtifactPathInput["moduleKind"],
-  packagePath: string,
-):
-  | ({ readonly status: "value" } & PackageFileTarget)
-  | { readonly status: "non-relative"; readonly value: string }
-  | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
-  | { readonly status: "unmatched"; readonly declared: readonly string[] }
-  | { readonly status: "rejected"; readonly limitation: string } => {
-  const selected = selectExportTarget(
-    value,
-    packageExportConditions(moduleKind),
-    packageMetadataUrl(packagePath),
-    "imports",
-  );
-  if (selected.kind === "invalid" || selected.kind === "invalid-config")
-    return { status: "rejected", limitation: selected.limitation };
-  if (selected.kind === "unmatched")
-    return {
-      status: "unmatched",
-      declared: selected.declared,
-    };
-  if (selected.kind === "blocked")
-    return { status: "blocked", cause: selected.cause };
-  if (selected.kind === "non-relative")
-    return { status: "non-relative", value: selected.value };
-  return {
-    status: "value",
-    value: selected.value,
-    url: selected.url,
-  };
 };
 
 /** Self references use the nearest package scope before dependency lookup. */
