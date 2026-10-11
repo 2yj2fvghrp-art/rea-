@@ -48,7 +48,7 @@ it("reaches an ARM64 callee in a call path", async () => {
       "the goal is reached through the observed edge",
     ).toMatchObject({
       goal_status: "reached",
-      edges: [{ source_address: "0x1000", target_address: "0x3000" }],
+      traversal_path: ["0x1000", "0x3000"],
     });
   } finally {
     expect((await client.close()).ok).toBe(true);

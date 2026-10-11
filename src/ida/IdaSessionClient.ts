@@ -21,6 +21,7 @@ import { err, ok, type Result } from "../domain/result.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import { readSettledHealth } from "./IdaBusyHealth.js";
+import { isX86OnlyTarget } from "./IdaCallGraph.js";
 import { IdaOperationRunner } from "./IdaOperationRunner.js";
 import {
   IDA_LIMITATIONS,
@@ -227,8 +228,11 @@ export class IdaSessionClient implements AnalysisClient {
       this.connection,
       this.config.mode === "attached" ? "legacy" : "modern",
       this.#database,
-      options?.signal,
-      options?.selectorOrigin,
+      {
+        signal: options?.signal,
+        selectorOrigin: options?.selectorOrigin,
+        x86Only: isX86OnlyTarget(this.target),
+      },
     );
   }
 
