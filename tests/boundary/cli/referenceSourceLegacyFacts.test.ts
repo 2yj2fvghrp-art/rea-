@@ -14,8 +14,14 @@ cliTest(
   async ({ cli }) => {
     const repository = await createTestTempDirectory("rea-reference-legacy-");
     const source = join(repository, "source");
-    await mkdir(source);
+    await mkdir(join(source, "pkg"), { recursive: true });
     await Promise.all([
+      // A package type selects module mode for its `.js` files.
+      writeFile(join(source, "pkg", "package.json"), '{"type":"module"}\n'),
+      writeFile(
+        join(source, "pkg", "strict.js"),
+        "var messages = {};\ndelete messages;\n",
+      ),
       // Deleting a plain binding is valid only in a sloppy-mode script.
       writeFile(
         join(source, "legacy.js"),
@@ -63,8 +69,19 @@ cliTest(
         parser: "babel",
         reason: "Deleting local variable in strict mode. (2:0)",
       },
+      {
+        path: "pkg/strict.js",
+        parser: "babel",
+        reason: "Deleting local variable in strict mode. (2:0)",
+      },
     ]);
-    expect(graph.languages).toEqual(["C#", "JavaScript", "PHP"]);
+    // Without a package type the mode stays unknown, not forced to script.
+    expect(
+      graph.entries.find((entry) => entry.path === "legacy.js")?.limitations,
+    ).toEqual([
+      "Strict-mode errors apply only if this file is an ES module: Deleting local variable in strict mode. (2:0)",
+    ]);
+    expect(graph.languages).toEqual(["C#", "JSON", "JavaScript", "PHP"]);
     for (const path of ["Program.cs", "index.php"])
       expect(
         graph.entries.find((entry) => entry.path === path)?.classifications,

@@ -41,31 +41,55 @@ export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
 export const isExplicitModuleSourcePath = (path?: string): boolean =>
   /\.m[jt]s$/iu.test(path ?? "");
 
+/** Module mode established outside the syntax, such as a package `"type": "module"`. */
+export type JavaScriptModuleScope = "module" | "unknown";
+
+export interface RecoveredJavaScriptParse {
+  readonly file: ParsedJavaScriptSource;
+  /** Errors that apply only if a source of unknown mode is an ES module. */
+  readonly moduleOnlyErrors: readonly string[];
+}
+
 /**
  * Parse a module or script with recovery. Babel tries module mode first and
  * keeps its strict-mode errors after falling back to a script, so a script
- * with errors is parsed again as a script to report only its own errors.
- * Explicit modules keep module strictness.
+ * with errors is parsed again as a script. Strict errors that only the module
+ * parse reports stay visible because the source may still be a module.
  */
 export const parseRecoveredJavaScript = (
   source: string,
   sourcePath: string | undefined,
   options: Omit<ParserOptions, "sourceType" | "errorRecovery">,
-): ParsedJavaScriptSource => {
-  if (isExplicitModuleSourcePath(sourcePath))
-    return parse(source, {
-      ...options,
-      sourceType: "module",
-      errorRecovery: true,
-    });
+  scope: JavaScriptModuleScope = "unknown",
+): RecoveredJavaScriptParse => {
+  if (scope === "module" || isExplicitModuleSourcePath(sourcePath))
+    return {
+      file: parse(source, {
+        ...options,
+        sourceType: "module",
+        errorRecovery: true,
+      }),
+      moduleOnlyErrors: [],
+    };
   const file = parse(source, {
     ...options,
     sourceType: "unambiguous",
     errorRecovery: true,
   });
-  return file.program.sourceType === "script" && file.errors.length > 0
-    ? parse(source, { ...options, sourceType: "script", errorRecovery: true })
-    : file;
+  if (file.program.sourceType !== "script" || file.errors.length === 0)
+    return { file, moduleOnlyErrors: [] };
+  const script = parse(source, {
+    ...options,
+    sourceType: "script",
+    errorRecovery: true,
+  });
+  const scriptErrors = new Set(script.errors.map((error) => error.message));
+  return {
+    file: script,
+    moduleOnlyErrors: file.errors
+      .map((error) => error.message)
+      .filter((message) => !scriptErrors.has(message)),
+  };
 };
 
 /** Parse JavaScript or TypeScript once without attaching comments to AST nodes. */
@@ -77,7 +101,7 @@ export const parseJavaScriptSource = (
     return parseRecoveredJavaScript(source, sourcePath, {
       attachComment: false,
       plugins: parserPluginsForPath(sourcePath),
-    });
+    }).file;
   } catch (cause: unknown) {
     // Unparseable source is represented by the null return.
     void cause;

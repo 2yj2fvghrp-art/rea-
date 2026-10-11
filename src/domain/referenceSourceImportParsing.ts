@@ -9,6 +9,7 @@ import { traverseJavaScriptAst } from "./javascript/javascriptSemanticTraversal.
 import {
   parseRecoveredJavaScript,
   parserPluginsForPath,
+  type JavaScriptModuleScope,
 } from "./javascript/javascriptSourceParser.js";
 import { unshadowedReferenceSourceRequireCalls } from "./referenceSourceRequireBindings.js";
 import {
@@ -57,6 +58,7 @@ interface ReferenceSourceParseFailure {
 export interface ReferenceSourceImportParseResult {
   readonly relationships: readonly ReferenceSourceImportRelationship[];
   readonly parse_failures: readonly ReferenceSourceParseFailure[];
+  readonly limitations: readonly string[];
 }
 
 const codeSourceLanguages = new Set(["JavaScript", "TypeScript", "JSX", "TSX"]);
@@ -271,9 +273,11 @@ const parseWithBabel = (
   path: string,
   source: string,
   language: string | null,
+  scope: JavaScriptModuleScope,
 ): {
   ast: File | undefined;
   reasons: readonly string[];
+  moduleOnlyErrors: readonly string[];
 } => {
   // Single parser-mode owner: path-driven plugins (dts/JSX/mts) shared with
   // the semantic pipeline. `language` only gates non-JS/TS callers upstream;
@@ -282,17 +286,27 @@ const parseWithBabel = (
   const plugins = parserPluginsForPath(path);
 
   try {
-    const ast = parseRecoveredJavaScript(source, path, {
-      allowImportExportEverywhere: false,
-      allowReturnOutsideFunction: true,
-      allowUndeclaredExports: true,
-      plugins,
-    });
-    return { ast, reasons: ast.errors.map((error) => error.message) };
+    const { file: ast, moduleOnlyErrors } = parseRecoveredJavaScript(
+      source,
+      path,
+      {
+        allowImportExportEverywhere: false,
+        allowReturnOutsideFunction: true,
+        allowUndeclaredExports: true,
+        plugins,
+      },
+      scope,
+    );
+    return {
+      ast,
+      reasons: ast.errors.map((error) => error.message),
+      moduleOnlyErrors,
+    };
   } catch (cause: unknown) {
     return {
       ast: undefined,
       reasons: [cause instanceof Error ? cause.message : "Parse failed"],
+      moduleOnlyErrors: [],
     };
   }
 };
@@ -302,9 +316,10 @@ export const parseReferenceSourceImports = (
   path: string,
   bytes: Uint8Array,
   language: string | null,
+  scope: JavaScriptModuleScope = "unknown",
 ): ReferenceSourceImportParseResult => {
   if (language !== null && !codeSourceLanguages.has(language))
-    return { relationships: [], parse_failures: [] };
+    return { relationships: [], parse_failures: [], limitations: [] };
 
   let source: string;
   try {
@@ -320,9 +335,21 @@ export const parseReferenceSourceImports = (
             "Source bytes are not valid UTF-8; import targets were not parsed.",
         },
       ],
+      limitations: [],
     };
   }
-  const { ast, reasons } = parseWithBabel(path, source, language);
+  const { ast, reasons, moduleOnlyErrors } = parseWithBabel(
+    path,
+    source,
+    language,
+    scope,
+  );
+  const limitations =
+    moduleOnlyErrors.length === 0
+      ? []
+      : [
+          `Strict-mode errors apply only if this file is an ES module: ${moduleOnlyErrors.join("; ")}`,
+        ];
   const parseFailures = reasons.map((reason) => ({
     path,
     parser: "babel",
@@ -333,6 +360,7 @@ export const parseReferenceSourceImports = (
     return {
       relationships: [],
       parse_failures: parseFailures,
+      limitations,
     };
   }
 
@@ -354,5 +382,6 @@ export const parseReferenceSourceImports = (
           : relationship.parse_state,
     })),
     parse_failures: parseFailures,
+    limitations,
   };
 };
