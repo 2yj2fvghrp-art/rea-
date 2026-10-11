@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { inspectManagedMembersBytes } from "./ManagedMemberInspector.js";
+import { ManagedDecodeBudget } from "./ManagedDecodeBudget.js";
+import { edges } from "./ManagedMemberRows.js";
+import type { ManagedMethod } from "./ManagedMemberInspectorCore.js";
+import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
+
 import {
   buildManagedPeFixture,
   managedPeFixtureTarget,
@@ -184,6 +189,33 @@ describe("managed member decoding budget", () => {
       state: "unavailable",
       issues: [{ code: "resource-limit" }],
     });
+  });
+});
+
+describe("managed derived edges", () => {
+  it("admits call edges before the derived graph exceeds the budget", () => {
+    const anchor = {
+      il_offset: 0,
+      opcode: "call",
+      operand_kind: "method",
+      operand: "0x0a000001",
+    };
+    const method = {
+      token: "0x06000001",
+      declaring_type: "T".repeat(2000),
+      name: "m",
+      body: { anchors: Array.from({ length: 40_000 }, () => anchor) },
+    } as unknown as ManagedMethod;
+
+    expect(() =>
+      edges(
+        [method],
+        new Map(),
+        new Map(),
+        new Map(),
+        new ManagedDecodeBudget(),
+      ),
+    ).toThrow(ManagedReaderFailure);
   });
 });
 

@@ -1,6 +1,7 @@
 import {
   admitManagedProjection,
   managedDecodeBudget,
+  type ManagedDecodeBudget,
 } from "./ManagedDecodeBudget.js";
 import type { ManagedPeLayout } from "./ManagedPeReader.js";
 import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
@@ -226,6 +227,7 @@ export const edges = (
   methodCore: ReadonlyMap<string, MethodCore>,
   fieldCore: ReadonlyMap<string, FieldCore>,
   refCore: ReadonlyMap<string, MemberRefCore>,
+  budget: ManagedDecodeBudget,
 ): {
   readonly callEdges: readonly ManagedCallEdge[];
   readonly fieldAccesses: readonly ManagedFieldAccess[];
@@ -240,29 +242,40 @@ export const edges = (
           methodCore.get(anchor.operand)?.name ??
           refCore.get(anchor.operand)?.name ??
           null;
-        callEdges.push({
-          caller_token: method.token,
-          caller:
-            method.declaring_type === null
-              ? method.name
-              : `${method.declaring_type}.${method.name}`,
-          opcode: anchor.opcode,
-          target_token: anchor.operand,
-          target_kind: targetKind(anchor.operand),
-          target_name: named,
-        });
+        // Each derived record is admitted before the graph grows further.
+        callEdges.push(
+          admitManagedProjection(
+            {
+              caller_token: method.token,
+              caller:
+                method.declaring_type === null
+                  ? method.name
+                  : `${method.declaring_type}.${method.name}`,
+              opcode: anchor.opcode,
+              target_token: anchor.operand,
+              target_kind: targetKind(anchor.operand),
+              target_name: named,
+            },
+            budget,
+          ),
+        );
       }
       if (anchor.operand_kind === "field" && anchor.operand !== null) {
-        fieldAccesses.push({
-          method_token: method.token,
-          method:
-            method.declaring_type === null
-              ? method.name
-              : `${method.declaring_type}.${method.name}`,
-          opcode: anchor.opcode,
-          field_token: anchor.operand,
-          field_name: fieldCore.get(anchor.operand)?.name ?? null,
-        });
+        fieldAccesses.push(
+          admitManagedProjection(
+            {
+              method_token: method.token,
+              method:
+                method.declaring_type === null
+                  ? method.name
+                  : `${method.declaring_type}.${method.name}`,
+              opcode: anchor.opcode,
+              field_token: anchor.operand,
+              field_name: fieldCore.get(anchor.operand)?.name ?? null,
+            },
+            budget,
+          ),
+        );
       }
     }
   }
