@@ -592,7 +592,7 @@ describe("package self-reference scope boundaries", () => {
   });
 });
 
-describe("CommonJS package exports name eligibility", () => {
+describe("package exports name eligibility", () => {
   it.each([
     ["fi%xture", "./specific.cjs"],
     ["@scope/fi%xture", { ".": null }],
@@ -615,6 +615,28 @@ describe("CommonJS package exports name eligibility", () => {
     },
   );
 
+  it.each([
+    { packageName: "fi%xture" },
+    { packageName: "@scope/fi%xture" },
+    { packageName: "@sc%ope/fixture", metadataText: "{" },
+  ])(
+    "rejects the ESM package name $packageName before metadata or sibling lookup",
+    async (options) => {
+      const { node, node_error, outcome } = await compareWithNode(
+        "./specific.cjs",
+        "import",
+        TARGETS,
+        { ...options, siblingFile: true },
+      );
+      expect(node).toBeNull();
+      expect(node_error).toBe("ERR_INVALID_MODULE_SPECIFIER");
+      expect(outcome).toMatchObject({
+        resolved_path: null,
+        resolution_status: "rejected",
+      });
+    },
+  );
+
   it("uses the legacy main of a percent-named package without a sibling file", async () => {
     const { node, node_error, outcome } = await compareWithNode(
       "./specific.cjs",
@@ -630,20 +652,27 @@ describe("CommonJS package exports name eligibility", () => {
     });
   });
 
-  it("still applies exports to percent subpaths of an eligible package", async () => {
-    const { node, node_error, outcome } = await compareWithNode(
-      { "./fi%xture": "./specific.cjs" },
-      "require",
-      TARGETS,
-      { specifier: "example/fi%xture" },
-    );
-    expect(node).toBe("specific.cjs");
-    expect(node_error).toBeNull();
-    expect(outcome).toMatchObject({
-      resolved_path: "node_modules/example/specific.cjs",
-      resolution_status: "resolved",
-    });
-  });
+  it.each([
+    ["require", "example"],
+    ["import", "example"],
+    ["import", "@scope/example"],
+  ] as const)(
+    "still applies exports to %s percent subpaths of %s",
+    async (moduleKind, packageName) => {
+      const { node, node_error, outcome } = await compareWithNode(
+        { "./fi%xture": "./specific.cjs" },
+        moduleKind,
+        TARGETS,
+        { packageName, specifier: `${packageName}/fi%xture` },
+      );
+      expect(node).toBe("specific.cjs");
+      expect(node_error).toBeNull();
+      expect(outcome).toMatchObject({
+        resolved_path: `node_modules/${packageName}/specific.cjs`,
+        resolution_status: "resolved",
+      });
+    },
+  );
 
   it("resolves a percent-package subpath despite malformed parent metadata", async () => {
     const { node, node_error, outcome } = await compareWithNode(

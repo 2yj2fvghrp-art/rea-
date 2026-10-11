@@ -30,8 +30,10 @@ const createPackageSubpathFixture = async () => {
     'const self = require("../node_modules/fi%xture/run.cjs");',
   ].join("\n");
   const selfSource = 'const self = require("fi%xture"); module.exports = self;';
+  const importSource = 'import literal from "fi%xture";';
   const files = {
     "src/main.cjs": source,
+    "src/imports.mjs": importSource,
     "src/node_modules/fixture/parser.js": "module.exports = 1;",
     "src/node_modules/fixture.js": "module.exports = 'file';",
     "src/node_modules/fixture/index.js": "module.exports = 'directory';",
@@ -83,13 +85,14 @@ const createPackageSubpathFixture = async () => {
       await writeFile(absolute, content);
     }),
   );
-  return { root, source, selfSource };
+  return { root, source, selfSource, importSource };
 };
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "resolves package subpaths with source provenance through %s",
   async (surface, { cli }) => {
-    const { root, source, selfSource } = await createPackageSubpathFixture();
+    const { root, source, selfSource, importSource } =
+      await createPackageSubpathFixture();
     const nativeRequire = createRequire(join(root, "src/main.cjs"));
     const expectedTargets = {
       "fixture/parser": "src/node_modules/fixture/parser.js",
@@ -153,6 +156,17 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       },
     ])
       expectResolvedImports(imports, observation);
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          module_link_kind: "import",
+          specifier: "fi%xture",
+          resolved_path: null,
+          resolution_status: "rejected",
+        }),
+        evidence: sourceEvidence("src/imports.mjs", importSource),
+      }),
+    );
     for (const [specifier, status] of [
       ["exported/parser/", "external"],
       ["exported/hidden", "external"],
@@ -202,9 +216,6 @@ const expectResolvedImports = (
     readonly targets: Readonly<Record<string, string>>;
   },
 ): void => {
-  const sourceDigest = createHash("sha256")
-    .update(observation.source)
-    .digest("hex");
   for (const [specifier, target] of Object.entries(observation.targets))
     expect.soft(imports).toContainEqual(
       expect.objectContaining({
@@ -213,19 +224,22 @@ const expectResolvedImports = (
           resolved_path: target,
           resolution_status: "resolved",
         }),
-        evidence: expect.objectContaining({
-          artifact: expect.objectContaining({
-            available: true,
-            sha256: sourceDigest,
-          }),
-          location: expect.objectContaining({
-            available: true,
-            value: expect.objectContaining({
-              kind: "source-range",
-              source: observation.sourcePath,
-            }),
-          }),
-        }),
+        evidence: sourceEvidence(observation.sourcePath, observation.source),
       }),
     );
 };
+
+const sourceEvidence = (sourcePath: string, source: string): unknown =>
+  expect.objectContaining({
+    artifact: expect.objectContaining({
+      available: true,
+      sha256: createHash("sha256").update(source).digest("hex"),
+    }),
+    location: expect.objectContaining({
+      available: true,
+      value: expect.objectContaining({
+        kind: "source-range",
+        source: sourcePath,
+      }),
+    }),
+  });

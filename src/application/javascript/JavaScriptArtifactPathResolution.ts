@@ -198,6 +198,10 @@ const bareModuleCandidate = (
     return unresolvedCandidate("external", [
       "The bare specifier is a Node builtin, package import map, or invalid package name.",
     ]);
+  if (input.moduleKind === "import" && packageName.includes("%"))
+    return unresolvedCandidate("rejected", [
+      "Percent signs are not admitted in ES module package names.",
+    ]);
   const self = commonJsSelfCandidate(input, declared);
   if (self !== null) return self;
   const subpath =
