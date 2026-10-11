@@ -6,7 +6,7 @@ import type {
 } from "./ProviderProcess.js";
 import {
   ProviderProcessSupervisor,
-  spawnOwnedChildProcess,
+  spawnOwnedInternalProcess,
   spawnOwnedProviderProcess,
 } from "./ProviderProcess.js";
 import {
@@ -56,10 +56,10 @@ export const runOwnedCommand = async (
     | {
         readonly signal?: AbortSignal;
         /**
-         * Supervise a REA-owned helper that creates no descendant processes
-         * through its live child handle, without process-group token inspection.
+         * Supervise a REA helper through its child handle, or an owned Job Object
+         * when the helper requests an enforced process memory limit.
          */
-        readonly supervision: "direct-child";
+        readonly supervision: "internal-helper";
         readonly launcher?: never;
       } = {},
 ): Promise<ProviderProcessSnapshot> => {
@@ -74,8 +74,8 @@ export const runOwnedCommand = async (
     return await collectOwnedCommand(
       spawn,
       limits,
-      options.supervision === "direct-child"
-        ? launchDirectChild
+      options.supervision === "internal-helper"
+        ? launchInternalHelper
         : processGroupLauncher(options.launcher ?? spawnOwnedProviderProcess),
       deadline,
       callerSignal,
@@ -119,15 +119,18 @@ const processGroupLauncher =
     };
   };
 
-const launchDirectChild = async (
+const launchInternalHelper = async (
   input: OwnedProviderProcessSpawnOptions,
 ): Promise<OwnedCommandLaunch> => {
-  const child = await spawnOwnedChildProcess(input);
-  // Without a cleanup capability the supervisor escalates TERM to KILL through
-  // this handle, which Node refuses to signal once the child has been reaped.
+  const launch = await spawnOwnedInternalProcess(input);
   return {
-    launch: { process: child, ownsProcessLifetime: true },
-    resources: [`pid:${String(child.pid)}`],
+    launch,
+    resources: [
+      `pid:${String(launch.process.pid)}`,
+      ...(launch.ownership === undefined
+        ? []
+        : [`process-group:${launch.ownership.processGroupId}`]),
+    ],
   };
 };
 

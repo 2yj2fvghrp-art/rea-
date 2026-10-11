@@ -148,9 +148,14 @@ not establish complete-capture coverage. Repeating the same workload or
 running provider health diagnostics does not resolve the heap constraint.
 
 Stable regular-file reads reject symlinks, replacement and concurrent changes.
-Private snapshots, declarations and tool configuration are removed before the
-result returns. Cleanup uncertainty retains the selected capture, resource and
-original failure information. The original capture is never changed.
+Successful inspection removes private snapshots, declarations and tool
+configuration before returning. If process cleanup fails, REA retains the
+process supervisor and private directory together; it removes the directory
+only after a retry confirms the process stopped. Failed directory cleanup also
+retains its owner. The next inspection retries pending cleanup before decoding,
+and CLI/MCP shutdown retries retained owners. Cleanup uncertainty retains the
+selected capture, resource and original failure information. The original
+capture is never changed.
 
 ## Excluded coordinates and read failures
 

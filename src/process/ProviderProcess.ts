@@ -9,6 +9,7 @@ import type {
   ProcessCleanupFailure,
   ProcessCleanupResult,
 } from "./ProcessOwnership.js";
+import { cleanupOwnedProcessGroup } from "./ProcessOwnership.js";
 import { prepareProcessOwnershipInspection } from "./ProcessOwnershipObservation.js";
 
 const DEFAULT_TERMINATION_GRACE_MS = 250;
@@ -252,6 +253,24 @@ export const spawnOwnedChildProcess = async (
   await waitForSpawn(child);
   if (child.pid === undefined) throw new Error("Owned child has no process ID");
   return child;
+};
+
+/** Launch a REA helper with no descendants, retaining enforced memory authority. */
+export const spawnOwnedInternalProcess = async (
+  options: OwnedProviderProcessSpawnOptions,
+): Promise<Extract<ProviderProcessLaunch, { ownsProcessLifetime: true }>> => {
+  if (options.memoryLimitBytes === undefined)
+    return {
+      process: await spawnOwnedChildProcess(options),
+      ownsProcessLifetime: true,
+    };
+  const launched = await spawnOwnedProviderProcess(options);
+  return {
+    ...launched,
+    ownsProcessLifetime: true,
+    cleanup:
+      launched.cleanup ?? (() => cleanupOwnedProcessGroup(launched.ownership)),
+  };
 };
 
 /**

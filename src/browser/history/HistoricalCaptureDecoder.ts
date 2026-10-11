@@ -16,6 +16,10 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ExecutionOptions } from "../../application/AnalysisProvider.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
+import {
+  ArtifactResourceScope,
+  type ArtifactResourceOwner,
+} from "../../artifacts/ArtifactResourceScope.js";
 import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
@@ -33,8 +37,12 @@ import {
   type InspectWebNetworkCaptureInput,
   type WebNetworkCapture,
 } from "../../domain/webNetworkCapture.js";
-import { runOwnedCommand } from "../../process/OwnedCommand.js";
+import {
+  OwnedCommandFailure,
+  runOwnedCommand,
+} from "../../process/OwnedCommand.js";
 import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
+import { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 import { redactExplicitFailure } from "../../domain/explicitSensitiveFailure.js";
 
 const OPERATION = "inspect_web_network_capture";
@@ -63,12 +71,15 @@ const replySchema = z.discriminatedUnion("ok", [
 
 /** One owned snapshot/process/root lifecycle for replaceable historical format decoders. */
 export class HistoricalCaptureDecoder {
+  readonly #resources = new ArtifactResourceScope();
+
   constructor(
     readonly adapters: readonly HistoricalCaptureFormatAdapter[],
     readonly environment: Readonly<NodeJS.ProcessEnv>,
     readonly createRuntime: () => Promise<
       Pick<PrivateRuntimeRoot, "path" | "close">
     > = () => PrivateRuntimeRoot.create({ prefix: "rea-web-capture-" }),
+    readonly runCommand: typeof runOwnedCommand = runOwnedCommand,
   ) {}
 
   /** Snapshot the selected artifact, decode it offline, and release private credentials and processes. */
@@ -76,9 +87,35 @@ export class HistoricalCaptureDecoder {
     input: InspectWebNetworkCaptureInput,
     options?: ExecutionOptions,
   ): Promise<Result<WebNetworkCapture, AnalysisError>> {
-    let runtime: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
+    try {
+      return await this.#resources.run(() => this.#inspect(input, options));
+    } catch (cause: unknown) {
+      const error =
+        cause instanceof ArtifactReaderFailure && cause.cleanup !== undefined
+          ? new ProviderCleanupError(
+              input.format,
+              cause.cleanup.resources,
+              { reason: cause.cleanup.reason },
+              { operation: OPERATION, cause },
+            )
+          : historicalCaptureFailure(input, cause, "decoder", options);
+      return err(redactExplicitFailure(error, input.sensitive_values));
+    }
+  }
+
+  /** Stop admission, wait for active inspections, and retry retained cleanup. */
+  close(): Promise<void> {
+    return this.#resources.close();
+  }
+
+  async #inspect(
+    input: InspectWebNetworkCaptureInput,
+    options?: ExecutionOptions,
+  ): Promise<Result<WebNetworkCapture, AnalysisError>> {
+    let runtimeOwner: HistoricalCaptureRuntimeOwner | undefined;
     let result: Result<WebNetworkCapture, AnalysisError>;
     let phase: "capture-read" | "decoder" = "capture-read";
+    let failureResources: readonly string[] = [];
     try {
       const adapter = this.adapters.find(
         (candidate) => candidate.format === input.format,
@@ -95,7 +132,8 @@ export class HistoricalCaptureDecoder {
         options?.signal,
       );
       phase = "decoder";
-      runtime = await this.createRuntime();
+      const runtime = await this.createRuntime();
+      runtimeOwner = new HistoricalCaptureRuntimeOwner(runtime);
       const snapshotPath = join(runtime.path, "capture.snapshot");
       const requestPath = join(runtime.path, "request.json");
       const replyPath = join(runtime.path, "reply.json");
@@ -119,7 +157,7 @@ export class HistoricalCaptureDecoder {
         UV_THREADPOOL_SIZE: "1",
       };
       delete environment.NODE_OPTIONS;
-      const completed = await runOwnedCommand(
+      const completed = await this.runCommand(
         {
           ...command,
           runId: `rea-web-capture-${randomUUID()}`,
@@ -131,10 +169,8 @@ export class HistoricalCaptureDecoder {
           diagnosticBytes: 1024 * 1024,
         },
         {
-          // Only the owned launcher enforces a requested memory limit.
-          ...(adapter.supervision === "direct-child" &&
-          command.memoryLimitBytes === undefined
-            ? { supervision: "direct-child" as const }
+          ...(adapter.supervision === "internal-helper"
+            ? { supervision: adapter.supervision }
             : {}),
           ...(options?.signal === undefined ? {} : { signal: options.signal }),
         },
@@ -225,39 +261,108 @@ export class HistoricalCaptureDecoder {
         ],
       });
     } catch (cause: unknown) {
+      const ownedFailure =
+        cause instanceof OwnedCommandFailure ? cause : undefined;
+      failureResources = ownedFailure?.resources ?? [];
       result = err(
         redactExplicitFailure(
           historicalCaptureFailure(input, cause, phase, options),
           input.sensitive_values,
         ),
       );
+      if (
+        ownedFailure?.cleanupOwner !== undefined &&
+        runtimeOwner !== undefined
+      ) {
+        runtimeOwner.retainProcess(
+          ownedFailure.cleanupOwner,
+          ownedFailure.resources,
+        );
+        // The command already attempted bounded cleanup. Retain both resources
+        // for the next inspect/close instead of repeating that attempt here.
+        this.#resources.retain(runtimeOwner);
+        return result;
+      }
     }
-    if (runtime !== undefined) {
-      try {
-        await runtime.close();
-      } catch (cause: unknown) {
+    if (runtimeOwner !== undefined) {
+      const cleanup = await this.#resources.release(runtimeOwner);
+      if (cleanup.kind === "failed")
         return err(
           redactExplicitFailure(
             new ProviderCleanupError(
               input.format,
-              [runtime.path],
+              [...new Set([...runtimeOwner.resources, ...failureResources])],
               {
                 capture_path: input.capture_path,
                 previous_error: result.ok
                   ? null
                   : projectAnalysisError(result.error),
-                reason: cause instanceof Error ? cause.message : String(cause),
+                reason:
+                  cleanup.cause instanceof Error
+                    ? cleanup.cause.message
+                    : String(cleanup.cause),
               },
-              { operation: OPERATION },
+              { operation: OPERATION, cause: cleanup.cause },
             ),
             input.sensitive_values,
           ),
         );
-      }
     }
     return result.ok && options?.signal?.aborted
       ? err(new AnalysisCancelledError(OPERATION))
       : result;
+  }
+}
+
+/** One private capture directory whose child must stop before files are removed. */
+class HistoricalCaptureRuntimeOwner implements Extract<
+  ArtifactResourceOwner,
+  { readonly kind: "historical-capture-runtime" }
+> {
+  readonly kind = "historical-capture-runtime";
+  #runtime: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
+  #supervisor: ProviderProcessSupervisor | undefined;
+  #processResources: readonly string[] = [];
+
+  constructor(runtime: Pick<PrivateRuntimeRoot, "path" | "close">) {
+    this.#runtime = runtime;
+  }
+
+  get resource(): string {
+    return this.resources.join(", ");
+  }
+
+  get resources(): readonly string[] {
+    return [
+      ...new Set([
+        ...(this.#runtime === undefined ? [] : [this.#runtime.path]),
+        ...this.#processResources,
+      ]),
+    ];
+  }
+
+  retainProcess(
+    supervisor: ProviderProcessSupervisor,
+    resources: readonly string[],
+  ): void {
+    this.#supervisor = supervisor;
+    this.#processResources = resources;
+  }
+
+  async close(): Promise<void> {
+    if (this.#supervisor !== undefined) {
+      const stopped = await this.#supervisor.stop();
+      if (stopped.status === "incomplete")
+        throw new ArtifactReaderFailure("unavailable", stopped.reason, {
+          cleanup: { reason: stopped.reason, resources: this.resources },
+        });
+      this.#supervisor = undefined;
+      this.#processResources = [];
+    }
+    const runtime = this.#runtime;
+    if (runtime === undefined) return;
+    await runtime.close();
+    this.#runtime = undefined;
   }
 }
 

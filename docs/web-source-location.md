@@ -68,9 +68,12 @@ maps and inline indexed sections. External section URLs return an actionable
 unsupported-profile error. This is a defined decoder profile, not a claim to
 implement every current source-map extension.
 
-One owned Node subprocess decodes the map. Its private request directory is
-removed before success is returned. Only this child's inherited `NODE_OPTIONS`
-is removed; explicit V8 flags set a 192 MiB old-generation and 8 MiB semi-space
+One owned subprocess decodes the map. The helper creates no descendants and
+uses the shared child-handle supervisor, so macOS decoding does not require
+Apple's Swift compiler or native process-group inspection. Windows under Bun
+uses the owned Job Object launcher to enforce the memory limit described below.
+Its private request directory is removed before success is returned. Only this
+child's inherited `NODE_OPTIONS` is removed; explicit V8 flags set a 192 MiB old-generation and 8 MiB semi-space
 budget, one V8 worker and a 20-second deadline. Reported actual V8 heap limits
 are checked. These are heap limits, not an aggregate process RSS limit. When
 REA runs on Bun, the subprocess is Bun, which ignores these V8 flags: `runtime`

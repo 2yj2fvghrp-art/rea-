@@ -14,7 +14,7 @@ export interface HistoricalCaptureFormatAdapter {
    * command that requests a memory limit runs under the owned launcher, the
    * only one that enforces it.
    */
-  readonly supervision: "direct-child" | "process-group";
+  readonly supervision: "internal-helper" | "process-group";
   /** `memoryLimitBytes` requests an enforced commit limit for the decoder process tree. */
   command(
     requestPath: string,

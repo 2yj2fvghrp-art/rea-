@@ -32,6 +32,11 @@ export type ArtifactResourceOwner =
       readonly kind: "output-tree";
       readonly resource: string;
       readonly tree: SafeOutputTree;
+    }
+  | {
+      readonly kind: "historical-capture-runtime";
+      readonly resource: string;
+      close(): Promise<void>;
     };
 
 export type ArtifactCleanupAttempt =
@@ -73,6 +78,11 @@ export class ArtifactResourceScope {
     }
   }
 
+  /** Retain an owner whose acquisition boundary already reported failed cleanup. */
+  retain(owner: ArtifactResourceOwner): void {
+    this.#pending.add(owner);
+  }
+
   /** Attempt cleanup now and retain the same owner if it fails. */
   async release(owner: ArtifactResourceOwner): Promise<ArtifactCleanupAttempt> {
     try {
@@ -80,7 +90,7 @@ export class ArtifactResourceScope {
       this.#pending.delete(owner);
       return { kind: "released" };
     } catch (cause: unknown) {
-      this.#pending.add(owner);
+      this.retain(owner);
       return { kind: "failed", cause };
     }
   }
@@ -152,5 +162,8 @@ const cleanup = async (owner: ArtifactResourceOwner): Promise<void> => {
       return;
     case "output-tree":
       await owner.tree.rollback();
+      return;
+    case "historical-capture-runtime":
+      await owner.close();
   }
 };

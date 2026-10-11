@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
 import { HAR_CAPTURE_PROVIDER_IDENTITY } from "../../../src/browser/history/CaptureRelease.js";
-import { HarCaptureAdapter } from "../../../src/browser/history/HarCaptureAdapter.js";
 import { HistoricalCaptureDecoder } from "../../../src/browser/history/HistoricalCaptureDecoder.js";
-import { MitmproxyCaptureAdapter } from "../../../src/browser/history/MitmproxyCaptureAdapter.js";
 import { inspectWebNetworkCaptureInputSchema } from "../../../src/domain/webNetworkCapture.js";
 import { runOwnedCommand } from "../../../src/process/OwnedCommand.js";
+import { spawnOwnedChildProcess } from "../../../src/process/ProviderProcess.js";
 import { prepareProcessOwnershipInspection } from "../../../src/process/ProcessOwnershipObservation.js";
 import { historicalHar } from "../../fixtures/historicalHar.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -55,7 +54,7 @@ it("collects a REA-owned child without native process-group preparation", async 
   const snapshot = await runOwnedCommand(
     command('process.stdout.write("decoded")'),
     { timeoutMs: 5_000, diagnosticBytes: 1024 },
-    { supervision: "direct-child" },
+    { supervision: "internal-helper" },
   );
   expect(snapshot).toMatchObject({
     exitCode: 0,
@@ -83,7 +82,7 @@ it("terminates a cancelled direct child through its live handle", async () => {
       `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, process.pid + "\\n"); setInterval(() => undefined, 1000)`,
     ),
     { timeoutMs: 10_000, diagnosticBytes: 1024 },
-    { supervision: "direct-child", signal: controller.signal },
+    { supervision: "internal-helper", signal: controller.signal },
   );
   const pid = await recordedPid(pidPath);
   controller.abort();
@@ -104,7 +103,7 @@ it.skipIf(process.platform === "win32")(
         `process.on("SIGTERM", () => undefined); require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, process.pid + "\\n"); setInterval(() => undefined, 1000)`,
       ),
       { timeoutMs: 2_000, diagnosticBytes: 1024 },
-      { supervision: "direct-child" },
+      { supervision: "internal-helper" },
     );
     const pid = await recordedPid(pidPath);
     await expect(result).rejects.toMatchObject({
@@ -117,25 +116,19 @@ it.skipIf(process.platform === "win32")(
 
 it("refuses a memory limit that a direct child cannot enforce", async () => {
   await expect(
-    runOwnedCommand(
-      { ...command("process.exit(0)"), memoryLimitBytes: 1024 * 1024 * 1024 },
-      { timeoutMs: 5_000, diagnosticBytes: 1024 },
-      { supervision: "direct-child" },
-    ),
+    spawnOwnedChildProcess({
+      ...command("process.exit(0)"),
+      memoryLimitBytes: 1024 * 1024 * 1024,
+    }),
   ).rejects.toThrow(/Windows Job Object launcher/u);
-});
-
-it("declares process-group supervision for external mitmdump only", () => {
-  expect(new MitmproxyCaptureAdapter({}).supervision).toBe("process-group");
-  expect(new HarCaptureAdapter().supervision).toBe("direct-child");
 });
 
 it.each([
   { supervision: "process-group", memoryLimitBytes: undefined, prepared: 1 },
-  { supervision: "direct-child", memoryLimitBytes: undefined, prepared: 0 },
+  { supervision: "internal-helper", memoryLimitBytes: undefined, prepared: 0 },
   // Only the owned launcher enforces a requested memory limit.
   {
-    supervision: "direct-child",
+    supervision: "internal-helper",
     memoryLimitBytes: 704 * 1024 * 1024,
     prepared: 1,
   },
