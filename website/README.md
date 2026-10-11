@@ -33,8 +33,20 @@ After editing source HTML or a catalog, run `python3 scripts/prepare-website.py`
 to rebuild the preview. `serve` prepares the site once when it starts.
 Keep the virtual environment active when preparing assets. CairoSVG needs the
 native Cairo library; the sharing card uses DejaVu Sans. On Debian or Ubuntu,
-install them with `sudo apt-get install libcairo2 fonts-dejavu-core`. For other
-systems, see [CairoSVG's installation instructions](https://cairosvg.org/documentation/#installation).
+install them with `sudo apt-get install libcairo2 fonts-dejavu-core`. On an
+Apple Silicon Mac, install the ARM build with `brew install cairo pkg-config`.
+Check that `/opt/homebrew/lib/libcairo.dylib` reports `arm64`. An old Intel
+build in `/usr/local/lib` shadows the ARM build. The preview then fails with
+`incompatible architecture (have 'x86_64', need 'arm64')`. The old Intel brew
+cannot unlink itself on ARM. It reports `Bad CPU type in executable`. Move its
+links to a backup with `mkdir -p ~/cairo-intel-backup` and
+`mv /usr/local/lib/libcairo* ~/cairo-intel-backup/`. Link the ARM build where
+Python looks with `ln -s /opt/homebrew/lib/libcairo.2.dylib
+/usr/local/lib/libcairo.2.dylib` and `ln -s /opt/homebrew/lib/libcairo.dylib
+/usr/local/lib/libcairo.dylib`. Run the preview with
+`arch -arm64 python3 scripts/website.py serve`. `DYLD_LIBRARY_PATH` stays
+ignored on current macOS, so the links are required. For other systems, see
+[CairoSVG's installation instructions](https://cairosvg.org/documentation/#installation).
 CI installs both packages explicitly before rendering the card.
 
 To test the GitHub Pages prefix, use
