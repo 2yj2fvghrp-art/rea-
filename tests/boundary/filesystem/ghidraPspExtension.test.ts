@@ -238,6 +238,30 @@ describe.skipIf(process.platform === "win32")(
 );
 
 describe.skipIf(process.platform === "win32")(
+  "PSP extension inventory bounds",
+  () => {
+    it.each([1, 2])(
+      "bounds the total inventory across %i directories",
+      async (directories) => {
+        const { root } = await installation();
+        for (let directory = 0; directory < directories; directory++) {
+          const path = join(root, `inventory-${directory}`);
+          await mkdir(path);
+          await Promise.all(
+            Array.from({ length: 1024 / directories }, (_, index) =>
+              writeFile(join(path, `entry-${index}`), ""),
+            ),
+          );
+        }
+        await expect(inspectGhidraPspExtension(root, "12.1.3")).rejects.toThrow(
+          "inventory exceeds the inspection limit",
+        );
+      },
+    );
+  },
+);
+
+describe.skipIf(process.platform === "win32")(
   "PSP admission failures and explicit loader",
   () => {
     it("preserves already-aborted cancellation rather than reporting missing prerequisites", async () => {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, opendir, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import {
@@ -48,14 +48,9 @@ export const inspectGhidraPspExtension = async (
       "The installed Allegrex directory must be a canonical non-symlink path.",
     );
   const files: string[] = [];
-  let entries = 0;
+  let entries = 1; // The root itself consumes one inventory entry.
   const visit = async (relative: string, depth: number): Promise<void> => {
     signal?.throwIfAborted();
-    entries++;
-    if (entries > MAX_ENTRIES)
-      throw new Error(
-        "Allegrex extension inventory exceeds the inspection limit.",
-      );
     if (depth > MAX_DEPTH)
       throw new Error(
         "Allegrex extension directory nesting exceeds the inspection limit.",
@@ -63,12 +58,16 @@ export const inspectGhidraPspExtension = async (
     const path = join(root, relative);
     const metadata = await lstat(path);
     if (metadata.isDirectory()) {
-      const children = await readdir(path);
+      const children: string[] = [];
+      for await (const child of await opendir(path)) {
+        signal?.throwIfAborted();
+        if (++entries > MAX_ENTRIES)
+          throw new Error(
+            "Allegrex extension inventory exceeds the inspection limit.",
+          );
+        children.push(child.name);
+      }
       children.sort();
-      if (children.length > MAX_ENTRIES)
-        throw new Error(
-          "Allegrex extension inventory exceeds the inspection limit.",
-        );
       for (const child of children)
         await visit(
           relative === "" ? child : `${relative}/${child}`,
@@ -76,10 +75,6 @@ export const inspectGhidraPspExtension = async (
         );
     } else if (metadata.isFile()) {
       files.push(relative);
-      if (files.length > MAX_ENTRIES)
-        throw new Error(
-          "Allegrex extension inventory exceeds the inspection limit.",
-        );
     } else
       throw new Error(
         `Allegrex extension entries must be regular files or directories: ${relative}`,
