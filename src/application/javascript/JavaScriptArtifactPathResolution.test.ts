@@ -249,6 +249,71 @@ describe("contextual JavaScript artifact path resolution", () => {
   });
 });
 
+describe("NodeNext emitted-extension path resolution", () => {
+  it.each([
+    ["./dep.js", "app/dep.ts"],
+    ["./ui/Button.js", "app/ui/Button.tsx"],
+    ["./cfg.mjs", "app/cfg.mts"],
+    ["./legacy.cjs", "app/legacy.cts"],
+  ])(
+    "resolves NodeNext emitted specifier %s from a TypeScript source",
+    (declaredPath, expected) => {
+      const files = fileMap([
+        file("app/main.ts", "root"),
+        file("app/dep.ts", "root"),
+        file("app/ui/Button.tsx", "root"),
+        file("app/cfg.mts", "root"),
+        file("app/legacy.cts", "root"),
+      ]);
+      expect(
+        resolve({
+          declaredPath,
+          sourcePath: "app/main.ts",
+          context: "module-specifier",
+          files,
+        }),
+      ).toMatchObject({
+        resolution_status: "resolved",
+        resolved_path: expected,
+      });
+    },
+  );
+
+  it("keeps the emitted runtime file ahead of its TypeScript counterpart", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/both.js", "root"),
+      file("app/both.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./both.js",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/both.js",
+    });
+  });
+
+  it("does not substitute TypeScript counterparts for a JavaScript importer", () => {
+    const files = fileMap([
+      file("app/main.js", "root"),
+      file("app/dep.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./dep.js",
+        sourcePath: "app/main.js",
+        context: "module-specifier",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+});
+
 describe("contextual JavaScript package path resolution", () => {
   it("follows package entrypoints beyond the former recursion ceiling", () => {
     const files = fileMap([

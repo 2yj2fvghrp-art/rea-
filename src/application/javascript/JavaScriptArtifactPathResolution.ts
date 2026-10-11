@@ -555,6 +555,9 @@ const resolveCandidate = (
   packageChain: ReadonlySet<string>,
 ): CandidateResolution =>
   resolveFileCandidates(input, fileCandidates(candidate)) ??
+  // An explicit TypeScript source counterpart is a more precise match than
+  // interpreting the emitted name as a directory package or index stem.
+  resolveFileCandidates(input, emittedExtensionCounterparts(input, candidate)) ??
   resolveDirectory(
     input,
     candidate,
@@ -643,6 +646,39 @@ const fileCandidates = (candidate: string): readonly string[] => [
 
 const indexCandidates = (candidate: string): readonly string[] =>
   EXTENSIONS.map((extension) => posix.join(candidate, `index${extension}`));
+
+/**
+ * NodeNext TypeScript sources import the emitted runtime name (`./dep.js`)
+ * while only the source file exists in the artifact. Mirror the
+ * emitted-extension counterparts from ReferenceSourceImportEntries when the
+ * importing artifact is TypeScript; explicit filenames only, checked after
+ * the plain runtime candidates so a present emitted file keeps winning.
+ */
+const TYPESCRIPT_IMPORTER = /\.(?:ts|tsx|mts|cts)$/;
+
+const EMITTED_EXTENSION_COUNTERPARTS: readonly (readonly [
+  string,
+  readonly string[],
+])[] = [
+  [".js", [".ts", ".tsx", ".d.ts"]],
+  [".mjs", [".mts", ".d.mts"]],
+  [".cjs", [".cts", ".d.cts"]],
+  [".jsx", [".tsx", ".d.ts"]],
+];
+
+const emittedExtensionCounterparts = (
+  input: ResolveArtifactPathInput,
+  candidate: string,
+): readonly string[] => {
+  if (!TYPESCRIPT_IMPORTER.test(input.sourcePath)) return [];
+  const match = EMITTED_EXTENSION_COUNTERPARTS.find(([extension]) =>
+    candidate.endsWith(extension),
+  );
+  if (match === undefined) return [];
+  const [extension, replacements] = match;
+  const stem = candidate.slice(0, candidate.length - extension.length);
+  return replacements.map((replacement) => `${stem}${replacement}`);
+};
 
 type PackageExportOutcome =
   | { readonly status: "value"; readonly value: string }
