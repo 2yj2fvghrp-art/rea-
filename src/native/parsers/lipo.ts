@@ -139,8 +139,9 @@ const cpuSubtypeCode = (
   const subtype = CPU_SUBTYPES[value];
   if (subtype === undefined) return null;
   if (value !== "CPU_SUBTYPE_ARM64E") {
+    // Recent lipo prints an empty capabilities line, even for LIB64 slices.
     const bits = capabilityBits(capabilities);
-    return bits === null ? subtype : ((bits << 24) | subtype) >>> 0;
+    return bits === null ? null : ((bits << 24) | subtype) >>> 0;
   }
   const version = /PTR_AUTH_VERSION\s+USERSPACE\s+(\d+)/u.exec(
     capabilities ?? "",
