@@ -165,6 +165,11 @@ Provider calls receive the request cancellation signal. Artifact traversal,
 hashing, version comparisons, Hopper requests, and process capture
 check the same signal. Cancellation is distinct from timeout. A cleanup failure
 uses `cleanup_incomplete` and lists only the owned resource kinds that remain.
+An atomic Evidence bundle or snapshot write can publish its complete output
+before staging cleanup fails. In that case, `details.published: true`,
+`details.published_path`, and `details.bytes` retain the publication receipt.
+Use that receipt to distinguish completed publication from a write that never
+committed. Staging resources remain owned until cleanup is verified.
 Native call tracing and process capture retain available observations in
 `details.partial_observation` on failure, including when cleanup succeeds.
 The observation reports its partial coverage; cleanup details describe host
@@ -310,6 +315,13 @@ directly to `compare_functions`, and `inspect_artifact` Evidence to
 `compare_artifacts`. Use `get_evidence_bundle` when the task needs broader
 retained session history or an explicit bundle for transfer.
 
+`get_call_graph` keeps provider-limited relationship reads on their node as
+`limitations`, alongside any observed `calls`. An empty call list with such a
+limitation is incomplete coverage, not proof that the function has no calls.
+`trace_call_path` reports each limited expansion in `residual_unknowns` and
+sets `truncated: true`; any path already supported by observed edges remains
+visible. Tool errors remain in their existing error or failure fields.
+
 REA prepares complete MCP results within the pinned stdio client's 10 MiB
 receive-buffer budget, including both text and structured representations and
 room for the JSON-RPC envelope. Tool errors carry only their text
@@ -321,8 +333,18 @@ session. Its exact reference is reported in
 `details.reported_limits.evidence_reference`; call `inspect_analysis_view` with
 that reference for a summary, one section/module, or a stable page, or call
 `export_evidence_bundle` with a destination path. Complete
-bundle exports stream canonical JSON into an atomically published file. A broad
-follow-up or `get_evidence_bundle` can also exceed the response budget; exporting
+bundle exports stream canonical JSON into an atomically published file.
+
+For oversized native function Evidence, `details.reported_limits.continuation`
+contains a ready-to-call `inspect_analysis_view` request for the retained
+pseudocode's first page. Use its `name` and `arguments` directly, then follow
+`normalized_result.coverage.next_offset` for subsequent pages. The suggested
+limit is the view contract's default, not a guarantee that arbitrary source or
+metadata fits; reduce the limit or export when needed. Continuations are
+offered for completed `analyze_function` results only after session recording is
+acknowledged; the complete result and its retention reference remain intact.
+
+A broad follow-up or `get_evidence_bundle` can also exceed the response budget; exporting
 preserves the complete session without sending it through a single MCP frame.
 To discover existing records without their large payloads, call
 `get_evidence_bundle` with `detail: "summary"`. Its `result.records` contain

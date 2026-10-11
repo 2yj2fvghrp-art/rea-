@@ -108,10 +108,14 @@ export interface GhidraHeadlessLauncherOptions {
   };
   /** Explicit import language committed by the analysis profile. */
   readonly languageOverride?: GhidraLanguageOverride;
+  /** Auto-analyzers disabled before default auto-analysis, as configured. */
+  readonly disabledAnalyzers?: readonly string[];
   /** Caller seeds committed by the analysis profile, applied before analysis. */
   readonly analysisSeeds?: GhidraSeedCommitment;
   readonly analysisExtensions?: readonly GhidraExtension[];
   readonly pspExtension?: GhidraPspExtension;
+  /** Remap typed float storage for the soft-float o32 ABI after analysis. */
+  readonly mipsSoftFloat?: true;
   /** Spawn seam for provider-boundary lifecycle tests. */
   readonly spawnProcess?: typeof spawnOwnedProviderProcess;
 }
@@ -194,6 +198,9 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       const headlessArguments = ghidraHeadlessArguments({
         platform,
         ...(psp === undefined ? {} : { psp: true as const }),
+        ...(this.options.mipsSoftFloat === undefined
+          ? {}
+          : { mipsSoftFloat: this.options.mipsSoftFloat }),
         projectRoot: paths.projectRoot,
         targetPath: session.targetPath,
         bridgeScriptPath: this.options.bridgeScriptPath,
@@ -213,6 +220,9 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
           ? {}
           : { languageOverride: this.options.languageOverride }),
         ...(seedPath === undefined ? {} : { seedPath }),
+        ...(this.options.disabledAnalyzers === undefined
+          ? {}
+          : { disabledAnalyzers: this.options.disabledAnalyzers }),
       });
       const scriptCommand = ghidraHeadlessCommand({
         environment: this.options.environment,
@@ -417,6 +427,7 @@ export interface GhidraHeadlessArgumentOptions {
   readonly ghidraLogPath: string;
   readonly scriptLogPath: string;
   readonly psp?: true;
+  readonly mipsSoftFloat?: true;
   readonly dosMz?: true;
   readonly dosCom?: true;
   readonly rawBinary?: {
@@ -425,6 +436,8 @@ export interface GhidraHeadlessArgumentOptions {
     readonly baseAddr: string;
   };
   readonly languageOverride?: GhidraLanguageOverride;
+  /** Auto-analyzers disabled by the pre-analysis options script. */
+  readonly disabledAnalyzers?: readonly string[];
   /** Canonical seed snapshot passed to the pre-analysis seed script. */
   readonly seedPath?: string;
 }
@@ -452,6 +465,16 @@ export const ghidraHeadlessArguments = (
   if (options.psp === true && rawBinary !== undefined)
     throw new Error(
       "A PSP ELF import cannot be combined with a raw-binary import.",
+    );
+  if (
+    options.mipsSoftFloat === true &&
+    (options.psp === true ||
+      options.dosMz === true ||
+      options.dosCom === true ||
+      rawBinary !== undefined)
+  )
+    throw new Error(
+      "MIPS soft-float storage applies only to a generic MIPS ELF import.",
     );
   if (
     override !== undefined &&
@@ -555,12 +578,29 @@ export const ghidraHeadlessArguments = (
           scriptPath.join(bridgeDirectory, GHIDRA_SEED_SCRIPT),
           options.seedPath,
         ]),
+    // Analyzer options must apply before default auto-analysis and before the
+    // post-analysis repair and bridge scripts start serving.
+    ...(options.disabledAnalyzers === undefined ||
+    options.disabledAnalyzers.length === 0
+      ? []
+      : [
+          "-preScript",
+          scriptPath.join(bridgeDirectory, "ReaGhidraAnalysisOptions.java"),
+          options.disabledAnalyzers.join(","),
+        ]),
     ...((options.platform ?? process.platform) === "win32"
       ? []
       : [
           "-postScript",
           scriptPath.join(bridgeDirectory, "ReaGhidraNoReturnFix.java"),
         ]),
+    // After analysis and the no-return refit, before the bridge serves results.
+    ...(options.mipsSoftFloat === true
+      ? [
+          "-postScript",
+          scriptPath.join(bridgeDirectory, "ReaGhidraMipsSoftFloat.java"),
+        ]
+      : []),
     "-postScript",
     // Ghidra checks the caller's cwd before scriptPath for a basename. Select
     // the packaged source explicitly so unrelated entries cannot shadow it.
