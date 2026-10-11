@@ -161,6 +161,9 @@ describe("production stdio runtime", () => {
     15_000,
   );
 
+  // Use the suite's bounded acceptance deadline, including its coverage allowance.
+  // This cold-start workflow computes the growing catalog's schema digests; it
+  // verifies catalog and lifecycle behavior, not a 15-second performance target.
   it("serves the compiled catalog without an initial target or fatal record", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -218,7 +221,7 @@ describe("production stdio runtime", () => {
         record.level >= 50,
     );
     expect(fatal).toEqual([]);
-  }, 15_000);
+  });
 
   it.runIf(process.platform === "darwin")(
     "serves a database-kind initial target without a fatal record on macOS",
