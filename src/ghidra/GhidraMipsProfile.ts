@@ -23,6 +23,9 @@ export const isLegacyMipsAdmission = (target: BinaryTarget): boolean => {
     (arch === 0x50000000 || arch === 0x70000000) &&
     (flags & 0x0000f000) === 0 &&
     (flags & 0x20) === 0 &&
+    // EF_MIPS_ABI_ON32 (bit 0x40) declares the old n32 ABI; it is not an
+    // unspecified-ABI header and must not inherit the o32 assumption.
+    (flags & 0x40) === 0 &&
     // Undefined means the record was not inspected; only an inspected
     // absence establishes the recordless legacy admission. An inspection
     // that could not examine every declaration source stays unknown.
@@ -56,6 +59,8 @@ export const ghidraMipsUnsupportedReason = (
     (metadata.flags & 0x20) === 0 &&
     metadata.abiFlags === null;
   if (recordlessShape) {
+    if ((metadata.flags & 0x40) !== 0)
+      return "EF_MIPS_ABI_ON32 declares the n32 ABI; recordless headers carrying it are outside the recordless legacy admission.";
     if ((metadata.flags & 0x00000200) !== 0)
       return "EF_MIPS_FP64 requires separate verification of 64-bit floating-point register semantics in this Ghidra lane.";
     if ((metadata.flags & 0x00000400) !== 0)

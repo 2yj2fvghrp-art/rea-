@@ -194,6 +194,7 @@ describe("recordless legacy MIPS32 admission", () => {
 
   it.each([
     [{ flags: 0x50000021 }, "n32"],
+    [{ flags: 0x50000041 }, "EF_MIPS_ABI_ON32"],
     [
       { flags: 0x50001001 },
       "EF_MIPS_ARCH_32R2 for headers that declare an ABI",
