@@ -117,8 +117,16 @@ const recordedPath = (url: string): string | null => {
   const rest = url.slice(scheme[0].length);
   const authorityEnd = rest.search(/[/?#]/u);
   const authority = authorityEnd < 0 ? rest : rest.slice(0, authorityEnd);
-  // An empty or backslashed authority lets WHATWG move text between authority and path.
-  if (authority.length === 0 || authority.includes("\\")) return null;
+  // An empty, backslashed, or control-character authority lets WHATWG move text
+  // between authority and path. Tab and newline are removed before URL parsing.
+  if (
+    authority.length === 0 ||
+    authority.includes("\\") ||
+    authority.includes("\t") ||
+    authority.includes("\n") ||
+    authority.includes("\r")
+  )
+    return null;
   if (authorityEnd < 0 || rest[authorityEnd] !== "/") return "/";
   const path = rest.slice(authorityEnd);
   const end = path.search(/[?#]/u);
@@ -243,11 +251,8 @@ export const projectWebNetworkApiSurfaceView = (
       return overBudget(
         "One recorded path has more segments than the reply budget allows.",
       );
-    // A single literal segment still copies the whole path into the template and key.
-    if (
-      path.length * RETAINED_PATH_COPIES > budget ||
-      projectedBytes + path.length * 2 > budget
-    )
+    // Four retained copies of this path coexist with bytes already retained.
+    if (projectedBytes + path.length * RETAINED_PATH_COPIES > budget)
       return overBudget(
         "Retained path text would exceed the capture reply budget.",
       );
@@ -266,12 +271,9 @@ export const projectWebNetworkApiSurfaceView = (
         return `{${rule}}`;
       })
       .join("/");
-    // The key retains method and origin text; serialize it only after that fits.
+    // Both retained identity copies coexist with bytes already retained.
     const identityBytes = method.length + parsedUrl.origin.length;
-    if (
-      identityBytes * IDENTITY_TEXT_COPIES > budget ||
-      projectedBytes + identityBytes + template.length > budget
-    )
+    if (projectedBytes + identityBytes * IDENTITY_TEXT_COPIES > budget)
       return overBudget(
         "Retained request method or origin would exceed the capture reply budget.",
       );
@@ -284,7 +286,9 @@ export const projectWebNetworkApiSurfaceView = (
     ]);
     let group = buckets.get(key);
     if (group === undefined) {
-      projectedBytes += path.length * 2 + identityBytes;
+      projectedBytes +=
+        path.length * RETAINED_PATH_COPIES +
+        identityBytes * IDENTITY_TEXT_COPIES;
       for (const segment of segments)
         projectedBytes +=
           TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length;
@@ -338,12 +342,18 @@ export const projectWebNetworkApiSurfaceView = (
     if (typeof status === "number" && status !== 0) group.statuses.push(status);
     else unavailableResponse = true;
     // Media type and subtype are case-insensitive; compare their lowercase essence.
-    const essence =
-      typeof mime === "string"
-        ? mime.split(";", 1).join("").trim().toLowerCase()
-        : "";
-    if (MEDIA_TYPE_ESSENCE.test(essence)) group.content_types.push(essence);
-    else unavailableResponse = true;
+    const rawMime = typeof mime === "string" ? mime : "";
+    if (rawMime.length > 0 && projectedBytes + rawMime.length > budget)
+      return overBudget(
+        "Retained content type text would exceed the capture reply budget.",
+      );
+    const essence = rawMime.split(";", 1).join("").trim().toLowerCase();
+    if (MEDIA_TYPE_ESSENCE.test(essence)) {
+      if (!group.content_types.includes(essence)) {
+        projectedBytes += essence.length;
+        group.content_types.push(essence);
+      }
+    } else unavailableResponse = true;
   }
   const groups = [...buckets.values()].sort(
     (a, b) =>

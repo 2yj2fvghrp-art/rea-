@@ -272,6 +272,29 @@ it("excludes slashless URL spellings instead of reading their paths", () => {
   expect(JSON.stringify(result.value)).not.toContain("pass");
 });
 
+it("excludes control-only authorities instead of publishing their userinfo", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 3);
+  const urls = [
+    "https://\t/user:pass@example.test/path",
+    "https://\n/user:pass@example.test/path",
+    "https://\r/user:pass@example.test/path",
+  ];
+  capture.records.forEach((record, index) => {
+    record.reported = { request: { method: "GET", url: urls[index] ?? null } };
+  });
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups).toEqual([]);
+  expect(result.value.excluded_records).toEqual([
+    { ordinal: 0, reason: "url-unparseable" },
+    { ordinal: 1, reason: "url-unparseable" },
+    { ordinal: 2, reason: "url-unparseable" },
+  ]);
+  expect(JSON.stringify(result.value)).not.toContain("pass");
+});
+
 it("charges a later path split against bytes already retained", () => {
   const capture = analysisViewCaptureFixture();
   const record = capture.records[0]!;
@@ -299,6 +322,110 @@ it("charges a later path split against bytes already retained", () => {
   capture.total_records = capture.records.length;
   const result = project(capture);
   expect(result).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason:
+        "One recorded path has more segments than the reply budget allows.",
+    },
+  });
+});
+
+it("charges four retained path copies against bytes already retained", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const retained = "/1".repeat(40_000);
+  const later = `/${"a".repeat(19_999_999)}`;
+  capture.records = [
+    ...[0, 1].map((ordinal) => ({
+      ...record,
+      ordinal,
+      reported: {
+        request: {
+          method: "GET",
+          url: `https://api.example.test${retained}`,
+        },
+      },
+    })),
+    {
+      ...record,
+      ordinal: 2,
+      reported: {
+        request: { method: "GET", url: `https://api.example.test${later}` },
+      },
+    },
+  ];
+  capture.total_records = capture.records.length;
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason: "Retained path text would exceed the capture reply budget.",
+    },
+  });
+});
+
+it("charges both identity copies against bytes already retained", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const retained = "/1".repeat(40_000);
+  capture.records = [
+    ...[0, 1].map((ordinal) => ({
+      ...record,
+      ordinal,
+      reported: {
+        request: {
+          method: "GET",
+          url: `https://api.example.test${retained}`,
+        },
+      },
+    })),
+    {
+      ...record,
+      ordinal: 2,
+      reported: {
+        request: {
+          method: "M".repeat(30_000_000),
+          url: "https://api.example.test/b",
+        },
+      },
+    },
+  ];
+  capture.total_records = capture.records.length;
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason:
+        "Retained request method or origin would exceed the capture reply budget.",
+    },
+  });
+});
+
+it("charges a distinct content type against bytes already retained", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const segmentCount = 50_000;
+  capture.records = [0, 1].map((ordinal) => ({
+    ...record,
+    ordinal,
+    reported: {
+      request: {
+        method: "GET",
+        url: `https://api.example.test${`/${ordinal + 1}`.repeat(segmentCount)}`,
+      },
+      ...(ordinal === 0
+        ? {
+            response: {
+              status: 200,
+              content: { mimeType: `text/${"a".repeat(50_000_000)}` },
+            },
+          }
+        : {}),
+    },
+  }));
+  capture.total_records = capture.records.length;
+  expect(project(capture)).toMatchObject({
     ok: false,
     error: {
       _tag: "AnalysisResourceConstraintError",

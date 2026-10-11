@@ -142,8 +142,9 @@ type/subtype without parameters). A malformed media type is unknown, not a conte
 type. Flags report single samples, mixed statuses or mixed content types.
 `coverage` pages groups; `records` separately reports examined, total and excluded
 parent records. Ordinal subsets carry a limitation. Null URLs are excluded as
-`url-redacted`; unparseable URLs, URLs without an origin, and spellings without
-`scheme://authority` (such as `https:host/path`) as `url-unparseable`.
+`url-redacted`; unparseable URLs, URLs without an origin, spellings without
+`scheme://authority` (such as `https:host/path`), and authorities containing a
+tab or newline as `url-unparseable`.
 Unavailable request objects or methods are explicitly excluded. Unavailable
 response fields, including HAR's `status: 0` and an empty `mimeType`, remain
 unknown, not invented statuses or MIME types.
@@ -155,13 +156,14 @@ Parents inspected with `sensitive_values`, or whose Evidence does not record
 canonical token `sensitive_values_unretained`. The view would write path
 templates and limitation text that it cannot check against declarations the
 parent does not retain, so the refusal does not repeat declaration text. Each
-path is bounded before it is split, including
-its retained text. Request method and origin text is charged before the group
-key is serialized. Newly retained templated segments, distinct observed values,
-and deduplication sets created on the first merge are charged against the 96 MiB
-reply budget before those sets are allocated; exceeding the budget returns
-`resource_constraint`. Limitations on the examined records are deduplicated onto
-the view.
+path is bounded before it is split. Four retained copies of its text, and two
+copies of the request method and origin, are charged against bytes already
+retained before the group key is serialized. Each distinct content type is
+charged before it is retained. Newly retained templated segments, distinct
+observed values, and deduplication sets created on the first merge are charged
+against the 96 MiB reply budget before those sets are allocated; exceeding the
+budget returns `resource_constraint`. Limitations on the examined records are
+deduplicated onto the view.
 
 ## Resource and lifecycle boundaries
 
