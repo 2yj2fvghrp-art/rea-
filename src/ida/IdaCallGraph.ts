@@ -37,7 +37,7 @@ export interface CallGraphCallees {
   readonly limitations: readonly string[];
 }
 
-/** The call graph could not be read; the caller keeps its other observations. */
+/** The server does not advertise `callgraph`; the caller keeps its other observations. */
 export const unavailableCallGraph = (reason: string): CallGraphCallees => ({
   callees: [],
   limitations: [
@@ -47,8 +47,11 @@ export const unavailableCallGraph = (reason: string): CallGraphCallees => ({
 
 /**
  * Read the direct call edges of one procedure from upstream `callgraph`.
- * A failing tool, an error row or an unreadable reply keeps the caller's other
- * observations and is reported as a limitation; cancellation still propagates.
+ * Any failure to obtain a consistent depth-one graph is a producer fault that
+ * fails the read, like a failing `callees` request: a tool error, a truncated
+ * transport reply, an error row, an unreadable reply and a reply for another
+ * root all propagate, as do cancellation and transport failures. Truncation the
+ * upstream declares inside a valid reply stays a limitation.
  */
 export const readCallGraphCallees = async (
   call: (
@@ -57,21 +60,18 @@ export const readCallGraphCallees = async (
   ) => Promise<JsonValue>,
   address: string,
 ): Promise<CallGraphCallees> => {
-  let raw: JsonValue;
-  try {
-    raw = await call("callgraph", { roots: [address], max_depth: 1 });
-  } catch (cause: unknown) {
-    if (cause instanceof AnalysisProtocolError)
-      return unavailableCallGraph(cause.message);
-    throw cause;
-  }
+  const raw = await call("callgraph", { roots: [address], max_depth: 1 });
   const parsed = modernCallGraphSchema.safeParse(raw);
   const row = parsed.success ? parsed.data[0] : undefined;
-  if (row === undefined) return unavailableCallGraph("unreadable reply");
-  if (row.error !== undefined) return unavailableCallGraph(row.error);
+  if (row === undefined)
+    throw new AnalysisProtocolError("IDA callgraph reply was unreadable.");
+  if (row.error !== undefined)
+    throw new AnalysisProtocolError(`IDA callgraph failed: ${row.error}`);
   const rootAddress = idaAddressSchema.safeParse(row.root);
   if (!rootAddress.success || rootAddress.data !== address)
-    return unavailableCallGraph("the reply is for a different root");
+    throw new AnalysisProtocolError(
+      `IDA callgraph answered for a different root than ${address}.`,
+    );
   const edges = row.edges.filter(
     ({ type, from }) => type === "call" && from === address,
   );
