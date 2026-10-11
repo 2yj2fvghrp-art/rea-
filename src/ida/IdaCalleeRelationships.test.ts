@@ -1,4 +1,10 @@
+import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import {
+  createIdaTarget,
+  RecordingIdaMcp,
+} from "../../tests/fixtures/idaMcp.js";
 import {
   callGraphSession as session,
   edge,
@@ -6,12 +12,24 @@ import {
   removeCallGraphSessions,
 } from "../../tests/fixtures/idaCallGraph.js";
 import type { JsonValue } from "../domain/jsonValue.js";
-import type { IdaSessionClient } from "./IdaSessionClient.js";
+import { IDA_LIMITATIONS } from "./IdaProviderCapabilities.js";
+import { IdaSessionClient } from "./IdaSessionClient.js";
 
-afterEach(removeCallGraphSessions);
+const attachedRoots: string[] = [];
+afterEach(async () => {
+  await removeCallGraphSessions();
+  for (const root of attachedRoots.splice(0))
+    await rm(root, { recursive: true, force: true });
+});
+
+const observedTools = (rawResult: unknown): string[] =>
+  z
+    .object({ observations: z.array(z.object({ tool: z.string() })) })
+    .parse(rawResult)
+    .observations.map(({ tool }) => tool);
 
 const EMPTY_CALLEES_LIMITATION =
-  "Upstream callees reported no calls for this non-x86 procedure; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
+  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
 
 const callees = async (client: IdaSessionClient) => {
   const result = await client.execute("procedure_callees", {
@@ -179,7 +197,9 @@ describe("headless IDA call graph degradation", () => {
       expect((await client.close()).ok).toBe(true);
     }
   });
+});
 
+describe("headless IDA call graph availability and cancellation", () => {
   it("takes the call graph path for a universal target whose loaded slice is unknown", async () => {
     const { client, producer } = await session(
       { callees: [], callgraph: graphRow([edge("0x1000", "0x2000")]) },
@@ -227,10 +247,67 @@ describe("headless IDA call graph degradation", () => {
       expect((await client.close()).ok).toBe(true);
     }
   });
+
+  it("reports a server that does not advertise callgraph without requesting it", async () => {
+    const { client, producer } = await session({
+      tools: [
+        "idb_open",
+        "idb_list",
+        "idb_close",
+        "server_health",
+        "list_funcs",
+        "lookup_funcs",
+        "find_regex",
+        "decompile",
+        "disasm",
+        "callees",
+        "xrefs_to",
+      ],
+      callees: [],
+    });
+    try {
+      const execution = await callees(client);
+
+      expect(execution.result, "nothing is observed").toEqual([]);
+      expect(
+        execution.limitations,
+        "the missing tool is a limitation, not a failure",
+      ).toContain(
+        "Upstream callgraph was unavailable (the upstream server does not advertise it); callees may be incomplete.",
+      );
+      expect(
+        producer.calls.some(({ name }) => name === "callgraph"),
+        "an unadvertised tool is never requested",
+      ).toBe(false);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("lets a transport failure of the call graph request fail the read", async () => {
+    const { client, producer } = await session({
+      callees: [],
+      callgraph: graphRow([]),
+    });
+    producer.beforeCall = async (name) => {
+      if (name === "callgraph") throw new Error("transport timed out");
+    };
+    try {
+      const result = await client.execute("procedure_callees", {
+        procedure: "main",
+      });
+
+      expect(result.ok, "a transport failure is not an observation").toBe(
+        false,
+      );
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
 });
 
 describe("headless IDA callee edges on x86 targets", () => {
-  it("keeps the request sequence, result and limitations of an x86 read unchanged", async () => {
+  it("keeps the requests, result, limitations and observations of an x86 read unchanged", async () => {
     const { client, producer } = await session(
       {
         callees: [
@@ -249,8 +326,8 @@ describe("headless IDA callee edges on x86 targets", () => {
       ).toEqual(["0x2000", "0x3000"]);
       expect(
         execution.limitations,
-        "no limitation is added on x86",
-      ).not.toContain(EMPTY_CALLEES_LIMITATION);
+        "exactly the provider's own limitations, nothing added on x86",
+      ).toEqual([...IDA_LIMITATIONS]);
       expect(
         producer.calls.map(({ name }) => name),
         "no call graph request is made on an x86-only target",
@@ -263,6 +340,100 @@ describe("headless IDA callee edges on x86 targets", () => {
         "lookup_funcs",
         "server_health",
       ]);
+      expect(
+        producer.calls.find(({ name }) => name === "callees")?.args,
+        "the callees request is the unchanged scoped one",
+      ).toMatchObject({ addrs: ["0x1000"], limit: 500 });
+      expect(
+        observedTools(execution.rawResult),
+        "the raw observations hold no call graph row",
+      ).toEqual(["lookup_funcs", "callees", "lookup_funcs"]);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("keeps an empty x86 callees reply an observed empty list without any limitation", async () => {
+    const { client, producer } = await session({ callees: [] }, "x86_64");
+    try {
+      const execution = await callees(client);
+
+      expect(execution.result, "nothing is added").toEqual([]);
+      expect(
+        execution.limitations,
+        "no completeness warning on a trustworthy x86 target",
+      ).toEqual([...IDA_LIMITATIONS]);
+      expect(
+        producer.calls.some(({ name }) => name === "callgraph"),
+        "no call graph request even for an empty reply",
+      ).toBe(false);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("does not use the call graph for the legacy attached profile on an ARM target", async () => {
+    const { root, target } = await createIdaTarget("arm64");
+    attachedRoots.push(root);
+    const producer = new RecordingIdaMcp(target, "attached");
+    const client = new IdaSessionClient(
+      {
+        command: "fixture",
+        args: [],
+        env: {},
+        mode: "attached",
+        timeoutMs: 1000,
+        workspaceRoot: root,
+      },
+      target,
+      producer,
+    );
+    try {
+      const result = await client.execute("procedure_callees", {
+        procedure: "main",
+      });
+
+      expect(result.ok, "the legacy read still works").toBe(true);
+      expect(
+        producer.calls.some(({ name }) => name === "callgraph"),
+        "the legacy profile has no call graph source",
+      ).toBe(false);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+});
+
+describe("graph-derived callee identities", () => {
+  it("names a graph-only callee from the graph node without an extra lookup", async () => {
+    const { client, producer } = await session({
+      callees: [],
+      callgraph: graphRow([edge("0x1000", "0x2000")], {}, "graph_name"),
+    });
+    try {
+      const result = await client.execute("analyze_function", {
+        procedure: "main",
+      });
+
+      if (!result.ok) throw result.error;
+      expect(
+        z
+          .object({
+            callees: z.array(
+              z.object({ address: z.string(), name: z.string() }),
+            ),
+          })
+          .parse(result.value.result).callees,
+        "the dossier carries the graph node's name",
+      ).toEqual([
+        expect.objectContaining({ address: "0x2000", name: "graph_name" }),
+      ]);
+      expect(
+        producer.calls
+          .filter(({ name }) => name === "lookup_funcs")
+          .map(({ args }) => JSON.stringify(args.queries)),
+        "no lookup is made for the graph-derived callee",
+      ).not.toContain(JSON.stringify(["0x2000"]));
     } finally {
       expect((await client.close()).ok).toBe(true);
     }

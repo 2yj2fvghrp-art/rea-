@@ -56,6 +56,7 @@ const modernNames = [
   "disasm",
   "callees",
   "xrefs_to",
+  "callgraph",
 ];
 
 /** Stateful producer fixture at the real connection seam; no module mocking. */
@@ -90,9 +91,11 @@ export class RecordingIdaMcp implements IdaMcpConnection {
     this.inputSha256 = target.sha256;
     this.inputPath = target.path;
   }
+  /** Tool names the fake server advertises; defaults to the profile's full set. */
+  tools?: readonly string[];
   async connect() {
     this.connects += 1;
-    return this.mode === "attached" ? legacyNames : modernNames;
+    return this.tools ?? (this.mode === "attached" ? legacyNames : modernNames);
   }
   serverInfo() {
     return { name: "upstream-fixture", version: "sdk-version-is-not-ida" };

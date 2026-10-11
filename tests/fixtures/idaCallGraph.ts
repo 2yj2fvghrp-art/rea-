@@ -21,16 +21,21 @@ export const FUNCTIONS: Readonly<
   "0x3000": { addr: "0x3000", name: "printf_stub" },
 };
 
-export const edge = (from: string, to: string) => ({ from, to, type: "call" });
+export const edge = (from: string, to: string, type = "call") => ({
+  from,
+  to,
+  type,
+});
 export const graphRow = (
   edges: readonly ReturnType<typeof edge>[],
   extra: Readonly<Record<string, JsonValue>> = {},
+  squareName = "square",
 ): JsonValue => [
   {
     root: "0x1000",
     nodes: [
       { addr: "0x1000", name: "main", depth: 0 },
-      { addr: "0x2000", name: "square", depth: 1 },
+      { addr: "0x2000", name: squareName, depth: 1 },
       { addr: "0x3000", name: "printf_stub", depth: 1 },
     ],
     edges: [...edges],
@@ -44,6 +49,8 @@ export const graphRow = (
 ];
 
 export interface Upstream {
+  /** Advertise the fake server's tools; omit for the default full set. */
+  readonly tools?: readonly string[];
   /** Items the fake `callees` tool reports for the procedure. */
   readonly callees: readonly JsonValue[];
   /** Raw `callgraph` reply, or undefined when the tool is absent/failing. */
@@ -59,6 +66,7 @@ export const callGraphSession = async (
   const { root, target } = await createIdaTarget(architecture, available);
   roots.push(root);
   const producer = new RecordingIdaMcp(target, "headless");
+  if (upstream.tools !== undefined) producer.tools = upstream.tools;
   producer.beforeCall = async (name) => {
     if (name === "callgraph" && upstream.callgraphFailure !== undefined)
       decodeIdaToolResult({
@@ -79,7 +87,16 @@ export const callGraphSession = async (
     }
     if (name === "callees")
       return [{ callees: [...upstream.callees], more: false }];
-    if (name === "callgraph") return upstream.callgraph;
+    if (name === "callgraph") {
+      if (
+        JSON.stringify(args.roots) !== JSON.stringify(["0x1000"]) ||
+        args.max_depth !== 1
+      )
+        throw new Error(
+          `Unexpected callgraph request: ${JSON.stringify(args)}`,
+        );
+      return upstream.callgraph;
+    }
     return undefined;
   };
   const client = new IdaSessionClient(
