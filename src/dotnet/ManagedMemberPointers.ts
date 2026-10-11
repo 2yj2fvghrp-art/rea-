@@ -99,3 +99,47 @@ export const memberListRowLookup = (
     throw cause;
   }
 };
+
+/** One TypeDef member list as half-open list positions. */
+export interface MemberListRange {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * Index the first range containing each list position in `1..positions`;
+ * entries hold the range index plus one, or zero when no range owns it.
+ * Malformed metadata can overlap or reverse ranges. Skipping positions that
+ * already have an owner keeps first-match ownership in near-linear time,
+ * instead of rescanning every type for each member.
+ */
+export const firstMatchListOwners = (
+  ranges: readonly MemberListRange[],
+  positions: number,
+): Uint32Array => {
+  const owners = new Uint32Array(positions + 1);
+  // next[p] leads to the first unowned position at or after p.
+  const next = Uint32Array.from({ length: positions + 2 }, (_, p) => p);
+  const unowned = (position: number): number => {
+    let root = position;
+    while (next[root] !== root) root = next[root] ?? root;
+    for (let p = position; p !== root;) {
+      const following = next[p] ?? root;
+      next[p] = root;
+      p = following;
+    }
+    return root;
+  };
+  ranges.forEach(({ start, end }, index) => {
+    const limit = Math.min(end, positions + 1);
+    for (
+      let p = unowned(Math.min(Math.max(start, 1), positions + 1));
+      p < limit;
+      p = unowned(p + 1)
+    ) {
+      owners[p] = index + 1;
+      next[p] = p + 1;
+    }
+  });
+  return owners;
+};

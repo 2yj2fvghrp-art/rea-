@@ -31,7 +31,10 @@ import {
 } from "./ManagedMetadataHeaps.js";
 import { readManagedValue } from "./ManagedReaderFailure.js";
 import { methodBody } from "./ManagedMethodBodyReader.js";
-import { memberListRowLookup } from "./ManagedMemberPointers.js";
+import {
+  memberListRowLookup,
+  memberListTable,
+} from "./ManagedMemberPointers.js";
 
 export const parseFields = (
   bytes: Buffer,
@@ -46,7 +49,11 @@ export const parseFields = (
   const core = new Map<string, FieldCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(4);
-  const declaringType = createDeclaringTypeLookup(ranges, "field");
+  const declaringType = createDeclaringTypeLookup(
+    ranges,
+    "field",
+    memberListTable(layout, 4)?.rowCount ?? 0,
+  );
   const listRow = readManagedValue(
     () => memberListRowLookup(bytes, layout, 4),
     issues,
@@ -245,7 +252,11 @@ export const parseMethods = ({
   const core = new Map<string, MethodCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(6);
-  const declaringType = createDeclaringTypeLookup(ranges, "method");
+  const declaringType = createDeclaringTypeLookup(
+    ranges,
+    "method",
+    memberListTable(layout, 6)?.rowCount ?? 0,
+  );
   const listRow = readManagedValue(
     () => memberListRowLookup(bytes, layout, 6),
     issues,
