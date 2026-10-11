@@ -52,6 +52,16 @@ const DYLIB_COMMANDS = new Set([
   "LC_LOAD_UPWARD_DYLIB",
 ]);
 
+const DYLIB_FIELDS = [
+  "cmd",
+  "cmdsize",
+  "name",
+  "current version",
+  "compatibility version",
+];
+// otool prints options for dylib_use_command and a timestamp for dylib_command.
+const DYLIB_ENCODING_FIELDS = ["time stamp", "options"];
+
 /**
  * otool emits LF, but a capture replayed from another host or toolchain can
  * carry CRLF. The section/command boundaries below match a bare `\n`, so a
@@ -195,7 +205,7 @@ const parseLoadCommand = (block: string, state: ParsedLoadCommands): void => {
   const kind = stringField(fields, "cmd");
   if (kind === null) throw new TypeError("otool load command is missing cmd");
   for (const key of scalarFields(kind)) requireUniqueField(header, key);
-  if (DYLIB_COMMANDS.has(kind)) validateDylibCommandLines(header);
+  if (DYLIB_COMMANDS.has(kind)) validateDylibCommandLines(header, fields);
   state.commands.push({
     index,
     kind,
@@ -208,30 +218,23 @@ const parseLoadCommand = (block: string, state: ParsedLoadCommands): void => {
   collectSegment(kind, block, fields, state);
 };
 
-const validateDylibCommandLines = (block: string): void => {
-  const allowed = new Set([
-    "cmd",
-    "cmdsize",
-    "name",
-    "time stamp",
-    "options",
-    "current version",
-    "compatibility version",
-  ]);
-  const hasOptions = /^[ \t]*options(?:[ \t]|$)/mu.test(block);
-  const hasTimestamp = /^[ \t]*time stamp(?:[ \t]|$)/mu.test(block);
-  if (hasOptions === hasTimestamp)
+const validateDylibCommandLines = (
+  block: string,
+  fields: Readonly<Record<string, string | number | null>>,
+): void => {
+  const encodingFields = DYLIB_ENCODING_FIELDS.filter((key) =>
+    Object.hasOwn(fields, key),
+  );
+  if (encodingFields.length !== 1)
     throw new TypeError(
-      "otool dylib command must have exactly one timestamp or options representation",
+      "otool dylib command must contain timestamp or options",
     );
-  requireUniqueField(block, hasOptions ? "options" : "time stamp");
+  for (const key of encodingFields) requireUniqueField(block, key);
+  const allowed = new Set([...DYLIB_FIELDS, ...DYLIB_ENCODING_FIELDS]);
   for (const rawLine of block.split("\n").slice(1)) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
-    const key =
-      line === "options"
-        ? "options"
-        : /^(time stamp|\S+(?:\s+version)?)\s+/u.exec(line)?.[1];
+    const key = parseField(line)?.[0];
     if (key === undefined || !allowed.has(key))
       throw new TypeError(
         "otool dylib command contains ambiguous multiline text",
@@ -241,8 +244,7 @@ const validateDylibCommandLines = (block: string): void => {
 
 const scalarFields = (kind: string): readonly string[] => {
   const common = ["cmd", "cmdsize"];
-  if (DYLIB_COMMANDS.has(kind))
-    return [...common, "name", "current version", "compatibility version"];
+  if (DYLIB_COMMANDS.has(kind)) return DYLIB_FIELDS;
   if (kind === "LC_LOAD_DYLINKER" || kind === "LC_ID_DYLINKER")
     return [...common, "name"];
   if (kind === "LC_UUID") return [...common, "uuid"];
@@ -344,29 +346,31 @@ const collectSegment = (
 const parseFields = (block: string): Record<string, string | number | null> => {
   const fields: Record<string, string | number | null> = {};
   for (const rawLine of block.split(/\r?\n/u).slice(1)) {
-    const line = rawLine.trim();
-    if (line === "options") {
-      fields.options = "";
-      continue;
-    }
-    // Keys are `token` or a compound `token version`. `time stamp` is the one
-    // other real key, and it must be matched as a whole: treating `stamp` as a
-    // generic suffix would swallow an install name such as
-    // `name stamp plugin.dylib`, hiding the dependency path behind `unknown`.
-    const match = /^((?:time stamp)|\S+(?:\s+version)?)\s+(.+)$/u.exec(line);
-    if (match?.[1] === undefined || match[2] === undefined) continue;
-    const value = match[2].trim();
-    fields[match[1]] =
-      match[1] === "segname" || match[1] === "sectname"
+    const field = parseField(rawLine);
+    if (field === undefined) continue;
+    const [key, value] = field;
+    fields[key] =
+      key === "segname" || key === "sectname"
         ? value
         : (numeric(value) ?? value);
   }
   return fields;
 };
 
+const parseField = (rawLine: string): readonly [string, string] | undefined => {
+  const line = rawLine.trim();
+  // A dylib-use command with no flags still has an empty options row.
+  if (line === "options") return ["options", ""];
+  // Match time stamp as a whole without swallowing `name stamp plugin.dylib`.
+  const match = /^((?:time stamp)|\S+(?:\s+version)?)\s+(.+)$/u.exec(line);
+  return match?.[1] === undefined || match[2] === undefined
+    ? undefined
+    : [match[1], match[2].trim()];
+};
+
 const requireUniqueField = (block: string, key: string): void => {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const pattern = new RegExp(`^\\s*${escaped}(?:\\s+|$)`, "mu");
+  const pattern = new RegExp(`^\\s*${escaped}(?:\\s|$)`, "mu");
   let count = 0;
   for (const line of block.split("\n")) if (pattern.test(line)) count += 1;
   if (count !== 1)
