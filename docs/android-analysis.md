@@ -94,6 +94,14 @@ fallback for an overloaded method instead of attributing all bodies to one
 selected overload. Native/abstract methods with no decompiled body report
 `body_status: "not_available"` without inferring which implementation flag caused it.
 
+JADX can fold `<clinit>()V` into field initializers and omit its standalone Java
+body. In that case REA reads the exact original DEX method and returns its smali
+with `fell_back: true` and the `java-body-not-emitted` marker. This remains static
+instruction evidence, not original Java source or observed initialization.
+If a unique original method with code cannot provide disassembly, the body stays
+unavailable with `original-initializer-unavailable`; missing Java text alone does
+not establish native or abstract flags. The existing text byte budget still applies.
+
 ## Interpret the result
 
 - Package inspection retains decoded manifest XML, summary declarations,

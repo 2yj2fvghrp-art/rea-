@@ -3,9 +3,12 @@ import com.google.gson.*;
 import io.modelcontextprotocol.kotlin.sdk.server.*;
 import io.modelcontextprotocol.kotlin.sdk.types.*;
 import jadx.api.*;
+import jadx.api.plugins.input.data.*;
+import jadx.core.dex.info.MethodInfo;
 import jadx.core.dex.nodes.*;
 import java.io.PrintStream;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 import kotlin.Unit;
@@ -22,7 +25,7 @@ class ReaJadxBridge {
   private JadxSession indexedSession;
   private Map<String, List<ClassSnapshot>> classes = Map.of();
 
-  private record MethodSnapshot(String name, String shortId, Map<String, Object> summary) {}
+  private record MethodSnapshot(String name, String shortId, MethodNode node, Map<String, Object> summary) {}
   private record ClassSnapshot(JavaClass node, List<MethodSnapshot> methods, Map<String, Object> summary) {}
 
   private static final class InputFailure extends IllegalArgumentException {
@@ -82,7 +85,7 @@ class ReaJadxBridge {
             String signature = name + "(" + method.getArgTypes().stream()
                 .map(Object::toString).collect(Collectors.joining(", "))
                 + "): " + method.getReturnType().toString();
-            return new MethodSnapshot(name, method.getMethodInfo().getShortId(), Map.of(
+            return new MethodSnapshot(name, method.getMethodInfo().getShortId(), method, Map.of(
                 "name", name, "signature", signature,
                 "is_constructor", method.isConstructor(), "def_pos", 0));
           }).toList();
@@ -122,8 +125,53 @@ class ReaJadxBridge {
 
   private JavaMethod method(ClassSnapshot cls, MethodSnapshot selected) {
     JavaMethod result = cls.node().searchMethodByShortId(selected.shortId());
+    if (result == null && selected.shortId().equals("<clinit>()V"))
+      result = (JavaMethod) cls.node().getClassNode().root().getDecompiler()
+          .getJavaNodeByRef(selected.node());
     if (result == null) throw new IllegalArgumentException("Method identity no longer available: " + selected.shortId());
     return result;
+  }
+
+  private JadxSession.SmartCode initializerSource(ClassSnapshot cls, MethodSnapshot selected,
+      JadxSession.SmartCode code, int maxBytes) {
+    if (!selected.shortId().equals("<clinit>()V") || !code.getKind().equals("java")
+        || !(code.getText().isEmpty()
+            || code.getText().equals("// method exists but has no decompiled body (native/abstract)")))
+      return code;
+
+    // Code generation can fold this method into field initializers and remove its node.
+    // Read the original input method, not a name-matched set of decompiler methods.
+    ClassNode owner = cls.node().getClassNode();
+    int[] matches = { 0 };
+    boolean[] hasCode = { false };
+    owner.getClsData().copy().visitFieldsAndMethods(new ISeqConsumer<IFieldData>() {
+      public void init(int count) {}
+      public void accept(IFieldData field) {}
+    }, new ISeqConsumer<IMethodData>() {
+      public void init(int count) {}
+      public void accept(IMethodData input) {
+        if (!MethodInfo.fromRef(owner.root(), input.getMethodRef()).getShortId().equals(selected.shortId()))
+          return;
+        matches[0]++;
+        hasCode[0] = input.getCodeReader() != null;
+      }
+    });
+    if (matches[0] != 1 || !hasCode[0])
+      return new JadxSession.SmartCode("", "java", false,
+          List.of("java-body-not-emitted", "original-initializer-unavailable"));
+    // The per-method input printer omits some opcodes and symbolic operands.
+    // The original class disassembly retains them and excludes inner classes.
+    String smali = owner.getClsData().copy().getDisassembledCode();
+    var block = Pattern.compile("(?m)^[\\t ]*\\.method[^\\r\\n]*[\\t ]"
+        + Pattern.quote(selected.shortId()) + "[\\t ]*\\r?\\n(?s:.*?)^[\\t ]*\\.end method[\\t ]*\\r?$")
+        .matcher(smali);
+    String source = block.find() ? block.group() : "";
+    if (source.isEmpty() || block.find())
+      return new JadxSession.SmartCode("", "java", false,
+          List.of("java-body-not-emitted", "original-initializer-unavailable"));
+    String body = "// [JADX Java body not emitted; exact original DEX method follows]\n" + source;
+    return new JadxSession.SmartCode(TextUtilKt.truncateToBytes(body, maxBytes), "smali", true,
+        List.of("java-body-not-emitted"));
   }
 
   private CallToolResult handle(String name, JsonObject args) {
@@ -149,8 +197,10 @@ class ReaJadxBridge {
       List<MethodSnapshot> overloads = methods(cls, args);
       int index = integer(args, "overload_index", 0);
       if (index >= overloads.size()) throw new InputFailure("overload_index", "overload_index out of range: " + index);
-      JavaMethod method = method(cls, overloads.get(index));
+      MethodSnapshot selected = overloads.get(index);
+      JavaMethod method = method(cls, selected);
       JadxSession.SmartCode code = current.getMethodBodySmart(method, current.getMaxSourceBytes(), true);
+      code = initializerSource(cls, selected, code, current.getMaxSourceBytes());
       return json(Map.of("class_name", cls.summary().get("full_name"),
           "method_name", overloads.get(index).name(), "full_name", method.getFullName(),
           "overload_index", index, "overload_count", overloads.size(),

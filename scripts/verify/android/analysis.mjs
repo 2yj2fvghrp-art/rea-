@@ -7,13 +7,16 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parseEvidence } from "../../../dist/domain/evidence.js";
-import { hashAndroidFile } from "../../../dist/android/AndroidTargetSnapshot.js";
+import { hashStableFile } from "../../../dist/filesystem/StableFileHash.js";
 import { JADX_RELEASE } from "../../../dist/android/JadxRelease.js";
 import fixture from "../../fixtures/android/apidemos.json" with { type: "json" };
 import { verifyAndroidCliCancellation } from "./cli-cancellation.mjs";
 import { verifyAndroidMetadata } from "./metadata.mjs";
 import { verifyAndroidFailureRecovery } from "./failure-recovery.mjs";
-import { resolveJadxConfiguration } from "../../../dist/android/JadxConfiguration.js";
+import {
+  resolveJadxConfigurationInputs,
+  validateJadxConfiguration,
+} from "../../../dist/android/JadxConfiguration.js";
 import { verifyWindowsAndroidLifecycle } from "./windows-lifecycle.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -26,19 +29,25 @@ if (apk === undefined || jar === undefined)
 await access(apk);
 await access(jar);
 assert.equal(
-  await hashAndroidFile(apk),
+  (await hashStableFile(apk)).sha256,
   fixture.sha256,
   "Real Android lane requires the fixed ApiDemos release fixture",
 );
 assert.equal(
-  await hashAndroidFile(jar),
+  (await hashStableFile(jar)).sha256,
   JADX_RELEASE.sha256,
   "Real Android lane requires the audited headless JADX release JAR",
 );
-const { java, jvmArguments } = await resolveJadxConfiguration(
+const configuration = await resolveJadxConfigurationInputs(
   process.env,
   "inspect_android_package",
 );
+await validateJadxConfiguration(
+  configuration,
+  process.env,
+  "inspect_android_package",
+);
+const { java, jvmArguments } = configuration;
 const execute = promisify(execFile);
 await execute(java, ["-version"], { timeout: 10_000 });
 const entrypoint =
@@ -99,6 +108,16 @@ const tasks = [
       method_name: "activityIntent",
     },
   },
+  {
+    name: "inspect_android_method",
+    key: "static_initializer",
+    args: ["inspect-android-method", path, fixture.class_name, "<clinit>"],
+    input: {
+      path,
+      class_name: fixture.class_name,
+      method_name: "<clinit>",
+    },
+  },
 ];
 const cliResults = new Map();
 for (const task of tasks) {
@@ -115,8 +134,8 @@ for (const task of tasks) {
   const evidence = parseEvidence(JSON.parse(response.stdout));
   assert.equal(evidence.subject?.digest.sha256, fixture.sha256);
   assert.equal(evidence.operation, task.name);
-  cliResults.set(task.name, evidence);
-  console.log(`PASS CLI ${task.name}`);
+  cliResults.set(task.key ?? task.name, evidence);
+  console.log(`PASS CLI ${task.key ?? task.name}`);
 }
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -141,26 +160,18 @@ try {
     const structured = response.structuredContent;
     assert.ok(structured !== undefined);
     const evidence = parseEvidence(structured);
-    assert.deepEqual(
-      evidence.normalized_result,
-      cliResults.get(task.name).normalized_result,
-    );
+    const cliEvidence = cliResults.get(task.key ?? task.name);
+    assert.deepEqual(evidence.normalized_result, cliEvidence.normalized_result);
     // Raw observations retain different workspace paths and load durations.
     // Validate each evidence ID independently; compare portable results/intent.
     assert.equal(structured.evidence_id, evidence.evidence_id);
-    assert.deepEqual(evidence.parameters, cliResults.get(task.name).parameters);
-    assert.deepEqual(evidence.provider, cliResults.get(task.name).provider);
-    assert.deepEqual(
-      evidence.subject.digest,
-      cliResults.get(task.name).subject.digest,
-    );
-    assert.deepEqual(
-      evidence.limitations,
-      cliResults.get(task.name).limitations,
-    );
-    assert.equal(evidence.confidence, cliResults.get(task.name).confidence);
+    assert.deepEqual(evidence.parameters, cliEvidence.parameters);
+    assert.deepEqual(evidence.provider, cliEvidence.provider);
+    assert.deepEqual(evidence.subject.digest, cliEvidence.subject.digest);
+    assert.deepEqual(evidence.limitations, cliEvidence.limitations);
+    assert.equal(evidence.confidence, cliEvidence.confidence);
     assert.deepEqual(structured.normalized_result, evidence.normalized_result);
-    console.log(`PASS MCP/CLI parity ${task.name}`);
+    console.log(`PASS MCP/CLI parity ${task.key ?? task.name}`);
   }
 } catch (cause) {
   process.stderr.write(stderr);
@@ -195,6 +206,19 @@ assert.equal(method.source.status, "complete");
 assert.ok(method.source.text.includes("getIntent()"));
 assert.ok(method.source.text.includes("setListAdapter"));
 assert.equal(method.method.dex_descriptor, null);
+const initializer = cliResults.get("static_initializer").normalized_result;
+assert.equal(initializer.representation, "smali");
+assert.equal(initializer.body_status, "available");
+assert.equal(initializer.fell_back, true);
+assert.ok(initializer.markers.includes("java-body-not-emitted"));
+assert.equal(initializer.source.status, "complete");
+assert.ok(initializer.source.text.includes("<clinit>()V"));
+assert.ok(
+  initializer.source.text.includes(
+    "sDisplayNameComparator:Ljava/util/Comparator;",
+  ),
+);
+assert.ok(initializer.source.text.includes("sput-object"));
 const references = cliResults.get("trace_android_references").normalized_result;
 assert.ok(references.total > 0);
 assert.ok(
@@ -227,7 +251,7 @@ await verifyAndroidFailureRecovery({
   fixture,
 });
 assert.equal(
-  await hashAndroidFile(apk),
+  (await hashStableFile(apk)).sha256,
   fixture.sha256,
   "Original APK must remain unchanged",
 );
@@ -246,6 +270,7 @@ const report = {
     : { windows_lifecycle: windowsLifecycle }),
   metadata_without_code_generation: true,
   stable_overload_selection: true,
+  static_initializer_smali: true,
 };
 if (process.env.REA_ANDROID_REPORT !== undefined)
   await writeFile(
