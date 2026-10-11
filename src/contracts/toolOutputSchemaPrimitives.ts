@@ -56,6 +56,7 @@ export const targetFormatSchema = z.enum([
   "pe",
   "dos-mz",
   "dos-com",
+  "raw-binary",
   "zip",
   "ipa",
   "apk",
@@ -292,6 +293,8 @@ const toolAvailabilityFacts = {
     accessesNetwork: z.boolean(),
     changesUiState: z.boolean(),
     mayDiscardData: z.boolean(),
+    executesForeignCode: z.boolean(),
+    mutatesDevice: z.boolean(),
     idempotent: z.boolean(),
   }),
   annotations: z.object({
@@ -502,6 +505,7 @@ export const graphNode = z.discriminatedUnion("status", [
     address: z.string(),
     status: z.literal("ok"),
     calls: z.array(z.string()),
+    limitations: z.array(z.string()).optional(),
   }),
   z.object({
     address: z.string(),

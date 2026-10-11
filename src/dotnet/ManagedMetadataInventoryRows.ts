@@ -1,4 +1,9 @@
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
+import {
+  memberListIndexSize,
+  memberListRowLookup,
+  memberListTable,
+} from "./ManagedMemberPointers.js";
 
 import type {
   ManagedArtifactInspection,
@@ -17,7 +22,11 @@ import {
   readMetadataGuid,
   readMetadataString,
 } from "./ManagedMetadataHeaps.js";
-import { managedFailure } from "./ManagedReaderFailure.js";
+import {
+  managedFailure,
+  ManagedReaderFailure,
+  readManagedValue,
+} from "./ManagedReaderFailure.js";
 import type { ManagedResourceDirectory } from "./ManagedMetadataInventory.js";
 
 type ModuleIdentity = NonNullable<ManagedArtifactInspection["module"]>;
@@ -235,6 +244,69 @@ const readTypeName = ({
   return namespace.length === 0 ? name : `${namespace}.${name}`;
 };
 
+const methodOwners = new WeakMap<
+  ManagedMetadataLayout,
+  Uint32Array | ManagedReaderFailure
+>();
+
+/**
+ * Index the first TypeDef whose method list contains each list position, once
+ * per layout. Malformed lists may overlap; skipping already-owned positions
+ * keeps first-match ownership without rescanning TypeDef rows per attribute.
+ */
+const methodOwnerRows = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+  types: number,
+  positions: number,
+): Uint32Array => {
+  const cached = methodOwners.get(layout);
+  if (cached instanceof ManagedReaderFailure) throw cached;
+  if (cached !== undefined) return cached;
+  try {
+    managedDecodeBudget(layout).reserve(
+      (2 * positions + 3) * Uint32Array.BYTES_PER_ELEMENT + 256,
+      layout.table(2)?.offset ?? null,
+    );
+    const owners = new Uint32Array(positions + 1);
+    // next[p] leads to the first unowned position at or after p.
+    const next = Uint32Array.from({ length: positions + 2 }, (_, p) => p);
+    const unowned = (position: number): number => {
+      let root = position;
+      while (next[root] !== root) root = next[root] ?? root;
+      for (let p = position; p !== root;) {
+        const following = next[p] ?? root;
+        next[p] = root;
+        p = following;
+      }
+      return root;
+    };
+    let start = types === 0 ? 0 : methodListForType(bytes, layout, 1);
+    for (let row = 1; row <= types; row += 1) {
+      const end =
+        row === types
+          ? positions + 1
+          : methodListForType(bytes, layout, row + 1);
+      const limit = Math.min(end, positions + 1);
+      for (
+        let p = unowned(Math.min(Math.max(start, 1), positions + 1));
+        p < limit;
+        p = unowned(p + 1)
+      ) {
+        owners[p] = row;
+        next[p] = p + 1;
+      }
+      start = end;
+    }
+    methodOwners.set(layout, owners);
+    return owners;
+  } catch (cause: unknown) {
+    // Invalid metadata must not rebuild the index for every attribute.
+    if (cause instanceof ManagedReaderFailure) methodOwners.set(layout, cause);
+    throw cause;
+  }
+};
+
 const declaringTypeForMethod = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
@@ -242,31 +314,19 @@ const declaringTypeForMethod = (
   heapExtent: number,
 ): string | null => {
   const types = layout.table(2);
-  const methods = layout.table(6);
+  const methods = memberListTable(layout, 6);
   if (types === undefined || methods === undefined) return null;
-  for (let row = 1; row <= types.rowCount; row += 1) {
-    const cursor = metadataRowCursor(bytes, layout, 2, row);
-    cursor.readUInt32();
-    const nameIndex = cursor.readIndex(layout.stringIndexSize);
-    const namespaceIndex = cursor.readIndex(layout.stringIndexSize);
-    cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-    cursor.readIndex(layout.tableIndexSize(4));
-    const methodStart = cursor.readIndex(layout.tableIndexSize(6));
-    const methodEnd =
-      row === types.rowCount
-        ? methods.rowCount + 1
-        : methodListForType(bytes, layout, row + 1);
-    if (methodRow < methodStart || methodRow >= methodEnd) continue;
-    const name = readMetadataString(bytes, layout, nameIndex, heapExtent);
-    const namespace = readMetadataString(
-      bytes,
-      layout,
-      namespaceIndex,
-      heapExtent,
-    );
-    return namespace.length === 0 ? name : `${namespace}.${name}`;
-  }
-  return null;
+  if (methodRow < 1 || methodRow > (layout.table(6)?.rowCount ?? 0))
+    return null;
+  const position = memberListRowLookup(bytes, layout, 6)(methodRow);
+  const owner = methodOwnerRows(
+    bytes,
+    layout,
+    types.rowCount,
+    methods.rowCount,
+  )[position];
+  if (owner === undefined || owner === 0) return null;
+  return readTypeName({ bytes, layout, table: 2, row: owner, heapExtent });
 };
 
 const methodListForType = (
@@ -279,8 +339,8 @@ const methodListForType = (
   cursor.readIndex(layout.stringIndexSize);
   cursor.readIndex(layout.stringIndexSize);
   cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-  cursor.readIndex(layout.tableIndexSize(4));
-  return cursor.readIndex(layout.tableIndexSize(6));
+  cursor.readIndex(memberListIndexSize(layout, 4));
+  return cursor.readIndex(memberListIndexSize(layout, 6));
 };
 
 const attributeTypeName = (
@@ -377,6 +437,7 @@ export const readCustomAttribute = (
   layout: ManagedMetadataLayout,
   row: number,
   heapExtent: number,
+  issues: ManagedParseIssue[],
 ): CustomAttribute => {
   const cursor = metadataRowCursor(bytes, layout, 12, row);
   const parentRaw = cursor.readIndex(
@@ -432,7 +493,11 @@ export const readCustomAttribute = (
         : `CustomAttribute constructor coded index 0x${typeRaw.toString(16)} is invalid: ${typeReason}`,
       typeOffset,
     );
-  const typeName = attributeTypeName(bytes, layout, typeRaw, heapExtent);
+  const typeName =
+    readManagedValue(
+      () => attributeTypeName(bytes, layout, typeRaw, heapExtent),
+      issues,
+    ) ?? null;
   return {
     parent_token: parent,
     constructor_token: metadataCodedToken(
