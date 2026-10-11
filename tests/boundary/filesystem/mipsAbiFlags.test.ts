@@ -325,6 +325,19 @@ for (const [name, change, reason] of unsupported) {
     );
   });
 }
+it("resolves soft-float ABI metadata and commits its integer-register storage policy", async () => {
+  const bytes = fixture();
+  bytes[abiOffset + 5] = 0;
+  bytes[abiOffset + 7] = 3;
+  const resolved = await resolveFixture(bytes);
+  assert.equal(resolved.mips.abiFlags?.cpr1Size, 0);
+  assert.equal(resolved.mips.abiFlags?.fpAbi, 3);
+  assert.equal(ghidraMipsUnsupportedReason(resolved), null);
+  assert.equal(
+    ghidraMipsProfileParameters(resolved).mips_soft_float_storage,
+    "o32-soft-float-prototype-v1",
+  );
+});
 it("preserves the caller's cancellation error during table inspection", async () => {
   const cancelled = new Error("caller cancellation sentinel");
   let checks = 0;
