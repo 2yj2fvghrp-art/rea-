@@ -1,4 +1,5 @@
 import { z } from "incur";
+import { javaScriptAnalysisResourceControlsSchema } from "./domain/javascript/javascriptAnalysisResourceControls.js";
 
 /** Accept an agent-selected browser observation duration without an artificial ceiling. */
 export const observationDuration = (fallback: number, minimum = 0) =>
@@ -59,8 +60,15 @@ export const electronPageInspectionOptions = z.object({
 });
 
 export const javascriptApplicationOptions = z.object({
+  maxHeapMb: javaScriptAnalysisResourceControlsSchema.shape.max_heap_mb,
+  analysisTimeoutMs:
+    javaScriptAnalysisResourceControlsSchema.shape.analysis_timeout_ms,
   artifactFormat: z
     .enum(["auto", "asar", "directory"])
     .default("auto")
     .describe("Application artifact format"),
+  integrityPolicy: z
+    .enum(["fail", "record-and-continue"])
+    .default("fail")
+    .describe("Behavior when declared application integrity does not match"),
 });

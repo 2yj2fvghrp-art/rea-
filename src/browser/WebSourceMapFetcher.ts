@@ -21,6 +21,7 @@ import { safeParseJson } from "../domain/safeJson.js";
 import { jsonParts } from "../domain/jsonSerialization.js";
 import {
   inspectSourceMapValue,
+  sourceMapJsonText,
   SourceMapFormatFailure,
   type SourceMapLeaf,
 } from "../javascript/sourceMaps/SourceMapFormat.js";
@@ -194,6 +195,15 @@ class SourceMapEncodingError extends Error {
   }
 }
 
+class SourceMapRedirectLocationError extends Error {
+  constructor(url: string, location: string) {
+    super(
+      `Source-map redirect from ${JSON.stringify(url)} supplied an invalid Location URL: ${JSON.stringify(location)}.`,
+    );
+    this.name = "SourceMapRedirectLocationError";
+  }
+}
+
 const fetchOne = async (
   request: WebSourceMapRequest,
   input: AnalyzeWebBundleInput,
@@ -270,14 +280,28 @@ const fetchOne = async (
     return emptySourceMapItem(
       request,
       "fetch_failed",
-      cause instanceof SourceMapSizeLimitError
+      cause instanceof SourceMapRedirectLocationError ||
+        cause instanceof SourceMapSizeLimitError ||
+        cause instanceof SourceMapDeadlineError
         ? cause.message
-        : cause instanceof SourceMapDeadlineError
-          ? cause.message
-          : "Source-map fetch or validation failed.",
+        : "Source-map fetch or validation failed.",
     );
   }
 };
+
+/**
+ * Fetch redirect statuses per WHATWG Fetch (redirect status list:
+ * 301, 302, 303, 307, 308). Single owner for redirect decisions.
+ * 300/304/305/306 carry `Location` without being redirects — following
+ * them would replace the observed failure with an unrelated map.
+ * See https://fetch.spec.whatwg.org/#redirect-status
+ */
+export const isFetchRedirectStatus = (status: number): boolean =>
+  status === 301 ||
+  status === 302 ||
+  status === 303 ||
+  status === 307 ||
+  status === 308;
 
 const fetchFollowingApprovedRedirects = async (
   initialUrl: string,
@@ -344,13 +368,17 @@ const fetchFollowingApprovedRedirects = async (
     }
     // Location is a redirect target only for the Fetch redirect statuses.
     // A 304 or another 3xx response must retain its own HTTP failure.
-    if (![301, 302, 303, 307, 308].includes(response.status))
+    if (!isFetchRedirectStatus(response.status))
       return { response, fetchedUrl: current, close };
     const location = response.headers.get("location");
     if (location === null) return { response, fetchedUrl: current, close };
     await response.body?.cancel();
     await close();
-    current = new URL(location, current).href;
+    try {
+      current = new URL(location, current).href;
+    } catch {
+      throw new SourceMapRedirectLocationError(current, location);
+    }
   }
 };
 
@@ -390,7 +418,9 @@ const readBoundedText = async (
     offset += chunk.byteLength;
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(joined);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      joined,
+    );
   } catch {
     throw new SourceMapEncodingError();
   }
@@ -482,7 +512,7 @@ const normalizeSourceMap = (
   fetchedUrl: string,
   context: SourceMapDecodeContext,
 ): SourceMapItem => {
-  const parsedJson = safeParseJson(text);
+  const parsedJson = safeParseJson(sourceMapJsonText(text));
   if (!parsedJson.ok)
     return emptySourceMapItem(
       request,

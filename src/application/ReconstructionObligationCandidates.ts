@@ -75,7 +75,14 @@ const deriveApplicationCandidates = (
   )
     return;
   try {
-    const source = parseApplicationGraphEvidence(evidence);
+    const parsed = parseApplicationGraphEvidence(evidence);
+    if (!parsed.ok) {
+      limitations.add(
+        `Application Evidence ${evidence.evidence_id} could not generate candidates because it failed graph validation.`,
+      );
+      return;
+    }
+    const source = parsed.value;
     for (const node of source.graph.nodes) {
       const candidatePolicy = applicationObligationPolicy(node.kind);
       if (candidatePolicy === undefined) {
@@ -107,10 +114,21 @@ const deriveApplicationCandidates = (
         }),
       );
     }
-    if (source.semanticGraph !== null)
+    if (source.semanticGraph !== null) {
+      const evidenceContexts = new Map(
+        source.semanticGraph.evidence_contexts.map((context) => [
+          context.context_id,
+          context,
+        ]),
+      );
       for (const node of source.semanticGraph.nodes) {
         const candidatePolicy = semanticObligationPolicy(node.kind);
         if (candidatePolicy === undefined) continue;
+        const evidenceContext = evidenceContexts.get(node.evidence.context_id);
+        if (evidenceContext === undefined)
+          throw new TypeError(
+            "Semantic evidence reference names an absent context",
+          );
         addCandidate(
           candidates,
           generatedCandidate({
@@ -125,13 +143,14 @@ const deriveApplicationCandidates = (
               graphReference(
                 evidence,
                 records,
-                node.evidence,
+                evidenceContext,
                 `${source.semanticGraph.graph_id}/node/${node.node_id}`,
               ),
             ],
           }),
         );
       }
+    }
     if (source.graph.coverage.status !== "complete")
       limitations.add(
         `Application graph ${source.graph.graph_id} coverage is ${source.graph.coverage.status}; omitted candidates remain unknown.`,

@@ -7,7 +7,11 @@ import {
   analysisProfileSchema,
   type AnalysisProfileCommitment,
 } from "./analysisProfile.js";
-import type { BinaryTarget } from "./binaryTargetTypes.js";
+import {
+  BINARY_ARCHITECTURES,
+  type BinaryArchitecture,
+  type BinaryTarget,
+} from "./binaryTargetTypes.js";
 import {
   jsonObjectSchema,
   jsonValueSchema,
@@ -57,7 +61,7 @@ const subjectSchema = z.object({
     "javascript-bundle",
     "entitlements",
   ]),
-  architecture: z.enum(["x86", "x86_64", "arm", "arm64"]).nullable(),
+  architecture: z.enum(BINARY_ARCHITECTURES).nullable(),
   local_path: z.string(),
 });
 /** Source location attached to an evidence observation. */
@@ -140,6 +144,18 @@ export const evidenceSchema = evidenceBaseSchema.superRefine(
   validateAnalysisProfileProvider,
 );
 
+const authenticatedEvidenceSchema = evidenceSchema.superRefine(
+  (evidence, context) => {
+    const { evidence_id: evidenceId, ...withoutId } = evidence;
+    if (computeEvidenceId(withoutId) !== evidenceId)
+      context.addIssue({
+        code: "custom",
+        path: ["evidence_id"],
+        message: "Evidence semantic identifier does not match its record",
+      });
+  },
+);
+
 /** Complete observation whose normalized payload retains its operation-specific type. */
 export type Evidence<Result extends JsonValue = JsonValue> = z.infer<
   typeof evidenceSchema
@@ -159,7 +175,7 @@ export interface EvidenceSubjectTarget {
   readonly path: string;
   readonly sha256: string;
   readonly format: z.infer<typeof subjectSchema>["format"];
-  readonly architecture?: "x86" | "x86_64" | "arm" | "arm64";
+  readonly architecture?: BinaryArchitecture;
 }
 type EvidenceAuthority = z.infer<typeof evidenceAuthoritySchema>;
 type ExecutionEnvironment = z.infer<typeof executionEnvironmentSchema>;
@@ -224,13 +240,7 @@ export const parseEvidence = (input: unknown): Evidence => {
       ? immutableEvidenceSnapshots.get(input)
       : undefined;
   if (immutable !== undefined) return immutable;
-  const evidence = evidenceSchema.parse(input);
-  const { evidence_id: evidenceId, ...withoutId } = evidence;
-  if (computeEvidenceId(withoutId) !== evidenceId)
-    throw new TypeError(
-      "Evidence semantic identifier does not match its record",
-    );
-  return evidence;
+  return authenticatedEvidenceSchema.parse(input);
 };
 
 /** Authenticate and seal a ledger-owned snapshot; external mutable values are copied first. */

@@ -2,13 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 
-import { analyzeJavaScriptApplication } from "../../../src/application/javascript/JavaScriptApplicationService.js";
+import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import { parseApplicationGraphEvidence } from "../../../src/application/javascript/JavaScriptApplicationEvidenceGraph.js";
-import { importReferenceSource } from "../../../src/application/ReferenceSourceImport.js";
 import { findApplicationFeatureSeeds } from "../../../src/domain/javascript/javascriptFeatureSeed.js";
 import { compareSourceToBundle } from "../../../src/domain/javascript/sourceToBundleComparison.js";
 import { resolveSourceMapSource } from "../../../src/javascript/sourceMaps/DecodedSourceMap.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { importReferenceSource } from "../../support/referenceSourceResourceScope.js";
 
 it("keeps literal hash characters in historical/current filesystem paths", async () => {
   const root = await createTestTempDirectory("rea-source-path-");
@@ -668,9 +668,16 @@ it("rejects static application Evidence whose subject path disagrees with its re
     },
   };
 
-  expect(() => parseApplicationGraphEvidence(inconsistent)).toThrow(
-    "JavaScript application Evidence subject does not match its result",
-  );
+  const parsed = parseApplicationGraphEvidence(inconsistent);
+  expect(parsed.ok).toBe(false);
+  if (!parsed.ok)
+    expect(parsed.error.issues).toContainEqual(
+      expect.objectContaining({
+        path: ["subject"],
+        reason: "invalid_value",
+        message: expect.stringContaining("subject must match"),
+      }),
+    );
 });
 
 const compareTrees = async (previous: string, current: string) => {
@@ -682,9 +689,11 @@ const compareTrees = async (previous: string, current: string) => {
   if (!reference.ok) throw new Error(reference.error.message);
   const analyzed = await analyzeJavaScriptApplication({ input_path: current });
   if (!analyzed.ok) throw analyzed.error;
-  const application = parseApplicationGraphEvidence(
+  const parsedApplication = parseApplicationGraphEvidence(
     JSON.parse(JSON.stringify(analyzed.value)),
   );
+  if (!parsedApplication.ok) throw new Error("Analysis Evidence must parse");
+  const application = parsedApplication.value;
   const comparison = compareSourceToBundle({
     reference: reference.value,
     application: {

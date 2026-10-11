@@ -15,6 +15,9 @@ import { registerArtifactCommands } from "./cli/artifactCommands.js";
 import { registerManagedCommands } from "./cli/managedCommands.js";
 import { registerFirmwareCommands } from "./cli/firmwareCommands.js";
 import { registerAndroidCommands } from "./cli/androidCommands.js";
+import { registerApktoolCommands } from "./cli/apktoolCommands.js";
+import { registerJebCommands } from "./cli/jebCommands.js";
+import { registerAdbCommands } from "./cli/adbCommands.js";
 import { registerEvidenceCommands } from "./cliEvidenceCommands.js";
 import { registerProcessCommands } from "./cli/processCommands.js";
 import { registerBrowserCommands } from "./cli/browserCommands.js";
@@ -31,7 +34,10 @@ import { registerJavaScriptRuntimeObservationCommands } from "./cliJavaScriptRun
 import { registerApplicationCommands } from "./cli/applicationCommands.js";
 import { presentOmittableDefaults } from "./cli/omittableDefaults.js";
 import type { CliInstance } from "./cli/types.js";
-import type { CliResultOutput } from "./cli/streamedJsonOutput.js";
+import {
+  streamCliCommandResults,
+  type CliResultOutput,
+} from "./cli/streamedJsonOutput.js";
 import { registerReverseEngineeringCommands } from "./cli/reverseEngineeringCommands.js";
 
 /**
@@ -66,17 +72,15 @@ export const createCli = (
 
   registerSetupCommands(cli, logger, environment);
   registerReverseEngineeringCommands(cli, logger, environment);
-  registerCoreAnalysisCommands(
-    cli,
-    logger,
-    analysis.runDirectAnalysis,
-    resultOutput,
-  );
+  registerCoreAnalysisCommands(cli, logger, analysis.runDirectAnalysis);
   registerUtilityCommands(cli, logger, environment, analysis);
   registerEvmCommands(cli, logger, environment);
   registerArtifactCommands(cli, logger, analysis.runProviderAnalysis);
   registerManagedCommands(cli, logger, analysis.runProviderAnalysis);
   registerAndroidCommands(cli, logger, environment);
+  registerApktoolCommands(cli, logger, environment);
+  registerJebCommands(cli, logger, environment);
+  registerAdbCommands(cli, logger, environment);
   registerFirmwareCommands(cli, logger, environment);
   registerBinaryDiagnosticsCommands(cli, logger, environment);
   registerAnalysisViewCommands(cli, logger);
@@ -91,9 +95,10 @@ export const createCli = (
   registerJavaScriptRecoveryCommands(cli, logger, environment);
   registerAdvancedBrowserCommands(cli, logger);
   registerBrowserScenarioCommands(cli, logger, environment);
-  registerElectronCommands(cli, logger, environment, resultOutput);
+  registerElectronCommands(cli, logger, environment);
   registerJavaScriptRuntimeObservationCommands(cli, logger);
   registerApplicationCommands(cli, logger);
   presentOmittableDefaults(cli);
+  if (resultOutput !== undefined) streamCliCommandResults(cli, resultOutput);
   return cli;
 };

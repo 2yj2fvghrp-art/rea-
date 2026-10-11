@@ -9,10 +9,11 @@ import { createJavaScriptRuntimeObservationEvidence } from "../../../src/applica
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { CdpElectronProvider } from "../../../src/browser/CdpElectronProvider.js";
 import { publishWebScripts } from "../../../src/browser/assets/PublishWebScripts.js";
+import { ArtifactResourceScope } from "../../../src/artifacts/ArtifactResourceScope.js";
 import { selectScriptCapture } from "../../../src/browser/assets/ScriptCaptureAdapters.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
 import { inspectElectronPageInputSchema } from "../../../src/domain/javascript/electronObservation.js";
-import { parseRuntimeCaptures } from "../../../src/domain/javascript/javascriptRuntimeReconciliationParsing.js";
+import { parseRuntimeCaptures } from "../../../src/domain/javascript/javascriptRuntimeReconciliationCaptureParsing.js";
 import { projectRuntimeCaptures } from "../../../src/domain/javascript/javascriptRuntimeReconciliationRuntime.js";
 import { V8InspectorProvider } from "../../../src/inspector/V8InspectorProvider.js";
 import { startFakeCdpBrowser } from "../../fixtures/fakeCdpBrowser.js";
@@ -69,6 +70,8 @@ describe.each(["browser", "electron"] as const)(
       "$name through capture and consumers",
       async ({ reported, expected }) => {
         const root = await fixtureRoot();
+        const artifactResources = new ArtifactResourceScope();
+        resources.push(() => artifactResources.close());
         const browser = await startFakeCdpBrowser({
           ...(kind === "electron"
             ? { electronFileUrl: pathToFileURL(join(root, "index.html")).href }
@@ -129,6 +132,7 @@ describe.each(["browser", "electron"] as const)(
           },
           selectScriptCapture(result.value),
           createHash("sha256").update(captureBytes).digest("hex"),
+          { resources: artifactResources },
         );
         expect(exported.scripts[0]?.source).toMatchObject({
           is_module: expected.is_module,

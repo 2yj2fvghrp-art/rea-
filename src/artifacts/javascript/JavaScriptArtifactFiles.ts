@@ -4,6 +4,7 @@ import type { Readable } from "node:stream";
 
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
+import type { ArtifactResourceScope } from "../ArtifactResourceScope.js";
 import {
   ArtifactPathRegistry,
   normalizeArtifactPath,
@@ -15,6 +16,7 @@ import {
 } from "../ArtifactReader.js";
 import { streamChunkToBuffer } from "../StreamBytes.js";
 import { hashReadable } from "../ArtifactHash.js";
+import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 
 import type {
@@ -32,9 +34,15 @@ interface ExpectedFile {
   readonly kind: JavaScriptArtifactFileKind;
 }
 
+interface ExpectedContainer {
+  readonly hash_status: ArtifactOccurrence["hash_status"];
+  readonly inventory: JavaScriptArtifactContainer | null;
+}
+
 interface ReadContext {
+  readonly resources: ArtifactResourceScope;
   readonly expected: ReadonlyMap<string, ExpectedFile>;
-  readonly expectedContainers: ReadonlyMap<string, JavaScriptArtifactContainer>;
+  readonly expectedContainers: ReadonlyMap<string, ExpectedContainer>;
   readonly registry: ArtifactPathRegistry;
   readonly files: JavaScriptArtifactFile[];
   readonly containers: JavaScriptArtifactContainer[];
@@ -53,6 +61,7 @@ interface ReadTextInput {
 export const readJavaScriptArtifactFiles = async (
   reader: ArtifactReader,
   snapshot: ArtifactInventorySnapshot,
+  resources: ArtifactResourceScope,
   signal?: AbortSignal,
 ): Promise<JavaScriptArtifactFileSet> => {
   if (reader instanceof AsarArtifactReader) {
@@ -65,7 +74,7 @@ export const readJavaScriptArtifactFiles = async (
         "Root artifact node is missing",
       );
     await verifyEntryBytes(
-      reader.openContainer(signal),
+      await reader.openContainer(signal),
       { path: ".", sha256: root.sha256, bytes: root.size },
       signal,
     );
@@ -73,6 +82,7 @@ export const readJavaScriptArtifactFiles = async (
   const inventory = expectedInventory(snapshot);
   const expected = inventory.files;
   const context: ReadContext = {
+    resources,
     expected,
     expectedContainers: inventory.containers,
     registry: new ArtifactPathRegistry(),
@@ -108,16 +118,19 @@ const visitReader = async (
     readonly prefix: string;
     readonly containerSha256: string;
     readonly iterator: AsyncIterator<ArtifactEntry>;
-    readonly owned: boolean;
   }> = [
     {
       reader,
       prefix,
       containerSha256,
       iterator: reader.entries(context.signal)[Symbol.asyncIterator](),
-      owned: false,
     },
   ];
+  const ownedReaders: {
+    readonly reader: ArtifactReader;
+    readonly path: string;
+  }[] = [];
+  let failure: { readonly cause: unknown } | undefined;
   try {
     while (stack.length > 0) {
       const frame = stack.at(-1);
@@ -125,7 +138,6 @@ const visitReader = async (
       const next = await frame.iterator.next();
       if (next.done) {
         stack.pop();
-        if (frame.owned) await frame.reader.close();
         continue;
       }
       const entry = next.value;
@@ -136,7 +148,32 @@ const visitReader = async (
       const nestedAsar = isFilesystemAsar(entry, path);
       context.registry.add(path, nestedAsar ? "directory" : entry.kind);
       if (nestedAsar) {
-        const inventory = expectedContainer(path, context);
+        const container = context.expectedContainers.get(path);
+        // Inventory deliberately does not expand unverified or unavailable
+        // nested archives. Keep the same boundary here when reconstruction
+        // reads the active entries again.
+        if (container === undefined)
+          throw new ArtifactReaderFailure(
+            "integrity",
+            `Nested ASAR was not present in inventory: ${path}`,
+          );
+        if (container.hash_status === "mismatched") continue;
+        if (container.hash_status === "unavailable")
+          throw new ArtifactReaderFailure(
+            "unavailable",
+            `Nested ASAR bytes were unavailable during inventory: ${path}`,
+          );
+        if (container.hash_status !== "verified")
+          throw new ArtifactReaderFailure(
+            "integrity",
+            `Nested ASAR was not integrity-verified: ${path}`,
+          );
+        const inventory = container.inventory;
+        if (inventory === null)
+          throw new ArtifactReaderFailure(
+            "integrity",
+            `Verified nested ASAR has no inventory node: ${path}`,
+          );
         await verifyEntryBytes(
           await frame.reader.open(entry, context.signal),
           inventory,
@@ -144,13 +181,14 @@ const visitReader = async (
         );
         context.containers.push(inventory);
         const nested = new AsarArtifactReader(entry.adapterKey);
+        ownedReaders.push({ reader: nested, path });
         stack.push({
           reader: nested,
           prefix: path,
           containerSha256: inventory.sha256,
           iterator: nested.entries(context.signal)[Symbol.asyncIterator](),
-          owned: true,
         });
+        await nested.prepareContainer(inventory.sha256, context.signal);
         continue;
       }
       const expected = context.expected.get(path);
@@ -171,29 +209,42 @@ const visitReader = async (
         text,
       });
     }
+  } catch (cause: unknown) {
+    failure = { cause };
   } finally {
-    await Promise.allSettled(
-      stack
-        .filter(({ owned }) => owned)
-        .map(async ({ reader, iterator }) => {
-          await iterator.return?.();
-          await reader.close();
-        }),
-    );
+    for (const { iterator, prefix, reader } of stack.reverse()) {
+      try {
+        await iterator.return?.();
+      } catch (cause: unknown) {
+        failure = {
+          cause: ArtifactReaderFailure.withCleanup(
+            failure === undefined ? cause : failure.cause,
+            ArtifactReaderFailure.cleanupObservation(
+              cause,
+              `JavaScript artifact traversal for ${prefix || reader.format}`,
+            ),
+          ),
+        };
+      }
+    }
+    for (const owned of ownedReaders.reverse()) {
+      const resource = `nested ASAR reader for ${owned.path}`;
+      const cleanup = await context.resources.release({
+        kind: "reader",
+        reader: owned.reader,
+        resource,
+      });
+      if (cleanup.kind === "failed") {
+        failure = {
+          cause: ArtifactReaderFailure.withCleanup(
+            failure === undefined ? cleanup.cause : failure.cause,
+            ArtifactReaderFailure.cleanupObservation(cleanup.cause, resource),
+          ),
+        };
+      }
+    }
   }
-};
-
-const expectedContainer = (
-  path: string,
-  context: ReadContext,
-): JavaScriptArtifactContainer => {
-  const container = context.expectedContainers.get(path);
-  if (container === undefined)
-    throw new ArtifactReaderFailure(
-      "integrity",
-      `Nested ASAR disappeared from inventory: ${path}`,
-    );
-  return container;
+  if (failure !== undefined) throw failure.cause;
 };
 
 const readText = async (
@@ -259,14 +310,24 @@ const expectedInventory = (
   snapshot: ArtifactInventorySnapshot,
 ): {
   readonly files: ReadonlyMap<string, ExpectedFile>;
-  readonly containers: ReadonlyMap<string, JavaScriptArtifactContainer>;
+  readonly containers: ReadonlyMap<string, ExpectedContainer>;
 } => {
   const nodes = new Map(snapshot.nodes.map((node) => [node.artifact_id, node]));
   const files = new Map<string, ExpectedFile>();
-  const containers = new Map<string, JavaScriptArtifactContainer>();
+  const containers = new Map<string, ExpectedContainer>();
   for (const occurrence of snapshot.occurrences) {
-    if (occurrence.artifact_id === null || occurrence.logical_path === ".")
+    if (occurrence.logical_path === ".") continue;
+    const isNestedAsar =
+      occurrence.entry_kind === "file" &&
+      occurrence.logical_path.toLowerCase().endsWith(".asar");
+    if (occurrence.artifact_id === null) {
+      if (isNestedAsar)
+        containers.set(occurrence.logical_path, {
+          hash_status: occurrence.hash_status,
+          inventory: null,
+        });
       continue;
+    }
     const node = nodes.get(occurrence.artifact_id);
     if (node === undefined)
       throw new ArtifactReaderFailure(
@@ -277,12 +338,15 @@ const expectedInventory = (
     // Suffixes only describe file candidates; a directory such as
     // node_modules/@zip.js remains a graph node and must never be opened.
     if (occurrence.entry_kind !== "file") continue;
-    if (occurrence.logical_path.toLowerCase().endsWith(".asar"))
+    if (isNestedAsar)
       containers.set(occurrence.logical_path, {
-        path: occurrence.logical_path,
-        sha256: node.sha256,
-        bytes: node.size,
-        inventory_artifact_id: node.artifact_id,
+        hash_status: occurrence.hash_status,
+        inventory: {
+          path: occurrence.logical_path,
+          sha256: node.sha256,
+          bytes: node.size,
+          inventory_artifact_id: node.artifact_id,
+        },
       });
     const kind = relevantKind(occurrence.logical_path);
     if (kind === undefined) continue;

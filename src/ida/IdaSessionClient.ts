@@ -165,8 +165,10 @@ export class IdaSessionClient implements AnalysisClient {
     const document = parameters.document;
     if (
       document !== undefined &&
-      document !== this.target.path &&
-      document !== this.target.sourcePath
+      (typeof document !== "string" ||
+        (!sameIdaHostPath(document, this.target.path) &&
+          (this.target.sourcePath === undefined ||
+            !sameIdaHostPath(document, this.target.sourcePath))))
     )
       return err(
         new AnalysisInputError(operation, undefined, [
@@ -193,8 +195,11 @@ export class IdaSessionClient implements AnalysisClient {
         this.connection,
         this.config.mode === "attached" ? "legacy" : "modern",
         this.#database,
+        options?.signal,
       );
       const result = await runner.run(operation, parameters);
+      if (wasCancelled(options))
+        return err(new AnalysisCancelledError(operation));
       const after = await this.#observe();
       if (wasCancelled(options))
         return err(new AnalysisCancelledError(operation));

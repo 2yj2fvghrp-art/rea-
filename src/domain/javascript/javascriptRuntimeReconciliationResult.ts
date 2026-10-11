@@ -1,12 +1,10 @@
-import { type JavaScriptApplicationGraph } from "./javascriptApplicationGraph.js";
+import type { JavaScriptApplicationGraph } from "./javascriptApplicationGraph.js";
 import { digestCanonicalValue } from "../canonicalDigest.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import type { StaticLoadStateProjection } from "./javascriptRuntimeLoadState.js";
 import type { RuntimeMatchingProjection } from "./javascriptRuntimeReconciliationMatching.js";
-import type {
-  ParsedRuntimeCapture,
-  ParsedStaticLayer,
-} from "./javascriptRuntimeReconciliationParsing.js";
+import type { ParsedStaticLayer } from "./javascriptRuntimeReconciliationParsing.js";
+import type { ParsedRuntimeCapture } from "./javascriptRuntimeReconciliationCaptureParsing.js";
 import {
   javascriptRuntimeReconciliationResultSchema,
   type JavaScriptRuntimeReconciliationResult,

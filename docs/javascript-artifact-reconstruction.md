@@ -22,7 +22,7 @@ The tool reads the caller-selected local directory or ASAR path directly:
 ```bash
 rea analyze /absolute/path/to/apps/app.asar --json
 rea analyze-javascript-application /absolute/path/to/apps/app.asar \
-  --json
+  --integrity-policy record-and-continue --json
 ```
 
 Generic `rea analyze` selects this static provider for directories and `.asar`
@@ -47,15 +47,24 @@ The equivalent MCP input is:
 ```json
 {
   "input_path": "/absolute/path/to/apps/app.asar",
-  "format": "auto"
+  "format": "auto",
+  "integrity_policy": "fail"
 }
 ```
 
 `input_path` must be absolute. `format` accepts `auto`, `asar`, or `directory`.
+`integrity_policy` accepts `fail` or `record-and-continue`; both CLI routes and
+the MCP tool default to `fail`.
 The result retains the canonical local path, root artifact digest, artifact
 manifest and graph commitments, JavaScript Application Graph, static
 Electron summary, reconstruction statistics, and explicit limitations. It does
 not require a live Hopper, Ghidra, browser, or Electron process.
+
+The application graph selects the shallowest `package.json` outside
+`node_modules` as its package root, breaking equal-depth ties by Unicode
+code-point order. Dependency manifests remain package observations but do not
+declare Electron main or renderer entries. If only dependency manifests are
+present, the inventory artifact remains the graph root.
 
 ## ASAR integrity
 
@@ -63,8 +72,12 @@ ASAR inventory checks Electron integrity metadata for embedded archive entries
 and supplied `.asar.unpacked` companion files. An integrity failure identifies
 the logical path, declared and calculated SHA-256 values, and whether the entry
 was unpacked. By default, a mismatch is returned as a failure with its artifact
-context. Requests that support `integrity_policy` can explicitly select
-`record-and-continue` to inspect verified siblings while retaining the mismatch.
+context. Application analysis can explicitly select `record-and-continue` to
+analyze observed bytes while retaining each contradiction's declared and
+observed hashes and `observed-untrusted` trust. Such results mark application
+graph coverage partial and include every contradicted path in the limitations.
+Mismatched nested ASARs stay opaque rather than being expanded. An unpacked
+entry whose companion bytes were not supplied remains `unavailable`.
 
 An unpacked entry whose companion bytes were not supplied remains
 `unavailable`. REA continues analyzing embedded JavaScript and records the
@@ -82,9 +95,9 @@ queries use per-file range indexes, while call sites use exact-range lookups.
 Existing node budgets and coverage reporting remain in effect.
 
 Progress identifies the source file being parsed and projected. Cancellation is
-checked between files, with event-loop yields that allow notifications and
-completed file-local allocations to be released. A single file's synchronous
-parser and semantic extraction still need to finish before that boundary.
+checked between files and throughout result transfer. The owned analyzer can
+be stopped while its synchronous parser or semantic extractor is active;
+the CLI/MCP process remains available for control requests.
 
 Graph and Evidence identifiers hash canonical JSON incrementally, without
 assembling a single string for the whole graph. The canonical bytes and existing
@@ -105,6 +118,73 @@ Field selection remains useful when the caller needs a
 smaller view, for example `--format json --filter-output
 evidence_id,normalized_result.statistics`. Streaming output does not bound the
 memory needed to construct the analysis graph itself.
+
+JavaScript source parsing, static analysis and semantic projection run in one
+owned analysis process, reused sequentially across files. Target code is never
+executed. The analyzer defaults to 1024 MiB of V8 old-space and a 300000 ms
+deadline per source, including startup and fact transfer. Select
+`max_heap_mb` and `analysis_timeout_ms` through MCP, or `--max-heap-mb` and
+`--analysis-timeout-ms` on the dedicated CLI command. These choices control the
+analyzer; the caller's `NODE_OPTIONS` still controls the CLI/MCP process heap.
+V8 old-space limits do not impose a process RSS limit.
+
+A source that exhausts the analyzer heap does not terminate the CLI/MCP
+process. Completed static facts are retained, other files can still be analyzed,
+and unexamined semantic relationships remain explicit unknowns. The parent
+also checks transfer expansion and accumulated results against its remaining
+heap before accepting semantic facts. A resource-limited result has partial
+coverage, the observed limits and an `analyze-javascript-source` unknown scope
+with the specific failure, including captured diagnostics when available.
+Resource failures do not increment syntax parse failures. There is no fixed
+source-length cutoff.
+
+Static observations also need memory when expanded into nodes, relationships
+and Evidence. If that expansion does not fit, the file node retains
+`static_analysis` and any admitted `semantic_module_analysis` observations,
+including their exact values and source locations. Use the public modules item
+view to read them. The graph marks those unexpanded relationships as unknown.
+If cumulative result capacity is exhausted, analysis stops; inventoried but
+unexamined files remain present with explicit unknown scopes.
+
+A timeout stops the remaining analysis and returns typed failure details with
+completed partial Evidence. MCP failure details return
+`partial_observation: { kind: "retained-evidence", evidence_id: "..." }`
+after recording succeeds, so `inspect_analysis_view` can open that analysis
+directly without serializing the entire partial graph into the error response.
+CLI failure output retains the complete partial Evidence.
+Cancellation after source analysis begins likewise
+retains completed facts; an SDK client may reject its cancelled request before
+receiving that reply. On the same MCP connection, inspect the Evidence bundle
+and use the retained analysis ID with `inspect_analysis_view`. Owned analyzer
+cleanup is verified before its private files are released. Cleanup uncertainty
+is reported separately and retains ownership for retry.
+
+CLI workflows parse larger JSON input files incrementally from one verified
+regular-file handle, without constructing a document-sized string. Smaller
+files retain native JSON parsing. Both paths require strict JSON and valid
+UTF-8, and return one complete value; the assembled object still needs memory.
+An individual JSON string exceeding the native length limit or the available
+heap headroom for assembly returns
+`resource_constraint` with `input_reason: "too-large"`. Supply a smaller valid
+value; for Evidence workflows, re-analyze a smaller selection of the original
+target and use its complete Evidence. Splitting JSON text or trimming Evidence
+fields does not produce a valid workflow input.
+
+Evidence bundle and analysis snapshot file readers still decode whole
+documents. Their runtime string-limit failures report a resource constraint
+with the selected path, observed bytes and UTF-16 limit, rather than malformed
+JSON.
+
+`analyze_javascript_application` returns the complete analysis Evidence by
+default. Select `"detail": "summary"` to retain that complete Evidence in the
+current session and receive only its `inspect_analysis_view` summary: artifact
+identity, statistics, Electron surface counts, application and semantic
+coverage, limitations, and `normalized_result.parent_evidence_id`. Pass that ID
+to `inspect_analysis_view` for module pages or items, or to the application
+workflows as a retained reference. The summary does not repeat or truncate the
+analysis; a server without session retention refuses summary detail with
+`capability_unavailable`. CLI output is unchanged and always complete.
+
 MCP prepares the complete repeated response incrementally against the pinned
 SDK's 10 MiB stdio receive-buffer budget. Oversized results return an actionable
 transport constraint and the exact same-session Evidence reference. Use
@@ -173,6 +253,46 @@ while locally shadowed receivers can still contribute network endpoint
 candidates. A template recovered with a parser error and no cooked value stays
 dynamic; its raw spelling is not treated as a valid JavaScript string.
 
+RPC client syntax also contributes network endpoint candidates, in both
+`analyze_javascript_application` and `analyze_web_bundle`, distinguished by
+`mechanism`:
+
+- `trpc:procedure:<method>` records the static member path between the root
+  expression and the method, such as `invoice.list` in
+  `root.invoice.list.useQuery(...)`. tRPC proxies keep these property names
+  through identifier minification. React hooks and TanStack option factories
+  (`useQuery`, `useMutation`, `useInfiniteQuery`, `useSubscription`, suspense
+  and prefetch variants, `queryOptions`, `infiniteQueryOptions`,
+  `mutationOptions`, `subscriptionOptions`) are recognized directly. The
+  vanilla `query` and `mutate` methods are recognized on a root bound to
+  `createTRPCClient` or `createTRPCProxyClient` in the same lexical binding, or on a
+  path of at least two segments in a source containing `TRPCClientError`,
+  `trpc-accept`, or `/trpc`. Factory bindings must have one unconditional
+  initializer and no binding assignments; shadowed locals do not inherit client
+  identity. `subscribe` additionally requires a tRPC observer
+  argument (`onData`, `onError`, `onStarted`, `onStopped`, `onComplete`, or
+  `onConnectionStateChange`). `this` roots, browser globals, and any path
+  containing an RTK Query `endpoints` segment are never procedures; cache-key
+  helpers such as `queryKey` issue no request and are excluded.
+- `trpc:link:<link>` records the literal `url` option of `httpLink`,
+  `httpBatchLink`, `httpBatchStreamLink`, and `httpSubscriptionLink` when the
+  link's callee name survives bundling, including `(0, module.httpBatchLink)`
+  import-call wrappers.
+- `graphql:query`, `graphql:mutation`, and `graphql:subscription` record a
+  named operation found at the start of a string or cooked template literal —
+  the name must be followed by variable definitions (`($`), a directive, or a
+  selection set starting with a field name — or in a precompiled
+  `OperationDefinition` document object. A graphql-tag `loc.source.body` copy is
+  not reported twice. Anonymous operations are not reported.
+
+A procedure path is the server-side procedure name, not a resolved URL; the
+transport URL depends on the link configuration and batching. When the proxy is
+reached through a member expression, such as a webpack module binding
+(`l.S.invoice.list`) or a property holding the proxy (`o.api.post.byId`), the
+recorded path keeps those leading carrier segments; the procedure path is its
+suffix. Utility calls such as `useUtils().invoice.list.fetch()`, `useQueries`,
+and links whose callee was renamed by a minifier are not recognized.
+
 Each recovered bundle module retains the exact factory-source digest. A complete
 bounded AST also receives a `babel-ast-v1` structural fingerprint that ignores
 ordinary identifier names while retaining syntax, literals, operators, object
@@ -195,6 +315,14 @@ Only explicitly present BrowserWindow values are observations. REA does not
 substitute version-dependent Electron defaults for omitted `webPreferences`.
 Dynamic option objects, bridge keys, API objects, and IPC channel expressions
 remain unknown and make coverage partial.
+
+Electron API identity follows proven lexical module aliases. Reassigned bindings,
+dynamic selections, and visibly overwritten namespace members are unresolved.
+Direct and destructuring assignment, loop, update, and delete targets are checked
+through namespace aliases; unrelated member writes do not discard observed API
+identity. This static check does
+not evaluate arbitrary call side effects or runtime registration. Missing findings
+do not establish that an application has no Electron boundary usage.
 
 IPC pairing is an inference, not an observation. A renderer `invoke` pairs only
 with one unique `ipcMain.handle`/`handleOnce` candidate on the same exact literal
@@ -283,6 +411,8 @@ such as `./web3:app.js` still names a local artifact.
 Package `exports` fallback arrays are supported both at the top level and under
 the root `"."` entry. The resolver selects targets in declared order using the
 same conditional and invalid-entry handling as nested exports arrays.
+For imports and requires, the active Node conditions include `module-sync`;
+earlier active conditions retain precedence over later ones.
 
 ESM relative module paths and selected package exports targets use URL suffix handling
 and one percent-decoding pass. CommonJS relative paths and legacy package main

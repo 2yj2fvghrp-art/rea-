@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parseApplicationGraphEvidence } from "../../../src/application/javascript/JavaScriptApplicationEvidenceGraph.js";
-import { analyzeJavaScriptApplication } from "../../../src/application/javascript/JavaScriptApplicationService.js";
+import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import { compareJavaScriptExportShapesEvidence } from "../../../src/application/javascript/JavaScriptApplicationWorkflowService.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import {
@@ -232,7 +232,9 @@ const analyzeReturn = async (root: string, properties: string) => {
   await writeFixtureFiles(root, { "parser.mjs": `${prefix}${expression});\n` });
   const analyzed = await analyzeJavaScriptApplication({ input_path: root });
   if (!analyzed.ok) throw analyzed.error;
-  const source = parseApplicationGraphEvidence(analyzed.value);
+  const parsed = parseApplicationGraphEvidence(analyzed.value);
+  if (!parsed.ok) throw new Error("Analysis Evidence must parse");
+  const source = parsed.value;
   const observation = source.graph.nodes
     .flatMap(({ observations }) => observations)
     .find(

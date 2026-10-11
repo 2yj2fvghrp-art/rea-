@@ -7,10 +7,8 @@ import type {
   ApplicationEdge,
   ApplicationNode,
 } from "./javascriptApplicationGraphSchemas.js";
-import type {
-  ParsedRuntimeCapture,
-  ParsedStaticLayer,
-} from "./javascriptRuntimeReconciliationParsing.js";
+import type { ParsedStaticLayer } from "./javascriptRuntimeReconciliationParsing.js";
+import type { ParsedRuntimeCapture } from "./javascriptRuntimeReconciliationCaptureParsing.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import type { RuntimeProjection } from "./javascriptRuntimeReconciliationRuntime.js";
@@ -214,8 +212,11 @@ const graphCoverage = (
 
 const mergeNodes = (nodes: readonly ApplicationNode[]): ApplicationNode[] => {
   const grouped = new Map<string, ApplicationNode[]>();
-  for (const node of nodes)
-    grouped.set(node.node_id, [...(grouped.get(node.node_id) ?? []), node]);
+  for (const node of nodes) {
+    const group = grouped.get(node.node_id);
+    if (group === undefined) grouped.set(node.node_id, [node]);
+    else group.push(node);
+  }
   const merged = [...grouped.values()].map((group) => {
     const first = group[0];
     if (first === undefined) throw new TypeError("Empty JAG node group");

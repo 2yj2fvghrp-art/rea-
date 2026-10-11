@@ -14,14 +14,38 @@ REA can attach to a user-owned Chrome-family browser through the Chrome DevTools
 - `inspect_web_page` / `rea inspect-web-page` captures DOM structure, accessibility nodes, scripts, resources, safe response/DOM metadata, attach-window network and console metadata, WebSocket frame sizes, workers, quota, and optionally selected storage key names, redacted storage-content fingerprints, or script sources.
 - `analyze_web_bundle` / `rea analyze-web-bundle` parses selected script artifacts without execution and derives chunk edges, route and endpoint candidates, vendor fingerprints, static WebMCP declarations, and optionally source-map/original-source evidence.
 - `observe_web_session` / `rea observe-web-session` arms an observation window of the requested duration for an external user action and records ordered reload, SPA navigation, redirect, failure, lifecycle, and target-termination metadata.
-- `discover_webmcp_tools` / `rea discover-webmcp-tools` uses the experimental CDP WebMCP domain to return every in-scope registration and its complete structural input-schema summary inline. Registrations with the same name and URL in distinct observed frames retain separate identities. `tool_key` includes the observed frame ID; it is not a stable identity across navigation or browser sessions. Same-frame registration updates replace that owner only, and removal leaves other owners intact. REA never exposes `WebMCP.invokeTool`; malformed protocol payloads fail explicitly instead of returning incomplete tool metadata.
+- `discover_webmcp_tools` / `rea discover-webmcp-tools` uses the experimental CDP WebMCP domain to return every in-scope registration and its complete observed `input_schema` declaration and canonical `input_schema_sha256` digest inline. Declarations are untrusted JSON data, including declared types, required fields, enums, examples and reference URLs. REA does not resolve schema references. These fields replace `input_schema_shape`. Registrations with the same name and URL in distinct observed frames retain separate identities. `tool_key` includes the observed frame ID; it is not a stable identity across navigation or browser sessions. Same-frame registration updates replace that owner only, and removal leaves other owners intact. REA never exposes `WebMCP.invokeTool`; malformed protocol payloads fail explicitly instead of returning incomplete tool metadata.
 - `compare_web_captures` / `rea compare-web-captures` compares passive captures or exact-step-aligned browser scenarios. Scenario results commit reproducible literal normalization and expose alignment failures plus artifact-level action, screenshot, DOM, accessibility, URL, history, storage, and event differences. Missing or truncated evidence is never treated as equivalence.
 - `capture_web_screenshot` / `rea capture-web-screenshot` returns a content-addressed visible-viewport PNG.
 - `compare_web_screenshots` / `rea compare-web-screenshots` performs bounded local PNG pixel comparison without OCR or external services.
+- The CLI comparison commands accept each capture, screenshot artifact or normalization policy as inline JSON or a JSON file path. Use files for screenshot artifacts and scenario captures, whose embedded PNG bytes can exceed the host's command-line length limit.
 - Every surface has equivalent CLI and MCP contracts and returns Evidence provenance.
 - MCP tools return complete results inline and include the Evidence ID. Session evidence can be exported with `export_evidence_bundle`.
 
 Target discovery returns the complete in-scope target array in one result.
+
+## Screenshot comparison memory budget
+
+`compare_web_screenshots` admits both PNGs against a 256 MiB estimated
+working-memory budget before inflating either image. This is a processing
+buffer budget for this operation, not a PNG dimension limit, CDP transport
+limit, or process RSS guarantee. Header-valid dimensions that exceed the
+budget return `resource_constraint` with `details.resource: "memory"` and the
+estimated and maximum working-set bytes. Invalid PNG structure remains
+malformed input; encodings outside supported pixel-comparison coverage remain
+unsupported-target errors.
+
+The conservative estimate includes the two decoder-owned decoded input
+buffers, the current image's concatenated IDAT buffer, Node zlib's default
+16 KiB output chunk backing rounded up for retained chunks, the concatenated
+inflate result while its output chunks are retained, one possible extra output
+chunk before zlib checks `maxOutputLength`, unfiltered scanline storage,
+RGB-to-RGBA expansion, and the first retained RGBA image while the second is
+decoded. RGBA output aliases its unfiltered buffer and is counted once.
+Admission uses checked integer arithmetic before image-sized allocation.
+Caller-owned JSON/base64 strings, input parsing and validation, transport
+buffers, garbage-collector behavior, and other runtime memory are outside this
+estimate; the budget does not promise a bound on total process memory.
 
 Electron `file://` pages use a separate provider and target boundary; see [electron-observation.md](electron-observation.md).
 
@@ -52,7 +76,18 @@ google-chrome \
 
 REA does not launch, own, or terminate this browser. Use a dedicated profile and stop it yourself when the investigation is complete. Do not expose the debugging port on a non-loopback interface.
 
+On Linux, a reachable but locked desktop keyring can stall Chrome before its
+first navigation. For a dedicated investigation profile, add
+`--password-store=basic` to bypass that keyring. Empty or placeholder frame URLs
+then describe an unloaded page; REA continues to require an allowed, committed
+URL. See [the startup investigation](https://github.com/morluto/rea/issues/1384#issuecomment-6093781686).
+
 ## Request boundary
+
+CDP connections enforce the shared 64 MiB limit per WebSocket message. A larger
+reply, including a valid reply from Chrome, fails with `payload_limit`. The limit
+counts message bytes before JSON parsing; it does not bound the memory used by
+decoded strings or JSON objects.
 
 Discovery supplies a literal loopback CDP endpoint and returns all eligible
 page targets unless an exact HTTP(S) origin filter narrows the result. Follow-up
@@ -134,7 +169,7 @@ REA retains local observation data and removes only URL userinfo credentials, ex
 - DOM snapshots retain node types, node names, value lengths, and attribute names, but not text or attribute values.
 - Accessibility structure and roles are retained by default, while names and descriptions require `include_accessibility_text: true`.
 - Network observations retain method, status, MIME type, size, type, initiator stack location, and complete URLs with userinfo credentials removed. Redirects reported by CDP are attached as ordered `redirects` on the one request ID, with the prior request URL, CDP response URL, method/type, response status/MIME/encoded length, request timestamp, and the next `requestWillBeSent` event timestamp. CDP delivers `redirectResponse` with that next request event, so the latter is an event boundary rather than an exact response timestamp. Redirect response headers and bodies are discarded; hops outside the selected origins are discarded with the request chain. Headers are discarded after an allowlisted projection of length/encoding, structured CSP/Link/policy fields, and untrusted agent hints. Cookies and authorization headers are never retained.
-- Request/response bodies are not requested or parsed by default. When selected, only allowed-origin JSON media types are read, converted immediately to complete value-free property paths/types, and discarded. `Network.getResponseBody` is never sent unless JSON body shape capture is selected.
+- Request/response bodies are not requested or parsed by default. When selected, only allowed-origin JSON media types are read, converted immediately to complete value-free typed paths, types and observation counts, and discarded. Each path segment is either `{ "kind": "property", "name": "raw property name" }` or `{ "kind": "array-element" }`; array-element types include primitives and nested arrays. Literal `*` properties remain distinct from array elements. `Network.getResponseBody` is never sent unless JSON body shape capture is selected. Comparison uses body shapes only when both captures selected them, and compares request/response shapes only where both observations provide those facts. Unavailable or truncated selected coverage makes equivalence unknown; observed differences still report changed.
 - Console observations with a stack source retain call type, argument types, timestamp, and source location. When console text capture is selected, already-delivered primitive values are retained verbatim; objects, getters, and remote properties are never expanded.
 - WebSocket observations retain direction, opcode, and payload byte length. When shape capture is selected, text frames are classified as text or complete value-free JSON shape; binary bytes, hashes, prefixes, and raw frames are never retained.
 - Storage observations always redact values. Key names, IndexedDB names, and cache names require `include_storage_keys`; stable content fingerprints require the additional `include_storage_fingerprints` selection. Cookie fingerprints cover cookies applicable to the current main-frame URL, including its path, rather than every cookie path on that origin. Other storage remains scoped to the origin. Cache bodies above 64 KiB and partial IndexedDB remote objects make fingerprint coverage incomplete, so identical observations remain `unknown`.
