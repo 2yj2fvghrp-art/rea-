@@ -17,6 +17,7 @@ import { z } from "zod";
 import type { ExecutionOptions } from "../../application/AnalysisProvider.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
 import {
+  ArtifactResourceCleanupFailure,
   ArtifactResourceScope,
   type ArtifactResourceOwner,
 } from "../../artifacts/ArtifactResourceScope.js";
@@ -90,6 +91,40 @@ export class HistoricalCaptureDecoder {
     try {
       return await this.#resources.run(() => this.#inspect(input, options));
     } catch (cause: unknown) {
+      const retained =
+        cause instanceof ArtifactResourceCleanupFailure
+          ? cause.failures.find(
+              ({ owner }) =>
+                owner instanceof HistoricalCaptureRuntimeOwner &&
+                owner.previousFailure instanceof ProviderCleanupError,
+            )
+          : undefined;
+      if (
+        cause instanceof ArtifactResourceCleanupFailure &&
+        retained?.owner instanceof HistoricalCaptureRuntimeOwner &&
+        retained.owner.previousFailure instanceof ProviderCleanupError
+      ) {
+        const previous = retained.owner.previousFailure;
+        return err(
+          redactExplicitFailure(
+            new ProviderCleanupError(
+              previous.providerId,
+              cause.cleanup?.resources ?? previous.cleanupResources,
+              {
+                ...previous.diagnostics,
+                ...(cause.cleanup === undefined
+                  ? {}
+                  : { reason: cause.cleanup.reason }),
+              },
+              {
+                operation: previous.operation,
+                cause,
+              },
+            ),
+            input.sensitive_values,
+          ),
+        );
+      }
       const error =
         cause instanceof ArtifactReaderFailure && cause.cleanup !== undefined
           ? new ProviderCleanupError(
@@ -264,16 +299,16 @@ export class HistoricalCaptureDecoder {
       const ownedFailure =
         cause instanceof OwnedCommandFailure ? cause : undefined;
       failureResources = ownedFailure?.resources ?? [];
-      result = err(
-        redactExplicitFailure(
-          historicalCaptureFailure(input, cause, phase, options),
-          input.sensitive_values,
-        ),
+      const failure = redactExplicitFailure(
+        historicalCaptureFailure(input, cause, phase, options),
+        input.sensitive_values,
       );
+      result = err(failure);
       if (
         ownedFailure?.cleanupOwner !== undefined &&
         runtimeOwner !== undefined
       ) {
+        runtimeOwner.rememberFailure(failure);
         runtimeOwner.retainProcess(
           ownedFailure.cleanupOwner,
           ownedFailure.resources,
@@ -286,27 +321,26 @@ export class HistoricalCaptureDecoder {
     }
     if (runtimeOwner !== undefined) {
       const cleanup = await this.#resources.release(runtimeOwner);
-      if (cleanup.kind === "failed")
-        return err(
-          redactExplicitFailure(
-            new ProviderCleanupError(
-              input.format,
-              [...new Set([...runtimeOwner.resources, ...failureResources])],
-              {
-                capture_path: input.capture_path,
-                previous_error: result.ok
-                  ? null
-                  : projectAnalysisError(result.error),
-                reason:
-                  cleanup.cause instanceof Error
-                    ? cleanup.cause.message
-                    : String(cleanup.cause),
-              },
-              { operation: OPERATION, cause: cleanup.cause },
-            ),
-            input.sensitive_values,
-          ),
+      if (cleanup.kind === "failed") {
+        const error = new ProviderCleanupError(
+          input.format,
+          [...new Set([...runtimeOwner.resources, ...failureResources])],
+          {
+            capture_path: input.capture_path,
+            previous_error: result.ok
+              ? null
+              : projectAnalysisError(result.error),
+            reason:
+              cleanup.cause instanceof Error
+                ? cleanup.cause.message
+                : String(cleanup.cause),
+          },
+          { operation: OPERATION, cause: cleanup.cause },
         );
+        const redacted = redactExplicitFailure(error, input.sensitive_values);
+        runtimeOwner.rememberFailure(redacted);
+        return err(redacted);
+      }
     }
     return result.ok && options?.signal?.aborted
       ? err(new AnalysisCancelledError(OPERATION))
@@ -323,6 +357,7 @@ class HistoricalCaptureRuntimeOwner implements Extract<
   #runtime: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
   #supervisor: ProviderProcessSupervisor | undefined;
   #processResources: readonly string[] = [];
+  #previousFailure: ProviderCleanupError | undefined;
 
   constructor(runtime: Pick<PrivateRuntimeRoot, "path" | "close">) {
     this.#runtime = runtime;
@@ -349,20 +384,41 @@ class HistoricalCaptureRuntimeOwner implements Extract<
     this.#processResources = resources;
   }
 
+  rememberFailure(failure: AnalysisError): void {
+    if (failure instanceof ProviderCleanupError)
+      this.#previousFailure = failure;
+  }
+
+  get previousFailure(): ProviderCleanupError | undefined {
+    return this.#previousFailure;
+  }
+
   async close(): Promise<void> {
     if (this.#supervisor !== undefined) {
       const stopped = await this.#supervisor.stop();
       if (stopped.status === "incomplete")
-        throw new ArtifactReaderFailure("unavailable", stopped.reason, {
-          cleanup: { reason: stopped.reason, resources: this.resources },
-        });
+        throw this.#retryFailure(stopped.reason);
       this.#supervisor = undefined;
       this.#processResources = [];
     }
     const runtime = this.#runtime;
     if (runtime === undefined) return;
-    await runtime.close();
+    try {
+      await runtime.close();
+    } catch (cause: unknown) {
+      throw this.#retryFailure(
+        cause instanceof Error ? cause.message : String(cause),
+        cause,
+      );
+    }
     this.#runtime = undefined;
+  }
+
+  #retryFailure(reason: string, cause?: unknown): ArtifactReaderFailure {
+    return new ArtifactReaderFailure("unavailable", reason, {
+      ...(cause === undefined ? {} : { cause }),
+      cleanup: { reason, resources: this.resources },
+    });
   }
 }
 

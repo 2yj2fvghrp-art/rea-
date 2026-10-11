@@ -39,6 +39,32 @@ export type ArtifactResourceOwner =
       close(): Promise<void>;
     };
 
+export interface ArtifactResourceCleanupFailureEntry {
+  readonly owner: ArtifactResourceOwner;
+  readonly cause: unknown;
+}
+
+/** Failed drain that keeps each resource owner paired with its cleanup failure. */
+export class ArtifactResourceCleanupFailure extends ArtifactReaderFailure {
+  constructor(
+    readonly failures: readonly ArtifactResourceCleanupFailureEntry[],
+    message: string,
+    options: {
+      readonly resources: readonly string[];
+      readonly reason: string;
+    },
+  ) {
+    super("unavailable", message, {
+      cause: new AggregateError(
+        failures.map(({ cause }) => cause),
+        "One or more artifact resources remain owned",
+      ),
+      cleanup: options,
+    });
+    this.name = "ArtifactResourceCleanupFailure";
+  }
+}
+
 export type ArtifactCleanupAttempt =
   | { readonly kind: "released" }
   | { readonly kind: "failed"; readonly cause: unknown };
@@ -112,10 +138,7 @@ export class ArtifactResourceScope {
 
   async #drainAndRetry(): Promise<void> {
     while (this.#active.size > 0) await Promise.allSettled(this.#active);
-    const failures: {
-      readonly owner: ArtifactResourceOwner;
-      readonly cause: unknown;
-    }[] = [];
+    const failures: ArtifactResourceCleanupFailureEntry[] = [];
     for (const owner of this.#pending) {
       try {
         await cleanup(owner);
@@ -131,18 +154,12 @@ export class ArtifactResourceScope {
     const resources = [
       ...new Set(observations.flatMap(({ resources }) => resources)),
     ];
-    throw new ArtifactReaderFailure(
-      "unavailable",
+    throw new ArtifactResourceCleanupFailure(
+      failures,
       `Artifact cleanup remains incomplete: ${resources.join(", ")}`,
       {
-        cause: new AggregateError(
-          failures.map(({ cause }) => cause),
-          "One or more artifact resources remain owned",
-        ),
-        cleanup: {
-          reason: observations.map(({ reason }) => reason).join("; "),
-          resources,
-        },
+        reason: observations.map(({ reason }) => reason).join("; "),
+        resources,
       },
     );
   }

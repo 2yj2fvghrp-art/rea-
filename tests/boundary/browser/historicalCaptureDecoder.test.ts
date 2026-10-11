@@ -15,7 +15,10 @@ import { expect, it, onTestFinished, vi } from "vitest";
 import { HarCaptureAdapter } from "../../../src/browser/history/HarCaptureAdapter.js";
 import { HistoricalCaptureDecoder } from "../../../src/browser/history/HistoricalCaptureDecoder.js";
 import { MitmproxyCaptureAdapter } from "../../../src/browser/history/MitmproxyCaptureAdapter.js";
-import { HAR_CAPTURE_PROVIDER_IDENTITY } from "../../../src/browser/history/CaptureRelease.js";
+import {
+  HAR_CAPTURE_PROVIDER_IDENTITY,
+  MITMPROXY_CAPTURE_PROVIDER_IDENTITY,
+} from "../../../src/browser/history/CaptureRelease.js";
 import {
   inspectWebNetworkCaptureInputSchema,
   WEB_NETWORK_CAPTURE_LIMITS,
@@ -554,7 +557,7 @@ it.each(["format", "process"])(
   },
 );
 
-it("retains a decoder process and private root until a retry confirms process cleanup", async () => {
+it("retains the original provider failure when retrying cleanup across formats", async () => {
   const root = await mkdtemp(join(tmpdir(), "rea-historical-process-owner-"));
   const capturePath = join(root, "capture.har");
   const text = JSON.stringify(historicalHar());
@@ -576,17 +579,21 @@ it("retains a decoder process and private root until a retry confirms process cl
   const decoder = new HistoricalCaptureDecoder(
     [
       {
+        format: "mitmproxy",
+        identity: MITMPROXY_CAPTURE_PROVIDER_IDENTITY,
+        supervision: "process-group",
+        command: async () => {
+          return { command: process.execPath, arguments: ["-e", ""] };
+        },
+      },
+      {
         format: "har",
         identity: HAR_CAPTURE_PROVIDER_IDENTITY,
         supervision: new HarCaptureAdapter().supervision,
-        command: async (_, runtimePath) => {
-          const value = decodeHarCapture(text, []);
-          await writeFile(
-            join(runtimePath, "reply.json"),
-            JSON.stringify({ ok: true, value }),
-          );
-          return { command: process.execPath, arguments: ["-e", ""] };
-        },
+        command: async () => ({
+          command: process.execPath,
+          arguments: ["-e", ""],
+        }),
       },
     ],
     process.env,
@@ -619,7 +626,8 @@ it("retains a decoder process and private root until a retry confirms process cl
   );
   const input = inspectWebNetworkCaptureInputSchema.parse({
     capture_path: capturePath,
-    format: "har",
+    format: "mitmproxy",
+    sensitive_values: ["last diagnostic"],
   });
 
   const first = await decoder.inspect(input);
@@ -634,7 +642,7 @@ it("retains a decoder process and private root until a retry confirms process cl
         previous_error: {
           failure_kind: "timeout",
           stdout: "partial output",
-          stderr: "last diagnostic",
+          stderr: "[REDACTED]",
           exit_code: null,
         },
       },
@@ -645,9 +653,28 @@ it("retains a decoder process and private root until a retry confirms process cl
   if (retainedPath === undefined) throw new Error("Runtime was not acquired");
   await expect(access(retainedPath)).resolves.toBeUndefined();
 
-  const second = await decoder.inspect(input);
+  const second = await decoder.inspect({
+    ...input,
+    format: "har",
+    sensitive_values: [],
+  });
   if (second.ok) throw new Error("A failed cleanup retry must block decoding");
   expect(second.error.cleanupIncomplete).toBe(true);
+  expect(second.error).toMatchObject({ providerId: "mitmproxy" });
+  expect(projectAnalysisError(second.error)).toMatchObject({
+    code: "cleanup_incomplete",
+    details: {
+      resources: expect.arrayContaining([retainedPath, "pid:42424"]),
+      diagnostics: {
+        previous_error: {
+          failure_kind: "timeout",
+          stdout: "partial output",
+          stderr: "[REDACTED]",
+          exit_code: null,
+        },
+      },
+    },
+  });
   expect(second.error.cleanupResources).toEqual([
     retainedPath,
     "run:historical-capture",
