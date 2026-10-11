@@ -2,7 +2,6 @@ import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySn
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
-import { hostExecutable } from "../hostExecutable.js";
 
 import { lstat } from "node:fs/promises";
 import type { Stats } from "node:fs";
@@ -35,6 +34,7 @@ import {
   artifactManifestId,
 } from "../../domain/artifactIdentity.js";
 import { classifyAndHashRootForInventory } from "./classify.js";
+import { hostExecutableMarking } from "../hostExecutableMarking.js";
 import type { HashResult } from "../ArtifactHash.js";
 import {
   hashStableRootArtifact,
@@ -212,7 +212,7 @@ const buildInventorySnapshot = async (
   rekeyOccurrences(rootNode.artifact_id, input.occurrences);
   const rootOccurrence = rootOccurrenceFor(rootNode, {
     size: metadata.size,
-    executable: hostExecutable(path, metadata),
+    executable: hostExecutableMarking(path, metadata),
     format: rootFormat,
     path,
   });

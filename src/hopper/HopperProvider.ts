@@ -123,6 +123,14 @@ export class HopperProvider implements AnalysisProviderCandidate {
         reason: "REA's Hopper adapter does not admit MIPS targets.",
         diagnostics,
       };
+    if (target.format === "raw-binary")
+      return {
+        status: "unsupported",
+        code: "target_format_unsupported",
+        reason:
+          "Headerless raw-binary analysis requires the Ghidra adapter with a caller-supplied architecture and entry point.",
+        diagnostics,
+      };
     if (target.format === "dos-mz" || target.format === "dos-com")
       return {
         status: "unsupported",
@@ -237,6 +245,7 @@ export class HopperProvider implements AnalysisProviderCandidate {
           : { launchMode: "native" as const }),
       }),
       ...(context === undefined ? {} : { runId: context.runId }),
+      startupTimeoutMs: this.config.hopperStartupTimeoutMs,
       logger: this.logger.child({ layer: "bridge" }),
       onDiagnostic: (diagnostic) =>
         this.logger.info(diagnostic, "Hopper bridge reported a diagnostic"),

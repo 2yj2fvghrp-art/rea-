@@ -14,7 +14,7 @@ import {
   type ArtifactEntry,
   type ArtifactReader,
 } from "./ArtifactReader.js";
-import { hostExecutable } from "./hostExecutable.js";
+import { hostExecutableMarking } from "./hostExecutableMarking.js";
 import { OwnedDirectoryHandle } from "../filesystem/OwnedDirectoryHandle.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
@@ -271,7 +271,7 @@ const artifactEntry = (
     kind,
     declaredSize: kind === "file" ? metadata.size : null,
     compressedSize: null,
-    executable: hostExecutable(absolute, metadata),
+    executable: hostExecutableMarking(absolute, metadata),
     encrypted: false,
     byteOffset: null,
     declaredSha256: null,
