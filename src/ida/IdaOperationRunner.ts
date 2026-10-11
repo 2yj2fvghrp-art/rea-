@@ -69,6 +69,7 @@ export class IdaOperationRunner {
     private readonly protocol: "legacy" | "modern",
     private readonly database?: string,
     private readonly signal?: AbortSignal,
+    private readonly selectorOrigin?: "provider",
   ) {}
 
   async call(
@@ -386,7 +387,7 @@ export class IdaOperationRunner {
     }
     const fn = await this.resolve(
       z.string().min(1).parse(parameters.procedure),
-      operation,
+      this.selectorOrigin === "provider" ? undefined : operation,
     );
     this.locations.push({ kind: "address", address: fn.address });
     switch (operation) {
