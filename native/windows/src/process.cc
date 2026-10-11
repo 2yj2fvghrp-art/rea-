@@ -209,8 +209,8 @@ static DWORD activeProcesses(Process& process) {
 }
 
 // Drain queued job notifications without waiting. The commit-limit message is
-// posted when an allocation fails, before the process can exit, so draining
-// before the exit observation cannot miss it for an exited process.
+// posted when an allocation fails, before the process can exit. An observed
+// exit must be followed by another drain before its diagnostics are published.
 static void observeNotifications(Process& process) {
   if (!process.notifications.valid()) return;
   DWORD message = 0;
@@ -383,7 +383,11 @@ napi_value processCall(napi_env env, const std::wstring& operation, const std::v
     const auto exited = WaitForSingleObject(process.process.get(), 0);
     require(exited == WAIT_OBJECT_0 || exited == WAIT_TIMEOUT, "Observe owned process exit failed");
     DWORD code = 0;
-    if (exited == WAIT_OBJECT_0) require(GetExitCodeProcess(process.process.get(), &code), "Read owned process exit code failed");
+    if (exited == WAIT_OBJECT_0) {
+      // The child may have reached its limit and exited after the first drain.
+      observeNotifications(process);
+      require(GetExitCodeProcess(process.process.get(), &code), "Read owned process exit code failed");
+    }
     set(env, result, "exitCode", exited == WAIT_OBJECT_0 ? number(env, code) : null(env));
     set(env, result, "activeProcesses", number(env, activeProcesses(process)));
     if (process.memoryLimit != 0) {

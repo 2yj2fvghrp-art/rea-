@@ -58,6 +58,7 @@ export async function verifyWindowsJobMemoryLimit(packageRoot, workspace) {
   assert.doesNotMatch(reached.output, /unbounded allocation completed/u);
   assert.equal(reached.activeProcesses, 0);
   assert.equal(reached.memoryLimitReached, true);
+  assert.equal(reached.memoryLimitReachedAtExit, true);
   assert.ok(reached.peakJobMemoryBytes <= LIMIT + PEAK_OVERSHOOT);
   assert.ok(reached.peakJobMemoryBytes > LIMIT - 64 * MIB);
 
@@ -66,6 +67,7 @@ export async function verifyWindowsJobMemoryLimit(packageRoot, workspace) {
   assert.match(control.output, /bounded allocation completed/u);
   assert.equal(control.activeProcesses, 0);
   assert.equal(control.memoryLimitReached, false);
+  assert.equal(control.memoryLimitReachedAtExit, false);
   assert.ok(control.peakJobMemoryBytes < LIMIT);
 
   await verifyWrappedLimit(WindowsOwnedProcess, native, workspace);
@@ -83,6 +85,7 @@ export async function verifyWindowsJobMemoryLimit(packageRoot, workspace) {
       peak_job_memory_bytes: control.peakJobMemoryBytes,
     },
     wrapper_reports_limit_reached: true,
+    first_exit_reports_limit_reached: true,
     missing_capability_refused: true,
   };
 }
@@ -116,9 +119,14 @@ async function verifyWrappedLimit(WindowsOwnedProcess, native, workspace) {
     wrapped.once("error", reject);
     wrapped.once("close", (code) => resolve(code));
   });
+  let memoryLimitReachedAtExit;
+  wrapped.once("exit", () => {
+    memoryLimitReachedAtExit = wrapped.memoryLimitReached;
+  });
   wrapped.stdout.resume();
   wrapped.stderr.resume();
   assert.notEqual(await closed, 0);
+  assert.equal(memoryLimitReachedAtExit, true);
   assert.equal(wrapped.memoryLimitReached, true);
   assert.ok(wrapped.peakJobMemoryBytes <= LIMIT + PEAK_OVERSHOOT);
 
@@ -144,17 +152,23 @@ async function verifyWrappedLimit(WindowsOwnedProcess, native, workspace) {
 
 async function settle(native, child) {
   let output = "";
+  let firstExitState;
   try {
     for (let attempt = 0; attempt < 800; attempt++) {
       const state = native.call("process_poll", [child.handle]);
       output += state.stdout.toString();
+      if (state.exitCode !== null) firstExitState ??= state;
       if (
         state.exitCode !== null &&
         state.activeProcesses === 0 &&
         state.stdoutEnded &&
         state.stderrEnded
       )
-        return { ...state, output };
+        return {
+          ...state,
+          output,
+          memoryLimitReachedAtExit: firstExitState.memoryLimitReached,
+        };
       await delay(25);
     }
     throw new Error(

@@ -58,9 +58,10 @@ without this lane reports Windows native controls as unavailable.
   associated with that job before the child is created; each poll drains it
   without waiting and records a sticky `memoryLimitReached` when
   `JOB_OBJECT_MSG_JOB_MEMORY_LIMIT` arrives, alongside the job's
-  `peakJobMemoryBytes`. The notification is drained before the exit
-  observation, so an exit caused by a failed allocation is never reported
-  without it. Runtimes report a reached limit differently (Bun 1.4.2 exits 1
+  `peakJobMemoryBytes`. Notifications are drained before checking for exit
+  and again after exit is observed, so a memory failure between those steps
+  is included in the first exit report. Runtimes report a reached limit
+  differently (Bun 1.4.2 exits 1
   after a JavaScript out-of-memory exception or 3 after a panic), so callers
   classify by the notification. `inspect` reports `jobMemoryLimit` only after
   creating such a job and port. An artifact without that capability refuses a
@@ -112,7 +113,9 @@ descendant termination, unrelated-process preservation, normal exit, owner
 close, forced owner exit, and Job Object commit limits: invalid limit
 rejection, a 128 MiB-limited child allocating external Buffer memory that the
 V8 heap flags cannot bound (limit notification, peak commit at the limit, all
-members settled), and a control under the same limit that completes normally.
+members settled, with the notification present in the first native exit report
+and the wrapper's exit event), and a control under the same limit that
+completes normally.
 An optional independently built
 `tests/fixtures/windows/processBoundary.cc` executable adds breakaway and
 caller/child token observations and an in-place ancestor reparse attempt:
