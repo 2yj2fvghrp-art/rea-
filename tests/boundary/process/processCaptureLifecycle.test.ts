@@ -1069,12 +1069,42 @@ itWithCaptureCapability(
     expect(JSON.stringify(capture.process_samples)).toContain(
       dirname(processFixture),
     );
-    // A busy host's full process table exceeds Node's 1 MiB default buffer.
-    const { stdout } = await execFileAsync("ps", ["-axo", "command="], {
-      maxBuffer: Number.POSITIVE_INFINITY,
-    });
-    expect(stdout).not.toContain(`${processFixture} tree-child`);
-    expect(stdout).not.toContain(`${processFixture} tree-grandchild`);
+    // Observe only this run's sampled descendants; never buffer the host table.
+    const fixturePids = [
+      ...new Set(
+        capture.process_samples
+          .filter(
+            ({ command }) =>
+              command.includes(`${processFixture} tree-child`) ||
+              command.includes(`${processFixture} tree-grandchild`),
+          )
+          .map(({ pid }) => pid),
+      ),
+    ];
+    let remainingCommands = "";
+    try {
+      remainingCommands = (
+        await execFileAsync(
+          "ps",
+          ["-p", fixturePids.join(","), "-o", "command="],
+          { maxBuffer: 64 * 1024 },
+        )
+      ).stdout;
+    } catch (cause: unknown) {
+      // ps exits 1 with no rows when all selected processes have exited.
+      if (
+        !(cause instanceof Error) ||
+        !("code" in cause) ||
+        cause.code !== 1 ||
+        !("stdout" in cause) ||
+        cause.stdout !== ""
+      )
+        throw cause;
+    }
+    expect(remainingCommands).not.toContain(`${processFixture} tree-child`);
+    expect(remainingCommands).not.toContain(
+      `${processFixture} tree-grandchild`,
+    );
   },
   20_000,
 );
