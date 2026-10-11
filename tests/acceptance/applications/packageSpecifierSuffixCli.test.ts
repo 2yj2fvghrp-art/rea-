@@ -16,7 +16,11 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
   async (surface, { cli }) => {
     const root = await createTestTempDirectory("rea-package-specifier-suffix-");
     const packagePath = join(root, "node_modules", "fixture");
-    await mkdir(packagePath, { recursive: true });
+    const legacyPackagePath = join(root, "node_modules", "legacy");
+    await Promise.all([
+      mkdir(packagePath, { recursive: true }),
+      mkdir(legacyPackagePath, { recursive: true }),
+    ]);
     await writeFile(
       join(packagePath, "package.json"),
       JSON.stringify({
@@ -34,6 +38,16 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       join(packagePath, "literal.cjs"),
       'module.exports = "literal";',
     );
+    await Promise.all([
+      writeFile(
+        join(legacyPackagePath, "package.json"),
+        JSON.stringify({ name: "legacy" }),
+      ),
+      writeFile(
+        join(legacyPackagePath, "feature.js"),
+        'module.exports = "legacy feature";',
+      ),
+    ]);
     const requests = [
       {
         specifier: "fixture/feature?cache=1",
@@ -56,6 +70,27 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         value: "literal",
         error: null,
       },
+      {
+        specifier: "legacy/feature.js",
+        target: "node_modules/legacy/feature.js",
+        status: "resolved",
+        value: "legacy feature",
+        error: null,
+      },
+      {
+        specifier: "legacy/feature.js?cache=1",
+        target: "node_modules/legacy/feature.js",
+        status: "resolved",
+        value: "legacy feature",
+        error: null,
+      },
+      {
+        specifier: "legacy/feature.js#entry",
+        target: "node_modules/legacy/feature.js",
+        status: "resolved",
+        value: "legacy feature",
+        error: null,
+      },
     ];
     await writeFile(
       join(root, "main.mjs"),
@@ -66,23 +101,27 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         )
         .join("\n"),
     );
-    for (const { specifier, value, error } of requests) {
-      const native = await promisify(execFile)(
-        process.execPath,
-        [
-          "--input-type=module",
-          "-e",
-          `try {
-            const result = await import(${JSON.stringify(specifier)});
-            console.log(JSON.stringify({value: result.default, error: null}));
+    const native = await promisify(execFile)(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const requests = ${JSON.stringify(requests.map(({ specifier }) => specifier))};
+        const results = await Promise.all(requests.map(async (specifier) => {
+          try {
+            const result = await import(specifier);
+            return { value: result.default, error: null };
           } catch (error) {
-            console.log(JSON.stringify({value: null, error: error.code}));
-          }`,
-        ],
-        { cwd: root, timeout: 5_000 },
-      );
-      expect(JSON.parse(native.stdout)).toEqual({ value, error });
-    }
+            return { value: null, error: error.code };
+          }
+        }));
+        console.log(JSON.stringify(results));`,
+      ],
+      { cwd: root, timeout: 5_000 },
+    );
+    expect(JSON.parse(native.stdout)).toEqual(
+      requests.map(({ value, error }) => ({ value, error })),
+    );
 
     let document: unknown;
     if (surface === "CLI") {

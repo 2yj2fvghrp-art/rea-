@@ -435,8 +435,14 @@ const resolvePackageSpecifier = (
         resolveFileCandidates(input, fileCandidates(directory)) ??
         resolveDirectory(input, directory, metadata, new Set())
       );
-    // Preserve the trailing slash for a package directory request.
-    const candidate = confineCandidate(`${directory}/${subpath.slice(2)}`);
+    // Resolve legacy ESM subpaths as URLs: suffixes identify the loaded module
+    // but do not belong to its filesystem path. Keep the declared specifier on
+    // the relationship; only derive the inventory lookup path here.
+    const fileSubpath =
+      input.moduleKind === "import"
+        ? stripQueryAndFragment(subpath.slice(2))
+        : subpath.slice(2);
+    const candidate = confineCandidate(`${directory}/${fileSubpath}`);
     return typeof candidate === "string"
       ? resolveCandidate(input, candidate, new Set())
       : candidate;
