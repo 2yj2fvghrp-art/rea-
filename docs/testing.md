@@ -99,12 +99,10 @@ result that its client offloads, and Pi exercises default codemode execution.
 Use `REA_VERIFY_RUNTIME_ROOT` to select a production-only installed REA package.
 Receipts retain client versions, result digests, host coverage and owned-process
 cleanup. These POSIX lanes use a deterministic loopback model, so they do not
-prove live model-provider or native Windows compatibility. Pi and Hermes bind
-both `HOME` and `USERPROFILE` to the disposable account. Pi discovers the shared
-personal skill through its default search path without an explicit skill setting;
-Hermes discovers it through the selected `HERMES_HOME`. Qwen uses a
-caller-configured skill directory; its default home-directory discovery remains
-unverified.
+prove live model-provider or native Windows compatibility. Qwen, Pi and Hermes
+bind both `HOME` and `USERPROFILE` to the disposable account. Qwen and Pi discover
+the shared personal skill through their default search paths without an explicit
+skill setting; Hermes discovers it through the selected `HERMES_HOME`.
 Set `REA_VERIFY_HERMES_STICKY_PROFILE=1` to exercise native Hermes selection of
 a named sticky profile with `HERMES_HOME` still pointing to its root.
 
@@ -162,8 +160,25 @@ Use `-- chat` for ordinary
 chat or `REA_VERIFY_RUNTIME_ROOT` for a production-only installed package.
 The native offline BYOK adapter uses a loopback OpenAI completions/SSE fixture
 and `gpt-5.4` model metadata; model inference and token usage are synthetic.
-Set `REA_VERIFY_COPILOT_MODEL` to examine another model configuration. In the
-verified client, `gpt-4.1` blocks the full input-schema profile before HTTP with
+Set `REA_VERIFY_COPILOT_MODEL` to examine another client model ID and
+`REA_VERIFY_COPILOT_WIRE_MODEL` for its backend model name (defaults to the client
+ID). Every actual HTTP request's model is checked and recorded separately.
+Both `HOME` and `USERPROFILE` point to the disposable account; native `skill add`
+still selects the installed skill directory explicitly.
+
+The same native client passed full-profile chat and analysis with the actual
+wire model `gpt-4.1` under a distinct BYOK model ID:
+
+```bash
+REA_VERIFY_COPILOT_MODEL=rea-gpt-4.1 REA_VERIFY_COPILOT_WIRE_MODEL=gpt-4.1 npm run verify:copilot-client -- chat
+REA_VERIFY_COPILOT_MODEL=rea-gpt-4.1 REA_VERIFY_COPILOT_WIRE_MODEL=gpt-4.1 npm run verify:copilot-client -- call
+```
+
+These runs retain full canonical input/output schemas, all tools, installed-skill
+loading and complete Evidence readback. They use the fixture's requested
+one-million-token BYOK prompt setting; effective capacity and live API acceptance
+remain unknown. With the built-in `gpt-4.1` model ID, the verified client still
+blocks the full input-schema profile before HTTP with
 `compaction_static_context_blocked`, even when requesting a larger BYOK prompt
 capacity. The effective capacity is unknown. The default verifier preserves
 the complete catalog and full schemas. To verify the existing compact profile:
@@ -375,6 +390,12 @@ goldens. Keep unsupported binary layouts and malformed boundaries as targeted
 regressions until a real fixture establishes equivalent coverage.
 
 `verify:browser` exercises source-map failure isolation and expanded-output limits through the compiled CLI and stdio MCP with real Chrome. It also submits five 2 MiB source-map annotations, checks retained script identities and explicit map omissions, and closes its owned fixture target. Replacement and document-reset behavior has separate producer-boundary coverage.
+
+The raw Chrome fixture launchers use `--password-store=basic` so Linux startup
+does not wait for an unlock prompt from a reachable but locked desktop keyring.
+Such a stall leaves the initial page unloaded with empty or placeholder CDP URLs;
+it does not establish permission to capture that page. See
+[the keyring diagnosis](https://github.com/morluto/rea/issues/1384#issuecomment-6093781686).
 
 `verify:browser` also captures a source-owned noise canvas as a real PNG above
 8 MiB through the CLI and stdio MCP, with complete byte/digest parity and real PNG
@@ -750,12 +771,37 @@ Pull requests that change only root `README*.md` files, `docs/`, `AGENTS.md`,
 or `CONTRIBUTING.md` run formatting and generated-document validation without
 the source-test shards or native package lanes. Classification compares the PR
 head with its merge base, so later base-branch changes do not expand that scope.
-The required static and coverage aggregate jobs remain present and fail if
-classification fails. Mixed changes, unknown paths and CI configuration changes
-retain full checks. Main pushes retain the full baseline, including after
-documentation merges; newer commits cancel superseded CI for the same PR or
-main branch. Release publication has its own concurrency group and retains its
-package verification and public-registry canary.
+Static and coverage aggregate jobs remain present and fail if classification
+fails. Every code change retains the complete four-shard Linux suite; individual
+test files are not selected by imports or filenames.
+
+`scripts/ci/plan.mjs` selects lanes using the ownership table in
+`scripts/ci/scopes.mjs`. Provider implementation changes run their real-provider
+verifiers and the Linux x64 installed-package/Inspector baseline. Test-only
+changes run the Linux suite without native package verification. Website changes
+run website checks. Provider workflow changes validate the workflow and run that provider's verifier.
+Manual-provider/Android workflow changes run workflow validation only.
+Shared process/contract/CLI boundaries, dependencies, packaging inputs, unknown
+paths, and changes to the planner select the full baseline. Package script-only
+edits select their owning verifier when its entrypoint is identifiable; unknown
+or shared script changes select everything. Android build-script edits retain
+the Linux suite and workflow validation; real Android verification stays manual.
+Renames account for both paths.
+
+Main pushes and manual dispatch retain the full baseline, including all portable
+provider lanes and the native matrix below. A `ci:full` PR label selects the full
+baseline on the next PR run; manual dispatch can request it immediately. Each
+classification job records its selection and broad-fallback reasons in the run
+summary. Representative Git-diff cases live in
+`tests/boundary/filesystem/ciChangeScope.test.ts`.
+
+`CI required` checks classification and every selected lane, rejecting failed,
+cancelled, or unexpectedly skipped work. Existing required check names are
+preserved; changing branch protection to require the new aggregate is a separate
+repository-settings operation. Newer commits cancel superseded CI for the same
+PR or main branch. Release publication has its own concurrency group and retains
+its package verification and public-registry canary. Licensed/self-hosted
+provider workflows and the Android smoke test retain their explicit triggers.
 
 CI exercises the pinned Node.js runtime on native hosted runners:
 
@@ -779,6 +825,35 @@ These native baseline checks complement the Linux source-test shards and the
 separate Apple-artifact and real-provider lanes. Actual Hopper, Ghidra, IDA,
 browser and managed-tool claims require their corresponding verification lanes.
 Runner labels follow the [GitHub hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+### Termux Android browser smoke test
+
+The **Real Termux browser verification** workflow is manual-only while its
+emulator setup is being validated. After the workflow reaches the default
+branch, select a revision under **Actions → Real Termux browser verification →
+Run workflow**. It boots an Android 11 (API 30) x86_64 emulator, installs the
+checksum-verified Termux 0.118.3 APK, and lets the app initialize its bootstrap.
+The host stages the selected revision using `git archive HEAD`; no workstation
+build outputs or dependencies are copied into Android.
+
+`scripts/verify/termux/emulator.sh` sends a `RUN_COMMAND` intent to Termux's app
+service. Root access is limited to staging files, sending the intent, and reading
+diagnostics; installation, compilation, Node, and Chromium run as Termux's app
+UID. The in-app script installs Termux's Android-linked Node distribution,
+checks its version against `.nvmrc`, pins npm from `packageManager`, runs
+`npm ci`, and builds with `build:termux`. Termux repository packages, including
+Chromium, are resolved at run time; their installed versions are logged.
+
+The verifier leaves Playwright's cache environment overrides unset, requires
+a healthy public MCP doctor result, and captures URL plus DOM from a loopback
+HTTP fixture through `capture-browser-scenario`. It checks completed steps,
+the exact URL, a DOM marker, and reported browser cleanup. This lane covers one
+Android emulator and Termux combination, not physical ARM devices, Electron,
+or the complete desktop browser suite. A workflow definition alone does not
+establish passing Android coverage; inspect its execution receipt.
+
+The `termux-browser-diagnostics` artifact retains the Termux command log, exit
+status, and Android logcat on success or failure. The emulator is disposable.
 
 ## Developer commands
 
