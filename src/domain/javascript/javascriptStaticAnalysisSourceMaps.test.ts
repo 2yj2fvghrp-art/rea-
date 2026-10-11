@@ -22,6 +22,28 @@ describe("source map directives", () => {
     expect(sourceMapUrls(source)).toEqual([expected]);
   });
 
+  // A line comment ends at the line break, so an asterisk inside its URL is
+  // part of the URL. The block form still terminates at "*", where the closing
+  // "*/" cannot be told apart from a URL that contains one.
+  it.each([
+    ["line comment", "//# sourceMappingURL=app*part.js.map", "app*part.js.map"],
+    [
+      "legacy line comment",
+      "//@ sourceMappingURL=app*part.js.map",
+      "app*part.js.map",
+    ],
+    ["repeated asterisks", "//# sourceMappingURL=a*b*c.js.map", "a*b*c.js.map"],
+    ["leading asterisk", "//# sourceMappingURL=*.js.map", "*.js.map"],
+  ])("keeps an asterisk inside a %s URL", (_label, source, expected) => {
+    expect(sourceMapUrls(source)).toEqual([expected]);
+  });
+
+  it("still terminates a block comment URL at its closing asterisk", () => {
+    expect(sourceMapUrls("/*# sourceMappingURL=app.js.map */")).toEqual([
+      "app.js.map",
+    ]);
+  });
+
   it("retains every directive in a source", () => {
     expect(
       sourceMapUrls(

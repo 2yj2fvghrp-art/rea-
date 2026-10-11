@@ -353,7 +353,13 @@ export const addSourceMapDirectives = (
     const urlOffset = commentSource.slice(equalsStart + 1).search(/\S/u);
     if (urlOffset === -1) continue;
     const declaredStart = equalsStart + 1 + urlOffset;
-    const terminator = commentSource.slice(declaredStart).search(/[\s*]/u);
+    // A line comment ends at the line break, so an asterisk inside its URL is
+    // part of the URL: "//# sourceMappingURL=app*part.js.map" declares
+    // "app*part.js.map". Only the block form can be closed by "*", where the
+    // trailing "*/" would otherwise be read as part of the declaration.
+    const terminator = commentSource
+      .slice(declaredStart)
+      .search(commentSource.startsWith("/*") ? /[\s*]/u : /\s/u);
     const declaredEnd =
       terminator === -1 ? commentSource.length : declaredStart + terminator;
     if (declaredEnd === declaredStart) continue;
