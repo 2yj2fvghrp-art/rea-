@@ -961,17 +961,23 @@ const observableMutationPaths = (
   };
   // A projection's origins depend only on its source origins and key. Once
   // repeating a prefix revisits an origin set, every longer repetition stays
-  // observable and normalization can never prune it.
+  // observable and normalization can never prune it. The answer depends only
+  // on the binding and prefix, so every revisit of a long chain shares it.
+  const repeated = new Map<string, boolean>();
   const repeatsUnpruned = (
     bindingId: string,
     prefix: PropertyPath,
   ): boolean => {
+    const key = JSON.stringify([bindingId, prefix]);
+    const cached = repeated.get(key);
+    if (cached !== undefined) return cached;
     let observer = bindingNodes.get(bindingId);
     const signatures = new Set<string>();
+    let result = false;
     while (observer !== undefined && prefix.length > 0) {
       observer = project(observer, prefix);
       settle();
-      if ((observer.origins?.size ?? 0) === 0) return false;
+      if ((observer.origins?.size ?? 0) === 0) break;
       const signature = JSON.stringify(
         [...(observer.origins ?? [])]
           .map((origin) =>
@@ -981,10 +987,14 @@ const observableMutationPaths = (
           )
           .sort(compareUnicodeCodePoints),
       );
-      if (signatures.has(signature)) return true;
+      if (signatures.has(signature)) {
+        result = true;
+        break;
+      }
       signatures.add(signature);
     }
-    return false;
+    repeated.set(key, result);
+    return result;
   };
   return { normalize, repeatsUnpruned };
 };
