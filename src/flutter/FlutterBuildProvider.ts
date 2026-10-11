@@ -55,6 +55,8 @@ const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
 /** A complete AOT image carries exactly one VM and one isolate section. */
 const SYMBOL_PAIR_COUNT = 2;
+/** Magic(4) + length(8) + kind(4) — the smallest complete data header. */
+const SNAPSHOT_HEADER_MIN_BYTES = 16;
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 /**
@@ -97,6 +99,7 @@ interface LibraryFacts {
     buildId: string | null;
     dartVersion: string | null;
     toolchainLines: readonly string[];
+    toolchainCapped: boolean;
   };
 }
 
@@ -116,6 +119,7 @@ const emptyFacts = (): LibraryFacts => ({
     buildId: null,
     dartVersion: null,
     toolchainLines: [],
+    toolchainCapped: false,
   },
 });
 
@@ -218,7 +222,20 @@ export class FlutterBuildProvider {
     this.ownedRoots.add(root);
     const snapshotPath = join(root, "input.apk");
     try {
+      // Pin the admitted source: capture its identity before the copy and
+      // revalidate after, so an in-place replacement or swap mid-copy is
+      // refused instead of publishing mixed bytes under the original path.
+      const before = await stat(path);
       await copyFile(path, snapshotPath, fsConstants.COPYFILE_EXCL);
+      const after = await stat(path);
+      if (
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs ||
+        before.ino !== after.ino
+      )
+        throw new Error(
+          `The selected APK changed while it was being snapshotted: ${path}`,
+        );
       await chmod(snapshotPath, 0o400);
       const info = await stat(snapshotPath);
       const sha256 = await sha256File(snapshotPath, signal);
@@ -414,6 +431,7 @@ export class FlutterBuildProvider {
               buildId: buildIdScanner.result(),
               dartVersion: labeledScanner.result().dartVersion,
               toolchainLines: labeledScanner.result().toolchainLines,
+              toolchainCapped: labeledScanner.result().toolchainCapped,
             },
           });
         }
@@ -440,6 +458,7 @@ export class FlutterBuildProvider {
             build_id: value.libflutter.buildId,
             dart_version: value.libflutter.dartVersion,
             toolchain_lines: [...value.libflutter.toolchainLines],
+            toolchain_capped: value.libflutter.toolchainCapped,
           },
         }))
         .sort((left, right) => left.abi.localeCompare(right.abi));
@@ -450,6 +469,7 @@ export class FlutterBuildProvider {
             (entry.libapp.snapshot_hash === null ||
               entry.libapp.snapshot_hash_sources < 2 ||
               entry.libapp.elf_header_valid !== true)) ||
+          entry.libflutter.toolchain_capped ||
           entry.libapp.present !== entry.libflutter.present,
       );
       return ok(
@@ -466,6 +486,12 @@ export class FlutterBuildProvider {
               "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
               "The snapshot hash identifies a Dart SDK build only against an external mapping dataset; REA performs no lookup",
               "Release engine builds often carry no labeled Dart version string; absence is reported, not guessed",
+              ...abis
+                .filter((entry) => entry.libflutter.toolchain_capped)
+                .map(
+                  (entry) =>
+                    `lib/${entry.abi}/libflutter.so carries more distinct toolchain lines than the 4-line projection`,
+                ),
               "The snapshot hash sits 20 bytes after each snapshot magic in the AOT payload; findings are observations of that layout",
               ...abis
                 .filter(
@@ -500,7 +526,11 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisProtocolError(request.operation, { cause }));
     } finally {
-      await reader.close().catch(() => undefined);
+      // A failed reader close retains its root ownership (and the root
+      // itself) so close() can retry; the observation may still succeed.
+      await reader.close().catch(() => {
+        void this.discardRoot(snapshot.root);
+      });
       await this.discardRoot(snapshot.root);
     }
   }
@@ -670,12 +700,19 @@ export class FlutterBuildProvider {
       for (const name of symbolNames) {
         const parsed = readElfSymbol(bounded, name);
         if ("failure" in parsed) continue;
-        const header = readSnapshotHeader(bounded, parsed.symbol.offset);
+        const header = readSnapshotHeader(
+          bounded.subarray(
+            parsed.symbol.offset,
+            parsed.symbol.offset + parsed.symbol.size,
+          ),
+          0,
+        );
+        const headerComplete = parsed.symbol.size >= SNAPSHOT_HEADER_MIN_BYTES;
         sections.push({
           name,
           offset: parsed.symbol.offset,
           size: parsed.symbol.size,
-          magic_valid: header.magicValid,
+          magic_valid: header.magicValid && headerComplete,
           kind: header.kind,
           header_length: header.headerLength,
         });
@@ -762,7 +799,9 @@ export class FlutterBuildProvider {
       if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisProtocolError("inspect_dart_aot", { cause }));
     } finally {
-      await reader.close().catch(() => undefined);
+      await reader.close().catch(() => {
+        void this.discardRoot(snapshot.root);
+      });
       await this.discardRoot(snapshot.root);
     }
   }

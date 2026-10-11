@@ -98,6 +98,8 @@ export const flutterResultSchemas = {
               "Labeled 'Dart VM version' string, when a build carries one",
             ),
           toolchain_lines: z.array(z.string().min(1)),
+          /** More distinct matching lines were observed past the cap. */
+          toolchain_capped: z.boolean(),
         }),
       }),
     ),

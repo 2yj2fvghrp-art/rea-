@@ -183,6 +183,8 @@ export class BuildIdScanner {
 export interface LabeledStringScan {
   readonly dartVersion: string | null;
   readonly toolchainLines: readonly string[];
+  /** True when further distinct matching lines were observed past the cap. */
+  readonly toolchainCapped: boolean;
 }
 
 const DART_VERSION_PATTERN = /Dart VM version:[^\x00\n]{0,200}/u;
@@ -204,6 +206,7 @@ export class LabeledStringScanner {
   private readonly toolchainLines: string[] = [];
   private carry = "";
   #ended = false;
+  #toolchainCapped = false;
 
   push(chunk: Uint8Array): void {
     let run = "";
@@ -234,14 +237,13 @@ export class LabeledStringScanner {
       const match = DART_VERSION_PATTERN.exec(text);
       if (match !== null) this.#dartVersion = match[0].trim();
     }
-    if (this.toolchainLines.length < MAX_TOOLCHAIN_LINES) {
-      const match = TOOLCHAIN_PATTERN.exec(text);
-      if (match !== null) {
-        const line = match[0].trim();
-        if (line !== "" && !this.toolchainLines.includes(line))
-          this.toolchainLines.push(line);
-      }
-    }
+    const match = TOOLCHAIN_PATTERN.exec(text);
+    if (match === null) return;
+    const line = match[0].trim();
+    if (line === "" || this.toolchainLines.includes(line)) return;
+    if (this.toolchainLines.length < MAX_TOOLCHAIN_LINES)
+      this.toolchainLines.push(line);
+    else this.#toolchainCapped = true;
   }
 
   result(): LabeledStringScan {
@@ -249,6 +251,7 @@ export class LabeledStringScanner {
     return {
       dartVersion: this.#dartVersion,
       toolchainLines: [...this.toolchainLines],
+      toolchainCapped: this.#toolchainCapped,
     };
   }
 }

@@ -129,8 +129,11 @@ if (options.plainApk !== null) {
 
 try {
   await provider.close();
-} catch {
-  // The provider holds nothing long-lived.
+} catch (cause) {
+  failures += 1;
+  process.stdout.write(
+    `[FAIL] provider close retained cleanup — ${cause instanceof Error ? cause.message : String(cause)}\n`,
+  );
 }
 
 if (failures > 0) {
