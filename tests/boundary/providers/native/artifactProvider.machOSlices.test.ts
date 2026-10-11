@@ -294,16 +294,16 @@ describe("artifact Mach-O arm64e variant slices", () => {
 
 // macOS 26 lipo leaves capabilities blank, even for a LIB64 x86_64 slice.
 describe("artifact Mach-O LIB64 slices", () => {
-  it("matches an x86_64 LIB64 slice whose lipo capabilities are blank", async () => {
+  const LIB64 = { type: 0x01000007, subtype: 0x80000003 } as const;
+  const lib64Slices = async (x86Subtype: string) => {
     const root = await createTestTempDirectory("rea-slices-lib64-");
     const binary = join(root, "fat");
-    const lib64 = { type: 0x01000007, subtype: 0x80000003 } as const;
-    const x86 = machoImage({ cpu: lib64 });
+    const x86 = machoImage({ cpu: LIB64 });
     const arm = machoImage({ cpu: CPU.arm64 });
     await writeFile(
       binary,
       fatImage([
-        { cpu: lib64, bytes: x86 },
+        { cpu: LIB64, bytes: x86 },
         { cpu: CPU.arm64, bytes: arm },
       ]),
     );
@@ -314,7 +314,7 @@ describe("artifact Mach-O LIB64 slices", () => {
         [
           "architecture x86_64",
           " cputype CPU_TYPE_X86_64",
-          " cpusubtype CPU_SUBTYPE_X86_ALL",
+          ` cpusubtype ${x86Subtype}`,
           " capabilities ",
           " offset 4096",
           ` size ${String(x86.length)}`,
@@ -333,7 +333,11 @@ describe("artifact Mach-O LIB64 slices", () => {
     onTestFinished(() => reader.close());
     const entries = [];
     for await (const entry of reader.entries()) entries.push(entry);
-    expect(entries.map(({ path, byteOffset }) => [path, byteOffset])).toEqual([
+    return entries.map(({ path, byteOffset }) => [path, byteOffset]);
+  };
+
+  it("matches an x86_64 LIB64 slice whose lipo capabilities are blank", async () => {
+    expect(await lib64Slices("CPU_SUBTYPE_X86_ALL")).toEqual([
       ["slices/x86_64", 4096],
       ["slices/arm64", 8192],
     ]);
