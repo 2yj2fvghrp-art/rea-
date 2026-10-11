@@ -204,6 +204,10 @@ const managedExportedTypeSchema = z.object({
   row_offset: offsetSchema,
   flags: z.number().int().min(0).max(0xffff_ffff),
   type_def_id: z.number().int().min(0).max(0xffff_ffff),
+  /** TypeName heap column verbatim; nested exported types carry an empty namespace. */
+  type_name: z.string(),
+  /** TypeNamespace heap column verbatim; the dot-joined full_name is display only. */
+  type_namespace: z.string(),
   full_name: z.string(),
   implementation_token: tokenSchema.nullable(),
 });

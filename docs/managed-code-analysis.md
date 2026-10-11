@@ -134,14 +134,19 @@ build-local coordinates, not durable cross-build identities or native addresses.
 ## Facade assemblies and exported types
 
 `inspect_managed_members` projects the `ExportedType` metadata table into
-`exported_types`: each row's flags, the forwarded `type_def_id`, the full
-namespace-qualified name, and the `implementation_token` scope (an
+`exported_types`: each row's flags, the forwarded `type_def_id`, the heap's
+`type_name` and `type_namespace` columns verbatim, their dot-joined
+`full_name` for display, and the `implementation_token` scope (an
 `AssemblyRef` for the type forwarders that make up .NET facades, a `File` for
-multi-module assemblies, or a nested `ExportedType`). Facade assemblies such
+multi-module assemblies, or a nested `ExportedType`). Nested exported types
+carry an empty `type_namespace`, so the source columns, not the joined name,
+are the identity: a namespace of `A` with name `B` and an empty namespace
+with name `A.B` join identically. Facade assemblies such
 as `System.Runtime.dll` declare almost no `TypeDef` rows of their own; their
 usable surface lives in this table, so an empty or partial projection would
 misreport the assembly. Implementation columns that decode to null or
-out-of-range rows produce `invalid-row` issues and `partial` coverage.
+out-of-range rows produce `invalid-row` issues anchored at the
+Implementation column's own offset and `partial` coverage.
 
 ## Decoded-CIL fingerprint
 

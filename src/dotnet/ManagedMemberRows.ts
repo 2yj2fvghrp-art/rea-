@@ -172,6 +172,7 @@ export const parseExportedTypes = (
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
+      const implementationOffset = cursor.offset;
       const implementationRaw = cursor.readIndex(
         layout.codedIndexSize("Implementation"),
       );
@@ -186,7 +187,7 @@ export const parseExportedTypes = (
         issues.push({
           code: "invalid-row",
           scope: `metadata.ExportedType:${token}`,
-          offset: cursor.start,
+          offset: implementationOffset,
           detail:
             implementationReason === null
               ? "ExportedType implementation coded index 0x0 is null, but the Implementation column must reference a row"
@@ -197,6 +198,8 @@ export const parseExportedTypes = (
         row_offset: cursor.start,
         flags,
         type_def_id: typeDefId,
+        type_name: name,
+        type_namespace: namespace,
         full_name: namespace.length === 0 ? name : `${namespace}.${name}`,
         implementation_token: metadataCodedToken(
           implementationRaw,

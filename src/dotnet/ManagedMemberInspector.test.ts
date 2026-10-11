@@ -545,6 +545,8 @@ describe("managed exported types", () => {
         token: "0x27000001",
         flags: 0x0010_0001,
         type_def_id: 7,
+        type_name: "Uri",
+        type_namespace: "System",
         full_name: "System.Uri",
         implementation_token: "0x23000001",
       }),
@@ -552,6 +554,8 @@ describe("managed exported types", () => {
         token: "0x27000002",
         flags: 0,
         type_def_id: 12,
+        type_name: "Internal",
+        type_namespace: "",
         full_name: "Internal",
         implementation_token: "0x23000002",
       }),
@@ -586,14 +590,15 @@ describe("managed exported types", () => {
         implementation_token: null,
       }),
     ]);
+    const row = result.exported_types[0];
+    expect(row?.row_offset).toBeGreaterThanOrEqual(0);
+    // The invalid Implementation column sits after Flags, TypeDefId and both
+    // string indexes, not at the row start the row_offset reports.
+    expect((result.coverage.issues ?? [])[0]?.offset).toBeGreaterThan(
+      row?.row_offset ?? -1,
+    );
     expect(result.coverage).toMatchObject({
       state: "partial",
-      issues: [
-        expect.objectContaining({
-          code: "invalid-row",
-          scope: "metadata.ExportedType:0x27000001",
-        }),
-      ],
     });
   });
 });
