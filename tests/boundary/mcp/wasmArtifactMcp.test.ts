@@ -42,9 +42,16 @@ it("directs rejected native WASM opening to the advertised static tool while pre
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   const advertised = (await client.listTools()).tools;
-  expect(advertised.some((tool) => tool.name === "inspect_wasm_artifact")).toBe(
-    true,
+  const staticTool = advertised.find(
+    (tool) => tool.name === "inspect_wasm_artifact",
   );
+  if (staticTool?.outputSchema === undefined)
+    throw new Error("WASM recovery must name an advertised static tool");
+  const ajv = new Ajv2020({ strict: false, validateFormats: false });
+  const inputSchema: Record<string, unknown> = staticTool.inputSchema;
+  const outputSchema: Record<string, unknown> = staticTool.outputSchema;
+  expect(ajv.validateSchema(inputSchema)).toBe(true);
+  expect(ajv.validateSchema(outputSchema)).toBe(true);
   const input = { path };
   expect(
     toolContract("inspect_wasm_artifact").inputSchema.safeParse(input).success,
@@ -63,8 +70,9 @@ it("directs rejected native WASM opening to the advertised static tool while pre
     },
   });
   expect(failure.error.remediation.action).toContain(JSON.stringify({ path }));
+  expect(ajv.validate(inputSchema, input)).toBe(true);
   const inspection = await client.callTool({
-    name: "inspect_wasm_artifact",
+    name: staticTool.name,
     arguments: input,
   });
   expect(inspection.isError).toBe(true);
@@ -77,6 +85,7 @@ it("directs rejected native WASM opening to the advertised static tool while pre
       },
     },
   });
+  await client.ping();
   expect(createClient).not.toHaveBeenCalled();
   expect(await readFile(path)).toEqual(
     Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]),

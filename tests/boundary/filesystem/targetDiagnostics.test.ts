@@ -60,6 +60,28 @@ describe("target route diagnostics", () => {
     },
   );
 
+  it("preserves an explicit raw-binary selection even when the bytes have a WASM header", async () => {
+    const directory = await createTestTempDirectory("rea-wasm-explicit-raw-");
+    const path = join(directory, "module.wasm");
+    await writeFile(path, Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]));
+    expect(
+      await parseBinaryTarget(path, {
+        formatHint: "raw-binary",
+        architecture: "x86",
+        entryPoint: "0x001000",
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        path: await realpath(path),
+        format: "raw-binary",
+        architecture: "x86",
+        entryPoint: "0x1000",
+        entryPointSource: "0x001000",
+      },
+    });
+  });
+
   it("identifies the directory opening constraint and gives the direct analysis route", async () => {
     const directory = await createTestTempDirectory("rea-js-target-");
     await writeFile(join(directory, "index.js"), "export const answer = 42;\n");
