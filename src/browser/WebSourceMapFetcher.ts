@@ -103,8 +103,7 @@ export const fetchWebSourceMaps = async (
         reservation >
         SOURCE_MAP_OUTPUT_BYTES - budget.decodedRecords.expandedBytes
       ) {
-        const unprocessed = requests.length - items.length;
-        limitation = `Source-map output budget was exhausted before processing ${String(unprocessed)} requested map${unprocessed === 1 ? "" : "s"}. Their results are unknown.`;
+        limitation = sourceMapOutputLimitation(requests.length - items.length);
         break;
       }
       const expandedBytesBeforeItem = budget.decodedRecords.expandedBytes;
@@ -126,9 +125,22 @@ export const fetchWebSourceMaps = async (
         host,
         budget,
       );
-      if (item.artifact === null)
+      if (item.artifact === null) {
+        const failureBytes =
+          sourceMapFailureReservation(
+            request,
+            item.effective_url,
+            item.limitation,
+          ) + 1;
+        if (failureBytes > SOURCE_MAP_OUTPUT_BYTES - expandedBytesBeforeItem) {
+          limitation = sourceMapOutputLimitation(
+            requests.length - items.length,
+          );
+          break;
+        }
         budget.decodedRecords.expandedBytes =
-          expandedBytesBeforeItem + reservation;
+          expandedBytesBeforeItem + failureBytes;
+      }
       items.push(item);
     }
   } finally {
@@ -144,6 +156,9 @@ export const fetchWebSourceMaps = async (
     ...(limitation === undefined ? {} : { limitation }),
   });
 };
+
+const sourceMapOutputLimitation = (unprocessed: number): string =>
+  `source-map output budget could not retain results for ${String(unprocessed)} requested map${unprocessed === 1 ? "" : "s"}. their results are unknown.`;
 
 const sourceMapsStatus = (
   items: readonly SourceMapItem[],
@@ -211,18 +226,23 @@ const fetchOne = async (
       "policy_filtered",
       "Declared source-map URL is outside the approved exact origins.",
     );
+  let effectiveUrl: string | null = null;
   try {
     const fetched = await fetchFollowingApprovedRedirects(
       request.fetchUrl,
       input.allowed_origins,
       signal,
       host,
+      (url) => {
+        effectiveUrl = url;
+      },
     );
     if (fetched === undefined)
       return emptySourceMapItem(
         request,
         "policy_filtered",
         "A source-map redirect left the approved exact origins.",
+        effectiveUrl,
       );
     const { response, fetchedUrl } = fetched;
     if (!response.ok) {
@@ -231,6 +251,7 @@ const fetchOne = async (
         request,
         "fetch_failed",
         `Source-map server returned HTTP ${String(response.status)}.`,
+        fetchedUrl,
       );
     }
     checkOperation(undefined, signal, budget.deadlineAt);
@@ -256,7 +277,12 @@ const fetchOne = async (
     )
       throw cause;
     if (cause instanceof SourceMapEncodingError)
-      return emptySourceMapItem(request, "invalid", cause.message);
+      return emptySourceMapItem(
+        request,
+        "invalid",
+        cause.message,
+        effectiveUrl,
+      );
     return emptySourceMapItem(
       request,
       "fetch_failed",
@@ -265,6 +291,7 @@ const fetchOne = async (
         cause instanceof SourceMapDeadlineError
         ? cause.message
         : "Source-map fetch or validation failed.",
+      effectiveUrl,
     );
   }
 };
@@ -288,6 +315,7 @@ const fetchFollowingApprovedRedirects = async (
   allowedOrigins: readonly string[],
   signal: AbortSignal | undefined,
   host: SourceMapFetchHost,
+  observeResponse: (url: string) => void,
 ): Promise<{ response: Response; fetchedUrl: string } | undefined> => {
   let current = initialUrl;
   const visited = new Set<string>();
@@ -309,6 +337,7 @@ const fetchFollowingApprovedRedirects = async (
       }),
       signal,
     );
+    observeResponse(current);
     if (signal !== undefined && signalIsAborted(signal)) {
       await response.body?.cancel(signal.reason).catch(() => undefined);
       throw signal.reason;
@@ -464,6 +493,7 @@ const normalizeSourceMap = (
       request,
       "invalid",
       "Source-map JSON is not a version 3 map.",
+      fetchedUrl,
     );
   const retainedBytesBeforeMap = context.budget.expandedBytes;
   try {
@@ -477,7 +507,7 @@ const normalizeSourceMap = (
     context.budget.expandedBytes =
       retainedBytesBeforeMap -
       sourceMapFailureReservation(request) +
-      sourceMapSuccessReservation(request);
+      sourceMapSuccessReservation(request, fetchedUrl);
     consumeExpandedBytes(
       context.budget,
       jsonBytes(text) +
@@ -583,7 +613,7 @@ const normalizeSourceMap = (
         ) - 4,
       );
     const parsed = {
-      ...sourceMapContext(request),
+      ...sourceMapContext(request, fetchedUrl),
       artifact: createWebTextArtifact(text, "application/source-map+json"),
       original_sources: originalSources,
       original_module_edges: modules.edges,
@@ -602,7 +632,12 @@ const normalizeSourceMap = (
     // reservation while keeping cumulative fetch and decoder-work accounting.
     context.budget.expandedBytes = retainedBytesBeforeMap;
     if (cause instanceof SourceMapFormatFailure && cause.reason === "limit")
-      return emptySourceMapItem(request, "fetch_failed", cause.message);
+      return emptySourceMapItem(
+        request,
+        "fetch_failed",
+        cause.message,
+        fetchedUrl,
+      );
     if (
       context.signal?.aborted === true ||
       cause instanceof SourceMapDeadlineError
@@ -612,6 +647,7 @@ const normalizeSourceMap = (
       request,
       "invalid",
       "Source-map JSON mappings could not be decoded safely.",
+      fetchedUrl,
     );
   }
 };
@@ -718,17 +754,22 @@ const approvedUrl = (
   }
 };
 
-const sourceMapContext = (request: WebSourceMapRequest) => ({
+const sourceMapContext = (
+  request: WebSourceMapRequest,
+  effectiveUrl: string | null = null,
+) => ({
   script_key: request.scriptKey,
   declared_url: request.declaredUrl,
+  effective_url: effectiveUrl,
 });
 
 const emptySourceMapItem = (
   request: WebSourceMapRequest,
   status: Extract<SourceMapItem, { readonly artifact: null }>["status"],
   limitation: string,
+  effectiveUrl: string | null = null,
 ): Extract<SourceMapItem, { readonly artifact: null }> => ({
-  ...sourceMapContext(request),
+  ...sourceMapContext(request, effectiveUrl),
   status,
   artifact: null,
   original_sources: [],
@@ -821,7 +862,11 @@ const artifactMetadataBytes = (mediaType: string, text: string): number =>
     }),
   ) - 2;
 
-const sourceMapFailureReservation = (request: WebSourceMapRequest): number => {
+const sourceMapFailureReservation = (
+  request: WebSourceMapRequest,
+  effectiveUrl: string | null = null,
+  limitation?: string,
+): number => {
   const envelope = emptySourceMapItem(
     { ...request, declaredUrl: "", scriptKey: "" },
     "fetch_failed",
@@ -831,11 +876,21 @@ const sourceMapFailureReservation = (request: WebSourceMapRequest): number => {
     Buffer.byteLength(JSON.stringify(envelope)) -
     4 +
     jsonBytes(request.declaredUrl) +
-    jsonBytes(request.scriptKey)
+    jsonBytes(request.scriptKey) +
+    (effectiveUrl === null ? 0 : jsonBytes(effectiveUrl) - 4) +
+    Math.max(
+      0,
+      (limitation === undefined ? 0 : jsonBytes(limitation)) -
+        SOURCE_MAP_FAILURE_LIMITATION_RESERVE -
+        2,
+    )
   );
 };
 
-const sourceMapSuccessReservation = (request: WebSourceMapRequest): number => {
+const sourceMapSuccessReservation = (
+  request: WebSourceMapRequest,
+  effectiveUrl: string,
+): number => {
   const context = sourceMapContext({
     ...request,
     declaredUrl: "",
@@ -854,7 +909,9 @@ const sourceMapSuccessReservation = (request: WebSourceMapRequest): number => {
     Buffer.byteLength(JSON.stringify(envelope)) -
     4 +
     jsonBytes(request.declaredUrl) +
-    jsonBytes(request.scriptKey)
+    jsonBytes(request.scriptKey) +
+    jsonBytes(effectiveUrl) -
+    4
   );
 };
 
