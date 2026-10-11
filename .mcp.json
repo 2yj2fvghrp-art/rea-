@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rea": {
+      "type": "stdio",
+      "command": ".claude/rea-mcp.sh",
+      "args": []
+    }
+  }
+}
