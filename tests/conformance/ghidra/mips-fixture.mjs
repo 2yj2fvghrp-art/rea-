@@ -18,7 +18,6 @@ export async function buildMipsFixture(
   if (floatAbi !== "hard" && floatAbi !== "soft")
     throw new Error("MIPS fixture float ABI must be hard or soft");
   const soft = floatAbi === "soft";
-  const compiler = process.env.REA_MIPS_CLANG ?? "clang";
   const target = byteOrder === "little" ? "mipsel-linux-gnu" : "mips-linux-gnu";
   const source = fileURLToPath(new URL("../c/mips.c", import.meta.url));
   const softSource = fileURLToPath(
@@ -46,35 +45,9 @@ export async function buildMipsFixture(
     "-o",
     path,
   ];
-  const version = await execute(compiler, ["--version"], { timeout: 10000 });
-  await execute(compiler, args, { timeout: 60000 });
-  const bytes = await readFile(path);
-  const read16 =
-    byteOrder === "little"
-      ? bytes.readUInt16LE.bind(bytes)
-      : bytes.readUInt16BE.bind(bytes);
-  const read32 =
-    byteOrder === "little"
-      ? bytes.readUInt32LE.bind(bytes)
-      : bytes.readUInt32BE.bind(bytes);
-  if (
-    bytes.length < 52 ||
-    bytes.toString("hex", 0, 4) !== "7f454c46" ||
-    bytes[4] !== 1 ||
-    bytes[5] !== (byteOrder === "little" ? 1 : 2) ||
-    read16(16) !== 2 ||
-    read16(18) !== 8 ||
-    read32(36) !== 0x70001001
-  )
-    throw new Error(
-      "Compiler did not produce the declared ELF32/o32/MIPS32r2 fixture",
-    );
   return {
-    path,
-    byte_order: byteOrder,
+    ...(await compileMipsFixture(path, byteOrder, 2, args)),
     float_abi: floatAbi,
-    flags: read32(36),
-    sha256: createHash("sha256").update(bytes).digest("hex"),
     source_sha256: createHash("sha256")
       .update(await readFile(source))
       .digest("hex"),
@@ -88,8 +61,6 @@ export async function buildMipsFixture(
     probe_sha256: createHash("sha256")
       .update(await readFile(probe))
       .digest("hex"),
-    compiler: version.stdout.trim(),
-    arguments: args,
   };
 }
 
@@ -105,7 +76,6 @@ export async function buildMipsRelocatableFixture(
 ) {
   if (byteOrder !== "little" && byteOrder !== "big")
     throw new Error("MIPS fixture byte order must be little or big");
-  const compiler = process.env.REA_MIPS_CLANG ?? "clang";
   const target = byteOrder === "little" ? "mipsel-linux-gnu" : "mips-linux-gnu";
   const source = fileURLToPath(
     new URL("../c/mips-relocatable.c", import.meta.url),
@@ -127,6 +97,19 @@ export async function buildMipsRelocatableFixture(
     "-o",
     path,
   ];
+  return {
+    ...(await compileMipsFixture(path, byteOrder, 1, args)),
+    float_abi: kernelModule ? "soft" : "hard",
+    kernel_module_options: kernelModule,
+    source_sha256: createHash("sha256")
+      .update(await readFile(source))
+      .digest("hex"),
+  };
+}
+
+/** Compile and attest the shared ELF32/o32/MIPS32r2 fixture boundary. */
+async function compileMipsFixture(path, byteOrder, objectType, args) {
+  const compiler = process.env.REA_MIPS_CLANG ?? "clang";
   const version = await execute(compiler, ["--version"], { timeout: 10000 });
   await execute(compiler, args, { timeout: 60000 });
   const bytes = await readFile(path);
@@ -143,23 +126,18 @@ export async function buildMipsRelocatableFixture(
     bytes.toString("hex", 0, 4) !== "7f454c46" ||
     bytes[4] !== 1 ||
     bytes[5] !== (byteOrder === "little" ? 1 : 2) ||
-    read16(16) !== 1 ||
+    read16(16) !== objectType ||
     read16(18) !== 8 ||
     read32(36) !== 0x70001001
   )
     throw new Error(
-      "Compiler did not produce the declared ELF32/o32/MIPS32r2 relocatable fixture",
+      "Compiler did not produce the declared ELF32/o32/MIPS32r2 fixture",
     );
   return {
     path,
     byte_order: byteOrder,
-    float_abi: kernelModule ? "soft" : "hard",
-    kernel_module_options: kernelModule,
     flags: read32(36),
     sha256: createHash("sha256").update(bytes).digest("hex"),
-    source_sha256: createHash("sha256")
-      .update(await readFile(source))
-      .digest("hex"),
     compiler: version.stdout.trim(),
     arguments: args,
   };

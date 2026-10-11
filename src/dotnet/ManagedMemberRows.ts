@@ -8,7 +8,6 @@ import type { ManagedPeLayout } from "./ManagedPeReader.js";
 import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
-  createDeclaringTypeLookup,
   signature,
   type FieldCore,
   type ManagedCallEdge,
@@ -31,6 +30,7 @@ import {
 } from "./ManagedMetadataHeaps.js";
 import { readManagedValue } from "./ManagedReaderFailure.js";
 import { methodBody } from "./ManagedMethodBodyReader.js";
+import { memberDeclaringTypeRowLookup } from "./ManagedMemberOwnership.js";
 
 export const parseFields = (
   bytes: Buffer,
@@ -45,7 +45,10 @@ export const parseFields = (
   const core = new Map<string, FieldCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(4);
-  const declaringType = createDeclaringTypeLookup(ranges, "field");
+  const ownerRow = readManagedValue(
+    () => memberDeclaringTypeRowLookup(bytes, layout, 4),
+    issues,
+  );
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 4, row);
@@ -62,7 +65,11 @@ export const parseFields = (
         cursor.readIndex(layout.blobIndexSize),
         layout.blob.size,
       );
-      const declared = declaringType(row);
+      const owner =
+        ownerRow === undefined
+          ? 0
+          : (readManagedValue(() => ownerRow(row), issues) ?? 0);
+      const declared = ranges[owner - 1];
       const token = metadataToken(4, row);
       fields.push({
         token,
@@ -236,7 +243,10 @@ export const parseMethods = ({
   const core = new Map<string, MethodCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(6);
-  const declaringType = createDeclaringTypeLookup(ranges, "method");
+  const ownerRow = readManagedValue(
+    () => memberDeclaringTypeRowLookup(bytes, layout, 6),
+    issues,
+  );
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 6, row);
@@ -256,7 +266,11 @@ export const parseMethods = ({
         layout.blob.size,
       );
       cursor.readIndex(layout.tableIndexSize(8));
-      const declared = declaringType(row);
+      const owner =
+        ownerRow === undefined
+          ? 0
+          : (readManagedValue(() => ownerRow(row), issues) ?? 0);
+      const declared = ranges[owner - 1];
       const token = metadataToken(6, row);
       methods.push({
         token,

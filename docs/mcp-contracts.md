@@ -310,6 +310,13 @@ directly to `compare_functions`, and `inspect_artifact` Evidence to
 `compare_artifacts`. Use `get_evidence_bundle` when the task needs broader
 retained session history or an explicit bundle for transfer.
 
+`get_call_graph` keeps provider-limited relationship reads on their node as
+`limitations`, alongside any observed `calls`. An empty call list with such a
+limitation is incomplete coverage, not proof that the function has no calls.
+`trace_call_path` reports each limited expansion in `residual_unknowns` and
+sets `truncated: true`; any path already supported by observed edges remains
+visible. Tool errors remain in their existing error or failure fields.
+
 REA prepares complete MCP results within the pinned stdio client's 10 MiB
 receive-buffer budget, including both text and structured representations and
 room for the JSON-RPC envelope. Tool errors carry only their text
@@ -321,8 +328,18 @@ session. Its exact reference is reported in
 `details.reported_limits.evidence_reference`; call `inspect_analysis_view` with
 that reference for a summary, one section/module, or a stable page, or call
 `export_evidence_bundle` with a destination path. Complete
-bundle exports stream canonical JSON into an atomically published file. A broad
-follow-up or `get_evidence_bundle` can also exceed the response budget; exporting
+bundle exports stream canonical JSON into an atomically published file.
+
+For oversized native function Evidence, `details.reported_limits.continuation`
+contains a ready-to-call `inspect_analysis_view` request for the retained
+pseudocode's first page. Use its `name` and `arguments` directly, then follow
+`normalized_result.coverage.next_offset` for subsequent pages. The suggested
+limit is the view contract's default, not a guarantee that arbitrary source or
+metadata fits; reduce the limit or export when needed. Continuations are
+offered for completed `analyze_function` results only after session recording is
+acknowledged; the complete result and its retention reference remain intact.
+
+A broad follow-up or `get_evidence_bundle` can also exceed the response budget; exporting
 preserves the complete session without sending it through a single MCP frame.
 To discover existing records without their large payloads, call
 `get_evidence_bundle` with `detail: "summary"`. Its `result.records` contain
@@ -450,7 +467,13 @@ Tool annotations describe effects and are hints, not authorization controls
 ([MCP ToolAnnotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations)).
 `readOnlyHint` includes session state: an analysis call that records additive
 Evidence is marked non-read-only even when it leaves the target unchanged.
-`destructiveHint` describes possible data loss, not ordinary Evidence recording.
+`destructiveHint` is true when a tool may discard data (overwriting or clearing
+analyst metadata, replacing files, dropping session state), runs or drives code
+REA does not own (`executesForeignCode`: process, LLDB, Electron, browser, and
+native UI scenarios), or changes an attached Android device (`mutatesDevice`:
+push, install, uninstall, start, and stop). Ordinary Evidence recording is not
+destructive. The effect record in `binary_session` and the generated catalog
+carries each flag separately.
 Effect metadata covers possible behavior across supported inputs: DMG inventory
 can launch `hdiutil` and create an owned temporary mount directory; extraction
 creates a fresh output directory on every call. Comparing supplied web captures

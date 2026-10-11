@@ -1,4 +1,5 @@
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
+import { memberDeclaringTypeRowLookup } from "./ManagedMemberOwnership.js";
 
 import type {
   ManagedArtifactInspection,
@@ -17,7 +18,7 @@ import {
   readMetadataGuid,
   readMetadataString,
 } from "./ManagedMetadataHeaps.js";
-import { managedFailure } from "./ManagedReaderFailure.js";
+import { managedFailure, readManagedValue } from "./ManagedReaderFailure.js";
 import type { ManagedResourceDirectory } from "./ManagedMetadataInventory.js";
 
 type ModuleIdentity = NonNullable<ManagedArtifactInspection["module"]>;
@@ -241,46 +242,9 @@ const declaringTypeForMethod = (
   methodRow: number,
   heapExtent: number,
 ): string | null => {
-  const types = layout.table(2);
-  const methods = layout.table(6);
-  if (types === undefined || methods === undefined) return null;
-  for (let row = 1; row <= types.rowCount; row += 1) {
-    const cursor = metadataRowCursor(bytes, layout, 2, row);
-    cursor.readUInt32();
-    const nameIndex = cursor.readIndex(layout.stringIndexSize);
-    const namespaceIndex = cursor.readIndex(layout.stringIndexSize);
-    cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-    cursor.readIndex(layout.tableIndexSize(4));
-    const methodStart = cursor.readIndex(layout.tableIndexSize(6));
-    const methodEnd =
-      row === types.rowCount
-        ? methods.rowCount + 1
-        : methodListForType(bytes, layout, row + 1);
-    if (methodRow < methodStart || methodRow >= methodEnd) continue;
-    const name = readMetadataString(bytes, layout, nameIndex, heapExtent);
-    const namespace = readMetadataString(
-      bytes,
-      layout,
-      namespaceIndex,
-      heapExtent,
-    );
-    return namespace.length === 0 ? name : `${namespace}.${name}`;
-  }
-  return null;
-};
-
-const methodListForType = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  row: number,
-): number => {
-  const cursor = metadataRowCursor(bytes, layout, 2, row);
-  cursor.readUInt32();
-  cursor.readIndex(layout.stringIndexSize);
-  cursor.readIndex(layout.stringIndexSize);
-  cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-  cursor.readIndex(layout.tableIndexSize(4));
-  return cursor.readIndex(layout.tableIndexSize(6));
+  const owner = memberDeclaringTypeRowLookup(bytes, layout, 6)(methodRow);
+  if (owner === 0) return null;
+  return readTypeName({ bytes, layout, table: 2, row: owner, heapExtent });
 };
 
 const attributeTypeName = (
@@ -377,6 +341,7 @@ export const readCustomAttribute = (
   layout: ManagedMetadataLayout,
   row: number,
   heapExtent: number,
+  issues: ManagedParseIssue[],
 ): CustomAttribute => {
   const cursor = metadataRowCursor(bytes, layout, 12, row);
   const parentRaw = cursor.readIndex(
@@ -432,7 +397,11 @@ export const readCustomAttribute = (
         : `CustomAttribute constructor coded index 0x${typeRaw.toString(16)} is invalid: ${typeReason}`,
       typeOffset,
     );
-  const typeName = attributeTypeName(bytes, layout, typeRaw, heapExtent);
+  const typeName =
+    readManagedValue(
+      () => attributeTypeName(bytes, layout, typeRaw, heapExtent),
+      issues,
+    ) ?? null;
   return {
     parent_token: parent,
     constructor_token: metadataCodedToken(
