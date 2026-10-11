@@ -51,6 +51,11 @@ const identity = (fn: IdaFunction) => ({
   classification: null,
   body: unknownBody,
 });
+/** The only lookup answers upstream reports for a name or address that is not a function. */
+const MISSING_PROCEDURE_ANSWERS: ReadonlySet<string> = new Set([
+  "Not found",
+  "Not a function",
+]);
 const lines = (asm: IdaDisassembly) =>
   asm.lines.map(({ address, instruction }) => `${address}: ${instruction}`);
 
@@ -106,11 +111,38 @@ export class IdaOperationRunner {
     return result;
   }
 
-  async resolve(query: string): Promise<IdaFunction> {
+  /**
+   * Resolves a procedure. When `requestedBy` names the caller's operation, an
+   * upstream "not found" or "not a function" answer is the caller's input
+   * mistake; every other failed lookup, including an address IDA itself
+   * reported, stays a producer fault.
+   */
+  async resolve(query: string, requestedBy?: string): Promise<IdaFunction> {
     if (this.protocol === "modern") {
       const item = modernLookupSchema.parse(
         await this.call("lookup_funcs", { queries: [query] }),
       )[0];
+      if (
+        requestedBy !== undefined &&
+        item?.fn === null &&
+        item.error !== null &&
+        MISSING_PROCEDURE_ANSWERS.has(item.error)
+      )
+        throw new AnalysisInputError(
+          requestedBy,
+          {
+            cause: new AnalysisProtocolError(
+              `IDA function lookup failed for ${query}: ${item.error}`,
+            ),
+          },
+          [
+            {
+              path: ["procedure"],
+              reason: "invalid_value",
+              message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${item.error}.`,
+            },
+          ],
+        );
       if (item?.fn == null || item.error !== null)
         throw new AnalysisProtocolError(
           `IDA function lookup failed for ${query}: ${item?.error ?? "missing function"}`,
@@ -351,6 +383,7 @@ export class IdaOperationRunner {
     }
     const fn = await this.resolve(
       z.string().min(1).parse(parameters.procedure),
+      operation,
     );
     this.locations.push({ kind: "address", address: fn.address });
     switch (operation) {
