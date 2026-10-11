@@ -104,6 +104,7 @@ export class IdaSessionClient implements AnalysisClient {
   #databaseCloseAcknowledged = false;
   #openAttempted = false;
   #openCompleted = false;
+  #callGraphAdvertised = false;
   #initialIdentity: string | undefined;
   #metadata: JsonValue = null;
   #lifecycle: JsonValue[] = [];
@@ -232,6 +233,7 @@ export class IdaSessionClient implements AnalysisClient {
         signal: options?.signal,
         selectorOrigin: options?.selectorOrigin,
         x86Only: isX86OnlyTarget(this.target),
+        callGraphAvailable: this.#callGraphAdvertised,
       },
     );
   }
@@ -294,6 +296,7 @@ export class IdaSessionClient implements AnalysisClient {
 
   async #initialize(): Promise<void> {
     const tools = new Set(await this.connection.connect());
+    this.#callGraphAdvertised = tools.has("callgraph");
     const expected =
       this.config.mode === "attached" ? legacyTools : modernTools;
     const missing = expected.filter((name) => !tools.has(name));

@@ -1,11 +1,14 @@
 import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
-import { modernCallGraphSchema } from "./IdaProtocolValues.js";
+import {
+  idaAddressSchema,
+  modernCallGraphSchema,
+} from "./IdaProtocolValues.js";
 
 /** Reported when `callees` returned nothing for a non-x86 procedure. */
 export const EMPTY_CALLEES_LIMITATION =
-  "Upstream callees reported no calls for this non-x86 procedure; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
+  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
 const TRUNCATED_LIMITATION =
   "Upstream callgraph was truncated; additional callees remain unknown.";
 
@@ -30,7 +33,8 @@ export interface CallGraphCallees {
   readonly limitations: readonly string[];
 }
 
-const unavailable = (reason: string): CallGraphCallees => ({
+/** The call graph could not be read; the caller keeps its other observations. */
+export const unavailableCallGraph = (reason: string): CallGraphCallees => ({
   callees: [],
   limitations: [
     `Upstream callgraph was unavailable (${reason}); callees may be incomplete.`,
@@ -54,13 +58,16 @@ export const readCallGraphCallees = async (
     raw = await call("callgraph", { roots: [address], max_depth: 1 });
   } catch (cause: unknown) {
     if (cause instanceof AnalysisProtocolError)
-      return unavailable(cause.message);
+      return unavailableCallGraph(cause.message);
     throw cause;
   }
   const parsed = modernCallGraphSchema.safeParse(raw);
   const row = parsed.success ? parsed.data[0] : undefined;
-  if (row === undefined) return unavailable("unreadable reply");
-  if (row.error !== undefined) return unavailable(row.error);
+  if (row === undefined) return unavailableCallGraph("unreadable reply");
+  if (row.error !== undefined) return unavailableCallGraph(row.error);
+  const rootAddress = idaAddressSchema.safeParse(row.root);
+  if (!rootAddress.success || rootAddress.data !== address)
+    return unavailableCallGraph("the reply is for a different root");
   const edges = row.edges.filter(
     ({ type, from }) => type === "call" && from === address,
   );
@@ -71,11 +78,16 @@ export const readCallGraphCallees = async (
   const truncated =
     row.truncated === true ||
     (row.limit_reason ?? null) !== null ||
-    row.per_func_capped === true ||
     (row.max_edges_per_func !== undefined &&
       edges.length >= row.max_edges_per_func);
   return {
-    callees: targets.map((to) => ({ address: to, name: names.get(to) ?? to })),
+    callees: targets.map((to) => {
+      const name = names.get(to);
+      return {
+        address: to,
+        name: name === null || name === undefined || name === "" ? to : name,
+      };
+    }),
     limitations: truncated ? [TRUNCATED_LIMITATION] : [],
   };
 };

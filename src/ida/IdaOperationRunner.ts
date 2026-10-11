@@ -13,6 +13,7 @@ import type { JsonValue } from "../domain/jsonValue.js";
 import {
   EMPTY_CALLEES_LIMITATION,
   readCallGraphCallees,
+  unavailableCallGraph,
 } from "./IdaCallGraph.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import type { IdaOperation } from "./IdaProviderCapabilities.js";
@@ -77,6 +78,8 @@ export class IdaOperationRunner {
       readonly selectorOrigin?: "provider" | undefined;
       /** False when the loaded processor may not be x86, so `callees` cannot be trusted alone. */
       readonly x86Only?: boolean;
+      /** False when the upstream server does not advertise `callgraph`. */
+      readonly callGraphAvailable?: boolean;
     } = {},
   ) {}
 
@@ -191,10 +194,13 @@ export class IdaOperationRunner {
   ): Promise<void> {
     if (this.options.x86Only !== false) return;
     if (upstreamCalleesEmpty) this.limitations.push(EMPTY_CALLEES_LIMITATION);
-    const graph = await readCallGraphCallees(
-      (tool, args) => this.call(tool, args),
-      fn.address,
-    );
+    const graph =
+      this.options.callGraphAvailable === false
+        ? unavailableCallGraph("the upstream server does not advertise it")
+        : await readCallGraphCallees(
+            (tool, args) => this.call(tool, args),
+            fn.address,
+          );
     this.limitations.push(...graph.limitations);
     for (const callee of graph.callees)
       if (!result.has(callee.address))
