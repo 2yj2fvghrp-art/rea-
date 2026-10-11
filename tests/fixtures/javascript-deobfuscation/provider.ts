@@ -1,0 +1,66 @@
+import { access, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect } from "vitest";
+
+import { JavaScriptDeobfuscationService } from "../../../src/application/javascript/JavaScriptDeobfuscationService.js";
+import { createJavaScriptDeobfuscationProvider } from "../../../src/composition/javascriptDeobfuscation.js";
+import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
+import { createTestTempDirectory } from "../temporaryDirectory.js";
+
+/** Exercise the production provider boundary while replacing only the external producer bytes. */
+export const deobfuscationFixture = async (
+  mode = "normal",
+  source = 'const table = ["hello", "world"];\nconsole.log(table[0] + " " + table[1]);\n',
+) => {
+  const root = await createTestTempDirectory("rea-js-redox-fixture-");
+  const path = join(root, "selected.js");
+  await writeFile(path, source);
+  const command = join(root, "fixture-js-redox");
+  await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const launches: { cwd: string | undefined; pid: number | undefined }[] = [];
+  const provider = createJavaScriptDeobfuscationProvider(
+    { ...process.env, REA_JS_REDOX_COMMAND: command },
+    async (options) => {
+      const start = options.arguments.indexOf("--") + 2;
+      const child = await spawnOwnedProviderProcess({
+        ...options,
+        command: process.execPath,
+        expectedCommand: process.execPath,
+        arguments: [
+          fileURLToPath(new URL("./producer.mjs", import.meta.url)),
+          ...options.arguments.slice(start),
+        ],
+        env: {
+          ...options.env,
+          REA_DEOBFUSCATION_FIXTURE_MODE: mode,
+        },
+      });
+      launches.push({ cwd: options.cwd, pid: child.process.pid });
+      return child;
+    },
+  );
+  return {
+    provider,
+    service: new JavaScriptDeobfuscationService(provider),
+    path,
+    output: join(root, "output"),
+    launches,
+  };
+};
+
+export const assertDeobfuscationCleanup = async (
+  launches: Awaited<ReturnType<typeof deobfuscationFixture>>["launches"],
+): Promise<void> => {
+  for (const launch of launches) {
+    const pid = launch.pid;
+    if (pid !== undefined)
+      expect(() => process.kill(-pid, 0)).toThrowError(
+        expect.objectContaining({ code: "ESRCH" }),
+      );
+    if (launch.cwd !== undefined)
+      await expect(access(launch.cwd)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+  }
+};
