@@ -75,13 +75,38 @@ export const parseDshCordisDocument = (
 ): ClientConfigurationDocument => {
   const patches = parsePatchList(text);
   const config = dshEntryConfig(patches);
+  const expressions = cordisEnvironmentExpressions(text);
   return {
     document: { [PATCHES_KEY]: [...patches] },
     servers: config === undefined ? {} : { rea: config },
     serversPath: [PATCHES_KEY],
     dialect: "dsh",
     legacyServers: {},
+    ...(expressions.size === 0
+      ? {}
+      : { cordisEnvironmentExpressions: expressions }),
   };
+};
+
+/**
+ * Whether the patch list contains the REA entry id, including a direct patch
+ * that never established a row. Uninstall owns that id even when the projected
+ * server is absent or its launcher is not the canonical command.
+ */
+export const dshDocumentCarriesEntry = (
+  document: Record<string, unknown>,
+): boolean => {
+  const patches = document[PATCHES_KEY];
+  if (!Array.isArray(patches)) return false;
+  return patches.some((op) => {
+    if (typeof op !== "object" || op === null || Array.isArray(op))
+      return false;
+    if (Reflect.get(op, "id") === DSH_ENTRY_ID) return true;
+    const inserted = Reflect.get(op, "insert");
+    return (
+      Array.isArray(inserted) && inserted.some((entry) => isInsertEntry(entry))
+    );
+  });
 };
 
 /**
@@ -133,17 +158,19 @@ const dshEntryConfig = (
       disabled = Reflect.get(op, "disabled");
   }
   if (!established || config === undefined) return undefined;
-  // Cordis keeps activation beside the config, and a disabled row never loads
-  // REA tools; project it into the server record so doctor and setup treat a
-  // matching command on a disabled row as stale instead of aligned. A foreign
-  // package name and a repeated insertion are projected the same way instead
-  // of hiding the row's config. A caller key named `duplicate` is not that
-  // projection; only an extra insertion sets it.
+  // Cordis keeps activation beside the config. A literal `true` never loads
+  // REA tools, and any other explicit state (including a `!!js` expression)
+  // can evaluate to disabled, so both project as stale. Only an omitted
+  // field or boolean `false` is an enabled row. A foreign package name and a
+  // repeated insertion are projected the same way instead of hiding the
+  // row's config. A caller key named `duplicate` is not that projection;
+  // only an extra insertion sets it.
   const configFields = { ...config };
   delete configFields.duplicate;
+  const activationSuppressed = disabled !== undefined && disabled !== false;
   return {
     ...configFields,
-    ...(disabled === true ? { disabled: true } : {}),
+    ...(activationSuppressed ? { disabled: true } : {}),
     ...(name === DSH_CLIENT_PACKAGE
       ? {}
       : {
@@ -321,6 +348,29 @@ const applyDshEnvConfig = (
  * node that lives on a later patch is cloned onto the kept entry before that
  * patch is removed.
  */
+const JAVASCRIPT_TAG_NAME = "tag:yaml.org,2002:js";
+
+/**
+ * Environment keys whose winning scalar is a Cordis expression. The value
+ * parser keeps only the source text, so this scan is what stops that text
+ * from being checked as a literal REA path.
+ */
+const cordisEnvironmentExpressions = (text: string): ReadonlySet<string> => {
+  const yamlDocument = parseYamlDocument(text, { logLevel: "silent" });
+  const root = yamlDocument.contents;
+  if (!isSeq(root)) return new Set();
+  const winning = dshWinningConfigNode(root.items);
+  if (!isMap(winning)) return new Set();
+  const env = winning.get("env");
+  if (!isMap(env)) return new Set();
+  const keys = new Set<string>();
+  for (const key of yamlMapStringKeys(env)) {
+    const node = env.get(key, true);
+    if (isScalar(node) && node.tag === JAVASCRIPT_TAG_NAME) keys.add(key);
+  }
+  return keys;
+};
+
 /** The config node to edit: the kept entry's own node, or a clone of a later winner. */
 const registrationConfigNode = (
   entryMap: YAMLMap<unknown, unknown>,

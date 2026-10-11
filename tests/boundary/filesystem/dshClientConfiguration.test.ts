@@ -830,4 +830,128 @@ describe("DeepSeek Harness document edges", () => {
   });
 });
 
+describe("DeepSeek Harness entry ownership", () => {
+  const registration = async (home: string) =>
+    (
+      await readClientRegistrationStatuses(home, undefined, {
+        platform: process.platform,
+        environment: {},
+      })
+    ).find(({ client: name }) => name === "dsh");
+
+  it("removes a stale launcher and a direct-only row by entry id", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: other-tool
+      name: other
+      config:
+        command: keep-me
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const removed = await readFile(client.configPath, "utf8");
+    expect(removed).toContain("other-tool");
+    expect(removed).not.toContain("rea-mcp");
+    expect(removed).not.toContain("stale-launcher");
+
+    await writeFile(
+      client.configPath,
+      `- id: other-tool
+  config:
+    command: keep-me
+- id: rea-mcp
+  name: "@deepseek-ai/dsh-mcp-client"
+  config: {}
+`,
+    );
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const direct = await readFile(client.configPath, "utf8");
+    expect(direct).toContain("other-tool");
+    expect(direct).not.toContain("rea-mcp");
+  });
+
+  it("treats an expression disabled state as stale and clears it", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      disabled: !!js process.env.DISABLE_REA === "1"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${command[0]}
+        args: [${command.slice(1).join(", ")}]
+`,
+    );
+
+    expect(await registration(home)).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("DISABLE_REA");
+    expect(text).not.toContain("disabled:");
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await registration(home)).toMatchObject({ state: "aligned" });
+  });
+
+  it("keeps a Cordis expression on a known environment setting", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          GHIDRA_INSTALL_DIR: !!js process.env.GHIDRA_INSTALL_DIR
+`,
+    );
+
+    // The expression is not a literal path, so doctor can still classify the
+    // row instead of rejecting the file.
+    expect(await registration(home)).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.env.GHIDRA_INSTALL_DIR");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert: { config: { env?: Record<string, string> } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.env).toEqual({
+      GHIDRA_INSTALL_DIR: "process.env.GHIDRA_INSTALL_DIR",
+    });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await readFile(client.configPath, "utf8")).toContain(
+      "!!js process.env.GHIDRA_INSTALL_DIR",
+    );
+  });
+});
+
 const textOf = (value: unknown): string => String(value);

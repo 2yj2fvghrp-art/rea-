@@ -52,6 +52,11 @@ export interface ClientConfigurationDocument {
    * still loads them, and a native entry with the same name takes precedence.
    */
   readonly legacyServers: Record<string, unknown>;
+  /**
+   * Harness environment keys whose values are Cordis `!!js` expressions. The
+   * server record stores the expression text, which is not a literal REA path.
+   */
+  readonly cordisEnvironmentExpressions?: ReadonlySet<string>;
 }
 
 const objectSchema = z.record(z.string(), z.unknown());

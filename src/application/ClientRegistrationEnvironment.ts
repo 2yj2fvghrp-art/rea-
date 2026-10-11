@@ -42,8 +42,19 @@ export const clientRegistrationEnvironment = (
     );
   // Validate known settings with the runtime's parser, but retain the original
   // string overrides, including unknown client-specific keys and no defaults.
+  // A Cordis expression is source text, not a literal path, unless an override
+  // replaced it.
   const environment = { ...existing.data, ...overrides };
-  const validated = parseEnvironment(environment);
+  const expressions = parsed?.cordisEnvironmentExpressions;
+  const validated = parseEnvironment(
+    expressions === undefined || expressions.size === 0
+      ? environment
+      : Object.fromEntries(
+          Object.entries(environment).filter(
+            ([key]) => !expressions.has(key) || Object.hasOwn(overrides, key),
+          ),
+        ),
+  );
   if (!validated.ok) return validated;
   return ok(
     Object.fromEntries(

@@ -22,6 +22,7 @@ import {
   skillDestinations,
 } from "./SetupSkill.js";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
+import { dshDocumentCarriesEntry } from "./DshCordisPatch.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
 import { readRegularFileText } from "./RegularFileRead.js";
 import {
@@ -260,10 +261,15 @@ const removeClient = async (
   // Beside a native OpenCode V2 table, OpenCode also loads a V1 `mcp.rea`.
   const legacyPath = legacyClientServerPath(parsed, name);
   const hasNative = Object.hasOwn(parsed.servers, name);
-  if (!hasNative && legacyPath === undefined)
+  // Harness ownership is the stable entry id. A stale or malformed launcher
+  // still belongs to that id, and so does a direct patch that projects no row.
+  const carriesDshEntry =
+    parsed.dialect === "dsh" && dshDocumentCarriesEntry(parsed.document);
+  if (!hasNative && legacyPath === undefined && !carriesDshEntry)
     return item(client.name, "skipped", "REA registration is absent.");
   const removeNative =
-    hasNative && isOwnedRegistration(parsed.servers[name], client);
+    carriesDshEntry ||
+    (hasNative && isOwnedRegistration(parsed.servers[name], client));
   const removeLegacy =
     legacyPath !== undefined &&
     isOwnedRegistration(parsed.legacyServers[name], client);
