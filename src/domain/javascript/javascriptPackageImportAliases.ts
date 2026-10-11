@@ -32,21 +32,20 @@ export type PackageImportExactLookup =
 /** How a selected string target is interpreted for package-private imports. */
 export type PackageImportTargetClassification =
   | { readonly kind: "relative"; readonly target: string }
+  | { readonly kind: "invalid"; readonly target: string }
   | { readonly kind: "recursive"; readonly target: string }
   | { readonly kind: "external-package"; readonly target: string };
 
 /**
  * Classify a `#` module specifier before any package-scope walk.
- * Reserved forms (`#`, `#/…`) are invalid; `*` and trailing `/` need pattern
- * expansion, which this increment does not perform.
+ * `#` and names ending in `/` are invalid. Other literal keys, including
+ * `#/…`, participate in exact lookup; wildcard expansion remains unsupported.
  */
 export const classifyPackageImportSpecifier = (
   specifier: string,
 ): PackageImportSpecifierClassification => {
-  if (specifier === "#" || specifier.startsWith("#/"))
-    return { kind: "invalid" };
-  if (specifier.includes("*") || specifier.endsWith("/"))
-    return { kind: "pattern" };
+  if (specifier === "#" || specifier.endsWith("/")) return { kind: "invalid" };
+  if (specifier.includes("*")) return { kind: "pattern" };
   return { kind: "exact", key: specifier };
 };
 
@@ -80,12 +79,20 @@ export const lookupExactPackageImport = (
 
 /**
  * Classify a selected string import target. Only package-local `./` paths are
- * resolved as files; recursive `#` aliases and other specifiers stay unknown.
+ * resolved as files; recursive `#` aliases and bare packages stay unknown.
+ * Parent-relative, absolute, and URL targets are invalid, allowing array
+ * selection to skip them before choosing a package-local fallback.
  */
 export const classifyPackageImportTargetString = (
   target: string,
 ): PackageImportTargetClassification => {
   if (target.startsWith("./")) return { kind: "relative", target };
+  if (
+    target.startsWith("../") ||
+    target.startsWith("/") ||
+    URL.canParse(target)
+  )
+    return { kind: "invalid", target };
   if (target.startsWith("#")) return { kind: "recursive", target };
   return { kind: "external-package", target };
 };

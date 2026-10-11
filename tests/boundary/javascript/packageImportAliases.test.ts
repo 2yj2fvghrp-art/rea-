@@ -120,7 +120,7 @@ const resolveAlias = (
 describe("literal package import keys compared with Node", () => {
   it("matches literal imports keys containing path-like bytes in both Node loaders", async () => {
     const root = await createTestTempDirectory("rea-import-alias-literal-");
-    const specifiers = ["#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
+    const specifiers = ["#/x", "#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
     const contents = await writeTree(root, {
       "package.json": JSON.stringify({
         imports: Object.fromEntries(
@@ -173,6 +173,128 @@ describe("literal package import keys compared with Node", () => {
       expect(
         resolveAlias(inventoried, "#x%2Fy", "main.cjs", moduleKind),
       ).toMatchObject({ resolution_status: "rejected", resolved_path: null });
+  });
+});
+
+describe("package import target arrays compared with Node", () => {
+  it("skips invalid parent, absolute, and URL targets before an exact fallback", async () => {
+    const root = await createTestTempDirectory("rea-import-alias-fallback-");
+    const imports = {
+      "#parent": ["../outside.cjs", "./fallback.cjs"],
+      "#absolute": { node: [["/outside.cjs"], "./fallback.cjs"] },
+      "#url": {
+        import: ["https://example.invalid/outside.cjs", "./fallback.cjs"],
+        require: ["file:///outside.cjs", "./fallback.cjs"],
+      },
+    };
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({ imports }),
+      "main.cjs": "module.exports = 1;",
+      "fallback.cjs": "module.exports = 1;",
+    });
+    const inventoried = inventory(contents);
+    for (const specifier of Object.keys(imports)) {
+      const required = await nodeRequireTarget(
+        join(root, "main.cjs"),
+        specifier,
+      );
+      expect(required.error_code).toBeNull();
+      expect(posixRelative(root, required.target ?? "")).toBe("fallback.cjs");
+      const imported = await nodeImportTarget(root, specifier);
+      expect(imported.error_code).toBeNull();
+      expect(posixRelative(root, fileURLToPath(imported.target ?? ""))).toBe(
+        "fallback.cjs",
+      );
+      for (const moduleKind of ["require", "import"] as const)
+        expect(
+          resolveAlias(inventoried, specifier, "main.cjs", moduleKind),
+        ).toMatchObject({
+          declared_path: specifier,
+          resolution_status: "resolved",
+          resolved_path: "fallback.cjs",
+        });
+    }
+  });
+
+  it("preserves invalid, null, and unsupported-package outcomes in arrays", async () => {
+    const root = await createTestTempDirectory(
+      "rea-import-alias-fallback-refuse-",
+    );
+    const contents = await writeTree(root, {
+      "package.json": JSON.stringify({
+        imports: {
+          "#invalid": [null, "../outside.cjs"],
+          "#blocked": ["../outside.cjs", null],
+          "#package": ["fixture", "./fallback.cjs"],
+        },
+      }),
+      "main.cjs": "module.exports = 1;",
+      "fallback.cjs": "module.exports = 1;",
+      "node_modules/fixture/package.json": JSON.stringify({
+        name: "fixture",
+        main: "index.cjs",
+      }),
+      "node_modules/fixture/index.cjs": "module.exports = 2;",
+    });
+    const inventoried = inventory(contents);
+    for (const [specifier, errorCode, resolutionStatus, reason] of [
+      ["#invalid", "ERR_INVALID_PACKAGE_TARGET", "rejected", "../outside.cjs"],
+      [
+        "#blocked",
+        "ERR_PACKAGE_IMPORT_NOT_DEFINED",
+        "external",
+        "explicit null",
+      ],
+    ] as const) {
+      const required = await nodeRequireTarget(
+        join(root, "main.cjs"),
+        specifier,
+      );
+      expect(required.error_code).toBe(errorCode);
+      expect((await nodeImportTarget(root, specifier)).error_code).toBe(
+        errorCode,
+      );
+      for (const moduleKind of ["require", "import"] as const) {
+        const result = resolveAlias(
+          inventoried,
+          specifier,
+          "main.cjs",
+          moduleKind,
+        );
+        expect(result).toMatchObject({
+          resolution_status: resolutionStatus,
+          resolved_path: null,
+        });
+        expect(result.limitations.join(" ")).toContain(reason);
+      }
+    }
+    const required = await nodeRequireTarget(
+      join(root, "main.cjs"),
+      "#package",
+    );
+    expect(posixRelative(root, required.target ?? "")).toBe(
+      "node_modules/fixture/index.cjs",
+    );
+    const imported = await nodeImportTarget(root, "#package");
+    expect(imported.error_code).toBeNull();
+    expect(posixRelative(root, fileURLToPath(imported.target ?? ""))).toBe(
+      "node_modules/fixture/index.cjs",
+    );
+    for (const moduleKind of ["require", "import"] as const) {
+      const result = resolveAlias(
+        inventoried,
+        "#package",
+        "main.cjs",
+        moduleKind,
+      );
+      expect(result).toMatchObject({
+        resolution_status: "external",
+        resolved_path: null,
+      });
+      expect(result.limitations.join(" ")).toContain(
+        "External-package import targets remain unresolved",
+      );
+    }
   });
 });
 
@@ -296,7 +418,13 @@ describe("package import alias refusals compared with Node", () => {
     const files = {
       "package.json": JSON.stringify({
         name: "app",
-        imports: { "#config": "./config.cjs", "#blocked": null },
+        imports: {
+          "#config": "./config.cjs",
+          "#blocked": null,
+          "#": "./config.cjs",
+          "#/": "./config.cjs",
+          "#config/": "./config.cjs",
+        },
       }),
       "main.cjs": "module.exports = 1;",
       "config.cjs": "module.exports = 1;",
@@ -313,11 +441,20 @@ describe("package import alias refusals compared with Node", () => {
     expect(
       resolveAlias(inventoried, "#blocked", "main.cjs", "require"),
     ).toMatchObject({ resolution_status: "external", resolved_path: null });
-    const reserved = await nodeRequireTarget(join(root, "main.cjs"), "#");
-    expect(reserved.error_code).toBe("ERR_INVALID_MODULE_SPECIFIER");
-    expect(resolveAlias(inventoried, "#", "main.cjs", "require")).toMatchObject(
-      { resolution_status: "rejected", resolved_path: null },
-    );
+    for (const specifier of ["#", "#/", "#config/"]) {
+      const reserved = await nodeRequireTarget(
+        join(root, "main.cjs"),
+        specifier,
+      );
+      expect(reserved.error_code).toBe("ERR_INVALID_MODULE_SPECIFIER");
+      expect((await nodeImportTarget(root, specifier)).error_code).toBe(
+        "ERR_INVALID_MODULE_SPECIFIER",
+      );
+      for (const moduleKind of ["require", "import"] as const)
+        expect(
+          resolveAlias(inventoried, specifier, "main.cjs", moduleKind),
+        ).toMatchObject({ resolution_status: "rejected", resolved_path: null });
+    }
   });
 
   it("matches Node when an import condition selects a different exact file", async () => {

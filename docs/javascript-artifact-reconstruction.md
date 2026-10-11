@@ -437,6 +437,12 @@ as exports subpaths. A missing key, explicit null, or out-of-scope alias keeps
 an unresolved edge with that reason. Wildcard keys (`#internal/*`), recursive
 `#` targets, and external-package import targets remain unresolved.
 
+Exact keys such as `#/x` are literal lookup identities. `#` and names ending
+in `/` are invalid. Imports arrays skip invalid parent-relative, absolute, and
+URL targets before selecting a later package-local file; an unsupported bare
+package or recursive alias keeps its unresolved outcome rather than selecting
+a later fallback.
+
 ESM relative module paths and selected package exports targets use URL suffix handling
 and one percent-decoding pass. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with

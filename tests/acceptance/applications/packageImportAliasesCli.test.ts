@@ -11,7 +11,16 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
-const literalAliases = ["#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
+const literalAliases = ["#/x", "#x%2Fy", "#x%2Ey", "#x\\y", "#x\0y"];
+const fallbackAliases = {
+  "#parent": ["../outside.cjs", "./config.cjs"],
+  "#absolute": { node: [["/outside.cjs"], "./config.cjs"] },
+  "#url": {
+    import: ["https://example.invalid/outside.cjs", "./config.cjs"],
+    require: ["file:///outside.cjs", "./config.cjs"],
+  },
+};
+const resolvedAliases = [...literalAliases, ...Object.keys(fallbackAliases)];
 
 const createPackageImportAliasFixture = async () => {
   const root = await createTestTempDirectory("rea-package-import-aliases-");
@@ -19,11 +28,11 @@ const createPackageImportAliasFixture = async () => {
     'const config = require("#config");',
     'const nested = require("./node_modules/fixture/index.cjs");',
     'const missing = require("#missing");',
-    ...literalAliases.map(
+    ...resolvedAliases.map(
       (specifier) => `require(${JSON.stringify(specifier)});`,
     ),
   ].join("\n");
-  const moduleSource = literalAliases
+  const moduleSource = resolvedAliases
     .map((specifier) => `import ${JSON.stringify(specifier)};`)
     .join("\n");
   const nestedSource = [
@@ -38,6 +47,7 @@ const createPackageImportAliasFixture = async () => {
         ...Object.fromEntries(
           literalAliases.map((specifier) => [specifier, "./config.cjs"]),
         ),
+        ...fallbackAliases,
       },
     }),
     "main.cjs": mainSource,
@@ -101,7 +111,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const { graph } = z
       .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
       .parse(document).normalized_result;
-    for (const specifier of literalAliases)
+    for (const specifier of resolvedAliases)
       for (const [moduleKind, sourcePath, source] of [
         ["require", "main.cjs", mainSource],
         ["import", "main.mjs", moduleSource],

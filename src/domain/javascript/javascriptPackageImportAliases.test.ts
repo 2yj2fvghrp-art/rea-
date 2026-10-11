@@ -14,14 +14,17 @@ describe("package import specifier classification", () => {
     });
   });
 
-  it("treats a nested exact hash path as an exact key", () => {
-    expect(classifyPackageImportSpecifier("#internal/env")).toEqual({
-      kind: "exact",
-      key: "#internal/env",
-    });
-  });
+  it.each(["#internal/env", "#/hidden"])(
+    "treats %j as an exact key",
+    (specifier) => {
+      expect(classifyPackageImportSpecifier(specifier)).toEqual({
+        kind: "exact",
+        key: specifier,
+      });
+    },
+  );
 
-  it.each(["#", "#/", "#/hidden"])(
+  it.each(["#", "#/", "#utils/"])(
     "rejects reserved specifier %j",
     (specifier) => {
       expect(classifyPackageImportSpecifier(specifier)).toEqual({
@@ -30,7 +33,7 @@ describe("package import specifier classification", () => {
     },
   );
 
-  it.each(["#internal/*", "#utils/", "#*"])(
+  it.each(["#internal/*", "#*"])(
     "leaves pattern specifier %j unresolved",
     (specifier) => {
       expect(classifyPackageImportSpecifier(specifier)).toEqual({
@@ -119,7 +122,7 @@ describe("package import target string classification", () => {
     });
   });
 
-  it.each(["lodash", "pkg/subpath", "https://example.invalid/mod.js"])(
+  it.each(["lodash", "pkg/subpath"])(
     "marks %j as an external-package target",
     (target) => {
       expect(classifyPackageImportTargetString(target)).toEqual({
@@ -128,4 +131,17 @@ describe("package import target string classification", () => {
       });
     },
   );
+
+  it.each([
+    "../outside.js",
+    "/outside.js",
+    "https://example.invalid/mod.js",
+    "file:///outside.js",
+    "node:fs",
+  ])("marks %j as an invalid import target", (target) => {
+    expect(classifyPackageImportTargetString(target)).toEqual({
+      kind: "invalid",
+      target,
+    });
+  });
 });

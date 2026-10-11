@@ -278,7 +278,7 @@ const resolvePackageImportAlias = (
   const classified = classifyPackageImportSpecifier(specifier);
   if (classified.kind === "invalid")
     return unresolvedCandidate("rejected", [
-      `The package import specifier ${JSON.stringify(specifier)} is reserved; "#" and specifiers that start with "#/" are not valid import aliases.`,
+      `The package import specifier ${JSON.stringify(specifier)} is invalid; "#" and specifiers that end with "/" are not valid import aliases.`,
     ]);
   if (classified.kind === "pattern")
     return unresolvedCandidate("external", [
@@ -855,10 +855,17 @@ const selectStringPackageTarget = (
   value: string,
   mapKind: "exports" | "imports",
 ): ExportTargetOutcome => {
-  if (!value.startsWith("./"))
-    return mapKind === "imports"
-      ? { kind: "non-relative", value }
-      : invalidExportTarget(value, 'must start with "./"', mapKind);
+  if (mapKind === "imports") {
+    const target = classifyPackageImportTargetString(value);
+    if (target.kind === "invalid")
+      return invalidExportTarget(
+        value,
+        "cannot be parent-relative, absolute, or a URL",
+        mapKind,
+      );
+    if (target.kind !== "relative") return { kind: "non-relative", value };
+  } else if (!value.startsWith("./"))
+    return invalidExportTarget(value, 'must start with "./"', mapKind);
   const forbidden = forbiddenExportSegment(value);
   return forbidden === undefined
     ? { kind: "value", value }
