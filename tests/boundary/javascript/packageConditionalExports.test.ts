@@ -56,10 +56,12 @@ const compareWithNode = async (
   exportsMap: unknown,
   moduleKind: "import" | "require",
   present: readonly string[] = TARGETS,
+  siblingFile = false,
 ): Promise<{
   readonly node: string | null;
   readonly node_error: string | null;
   readonly outcome: ArtifactPathResolution;
+  readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
 }> => {
   const root = await createTestTempDirectory("rea-exports-");
   const packageDirectory = join(root, "node_modules", "example");
@@ -70,6 +72,11 @@ const compareWithNode = async (
     ["main.js", ""],
     ["node_modules/example/package.json", metadata],
   ]);
+  if (siblingFile) {
+    const source = 'module.exports = "example.js";';
+    await writeFile(join(root, "node_modules", "example.js"), source);
+    contents.set("node_modules/example.js", source);
+  }
   for (const target of present) {
     const source = `module.exports = ${JSON.stringify(target)};`;
     await writeFile(join(packageDirectory, target), source);
@@ -94,6 +101,7 @@ const compareWithNode = async (
   return {
     node: node.target,
     node_error: node.error_code,
+    files,
     outcome: resolveArtifactPathByContext({
       declaredPath: "example",
       sourcePath: "main.js",
@@ -208,6 +216,101 @@ describe("ordered package exports conditions", () => {
       );
     },
   );
+});
+
+describe("package exports before sibling files", () => {
+  it.each(["import", "require"] as const)(
+    "selects the active %s export before a same-named sibling file",
+    async (moduleKind) => {
+      const { node, node_error, outcome } = await compareWithNode(
+        { import: "./specific.cjs", require: "./require.cjs" },
+        moduleKind,
+        TARGETS,
+        true,
+      );
+      const target = moduleKind === "import" ? "specific.cjs" : "require.cjs";
+      expect(node).toBe(target);
+      expect(node_error).toBeNull();
+      expect(outcome).toMatchObject({
+        resolved_path: `node_modules/example/${target}`,
+        resolution_status: "resolved",
+      });
+    },
+  );
+
+  it.each([
+    [{ ".": null }, "ERR_PACKAGE_PATH_NOT_EXPORTED", "external"],
+    ["./missing.cjs", "MODULE_NOT_FOUND", "not-found"],
+    ["../outside.cjs", "ERR_INVALID_PACKAGE_TARGET", "rejected"],
+  ] as const)(
+    "preserves the refusal for %j despite a same-named sibling file",
+    async (exportsMap, error, status) => {
+      for (const moduleKind of ["import", "require"] as const) {
+        const { node, node_error, outcome } = await compareWithNode(
+          exportsMap,
+          moduleKind,
+          TARGETS,
+          true,
+        );
+        expect(node).toBeNull();
+        expect(node_error).toBe(
+          error === "MODULE_NOT_FOUND" && moduleKind === "import"
+            ? "ERR_MODULE_NOT_FOUND"
+            : error,
+        );
+        expect(outcome).toMatchObject({
+          resolved_path: null,
+          resolution_status: status,
+        });
+        expect(outcome.limitations).not.toHaveLength(0);
+      }
+    },
+  );
+
+  it.each([undefined, null])(
+    "preserves CommonJS sibling-file priority when exports is %s",
+    async (exportsMap) => {
+      const { node, node_error, outcome } = await compareWithNode(
+        exportsMap,
+        "require",
+        [...TARGETS, "index.js"],
+        true,
+      );
+      expect(node).toBe("example.js");
+      expect(node_error).toBeNull();
+      expect(outcome).toMatchObject({
+        resolved_path: "node_modules/example.js",
+        resolution_status: "resolved",
+      });
+    },
+  );
+
+  it("does not let another container's exports override a local sibling file", async () => {
+    const { files } = await compareWithNode(
+      "./default.cjs",
+      "require",
+      TARGETS,
+      true,
+    );
+    const outcome = resolveArtifactPathByContext({
+      declaredPath: "example",
+      sourcePath: "main.js",
+      context: "module-specifier",
+      moduleKind: "require",
+      files: new Map(
+        [...files].map(([path, file]) => [
+          path,
+          path.startsWith("node_modules/example/")
+            ? { ...file, container_sha256: "c".repeat(64) }
+            : file,
+        ]),
+      ),
+    });
+    expect(outcome).toMatchObject({
+      resolved_path: "node_modules/example.js",
+      resolution_status: "resolved",
+    });
+  });
 });
 describe("nested and array package export targets", () => {
   it.each([

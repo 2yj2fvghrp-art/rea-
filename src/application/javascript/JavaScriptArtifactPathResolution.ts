@@ -204,12 +204,15 @@ const bareModuleCandidate = (
   let directory = posix.dirname(input.sourcePath);
   while (true) {
     const candidate = posix.join(directory, "node_modules", packageName);
+    const metadata = readPackageMetadata(input, candidate);
+    if (metadata.kind !== "absent")
+      return resolvePackageSpecifier(input, candidate, subpath, metadata);
     if (subpath === ".") {
       const direct = resolveFileCandidates(input, fileCandidates(candidate));
       if (direct !== null) return direct;
     }
     if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
-      return resolvePackageSpecifier(input, candidate, subpath);
+      return resolvePackageSpecifier(input, candidate, subpath, metadata);
     if (directory === "." || directory === "") break;
     directory = posix.dirname(directory);
   }
@@ -223,8 +226,8 @@ const resolvePackageSpecifier = (
   input: ResolveArtifactPathInput,
   directory: string,
   subpath: string,
+  metadata: PackageMetadata,
 ): CandidateResolution => {
-  const metadata = readPackageMetadata(input, directory);
   if (metadata.kind === "unavailable")
     return unresolvedCandidate("unavailable", [metadata.limitation]);
   const rawExports =
@@ -233,7 +236,10 @@ const resolvePackageSpecifier = (
       : undefined;
   if (rawExports === undefined || rawExports === null) {
     if (subpath === ".")
-      return resolveDirectory(input, directory, metadata, new Set());
+      return (
+        resolveFileCandidates(input, fileCandidates(directory)) ??
+        resolveDirectory(input, directory, metadata, new Set())
+      );
     // Preserve the trailing slash for a package directory request.
     const candidate = confineCandidate(`${directory}/${subpath.slice(2)}`);
     return typeof candidate === "string"

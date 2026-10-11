@@ -11,55 +11,70 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
+const createPackageSubpathFixture = async () => {
+  const root = await createTestTempDirectory("rea-package-subpaths-");
+  const source = [
+    'const nearest = require("fixture/parser");',
+    'const nested = require("nested/parser");',
+    'const parser = require("exported/parser");',
+    'const directory = require("exported/parser/");',
+    'const hidden = require("exported/hidden");',
+    'const missing = require("exported/missing");',
+    'new BrowserWindow({webPreferences:{preload:"exported/parser"}});',
+    'const file = require("fixture");',
+    'const packageDirectory = require("fixture/");',
+    'const selected = require("@scope/selected");',
+    'const blocked = require("blocked");',
+  ].join("\n");
+  const files = {
+    "src/main.cjs": source,
+    "src/node_modules/fixture/parser.js": "module.exports = 1;",
+    "src/node_modules/fixture.js": "module.exports = 'file';",
+    "src/node_modules/fixture/index.js": "module.exports = 'directory';",
+    "node_modules/fixture/package.json": "{}",
+    "node_modules/fixture/parser.js": "module.exports = 2;",
+    "node_modules/nested/package.json": "{}",
+    "node_modules/nested/parser/package.json": JSON.stringify({
+      main: "./entry.js",
+      exports: "./decoy.js",
+    }),
+    "node_modules/nested/parser/entry.js": "module.exports = 3;",
+    "node_modules/nested/parser/index.js": "module.exports = 4;",
+    "node_modules/nested/parser/decoy.js": "module.exports = 5;",
+    "node_modules/exported/package.json": JSON.stringify({
+      exports: {
+        "./parser": "./parser.cjs",
+        "./parser/": "./parser.cjs",
+        "./missing": "./missing.cjs",
+      },
+    }),
+    "node_modules/exported/parser.cjs": "module.exports = 6;",
+    "node_modules/exported/hidden.js": "module.exports = 7;",
+    "node_modules/exported/missing/index.js": "module.exports = 8;",
+    "node_modules/@scope/selected.js": "module.exports = 'sibling';",
+    "node_modules/@scope/selected/package.json": JSON.stringify({
+      exports: { require: "./actual.cjs" },
+    }),
+    "node_modules/@scope/selected/actual.cjs": "module.exports = 'export';",
+    "node_modules/blocked.js": "module.exports = 'sibling';",
+    "node_modules/blocked/package.json": JSON.stringify({
+      exports: { ".": null },
+    }),
+  };
+  await Promise.all(
+    Object.entries(files).map(async ([path, content]) => {
+      const absolute = join(root, path);
+      await mkdir(dirname(absolute), { recursive: true });
+      await writeFile(absolute, content);
+    }),
+  );
+  return { root, source };
+};
+
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "resolves package subpaths with source provenance through %s",
   async (surface, { cli }) => {
-    const root = await createTestTempDirectory("rea-package-subpaths-");
-    const source = [
-      'const nearest = require("fixture/parser");',
-      'const nested = require("nested/parser");',
-      'const parser = require("exported/parser");',
-      'const directory = require("exported/parser/");',
-      'const hidden = require("exported/hidden");',
-      'const missing = require("exported/missing");',
-      'new BrowserWindow({webPreferences:{preload:"exported/parser"}});',
-      'const file = require("fixture");',
-      'const packageDirectory = require("fixture/");',
-    ].join("\n");
-    const files = {
-      "src/main.cjs": source,
-      "src/node_modules/fixture/parser.js": "module.exports = 1;",
-      "src/node_modules/fixture.js": "module.exports = 'file';",
-      "src/node_modules/fixture/index.js": "module.exports = 'directory';",
-      "node_modules/fixture/package.json": "{}",
-      "node_modules/fixture/parser.js": "module.exports = 2;",
-      "node_modules/nested/package.json": "{}",
-      "node_modules/nested/parser/package.json": JSON.stringify({
-        main: "./entry.js",
-        exports: "./decoy.js",
-      }),
-      "node_modules/nested/parser/entry.js": "module.exports = 3;",
-      "node_modules/nested/parser/index.js": "module.exports = 4;",
-      "node_modules/nested/parser/decoy.js": "module.exports = 5;",
-      "node_modules/exported/package.json": JSON.stringify({
-        exports: {
-          "./parser": "./parser.cjs",
-          "./parser/": "./parser.cjs",
-          "./missing": "./missing.cjs",
-        },
-      }),
-      "node_modules/exported/parser.cjs": "module.exports = 6;",
-      "node_modules/exported/hidden.js": "module.exports = 7;",
-      "node_modules/exported/missing/index.js": "module.exports = 8;",
-    };
-    await Promise.all(
-      Object.entries(files).map(async ([path, content]) => {
-        const absolute = join(root, path);
-        await mkdir(dirname(absolute), { recursive: true });
-        await writeFile(absolute, content);
-      }),
-    );
-
+    const { root, source } = await createPackageSubpathFixture();
     const nativeRequire = createRequire(join(root, "src/main.cjs"));
     const expectedTargets = {
       "fixture/parser": "src/node_modules/fixture/parser.js",
@@ -67,12 +82,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "fixture/": "src/node_modules/fixture/index.js",
       "nested/parser": "node_modules/nested/parser/entry.js",
       "exported/parser": "node_modules/exported/parser.cjs",
+      "@scope/selected": "node_modules/@scope/selected/actual.cjs",
     };
     for (const [specifier, target] of Object.entries(expectedTargets))
       expect(
         relative(root, nativeRequire.resolve(specifier)).replaceAll("\\", "/"),
       ).toBe(target);
-    for (const specifier of ["exported/parser/", "exported/hidden"])
+    for (const specifier of ["exported/parser/", "exported/hidden", "blocked"])
       expect(() => nativeRequire.resolve(specifier)).toThrow(
         expect.objectContaining({ code: "ERR_PACKAGE_PATH_NOT_EXPORTED" }),
       );
@@ -131,6 +147,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["exported/parser/", "external"],
       ["exported/hidden", "external"],
       ["exported/missing", "not-found"],
+      ["blocked", "external"],
     ])
       expect(imports).toContainEqual(
         expect.objectContaining({
