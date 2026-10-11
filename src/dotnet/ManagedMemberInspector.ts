@@ -120,8 +120,10 @@ const selectTypes = (
 ): {
   readonly tokens: SelectedTypeTokens;
   readonly selection: ManagedMemberInspection["selection"];
+  readonly unreadableNames: number;
 } => {
-  if (typeNames === undefined) return { tokens: null, selection: null };
+  if (typeNames === undefined)
+    return { tokens: null, selection: null, unreadableNames: 0 };
   const requested = new Set(typeNames);
   const tokens = new Set<string>();
   const matched = new Set<string>();
@@ -132,6 +134,7 @@ const selectTypes = (
   }
   return {
     tokens,
+    unreadableNames: ranges.filter(({ fullName }) => fullName === null).length,
     selection: {
       type_names: [...typeNames],
       unmatched_type_names: typeNames.filter((name) => !matched.has(name)),
@@ -156,7 +159,11 @@ export const inspectManagedMembersBytes = (
     const { layout, inventory } = readMemberInventory(bytes, pe, issues);
     issues.push(...inventory.issues);
     const ranges = typeRanges(bytes, layout, issues);
-    const { tokens: selected, selection } = selectTypes(ranges, typeNames);
+    const {
+      tokens: selected,
+      selection,
+      unreadableNames,
+    } = selectTypes(ranges, typeNames);
     const parsedTypes = parseTypes(bytes, layout, ranges);
     issues.push(...parsedTypes.issues);
     const fields = parseFields(bytes, layout, ranges, selected);
@@ -231,6 +238,11 @@ export const inspectManagedMembersBytes = (
               ? []
               : [
                   "Types, fields, methods, call edges, and field accesses cover only the selected declaring types; coverage describes that selection. Edge targets outside it keep their names but are not described.",
+                ]),
+            ...(unreadableNames === 0
+              ? []
+              : [
+                  `${String(unreadableNames)} TypeDef name(s) could not be read; a name in selection.unmatched_type_names may belong to one of them, so its absence is not observed.`,
                 ]),
           ],
         },

@@ -417,6 +417,24 @@ describe("managed member type selection", () => {
     );
   });
 
+  it("does not treat a name as absent when a TypeDef name is unreadable", () => {
+    const corrupt = Buffer.from(bytes);
+    const row = everything.types[0]?.row_offset ?? 0;
+    // Point the TypeDef Name past the #Strings heap.
+    corrupt.writeUInt16LE(0xffff, row + 4);
+    const result = inspectManagedMembersBytes(
+      corrupt,
+      managedPeFixtureTarget(corrupt),
+      { typeNames: ["Fixture.Program"] },
+    );
+
+    expect(result.selection?.unmatched_type_names).toEqual(["Fixture.Program"]);
+    expect(result.coverage.state).toBe("partial");
+    expect(result.limitations).toContain(
+      "1 TypeDef name(s) could not be read; a name in selection.unmatched_type_names may belong to one of them, so its absence is not observed.",
+    );
+  });
+
   it("omits members of unselected types without dropping member references", () => {
     const result = inspectManagedMembersBytes(bytes, target, {
       typeNames: ["Missing.Type"],

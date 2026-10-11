@@ -9,6 +9,7 @@ import {
   type ManagedMetadataLayout,
 } from "./ManagedMetadataLayout.js";
 import {
+  MetadataRowCursor,
   metadataRowCursor,
   metadataCodedToken,
   metadataCodedTokenInvalidReason,
@@ -262,9 +263,26 @@ const methodStartsForTypes = (
   if (typeMethodStarts.has(layout)) return typeMethodStarts.get(layout) ?? null;
   let index: TypeMethodStarts | null;
   try {
+    const table = layout.table(2);
+    if (table === undefined) return null;
+    // The index retains one number per row, so charge that rather than the
+    // per-row bookkeeping metadataRowCursor reserves for retained row facts.
+    managedDecodeBudget(layout).reserve(typeCount * 8, null);
     const starts: number[] = [];
-    for (let row = 1; row <= typeCount; row += 1)
-      starts.push(methodListForType(bytes, layout, row));
+    for (let row = 1; row <= typeCount; row += 1) {
+      const start = metadataRowOffset(layout, 2, row);
+      starts.push(
+        methodListFrom(
+          new MetadataRowCursor(
+            bytes,
+            start,
+            start + table.rowSize,
+            `metadata.${table.name}`,
+          ),
+          layout,
+        ),
+      );
+    }
     index = {
       starts,
       ordered: starts.every(
@@ -354,8 +372,12 @@ const methodListForType = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   row: number,
+): number => methodListFrom(metadataRowCursor(bytes, layout, 2, row), layout);
+
+const methodListFrom = (
+  cursor: MetadataRowCursor,
+  layout: ManagedMetadataLayout,
 ): number => {
-  const cursor = metadataRowCursor(bytes, layout, 2, row);
   cursor.readUInt32();
   cursor.readIndex(layout.stringIndexSize);
   cursor.readIndex(layout.stringIndexSize);
