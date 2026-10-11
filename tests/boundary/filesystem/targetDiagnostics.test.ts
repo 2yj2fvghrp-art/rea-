@@ -6,7 +6,7 @@ import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-describe("target route diagnostics", () => {
+describe("executable format refusal diagnostics", () => {
   it.each(["NE", "LE", "LX"] as const)(
     "reports unsupported %s executables without path advice",
     async (signature) => {
@@ -49,7 +49,9 @@ describe("target route diagnostics", () => {
       });
     },
   );
+});
 
+describe("target route diagnostics", () => {
   it.each(["module.wasm", "module.bin", "misleading.js"])(
     "identifies a WASM v1 header in %s without suggesting native provider installation",
     async (name) => {
