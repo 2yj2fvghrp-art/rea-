@@ -78,7 +78,7 @@ export const analysisErrorRemediationAction = (
     error instanceof BinaryTargetError &&
     error.constraint === "webassembly_module_header"
   )
-    return "The native analysis lanes do not admit WebAssembly modules. When this session advertises the optional inspect_wasm_artifact operation, call it with path set to this artifact: it inspects module sections, imports, exports and WAT forms with caller-supplied WABT (REA_WABT_BIN_DIRECTORY), and does not decompile or execute the module. Check the advertised tool catalog to see whether the operation is available in this session; REA installs nothing and fetches nothing.";
+    return "The native analysis lanes do not admit WebAssembly modules. When this session advertises the optional inspect_wasm_artifact operation, call it with path set to this artifact (CLI: rea inspect-wasm-artifact): it inspects module sections, imports, exports and WAT forms with caller-supplied WABT (REA_WABT_BIN_DIRECTORY), and does not decompile or execute the module. Check the advertised tool catalog to see whether the operation is available in this session; REA installs nothing and fetches nothing.";
   if (
     error instanceof AnalysisAccessDeniedError ||
     (error instanceof BinaryTargetError && error.systemCode !== undefined)

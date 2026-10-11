@@ -142,10 +142,15 @@ describe("executable header completeness", () => {
     expect(parseExecutableHeader(bytes, "x64", 4100).ok).toBe(true);
   });
 
-  it("identifies a WebAssembly binary module header instead of an unknown format", () => {
+  it("identifies a version-1 WebAssembly module preamble instead of an unknown format", () => {
     const wasm = Buffer.from([
       0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
     ]);
     expect(reason(wasm)).toBe(WASM_BINARY_MODULE_REASON);
+    // An unknown module version is not claimed as a compatible v1 module.
+    const future = Buffer.from([
+      0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+    ]);
+    expect(reason(future)).toBe("unsupported binary format");
   });
 });
