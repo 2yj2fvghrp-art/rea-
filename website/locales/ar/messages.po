@@ -11013,7 +11013,7 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "سرعة ثابتة: {speed}."
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11022,7 +11022,7 @@ msgstr ""
 "ردت القاعدة المستردة. تتطابق جميع القيم الأربع مع فحص اللعبة الأصلية المتحكم"
 " فيه عند تقريبه إلى ثلاثة كسور عشرية."
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

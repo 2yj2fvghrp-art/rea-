@@ -11231,7 +11231,7 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Sabit hız: {speed}."
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11240,7 +11240,7 @@ msgstr ""
 "Kurtarılan kuralı tekrar oynattı. Dört değerin tümü, üç ondalık basamağa "
 "yuvarlandığında kontrol edilen orijinal oyun kontrolüyle eşleşir."
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

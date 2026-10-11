@@ -11354,7 +11354,7 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Фиксированная скорость: {speed} вращения."
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11364,7 +11364,7 @@ msgstr ""
 "контролируемой проверке в оригинальной игре, если округлить их до трех "
 "знаков после запятой."
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

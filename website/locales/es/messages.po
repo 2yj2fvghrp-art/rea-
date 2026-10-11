@@ -11381,7 +11381,7 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "Velocidad fija: {speed}."
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
@@ -11391,7 +11391,7 @@ msgstr ""
 "verificación controlada del juego original cuando se redondean a tres "
 "decimales."
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

@@ -10491,14 +10491,14 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr "조정 속도: {speed}."
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-"
 "game check when rounded to three decimals."
 msgstr "복구된 규칙을 다시 재생했습니다. 4 개의 값 모두 3 개의 소수로 둥글게 하면 제어된 원래 게임 체크와 일치합니다."
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed"

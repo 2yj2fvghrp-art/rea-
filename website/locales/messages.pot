@@ -10617,14 +10617,14 @@ msgctxt "runtime"
 msgid "Fixed speed: {speed}."
 msgstr ""
 
-#: website/public/assets/dino-demo.js:248
+#: website/public/assets/dino-demo.js:251
 msgctxt "runtime"
 msgid ""
 "Replayed the recovered rule. All four values match the controlled original-game check "
 "when rounded to three decimals."
 msgstr ""
 
-#: website/public/assets/dino-demo.js:251
+#: website/public/assets/dino-demo.js:254
 msgctxt "runtime"
 msgid ""
 "The replay differs from the recorded original-game values. Compare the speed rule and "
