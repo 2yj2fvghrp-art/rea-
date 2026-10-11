@@ -33,6 +33,8 @@ import type { AnalysisErrorProjection } from "./analysisErrorProjection.js";
 export const analysisErrorRemediationAction = (
   error: AnalysisError,
 ): string => {
+  if (error instanceof EvidenceFileError && error.published !== undefined)
+    return "Use the published file at details.published_path and resolve the reported staging cleanup failure.";
   if (error instanceof AnalysisSnapshotMismatchError)
     return "Run analysis without this snapshot, then save a fresh snapshot using the intended artifact, provider, and analysis profile.";
   if (error instanceof AnalysisUnsupportedTargetError)
@@ -166,6 +168,7 @@ const artifactErrorCategory = (
 const STATIC_ERROR_CATEGORIES: Readonly<
   Partial<Record<AnalysisErrorTag, AnalysisErrorProjection["category"]>>
 > = {
+  ConfigurationError: "invalid_input",
   AnalysisInputError: "invalid_input",
   AnalysisAccessDeniedError: "unavailable",
   AnalysisArtifactChangedError: "integrity_mismatch",
@@ -383,7 +386,10 @@ const artifactMessage = ({
 const evidenceFileMessage = ({
   operation,
   reason,
+  published,
 }: EvidenceFileError): string => {
+  if (published !== undefined)
+    return "The output file was published, but staging cleanup remains incomplete.";
   if (reason === "missing")
     return operation === "read"
       ? "Evidence file does not exist at the selected path. Check the path and try again."
