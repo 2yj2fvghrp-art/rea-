@@ -15,6 +15,7 @@ import {
   assertMipsLoadedImage,
   assertMipsProbe,
   assertMipsGlobal,
+  assertMipsSoftFloatStorage,
 } from "../tests/conformance/ghidra/mips-checks.mjs";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { parseAnalysisSnapshot } from "../dist/domain/analysisSnapshot.js";
@@ -77,16 +78,58 @@ const env = {
 for (const setting of ["GHIDRA_HEADLESS_MAXMEM", "GHIDRA_MAXMEM"]) {
   if (process.env[setting] !== undefined) env[setting] = process.env[setting];
 }
+
+/**
+ * Typed float signatures must use soft-float o32 storage, and callers must see
+ * the source constants through it rather than FPU inputs.
+ */
+async function verifySoftFloat(call, symbols, byteOrder) {
+  const boundaries = {};
+  for (const name of [
+    "rea_mips_soft_pick",
+    "rea_mips_soft_wide",
+    "rea_mips_soft_mixed",
+    "rea_mips_soft_struct",
+  ]) {
+    const api = await call("inspect_native_api", { procedure: symbols[name] });
+    boundaries[name] = api.boundary;
+  }
+  assertMipsSoftFloatStorage(boundaries, byteOrder);
+  const caller = functionDossierSchema.parse(
+    await call("analyze_function", {
+      procedure: symbols.rea_mips_soft_caller,
+    }),
+  );
+  assert.doesNotMatch(caller.pseudocode, /\bin_f\d+\b/u);
+  for (const literal of ["1.5", "2.5", "3.25", "4.75", "5.5", "6.125"])
+    assert.ok(
+      caller.pseudocode.includes(literal),
+      `Soft-float caller lost argument ${literal}`,
+    );
+  // Retyped: 7.5f reaches the struct callee as its integer bit pattern.
+  assert.ok(
+    caller.pseudocode.includes("0x40f00000"),
+    "Soft-float caller lost the retyped struct-call argument",
+  );
+  return { storage: boundaries };
+}
 const reports = [];
 let primaryFailure;
 try {
-  for (const byteOrder of psp ? ["little"] : ["little", "big"]) {
+  for (const [byteOrder, floatAbi] of psp
+    ? [["little", "hard"]]
+    : [
+        ["little", "hard"],
+        ["big", "hard"],
+        ["little", "soft"],
+        ["big", "soft"],
+      ]) {
     const fixture = psp
       ? await buildPspFixture(workspace)
-      : await buildMipsFixture(workspace, byteOrder);
+      : await buildMipsFixture(workspace, byteOrder, floatAbi);
     const independent = psp
       ? fixture
-      : await inspectMipsReadelf(fixture.path, byteOrder);
+      : await inspectMipsReadelf(fixture.path, byteOrder, floatAbi);
     const resolved = await parseBinaryTarget(fixture.path);
     if (!resolved.ok) throw resolved.error;
     if (psp) {
@@ -104,7 +147,10 @@ try {
       );
     }
     assert.equal(resolved.value.sha256, fixture.sha256);
-    const snapshotPath = join(workspace, `${byteOrder}.snapshot.json`);
+    const snapshotPath = join(
+      workspace,
+      `${byteOrder}-${floatAbi}.snapshot.json`,
+    );
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [entrypoint, "mcp"],
@@ -238,6 +284,10 @@ try {
         callees.includes(leaf.address),
         "Expected direct call not recovered",
       );
+      const softFloat =
+        floatAbi === "soft"
+          ? await verifySoftFloat(call, independent.symbols, byteOrder)
+          : undefined;
       const assembly = await call("procedure_assembly", {
         procedure: entry.address,
       });
@@ -292,6 +342,19 @@ try {
           },
         },
         "Snapshot profile did not retain the independently inspected ELF/ABI declaration",
+      );
+      assert.equal(
+        snapshot.binding.analysis_profile.parameters.mips_soft_float_storage,
+        floatAbi === "soft" ? "o32-integer-registers-v1" : undefined,
+      );
+      assert.equal(
+        snapshot.evidence_bundle.records.some((record) =>
+          JSON.stringify(record).includes(
+            "Soft-float storage outcome: 3 functions kept float types with remapped storage; 1 functions had float types replaced by same-size integers.",
+          ),
+        ),
+        floatAbi === "soft",
+        "Soft-float storage outcome missing from, or unexpected in, retained Evidence",
       );
       assert.ok(snapshot.evidence_bundle.records.length > 0);
       if (psp) {
@@ -419,7 +482,10 @@ try {
           assert.ok(read32(offset + 4) + read32(offset + 16) <= cut);
         }
         const carvedBytes = sourceBytes.subarray(0, cut);
-        const carvedPath = join(workspace, `${byteOrder}-carved.elf`);
+        const carvedPath = join(
+          workspace,
+          `${byteOrder}-${floatAbi}-carved.elf`,
+        );
         const carvedSha256 = createHash("sha256")
           .update(carvedBytes)
           .digest("hex");
@@ -460,7 +526,7 @@ try {
         assert.ok(carvedDossier.pseudocode.trim().length > 0);
         const carvedSnapshotPath = join(
           workspace,
-          `${byteOrder}-carved.snapshot.json`,
+          `${byteOrder}-${floatAbi}-carved.snapshot.json`,
         );
         await call("close_binary", { snapshot_path: carvedSnapshotPath });
         const carvedSnapshot = parseAnalysisSnapshot(
@@ -523,7 +589,11 @@ try {
             : "conditional branch destination",
           "global word and marker bytes",
           "CLI/MCP and snapshot identity",
+          ...(floatAbi === "soft"
+            ? ["soft-float o32 parameter/return storage and caller constants"]
+            : []),
         ],
+        ...(softFloat === undefined ? {} : { soft_float: softFloat }),
         procedures: procedures.length,
         carved: carved ?? {
           status: "not_run",
@@ -534,7 +604,7 @@ try {
       });
     } catch (cause) {
       throw new Error(
-        `MIPS ${byteOrder} verification failed; MCP stderr: ${stderr}`,
+        `MIPS ${byteOrder} ${floatAbi}-float verification failed; MCP stderr: ${stderr}`,
         { cause },
       );
     } finally {
