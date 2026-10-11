@@ -151,12 +151,13 @@ export const buildCapabilityInventory = (
   sessionStatus: JsonValue,
   policy: AvailabilityPolicy,
   clientFeatures: ClientFeatureAvailability = NO_CLIENT_FEATURES,
+  selectsTool: (name: string) => boolean = () => true,
 ): readonly ToolAvailability[] => {
   const status = statusSchema.parse(sessionStatus);
   const descriptors = new Map<string, ProviderDescriptor>(
     status.capabilities.map((descriptor) => [descriptor.operation, descriptor]),
   );
-  return TOOL_CONTRACTS.map((contract): ToolAvailability => {
+  const inventory = TOOL_CONTRACTS.map((contract): ToolAvailability => {
     const availability = availabilityFor({
       name: contract.name,
       kind: contract.kind,
@@ -210,6 +211,8 @@ export const buildCapabilityInventory = (
           remediation: availability.remediation,
         };
   }).sort((left, right) => left.name.localeCompare(right.name));
+  // Operator-deselected tools are not registered, so they are not inventoried.
+  return inventory.filter(({ name }) => selectsTool(name));
 };
 
 const availabilityFor = (context: AvailabilityContext): Availability => {
