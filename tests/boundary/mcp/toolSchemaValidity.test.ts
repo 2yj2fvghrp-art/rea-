@@ -19,8 +19,8 @@ interface ToolSchemas {
 }
 
 function schemaErrors(tools: readonly ToolSchemas[]): string[] {
-  // Compile each root in its own reference namespace while reusing Ajv's
-  // meta-schema validators. Identical contracts may share a content-based ID.
+  // Reuse Ajv's meta-schema validators, then clear each root's reference
+  // namespace, including nested IDs, before validating the next schema.
   const ajv = new Ajv2020({
     strict: false,
     validateFormats: false,
@@ -40,6 +40,8 @@ function schemaErrors(tools: readonly ToolSchemas[]): string[] {
         return [
           `${tool.name}.${kind}: ${cause instanceof Error ? cause.message : String(cause)}`,
         ];
+      } finally {
+        ajv.removeSchema();
       }
     }),
   );
@@ -571,6 +573,37 @@ it("validates each tool independently when output schema IDs repeat", () => {
   expect(errors[0]).toContain("broken.outputSchema");
   expect(errors[0]).toContain("missing");
 });
+
+it.each([false, true])(
+  "rejects references to another tool's nested IDs (earlier compilation fails: %s)",
+  (invalidPrevious) => {
+    const nestedId = "urn:rea:test:nested-output";
+    const errors = schemaErrors([
+      {
+        name: "first",
+        inputSchema: { type: "object" },
+        outputSchema: {
+          $defs: { shared: { $id: nestedId, type: "string" } },
+          ...(invalidPrevious ? { pattern: "[" } : {}),
+        },
+      },
+      {
+        name: "broken",
+        inputSchema: { type: "object" },
+        outputSchema: {
+          $ref: nestedId,
+          $defs: { shared: { type: "number" } },
+        },
+      },
+    ]);
+    expect(errors).toHaveLength(invalidPrevious ? 2 : 1);
+    const brokenErrors = errors.filter((error) =>
+      error.startsWith("broken.outputSchema:"),
+    );
+    expect(brokenErrors).toHaveLength(1);
+    expect(brokenErrors[0]).toContain(nestedId);
+  },
+);
 
 it("distinguishes recursive references from shared definitions", () => {
   const diamond = {
