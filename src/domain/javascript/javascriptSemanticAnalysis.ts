@@ -52,6 +52,8 @@ import {
   evaluateSemanticProvenance,
 } from "./javascriptSemanticValues.js";
 import type { JavaScriptSemanticValue } from "./javascriptSemanticValueTypes.js";
+import type { ElectronCalleeBinding } from "./electronStaticAnalysisTypes.js";
+import { createElectronWrapperParameters } from "./javascriptElectronWrapperParameters.js";
 import {
   collectJavaScriptIdentityWritesSteps,
   electronExportPath,
@@ -409,13 +411,13 @@ const resolveGlobalAliasFact = (
  */
 export const classifyParsedJavaScriptElectronBindings = (
   file: ParsedJavaScriptSource,
-): ReadonlyMap<number, readonly string[]> =>
+): ReadonlyMap<number, ElectronCalleeBinding> =>
   completeSemanticSteps(classifyParsedJavaScriptElectronBindingsSteps(file));
 
 /** Resolve Electron aliases while yielding during lexical and AST scans. */
 export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
-): Generator<void, ReadonlyMap<number, readonly string[]>> {
+): Generator<void, ReadonlyMap<number, ElectronCalleeBinding>> {
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
   return (yield* indexJavaScriptElectronIdentitySteps(file.program, state))
@@ -424,7 +426,7 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 
 /** Shared lexical identity and visible-write proof for direct and wrapped calls. */
 export interface JavaScriptElectronIdentity {
-  readonly bindings: ReadonlyMap<number, readonly string[]>;
+  readonly bindings: ReadonlyMap<number, ElectronCalleeBinding>;
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
   readonly exportPath: (root: t.Node) => readonly string[] | undefined;
 }
@@ -433,7 +435,7 @@ export function* indexJavaScriptElectronIdentitySteps(
   program: t.Program,
   state: JavaScriptSemanticAnalysisState,
 ): Generator<void, JavaScriptElectronIdentity> {
-  const facts = new Map<number, readonly string[]>();
+  const facts = new Map<number, ElectronCalleeBinding>();
   const interop = createSemanticModuleInterop(state);
   const writes = new SemanticPropertyPathCoverage();
   let collectedWrites = false;
@@ -484,6 +486,7 @@ export function* indexJavaScriptElectronIdentitySteps(
     },
   );
   collectedWrites = true;
+  const wrappers = createElectronWrapperParameters(state, rootExport);
   const intactExport = (path: readonly (string | null)[]): boolean =>
     ELECTRON_MODULE.test(path[0] ?? "") &&
     !writes.covers(["electron", ...path.slice(1)]);
@@ -497,13 +500,22 @@ export function* indexJavaScriptElectronIdentitySteps(
         return;
       const { root, members } = electronMemberPath(node.callee);
       const exported = rootExport(root);
-      if (
-        exported !== undefined &&
-        intactExport(["electron", ...exported, ...members])
-      )
-        facts.set(root.start ?? -1, exported);
+      if (exported === undefined) {
+        wrappers.defer(root, members);
+        return;
+      }
+      if (intactExport(["electron", ...exported, ...members]))
+        facts.set(root.start ?? -1, {
+          path: exported,
+          consumed_members: 0,
+          identity: { basis: "module-binding" },
+        });
     },
   });
+  yield* wrappers.collectCallSitesSteps(program);
+  for (const { root, binding } of wrappers.resolved())
+    if (intactExport(["electron", ...binding.path]))
+      facts.set(root.start ?? -1, binding);
   return { bindings: facts, intactExport, exportPath: rootExport };
 }
 

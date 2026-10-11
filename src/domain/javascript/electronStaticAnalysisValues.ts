@@ -1,16 +1,24 @@
 import * as t from "@babel/types";
 
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
-import type { ElectronStaticValue } from "./electronStaticAnalysisTypes.js";
+import type {
+  ElectronApiIdentity,
+  ElectronStaticValue,
+} from "./electronStaticAnalysisTypes.js";
 import { semanticStaticPropertyName } from "./javascriptAstValues.js";
 import { sourceSlice } from "./javascriptStaticAnalysisHelpers.js";
 import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
 
-/** Resolve a callee only when its root has a proven Electron module identity. */
-export const electronCalleePath = (
+/** Resolve a callee only when its root has a classified Electron identity. */
+export const electronCallee = (
   callee: t.Node,
   context: JavaScriptFindingContext,
-): readonly string[] | undefined => {
+):
+  | {
+      readonly path: readonly string[];
+      readonly identity: ElectronApiIdentity;
+    }
+  | undefined => {
   const members: string[] = [];
   let root = callee;
   while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
@@ -19,10 +27,16 @@ export const electronCalleePath = (
     members.push(member);
     root = root.object;
   }
-  const exported = context.electronBindings?.get(root.start ?? -1);
-  return exported === undefined
+  const binding = context.electronBindings?.get(root.start ?? -1);
+  return binding === undefined
     ? undefined
-    : [...exported, ...members.toReversed()];
+    : {
+        path: [
+          ...binding.path,
+          ...members.toReversed().slice(binding.consumed_members),
+        ],
+        identity: binding.identity,
+      };
 };
 
 /** Preserve one literal or derived value, or the exact inert expression. */

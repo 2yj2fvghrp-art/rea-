@@ -14,12 +14,9 @@ import {
   type JavaScriptArtifactGraphCoverage,
 } from "./JavaScriptArtifactGraphContext.js";
 import {
-  astObservationEvidence,
-  staticInferenceEvidence,
-} from "./JavaScriptArtifactGraphEvidence.js";
-import {
-  addElectronAstEdge,
+  addElectronApiEdge,
   addElectronInferenceEdge,
+  electronApiEvidence,
   electronFindingSourceNode,
   electronRangeKey,
 } from "./ElectronBoundaryGraphContext.js";
@@ -96,13 +93,14 @@ const addBrowserWindow = (
           preload_path: value.preload_path,
           preload_resolution_context: value.preload_resolution_context,
           absence_means_default: false,
+          electron_identity: value.electron_identity,
         },
-        evidence: astObservationEvidence({
-          sha256: file.sha256,
-          path: file.path,
+        evidence: electronApiEvidence({
+          file,
           range: value.location,
           operation: "observe-browser-window-construction",
           coverage,
+          identity: value.electron_identity,
           limitations: [
             "Only explicitly present webPreferences are reported; omitted properties are not interpreted as Electron defaults.",
           ],
@@ -110,7 +108,7 @@ const addBrowserWindow = (
       },
     ],
   });
-  addElectronAstEdge(context, {
+  addElectronApiEdge(context, value.electron_identity, {
     source: input.source,
     target: window,
     file,
@@ -193,16 +191,16 @@ const addContextBridge = (
           api_status: value.api_status,
           members: value.members,
           unknown_members: value.unknown_members,
+          electron_identity: value.electron_identity,
           resolution_basis: value.resolution_basis ?? "direct-syntax",
         },
-        evidence: (value.resolution_basis === "wrapper-substitution"
-          ? staticInferenceEvidence
-          : astObservationEvidence)({
-          sha256: file.sha256,
-          path: file.path,
+        evidence: electronApiEvidence({
+          file,
+          resolutionBasis: value.resolution_basis,
           range: value.location,
           operation: "observe-context-bridge-api",
           coverage,
+          identity: value.electron_identity,
         }),
       },
     ],
@@ -247,13 +245,14 @@ const addUtilityProcess = (
           module_resolution_context: value.module_resolution_context,
           module_expression: value.module_expression,
           service_name: value.service_name,
+          electron_identity: value.electron_identity,
         },
-        evidence: astObservationEvidence({
-          sha256: file.sha256,
-          path: file.path,
+        evidence: electronApiEvidence({
+          file,
           range: value.location,
           operation: "observe-utility-process-fork",
           coverage,
+          identity: value.electron_identity,
         }),
       },
     ],

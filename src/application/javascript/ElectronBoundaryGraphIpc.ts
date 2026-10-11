@@ -20,8 +20,9 @@ import {
   type ElectronIpcRecord,
 } from "./ElectronBoundaryAnalysis.js";
 import {
-  addElectronAstEdge,
+  addElectronApiEdge,
   addElectronInferenceEdge,
+  electronApiEvidence,
   electronFindingSourceNode,
   electronObservationIdentity,
   electronRangeContains,
@@ -148,18 +149,18 @@ const addChannelNode = (
           channel: finding.channel,
           channel_expression: finding.channel_expression,
           resolution: channelResolution(finding),
+          electron_identity: finding.electron_identity,
           ...(finding.invocation_location === undefined
             ? {}
             : { invocation_location: finding.invocation_location }),
         },
-        evidence: (finding.resolution_basis === "wrapper-substitution"
-          ? staticInferenceEvidence
-          : astObservationEvidence)({
-          sha256: file.sha256,
-          path: file.path,
+        evidence: electronApiEvidence({
+          file,
+          resolutionBasis: finding.resolution_basis,
           range: finding.location,
           operation: "observe-ipc-channel-expression",
           coverage,
+          identity: finding.electron_identity,
           limitations:
             finding.resolution_basis === "wrapper-substitution"
               ? [
@@ -198,23 +199,23 @@ const addHandlerNode = (input: IpcHandlerInput): ApplicationNode => {
           channel_expression: finding.channel_expression,
           handler_kind: finding.handler_kind,
           handler_location: finding.handler_location,
+          electron_identity: finding.electron_identity,
           ...(finding.invocation_location === undefined
             ? {}
             : { invocation_location: finding.invocation_location }),
         },
-        evidence: (finding.resolution_basis === "wrapper-substitution"
-          ? staticInferenceEvidence
-          : astObservationEvidence)({
-          sha256: file.sha256,
-          path: file.path,
+        evidence: electronApiEvidence({
+          file,
+          resolutionBasis: finding.resolution_basis,
           range: handlerRange,
           operation: "observe-ipc-handler",
           coverage,
+          identity: finding.electron_identity,
         }),
       },
     ],
   });
-  addElectronAstEdge(context, {
+  addElectronApiEdge(context, finding.electron_identity, {
     source,
     target: handler,
     file,

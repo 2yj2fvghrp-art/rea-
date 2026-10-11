@@ -13,6 +13,7 @@ import type {
 import type {
   ElectronCallPath,
   ElectronBrowserWindowFinding,
+  ElectronCalleeBinding,
   ElectronContextBridgeFinding,
   ElectronIpcFinding,
   ElectronNativeAddonBindingFinding,
@@ -78,8 +79,8 @@ export interface JavaScriptFindingContext {
     | "local-indexed-db"
     | "local-cache-storage"
   >;
-  /** Proven Electron export path segments by root offset. */
-  readonly electronBindings?: ReadonlyMap<number, readonly string[]>;
+  /** Classified Electron callee identities by root offset. */
+  readonly electronBindings?: ReadonlyMap<number, ElectronCalleeBinding>;
 }
 
 /** Candidate import, require, worker, or service-worker reference. */

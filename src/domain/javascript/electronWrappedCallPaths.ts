@@ -191,7 +191,10 @@ export const collectElectronWrappedCallPaths = (
       JSON.stringify(range(context.entryNode)) === JSON.stringify(location)
         ? undefined
         : range(context.entryNode);
+    // Substitution reaches Electron only through a module origin; the
+    // substitution itself is recorded as the wrapper resolution basis.
     const findingContext = {
+      electron_identity: { basis: "module-binding" as const },
       module_key: null,
       location,
       ...(invocationLocation === undefined
@@ -315,6 +318,7 @@ export const collectElectronWrappedCallPaths = (
       resolution_basis: "wrapper-substitution" as const,
       members,
       unknown_members: resolver.unknownMembers(object),
+      electron_identity: { basis: "module-binding" as const },
       module_key: null,
       location,
     };
