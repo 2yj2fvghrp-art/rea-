@@ -132,19 +132,21 @@ const missingProcedureFixture = async (
 
 describe("headless IDA procedure lookup failures", () => {
   it.each([
-    ["Not found", "procedure_pseudo_code"],
-    ["Not found", "procedure_address"],
-    ["Not found", "analyze_function"],
-    ["Not a function", "procedure_pseudo_code"],
-    ["Not a function", "read_function_instructions"],
+    ["Not found", "procedure_pseudo_code", "main"],
+    ["Not found", "procedure_address", "main"],
+    ["Not found", "analyze_function", "main"],
+    ["Not a function", "procedure_pseudo_code", "main"],
+    ["Not a function", "read_function_instructions", "main"],
+    ["Not a function", "procedure_pseudo_code", "0x1000"],
+    ["Not found", "procedure_assembly", "_missing"],
   ] as const)(
-    "reports the upstream %s answer for %s as an invalid request naming the procedure",
-    async (upstream, operation) => {
+    "reports the upstream %s answer for %s of %s as an invalid request naming the procedure",
+    async (upstream, operation, procedure) => {
       const client = await missingProcedureFixture((query) =>
         lookup(query, null, upstream),
       );
       try {
-        const result = await client.execute(operation, { procedure: "main" });
+        const result = await client.execute(operation, { procedure });
 
         if (result.ok) throw new Error("expected invalid input");
         expect(result.error._tag, "the caller's procedure is the fault").toBe(
@@ -161,12 +163,22 @@ describe("headless IDA procedure lookup failures", () => {
           true,
         );
         expect(
-          JSON.stringify(projected),
-          "the queried procedure and the upstream text are reported",
-        ).toContain("main");
-        expect(JSON.stringify(projected), "upstream text kept").toContain(
-          upstream,
-        );
+          projected.details,
+          "the operation and exactly one issue on the procedure argument",
+        ).toEqual({
+          operation,
+          issues: [
+            {
+              path: ["procedure"],
+              reason: "invalid_value",
+              message: `IDA could not resolve procedure ${JSON.stringify(procedure)}: ${upstream}.`,
+            },
+          ],
+        });
+        expect(
+          (result.error.cause as Error | undefined)?.message,
+          "the upstream text stays on the retained cause",
+        ).toContain(upstream);
         expect(
           JSON.stringify(projected).toLowerCase(),
           "no retry or doctor advice for a caller mistake",
@@ -185,6 +197,14 @@ describe("headless IDA procedure lookup failures", () => {
       "a near-miss spelling of the not-found text",
       lookup("main", null, "not found"),
     ],
+    [
+      "an exception text that merely contains the not-found text",
+      lookup("main", null, "Database lookup failed: Not found"),
+    ],
+    ["a padded not-found text", lookup("main", null, " Not found ")],
+    ["an empty error", lookup("main", null, "")],
+    ["a whitespace-only error", lookup("main", null, "  ")],
+    ["an answer for a different query", lookup("helper", null, "Not found")],
   ])("keeps %s as unreadable output", async (_label, answer) => {
     const client = await missingProcedureFixture(() => answer);
     try {
@@ -193,6 +213,9 @@ describe("headless IDA procedure lookup failures", () => {
       });
 
       if (result.ok) throw new Error("expected unreadable output");
+      expect(result.error._tag, "a producer fault, not caller input").toBe(
+        "AnalysisProtocolError",
+      );
       expect(
         projectAnalysisError(result.error).code,
         "unknown beats a wrong fact about the caller's input",
@@ -242,6 +265,41 @@ describe("headless IDA procedure lookup failures", () => {
       expect(
         projectAnalysisError(result.error).code,
         "an address IDA itself reported is not the caller's mistake",
+      ).toBe("unreadable_output");
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+});
+
+describe("attached IDA procedure lookup failures", () => {
+  it("leaves a failed legacy lookup as unreadable output", async () => {
+    const { root, target } = await createIdaTarget();
+    roots.push(root);
+    const producer = new RecordingIdaMcp(target, "attached");
+    producer.overrideCall = (name) =>
+      name === "get_function_by_name" ? null : undefined;
+    const client = new IdaSessionClient(
+      {
+        command: "fixture",
+        args: [],
+        env: {},
+        mode: "attached",
+        timeoutMs: 1000,
+        workspaceRoot: root,
+      },
+      target,
+      producer,
+    );
+    try {
+      const result = await client.execute("procedure_pseudo_code", {
+        procedure: "main",
+      });
+
+      if (result.ok) throw new Error("expected unreadable output");
+      expect(
+        projectAnalysisError(result.error).code,
+        "the legacy profile keeps its pre-existing classification",
       ).toBe("unreadable_output");
     } finally {
       expect((await client.close()).ok).toBe(true);
