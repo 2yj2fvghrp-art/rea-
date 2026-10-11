@@ -421,7 +421,8 @@ describe.skipIf(process.platform === "win32")(
       const provider = new GhidraProvider(config.value, silentLogger, {}, host);
       const result = await provider.resolveAnalysisProfile(target);
       expect(result.ok).toBe(false);
-      if (result.ok) throw new Error("Conflicting language override was accepted");
+      if (result.ok)
+        throw new Error("Conflicting language override was accepted");
       expect(result.error._tag).toBe("AnalysisUnsupportedTargetError");
       expect(result.error.message).toContain(
         "does not accept REA_GHIDRA_LANGUAGE_ID overrides",
@@ -445,7 +446,12 @@ describe.skipIf(process.platform === "win32")(
         expect.arrayContaining(["-processor", "x86:LE:64:default"]),
       );
       expect(ghidraHeadlessArguments({ ...paths, psp: true })).toEqual(
-        expect.arrayContaining(["-loader", "PspElfLoader", "-processor", "Allegrex:LE:32:default"]),
+        expect.arrayContaining([
+          "-loader",
+          "PspElfLoader",
+          "-processor",
+          "Allegrex:LE:32:default",
+        ]),
       );
     });
 
