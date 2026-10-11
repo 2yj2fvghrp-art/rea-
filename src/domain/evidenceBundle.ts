@@ -249,7 +249,13 @@ const parseBundle = (input: unknown, seal: boolean): EvidenceBundle => {
     const owned = immutableBundles.get(input);
     if (owned !== undefined) return owned;
   }
-  const parsed = evidenceBundleSchema.parse(input);
+  return authenticateParsedEvidenceBundle(evidenceBundleSchema.parse(input));
+};
+
+/** Authenticate evidence and bundle invariants after the bundle shape is parsed. */
+export const authenticateParsedEvidenceBundle = (
+  parsed: EvidenceBundle,
+): EvidenceBundle => {
   const recordIds = parsed.records.map(({ evidence_id: id }) => id);
   if (new Set(recordIds).size !== recordIds.length)
     throw new TypeError("Evidence bundle contains duplicate record IDs");
