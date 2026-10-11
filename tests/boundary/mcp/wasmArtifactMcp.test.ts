@@ -1,4 +1,4 @@
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import type { Client } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { readFile, realpath, writeFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { WasmArtifactService } from "../../../src/application/wasm/WasmArtifactS
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { ok } from "../../../src/domain/result.js";
-import { createServer } from "../../../src/server/createServer.js";
+import { createApplicationMcpHarness } from "../../fixtures/applicationMcpHarness.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
@@ -15,6 +15,20 @@ import {
   wasmArtifactFixture,
   wasmArtifactExecution,
 } from "../../fixtures/wasm/artifact.js";
+
+const wasmToolSchemas = async (client: Client) => {
+  const advertised = (await client.listTools()).tools.find(
+    (tool) => tool.name === "inspect_wasm_artifact",
+  );
+  if (advertised?.outputSchema === undefined)
+    throw new Error("WASM recovery must name an advertised static tool");
+  const ajv = new Ajv2020({ strict: false, validateFormats: false });
+  const inputSchema: Record<string, unknown> = advertised.inputSchema;
+  const outputSchema: Record<string, unknown> = advertised.outputSchema;
+  expect(ajv.validateSchema(inputSchema)).toBe(true);
+  expect(ajv.validateSchema(outputSchema)).toBe(true);
+  return { name: advertised.name, ajv, inputSchema, outputSchema };
+};
 
 it("directs rejected native WASM opening to the advertised static tool while preserving missing-WABT diagnostics", async () => {
   const directory = await createTestTempDirectory("rea-wasm-recovery-");
@@ -27,31 +41,13 @@ it("directs rejected native WASM opening to the advertised static tool while pre
     throw new Error("native provider must not start for WASM");
   });
   const session = createTestBinarySession(createClient);
-  const server = createServer(
-    { kind: "session", session },
-    { environment: {} },
-  );
-  const client = new Client({ name: "wasm-recovery", version: "1" });
-  onTestFinished(async () => {
-    await client.close();
-    await server.close();
-    await session.close();
+  const harness = await createApplicationMcpHarness({
+    session,
+    serverOptions: { environment: {} },
   });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  const advertised = (await client.listTools()).tools;
-  const staticTool = advertised.find(
-    (tool) => tool.name === "inspect_wasm_artifact",
-  );
-  if (staticTool?.outputSchema === undefined)
-    throw new Error("WASM recovery must name an advertised static tool");
-  const ajv = new Ajv2020({ strict: false, validateFormats: false });
-  const inputSchema: Record<string, unknown> = staticTool.inputSchema;
-  const outputSchema: Record<string, unknown> = staticTool.outputSchema;
-  expect(ajv.validateSchema(inputSchema)).toBe(true);
-  expect(ajv.validateSchema(outputSchema)).toBe(true);
+  onTestFinished(harness.close);
+  const { client } = harness;
+  const { name, ajv, inputSchema } = await wasmToolSchemas(client);
   const input = { path };
   expect(
     toolContract("inspect_wasm_artifact").inputSchema.safeParse(input).success,
@@ -72,7 +68,7 @@ it("directs rejected native WASM opening to the advertised static tool while pre
   expect(failure.error.remediation.action).toContain(JSON.stringify({ path }));
   expect(ajv.validate(inputSchema, input)).toBe(true);
   const inspection = await client.callTool({
-    name: staticTool.name,
+    name,
     arguments: input,
   });
   expect(inspection.isError).toBe(true);
@@ -102,30 +98,13 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
   });
-  const server = createServer(
-    { kind: "session", session },
-    { wasmArtifact: service },
-  );
-  const client = new Client({ name: "wasm-artifact-contract", version: "1" });
-  onTestFinished(async () => {
-    await client.close();
-    await server.close();
-    await session.close();
+  const harness = await createApplicationMcpHarness({
+    session,
+    serverOptions: { wasmArtifact: service },
   });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  const advertised = (await client.listTools()).tools.find(
-    (tool) => tool.name === "inspect_wasm_artifact",
-  );
-  if (advertised?.outputSchema === undefined)
-    throw new Error("WASM interface inspection must publish both schemas");
-  const ajv = new Ajv2020({ strict: false, validateFormats: false });
-  const inputSchema: Record<string, unknown> = advertised.inputSchema;
-  const outputSchema: Record<string, unknown> = advertised.outputSchema;
-  expect(ajv.validateSchema(inputSchema)).toBe(true);
-  expect(ajv.validateSchema(outputSchema)).toBe(true);
+  onTestFinished(harness.close);
+  const { client } = harness;
+  const { ajv, inputSchema, outputSchema } = await wasmToolSchemas(client);
   expect(ajv.validate(inputSchema, { path: value.artifact.path })).toBe(true);
   expect(
     ajv.validate(inputSchema, {
@@ -159,6 +138,6 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
       })
     ).isError,
   ).toBe(true);
-  await server.close();
+  await harness.close();
   expect(close).toHaveBeenCalled();
 });
