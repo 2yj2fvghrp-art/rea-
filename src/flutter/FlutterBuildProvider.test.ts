@@ -317,7 +317,9 @@ test.skipIf(process.platform === "win32")(
     ).toBe(true);
     expect(value.string_pool.package_uri_count).toBe(2);
     expect(value.string_pool.dart_uri_count).toBe(2);
-    expect(value.coverage).toBe("partial");
+    // All four symbols present, both data magics valid, pool under budget:
+    // the honest answer for a complete payload is complete coverage.
+    expect(value.coverage).toBe("complete");
   },
 );
 

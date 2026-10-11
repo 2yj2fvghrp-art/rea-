@@ -28,7 +28,8 @@ import {
   AnalysisResourceConstraintError,
   AnalysisUnsupportedTargetError,
 } from "../domain/analysisErrorCore.js";
-import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { ArtifactEntry } from "../artifacts/ArtifactReader.js";
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
@@ -113,6 +114,65 @@ const emptyFacts = (): LibraryFacts => ({
     toolchainLines: [],
   },
 });
+
+/** Translate a ZIP reader rejection into the typed analysis error algebra. */
+const mapReaderFailure = (
+  operation: string,
+  path: string,
+  cause: unknown,
+): AnalysisError => {
+  if (
+    (cause instanceof Error && cause.name === "AbortError") ||
+    (cause as NodeJS.ErrnoException)?.code === "ABORT_ERR"
+  )
+    return new AnalysisCancelledError(operation, { cause });
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new AnalysisInputError(operation, {
+    cause: new Error(
+      `The APK could not be read as a package: ${path}: ${message}`,
+    ),
+  });
+};
+
+/** Iterate ZIP entries, mapping reader failures to typed errors. */
+const collectEntriesSafely = async (
+  reader: ZipArtifactReader,
+  operation: string,
+  path: string,
+  signal: AbortSignal | undefined,
+): Promise<ArtifactEntry[]> => {
+  try {
+    const entries: ArtifactEntry[] = [];
+    for await (const entry of reader.entries(signal)) entries.push(entry);
+    return entries;
+  } catch (cause) {
+    throw mapReaderFailure(operation, path, cause);
+  }
+};
+
+/** Open one entry stream, mapping reader failures to typed errors. */
+const openEntrySafely = async (
+  reader: ZipArtifactReader,
+  entry: ArtifactEntry,
+  operation: string,
+  path: string,
+  signal: AbortSignal | undefined,
+): Promise<AsyncIterable<Buffer>> => {
+  const stream = await reader.open(entry, signal).catch((cause: unknown) => {
+    throw mapReaderFailure(operation, path, cause);
+  });
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<Buffer> {
+      const iterator = stream[Symbol.asyncIterator]();
+      return {
+        next: () =>
+          iterator.next().catch((cause: unknown) => {
+            throw mapReaderFailure(operation, path, cause);
+          }),
+      };
+    },
+  };
+};
 
 export interface FlutterProviderOptions {
   readonly environment?: Readonly<Record<string, string | undefined>>;
@@ -421,6 +481,9 @@ export class FlutterBuildProvider {
           },
         ),
       );
+    } catch (cause) {
+      if (cause instanceof AnalysisError) return err(cause);
+      return err(new AnalysisProtocolError(request.operation, { cause }));
     } finally {
       await reader.close().catch(() => undefined);
       await this.discardRoot(snapshot.root);
@@ -457,7 +520,12 @@ export class FlutterBuildProvider {
     );
     try {
       const candidates: { entry: ArtifactEntry; abi: string }[] = [];
-      for await (const entry of reader.entries(signal)) {
+      for await (const entry of await collectEntriesSafely(
+        reader,
+        "inspect_dart_aot",
+        snapshot.path,
+        signal,
+      )) {
         if (entry.kind !== "file") continue;
         const match = /^lib\/([^/]+)\/libapp\.so$/u.exec(entry.path);
         if (match === null) continue;
@@ -517,7 +585,13 @@ export class FlutterBuildProvider {
       const imageHash = createHash("sha256");
       await writeFile(imagePath, Buffer.alloc(0), { flag: "w" });
       {
-        const stream = await reader.open(selected.entry, signal);
+        const stream = await openEntrySafely(
+          reader,
+          selected.entry,
+          "inspect_dart_aot",
+          snapshot.path,
+          signal,
+        );
         let total = 0;
         for await (const chunk of stream) {
           if (signal?.aborted === true)
@@ -607,7 +681,10 @@ export class FlutterBuildProvider {
       const pool = projectStringPool(isolateData);
       const partial =
         sections.length < symbolNames.length ||
-        sections.some((section) => !section.magic_valid) ||
+        sections.some(
+          (section) => section.name.endsWith("Data") && !section.magic_valid,
+        ) ||
+        pool.collectionCapped ||
         pool.packageUriCount > MAX_POOL_URIS ||
         pool.dartUriCount > MAX_POOL_URIS ||
         pool.classLikeTokenCount > MAX_POOL_TOKENS;
@@ -662,6 +739,9 @@ export class FlutterBuildProvider {
           },
         ),
       );
+    } catch (cause) {
+      if (cause instanceof AnalysisError) return err(cause);
+      return err(new AnalysisProtocolError("inspect_dart_aot", { cause }));
     } finally {
       await reader.close().catch(() => undefined);
       await this.discardRoot(snapshot.root);
@@ -670,6 +750,13 @@ export class FlutterBuildProvider {
 }
 
 /** Categorize printable runs from one snapshot data section. */
+/**
+ * Categorize printable runs from one snapshot data section. Collection stops
+ * admitting new distinct entries once each category reaches its projection
+ * bound times a slack factor, so allocation and sorting stay proportional to
+ * the response rather than to an adversarial payload; counts still reflect
+ * how far scanning proceeded before the collection cap tripped.
+ */
 const projectStringPool = (
   section: Buffer | null,
 ): {
@@ -680,24 +767,36 @@ const projectStringPool = (
   classLikeTokens: string[];
   classLikeTokenCount: number;
   printableRunCount: number;
+  collectionCapped: boolean;
 } => {
   const packages = new Set<string>();
   const darts = new Set<string>();
   const tokens = new Set<string>();
   let runCount = 0;
+  let collectionCapped = false;
+  const COLLECTION_SLACK = 2;
+  const packageBudget = MAX_POOL_URIS * COLLECTION_SLACK;
+  const dartBudget = MAX_POOL_URIS * COLLECTION_SLACK;
+  const tokenBudget = MAX_POOL_TOKENS * COLLECTION_SLACK;
   if (section !== null) {
     let run = "";
     const consider = (text: string): void => {
       if (text.length < 6) return;
       runCount += 1;
-      if (text.startsWith("package:")) packages.add(text);
-      else if (text.startsWith("dart:")) darts.add(text);
-      else if (
+      if (text.startsWith("package:")) {
+        if (packages.size >= packageBudget) collectionCapped = true;
+        else packages.add(text);
+      } else if (text.startsWith("dart:")) {
+        if (darts.size >= dartBudget) collectionCapped = true;
+        else darts.add(text);
+      } else if (
         text.length <= 128 &&
         text.length >= 5 &&
         IDENTIFIER_PATTERN.test(text)
-      )
-        tokens.add(text);
+      ) {
+        if (tokens.size >= tokenBudget) collectionCapped = true;
+        else tokens.add(text);
+      }
     };
     for (const byte of section) {
       if (byte >= 0x20 && byte < 0x7f) run += String.fromCharCode(byte);
@@ -716,5 +815,6 @@ const projectStringPool = (
     classLikeTokens: [...tokens].sort(),
     classLikeTokenCount: tokens.size,
     printableRunCount: runCount,
+    collectionCapped,
   };
 };

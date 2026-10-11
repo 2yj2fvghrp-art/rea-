@@ -70,7 +70,11 @@ if (options.apk !== null) {
         ),
       `hash=${identified.abis.find((abi) => abi.libapp.present)?.libapp.snapshot_hash}`,
     );
-    void hashes;
+    check(
+      "every ABI agrees on one snapshot hash",
+      hashes.size === 1,
+      [...hashes].join(", "),
+    );
     check(
       "engine build-ids present and hex per ABI",
       identified.abis

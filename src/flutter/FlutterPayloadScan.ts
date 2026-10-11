@@ -48,9 +48,13 @@ export interface SnapshotHashScan {
  * Feed chunks in order; a trailing carry keeps a magic-to-hash span that a
  * chunk boundary would otherwise split.
  */
+/** Hard cap on distinct hashes retained before partial coverage reports. */
+export const MAX_SNAPSHOT_HASH_CANDIDATES = 64;
+
 export class SnapshotHashScanner {
   #sources = 0;
   private readonly candidates: string[] = [];
+  private readonly candidateSet = new Set<string>();
   #buffer = new Uint8Array(0);
   /** Absolute stream offset from which unprocessed bytes begin. */
   #base = 0;
@@ -77,8 +81,14 @@ export class SnapshotHashScanner {
           magic + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH,
         ),
       ).toString("latin1");
-      if (HASH_PATTERN.test(candidate) && !this.candidates.includes(candidate))
+      if (
+        HASH_PATTERN.test(candidate) &&
+        this.candidates.length < MAX_SNAPSHOT_HASH_CANDIDATES &&
+        !this.candidateSet.has(candidate)
+      ) {
+        this.candidateSet.add(candidate);
         this.candidates.push(candidate);
+      }
       this.#sources += 1;
       offset = magic + DART_SNAPSHOT_MAGIC.length;
       this.#absoluteScanFrom =
@@ -176,32 +186,44 @@ const DART_VERSION_PATTERN = /Dart VM version:[^\x00\n]{0,200}/u;
 const TOOLCHAIN_PATTERN =
   /Android \([^)\x00\n]{0,80}\) clang version [^\x00\n]{0,500}|based on LLVM \d[^\x00\n]{0,80}/u;
 const MAX_TOOLCHAIN_LINES = 4;
+/** Carry spans chunk boundaries for either accepted pattern. */
+const CARRY_BYTES = 600;
 
 /**
  * Incremental ASCII string collector that keeps only labeled version and
- * toolchain facts. Printable runs feed the patterns; a 256-byte carry
- * survives chunk boundaries.
+ * toolchain facts. A match is committed only when a printable run is
+ * terminated by a delimiter, so a value split across chunk boundaries is
+ * never committed truncated; the carry holds the longest accepted match
+ * so boundaries in either pattern survive.
  */
 export class LabeledStringScanner {
   #dartVersion: string | null = null;
   private readonly toolchainLines: string[] = [];
   private carry = "";
-  private printable: string = "";
+  #ended = false;
 
   push(chunk: Uint8Array): void {
     let run = "";
     for (const byte of chunk) {
       if (byte >= 0x20 && byte < 0x7f) run += String.fromCharCode(byte);
       else {
-        this.#consider(run);
+        this.#consider(this.carry + run);
         run = "";
       }
     }
-    this.#consider(run, true);
+    // Retain the unfinished tail; it may still grow past a chunk boundary.
+    this.carry = (this.carry + run).slice(-CARRY_BYTES);
   }
 
-  #consider(run: string, partial = false): void {
-    const text = this.carry + run;
+  /** Commit any retained tail, e.g. when the stream ends mid-string. */
+  end(): void {
+    if (this.#ended) return;
+    this.#ended = true;
+    this.#consider(this.carry);
+    this.carry = "";
+  }
+
+  #consider(text: string): void {
     if (this.#dartVersion === null) {
       const match = DART_VERSION_PATTERN.exec(text);
       if (match !== null) this.#dartVersion = match[0].trim();
@@ -214,10 +236,10 @@ export class LabeledStringScanner {
           this.toolchainLines.push(line);
       }
     }
-    this.carry = partial ? text.slice(-256) : "";
   }
 
   result(): LabeledStringScan {
+    if (!this.#ended) this.end();
     return {
       dartVersion: this.#dartVersion,
       toolchainLines: [...this.toolchainLines],
