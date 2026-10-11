@@ -15,7 +15,7 @@ import {
 } from "./ClientConfigurationDocument.js";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
@@ -93,6 +93,15 @@ const configureClientDocument = async (
     parsed.dialect,
   );
   if (registrationCurrent(parsed, desired)) return { status: "unchanged" };
+  // ZCode skips the user-scope `.agents/mcp.json` fallback entirely once any
+  // native server exists, so the first native registration would otherwise cut
+  // access to servers that only live in the fallback file. Preserve them by
+  // writing them into the native table alongside REA.
+  const zcodeFallback =
+    format === "zcode" && Object.keys(parsed.servers).length === 0
+      ? await readZcodeFallbackServers(client.configPath)
+      : undefined;
+  if (zcodeFallback === null) return { status: "failed", reason: "readback" };
   const backupPath =
     original === undefined ? undefined : `${client.configPath}.rea.backup`;
   if (
@@ -108,7 +117,10 @@ const configureClientDocument = async (
   );
   const registered = withClientServers(
     parsed,
-    { ...parsed.servers, [PRODUCT_IDENTITY.mcpServerKey]: desired },
+    {
+      ...(zcodeFallback ?? parsed.servers),
+      [PRODUCT_IDENTITY.mcpServerKey]: desired,
+    },
     PRODUCT_IDENTITY.mcpServerKey,
   );
   // OMP's denylist would hide the registration; keep every other listed name.
@@ -248,7 +260,14 @@ export const inspectClientConfiguration = async (
   try {
     original = await readFile(transactionPath, "utf8");
   } catch (cause: unknown) {
-    if (isMissing(cause)) return { status: "create" };
+    if (isMissing(cause)) {
+      if (
+        client.format === "zcode" &&
+        (await readZcodeFallbackServers(client.configPath)) === null
+      )
+        return { status: "invalid", remediation: ZCODE_FALLBACK_REMEDIATION };
+      return { status: "create" };
+    }
     return {
       status: "invalid",
       remediation:
@@ -279,6 +298,12 @@ export const inspectClientConfiguration = async (
     );
     if (registrationCurrent(parsed, desired))
       return { status: "already_current" };
+    if (
+      client.format === "zcode" &&
+      Object.keys(parsed.servers).length === 0 &&
+      (await readZcodeFallbackServers(client.configPath)) === null
+    )
+      return { status: "invalid", remediation: ZCODE_FALLBACK_REMEDIATION };
   } catch (cause: unknown) {
     // Malformed configuration is reported with the invalid remediation.
     void cause;
@@ -296,6 +321,53 @@ export const inspectClientConfiguration = async (
 
 const isMissing = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+
+const ZCODE_FALLBACK_REMEDIATION =
+  "The ZCode fallback configuration ~/.agents/mcp.json is malformed. Repair or remove it before rerunning setup: writing the first native ZCode server would suppress that fallback entirely.";
+
+/**
+ * ZCode reads the industry-standard `mcpServers` table of the user-scope
+ * `~/.agents/mcp.json` only while the native `.zcode` config defines no
+ * servers at all, with no merging. Returns the fallback servers to preserve,
+ * `undefined` when there is nothing to preserve, or `null` when the fallback
+ * exists but cannot be parsed safely.
+ */
+const readZcodeFallbackServers = async (
+  configPath: string,
+): Promise<Record<string, unknown> | null | undefined> => {
+  // The ZCode config lives at <home>/.zcode/cli/config.json, so the shared
+  // fallback sits three levels above it.
+  const fallbackPath = join(
+    dirname(dirname(dirname(configPath))),
+    ".agents",
+    "mcp.json",
+  );
+  let text: string;
+  try {
+    text = await readFile(fallbackPath, "utf8");
+  } catch (cause: unknown) {
+    return isMissing(cause) ? undefined : null;
+  }
+  let document: unknown;
+  try {
+    document = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (
+    document === null ||
+    typeof document !== "object" ||
+    Array.isArray(document)
+  )
+    return null;
+  const servers = (document as Record<string, unknown>).mcpServers;
+  if (servers === undefined) return undefined;
+  if (servers === null || typeof servers !== "object" || Array.isArray(servers))
+    return null;
+  return Object.keys(servers).length === 0
+    ? undefined
+    : (servers as Record<string, unknown>);
+};
 const preserveConfigBackup = async (
   source: string,
   destination: string,

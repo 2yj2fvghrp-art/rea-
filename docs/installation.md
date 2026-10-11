@@ -149,6 +149,15 @@ user-level `~/.zcode/cli/config.json`. Entries carry `command`, `args`, and
 `~/.zcode/skills` rather than the shared directory, so setup installs its
 skill copy there.
 
+ZCode reads the user-scope `~/.agents/mcp.json` fallback only while the native
+`.zcode` config defines no servers at all, with no merging. When setup writes
+the first native server into an empty table, it copies the fallback's
+`mcpServers` entries into the native table so they keep loading, and leaves
+the fallback file untouched. A malformed fallback file fails setup instead of
+being silently suppressed; repair or remove it and rerun. ZCode disables a
+server with `enable: false` on its entry; doctor reports such a registration
+as stale, and rerunning setup removes the flag to repair it.
+
 For [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md),
 setup writes a `type: "stdio"` entry under `mcpServers.rea` in the user-level
 `~/.pi/agent/mcp.json` and installs the bundled skill under `~/.agents/skills`.

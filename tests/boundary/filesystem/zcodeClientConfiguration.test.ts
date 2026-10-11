@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { npxRegistrationCommand } from "../../../src/application/ClientRegistrationIdentity.js";
-import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
+import {
+  configureClientConfiguration,
+  inspectClientConfiguration,
+} from "../../../src/application/SetupClientConfiguration.js";
 import { skillDestinations } from "../../../src/application/SetupSkill.js";
 import { supportedClients } from "../../../src/application/SupportedClients.js";
 import { systemUninstallHost } from "../../../src/application/Uninstall.js";
@@ -53,16 +56,15 @@ describe("ZCode configuration paths", () => {
   });
 });
 
-describe("ZCode JSON registration", () => {
-  const zcodeClient = async () => {
-    const home = await createTestTempDirectory("rea-zcode-");
-    const client = zcodePath(home, process.platform);
-    if (client?.markerPath === undefined)
-      throw new Error("missing ZCode client");
-    await mkdir(client.markerPath, { recursive: true });
-    return { home, client };
-  };
+const zcodeClient = async () => {
+  const home = await createTestTempDirectory("rea-zcode-");
+  const client = zcodePath(home, process.platform);
+  if (client?.markerPath === undefined) throw new Error("missing ZCode client");
+  await mkdir(client.markerPath, { recursive: true });
+  return { home, client };
+};
 
+describe("ZCode JSON registration", () => {
   it("upserts rea into mcp.servers while preserving unrelated settings", async () => {
     const { home, client } = await zcodeClient();
     await writeFile(
@@ -147,5 +149,132 @@ describe("ZCode JSON registration", () => {
     const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
     expect(parsed.mcp.servers.other).toEqual({ command: "other-server" });
     expect(parsed.mcp.servers.rea).toBeUndefined();
+  });
+});
+
+describe("ZCode .agents fallback preservation", () => {
+  const fallbackPath = (home: string) => join(home, ".agents", "mcp.json");
+
+  it("migrates fallback servers the first native registration would suppress", async () => {
+    const { home, client } = await zcodeClient();
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(
+      fallbackPath(home),
+      JSON.stringify(
+        {
+          mcpServers: {
+            other: { command: "other-server", env: { TOKEN: "x" } },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
+    expect(parsed.mcp.servers.other).toEqual({
+      command: "other-server",
+      env: { TOKEN: "x" },
+    });
+    expect(parsed.mcp.servers.rea).toEqual({
+      command: command[0],
+      args: command.slice(1),
+    });
+    // The fallback file stays in place; ZCode ignores it from now on.
+    expect(
+      JSON.parse(await readFile(fallbackPath(home), "utf8")).mcpServers.other,
+    ).toEqual({ command: "other-server", env: { TOKEN: "x" } });
+    expect(await configureClientConfiguration(client, {}, command)).toEqual({
+      status: "unchanged",
+    });
+  });
+
+  it("leaves an existing native table alone instead of merging the fallback", async () => {
+    const { home, client } = await zcodeClient();
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(
+      fallbackPath(home),
+      JSON.stringify(
+        { mcpServers: { shared: { command: "fallback-server" } } },
+        null,
+        2,
+      ),
+    );
+    await writeFile(
+      client.configPath,
+      JSON.stringify(
+        { mcp: { servers: { existing: { command: "existing-server" } } } },
+        null,
+        2,
+      ),
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
+    expect(parsed.mcp.servers.existing).toEqual({
+      command: "existing-server",
+    });
+    expect(parsed.mcp.servers.rea).toEqual({
+      command: command[0],
+      args: command.slice(1),
+    });
+    expect(parsed.mcp.servers.shared).toBeUndefined();
+  });
+
+  it("fails closed when the fallback configuration is malformed", async () => {
+    const { home, client } = await zcodeClient();
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(fallbackPath(home), "{ not json");
+
+    expect(await configureClientConfiguration(client, {}, command)).toEqual({
+      status: "failed",
+      reason: "readback",
+    });
+    await expect(readFile(client.configPath, "utf8")).rejects.toThrow();
+    expect(await inspectClientConfiguration(client, {}, command)).toMatchObject(
+      { status: "invalid" },
+    );
+  });
+});
+
+describe("ZCode disabled registrations", () => {
+  it("reports enable: false as stale and repairs it on setup", async () => {
+    const { home, client } = await zcodeClient();
+    await writeFile(
+      client.configPath,
+      JSON.stringify(
+        {
+          mcp: {
+            servers: {
+              rea: {
+                command: command[0],
+                args: command.slice(1),
+                enable: false,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    const statusFor = async () =>
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client }) => client === "zcode");
+    expect(await statusFor()).toMatchObject({ state: "stale" });
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(await statusFor()).toMatchObject({ state: "aligned", command });
   });
 });

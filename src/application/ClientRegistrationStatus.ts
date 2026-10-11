@@ -67,6 +67,8 @@ const registrationSchema = z
     tools: z.array(z.string()).optional(),
     disabled: z.boolean().optional(),
     enabled: z.boolean().optional(),
+    // ZCode writes "enable": false into a server's config object to disable it.
+    enable: z.boolean().optional(),
   })
   .passthrough();
 
@@ -198,7 +200,8 @@ const registrationAligned = (
   const command = [registration.command, ...registration.args];
   if (
     (client.format !== "grok" && registration.disabled === true) ||
-    (registration.enabled === false && !forcedEnabled)
+    (registration.enabled === false && !forcedEnabled) ||
+    (client.format === "zcode" && registration.enable === false)
   )
     return false;
   if (!isOwnedClientRegistrationCommand(command, currentCommandPath))
