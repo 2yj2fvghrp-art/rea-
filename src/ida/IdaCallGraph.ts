@@ -96,7 +96,9 @@ export const readCallGraphCallees = async (
   );
   const limitations = [UNRECOGNIZED_CALLEE_LIMITATION];
   const truncated =
-    row.truncated === true || (row.limit_reason ?? null) !== null;
+    row.truncated === true ||
+    row.per_func_capped === true ||
+    (row.limit_reason ?? null) !== null;
   // Reaching the per-function cap can stop the root scan without setting a
   // truncation flag, so a saturated root count is possible truncation.
   const saturated =

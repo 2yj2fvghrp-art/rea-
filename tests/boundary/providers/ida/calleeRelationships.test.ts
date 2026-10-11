@@ -246,3 +246,46 @@ it("records a failed ARM64 call graph read as the node's error, not as a complet
     expect((await client.close()).ok).toBe(true);
   }
 });
+
+it("preserves an explicit root cap below the edge limit through every relationship workflow", async () => {
+  const { client } = await callGraphSession({
+    callees: [],
+    callgraph: graphRow([edge("0x1000", "0x2000")], { per_func_capped: true }),
+    leafRoots: ["0x2000"],
+  });
+  const limitation =
+    "Upstream callgraph was truncated; additional callees remain unknown.";
+  try {
+    const direct = await client.execute("procedure_callees", {
+      procedure: "main",
+    });
+    if (!direct.ok) throw direct.error;
+    expect(direct.value.limitations).toContain(limitation);
+    expect(direct.value.result).toEqual(["0x2000"]);
+    const application = new EnhancedTools(client);
+    const graph = await application.execute("get_call_graph", {
+      address: "main",
+    });
+    if (!graph.ok) throw graph.error;
+    expect(graph.value).toMatchObject({
+      "0": [
+        {
+          calls: ["0x2000"],
+          limitations: expect.arrayContaining([limitation]),
+        },
+      ],
+    });
+    const trace = await application.execute("trace_call_path", {
+      start: "main",
+    });
+    if (!trace.ok) throw trace.error;
+    expect(trace.value).toMatchObject({
+      truncated: true,
+      residual_unknowns: expect.arrayContaining([
+        `Call relationships for 0x1000 are limited: ${limitation}`,
+      ]),
+    });
+  } finally {
+    expect((await client.close()).ok).toBe(true);
+  }
+});

@@ -214,6 +214,10 @@ describe("reading root callees from the processor-neutral call graph", () => {
 describe("call graph coverage and failure handling", () => {
   it.each([
     ["truncated", { truncated: true }],
+    [
+      "per_func_capped below the edge cap",
+      { per_func_capped: true, max_edges_per_func: 200 },
+    ],
     ["limit_reason", { limit_reason: "edges" }],
   ])("reports a graph flagged by %s as truncated", async (_label, extra) => {
     const result = await readGraph([call("0x1000", "0x20")], extra);
@@ -226,7 +230,7 @@ describe("call graph coverage and failure handling", () => {
     );
   });
 
-  it("limits graph traversal to the root so child-function caps cannot truncate it", async () => {
+  it("keeps an explicitly uncapped root below its edge cap untruncated", async () => {
     const result = await readGraph([call("0x1000", "0x20")], {
       per_func_capped: false,
       max_edges_per_func: 200,
@@ -234,7 +238,7 @@ describe("call graph coverage and failure handling", () => {
 
     expect(
       result.limitations,
-      "per_func_capped is graph-wide; the root's own edge count decides",
+      "an uncapped, unsaturated root has no truncation evidence",
     ).toEqual([UNRECOGNIZED_CALLEE_LIMITATION]);
   });
 
