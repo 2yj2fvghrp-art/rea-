@@ -150,9 +150,10 @@ network activity. Native mitmproxy captures return a typed unsupported error.
 Parents inspected with `sensitive_values`, or whose Evidence does not record
 `sensitive_value_count`, also return a typed unsupported error: the view writes
 path templates and limitation text that it cannot check against declarations
-the parent does not retain. Each path is bounded before it is split, and newly
-retained templated segments and distinct observed values are charged against the
-96 MiB reply budget; exceeding either returns `resource_constraint`.
+the parent does not retain. Each path is bounded before it is split. Newly
+retained templated segments, distinct observed values, and deduplication sets
+created on the first merge are charged against the 96 MiB reply budget before
+those sets are allocated; exceeding the budget returns `resource_constraint`.
 
 ## Resource and lifecycle boundaries
 

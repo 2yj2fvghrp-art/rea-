@@ -182,6 +182,32 @@ const javascriptSummarySchema = z.strictObject({
   limitation_count: z.number().int().nonnegative(),
 });
 
+const summaryViewResultFields = {
+  kind: z.literal("summary"),
+  view: summaryViewSchema,
+  parent_evidence_id: prefixedDigestSchema("ev"),
+  parent_digest: digestSchema,
+  view_digest: digestSchema,
+  artifact: artifactSchema,
+  coverage: coverageSchema,
+  limitations: z.array(z.string()),
+  unknowns: z.array(z.string()),
+} as const;
+
+/** Summary `inspect_binary_layout` detail returns; no other view kind. */
+export const binaryLayoutSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultFields,
+  summary: layoutSummarySchema,
+  parent_operation: z.literal("inspect_binary_layout"),
+});
+
+/** Summary `analyze_javascript_application` detail returns; no other view kind. */
+export const javascriptApplicationSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultFields,
+  summary: javascriptSummarySchema,
+  parent_operation: z.literal("analyze_javascript_application"),
+});
+
 const viewResultBase = {
   parent_evidence_id: prefixedDigestSchema("ev"),
   parent_operation: z.enum([

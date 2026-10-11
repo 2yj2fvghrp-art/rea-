@@ -266,6 +266,29 @@ it("excludes slashless URL spellings instead of reading their paths", () => {
   expect(JSON.stringify(result.value)).not.toContain("pass");
 });
 
+it("charges cumulative deduplication sets before allocating them", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const segmentCount = 45_000;
+  capture.records = [0, 1].flatMap((group) =>
+    [0, 1].map((copy) => ({
+      ...record,
+      ordinal: group * 2 + copy,
+      reported: {
+        request: {
+          method: "GET",
+          url: `https://api.example.test/g${group}${"/1".repeat(segmentCount)}`,
+        },
+      },
+    })),
+  );
+  capture.total_records = capture.records.length;
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+});
+
 it("charges repeated observed values once when merging", () => {
   const capture = analysisViewCaptureFixture();
   const record = capture.records[0]!;

@@ -90,6 +90,10 @@ const TEMPLATED_SEGMENT_BYTES = 128;
 // mapped template part, a segment descriptor and its deduplication entry.
 const SPLIT_SEGMENT_BYTES = 1024;
 
+// Upper bound of one retained deduplication set and its first entry. These
+// sets outlive the per-path split, so every group is charged before allocation.
+const DEDUP_SET_BYTES = 1024;
+
 // Serialized bytes one retained observed value adds beyond its own text.
 const OBSERVED_VALUE_BYTES = 16;
 
@@ -273,10 +277,17 @@ export const projectWebNetworkApiSurfaceView = (
       // Equal templates have the same ordered rule positions; keep new values only.
       // Deduplication sets are created on the first merge, not for every group.
       const existing = group.templated_segments;
-      const seen =
-        retained.get(key) ??
-        existing.map((segment) => new Set(segment.observed_values));
-      retained.set(key, seen);
+      let seen = retained.get(key);
+      if (seen === undefined) {
+        const dedupBytes = existing.length * DEDUP_SET_BYTES;
+        if (projectedBytes + dedupBytes > budget)
+          return overBudget(
+            "Retained templated-segment deduplication would exceed the capture reply budget.",
+          );
+        projectedBytes += dedupBytes;
+        seen = existing.map((segment) => new Set(segment.observed_values));
+        retained.set(key, seen);
+      }
       segments.forEach((segment, index) => {
         const value = segment.observed_values[0]!;
         const values = seen[index];

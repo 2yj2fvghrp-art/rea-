@@ -365,7 +365,9 @@ session retention refuses summary detail with `capability_unavailable`.
 
 `inspect_analysis_view` also accepts `api-surface` for retained HAR capture Evidence,
 grouping request lines by method, origin and format-rule path template. Templated
-segments and their view Evidence are inferred; exact-literal pages are derived.
+segments are inferences. Because paging follows the full grouping, every page is
+inferred Evidence whenever any group is templated, and derived Evidence only when
+no group was templated.
 See [derived API surfaces](web-network-captures.md#derived-api-surface).
 
 `inspect_analysis_view` projects a caller-selected view of already completed
