@@ -138,7 +138,7 @@ describe("headless IDA procedure lookup failures", () => {
     ["Not a function", "procedure_pseudo_code"],
     ["Not a function", "read_function_instructions"],
   ] as const)(
-    "reports the upstream %s answer for %s as invalid input naming the procedure",
+    "reports the upstream %s answer for %s as an invalid request naming the procedure",
     async (upstream, operation) => {
       const client = await missingProcedureFixture((query) =>
         lookup(query, null, upstream),
@@ -151,8 +151,14 @@ describe("headless IDA procedure lookup failures", () => {
           "AnalysisInputError",
         );
         const projected = projectAnalysisError(result.error);
-        expect(projected.code, "the public code is invalid_input").toBe(
+        expect(projected.code, "the public code is invalid_request").toBe(
+          "invalid_request",
+        );
+        expect(projected.category, "the category is invalid_input").toBe(
           "invalid_input",
+        );
+        expect(projected.retryable, "the caller can correct and retry").toBe(
+          true,
         );
         expect(
           JSON.stringify(projected),
