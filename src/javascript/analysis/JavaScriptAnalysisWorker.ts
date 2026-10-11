@@ -74,8 +74,8 @@ const WORKER_HEAP_FLAGS_ENFORCED =
 // That process runs on the same runtime, so only Node.js honors heap flags.
 const parentResultRemediation = (): string =>
   WORKER_HEAP_FLAGS_ENFORCED
-    ? `The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap in MiB, for example NODE_OPTIONS=--max-old-space-size=${String(Math.ceil((getHeapStatistics().heap_size_limit * 2) / MIB))} (twice the current limit), then rerun. Retained static and module facts remain usable.`
-    : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. Retained static and module facts remain usable.";
+    ? `The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap in MiB, for example NODE_OPTIONS=--max-old-space-size=${String(Math.ceil((getHeapStatistics().heap_size_limit * 2) / MIB))} (twice the current limit), then rerun. The failure reason states which facts were retained before the limit.`
+    : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. The failure reason states which facts were retained before the limit.";
 
 /** One sequential owned worker, retained between source files and closed after analysis. */
 export class JavaScriptAnalysisWorker {
