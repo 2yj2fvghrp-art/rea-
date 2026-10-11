@@ -83,7 +83,9 @@ it("discovers an oversized native dossier by exact metadata and reads its retain
     name: "get_evidence_bundle",
     arguments: {},
   });
-  expect(parseMcpToolError(broad).error.code).toBe("resource_constraint");
+  const broadError = parseMcpToolError(broad).error;
+  expect(broadError.code).toBe("resource_constraint");
+  expect(broadError.remediation?.action).toContain("get_evidence_bundle and detail: summary");
   const response = await client.callTool({
     name: "get_evidence_bundle",
     arguments: {
