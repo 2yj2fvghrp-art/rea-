@@ -488,6 +488,67 @@ describe("headless IDA transient busy health", () => {
   });
 });
 
+describe("headless IDA busy health after an operation", () => {
+  const withInventory = (
+    producer: RecordingIdaMcp,
+    afterObservation: (read: number) => JsonValue | undefined,
+  ) => {
+    let health = 0;
+    producer.overrideCall = (name) => {
+      if (name === "list_funcs")
+        return [
+          {
+            data: [{ addr: "0x1000", name: "main", size: "0x20" }],
+            next_offset: null,
+          },
+        ];
+      if (name !== "server_health") return undefined;
+      health += 1;
+      return health < 2 ? undefined : afterObservation(health);
+    };
+  };
+
+  it("waits out a busy observation taken after the operation", async () => {
+    const { producer, client } = await fixture("headless");
+    withInventory(producer, (read) =>
+      read === 2 ? busyHealth("config_json_get") : undefined,
+    );
+
+    const result = await client.execute("list_procedures", {});
+
+    expect(result.ok, "the operation succeeds once the worker settles").toBe(
+      true,
+    );
+    expect(healthCalls(producer), "before, busy after, ok after").toBe(3);
+    await expectCleanClose(producer, client);
+  });
+
+  it("maps a cancellation during that wait to cancelled", async () => {
+    const { producer, client } = await fixture("headless", 30_000);
+    withInventory(producer, () => busyHealth("config_json_get"));
+    const controller = new AbortController();
+    const call = client.execute(
+      "list_procedures",
+      {},
+      { signal: controller.signal },
+    );
+    const started = Date.now();
+    while (healthCalls(producer) < 3) {
+      if (Date.now() - started > 5_000) throw new Error("never polled");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    controller.abort();
+    const result = await call;
+
+    if (result.ok) throw new Error("expected cancellation");
+    expect(result.error._tag, "the after-observation wait is cancellable").toBe(
+      "AnalysisCancelledError",
+    );
+    await expectCleanClose(producer, client);
+  });
+});
+
 describe("headless IDA non-busy health payloads", () => {
   it.each([
     ["an unknown status", { status: "starting" }],
@@ -511,6 +572,25 @@ describe("headless IDA non-busy health payloads", () => {
       await expectCleanClose(producer, client);
     },
   );
+
+  it("keeps the busy-shape reason when a busy payload is invalid", async () => {
+    const { producer, client } = await fixture("headless");
+    producer.overrideCall = (name) =>
+      name === "server_health" ? busyHealth(5) : undefined;
+
+    const result = await client.execute("health", {});
+
+    if (result.ok) throw new Error("expected unreadable output");
+    expect(
+      projectAnalysisError(result.error).details,
+      "the diagnostic names the invalid busy_tool, not the ok-schema fields",
+    ).toMatchObject({ reason: expect.stringContaining("busy_tool") });
+    expect(
+      JSON.stringify(projectAnalysisError(result.error).details),
+      "the generic ok-schema field errors are not reported for a busy payload",
+    ).not.toContain("input_path");
+    await expectCleanClose(producer, client);
+  });
 
   it("stops waiting as soon as a later read is malformed", async () => {
     const { producer, client } = await fixture("headless");
