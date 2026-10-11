@@ -7,19 +7,27 @@ import type { JsonValue } from "../../src/domain/jsonValue.js";
 import type { IdaMcpConnection } from "../../src/ida/IdaMcpConnection.js";
 import { elf } from "../../src/domain/binaryTarget.fixture.js";
 
+/** ELF machine numbers for the architectures a fixture target can declare. */
+const ELF_MACHINE = { x86_64: 62, arm64: 183 } as const;
+
 /** Create a test-owned executable and workspace parent without invoking an engine. */
-export const createIdaTarget = async () => {
+export const createIdaTarget = async (
+  architecture: keyof typeof ELF_MACHINE = "x86_64",
+  availableArchitectures: readonly (keyof typeof ELF_MACHINE)[] = [
+    architecture,
+  ],
+) => {
   const root = await mkdtemp(join(tmpdir(), "rea-ida-test-"));
   const path = join(root, "target.elf");
-  const bytes = elf(2, 1, 62);
+  const bytes = elf(2, 1, ELF_MACHINE[architecture]);
   await writeFile(path, bytes);
   const target: BinaryTarget = {
     path,
     sha256: createHash("sha256").update(bytes).digest("hex"),
     kind: "executable",
     format: "elf",
-    architecture: "x86_64",
-    availableArchitectures: ["x86_64"],
+    architecture,
+    availableArchitectures: [...availableArchitectures],
   };
   return { root, target };
 };
