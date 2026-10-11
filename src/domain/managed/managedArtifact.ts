@@ -110,6 +110,18 @@ const managedTypeSchema = z.object({
   }),
 });
 
+/** One ExportedType row: a type this assembly exports from another module or forwards. */
+const managedExportedTypeSchema = z.object({
+  token: tokenSchema,
+  row_offset: offsetSchema,
+  namespace: z.string(),
+  name: z.string(),
+  flags: z.number().int().min(0).max(0xffff_ffff),
+  forwarder: z.boolean(),
+  type_def_id: z.number().int().min(0).max(0xffff_ffff),
+  implementation_token: tokenSchema.nullable(),
+});
+
 const managedFieldSchema = z.object({
   token: tokenSchema,
   row_offset: offsetSchema,
@@ -420,6 +432,7 @@ export const managedMemberInspectionSchema = z.object({
     requires_mvid: cliMetadataGuidSchema.nullable(),
   }),
   types: z.array(managedTypeSchema),
+  exported_types: z.array(managedExportedTypeSchema),
   fields: z.array(managedFieldSchema),
   methods: z.array(managedMethodSchema),
   member_refs: z.array(managedMemberReferenceSchema),

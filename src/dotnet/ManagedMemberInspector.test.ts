@@ -138,6 +138,87 @@ describe("managed member inspection", () => {
   });
 });
 
+describe("managed exported types", () => {
+  it("reports type forwarders and nested exported types with their implementation scope", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        {
+          namespace: "System",
+          name: "Object",
+          flags: 0x0020_0001,
+          implementationRaw: (1 << 2) | 1,
+        },
+        {
+          namespace: "",
+          name: "Enumerator",
+          flags: 0x0000_0002,
+          implementationRaw: (1 << 2) | 2,
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.metadata.table_row_counts).toMatchObject({
+      ExportedType: 2,
+    });
+    expect(result.exported_types).toMatchObject([
+      {
+        token: "0x27000001",
+        namespace: "System",
+        name: "Object",
+        flags: 0x0020_0001,
+        forwarder: true,
+        type_def_id: 0,
+        implementation_token: "0x23000001",
+      },
+      {
+        token: "0x27000002",
+        namespace: "",
+        name: "Enumerator",
+        forwarder: false,
+        implementation_token: "0x27000001",
+      },
+    ]);
+    expect(result.coverage).toEqual({ state: "complete", issues: [] });
+  });
+
+  it("retains an exported type whose implementation is out of range as partial", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        {
+          namespace: "System",
+          name: "Object",
+          flags: 0x0020_0001,
+          implementationRaw: (9 << 2) | 1,
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types).toMatchObject([
+      { token: "0x27000001", name: "Object", implementation_token: null },
+    ]);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        {
+          code: "invalid-row",
+          scope: "metadata.ExportedType:0x27000001",
+          detail: expect.stringContaining(
+            "ExportedType implementation coded index 0x25 is invalid",
+          ),
+        },
+      ],
+    });
+  });
+});
+
 describe("managed member decoding budget", () => {
   it("charges decoded output rather than accumulated decoding bounds", () => {
     // Each bound fits alone, but 256 bytes per IL and signature byte together
