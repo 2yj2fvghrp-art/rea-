@@ -72,9 +72,10 @@ const WORKER_HEAP_FLAGS_ENFORCED =
 
 // Parent admission is bounded by the CLI/MCP process heap, not the worker's.
 // That process runs on the same runtime, so only Node.js honors heap flags.
-const PARENT_RESULT_REMEDIATION = WORKER_HEAP_FLAGS_ENFORCED
-  ? "The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap (for example NODE_OPTIONS=--max-old-space-size), then rerun. Retained static and module facts remain usable."
-  : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. Retained static and module facts remain usable.";
+const parentResultRemediation = (): string =>
+  WORKER_HEAP_FLAGS_ENFORCED
+    ? `The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap in MiB, for example NODE_OPTIONS=--max-old-space-size=${String(Math.ceil((getHeapStatistics().heap_size_limit * 2) / MIB))} (twice the current limit), then rerun. Retained static and module facts remain usable.`
+    : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. Retained static and module facts remain usable.";
 
 /** One sequential owned worker, retained between source files and closed after analysis. */
 export class JavaScriptAnalysisWorker {
@@ -264,7 +265,7 @@ export class JavaScriptAnalysisWorker {
                 parent_result_budget_bytes: this.#resultBudgetBytes,
                 parent_result_budget_exhausted: true,
               },
-              { remediationAction: PARENT_RESULT_REMEDIATION },
+              { remediationAction: parentResultRemediation() },
             );
           offeredResultBudget =
             this.#applicationProjectionFailure !== undefined &&
@@ -342,7 +343,7 @@ export class JavaScriptAnalysisWorker {
                 parent_result_admission_bytes: remaining,
                 module_transfer_bytes: descriptor.module_bytes,
               },
-              { remediationAction: PARENT_RESULT_REMEDIATION },
+              { remediationAction: parentResultRemediation() },
             ),
           });
           break;
@@ -380,7 +381,7 @@ export class JavaScriptAnalysisWorker {
                   graph_transfer_bytes: descriptor.graph_bytes,
                   graph_records: descriptor.graph_records,
                 },
-                { remediationAction: PARENT_RESULT_REMEDIATION },
+                { remediationAction: parentResultRemediation() },
               ),
             });
         break;
@@ -623,7 +624,7 @@ export class JavaScriptAnalysisWorker {
           parent_result_admission_bytes: this.#remainingResultBudget(),
           application_projection_required_bytes: expandedBytes,
         },
-        { remediationAction: PARENT_RESULT_REMEDIATION },
+        { remediationAction: parentResultRemediation() },
       );
     return facts;
   }
