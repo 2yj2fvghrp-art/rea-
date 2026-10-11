@@ -8,6 +8,10 @@ import { BinaryTargetError } from "../domain/configurationErrors.js";
 import { parseBinaryTarget } from "./BinaryTargetResolver.js";
 import { execFileOutput } from "../process/ExecFileOutput.js";
 import type { JsonValue } from "../domain/jsonValue.js";
+import {
+  javaScriptRuntime,
+  type JavaScriptRuntime,
+} from "../domain/runtimeVersion.js";
 import { installedCaskAppdir, probeHomebrew } from "./homebrew.js";
 import {
   linuxHopperBinarySupported,
@@ -77,7 +81,7 @@ export interface DoctorProviderInspection {
 export interface DoctorHost {
   readonly platform: NodeJS.Platform;
   readonly architecture: NodeJS.Architecture;
-  readonly nodeVersion: string;
+  readonly runtime: JavaScriptRuntime;
   readonly homeDirectory: string;
   readonly configuredHopperPath?: string;
   readonly configuredIlspyCmdPath?: string;
@@ -116,6 +120,7 @@ export interface DoctorReport {
 /** Caller-selected readiness boundary; omitted values retain audit semantics. */
 export interface DoctorScope {
   readonly clients?: readonly string[];
+  readonly skillClients?: readonly string[];
   readonly providers?: readonly string[];
   readonly skill?: boolean;
 }
@@ -202,9 +207,10 @@ const collectDoctorIdentity = async (
   const installationPaths = (await host.installationPaths?.()) ?? [];
   const registrations = (await host.clientRegistrations?.()) ?? [];
   const skillClientIds =
-    scope.mode === "audit-wide"
+    scope.skill_clients ??
+    (scope.mode === "audit-wide"
       ? registrations.map(({ client }) => client)
-      : scope.clients;
+      : scope.clients);
   const installedSkillIdentity =
     await host.installedSkillIdentity?.(skillClientIds);
   const skillAligned = skillIdentityAligned(installedSkillIdentity);
@@ -310,7 +316,7 @@ export const systemDoctorHost = (
   return {
     platform,
     architecture,
-    nodeVersion: process.versions.node,
+    runtime: javaScriptRuntime(process.versions),
     homeDirectory,
     ...(environment.HOPPER_LAUNCHER_PATH === undefined
       ? {}

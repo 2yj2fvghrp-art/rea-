@@ -414,7 +414,14 @@ const decodeCommand = (
         "malformed",
         `load command ${index} is too short for LC_BUILD_VERSION`,
       );
-    const platform = viewOf(body).getUint32(8, true);
+    const view = viewOf(body);
+    const toolCount = view.getUint32(20, true);
+    if (toolCount > Math.floor((body.byteLength - 24) / 8))
+      throw new MachoFormatIssue(
+        "malformed",
+        `load command ${index} LC_BUILD_VERSION tool records exceed cmdsize`,
+      );
+    const platform = view.getUint32(8, true);
     slice.platforms.push(platform);
     return;
   }
@@ -525,7 +532,7 @@ const CPU_SUBTYPE_X86_64_H = 8;
 const architectureName = (cpuType: number, cpuSubtype: number): string => {
   const subtype = cpuSubtype & ~CPU_SUBTYPE_MASK;
   if (cpuType === (CPU_TYPE_ARM | CPU_ARCH_ABI64))
-    // Matches the SDK's CPU_SUBTYPE_HAS_ARM64E: both PAC slices are arm64e.
+    // Both pointer-authentication subtypes belong to the arm64e family.
     return subtype === CPU_SUBTYPE_ARM64E || subtype === CPU_SUBTYPE_ARM64E_X1
       ? "arm64e"
       : "arm64";

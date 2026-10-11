@@ -14,7 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -177,6 +177,7 @@ const scriptCollisions = [
   "ReaGhidraPrepareCom.java",
   "ReaGhidraApplySeeds.java",
   "ReaGhidraNoReturnFix.java",
+  "ReaGhidraPrepareRaw.java",
 ];
 await mkdir(callerDirectory);
 for (const name of scriptCollisions) await mkdir(join(callerDirectory, name));
@@ -290,6 +291,23 @@ try {
     await client.connect(transport);
     await call("open_binary", { path: target });
     await call("binary_overview", {});
+    const activators = (
+      await readdir(runtimeParent, { recursive: true })
+    ).filter((path) => basename(path) === "ReaGhidraBundleActivator.class");
+    assert.equal(activators.length, 1);
+    const [activator] = activators;
+    assert.ok(activator !== undefined);
+    const bundleDirectory = dirname(join(runtimeParent, activator));
+    const manifest = await readFile(
+      join(bundleDirectory, "META-INF", "MANIFEST.MF"),
+      "utf8",
+    );
+    assert.match(manifest, /^Bundle-Activator: ReaGhidraBundleActivator\r?$/mu);
+    await assert.rejects(
+      readFile(join(bundleDirectory, "GeneratedActivator.class")),
+      { code: "ENOENT" },
+    );
+    report.bundleActivator = "ReaGhidraBundleActivator";
     assert.equal((await call("list_documents", {})).length, 1);
     await call("list_names", {});
     const procedures = await call("list_procedures", {});
@@ -394,15 +412,15 @@ try {
           return evidence.normalized_result;
         },
       );
-    const expected = (
+    const { GHIDRA_MUTATING_OPERATIONS, GHIDRA_SESSION_CAPABILITIES } =
       await import(
         pathToFileURL(join(packageRoot, "dist/ghidra/GhidraSessionValues.js"))
-      )
-    ).GHIDRA_SESSION_CAPABILITIES.filter(
+      );
+    const expected = GHIDRA_SESSION_CAPABILITIES.filter(
       (name) =>
         name !== "ping" &&
         name !== "shutdown" &&
-        name !== "annotate_native_function",
+        !GHIDRA_MUTATING_OPERATIONS.has(name),
     );
     assert.ok(
       expected.every((name) => report.mcpOperations.includes(name)),
@@ -440,7 +458,10 @@ try {
     token,
     "Analysis changed caller token authority.",
   );
-  assert.deepEqual((await readdir(callerDirectory)).sort(), scriptCollisions);
+  assert.deepEqual(
+    (await readdir(callerDirectory)).sort(),
+    [...scriptCollisions].sort(),
+  );
   for (const name of scriptCollisions)
     assert.deepEqual(await readdir(join(callerDirectory, name)), []);
   report.callerScriptCollisionsPreserved = true;

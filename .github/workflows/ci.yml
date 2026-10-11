@@ -118,6 +118,8 @@ jobs:
           name: rea-test-runtime
           path: .
       - run: npm run test:ci:shard:run -- --shard=${{ matrix.shard }}
+        env:
+          REA_CI_TEST_HISTORY: .cache/ci-test-history/test-results.json
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -133,6 +135,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -140,7 +145,33 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Reuse portable build outputs across runs
+        uses: ./.github/actions/portable-build-cache
+        with:
+          save: "true"
       - run: npm run test:prepare
+      - name: Find successful default-branch timing history
+        id: history
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          run_id="$(gh api --method GET \
+            "repos/${CI_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f branch="${CI_DEFAULT_BRANCH}" -f event=push -f status=success -f per_page=1 \
+            --jq '.workflow_runs[0].id // empty')"
+          echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
+      - name: Download previous timing report
+        if: steps.history.outputs.run-id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          run-id: ${{ steps.history.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: .cache/ci-test-history
       - uses: actions/upload-artifact@v4
         with:
           name: rea-test-runtime
@@ -148,8 +179,20 @@ jobs:
             dist/
             skills/
             .cache/mcp-tool-catalog.json
+            .cache/ci-test-history/test-results.json
             docs/public/product-catalog.json
             docs/verification/managed-conformance-*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      # test:prepare caches only portable JS, skill, and catalog outputs.
+      # Native package jobs still run their build and prepack checks; Turbo
+      # restores matching outputs or rebuilds when their inputs differ.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rea-build-cache
+          path: .turbo/cache/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -262,6 +305,12 @@ jobs:
           sudo apt-get install --no-install-recommends -y g++-mingw-w64-x86-64
       - run: npm run build:windows-native
       - run: npm run verify:windows-native:artifact
+      - run: node scripts/build-windows-native.mjs --inspection-fixture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-inspection-fixture
+          path: .cache/windows-native-inspection-fixture/
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: windows-native-controls
@@ -270,7 +319,7 @@ jobs:
 
   package-e2e:
     name: Native package baseline (${{ matrix.platform }} ${{ matrix.architecture }})
-    needs: [changes, windows-native-build]
+    needs: [changes, build, windows-native-build]
     if: needs.changes.outputs.runtime == 'true'
     strategy:
       fail-fast: false
@@ -302,10 +351,21 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with:
+          name: rea-build-cache
+          path: .turbo/cache/
+      - uses: actions/download-artifact@v4
+        with:
           name: windows-native-controls
           path: native/windows/build/
       - run: npm run verify:windows-native:artifact
+      - name: Resolve npm cache before verifier HOME isolation
+        id: npm-cache
+        run: |
+          cache_path="$(npm config get cache)"
+          echo "path=${cache_path}" >> "${GITHUB_OUTPUT}"
       - run: npm run verify:package
+        env:
+          npm_config_cache: ${{ steps.npm-cache.outputs.path }}
       - name: Verify real Node Inspector discovery and observation
         timeout-minutes: 10
         run: npm run verify:inspector
@@ -324,6 +384,8 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Verify Apple artifact formats and metadata
+        env:
+          REA_ARTIFACT_NODE_COMPILE_CACHE: ${{ runner.temp }}/rea-artifact-node-cache
         run: |
           npm run verify:keyed-archive
           npm run verify:asset-catalog
@@ -449,6 +511,12 @@ jobs:
           tests/process-global/updateMaintenance.test.ts
           tests/conformance/providers/ghidra/realGhidraWindowsWorkflow.test.ts
       - run: npm run verify:windows-native
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-native-inspection-fixture
+          path: .cache/windows-native-inspection-fixture/
+      - name: Verify native inspection failure ownership and recovery
+        run: node scripts/verify-windows-native-inspection.mjs
       - name: Verify real Node Inspector discovery and observation
         timeout-minutes: 10
         env:
