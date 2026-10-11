@@ -1,5 +1,5 @@
 import { access, chmod, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -208,27 +208,36 @@ describe("Ghidra configured import language and seeds", () => {
     ).toThrow(/cannot be combined with a DOS import/u);
   });
 
-  it("applies seeds after loader preparation and before analysis scripts", () => {
-    const arguments_ = ghidraHeadlessArguments({
-      ...base,
-      dosCom: true,
-      seedPath: "/tmp/runtime/seeds/seeds.tsv",
-    });
-    const prepare = arguments_.indexOf(
-      join("/package/bridge", "ReaGhidraPrepareCom.java"),
-    );
-    const seeds = arguments_.indexOf(
-      join("/package/bridge", "ReaGhidraApplySeeds.java"),
-    );
-    expect(arguments_[seeds - 1]).toBe("-preScript");
-    expect(arguments_[seeds + 1]).toBe("/tmp/runtime/seeds/seeds.tsv");
-    expect(prepare).toBeLessThan(seeds);
-    expect(seeds).toBeLessThan(arguments_.indexOf("-postScript"));
-  });
+  it.each(["darwin", "win32"] as const)(
+    "applies seeds after loader preparation and before analysis scripts on %s",
+    (platform) => {
+      const path = platform === "win32" ? win32 : posix;
+      const bridgeDirectory = path.join("/package", "bridge");
+      const seedPath = path.join("/tmp/runtime/seeds", "seeds.tsv");
+      const arguments_ = ghidraHeadlessArguments({
+        ...base,
+        platform,
+        bridgeScriptPath: path.join(bridgeDirectory, "ReaGhidraBridge.java"),
+        dosCom: true,
+        seedPath,
+      });
+      const prepare = arguments_.indexOf(
+        path.join(bridgeDirectory, "ReaGhidraPrepareCom.java"),
+      );
+      const seeds = arguments_.indexOf(
+        path.join(bridgeDirectory, "ReaGhidraApplySeeds.java"),
+      );
+      expect(prepare).toBeGreaterThanOrEqual(0);
+      expect(arguments_[seeds - 1]).toBe("-preScript");
+      expect(arguments_[seeds + 1]).toBe(seedPath);
+      expect(prepare).toBeLessThan(seeds);
+      expect(seeds).toBeLessThan(arguments_.indexOf("-postScript"));
+    },
+  );
 
   it("adds no seed script without a seed snapshot", () => {
     expect(ghidraHeadlessArguments(base)).not.toContain(
-      join("/package/bridge", "ReaGhidraApplySeeds.java"),
+      posix.join("/package/bridge", "ReaGhidraApplySeeds.java"),
     );
   });
 });
