@@ -188,7 +188,7 @@ const contextualCandidate = (
         "URL and Node builtin schemes are outside static artifact module resolution.",
       ]);
     if (!declared.startsWith(".") && !declared.startsWith("/"))
-      return bareModuleCandidate(input, declared);
+      return bareModuleCandidate(input);
     if (input.moduleKind !== "require") {
       const decoded = decodeModuleUrlPath(stripQueryAndFragment(declared));
       if (typeof decoded !== "string") return decoded;
@@ -235,34 +235,35 @@ const relativeCandidate = (sourcePath: string, declared: string): string =>
 
 const bareModuleCandidate = (
   input: ResolveArtifactPathInput,
-  declared: string,
 ): CandidateResolution => {
-  const packageName = barePackageName(declared);
-  if (packageName === null || isBuiltin(declared))
+  const request = parseBarePackageRequest(input.declaredPath, input.moduleKind);
+  if (request === null || isBuiltin(input.declaredPath))
     return unresolvedCandidate("external", [
       "The bare specifier is a Node builtin or invalid package name.",
     ]);
-  if (input.moduleKind === "import" && packageName.includes("%"))
+  if (input.moduleKind === "import" && request.packageName.includes("%"))
     return unresolvedCandidate("rejected", [
       "Percent signs are not admitted in ES module package names.",
     ]);
-  const self = packageSelfCandidate(input, declared, packageName);
+  const self = packageSelfCandidate(input, request);
   if (self !== null) return self;
-  const subpath =
-    declared === packageName ? "." : `.${declared.slice(packageName.length)}`;
   const source = input.files.get(input.sourcePath);
   let directory = posix.dirname(input.sourcePath);
   while (true) {
-    const candidate = posix.join(directory, "node_modules", packageName);
+    const candidate = posix.join(
+      directory,
+      "node_modules",
+      request.packageName,
+    );
     const metadata = readPackageMetadata(input, candidate);
-    if (packageExportsEligible(input) && metadata.kind !== "absent")
-      return resolvePackageSpecifier(input, candidate, subpath, metadata);
-    if (subpath === ".") {
+    if (request.dependencyExportsEligible && metadata.kind !== "absent")
+      return resolvePackageDependency(input, candidate, request, metadata);
+    if (request.packageSubpath === ".") {
       const direct = resolveFileCandidates(input, fileCandidates(candidate));
       if (direct !== null) return direct;
     }
     if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
-      return resolvePackageSpecifier(input, candidate, subpath, metadata);
+      return resolvePackageDependency(input, candidate, request, metadata);
     if (directory === "." || directory === "") break;
     directory = posix.dirname(directory);
   }
@@ -360,8 +361,7 @@ const resolvePackageImportAlias = (
 /** Self references use the nearest package scope before dependency lookup. */
 const packageSelfCandidate = (
   input: ResolveArtifactPathInput,
-  declared: string,
-  packageName: string,
+  request: BarePackageRequest,
 ): CandidateResolution | null => {
   if (input.moduleKind === undefined || !input.files.has(input.sourcePath))
     return null;
@@ -369,35 +369,33 @@ const packageSelfCandidate = (
   if (metadata.kind === "none") return null;
   if (metadata.kind === "unavailable")
     return unresolvedCandidate("unavailable", [metadata.limitation]);
-  if (
-    metadata.name === undefined ||
-    metadata.exports === undefined ||
-    // ESM compares the parsed package name; CommonJS matches the raw request.
-    (input.moduleKind === "import"
-      ? metadata.name !== packageName
-      : declared !== metadata.name && !declared.startsWith(`${metadata.name}/`))
-  )
+  if (metadata.name === undefined || metadata.exports === undefined)
     return null;
-  const subpath =
-    declared === metadata.name
-      ? "."
-      : `.${declared.slice(metadata.name.length)}`;
+  let subpath: string;
+  if (input.moduleKind === "import") {
+    if (metadata.name !== request.packageName) return null;
+    subpath = request.packageSubpath;
+  } else if (input.declaredPath === metadata.name) {
+    subpath = ".";
+  } else if (input.declaredPath.startsWith(`${metadata.name}/`)) {
+    subpath = `.${input.declaredPath.slice(metadata.name.length)}`;
+  } else return null;
   // Self resolution does not apply the CommonJS dependency-name matcher.
   return resolvePackageExports(input, metadata.path, subpath, metadata.exports);
 };
 
-/** Package roots and exact subpaths share metadata and exports selection. */
-const resolvePackageSpecifier = (
+/** Resolve an installed dependency using one parsed request and its metadata. */
+const resolvePackageDependency = (
   input: ResolveArtifactPathInput,
   directory: string,
-  subpath: string,
+  request: BarePackageRequest,
   metadata: PackageMetadata,
 ): CandidateResolution => {
-  const exportsEligible = packageExportsEligible(input);
-  if (exportsEligible && metadata.kind === "unavailable")
+  const subpath = request.packageSubpath;
+  if (request.dependencyExportsEligible && metadata.kind === "unavailable")
     return unresolvedCandidate("unavailable", [metadata.limitation]);
   const rawExports =
-    exportsEligible && metadata.kind === "available"
+    request.dependencyExportsEligible && metadata.kind === "available"
       ? metadata.exports
       : undefined;
   if (rawExports === undefined) {
@@ -510,23 +508,36 @@ const resolveExportTarget = (
   );
 };
 
-const barePackageName = (specifier: string): string | null => {
-  const segments = specifier.split("/");
-  if (specifier.startsWith("@"))
-    return segments.length >= 2 && segments[0] !== "" && segments[1] !== ""
-      ? `${segments[0]}/${segments[1]}`
-      : null;
-  return segments[0] === "" ? null : (segments[0] ?? null);
-};
+/** Derived package identity and dependency policy; input retains the raw request. */
+interface BarePackageRequest {
+  readonly packageName: string;
+  readonly packageSubpath: string;
+  readonly dependencyExportsEligible: boolean;
+}
 
-const packageExportsEligible = (input: ResolveArtifactPathInput): boolean => {
-  if (input.moduleKind !== "require") return true;
+const parseBarePackageRequest = (
+  specifier: string,
+  moduleKind: ResolveArtifactPathInput["moduleKind"],
+): BarePackageRequest | null => {
+  const segments = specifier.split("/");
+  let packageName = segments[0] ?? "";
+  if (packageName === "") return null;
+  if (specifier.startsWith("@")) {
+    const packageSegment = segments[1];
+    if (packageSegment === undefined || packageSegment === "") return null;
+    packageName = `${packageName}/${packageSegment}`;
+  }
   // Node's CommonJS exports matcher excludes percent-containing package names.
   // Compare the captured name so a scoped name cannot fall back to its scope.
-  const match = /^((?:@[^/\\%]+\/)?[^./\\%][^/\\%]*)(\/.*)?$/.exec(
-    input.declaredPath,
-  );
-  return match?.[1] === barePackageName(input.declaredPath);
+  const dependencyExportsEligible =
+    moduleKind !== "require" ||
+    /^((?:@[^/\\%]+\/)?[^./\\%][^/\\%]*)(\/.*)?$/.exec(specifier)?.[1] ===
+      packageName;
+  return {
+    packageName,
+    packageSubpath: `.${specifier.slice(packageName.length)}`,
+    dependencyExportsEligible,
+  };
 };
 
 const hasContainerDirectory = (
