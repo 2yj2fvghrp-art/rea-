@@ -132,4 +132,40 @@ describe("literal CommonJS paths in application graphs", () => {
       });
     },
   );
+
+  it("retains a semantic require edge and import count for a bare require call", async () => {
+    const root = await createTestTempDirectory("rea-bare-require-");
+    await Promise.all([
+      writeFile(join(root, "main.cjs"), 'require("./dependency.cjs");\n'),
+      writeFile(join(root, "imports.mjs"), 'import "./dependency.cjs";\n'),
+      writeFile(
+        join(root, "dependency.cjs"),
+        'throw new Error("fixture must not execute");\n',
+      ),
+    ]);
+    const expected = relative(
+      root,
+      createRequire(join(root, "main.cjs")).resolve("./dependency.cjs"),
+    )
+      .split(sep)
+      .join("/");
+    const { graph } = await analyze(root);
+    const requireEdges = graph.edges.filter(
+      (edge) => edge.properties.module_link_kind === "require",
+    );
+    expect(requireEdges).toHaveLength(1);
+    expect(requireEdges[0]?.properties).toMatchObject({
+      specifier: "./dependency.cjs",
+      resolved_path: expected,
+      resolution_status: "resolved",
+      imported_name: null,
+      local_name: null,
+      exported_name: null,
+    });
+    const sourceModule = graph.nodes
+      .flatMap(({ observations }) => observations)
+      .find(({ properties }) => properties.logical_module_key === "main.cjs");
+    expect(sourceModule?.properties.import_relationships).toBe(1);
+    expect(graph.coverage.status).toBe("complete");
+  });
 });

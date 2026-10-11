@@ -167,6 +167,64 @@ describe("JavaScript semantic analysis: structure 1", () => {
   });
 });
 
+describe("JavaScript semantic analysis: unbound require links", () => {
+  it("retains one semantic link for a bare require call", () => {
+    const ir = analyzeJavaScriptSemantics(`require("./dependency.cjs");`);
+    expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([
+      expect.objectContaining({
+        kind: "require",
+        specifier: "./dependency.cjs",
+        importedName: null,
+        localName: null,
+        exportedName: null,
+      }),
+    ]);
+  });
+
+  it("retains unbound requires in call and composition positions", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      require("./first.js");
+      consume(require("./second.js"));
+      function run() { return require("./third.js"); }
+    `);
+    expect(
+      ir.moduleLinks
+        .filter(({ kind }) => kind === "require")
+        .map(({ specifier }) => specifier),
+    ).toEqual(["./first.js", "./second.js", "./third.js"]);
+  });
+
+  it("does not duplicate links owned by declarators or export assignments", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      const bound = require("./bound.js");
+      const { member } = require("./destructured.js");
+      module.exports.forwarded = require("./forwarded.js");
+      module.exports = require("./replaced.js");
+      require("./bare.js");
+    `);
+    expect(
+      ir.moduleLinks
+        .filter(({ kind }) => kind === "require")
+        .map(({ specifier, localName }) => ({ specifier, localName })),
+    ).toEqual([
+      { specifier: "./bound.js", localName: "bound" },
+      { specifier: "./destructured.js", localName: "member" },
+      { specifier: "./bare.js", localName: null },
+    ]);
+    expect(
+      ir.moduleLinks.filter(({ kind }) => kind === "commonjs-export"),
+    ).toHaveLength(2);
+  });
+
+  it("keeps shadowed and dynamic require calls link-free", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      { const require = localLoader; require("./local.js"); }
+      require(dynamicName);
+    `);
+    expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([]);
+  });
+});
+
 describe("JavaScript semantic analysis: loop lexical names", () => {
   it.each([
     `for (let value = "inside"; ready; step()) { consume(value); }`,

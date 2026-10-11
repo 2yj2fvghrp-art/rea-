@@ -100,6 +100,7 @@ export const collectSemanticModuleLink = (
     );
   else if (t.isVariableDeclarator(node)) collectRequireLink(node, state);
   else if (t.isAssignmentExpression(node)) collectCommonJsExport(node, state);
+  else if (t.isCallExpression(node)) collectUnboundRequireLink(node, state);
 };
 
 /** Collect lexical references after definitions exist, optionally for one name. */
@@ -317,6 +318,74 @@ const collectNamedExports = (
         node,
       );
 };
+
+/**
+ * Retain one semantic link for an unowned require call. Bound declarators and
+ * assignment right-hand sides own the require origins reachable from them, so
+ * the call itself owns a link only in every other position: a bare statement,
+ * an argument, a return, a member base outside an owned root, or a nested
+ * composition. Owned wrappers (TS assertions, member suffixes) delegate to the
+ * require they wrap and must not allocate their own link.
+ */
+const collectUnboundRequireLink = (
+  node: t.CallExpression,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  let current: t.Node = node;
+  let parent = state.parentsByNode.get(current);
+  while (
+    parent !== undefined &&
+    (isMemberExpressionObject(parent, current) ||
+      isTransparentWrapper(parent, current))
+  ) {
+    current = parent;
+    parent = state.parentsByNode.get(current);
+  }
+  // Declarator initializers and assignment right-hand sides are consumed by
+  // collectRequireLink and collectCommonJsExport, even when their patterns or
+  // dynamic members yield no binding: those positions must not gain a second,
+  // unbound link.
+  if (
+    parent !== undefined &&
+    ((t.isVariableDeclarator(parent) && parent.init === current) ||
+      (t.isAssignmentExpression(parent) && parent.right === current))
+  )
+    return;
+  const origin = semanticRequireOrigin(node, state);
+  if (origin === undefined || origin.importedPath.length > 0) return;
+  addModuleLink(
+    state,
+    {
+      kind: "require",
+      specifier: origin.specifier,
+      importedName: null,
+      localName: null,
+      exportedName: null,
+      location: range(node),
+    },
+    node,
+  );
+};
+
+/** True when `node` is the object of a member expression parent. */
+const isMemberExpressionObject = (parent: t.Node, node: t.Node): boolean =>
+  (t.isMemberExpression(parent) || t.isOptionalMemberExpression(parent)) &&
+  parent.object === node;
+
+/**
+ * True when `parent` only affects checking, not runtime expression identity.
+ * Mirrors unwrapJavaScriptExpression so an owned require stays owned through
+ * the same wrappers its owner's origin recovery sees through.
+ */
+const isTransparentWrapper = (parent: t.Node, node: t.Node): boolean =>
+  (t.isParenthesizedExpression(parent) ||
+    t.isTSAsExpression(parent) ||
+    t.isTSSatisfiesExpression(parent) ||
+    t.isTSTypeAssertion(parent) ||
+    t.isTSNonNullExpression(parent) ||
+    t.isTSInstantiationExpression(parent) ||
+    t.isTypeCastExpression(parent)) &&
+  parent.expression === node;
 
 const collectRequireLink = (
   node: t.VariableDeclarator,
