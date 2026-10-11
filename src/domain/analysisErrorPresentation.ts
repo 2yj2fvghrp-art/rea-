@@ -82,6 +82,11 @@ export const analysisErrorRemediationAction = (
   )
     return "Review the reported file-format reason and select a supported, well-formed target.";
   if (
+    error instanceof BinaryTargetError &&
+    error.constraint === "wasm_requires_static_inspection"
+  )
+    return `For static inspection, call inspect_wasm_artifact with ${JSON.stringify({ path: error.path })} or run \`rea inspect-wasm-artifact <path> --format json\`. This separate lane requires caller-supplied WABT 1.0.42 via absolute REA_WABT_BIN_DIRECTORY; check its availability in binary_session. REA does not execute WASM or install tools, and the header alone does not establish that the complete module is valid.`;
+  if (
     error instanceof AnalysisAccessDeniedError ||
     (error instanceof BinaryTargetError && error.systemCode !== undefined)
   )
@@ -100,6 +105,12 @@ export const analysisErrorRemediationAction = (
 export const analysisErrorCategory = (
   error: AnalysisError,
 ): AnalysisErrorProjection["category"] => {
+  if (
+    error instanceof BinaryTargetError &&
+    (error.constraint === "wasm_requires_static_inspection" ||
+      error.constraint === "file_format_rejected")
+  )
+    return "unsupported_target";
   if (
     error instanceof ProviderSelectionError &&
     error.reason === "provider_unavailable"
@@ -218,6 +229,11 @@ export const analysisErrorUserMessage = (error: AnalysisError): string => {
           )
           .join("; ")}.`;
   if (error instanceof NoBinaryOpenError) return error.message;
+  if (
+    error instanceof BinaryTargetError &&
+    error.constraint === "wasm_requires_static_inspection"
+  )
+    return `${error.message}. Static WebAssembly inspection uses a separate optional WABT lane, not a native analysis engine.`;
   if (error instanceof BinaryTargetError)
     return error.constraint === "directory_requires_file"
       ? "open_binary accepts files and macOS app bundles. This target is a directory; JavaScript/Electron application directories can be analyzed directly with analyze_javascript_application or `rea analyze <directory>`."

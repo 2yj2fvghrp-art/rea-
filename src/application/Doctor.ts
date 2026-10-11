@@ -421,8 +421,7 @@ export const systemDoctorHost = (
         name: "target",
         ok: false,
         classification:
-          targetError?.constraint === "directory_requires_file" ||
-          targetError?.constraint === "file_format_rejected"
+          targetError?.constraint !== undefined
             ? "unsupported_target"
             : "config_drift",
         detail: path,
