@@ -369,7 +369,8 @@ export const attestGhidraRawBinaryLoadImage = (
     language.compilerSpecId,
     observations.compiler_spec_id,
   );
-  check("image_base", target.entryPoint, observations.image_base);
+  // BinaryLoader's block base is independent of the Program image base.
+  check("image_base", "0x0", observations.image_base);
   check("source_file_count", 1, observations.source_files.length);
   check("source_file_size", bytes.length, source?.size ?? null);
   check("original_file_sha256", target.sha256, source?.original_sha256 ?? null);
@@ -405,9 +406,10 @@ export const attestGhidraRawBinaryLoadImage = (
     mapping?.start ?? null,
   );
   check(
-    "entry_points",
-    [target.entryPoint],
-    [...observations.entry_points].sort(),
+    "entry_point",
+    target.entryPoint,
+    observations.entry_points.find((entry) => entry === target.entryPoint) ??
+      null,
   );
   check("relocation_records", [], observations.relocations);
   return ok(
@@ -426,6 +428,7 @@ export const attestGhidraRawBinaryLoadImage = (
       limitations: [
         "Raw binary is a headerless interpretation explicitly selected by the caller, not format identification from file bytes.",
         "Verification covers complete original/modified source identity, mapped file bytes, the caller-supplied entry, and the bound little-endian Ghidra language. File offset 0 is mapped at the entry address.",
+        "Ghidra may report additional language-defined external entries outside the mapped image. They are preserved as observations; verification requires the caller-supplied entry and does not attest other entries.",
         "Reset vectors, memory-mapped I/O, big-endian and Thumb-only variants, and runtime boot behavior are not modeled or verified. No original executable bytes are changed.",
         "Mapping ends are inclusive; a mismatching digest identifies its source range, not the first differing byte.",
       ],

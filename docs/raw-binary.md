@@ -46,6 +46,11 @@ caller-supplied-v1` are committed in the analysis profile. A different entry
 or architecture is a different profile; snapshots from header-detected targets
 do not replay.
 
+The mapped start is independent of Ghidra's program image base, which remains
+`0x0` for BinaryLoader. Ghidra may report additional language-defined entry
+points, including unmapped ARM vectors. Load-image verification requires the
+caller-supplied entry and preserves those other entries as observations.
+
 Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 continues to admit
 PE applications only.
 

@@ -32,7 +32,7 @@ const fixture = (): {
       executable_format: "Raw Binary",
       language_id: "ARM:LE:32:v7",
       compiler_spec_id: "default",
-      image_base: "0x8000000",
+      image_base: "0x0",
       default_address_space: "ram",
       source_files: [
         {
@@ -117,6 +117,32 @@ describe("raw-binary independent load-image checks", () => {
     expect(result).toMatchObject({
       ok: true,
       value: { status: "mismatch", observations: f.observation },
+    });
+  });
+  it("preserves additional language entries while requiring the caller entry", () => {
+    const f = fixture();
+    f.observation.entry_points = ["0x0", f.target.entryPoint, "0xffff0000"];
+    expect(
+      attestGhidraRawBinaryLoadImage(f.bytes, f.target, f.observation),
+    ).toMatchObject({
+      ok: true,
+      value: { status: "verified", observations: f.observation },
+    });
+    f.observation.entry_points = ["0x0", "0xffff0000"];
+    expect(
+      attestGhidraRawBinaryLoadImage(f.bytes, f.target, f.observation),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        status: "mismatch",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "entry_point",
+            matched: false,
+            observed: null,
+          }),
+        ]),
+      },
     });
   });
   it("rejects stale snapshot identity", () => {
