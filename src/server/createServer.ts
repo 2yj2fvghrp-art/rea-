@@ -345,6 +345,7 @@ export const createServer = (
     new FlutterBuildAnalysisService(flutter),
     toolLogger,
     recordEvidence,
+    analysisAdmission,
   );
   registerApktoolTools(
     server,

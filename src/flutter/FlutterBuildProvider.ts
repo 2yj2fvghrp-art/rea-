@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import {
   chmod,
-  copyFile,
   constants as fsConstants,
   mkdtemp,
   open as openFile,
@@ -10,6 +8,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -225,8 +224,20 @@ export class FlutterBuildProvider {
       // Pin the admitted source: capture its identity before the copy and
       // revalidate after, so an in-place replacement or swap mid-copy is
       // refused instead of publishing mixed bytes under the original path.
+      // The copy itself is streamed and abort-checked so cancellation
+      // stops the write promptly instead of draining the whole file.
       const before = await stat(path);
-      await copyFile(path, snapshotPath, fsConstants.COPYFILE_EXCL);
+      const output = await openFile(snapshotPath, "wx");
+      try {
+        const abortSignal = signal;
+        for await (const chunk of createReadStream(path)) {
+          if (abortSignal?.aborted === true)
+            throw new AnalysisCancelledError(operation);
+          await output.write(chunk as Buffer);
+        }
+      } finally {
+        await output.close();
+      }
       const after = await stat(path);
       if (
         before.size !== after.size ||
@@ -467,7 +478,7 @@ export class FlutterBuildProvider {
         (entry) =>
           (entry.libapp.present &&
             (entry.libapp.snapshot_hash === null ||
-              entry.libapp.snapshot_hash_sources < 2 ||
+              entry.libapp.snapshot_hash_sources !== 2 ||
               entry.libapp.elf_header_valid !== true)) ||
           entry.libflutter.toolchain_capped ||
           entry.libapp.present !== entry.libflutter.present,

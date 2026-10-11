@@ -75,17 +75,22 @@ if (options.apk !== null) {
       hashes.size === 1,
       [...hashes].join(", "),
     );
+
+    const libappAbis = identified.abis.filter((abi) => abi.libapp.present);
     check(
-      "engine build-ids present and hex per ABI",
-      identified.abis
-        .filter((abi) => abi.libflutter.present)
-        .every(
+      "every Flutter ABI carries an engine with a hex build-id",
+      libappAbis.length > 0 &&
+        libappAbis.every(
           (abi) =>
+            abi.libflutter.present &&
             abi.libflutter.build_id !== null &&
             /^[0-9a-f]{16,40}$/.test(abi.libflutter.build_id),
         ),
-      identified.abis
-        .map((abi) => abi.libflutter.build_id?.slice(0, 12))
+      libappAbis
+        .map(
+          (abi) =>
+            `${abi.abi}:${abi.libflutter.present ? abi.libflutter.build_id?.slice(0, 12) : "missing"}`,
+        )
         .join(", "),
     );
 
@@ -136,6 +141,12 @@ try {
   );
 }
 
+if (options.apk === null) {
+  process.stderr.write(
+    "No Flutter APK was provided; pass --apk PATH to run the real verification.\n",
+  );
+  process.exit(2);
+}
 if (failures > 0) {
   process.stdout.write(`\n${failures} check(s) failed\n`);
   process.exit(1);

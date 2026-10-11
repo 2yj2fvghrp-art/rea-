@@ -145,8 +145,12 @@ export class BuildIdScanner {
     for (;;) {
       const prefix = findBytes(joined, BUILD_ID_NOTE_PREFIX_FIXED, probe);
       if (prefix === -1) break;
-      if (prefix + 6 <= joined.length) {
-        const described = joined[prefix + 4]! + joined[prefix + 5]! * 0x100;
+      if (prefix + 8 <= joined.length) {
+        const described =
+          joined[prefix + 4]! +
+          joined[prefix + 5]! * 0x100 +
+          joined[prefix + 6]! * 0x10000 +
+          joined[prefix + 7]! * 0x1000000;
         if (
           described >= BUILD_ID_MIN_BYTES &&
           described <= BUILD_ID_MAX_BYTES &&
