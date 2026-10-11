@@ -29,6 +29,7 @@ import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
   resolveSemanticBindingFromScope,
+  semanticBindingId,
   semanticScopeId,
   semanticVariableScope,
 } from "./javascriptSemanticState.js";
@@ -106,7 +107,7 @@ export const analyzeJavaScriptSemantics = (
 
 /** Recover lexical references, optionally for one name, without evaluating values or provenance. */
 export const analyzeParsedJavaScriptReferences = (
-  file: ParsedJavaScriptSource,
+  file: Pick<ParsedJavaScriptSource, "program">,
   name?: string,
 ): readonly JavaScriptSemanticReference[] => {
   const state = createState(file.program);
@@ -1102,7 +1103,7 @@ const createBinding = (
   kind: JavaScriptSemanticDefinition["kind"],
   mutable: boolean,
 ): JavaScriptSemanticBindingState => ({
-  bindingId: `${scope.scopeId}:binding:${encodeURIComponent(name)}`,
+  bindingId: semanticBindingId(scope.scopeId, name),
   scopeId: scope.scopeId,
   name,
   kind,
