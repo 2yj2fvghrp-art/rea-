@@ -6,6 +6,9 @@ import { managedFailure } from "./ManagedReaderFailure.js";
 /** Per-inspection capacity for eagerly retained metadata and its JSON projection. */
 const MAX_METADATA_REPRESENTATION_BYTES = 64 * 1024 * 1024;
 
+/** Transient decoding allowance per admitted blob byte; decode allocations stay within this multiple. */
+export const DECODE_BYTES_PER_BLOB_BYTE = 256;
+
 interface CachedString {
   readonly value: string;
   readonly encodedBytes: number;

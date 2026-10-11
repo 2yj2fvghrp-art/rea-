@@ -408,7 +408,17 @@ describe("managed signature element types", () => {
     [
       "an array shape with size and lower bound",
       [6, 0x14, 8, 1, 1, 4, 1, 2],
-      "i4[2...5]",
+      "i4[1...4]",
+    ],
+    [
+      "an array shape with a size and no lower bound",
+      [6, 0x14, 8, 1, 1, 3, 0],
+      "i4[0...2]",
+    ],
+    [
+      "an array shape with a negative lower bound",
+      [6, 0x14, 8, 1, 1, 4, 1, 1],
+      "i4[-64...-61]",
     ],
     [
       "a generic instantiation",
@@ -466,11 +476,36 @@ describe("managed signature element types", () => {
       [6, 0x14, 8, 0, 0, 0],
       "array rank must be at least 1",
     ],
+    [
+      "an array size count above its rank",
+      [6, 0x14, 8, 1, 2, 1, 2, 0],
+      "array size count exceeds array rank",
+    ],
+    [
+      "an array lower-bound count above its rank",
+      [6, 0x14, 8, 1, 0, 2, 2, 3],
+      "array lower-bound count exceeds array rank",
+    ],
   ])("marks %s malformed", (_label, fieldSignature, detail) => {
     expect(inspectFieldSignature(fieldSignature)).toMatchObject({
       kind: "unknown",
       parse_status: "malformed",
       issue: detail,
+    });
+  });
+
+  it("reports an array rank beyond the decode allowance as a resource constraint", () => {
+    const bytes = buildManagedPeFixture({
+      fieldSignature: Buffer.from([6, 0x14, 8, 0xc2, 0xfa, 0xf0, 0x80]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.metadata.status).toBe("partial");
+    expect(result.coverage).toMatchObject({
+      state: "unavailable",
+      issues: [{ code: "resource-limit", scope: "metadata.representation" }],
     });
   });
 });
@@ -511,11 +546,42 @@ describe("managed method signature element types", () => {
       calling_convention: "default",
       return_type: "valuetype:152",
       parameter_types: [
-        "fnptr[unknown:9](valuetype:152,native-int,native-int)",
+        "fnptr[unmanaged](valuetype:152,native-int,native-int)",
         "native-int",
       ],
       issue: null,
     });
+  });
+
+  it.each<[number, string]>([
+    [1, "c"],
+    [2, "stdcall"],
+    [3, "thiscall"],
+    [4, "fastcall"],
+    [9, "unmanaged"],
+  ])("names the %s function-pointer calling convention", (convention, name) => {
+    const bytes = buildManagedPeFixture({
+      methodSignature: Buffer.from([0, 1, 1, 0x1b, convention, 0, 8]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.methods[0]?.signature.parameter_types).toEqual([
+      `fnptr[${name}](i4)`,
+    ]);
+  });
+
+  it("preserves generic function-pointer arity", () => {
+    const render = (arity: number): readonly string[] | undefined => {
+      const bytes = buildManagedPeFixture({
+        methodSignature: Buffer.from([0, 1, 1, 0x1b, 0x10, arity, 1, 8, 8]),
+      });
+      return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes))
+        .methods[0]?.signature.parameter_types;
+    };
+    expect(render(1)).toEqual(["fnptr[default generic:1](i4,i4)"]);
+    expect(render(2)).toEqual(["fnptr[default generic:2](i4,i4)"]);
   });
 
   it("decodes a nested generic instantiation after a sibling argument", () => {

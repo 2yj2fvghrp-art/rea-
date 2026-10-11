@@ -324,7 +324,7 @@ describe("managed member comparison of undecoded signatures", () => {
     expect(left.result.metadata.status).toBe("complete");
     expect(left.result.coverage.state).toBe("partial");
     expect(left.result.methods[0]?.signature.parse_status).toBe("unsupported");
-    expect(left.result.fields[0]?.signature.parse_status).toBe("unsupported");
+    expect(left.result.fields[0]?.signature.parse_status).toBe("malformed");
     const result = compareManagedMembers(left, right);
     expect(result.summary).toMatchObject({
       unchanged: 2,

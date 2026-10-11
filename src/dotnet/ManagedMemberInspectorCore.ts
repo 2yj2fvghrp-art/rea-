@@ -20,6 +20,8 @@ import {
   sha256Bytes,
 } from "./ManagedMetadataHeaps.js";
 
+import { DECODE_BYTES_PER_BLOB_BYTE } from "./ManagedDecodeBudget.js";
+
 export type ManagedType = ManagedMemberInspection["types"][number];
 export type ManagedField = ManagedMemberInspection["fields"][number];
 export type ManagedMethod = ManagedMemberInspection["methods"][number];
@@ -322,6 +324,49 @@ const readCompressed = (
     offset,
   );
 };
+const readCompressedSigned = (
+  bytes: Buffer,
+  offset: number,
+): { readonly value: number; readonly next: number } => {
+  const first = bytes[offset];
+  if (first === undefined)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "truncated compressed integer",
+      offset,
+    );
+  if ((first & 0x80) === 0) {
+    const rotated = (first >> 1) | ((first & 1) << 6);
+    return { value: (rotated << 25) >> 25, next: offset + 1 };
+  }
+  const second = bytes[offset + 1];
+  if ((first & 0xc0) === 0x80 && second !== undefined) {
+    const rotated =
+      ((((first & 0x3f) << 8) | second) >> 1) | ((second & 1) << 13);
+    return { value: (rotated << 18) >> 18, next: offset + 2 };
+  }
+  const b1 = bytes[offset + 1];
+  const b2 = bytes[offset + 2];
+  const b3 = bytes[offset + 3];
+  if (
+    (first & 0xe0) === 0xc0 &&
+    b1 !== undefined &&
+    b2 !== undefined &&
+    b3 !== undefined
+  ) {
+    const raw =
+      (first & 0x1f) * 0x01_00_00_00 + b1 * 0x01_00_00 + b2 * 0x0100 + b3;
+    const rotated = (raw >>> 1) | ((raw & 1) << 28);
+    return { value: (rotated << 3) >> 3, next: offset + 4 };
+  }
+  throw managedFailure(
+    "invalid-blob",
+    "signature",
+    "reserved compressed integer",
+    offset,
+  );
+};
 
 const ELEMENT_TYPES = new Map<number, string>([
   [0x01, "void"],
@@ -353,6 +398,9 @@ interface TypeFrame {
   readonly parts: string[];
 }
 
+/** Every array dimension renders at least "0..." (four UTF-16 units). */
+const MIN_ARRAY_DIMENSION_BYTES = 8;
+
 const readArrayShape = (
   blob: Buffer,
   offset: number,
@@ -365,9 +413,26 @@ const readArrayShape = (
       "array rank must be at least 1",
       offset,
     );
+  if (
+    rank.value * MIN_ARRAY_DIMENSION_BYTES >
+    blob.length * DECODE_BYTES_PER_BLOB_BYTE
+  )
+    throw managedFailure(
+      "resource-limit",
+      "metadata.representation",
+      `Array rank ${String(rank.value)} exceeds the signature decode allowance`,
+      offset,
+    );
   let cursor = rank.next;
   const sizes: number[] = [];
   const sizeCount = readCompressed(blob, cursor);
+  if (sizeCount.value > rank.value)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "array size count exceeds array rank",
+      cursor,
+    );
   cursor = sizeCount.next;
   for (let index = 0; index < sizeCount.value; index += 1) {
     const size = readCompressed(blob, cursor);
@@ -375,21 +440,27 @@ const readArrayShape = (
     cursor = size.next;
   }
   const lowerCount = readCompressed(blob, cursor);
+  if (lowerCount.value > rank.value)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "array lower-bound count exceeds array rank",
+      cursor,
+    );
   cursor = lowerCount.next;
   const lowerBounds: number[] = [];
   for (let index = 0; index < lowerCount.value; index += 1) {
-    const lower = readCompressed(blob, cursor);
+    const lower = readCompressedSigned(blob, cursor);
     lowerBounds.push(lower.value);
     cursor = lower.next;
   }
   const dims: string[] = [];
   for (let index = 0; index < rank.value; index += 1) {
-    const lower = lowerBounds[index] ?? null;
-    const size = sizes[index] ?? null;
-    if (lower !== null && size !== null)
+    const size = sizes[index];
+    const lower = lowerBounds[index] ?? 0;
+    if (size !== undefined && size > 0)
       dims.push(`${String(lower)}...${String(lower + size - 1)}`);
-    else if (lower !== null) dims.push(`${String(lower)}...`);
-    else dims.push("0...");
+    else dims.push(`${String(lower)}...`);
   }
   return { text: dims.join(","), next: cursor };
 };
@@ -471,17 +542,20 @@ const readFunctionPointer = (
       offset,
     );
   let at = offset + 1;
+  let genericArity: number | null = null;
   if ((convention & 0x10) !== 0) {
     const generic = readCompressed(blob, at);
+    genericArity = generic.value;
     at = generic.next;
   }
   const count = readCompressed(blob, at);
+  const arity = genericArity === null ? "" : `:${String(genericArity)}`;
   return {
     frame: {
       open:
         convention === 0
           ? "fnptr("
-          : `fnptr[${callingConvention(convention)}](`,
+          : `fnptr[${callingConvention(convention)}${arity}](`,
       close: `)${suffix}`,
       suffix,
       deferred: null,
@@ -598,6 +672,22 @@ const readTypeSignature = (
   }
 };
 
+/** ECMA-335 II.23.2.3 assigned calling conventions; unassigned bases stay unknown. */
+const CALLING_CONVENTIONS = new Map<number, string>([
+  [0x00, "default"],
+  [0x01, "c"],
+  [0x02, "stdcall"],
+  [0x03, "thiscall"],
+  [0x04, "fastcall"],
+  [0x05, "vararg"],
+  [0x06, "field"],
+  [0x07, "local-sig"],
+  [0x08, "property"],
+  [0x09, "unmanaged"],
+  [0x0a, "generic-inst"],
+  [0x0b, "native-vararg"],
+]);
+
 const callingConvention = (value: number): string => {
   const base = value & 0x0f;
   const flags = [
@@ -605,14 +695,7 @@ const callingConvention = (value: number): string => {
     (value & 0x40) === 0 ? null : "explicit-this",
     (value & 0x10) === 0 ? null : "generic",
   ].filter((flag) => flag !== null);
-  const name =
-    base === 0
-      ? "default"
-      : base === 5
-        ? "vararg"
-        : base === 6
-          ? "field"
-          : `unknown:${String(base)}`;
+  const name = CALLING_CONVENTIONS.get(base) ?? `unknown:${String(base)}`;
   return flags.length === 0 ? name : `${name} ${flags.join(" ")}`;
 };
 

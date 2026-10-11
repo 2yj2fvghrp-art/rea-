@@ -1,4 +1,5 @@
 import {
+  DECODE_BYTES_PER_BLOB_BYTE,
   admitManagedProjection,
   managedDecodeBudget,
   managedJsonStringBytes,
@@ -306,7 +307,10 @@ const budgetedSignature = (
   layout: ManagedMetadataLayout,
 ): ReturnType<typeof signature> => {
   const budget = managedDecodeBudget(layout);
-  budget.admitTransient(bytes.length * 256, layout.blob.offset);
+  budget.admitTransient(
+    bytes.length * DECODE_BYTES_PER_BLOB_BYTE,
+    layout.blob.offset,
+  );
   try {
     return admitManagedProjection(
       signature(bytes, budget.digest(bytes, "sha256")),
