@@ -93,6 +93,8 @@ const chunk = z.strictObject({
   handler: z.string().nullable(),
   encrypted: z.boolean().nullable(),
   root_file_range: range.nullable(),
+  /** The producer reported extraction problems for this chunk. */
+  extraction_failed: z.boolean(),
 });
 /** One explicit unextracted or retained-as-carved region, with the supported
  * continuation that uses already configured capabilities when one exists. */
@@ -102,6 +104,7 @@ export const extractionGap = z.strictObject({
     "unknown-chunk-handler",
     "encrypted-chunk",
     "depth-limited",
+    "extractor-failure",
     "unpublished-entry",
   ]),
   /** Logical task path from the producer report; `$output/…` for unpublished entries. */

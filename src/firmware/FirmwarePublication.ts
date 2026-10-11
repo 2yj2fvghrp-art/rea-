@@ -21,6 +21,8 @@ const GAP_CONTINUATIONS: Record<ExtractionGap["kind"], string> = {
     "Run inspect_firmware_regions on the same input for signature hypotheses, or select a narrower range with extract_firmware; the region is not decoded content.",
   "encrypted-chunk":
     "No static extraction continues past encryption; treat the region as unexamined rather than empty or corrupt.",
+  "extractor-failure":
+    "The producer retained this chunk's extraction problem in diagnostics. Review the reported failure, then rerun extract_firmware on the same immutable input; the region is not decoded content.",
   "depth-limited":
     "Rerun extract_firmware with a higher max_depth (up to 10) to descend into this path.",
   "unpublished-entry":
@@ -32,7 +34,7 @@ const MAX_EXTRACTION_DEPTH = 10;
 
 const depthContinuation = (maxDepth: number): string =>
   maxDepth >= MAX_EXTRACTION_DEPTH
-    ? "This extraction already ran at the lane's maximum depth; no deeper rerun is possible. Treat the region as unexamined below this path."
+    ? "This extraction already ran at the lane's maximum depth. To continue below this path, rerun extract_firmware with path set to the published child extracted here (its files[].path entry under this task); a fresh run on that child restarts the depth budget."
     : GAP_CONTINUATIONS["depth-limited"];
 
 const emptyGap = {
@@ -197,13 +199,18 @@ const dependencyExtractionGaps = (
       JSON.stringify([input_path, provider_id]),
     ),
   );
+  // One index over the chunk list keeps dependency-row resolution linear.
+  const chunksByKey = new Map(
+    normalized.chunks.map((chunk) => [
+      JSON.stringify([chunk.input_path, chunk.provider_id]),
+      chunk,
+    ]),
+  );
   return [
     ...normalized.chunk_missing_dependencies.flatMap(
       ({ input_path, provider_id, dependencies }): ExtractionGap[] => {
-        const affected = normalized.chunks.find(
-          (chunk) =>
-            chunk.input_path === input_path &&
-            chunk.provider_id === provider_id,
+        const affected = chunksByKey.get(
+          JSON.stringify([input_path, provider_id]),
         );
         return [
           {
@@ -277,10 +284,31 @@ const extractionGaps = (
       dependencies: [],
       continuation: GAP_CONTINUATIONS[kind],
     }));
+  // Chunks whose failure a dependency row already covers stay out of the
+  // generic extractor-failure emission.
+  const dependencyChunkKeys = new Set(normalized.chunk_missing_dependencies.map(
+      ({ input_path, provider_id }) =>
+        JSON.stringify([input_path, provider_id]),
+    ));
+  const taskDependencyPaths = new Set(
+    normalized.missing_dependencies.map(({ input_path }) => input_path),
+  );
   const gaps: ExtractionGap[] = [
     ...dependencyGaps,
     ...chunkGaps("unknown-chunk-handler", (chunk) => chunk.handler === null),
     ...chunkGaps("encrypted-chunk", (chunk) => chunk.encrypted === true),
+    ...chunkGaps(
+      "extractor-failure",
+      (chunk) =>
+        chunk.extraction_failed === true &&
+        chunk.handler !== null &&
+        chunk.encrypted !== true &&
+        // A missing-dependency row already carries this chunk's recovery.
+        !dependencyChunkKeys.has(
+          JSON.stringify([chunk.input_path, chunk.provider_id]),
+        ) &&
+        !taskDependencyPaths.has(chunk.input_path),
+    ),
     ...normalized.depth_limited_paths.map((input_path): ExtractionGap => ({
       kind: "depth-limited",
       input_path,

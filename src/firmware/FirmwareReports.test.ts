@@ -160,6 +160,44 @@ describe("firmware producer boundaries", () => {
       },
     ]);
   });
+});
+
+describe("firmware producer chunk failures", () => {
+  it("marks chunks whose extraction reported problems", () => {
+    const record = root();
+    const failing = {
+      __typename__: "ChunkReport",
+      id: "zip-id",
+      start_offset: 0,
+      end_offset: 20,
+      size: 20,
+      handler_name: "zip",
+      is_encrypted: false,
+      extraction_reports: [
+        { __typename__: "SomeProducerFailure", severity: "ERROR" },
+      ],
+    };
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...record,
+          reports: [
+            ...record.reports.filter(
+              (item) => item.__typename__ !== "UnknownChunkReport",
+            ),
+            failing,
+          ],
+        },
+      ],
+      context,
+    );
+    expect(normalized.chunks).toHaveLength(1);
+    expect(normalized.chunks[0]).toMatchObject({
+      handler: "zip",
+      extraction_failed: true,
+    });
+    expect(normalized.coverage).toBe("partial");
+  });
   it("keeps dependency reports without dependency names out of the derivation", () => {
     const record = root();
     const normalized = normalizeUnblobReport(

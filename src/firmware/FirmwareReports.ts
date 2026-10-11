@@ -208,6 +208,7 @@ export const normalizeUnblobReport = (
     handler: string | null;
     encrypted: boolean | null;
     root_file_range: { offset: number; length: number } | null;
+    extraction_failed: boolean;
   }[] = [];
   const seen = new Set<string>();
   const missingDependencies = new Map<string, Set<string>>();
@@ -325,6 +326,8 @@ export const normalizeUnblobReport = (
                 })
                 .parse(item)
             : null;
+        const extractionFailed =
+          detail !== null && detail.extraction_reports.length > 0;
         if (detail !== null)
           for (const problem of detail.extraction_reports) {
             diagnostics.push(
@@ -343,6 +346,7 @@ export const normalizeUnblobReport = (
           range: { offset: parsed.start_offset, length: parsed.size },
           handler: detail?.handler_name ?? null,
           encrypted: detail?.is_encrypted ?? null,
+          extraction_failed: extractionFailed,
           root_file_range:
             path === "$input"
               ? {
