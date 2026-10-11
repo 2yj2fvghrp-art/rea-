@@ -1,7 +1,7 @@
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 
 import { WebNetworkCaptureService } from "../../../src/application/WebNetworkCaptureService.js";
 import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
@@ -10,6 +10,7 @@ import { HopperRemoteError } from "../../../src/domain/hopperErrors.js";
 import { err } from "../../../src/domain/result.js";
 import { observed as ok } from "../../fixtures/analysisExecution.js";
 import { createServer } from "../../../src/server/createServer.js";
+import * as webNetworkCaptures from "../../../src/composition/webNetworkCaptures.js";
 
 const resources: Array<{ close(): Promise<void> }> = [];
 
@@ -151,10 +152,15 @@ it("closes the capture port used by MCP and retries failed cleanup", async () =>
       if (attempts === 1) throw new Error("capture directory remains owned");
     },
   });
-  const server = createServer(
-    { kind: "fixed", analysis: { execute: async () => ok([]) } },
-    { webNetworkCapture },
-  );
+  const createService = vi
+    .spyOn(webNetworkCaptures, "createWebNetworkCaptureService")
+    .mockReturnValue(webNetworkCapture);
+  onTestFinished(() => createService.mockRestore());
+  const server = createServer({
+    kind: "fixed",
+    analysis: { execute: async () => ok([]) },
+  });
+  expect(createService).toHaveBeenCalledTimes(1);
   const client = new Client({ name: "capture-lifecycle-test", version: "1" });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();

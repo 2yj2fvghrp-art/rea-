@@ -92,29 +92,28 @@ export class HistoricalCaptureDecoder {
       return await this.#resources.run(() => this.#inspect(input, options));
     } catch (cause: unknown) {
       const retained =
-        cause instanceof ArtifactResourceCleanupFailure
-          ? cause.failures.find(
-              ({ owner }) =>
-                owner instanceof HistoricalCaptureRuntimeOwner &&
-                owner.previousFailure instanceof ProviderCleanupError,
-            )
+        cause instanceof ArtifactResourceCleanupFailure &&
+        cause.failures.length === 1
+          ? cause.failures[0]
           : undefined;
       if (
-        cause instanceof ArtifactResourceCleanupFailure &&
         retained?.owner instanceof HistoricalCaptureRuntimeOwner &&
         retained.owner.previousFailure instanceof ProviderCleanupError
       ) {
         const previous = retained.owner.previousFailure;
+        const { owner, cause: ownerCause } = retained;
+        const cleanup = ArtifactReaderFailure.cleanupObservation(
+          ownerCause,
+          owner.resource,
+        );
         return err(
           redactExplicitFailure(
             new ProviderCleanupError(
               previous.providerId,
-              cause.cleanup?.resources ?? previous.cleanupResources,
+              cleanup.resources,
               {
                 ...previous.diagnostics,
-                ...(cause.cleanup === undefined
-                  ? {}
-                  : { reason: cause.cleanup.reason }),
+                reason: cleanup.reason,
               },
               {
                 operation: previous.operation,
@@ -124,6 +123,49 @@ export class HistoricalCaptureDecoder {
             input.sensitive_values,
           ),
         );
+      }
+      if (
+        cause instanceof ArtifactResourceCleanupFailure &&
+        cause.failures.length > 1
+      ) {
+        const cleanupFailures = cause.failures.map(
+          ({ owner, cause: ownerCause }) => {
+            const cleanup = ArtifactReaderFailure.cleanupObservation(
+              ownerCause,
+              owner.resource,
+            );
+            const previous =
+              owner instanceof HistoricalCaptureRuntimeOwner
+                ? owner.previousFailure
+                : undefined;
+            return {
+              owner: owner.kind,
+              resources: [...cleanup.resources],
+              reason: cleanup.reason,
+              ...(previous === undefined
+                ? {}
+                : {
+                    provider_id: previous.providerId,
+                    operation: previous.operation,
+                    previous_error: projectAnalysisError(previous),
+                  }),
+            };
+          },
+        );
+        const error = new ProviderCleanupError(
+          "web-network-capture",
+          cause.cleanup?.resources ?? [
+            ...new Set(cleanupFailures.flatMap(({ resources }) => resources)),
+          ],
+          {
+            ...(cause.cleanup === undefined
+              ? {}
+              : { reason: cause.cleanup.reason }),
+            cleanup_failures: cleanupFailures,
+          },
+          { operation: OPERATION, cause },
+        );
+        return err(redactExplicitFailure(error, input.sensitive_values));
       }
       const error =
         cause instanceof ArtifactReaderFailure && cause.cleanup !== undefined

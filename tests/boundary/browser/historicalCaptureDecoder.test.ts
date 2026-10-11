@@ -12,8 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
+import { z } from "zod";
 import { HarCaptureAdapter } from "../../../src/browser/history/HarCaptureAdapter.js";
 import { HistoricalCaptureDecoder } from "../../../src/browser/history/HistoricalCaptureDecoder.js";
+import type { HistoricalCaptureFormatAdapter } from "../../../src/browser/history/HistoricalCaptureFormatAdapter.js";
 import { MitmproxyCaptureAdapter } from "../../../src/browser/history/MitmproxyCaptureAdapter.js";
 import {
   HAR_CAPTURE_PROVIDER_IDENTITY,
@@ -688,6 +690,160 @@ it("retains the original provider failure when retrying cleanup across formats",
   const closed = await decoder.inspect(input);
   expect(closed.ok).toBe(false);
   expect(runCount).toBe(1);
+});
+
+it("preserves each retained owner failure when concurrent cleanup retries fail", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "rea-historical-concurrent-owner-"),
+  );
+  const capturePath = join(root, "capture.har");
+  await writeFile(capturePath, JSON.stringify(historicalHar()));
+  const runtimePaths = new Map<string, string>();
+  const privateRoots: Array<Pick<PrivateRuntimeRoot, "path" | "close">> = [];
+  onTestFinished(async () => {
+    await Promise.allSettled(privateRoots.map((runtime) => runtime.close()));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const formats = ["mitmproxy", "har"] as const;
+  const supervisors = new Map(
+    formats.map((format) => [format, retainedProcessSupervisor()]),
+  );
+  const stops = formats.map((format) => {
+    const supervisor = supervisors.get(format);
+    if (supervisor === undefined)
+      throw new Error(`Missing ${format} supervisor`);
+    return vi
+      .spyOn(supervisor, "stop")
+      .mockResolvedValueOnce({
+        status: "incomplete",
+        reason: `${format} child is still live`,
+      })
+      .mockResolvedValue({ status: "already-exited" });
+  });
+  const adapters: HistoricalCaptureFormatAdapter[] = formats.map((format) => ({
+    format,
+    identity:
+      format === "har"
+        ? HAR_CAPTURE_PROVIDER_IDENTITY
+        : MITMPROXY_CAPTURE_PROVIDER_IDENTITY,
+    supervision: format === "har" ? "internal-helper" : "process-group",
+    command: async (_requestPath, runtimePath) => {
+      runtimePaths.set(format, runtimePath);
+      return { command: process.execPath, arguments: [format] };
+    },
+  }));
+  let runCount = 0;
+  const decoder = new HistoricalCaptureDecoder(
+    adapters,
+    process.env,
+    async () => {
+      const runtime = await PrivateRuntimeRoot.create({
+        prefix: "rea-historical-concurrent-owner-",
+      });
+      privateRoots.push(runtime);
+      return runtime;
+    },
+    async ({ arguments: args }) => {
+      runCount += 1;
+      const format = args[0];
+      if (format !== "mitmproxy" && format !== "har")
+        throw new Error(`Unexpected capture format: ${String(format)}`);
+      const stdout = `${format} partial output`;
+      const stderr = `${format} diagnostic`;
+      const output = (text: string) => ({
+        text,
+        bytes: text.length,
+        observedBytes: text.length,
+      });
+      throw new OwnedCommandFailure(
+        "timeout",
+        `${format} command deadline elapsed.`,
+        {
+          ...emptySnapshot,
+          exitCode: null,
+          stdout: output(stdout),
+          stderr: output(stderr),
+        },
+        `${format} child is still live`,
+        undefined,
+        [`run:${format}`, `pid:${format === "har" ? 42425 : 42424}`],
+        supervisors.get(format),
+      );
+    },
+  );
+  const input = (
+    format: "mitmproxy" | "har",
+    sensitive_values: readonly string[] = [],
+  ) =>
+    inspectWebNetworkCaptureInputSchema.parse({
+      capture_path: capturePath,
+      format,
+      sensitive_values,
+    });
+
+  await Promise.all(
+    formats.map((format) =>
+      decoder.inspect(
+        input(format, format === "mitmproxy" ? ["mitmproxy diagnostic"] : []),
+      ),
+    ),
+  );
+  for (const stop of stops) expect(stop).not.toHaveBeenCalled();
+
+  const retry = await decoder.inspect(input("har"));
+  if (retry.ok) throw new Error("Failed retained cleanup must block decoding");
+  expect(retry.error).toMatchObject({
+    providerId: "web-network-capture",
+    cleanupIncomplete: true,
+  });
+  expect(runCount).toBe(2);
+  const projection = projectAnalysisError(retry.error);
+  expect(projection.code).toBe("cleanup_incomplete");
+  const { cleanup_failures: cleanupFailures } = z
+    .object({
+      cleanup_failures: z.array(
+        z.looseObject({
+          provider_id: z.string(),
+          operation: z.string(),
+          resources: z.array(z.string()),
+        }),
+      ),
+    })
+    .parse(projection.details?.diagnostics);
+  expect(cleanupFailures).toHaveLength(2);
+  for (const { format, pid } of [
+    { format: "mitmproxy", pid: "42424" },
+    { format: "har", pid: "42425" },
+  ]) {
+    const failure = cleanupFailures.find(
+      ({ provider_id }) => provider_id === format,
+    );
+    expect(failure?.operation).toBe("inspect_web_network_capture");
+    expect(failure?.resources).toEqual([
+      runtimePaths.get(format),
+      `run:${format}`,
+      `pid:${pid}`,
+    ]);
+    expect(failure).toMatchObject({
+      reason: `${format} child is still live`,
+      previous_error: {
+        code: "cleanup_incomplete",
+        details: {
+          diagnostics: {
+            previous_error: {
+              failure_kind: "timeout",
+              stdout: `${format} partial output`,
+              stderr:
+                format === "mitmproxy" ? "[REDACTED]" : `${format} diagnostic`,
+            },
+          },
+        },
+      },
+    });
+  }
+  await decoder.close();
+  for (const stop of stops) expect(stop).toHaveBeenCalledTimes(2);
 });
 
 it("retries private-root cleanup before admitting the next capture", async () => {
