@@ -81,15 +81,18 @@ export class SnapshotHashScanner {
           magic + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH,
         ),
       ).toString("latin1");
+      const isValidHash = HASH_PATTERN.test(candidate);
       if (
-        HASH_PATTERN.test(candidate) &&
+        isValidHash &&
         this.candidates.length < MAX_SNAPSHOT_HASH_CANDIDATES &&
         !this.candidateSet.has(candidate)
       ) {
         this.candidateSet.add(candidate);
         this.candidates.push(candidate);
       }
-      this.#sources += 1;
+      // Only valid hash records count toward source agreement; a complete
+      // magic record whose field is not lowercase hex is not a source.
+      if (isValidHash) this.#sources += 1;
       offset = magic + DART_SNAPSHOT_MAGIC.length;
       this.#absoluteScanFrom =
         this.#base + magic + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH;
@@ -207,7 +210,10 @@ export class LabeledStringScanner {
     for (const byte of chunk) {
       if (byte >= 0x20 && byte < 0x7f) run += String.fromCharCode(byte);
       else {
+        // A delimiter terminated the run: commit the whole string, then
+        // clear the carry so the next run is not concatenated onto it.
         this.#consider(this.carry + run);
+        this.carry = "";
         run = "";
       }
     }

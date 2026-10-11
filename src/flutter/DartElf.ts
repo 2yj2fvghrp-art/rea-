@@ -28,10 +28,13 @@ class BoundedReader {
   }
 
   cString(offset: number, max: number): string | null {
-    const end = this.bytes.indexOf(0, offset);
-    if (end === -1 || end - offset > max || end > this.bytes.length)
-      return null;
-    return this.bytes.subarray(offset, end).toString("latin1");
+    if (offset < 0 || offset >= this.bytes.length) return null;
+    // Bound the terminator scan to the max name length plus one, so a
+    // malformed symbol table cannot scan the entire image per entry.
+    const limit = Math.min(this.bytes.length, offset + max + 1);
+    const end = this.bytes.subarray(offset, limit).indexOf(0);
+    if (end === -1 || end > max) return null;
+    return this.bytes.subarray(offset, offset + end).toString("latin1");
   }
 }
 

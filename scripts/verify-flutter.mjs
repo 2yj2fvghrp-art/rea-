@@ -108,9 +108,9 @@ if (options.apk !== null) {
       );
       check(
         "string pool exposes the dependency structure",
-        aot.string_pool.package_uri_count > 100 &&
-          aot.string_pool.dart_uri_count > 50,
-        `${aot.string_pool.package_uri_count} package:, ${aot.string_pool.dart_uri_count} dart:`,
+        aot.string_pool.package_uri_count_at_least > 100 &&
+          aot.string_pool.dart_uri_count_at_least > 50,
+        `${aot.string_pool.package_uri_count_at_least} package:, ${aot.string_pool.dart_uri_count_at_least} dart:`,
       );
     }
   }

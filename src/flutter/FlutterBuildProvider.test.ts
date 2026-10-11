@@ -299,7 +299,10 @@ test.skipIf(process.platform === "win32")(
         snapshot_hash: string | null;
         sections: { name: string; magic_valid: boolean }[];
       };
-      string_pool: { package_uri_count: number; dart_uri_count: number };
+      string_pool: {
+        package_uri_count_at_least: number;
+        dart_uri_count_at_least: number;
+      };
       coverage: string;
     };
     expect(value.abi).toBe("arm64-v8a");
@@ -315,8 +318,8 @@ test.skipIf(process.platform === "win32")(
         .filter((section) => section.name.endsWith("Data"))
         .every((section) => section.magic_valid),
     ).toBe(true);
-    expect(value.string_pool.package_uri_count).toBe(2);
-    expect(value.string_pool.dart_uri_count).toBe(2);
+    expect(value.string_pool.package_uri_count_at_least).toBe(2);
+    expect(value.string_pool.dart_uri_count_at_least).toBe(2);
     // All four symbols present, both data magics valid, pool under budget:
     // the honest answer for a complete payload is complete coverage.
     expect(value.coverage).toBe("complete");

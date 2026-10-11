@@ -132,13 +132,13 @@ export const flutterResultSchemas = {
     string_pool: z.strictObject({
       /** Distinct package: source URIs, sorted, bounded. */
       package_uris: z.array(z.string().min(1)),
-      package_uri_count: z.number().int().nonnegative(),
+      package_uri_count_at_least: z.number().int().nonnegative(),
       /** Distinct dart: SDK URIs, sorted, bounded. */
       dart_uris: z.array(z.string().min(1)),
-      dart_uri_count: z.number().int().nonnegative(),
+      dart_uri_count_at_least: z.number().int().nonnegative(),
       /** Identifier-like tokens, bounded; includes incidental matches. */
       class_like_tokens: z.array(z.string().min(1)),
-      class_like_token_count: z.number().int().nonnegative(),
+      class_like_token_count_at_least: z.number().int().nonnegative(),
       printable_run_count: z.number().int().nonnegative(),
     }),
     coverage: z.enum(["complete", "partial"]),

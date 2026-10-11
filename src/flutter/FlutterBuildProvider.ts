@@ -49,8 +49,12 @@ export const FLUTTER_PROVIDER_IDENTITY = {
 
 const APK_METADATA_READ_MAX_BYTES = 8 * 1024 * 1024;
 const LIBRARY_MAX_BYTES = 256 * 1024 * 1024;
+/** Cumulative cap across every library entry in one identification. */
+const TOTAL_EXTRACTION_MAX_BYTES = 768 * 1024 * 1024;
 const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
+/** A complete AOT image carries exactly one VM and one isolate section. */
+const SYMBOL_PAIR_COUNT = 2;
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 /**
@@ -331,6 +335,7 @@ export class FlutterBuildProvider {
         });
       }
       const facts = new Map<string, LibraryFacts>();
+      let extractedTotal = 0;
       for (const { entry, abi, kind } of flutterEntries.values()) {
         const stream = await reader.open(entry, options?.signal);
         const hash = createHash("sha256");
@@ -368,6 +373,16 @@ export class FlutterBuildProvider {
             labeledScanner.push(view);
           }
         }
+        extractedTotal += bytes;
+        if (extractedTotal > TOTAL_EXTRACTION_MAX_BYTES)
+          return err(
+            new AnalysisResourceConstraintError(
+              request.operation,
+              "file-size",
+              `cumulative library extraction across ${String(flutterEntries.size)} entries exceeds the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte budget`,
+              { max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES },
+            ),
+          );
         const digest = hash.digest("hex");
         const current = facts.get(abi) ?? emptyFacts();
         if (kind === "libapp") {
@@ -687,7 +702,10 @@ export class FlutterBuildProvider {
         pool.collectionCapped ||
         pool.packageUriCount > MAX_POOL_URIS ||
         pool.dartUriCount > MAX_POOL_URIS ||
-        pool.classLikeTokenCount > MAX_POOL_TOKENS;
+        pool.classLikeTokenCount > MAX_POOL_TOKENS ||
+        (hashScan.sources > 0 &&
+          (hashScan.candidates.length !== 1 ||
+            hashScan.sources !== SYMBOL_PAIR_COUNT));
       return ok(
         createAnalysisExecution(
           {
@@ -704,11 +722,11 @@ export class FlutterBuildProvider {
             },
             string_pool: {
               package_uris: pool.packageUris.slice(0, MAX_POOL_URIS),
-              package_uri_count: pool.packageUriCount,
+              package_uri_count_at_least: pool.packageUriCount,
               dart_uris: pool.dartUris.slice(0, MAX_POOL_URIS),
-              dart_uri_count: pool.dartUriCount,
+              dart_uri_count_at_least: pool.dartUriCount,
               class_like_tokens: pool.classLikeTokens.slice(0, MAX_POOL_TOKENS),
-              class_like_token_count: pool.classLikeTokenCount,
+              class_like_token_count_at_least: pool.classLikeTokenCount,
               printable_run_count: pool.printableRunCount,
             },
             coverage: partial ? "partial" : "complete",
@@ -720,6 +738,7 @@ export class FlutterBuildProvider {
               "Snapshot sections are located through the ELF dynamic symbol table; a payload without exported snapshot symbols is refused rather than guessed",
               "String-pool entries are byte-pattern observations from the isolate data section, not deserialized cluster semantics; typed class and function recovery needs an SDK-specific parser",
               "class_like_tokens are identifier-shaped runs and include incidental matches",
+              "string-pool counts are lower bounds: collection stops at twice each projection bound, and any value beyond that is counted only through the capped flag",
               ...(sections.length < symbolNames.length
                 ? [
                     `Only ${String(sections.length)} of 4 snapshot symbols were present`,
@@ -775,6 +794,8 @@ const projectStringPool = (
   let runCount = 0;
   let collectionCapped = false;
   const COLLECTION_SLACK = 2;
+  /** One printable run never materializes beyond this length. */
+  const MAX_RUN_BYTES = 1024;
   const packageBudget = MAX_POOL_URIS * COLLECTION_SLACK;
   const dartBudget = MAX_POOL_URIS * COLLECTION_SLACK;
   const tokenBudget = MAX_POOL_TOKENS * COLLECTION_SLACK;
@@ -799,8 +820,12 @@ const projectStringPool = (
       }
     };
     for (const byte of section) {
-      if (byte >= 0x20 && byte < 0x7f) run += String.fromCharCode(byte);
-      else {
+      if (byte >= 0x20 && byte < 0x7f) {
+        // A single unbounded run (an adversarial NUL-free section) never
+        // materializes: growth stops at the cap and marks the pool capped.
+        if (run.length < MAX_RUN_BYTES) run += String.fromCharCode(byte);
+        else collectionCapped = true;
+      } else {
         consider(run);
         run = "";
       }
