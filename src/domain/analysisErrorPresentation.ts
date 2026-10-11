@@ -282,7 +282,7 @@ const hopperProcessMessage = (error: HopperProcessError): string => {
 
 const standardErrorMessage = (tag: AnalysisErrorTag): string | undefined => {
   if (UNREADABLE_OUTPUT_TAGS.has(tag))
-    return "Analysis returned an unreadable result. Retry once; if it continues, run `rea doctor`.";
+    return "Analysis returned an unreadable result. Run `rea doctor` and review the reported details; repeating the unchanged request is not expected to succeed.";
   if (UNSUPPORTED_PROVIDER_TAGS.has(tag))
     return "This analysis is unavailable for the current target. Choose another analysis or target.";
   if (CANCELLED_TAGS.has(tag))
@@ -290,7 +290,7 @@ const standardErrorMessage = (tag: AnalysisErrorTag): string | undefined => {
   if (TIMEOUT_TAGS.has(tag))
     return "Analysis took too long. Try a smaller request, then run `rea doctor` if it continues.";
   if (ADAPTER_FAILURE_TAGS.has(tag))
-    return "Analysis could not complete. Retry once; if it continues, run `rea doctor`.";
+    return "Analysis could not complete. Run `rea doctor` and review the reported details; repeating the unchanged request is not expected to succeed.";
   if (START_FAILURE_TAGS.has(tag))
     return "Analysis could not start or stopped unexpectedly. Run `rea doctor`, then try again.";
   return undefined;
