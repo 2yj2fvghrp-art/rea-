@@ -488,6 +488,8 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
   {
     name: "qoder",
     displayName: "Qoder",
+    skillPath: (context: ClientPathContext) =>
+      join(qoderDirectory(context), "skills"),
     configPath: (context: ClientPathContext) =>
       join(qoderDirectory(context), "settings.json"),
     markerPath: qoderDirectory,

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { npxRegistrationCommand } from "../../../src/application/ClientRegistrationIdentity.js";
 import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
+import { skillDestinations } from "../../../src/application/SetupSkill.js";
 import { supportedClients } from "../../../src/application/SupportedClients.js";
 import { systemUninstallHost } from "../../../src/application/Uninstall.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -51,6 +52,19 @@ describe("Qoder configuration paths", () => {
     expect(
       qoderPath("/home/a", "linux", { QODER_CONFIG_DIR: "" })?.configPath,
     ).toBe(join("/home/a", ".qoder", "settings.json"));
+  });
+
+  it("resolves the personal skills directory beside the config root", () => {
+    expect(
+      skillDestinations("/home/a", ["qoder"]).map(({ path }) => path),
+    ).toEqual([
+      join("/home/a", ".qoder", "skills", "reverse-engineer-anything"),
+    ]);
+    expect(
+      skillDestinations("/home/a", ["qoder"], {
+        QODER_CONFIG_DIR: "/opt/qoder",
+      }).map(({ path }) => path),
+    ).toEqual([join("/opt/qoder", "skills", "reverse-engineer-anything")]);
   });
 });
 
