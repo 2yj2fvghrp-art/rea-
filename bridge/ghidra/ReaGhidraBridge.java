@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -80,12 +81,14 @@ import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.address.SegmentedAddress;
 import ghidra.program.model.reloc.Relocation;
 import java.io.ByteArrayOutputStream;
+import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.pcode.FunctionPrototype;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighParam;
@@ -375,7 +378,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
             case "inspect_native_instruction" -> inspectNativeInstruction(request.params);
             case "resolve_native_call_targets" -> resolveNativeCallTargets(request.params);
             case "xrefs" -> xrefs(request.params);
-            case "analyze_function" -> analyzeFunction(request.params);
+            case "analyze_function" -> {
+                FunctionAnalysisObservation observation = analyzeFunctionObservation(request.params);
+                yield functionObservation(observation.dossier(), observation.limitations());
+            }
             case "set_address_name", "set_addresses_names" -> {
                 if (!descriptor.transport.equals("unix-socket"))
                     throw new RequestFailure("method_unavailable", "Windows P0 does not admit database mutation");
@@ -432,6 +438,11 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.add("target", target);
         JsonArray extensions = analysisExtensions.reports();
         if (extensions.size() > 0) result.add("analysis_extensions", extensions);
+        // Written by ReaGhidraApplySeeds before auto-analysis; REA checks it
+        // against the committed profile.
+        String seeds = currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO)
+            .getString("REA analysis seeds", null);
+        if (seeds != null) result.add("analysis_seeds", JsonParser.parseString(seeds));
         return result;
     }
 
@@ -650,10 +661,14 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private JsonElement procedurePseudocode(JsonObject params) throws Exception {
         requireKeys(params, Set.of("document", "procedure"));
         requireDocument(params);
-        String value = decompiledText(
-            decompile(resolveProcedure(requireString(params, "procedure")))
+        Function function = resolveProcedure(requireString(params, "procedure"));
+        String value = decompiledText(decompile(function));
+        return functionObservation(
+            value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value),
+            noReturnCallLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true)
+            )
         );
-        return value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value);
     }
 
     private JsonElement procedureAssembly(JsonObject params) throws Exception {
@@ -661,7 +676,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
         requireDocument(params);
         Function function = resolveProcedure(requireString(params, "procedure"));
         InstructionScan scan = scanInstructions(function, Integer.MAX_VALUE);
-        return GSON.toJsonTree(renderAssembly(scan.instructions));
+        return functionObservation(
+            GSON.toJsonTree(renderAssembly(scan.instructions)),
+            noReturnCallLimitations(scan.instructions)
+        );
     }
 
     private JsonObject readFunctionInstructions(JsonObject params) throws Exception {
@@ -679,11 +697,13 @@ public final class ReaGhidraBridge extends HeadlessScript {
         limitations.add(
             "The fast path does not invoke the decompiler or scan whole-program names and strings."
         );
+        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        for (String limitation : boundaryLimitations) limitations.add(limitation);
         JsonObject result = new JsonObject();
         result.add("procedure", procedureIdentity(function));
         result.add("instructions", items);
         result.add("limitations", limitations);
-        return result;
+        return functionObservation(result, boundaryLimitations);
     }
 
     private JsonArray procedureCalls(JsonObject params, boolean callers) throws Exception {
@@ -716,7 +736,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.addProperty("signature", function.getPrototypeString(false, true));
         result.add("locals", functionLocals(function));
         result.add("classification", functionClassification(function));
-        return result;
+        return functionObservation(
+            result,
+            noReturnCallLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true)
+            )
+        );
     }
 
     private JsonObject procedureReferences(JsonObject params) throws Exception {
@@ -1128,6 +1153,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     private JsonObject analyzeFunction(JsonObject params) throws Exception {
+        return analyzeFunctionObservation(params).dossier();
+    }
+
+    private FunctionAnalysisObservation analyzeFunctionObservation(JsonObject params) throws Exception {
         requireKeys(params, Set.of("procedure"));
         Function function = resolveProcedure(requireString(params, "procedure"));
         InstructionScan scan = scanInstructions(function, Integer.MAX_VALUE);
@@ -1185,12 +1214,16 @@ public final class ReaGhidraBridge extends HeadlessScript {
         limitations.add(
             "Synthetic Ghidra entry-point references without actionable memory sources are omitted."
         );
+        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        for (String limitation : boundaryLimitations) {
+            limitations.add(limitation);
+        }
         if (decompilation != null && decompilation.getErrorMessage() != null &&
             !decompilation.getErrorMessage().isBlank()) {
             limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
         }
         result.add("limitations", limitations);
-        return result;
+        return new FunctionAnalysisObservation(result, boundaryLimitations);
     }
 
     private JsonObject nativeValueFlow(DecompileResults decompilation) throws Exception {
@@ -1434,18 +1467,22 @@ public final class ReaGhidraBridge extends HeadlessScript {
         boolean commit = false;
         try {
             Function function = currentProgram.getFunctionManager().getFunctionAt(address);
-            String expected = name;
+            SymbolTable table = currentProgram.getSymbolTable();
+            Symbol primary = function == null ? table.getPrimarySymbol(address) : function.getSymbol();
+            Namespace namespace = primary == null
+                ? currentProgram.getGlobalNamespace()
+                : primary.getParentNamespace();
+            String expected = primary == null ? name : symbolLeafName(primary, name);
+            for (Symbol symbol : table.getLabelOrFunctionSymbols(expected, namespace)) {
+                if (!address.equals(symbol.getAddress())) return false;
+            }
             if (function != null) {
-                expected = symbolLeafName(function.getSymbol(), name);
                 function.setName(expected, SourceType.USER_DEFINED);
             } else {
-                var table = currentProgram.getSymbolTable();
-                Symbol primary = table.getPrimarySymbol(address);
                 if (primary != null && !primary.isDynamic()) {
-                    expected = symbolLeafName(primary, name);
                     primary.setName(expected, SourceType.USER_DEFINED);
                 } else {
-                    Symbol created = table.createLabel(address, name, SourceType.USER_DEFINED);
+                    Symbol created = table.createLabel(address, expected, SourceType.USER_DEFINED);
                     created.setPrimary();
                 }
             }
@@ -1473,16 +1510,33 @@ public final class ReaGhidraBridge extends HeadlessScript {
         requireDocument(params);
         if (!params.has("names") || !params.get("names").isJsonObject())
             throw new RequestFailure("invalid_request", "names must be an object of address -> name");
+        Map<Address, List<AddressNameRequest>> requestsByAddress = new LinkedHashMap<>();
         JsonObject result = new JsonObject();
         for (Map.Entry<String, JsonElement> entry : params.getAsJsonObject("names").entrySet()) {
-            boolean ok;
             try {
-                ok = applyAddressName(parseReaAddress(entry.getKey()), entry.getValue().getAsString());
+                Address address = parseReaAddress(entry.getKey());
+                requestsByAddress.computeIfAbsent(address, ignored -> new ArrayList<>())
+                    .add(new AddressNameRequest(entry.getKey(), address, entry.getValue().getAsString()));
             }
             catch (RequestFailure failure) {
-                ok = false;
+                result.addProperty(entry.getKey(), false);
             }
-            result.addProperty(entry.getKey(), ok);
+        }
+        for (List<AddressNameRequest> requests : requestsByAddress.values()) {
+            String name = requests.get(0).name;
+            boolean conflictingAliasNames = requests.stream()
+                .anyMatch(request -> !request.name.equals(name));
+            boolean success = false;
+            if (!conflictingAliasNames) {
+                try {
+                    success = applyAddressName(requests.get(0).address, name);
+                }
+                catch (RequestFailure failure) {
+                    // Keep per-address failures in the existing batch result shape.
+                }
+            }
+            for (AddressNameRequest request : requests)
+                result.addProperty(request.inputAddress, success);
         }
         return result;
     }
@@ -2648,6 +2702,63 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return new InstructionScan(List.copyOf(instructions), iterator.hasNext());
     }
 
+    private JsonObject functionObservation(
+            JsonElement value,
+            List<String> limitations) {
+        JsonObject result = new JsonObject();
+        result.add("value", value);
+        result.add("limitations", GSON.toJsonTree(limitations));
+        return result;
+    }
+
+    private List<String> noReturnCallLimitations(Iterable<Instruction> instructions)
+            throws Exception {
+        List<String> limitations = new ArrayList<>();
+        for (Instruction instruction : instructions) {
+            monitor.checkCancelled();
+            if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal()) {
+                continue;
+            }
+            Address[] destinations = instruction.getFlows();
+            StringBuilder limitation = new StringBuilder();
+            limitation.append("Ghidra Listing reports a terminal call at ")
+                .append(canonicalAddress(instruction.getAddress()));
+            if (destinations.length == 0) {
+                limitation.append(" with no resolved callee; its no-return basis is unknown.");
+            }
+            else {
+                limitation.append(" to ");
+                for (int index = 0; index < destinations.length; index++) {
+                    if (index > 0) limitation.append(", ");
+                    Address destination = destinations[index];
+                    limitation.append(canonicalAddress(destination));
+                    Function target = currentProgram.getFunctionManager().getFunctionAt(destination);
+                    if (target == null) {
+                        limitation.append(" (callee identity unknown)");
+                    }
+                    else {
+                        limitation.append(" ").append(procedureName(target));
+                        limitation.append(" (external=").append(target.isExternal());
+                        limitation.append(", thunk=").append(target.isThunk());
+                        limitation.append(", hasNoReturn=").append(target.hasNoReturn()).append(")");
+                    }
+                }
+                limitation.append("; fallthrough is excluded by Ghidra's flow model.");
+                Function target = destinations.length == 1
+                    ? currentProgram.getFunctionManager().getFunctionAt(destinations[0])
+                    : null;
+                if (target != null && target.hasNoReturn()) {
+                    limitation.append(" This records Ghidra's FunctionManager flag, not an independent verification that the callee cannot return.");
+                }
+                else {
+                    limitation.append(" The reason for the terminal flow is not established by this observation.");
+                }
+            }
+            limitations.add(limitation.toString());
+        }
+        return limitations;
+    }
+
     private static String renderAssembly(List<Instruction> instructions) {
         return String.join("\n", renderAssemblyLines(instructions));
     }
@@ -3476,7 +3587,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             .thenComparing(Reference::isPrimary);
 
     private record InventoryItem(Address address, String value, JsonObject facts) {}
+    private record AddressNameRequest(String inputAddress, Address address, String name) {}
     private record FunctionEntry(Function function, InventoryItem item) {}
+    private record FunctionAnalysisObservation(JsonObject dossier, List<String> limitations) {}
     private record InstructionScan(List<Instruction> instructions, boolean truncated) {}
     private record SessionDescriptor(
         String transport,

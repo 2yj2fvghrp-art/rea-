@@ -67,14 +67,14 @@ it.each<CommonJsExportCase>([
   {
     source:
       "module.exports.parse = (module.exports = () => ({ kind: 'result', count: COUNT }));",
-    status: "unavailable",
+    status: "missing",
     loadedType: "function",
     exportName: "parse",
   },
   {
     source:
       "exports.parse = (module.exports = () => ({ kind: 'result', count: COUNT }));",
-    status: "unavailable",
+    status: "missing",
     loadedType: "function",
     exportName: "parse",
   },
@@ -130,7 +130,7 @@ it.each<CommonJsExportCase>([
     "module.exports = local",
   ].map((target) => ({
     source: `function parse() { return { kind: 'result', count: COUNT }; } function configure() { const parse = () => ({ kind: 'result', count: 7 }); let local; ${target} = parse; } configure();`,
-    status: target.endsWith("local") ? "unavailable" : "selected",
+    status: "selected",
     loadedType: "function",
     runtimeCount: 7,
   })),

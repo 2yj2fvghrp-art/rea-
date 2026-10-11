@@ -372,31 +372,64 @@ const collectCommonJsExport = (
 ): void => {
   const exportedName = commonJsExportName(node.left, state);
   if (exportedName === undefined) return;
-  // Compound and logical writes depend on the prior export value, so their
-  // RHS alone cannot establish the assigned value or its callable identity.
-  let value = node.operator === "=" ? node.right : null;
-  // Recover only the CommonJS alias chain `module.exports = exports = fn`.
-  // General chains can replace an already captured property receiver or
-  // require lexical resolution beyond the module-level callable resolver.
-  if (isCommonJsModuleExports(node.left, state))
-    while (
-      t.isAssignmentExpression(value, { operator: "=" }) &&
-      isUnshadowedGlobal(value.left, state, "exports")
-    )
-      value = value.right;
-  const origin = semanticRequireOrigin(value, state);
+  const receiverEffect = isCommonJsModuleExports(node.left, state)
+    ? null
+    : commonJsExportReceiverEffect(node.right, state);
+  if (receiverEffect === "detached") return;
+  // Simple assignment chains yield their rightmost assigned value. Compound
+  // and logical writes also depend on the previous value, so remain unknown.
+  let value =
+    node.operator === "=" && receiverEffect !== "uncertain" ? node.right : null;
+  while (t.isAssignmentExpression(value, { operator: "=" }))
+    value = value.right;
+  const origin =
+    value === null ? undefined : semanticRequireOrigin(value, state);
   addModuleLink(
     state,
     {
       kind: "commonjs-export",
       specifier: origin?.specifier ?? null,
       importedName: origin?.importedPath.at(-1) ?? null,
-      localName: t.isIdentifier(value) ? value.name : null,
+      localName: value !== null && t.isIdentifier(value) ? value.name : null,
       exportedName,
       callableId: value === null ? null : semanticCallableIdForNode(value),
       location: range(node),
     },
     node,
+  );
+};
+
+/**
+ * An outer property assignment captures its receiver before evaluating the
+ * RHS. When that chain assigns a freshly created identity to `module.exports`,
+ * the outer write targets the old exports object and cannot define an export
+ * on the value ultimately returned by the CommonJS module. Reassignments from
+ * existing bindings may preserve identity, so this guard leaves them as
+ * export candidates.
+ */
+const commonJsExportReceiverEffect = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): "detached" | "uncertain" | null => {
+  let value = node;
+  while (t.isAssignmentExpression(value, { operator: "=" })) {
+    if (isCommonJsModuleExports(value.left, state))
+      return isFreshAssignmentResult(value.right) ? "detached" : "uncertain";
+    value = value.right;
+  }
+  return null;
+};
+
+const isFreshAssignmentResult = (node: t.Node): boolean => {
+  let value = node;
+  while (t.isAssignmentExpression(value, { operator: "=" }))
+    value = value.right;
+  return (
+    t.isArrowFunctionExpression(value) ||
+    t.isFunctionExpression(value) ||
+    t.isClassExpression(value) ||
+    t.isObjectExpression(value) ||
+    t.isArrayExpression(value)
   );
 };
 
@@ -654,7 +687,6 @@ const commonJsExportName = (
   state: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
   // Rebinding the CommonJS `exports` alias does not replace `module.exports`.
-  // Only assignments to export properties or `module.exports` create links.
   if (!t.isMemberExpression(node) && !t.isOptionalMemberExpression(node))
     return undefined;
   const key = semanticStaticPropertyKey(node.property, node.computed);
