@@ -1,5 +1,7 @@
-import { writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Writes a periodic report, then behaves by mode:
 // - "cooperative": stays alive; SIGTERM prints a line, writes a final report
@@ -7,6 +9,7 @@ import { join } from "node:path";
 // - "ignoring": stays alive and swallows SIGTERM and SIGINT, so only SIGKILL
 //   ends the process.
 // - "exits": exits on its own at once.
+// - "descendant": cooperates while leaving a SIGTERM-ignoring child for owned cleanup.
 // An optional third argument is the exit code a cooperative finalizer uses.
 const [mode, directory, finalExitCode = "0"] = process.argv.slice(2);
 
@@ -17,6 +20,16 @@ writeFileSync(
 );
 
 if (mode === "exits") process.exit(0);
+
+if (mode === "descendant") {
+  const childDirectory = join(directory, "descendant");
+  mkdirSync(childDirectory);
+  spawn(
+    process.execPath,
+    [fileURLToPath(import.meta.url), "ignoring", childDirectory],
+    { detached: true, stdio: "ignore" },
+  );
+}
 
 if (mode === "ignoring") {
   process.on("SIGTERM", () => {

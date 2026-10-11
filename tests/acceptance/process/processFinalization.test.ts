@@ -8,6 +8,7 @@ import { expect, onTestFinished } from "vitest";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { partialProcessCaptureObservationSchema } from "../../../src/domain/process/processCapture.js";
+import { observeProcessStartIdentity } from "../../../src/process/ProcessOwnershipObservation.js";
 import {
   parseProcessCapture,
   type ProcessCapture,
@@ -29,7 +30,7 @@ type CaptureOutcome =
   | { readonly kind: "partial"; readonly partial: unknown };
 
 const captureScenario = (
-  mode: "cooperative" | "ignoring",
+  mode: "cooperative" | "ignoring" | "descendant",
   root: string,
   additions: CaptureScenario = {},
   finalExitCode?: number,
@@ -170,21 +171,20 @@ const finalizationFromPartial = (partial: unknown) => {
     : undefined;
 };
 
+const completedCaptureFromOutcome = (outcome: CaptureOutcome) => {
+  if (outcome.kind === "capture") return outcome.capture;
+  const partial = partialProcessCaptureObservationSchema.parse(outcome.partial);
+  expect(partial.execution_failure).toBeNull();
+  if (!("capture" in partial))
+    throw new Error("host cleanup uncertainty omitted the completed capture");
+  return partial.capture;
+};
+
 const expectCooperativeFinalization = (
   outcome: CaptureOutcome,
   expectedExitCode = 0,
 ): void => {
-  if (outcome.kind === "partial") {
-    expect(
-      finalizationFromPartial(outcome.partial),
-      "the cleanup-flake partial observation preserves SIGTERM finalization and the finalizer's exit code",
-    ).toMatchObject({
-      exit_code: expectedExitCode,
-      signals: [{ signal: "SIGTERM", delivery: "signaled" }],
-    });
-    return;
-  }
-  const { capture } = outcome;
+  const capture = completedCaptureFromOutcome(outcome);
   expect(capture.exit.reason, "the deadline remains the exit reason").toBe(
     "timeout",
   );
@@ -227,20 +227,7 @@ const expectCooperativeFinalization = (
 };
 
 const expectIgnoringFinalization = (outcome: CaptureOutcome): void => {
-  if (outcome.kind === "partial") {
-    expect(
-      finalizationFromPartial(outcome.partial),
-      "the cleanup-flake partial observation preserves SIGTERM and SIGKILL finalization",
-    ).toMatchObject({
-      exit_code: null,
-      signals: [
-        { signal: "SIGTERM", delivery: "signaled" },
-        { signal: "SIGKILL", delivery: "signaled" },
-      ],
-    });
-    return;
-  }
-  const { capture } = outcome;
+  const capture = completedCaptureFromOutcome(outcome);
   expect(capture.exit.reason, "the deadline remains the exit reason").toBe(
     "timeout",
   );
@@ -323,6 +310,68 @@ captureTest.each(["CLI", "MCP"] as const)(
         ? await captureViaCli(root, scenario)
         : await captureViaMcp(scenario);
     expectIgnoringFinalization(outcome);
+  },
+  20_000,
+);
+
+captureTest(
+  "retains finalization facts with omitted digests and cleans the owned descendant",
+  async () => {
+    const root = await createTestTempDirectory("rea-finalization-descendant-");
+    const childDirectory = join(root, "descendant");
+    const outcome = await captureViaMcp(
+      captureScenario("descendant", root, {
+        timeout_ms: 1_500,
+        finalization_ms: 1_500,
+        settle_ms: 100,
+        limits: { file_bytes: 1 },
+      }),
+    );
+    const capture = completedCaptureFromOutcome(outcome);
+    expect(capture.exit).toMatchObject({
+      reason: "timeout",
+      code: null,
+      finalization: {
+        exit_code: 0,
+        signals: [{ signal: "SIGTERM", delivery: "signaled" }],
+      },
+    });
+    expect(capture.exit.finalization?.signals).toHaveLength(1);
+    expect(capture.settlement).toMatchObject({
+      state: "alive_at_deadline",
+      cleanup_outcome: "cleaned",
+    });
+    expect(capture.frames.map(({ data }) => data).join("")).toContain(
+      "finalized",
+    );
+    const final = capture.files_after.find(({ path }) =>
+      path.endsWith(":final.json"),
+    );
+    expect(final).toMatchObject({ type: "file", sha256: null });
+    expect(capture.truncation_details.filesystem_after).toMatchObject({
+      enumeration_truncated: false,
+      hash_budget_bytes: 1,
+      hash_omissions: expect.arrayContaining([
+        expect.objectContaining({
+          path: final?.path,
+          reason: "file_bytes_budget",
+        }),
+      ]),
+    });
+    expect(
+      JSON.parse(await readFile(join(root, "final.json"), "utf8")),
+    ).toEqual({
+      phase: "final",
+    });
+    await expect(
+      access(join(childDirectory, "sigterm-received")),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const childPid = await fixturePid(childDirectory);
+    await expect(
+      observeProcessStartIdentity(childPid),
+    ).resolves.toBeUndefined();
   },
   20_000,
 );
