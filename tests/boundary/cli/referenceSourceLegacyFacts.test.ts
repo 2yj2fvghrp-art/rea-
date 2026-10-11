@@ -1,0 +1,62 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { expect } from "vitest";
+
+import { historicalSourceGraphSchema } from "../../../src/domain/referenceSourceGraph.js";
+import { PRODUCT_IDENTITY } from "../../../src/identity.js";
+import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { cliTest } from "../../support/cli/cliFixture.js";
+
+cliTest(
+  "imports a legacy subtree of a Git checkout with its own source facts",
+  async ({ cli }) => {
+    const repository = await createTestTempDirectory("rea-reference-legacy-");
+    const source = join(repository, "source");
+    await mkdir(source);
+    await Promise.all([
+      // Deleting a plain binding is valid only in a sloppy-mode script.
+      writeFile(
+        join(source, "legacy.js"),
+        "var messages = {};\ndelete messages;\n",
+      ),
+      writeFile(join(source, "index.php"), "<?php echo 'legacy';\n"),
+      writeFile(join(source, "Program.cs"), "class Program {}\n"),
+    ]);
+    const git = (...args: string[]) =>
+      execFileOutput("git", args, { cwd: repository });
+    await git("init", "--initial-branch=main");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=REA fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      "fixture",
+    );
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+
+    const result = await cli.run({
+      arguments: ["import-reference-source", source, "--json"],
+      environment: {
+        HOME: repository,
+        XDG_CONFIG_HOME: repository,
+        XDG_CACHE_HOME: repository,
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const graph = historicalSourceGraphSchema.parse(result.json);
+    expect(graph.parse_failures).toEqual([]);
+    expect(graph.languages).toEqual(["C#", "JavaScript", "PHP"]);
+    expect(graph.vcs).toEqual({ kind: "git", head, dirty: null });
+    expect(graph.provenance.importer_version).toBe(
+      PRODUCT_IDENTITY.packageVersion,
+    );
+  },
+);

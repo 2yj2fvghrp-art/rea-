@@ -1,4 +1,3 @@
-import { parse } from "@babel/parser";
 import type {
   CallExpression,
   File,
@@ -7,7 +6,10 @@ import type {
   StringLiteral,
 } from "@babel/types";
 import { traverseJavaScriptAst } from "./javascript/javascriptSemanticTraversal.js";
-import { parserPluginsForPath } from "./javascript/javascriptSourceParser.js";
+import {
+  parseRecoveredJavaScript,
+  parserPluginsForPath,
+} from "./javascript/javascriptSourceParser.js";
 import { unshadowedReferenceSourceRequireCalls } from "./referenceSourceRequireBindings.js";
 import {
   isCallExpression,
@@ -280,12 +282,10 @@ const parseWithBabel = (
   const plugins = parserPluginsForPath(path);
 
   try {
-    const ast = parse(source, {
-      sourceType: "unambiguous",
+    const ast = parseRecoveredJavaScript(source, {
       allowImportExportEverywhere: false,
       allowReturnOutsideFunction: true,
       allowUndeclaredExports: true,
-      errorRecovery: true,
       plugins,
     });
     return { ast, reasons: ast.errors.map((error) => error.message) };

@@ -1,4 +1,4 @@
-import { parse, type ParserPlugin } from "@babel/parser";
+import { parse, type ParserOptions, type ParserPlugin } from "@babel/parser";
 
 /** Babel AST produced by REA's inert JavaScript parser boundary. */
 export type ParsedJavaScriptSource = ReturnType<typeof parse>;
@@ -37,15 +37,32 @@ export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
     : ["decorators-legacy", typescript];
 };
 
+/**
+ * Parse a module or script with recovery. Babel tries module mode first and
+ * keeps its strict-mode errors after falling back to a script, so a script
+ * with errors is parsed again as a script to report only its own errors.
+ */
+export const parseRecoveredJavaScript = (
+  source: string,
+  options: Omit<ParserOptions, "sourceType" | "errorRecovery">,
+): ParsedJavaScriptSource => {
+  const file = parse(source, {
+    ...options,
+    sourceType: "unambiguous",
+    errorRecovery: true,
+  });
+  return file.program.sourceType === "script" && file.errors.length > 0
+    ? parse(source, { ...options, sourceType: "script", errorRecovery: true })
+    : file;
+};
+
 /** Parse JavaScript or TypeScript once without attaching comments to AST nodes. */
 export const parseJavaScriptSource = (
   source: string,
   sourcePath?: string,
 ): ParsedJavaScriptSource | null => {
   try {
-    return parse(source, {
-      sourceType: "unambiguous",
-      errorRecovery: true,
+    return parseRecoveredJavaScript(source, {
       attachComment: false,
       plugins: parserPluginsForPath(sourcePath),
     });

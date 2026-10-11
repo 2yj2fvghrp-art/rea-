@@ -10,6 +10,12 @@ import {
   origin,
 } from "./javascriptSemanticAnalysis.fixture.js";
 
+it("does not report strict-mode recovery for a sloppy-mode script", () => {
+  expect(
+    analyzeJavaScriptSemantics("var messages = {}; delete messages;").coverage,
+  ).toEqual({ status: "complete", omittedCount: 0 });
+});
+
 describe("JavaScript semantic analysis: structure 1", () => {
   it("resolves imports, require destructuring, aliases, assignments, and shadowing", () => {
     const ir = analyzeJavaScriptSemantics(`
