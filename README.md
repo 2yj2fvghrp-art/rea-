@@ -111,7 +111,7 @@ snapshots and scripting.
 REA changes quickly, and new releases include frequent bug fixes. Keep your
 installation up to date.
 
-For an npm-installed CLI:
+For a CLI installed with `npm install --global` or `bun add --global`:
 
 ```bash
 rea update
@@ -276,7 +276,7 @@ model provider has its own data policy.
 
 Update first; a recent release may already fix it.
 
-For an npm-installed CLI:
+For a CLI installed with `npm install --global` or `bun add --global`:
 
 ```bash
 rea update
