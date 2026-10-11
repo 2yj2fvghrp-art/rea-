@@ -650,8 +650,8 @@ const indexCandidates = (candidate: string): readonly string[] =>
 /**
  * NodeNext TypeScript sources import the emitted runtime name (`./dep.js`)
  * while only the source file exists in the artifact. Mirror the
- * emitted-extension counterparts from ReferenceSourceImportEntries when the
- * importing artifact is TypeScript; explicit filenames only, checked after
+ * emitted-extension counterparts from ReferenceSourceImportEntries for
+ * module specifiers in TypeScript sources; explicit filenames only, checked after
  * the plain runtime candidates so a present emitted file keeps winning.
  */
 const TYPESCRIPT_IMPORTER = /\.(?:ts|tsx|mts|cts)$/;
@@ -670,6 +670,7 @@ const emittedExtensionCounterparts = (
   input: ResolveArtifactPathInput,
   candidate: string,
 ): readonly string[] => {
+  if (input.context !== "module-specifier") return [];
   if (!TYPESCRIPT_IMPORTER.test(input.sourcePath)) return [];
   const match = EMITTED_EXTENSION_COUNTERPARTS.find(([extension]) =>
     candidate.endsWith(extension),

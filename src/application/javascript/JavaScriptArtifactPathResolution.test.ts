@@ -298,6 +298,21 @@ describe("NodeNext emitted-extension path resolution", () => {
     });
   });
 
+  it("does not substitute TypeScript counterparts outside module specifiers", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/asset.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./asset.js",
+        sourcePath: "app/main.ts",
+        context: "filesystem-expression",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
   it("does not substitute TypeScript counterparts for a JavaScript importer", () => {
     const files = fileMap([
       file("app/main.js", "root"),
