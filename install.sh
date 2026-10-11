@@ -1,4 +1,12 @@
 #!/bin/bash
+{
+# Truncation guard: this brace group opens on line 2 and closes on the last
+# line, so bash must read the entire file before it runs any command. On the
+# `curl ... | bash` path, a download cut off anywhere before the final `}` is
+# an unterminated compound command, which bash reports as a syntax error at
+# EOF without running anything. Without the guard, a cut right after `set`
+# would run the bare builtin and print every shell variable, and a cut right
+# after `main` would run the installer without the caller's flags.
 set -euo pipefail
 
 PACKAGE="rea-agents"
@@ -27,9 +35,6 @@ skip setup and run `rea setup` later.
 EOF
 }
 
-# Everything runs from main so that a truncated download cannot execute a
-# partial script: bash only runs main from the brace group at the end of the
-# file, after reading its closing brace.
 main() {
   while (($# > 0)); do
     case "$1" in
@@ -130,11 +135,6 @@ main() {
   fi
 }
 
-# A bare `main "$@"` line is not enough: a download cut off right after
-# `main` would be a complete command at EOF and run main without the caller's
-# flags (so `bash -s -- --dry-run` could install). Inside this group, every
-# truncation before the closing brace is a syntax error and nothing runs.
-{
-  main "$@"
-  exit $?
+main "$@"
+exit $?
 }

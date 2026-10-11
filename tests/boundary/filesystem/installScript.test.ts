@@ -202,54 +202,65 @@ describe("truncated installer download", { timeout: 20_000 }, () => {
 });
 
 describe(
-  "installer download truncated in its final invocation",
+  "installer download truncated at any byte",
   {
-    timeout: 60_000,
+    timeout: 180_000,
   },
   () => {
-    it("never runs main without the caller's flags at any tail truncation", async () => {
+    // Every prefix of the script, from the empty download to the full file, as
+    // `curl ... | bash -s -- --dry-run` would see it. Covers the preamble (a
+    // cut right after `set` would print every shell variable), the body, and
+    // the final invocation (a cut right after `main` would drop the flags).
+    it("runs nothing and prints nothing until the closing brace arrives", async () => {
       const source = await readFile(join(process.cwd(), "install.sh"));
-      const groupStart = source.lastIndexOf("\n{\n") + 1;
+      expect(source.subarray(0, 14).toString()).toBe("#!/bin/bash\n{\n");
+      const groupOpen = source.indexOf("\n{\n") + 2;
       const groupEnd = source.lastIndexOf("\n}\n") + 2;
-      const mainEnd = source.lastIndexOf("\n}\n", groupStart - 2) + 3;
-      expect(mainEnd).toBeGreaterThan(2);
-      expect(groupStart).toBeGreaterThan(mainEnd);
-      expect(groupEnd).toBeGreaterThan(groupStart);
-      expect(source.subarray(groupStart, groupEnd).toString()).toContain(
-        'main "$@"',
+      expect(groupEnd).toBe(source.length - 1);
+      expect(source.subarray(groupOpen, groupEnd).toString()).toContain(
+        "set -euo pipefail",
       );
-      for (let offset = mainEnd; offset <= source.length; offset += 1) {
-        const fixture = await createFixture();
+      const fixture = await createFixture();
+      const offsets = Array.from(
+        { length: source.length + 1 },
+        (_, offset) => offset,
+      );
+      const failures: string[] = [];
+      const check = async (offset: number): Promise<void> => {
         const result = await runPipedInstaller(
           fixture,
           source.subarray(0, offset),
           ["--dry-run"],
+          { SECRET_TOKEN: "inherited-secret" },
         );
-        const context = `truncated at byte ${offset}: ${JSON.stringify(
-          source.subarray(groupStart, offset).toString(),
+        const context = `truncated at byte ${offset} after ${JSON.stringify(
+          source.subarray(Math.max(0, offset - 24), offset).toString(),
         )}`;
-        await expect(
-          readFile(fixture.npmLog, "utf8"),
-          context,
-        ).rejects.toMatchObject({ code: "ENOENT" });
-        await expect(
-          readFile(fixture.reaLog, "utf8"),
-          context,
-        ).rejects.toMatchObject({ code: "ENOENT" });
         if (offset >= groupEnd) {
-          expect(result.code, context).toBe(0);
-          expect(result.stdout, context).toContain("no changes made");
-        } else if (offset > groupStart) {
-          expect(result.code, context).not.toBe(0);
-          expect(result.stdout, context).toBe("");
-          expect(result.stderr, context).toMatch(
-            /syntax error|unexpected EOF/u,
-          );
-        } else {
-          expect(result.code, context).toBe(0);
-          expect(result.stdout, context).toBe("");
+          if (result.code !== 0 || !result.stdout.includes("no changes made"))
+            failures.push(`${context}: complete script did not dry-run`);
+          return;
         }
-      }
+        if (result.stdout !== "")
+          failures.push(`${context}: stdout ${JSON.stringify(result.stdout)}`);
+        if (offset >= groupOpen) {
+          if (result.code === 0) failures.push(`${context}: exit code 0`);
+          if (!/syntax error|unexpected EOF/u.test(result.stderr))
+            failures.push(
+              `${context}: stderr ${JSON.stringify(result.stderr)}`,
+            );
+        } else if (result.code !== 0 || result.stderr !== "")
+          failures.push(`${context}: preamble did not exit quietly`);
+      };
+      for (let index = 0; index < offsets.length; index += 16)
+        await Promise.all(offsets.slice(index, index + 16).map(check));
+      expect(failures).toEqual([]);
+      await expect(readFile(fixture.npmLog, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(readFile(fixture.reaLog, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     });
   },
 );
@@ -506,11 +517,15 @@ const runInstaller = async (
     },
   });
 
-/** Run the installer as `curl ... | bash -s -- ARGS` does: source on stdin. */
+/**
+ * Run the installer as `curl ... | bash -s -- ARGS` does: source on stdin.
+ * The environment is minimal and does not inherit the test runner's.
+ */
 const runPipedInstaller = async (
   fixture: InstallerFixture,
   source: Uint8Array,
   args: readonly string[],
+  overrides: Readonly<Record<string, string>> = {},
 ): Promise<{
   readonly code: number | null;
   readonly stdout: string;
@@ -519,7 +534,6 @@ const runPipedInstaller = async (
   new Promise((resolve, reject) => {
     const child = spawn("/bin/bash", ["-s", "--", ...args], {
       env: {
-        ...process.env,
         HOME: fixture.home,
         TMPDIR: fixture.temporary,
         PATH: `${fixture.bin}:/usr/bin:/bin`,
@@ -527,6 +541,7 @@ const runPipedInstaller = async (
         FAKE_REA_LOG: fixture.reaLog,
         FAKE_REA_SOURCE: join(fixture.bin, "rea-source"),
         FAKE_NPM_PREFIX: join(fixture.home, ".npm-global"),
+        ...overrides,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
