@@ -1,4 +1,3 @@
-import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import {
   createAnalysisExecution,
@@ -11,7 +10,6 @@ import {
   AnalysisCapabilityUnavailableError,
   AnalysisProtocolError,
   AnalysisOutputError,
-  AnalysisTimeoutError,
   AnalysisInputError,
 } from "../domain/analysisErrorCore.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
@@ -22,6 +20,7 @@ import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
+import { readSettledHealth } from "./IdaBusyHealth.js";
 import { IdaOperationRunner } from "./IdaOperationRunner.js";
 import {
   IDA_LIMITATIONS,
@@ -30,7 +29,6 @@ import {
   type IdaOperation,
 } from "./IdaProviderCapabilities.js";
 import {
-  busyHealthSchema,
   closeDatabaseSchema,
   databaseListSchema,
   legacyMetadataSchema,
@@ -69,8 +67,6 @@ const modernTools = [
   "callees",
   "xrefs_to",
 ];
-/** Pause between health reads while a freshly opened worker reports itself busy. */
-const BUSY_HEALTH_RETRY_MS = 100;
 const operationSet: ReadonlySet<string> = new Set(IDA_OPERATIONS);
 const isIdaOperation = (operation: string): operation is IdaOperation =>
   operationSet.has(operation);
@@ -188,7 +184,7 @@ export class IdaSessionClient implements AnalysisClient {
       );
     try {
       await this.#start();
-      const before = await this.#observe(options?.signal);
+      const before = await this.#observe(options);
       if (wasCancelled(options))
         return err(new AnalysisCancelledError(operation));
       if (operation === "health") return this.#health(before);
@@ -205,7 +201,7 @@ export class IdaSessionClient implements AnalysisClient {
       const result = await runner.run(operation, parameters);
       if (wasCancelled(options))
         return err(new AnalysisCancelledError(operation));
-      const after = await this.#observe(options?.signal);
+      const after = await this.#observe(options);
       if (wasCancelled(options))
         return err(new AnalysisCancelledError(operation));
       return ok(
@@ -344,7 +340,7 @@ export class IdaSessionClient implements AnalysisClient {
     }
   }
 
-  async #observe(signal?: AbortSignal): Promise<JsonValue> {
+  async #observe(options?: ExecutionOptions): Promise<JsonValue> {
     let identity: string;
     if (this.config.mode === "attached") {
       const raw = await this.connection.call("get_metadata", {});
@@ -364,7 +360,12 @@ export class IdaSessionClient implements AnalysisClient {
         throw new AnalysisProtocolError(
           "IDA headless session has no database binding.",
         );
-      const raw = await this.#readSettledHealth(this.#database, signal);
+      const raw = await readSettledHealth(
+        this.connection,
+        this.#database,
+        this.config.timeoutMs,
+        options?.signal,
+      );
       const metadata = modernHealthSchema.parse(raw);
       if (
         !sameIdaHostPath(metadata.input_path, this.#workspace.inputPath) ||
@@ -394,34 +395,6 @@ export class IdaSessionClient implements AnalysisClient {
       );
     this.#initialIdentity = identity;
     return this.#metadata;
-  }
-
-  /**
-   * Reads `server_health` until the worker stops reporting a transient busy
-   * state. The wait ends when the worker answers, the caller aborts, or the
-   * registration's request deadline has elapsed; any other payload is returned
-   * for the caller's strict parse.
-   */
-  async #readSettledHealth(
-    database: string,
-    signal: AbortSignal | undefined,
-  ): Promise<JsonValue> {
-    const started = performance.now();
-    for (;;) {
-      const raw = await this.connection.call("server_health", { database });
-      const busy = busyHealthSchema.safeParse(raw);
-      if (!busy.success) return raw;
-      const remaining = this.config.timeoutMs - (performance.now() - started);
-      if (remaining <= 0)
-        throw new AnalysisTimeoutError(
-          `server_health: headless worker still busy in ${busy.data.busy_tool ?? "unknown"}`,
-          this.config.timeoutMs,
-          { cause: raw },
-        );
-      await delay(Math.min(BUSY_HEALTH_RETRY_MS, remaining), undefined, {
-        signal,
-      });
-    }
   }
 
   async close(): Promise<Result<null, AnalysisError>> {
