@@ -45,6 +45,7 @@ import { verifyBrowserDomDestinations } from "./lib/browser-dom-destinations-e2e
 import { verifyBrowserCaptureMetadataBudget } from "./lib/browser-capture-metadata-budget-e2e.mjs";
 import { artifactCliEvidence, artifactMcpResult } from "./lib/artifact-e2e.mjs";
 import { verifyScenarioEnvironment } from "./lib/browser-scenario-environment-e2e.mjs";
+import { verifyScenarioStorage } from "./lib/browser-scenario-storage-e2e.mjs";
 
 const REAL_BROWSER_STARTUP_TIMEOUT_MS = 60_000;
 const SCENARIO_SECRET_VALUE = "rea-browser-verifier-secret";
@@ -281,6 +282,11 @@ try {
     target,
     site.origin,
   );
+  const scenarioStorage = await verifyScenarioStorage({
+    executable,
+    endpoint,
+    targetId: target,
+  });
   const launchedScenario = await createBrowserScenarioProvider(
     process.env,
   ).captureScenario(
@@ -355,7 +361,11 @@ try {
     scripts: observed.value.scripts.items.length,
     networkRequests: observed.value.network.requests.length,
     consoleEvents: observed.value.console.events.length,
-    websocketEvents: observed.value.network.websocket_events.length,
+    websocketConnections: observed.value.network.websocket_connections.length,
+    websocketFrames: observed.value.network.websocket_connections.reduce(
+      (total, connection) => total + connection.events.length,
+      0,
+    ),
     bundleScripts: bundle.capture.scripts_analyzed,
     sourceMaps: bundle.observations.source_maps.processed,
     bundle_cli_and_stdio_mcp: true,
@@ -374,6 +384,7 @@ try {
     browserScenarioLaunchCleanup: "terminated-owned-process",
     scenarioFailure,
     scenarioEnvironment,
+    scenarioStorage,
     verified: true,
   };
 } finally {
