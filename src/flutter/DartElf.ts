@@ -1,4 +1,9 @@
 import { Buffer } from "node:buffer";
+import {
+  SNAPSHOT_HASH_LENGTH,
+  SNAPSHOT_HASH_OFFSET,
+  SNAPSHOT_HASH_PATTERN,
+} from "./FlutterPayloadScan.js";
 
 /** Bounds-checked little-endian reader over one loaded buffer. */
 class BoundedReader {
@@ -60,16 +65,18 @@ const DT_SYMTAB = 6;
 const DT_STRSZ = 10;
 const DT_SYMENT = 11;
 
+/** ELF32 needs 52 bytes, ELF64 needs 64; retain at most this prefix. */
+export const ELF_HEADER_MAX_BYTES = 64;
+
 /**
- * Parse one snapshot symbol's file offset and size from a little-endian
- * ELF32 or ELF64 libapp.so image. Only the dynamic symbol table is walked;
- * every read is bounds-checked and any structural surprise is a refusal,
- * never a guess.
+ * Decode the supported ELF header and validate its table extents against
+ * the complete image size. The buffer may contain only the header prefix;
+ * this does not validate table contents or symbol availability.
  */
-export const readElfSymbol = (
+export const readElfHeader = (
   bytes: Buffer,
-  symbolName: string,
-): { symbol: ElfSymbol } | { failure: ElfParseFailure } => {
+  totalBytes: number = bytes.length,
+) => {
   const reader = new BoundedReader(bytes);
   const magic = reader.u32(0);
   if (magic !== 0x464c457f) return { failure: { reason: "not an ELF image" } };
@@ -77,27 +84,54 @@ export const readElfSymbol = (
   if (elfClass !== 1 && elfClass !== 2)
     return { failure: { reason: `unsupported ELF class ${String(elfClass)}` } };
   const is64 = elfClass === 2;
-  const entrySize = is64 ? 24 : 16;
+  const headerBytes = is64 ? ELF_HEADER_MAX_BYTES : 52;
+  if (
+    bytes.length < headerBytes ||
+    !Number.isSafeInteger(totalBytes) ||
+    totalBytes < headerBytes
+  )
+    return { failure: { reason: "ELF header is truncated" } };
+  if (reader.u8(5) !== 1)
+    return { failure: { reason: "unsupported ELF byte order" } };
+  if (reader.u8(6) !== 1 || reader.u32(0x14) !== 1)
+    return { failure: { reason: "unsupported ELF version" } };
+  if (reader.u16(is64 ? 0x34 : 0x28) !== headerBytes)
+    return { failure: { reason: "unsupported ELF header size" } };
   const e_type = reader.u16(0x10);
+  if (e_type !== 1 && e_type !== 2 && e_type !== ET_DYN)
+    return { failure: { reason: "unsupported ELF type" } };
   const e_shoff = is64 ? reader.u64(0x28) : reader.u32(0x20);
   const e_shentsize = reader.u16(is64 ? 0x3a : 0x2e);
   const e_shnum = reader.u16(is64 ? 0x3c : 0x30);
   const e_phoff = is64 ? reader.u64(0x20) : reader.u32(0x1c);
   const e_phentsize = reader.u16(is64 ? 0x36 : 0x2a);
   const e_phnum = reader.u16(is64 ? 0x38 : 0x2c);
+  const tableFits = (
+    offset: number | null,
+    width: number | null,
+    count: number | null,
+    minimumWidth: number,
+  ): boolean =>
+    offset !== null &&
+    width !== null &&
+    count !== null &&
+    offset >= headerBytes &&
+    offset <= totalBytes &&
+    width >= minimumWidth &&
+    count > 0 &&
+    count <= Math.floor((totalBytes - offset) / width);
   const MIN_SHENT = is64 ? 64 : 40;
   // Section-stripped ET_DYN images keep their exported symbols reachable
   // through PT_DYNAMIC instead of section headers; every other shape still
   // needs a usable section header table.
-  const dynamicFallback = e_type === ET_DYN && e_shnum === 0;
+  // A nonzero shoff with shnum=0 uses extended numbering, which this
+  // parser does not support; it must not masquerade as a stripped image.
+  const dynamicFallback = e_type === ET_DYN && e_shoff === 0 && e_shnum === 0;
   if (
     e_shoff === null ||
     e_shentsize === null ||
     e_shnum === null ||
-    (!dynamicFallback &&
-      (e_shnum === 0 ||
-        e_shentsize < MIN_SHENT ||
-        e_shoff + e_shentsize * e_shnum > bytes.length))
+    (!dynamicFallback && !tableFits(e_shoff, e_shentsize, e_shnum, MIN_SHENT))
   )
     return {
       failure: {
@@ -109,14 +143,48 @@ export const readElfSymbol = (
     e_phoff === null ||
     e_phentsize === null ||
     e_phnum === null ||
-    e_phentsize < MIN_PHENT ||
-    e_phoff + e_phentsize * e_phnum > bytes.length
+    e_phnum === 0xffff ||
+    !tableFits(e_phoff, e_phentsize, e_phnum, MIN_PHENT)
   )
     return {
       failure: {
         reason: "ELF program header table is missing or out of bounds",
       },
     };
+
+  return {
+    header: {
+      is64,
+      dynamicFallback,
+      e_shoff,
+      e_shentsize,
+      e_shnum,
+      e_phoff,
+      e_phentsize,
+      e_phnum,
+    },
+  };
+};
+
+/** Resolve an exported snapshot symbol using the validated ELF tables. */
+export const readElfSymbol = (
+  bytes: Buffer,
+  symbolName: string,
+): { symbol: ElfSymbol } | { failure: ElfParseFailure } => {
+  const parsed = readElfHeader(bytes);
+  if (parsed.failure !== undefined) return { failure: parsed.failure };
+  const {
+    is64,
+    dynamicFallback,
+    e_shoff,
+    e_shentsize,
+    e_shnum,
+    e_phoff,
+    e_phentsize,
+    e_phnum,
+  } = parsed.header;
+  const reader = new BoundedReader(bytes);
+  const entrySize = is64 ? 24 : 16;
 
   const segments: {
     readonly vaddr: number;
@@ -327,6 +395,8 @@ export const readSnapshotHeader = (
   magicValid: boolean;
   kind: number | null;
   headerLength: number | null;
+  hash: string | null;
+  complete: boolean;
 } => {
   const reader = new BoundedReader(bytes);
   // The Dart magic bytes f5 f5 dc dc read little-endian. Kind and length
@@ -334,10 +404,32 @@ export const readSnapshotHeader = (
   // the magic (instructions carry a different layout) report nulls.
   const magic = reader.u32(offset);
   if (magic !== 0xdcdcf5f5)
-    return { magicValid: false, kind: null, headerLength: null };
+    return {
+      magicValid: false,
+      kind: null,
+      headerLength: null,
+      hash: null,
+      complete: false,
+    };
   const headerLength = reader.u64(offset + 4);
-  const kind = reader.u32(offset + 12);
-  return { magicValid: true, kind, headerLength };
+  const kind = reader.u64(offset + 12);
+  const candidate = bytes
+    .subarray(
+      offset + SNAPSHOT_HASH_OFFSET,
+      offset + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH,
+    )
+    .toString("latin1");
+  const hash = SNAPSHOT_HASH_PATTERN.test(candidate) ? candidate : null;
+  // Dart's stored length excludes the four magic bytes and includes the
+  // 20-byte fixed header and the version hash. Aligned data may follow it
+  // inside the exported symbol, but the serialized snapshot must fit.
+  const complete =
+    headerLength !== null &&
+    headerLength >= SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH - 4 &&
+    headerLength <= bytes.length - offset - 4 &&
+    kind !== null &&
+    hash !== null;
+  return { magicValid: true, kind, headerLength, hash, complete };
 };
 
 export const buildElf64Image = (
@@ -357,8 +449,11 @@ export const buildElf64Image = (
   image.writeUInt32LE(0x464c457f, 0);
   image[4] = 2; // ELFCLASS64
   image[5] = 1; // little-endian
+  image[6] = 1; // ELF identification version
+  image.writeUInt16LE(ET_DYN, 0x10);
   image.writeUInt16LE(0x003e, 0x12); // e_machine x86_64
-  image.writeUInt32LE(1, 0x10); // ET_REL? keep type small
+  image.writeUInt32LE(1, 0x14); // e_version
+  image.writeUInt16LE(ELF_HEADER, 0x34);
   image.writeBigUInt64LE(BigInt(phoff), 0x20);
   image.writeBigUInt64LE(BigInt(shoffAligned), 0x28);
   image.writeUInt16LE(PHENT, 0x36);
@@ -428,8 +523,11 @@ export const buildStrippedElf64Image = (
   image.writeUInt32LE(0x464c457f, 0);
   image[4] = 2; // ELFCLASS64
   image[5] = 1; // little-endian
+  image[6] = 1;
   image.writeUInt16LE(ET_DYN, 0x10);
   image.writeUInt16LE(0x003e, 0x12); // e_machine x86_64
+  image.writeUInt32LE(1, 0x14);
+  image.writeUInt16LE(ELF_HEADER, 0x34);
   image.writeBigUInt64LE(BigInt(phoff), 0x20);
   image.writeUInt16LE(PHENT, 0x36);
   image.writeUInt16LE(PHNUM, 0x38);
@@ -479,8 +577,7 @@ export const buildStrippedElf64Image = (
 export const snapshotSection = (hash: string): Buffer =>
   Buffer.concat([
     Buffer.from([
-      0xf5, 0xf5, 0xdc, 0xdc, 0x49, 0x0d, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
-      0,
+      0xf5, 0xf5, 0xdc, 0xdc, 48, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
     ]),
     Buffer.from(hash, "latin1"),
   ]);

@@ -10,7 +10,7 @@ import {
 import { REFERENCE_HASH } from "./FlutterTestFixtures.js";
 
 /**
- * Build a minimal real ELF64 little-endian image with one PT_LOAD segment
+ * Build a synthetic ELF64 little-endian image with one PT_LOAD segment
  * and a dynamic symbol table naming the Dart snapshot sections. This keeps
  * the golden tests self-contained instead of reading the author's disk.
  */
@@ -117,6 +117,8 @@ describe("readSnapshotHeader", () => {
       magicValid: false,
       kind: null,
       headerLength: null,
+      hash: null,
+      complete: false,
     });
   });
 });

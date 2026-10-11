@@ -30,14 +30,22 @@ import {
 import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
-import type { ArtifactEntry } from "../artifacts/ArtifactReader.js";
+import {
+  ArtifactReaderFailure,
+  type ArtifactEntry,
+} from "../artifacts/ArtifactReader.js";
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
 import {
   BuildIdScanner,
   LabeledStringScanner,
   SnapshotHashScanner,
 } from "./FlutterPayloadScan.js";
-import { readElfSymbol, readSnapshotHeader } from "./DartElf.js";
+import {
+  ELF_HEADER_MAX_BYTES,
+  readElfHeader,
+  readElfSymbol,
+  readSnapshotHeader,
+} from "./DartElf.js";
 
 /** Stable identity for the Flutter build-identification provider. */
 export const FLUTTER_PROVIDER_IDENTITY = {
@@ -56,8 +64,6 @@ const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
 /** A complete AOT image carries exactly one VM and one isolate section. */
 const SYMBOL_PAIR_COUNT = 2;
-/** Magic(4) + length(8) + kind(4) — the smallest complete data header. */
-const SNAPSHOT_HEADER_MIN_BYTES = 16;
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 /**
@@ -65,6 +71,7 @@ const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
  * Aborts between chunks so a cancellation cannot run a digest to completion.
  */
 const sha256File = async (
+  operation: string,
   path: string,
   signal: AbortSignal | undefined,
 ): Promise<string> => {
@@ -72,7 +79,7 @@ const sha256File = async (
   const stream = createReadStream(path, signal === undefined ? {} : { signal });
   for await (const chunk of stream) {
     if (signal?.aborted === true)
-      throw new AnalysisCancelledError("digest", { cause: signal.reason });
+      throw new AnalysisCancelledError(operation, { cause: signal.reason });
     hash.update(chunk as Buffer);
   }
   return hash.digest("hex");
@@ -127,23 +134,31 @@ const emptyFacts = (): LibraryFacts => ({
 });
 
 /** Translate a ZIP reader rejection into the typed analysis error algebra. */
+const isCancellation = (cause: unknown): boolean =>
+  cause instanceof AnalysisCancelledError ||
+  (cause instanceof ArtifactReaderFailure && cause.reason === "cancelled") ||
+  (cause instanceof Error && cause.name === "AbortError") ||
+  (typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "ABORT_ERR");
+
 const mapReaderFailure = (
   operation: string,
   path: string,
   cause: unknown,
 ): AnalysisError => {
-  if (
-    (cause instanceof Error && cause.name === "AbortError") ||
-    (cause as NodeJS.ErrnoException)?.code === "ABORT_ERR" ||
-    /cancelled/iu.test(cause instanceof Error ? cause.message : String(cause))
-  )
+  if (cause instanceof AnalysisError) return cause;
+  if (isCancellation(cause))
     return new AnalysisCancelledError(operation, { cause });
   const message = cause instanceof Error ? cause.message : String(cause);
-  return new AnalysisInputError(operation, {
-    cause: new Error(
-      `The APK could not be read as a package: ${path}: ${message}`,
-    ),
-  });
+  return new AnalysisInputError(operation, { cause }, [
+    {
+      path: ["path"],
+      reason: "invalid_format",
+      message: `The APK could not be read as a package: ${path}: ${message}`,
+    },
+  ]);
 };
 
 /** Iterate ZIP entries, mapping reader failures to typed errors. */
@@ -194,31 +209,14 @@ const openEntrySafely = async (
   };
 };
 
-/**
- * Check that an ELF header beyond the magic carries parseable structure:
- * e_type is a known value and at least one table offset is non-zero.
- * This catches headers whose magic survived corruption but whose
- * offsets were zeroed, which the byte scanner alone cannot detect.
- */
-const elfHeaderStructurallyValid = (
-  firstChunk: Buffer | undefined,
-  totalBytes: number,
-): boolean => {
-  if (firstChunk === undefined || firstChunk.length < 20) return false;
-  const eType = firstChunk.readUInt16LE(0x10);
-  if (eType !== 1 && eType !== 2 && eType !== 3) return false;
-  const is64 = firstChunk[4] === 2;
-  const shoff = is64
-    ? Number(firstChunk.readBigUInt64LE(0x28))
-    : firstChunk.readUInt32LE(0x20);
-  const phoff = is64
-    ? Number(firstChunk.readBigUInt64LE(0x20))
-    : firstChunk.readUInt32LE(0x1c);
-  if (shoff === 0 && phoff === 0) return false;
-  const shnum = firstChunk.readUInt16LE(is64 ? 0x3c : 0x30);
-  const phnum = firstChunk.readUInt16LE(is64 ? 0x38 : 0x2c);
-  if (shnum === 0 && phnum === 0) return false;
-  return true;
+const checkApkSize = (operation: string, bytes: number): void => {
+  if (bytes > APK_MAX_BYTES)
+    throw new AnalysisResourceConstraintError(
+      operation,
+      "file-size",
+      `The selected APK exceeds the ${String(APK_MAX_BYTES)}-byte snapshot budget`,
+      { max_apk_bytes: APK_MAX_BYTES, observed_bytes: bytes },
+    );
 };
 
 export interface FlutterProviderOptions {
@@ -267,22 +265,22 @@ export class FlutterBuildProvider {
       // The copy itself is streamed and abort-checked so cancellation
       // stops the write promptly instead of draining the whole file.
       const before = await stat(path);
-      if (before.size > APK_MAX_BYTES)
-        throw new Error(
-          `The selected APK is ${String(before.size)} bytes, exceeding the ${String(APK_MAX_BYTES)}-byte budget`,
-        );
+      checkApkSize(operation, before.size);
       const output = await openFile(snapshotPath, "wx");
       try {
         const copyStream = createReadStream(
           path,
           signal === undefined ? {} : { signal },
         );
+        let copiedBytes = 0;
         for await (const chunk of copyStream) {
           if (signal?.aborted === true)
             throw new AnalysisCancelledError(operation, {
               cause: signal.reason,
             });
-          await output.write(chunk as Buffer);
+          copiedBytes += (chunk as Buffer).byteLength;
+          checkApkSize(operation, copiedBytes);
+          await output.writeFile(chunk as Buffer);
         }
       } finally {
         await output.close();
@@ -298,12 +296,20 @@ export class FlutterBuildProvider {
         );
       await chmod(snapshotPath, 0o400);
       const info = await stat(snapshotPath);
-      const sha256 = await sha256File(snapshotPath, signal);
+      const sha256 = await sha256File(operation, snapshotPath, signal);
       return { root, path: snapshotPath, bytes: info.size, sha256 };
     } catch (cause) {
       await this.discardRoot(root);
-      if (cause instanceof AnalysisCancelledError) throw cause;
-      throw new Error(`The APK could not be snapshotted: ${path}`, { cause });
+      if (cause instanceof AnalysisError) throw cause;
+      if (isCancellation(cause))
+        throw new AnalysisCancelledError(operation, { cause });
+      throw new AnalysisInputError(operation, { cause }, [
+        {
+          path: ["path"],
+          reason: "invalid_value",
+          message: `The APK could not be snapshotted: ${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        },
+      ]);
     }
   }
 
@@ -352,9 +358,7 @@ export class FlutterBuildProvider {
         options?.signal,
       );
     const { path } = request.input;
-    // Captured before the reads: an abort during streaming settles the
-    // loop through this reason rather than a re-read narrowing cannot see.
-    const abortReason = options?.signal?.reason;
+    const signal = options?.signal;
     const info = await stat(path).then(
       (value) => value,
       () => null,
@@ -373,8 +377,7 @@ export class FlutterBuildProvider {
         options?.signal,
       );
     } catch (cause) {
-      if (cause instanceof AnalysisCancelledError)
-        return err(new AnalysisCancelledError(request.operation));
+      if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisInputError(request.operation, { cause }));
     }
     const reader = new ZipArtifactReader(
@@ -451,20 +454,22 @@ export class FlutterBuildProvider {
         const buildIdScanner = new BuildIdScanner();
         const labeledScanner = new LabeledStringScanner();
         let bytes = 0;
-        let firstBytes: Buffer | null = null;
-        let firstChunk: Buffer | undefined;
+        const headerPrefix = Buffer.alloc(ELF_HEADER_MAX_BYTES);
+        let headerBytes = 0;
         for await (const chunk of stream) {
-          if (abortReason !== undefined)
+          if (signal?.aborted === true)
             return err(
               new AnalysisCancelledError(request.operation, {
-                cause: abortReason,
+                cause: signal.reason,
               }),
             );
           const view = chunk as Buffer;
-          if (firstBytes === null) {
-            firstBytes = view.subarray(0, 4);
-            firstChunk = view;
-          }
+          headerBytes += view.copy(
+            headerPrefix,
+            headerBytes,
+            0,
+            Math.min(view.length, headerPrefix.length - headerBytes),
+          );
           bytes += view.byteLength;
           if (bytes > LIBRARY_MAX_BYTES)
             return err(
@@ -507,26 +512,15 @@ export class FlutterBuildProvider {
               present: true,
               bytes,
               sha256: digest,
-              // ELF validity requires the magic AND parseable header
-              // fields: e_type (offset 0x10, 2 bytes) must be a known
-              // type, and at least one of the section/program header
-              // offsets must be non-zero. A file with valid magic but
-              // zeroed offsets is structurally broken — the byte scanner
-              // may still find hash patterns, but the ELF is not
-              // parseable and the result cannot claim completeness.
               elfHeaderValid:
-                firstBytes !== null &&
-                firstBytes.length === 4 &&
-                firstBytes[0] === 0x7f &&
-                firstBytes[1] === 0x45 &&
-                firstBytes[2] === 0x4c &&
-                firstBytes[3] === 0x46 &&
-                elfHeaderStructurallyValid(firstChunk, bytes),
+                readElfHeader(headerPrefix.subarray(0, headerBytes), bytes)
+                  .header !== undefined,
               sources: scan.sources,
               candidates: scan.candidates,
             },
           });
         } else {
+          const labeled = labeledScanner.result();
           facts.set(abi, {
             ...current,
             libflutter: {
@@ -534,14 +528,7 @@ export class FlutterBuildProvider {
               bytes,
               sha256: digest,
               buildId: buildIdScanner.result(),
-              ...(() => {
-                const labeled = labeledScanner.result();
-                return {
-                  dartVersion: labeled.dartVersion,
-                  toolchainLines: labeled.toolchainLines,
-                  toolchainCapped: labeled.toolchainCapped,
-                };
-              })(),
+              ...labeled,
             },
           });
         }
@@ -603,6 +590,7 @@ export class FlutterBuildProvider {
                     `lib/${entry.abi}/libflutter.so carries more distinct toolchain lines than the 4-line projection`,
                 ),
               "The snapshot hash sits 20 bytes after each snapshot magic in the AOT payload; findings are observations of that layout",
+              "ELF header validity checks the supported header layout and declared table extents; identification does not resolve symbols or validate table contents",
               ...abis
                 .filter(
                   (entry) =>
@@ -621,7 +609,7 @@ export class FlutterBuildProvider {
                 )
                 .map(
                   (entry) =>
-                    `lib/${entry.abi}/libapp.so does not begin with the ELF magic; the payload is damaged or masquerading`,
+                    `lib/${entry.abi}/libapp.so has a truncated, malformed, or unsupported ELF header or table extent; byte-scanned hashes remain observations only`,
                 ),
               ...(flutterDetected
                 ? []
@@ -664,8 +652,7 @@ export class FlutterBuildProvider {
     try {
       snapshot = await this.ownSnapshot("inspect_dart_aot", path, signal);
     } catch (cause) {
-      if (cause instanceof AnalysisCancelledError)
-        return err(new AnalysisCancelledError("inspect_dart_aot"));
+      if (cause instanceof AnalysisError) return err(cause);
       return err(new AnalysisInputError("inspect_dart_aot", { cause }));
     }
     const reader = new ZipArtifactReader(
@@ -805,6 +792,12 @@ export class FlutterBuildProvider {
         kind: number | null;
         header_length: number | null;
       }[] = [];
+      const dataHeaders: {
+        name: string;
+        offset: number;
+        size: number;
+        header: ReturnType<typeof readSnapshotHeader>;
+      }[] = [];
       let isolateData: Buffer | null = null;
       for (const name of symbolNames) {
         const parsed = readElfSymbol(bounded, name);
@@ -816,50 +809,49 @@ export class FlutterBuildProvider {
           ),
           0,
         );
-        const headerComplete = parsed.symbol.size >= SNAPSHOT_HEADER_MIN_BYTES;
         sections.push({
           name,
           offset: parsed.symbol.offset,
           size: parsed.symbol.size,
-          magic_valid: header.magicValid && headerComplete,
+          magic_valid: header.magicValid,
           kind: header.kind,
           header_length: header.headerLength,
         });
+        if (name.endsWith("Data"))
+          dataHeaders.push({ ...parsed.symbol, header });
         if (name === "_kDartIsolateSnapshotData")
           isolateData = image.subarray(
             parsed.symbol.offset,
             parsed.symbol.offset + parsed.symbol.size,
           );
       }
-      // Hash scanning is bounded to the exported data symbols' byte ranges
-      // so decoy or stale magic/hash sequences elsewhere in the image
-      // cannot inflate source counts or contribute candidates. Aliased
-      // exports (two data symbols at one offset and size) are scanned once:
-      // counting the shared slice twice would let one candidate masquerade
-      // as two agreeing sources.
-      const scannedRanges = new Set<string>();
+      // Each exported data symbol owns one header at its start. Matching
+      // records elsewhere in a symbol are not evidence for the other
+      // symbol's hash. Count a physical header only once for aliased exports.
+      const observedOffsets = new Set<number>();
       let aliasedDataSymbols = false;
-      const rangeScans: ReturnType<SnapshotHashScanner["result"]>[] = [];
-      for (const section of sections) {
-        if (!section.name.endsWith("Data")) continue;
-        const range = `${String(section.offset)}:${String(section.size)}`;
-        if (scannedRanges.has(range)) {
+      const hashes: string[] = [];
+      for (const section of dataHeaders) {
+        if (observedOffsets.has(section.offset)) {
           aliasedDataSymbols = true;
           continue;
         }
-        scannedRanges.add(range);
-        // A fresh scanner per range: the carry from one noncontiguous
-        // slice cannot fabricate a record spanning into the next.
-        const rangeScanner = new SnapshotHashScanner();
-        rangeScanner.push(
-          bounded.subarray(section.offset, section.offset + section.size),
-        );
-        rangeScans.push(rangeScanner.result());
+        observedOffsets.add(section.offset);
+        if (section.header.hash !== null) hashes.push(section.header.hash);
       }
       const hashScan = {
-        sources: rangeScans.reduce((total, scan) => total + scan.sources, 0),
-        candidates: [...new Set(rangeScans.flatMap((scan) => scan.candidates))],
+        sources: hashes.length,
+        candidates: [...new Set(hashes)],
       };
+      const overlappingDataSymbols = dataHeaders.some((section, index) =>
+        dataHeaders
+          .slice(0, index)
+          .some(
+            (previous) =>
+              previous.offset < section.offset + section.size &&
+              section.offset < previous.offset + previous.size,
+          ),
+      );
       if (sections.length === 0)
         return err(
           new AnalysisUnsupportedTargetError(
@@ -871,10 +863,10 @@ export class FlutterBuildProvider {
       const pool = projectStringPool(isolateData);
       const partial =
         aliasedDataSymbols ||
+        overlappingDataSymbols ||
         sections.length < symbolNames.length ||
-        sections.some(
-          (section) => section.name.endsWith("Data") && !section.magic_valid,
-        ) ||
+        dataHeaders.length !== SYMBOL_PAIR_COUNT ||
+        dataHeaders.some((section) => !section.header.complete) ||
         pool.collectionCapped ||
         pool.packageUriCount > MAX_POOL_URIS ||
         pool.dartUriCount > MAX_POOL_URIS ||
@@ -913,6 +905,7 @@ export class FlutterBuildProvider {
             limitations: [
               "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
               "Snapshot sections are located through the ELF dynamic symbol table; a payload without exported snapshot symbols is refused rather than guessed",
+              "Snapshot hash sources are the headers at the start of the VM and isolate data symbols; each must contain a valid hash and a declared length that fits its symbol, including the four magic bytes",
               "String-pool entries are byte-pattern observations from the isolate data section, not deserialized cluster semantics; typed class and function recovery needs an SDK-specific parser",
               "class_like_tokens are identifier-shaped runs and include incidental matches",
               "string-pool counts are lower bounds: collection stops at twice each projection bound, and any value beyond that is counted only through the capped flag",
@@ -923,17 +916,28 @@ export class FlutterBuildProvider {
                 : []),
               ...(aliasedDataSymbols
                 ? [
-                    "Two or more snapshot data symbols share one offset and size; the aliased range is scanned once, so its hash counts as one source instead of two agreeing ones",
+                    "Two or more snapshot data symbols share one header offset; its hash counts as one source instead of two agreeing ones",
                   ]
                 : []),
+              ...(overlappingDataSymbols && !aliasedDataSymbols
+                ? [
+                    "Snapshot data symbol ranges overlap; independent VM/isolate coverage is not established",
+                  ]
+                : []),
+              ...dataHeaders
+                .filter((section) => !section.header.complete)
+                .map(
+                  (section) =>
+                    `${section.name} has an incomplete or invalid snapshot header: declared length ${String(section.header.headerLength)} excludes the four magic bytes, symbol size ${String(section.size)}, valid hash ${String(section.header.hash !== null)}`,
+                ),
               ...(pool.packageUriCount > MAX_POOL_URIS
                 ? [
-                    `package_uris reports the first ${String(MAX_POOL_URIS)} of ${String(pool.packageUriCount)} distinct URIs`,
+                    `package_uris reports ${String(MAX_POOL_URIS)} of at least ${String(pool.packageUriCount)} distinct URIs`,
                   ]
                 : []),
               ...(pool.classLikeTokenCount > MAX_POOL_TOKENS
                 ? [
-                    `class_like_tokens reports the first ${String(MAX_POOL_TOKENS)} of ${String(pool.classLikeTokenCount)} distinct tokens`,
+                    `class_like_tokens reports ${String(MAX_POOL_TOKENS)} of at least ${String(pool.classLikeTokenCount)} distinct tokens`,
                   ]
                 : []),
             ],

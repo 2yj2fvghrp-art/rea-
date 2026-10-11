@@ -42,7 +42,7 @@ const inspectExecution = () =>
             size: 52,
             magic_valid: true,
             kind: 3,
-            header_length: 3401,
+            header_length: 48,
           },
           {
             name: "_kDartIsolateSnapshotData",
@@ -50,7 +50,7 @@ const inspectExecution = () =>
             size: 1536,
             magic_valid: true,
             kind: 3,
-            header_length: 3401,
+            header_length: 48,
           },
         ],
       },

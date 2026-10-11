@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { promisify } from "node:util";
-import { expect, onTestFinished, test } from "vitest";
+import { createReadStream } from "node:fs";
+import { open, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 import {
   aotFixtureImage,
@@ -12,9 +13,21 @@ import {
 import { snapshotSection } from "./DartElf.js";
 import { FlutterBuildProvider } from "./FlutterBuildProvider.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import {
+  AnalysisCancelledError,
+  AnalysisResourceConstraintError,
+} from "../domain/analysisErrorCore.js";
+import {
+  flutterResultSchemas,
+  type FlutterOperation,
+} from "../domain/flutter/flutterBuildAnalysis.js";
+import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
+import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
 
-const it = test.skipIf(process.platform === "win32");
-const run = promisify(execFile);
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return { ...original, createReadStream: vi.fn(original.createReadStream) };
+});
 
 const buildIdNote = (): Buffer =>
   Buffer.concat([
@@ -28,27 +41,7 @@ const buildIdNote = (): Buffer =>
 const TOOLCHAIN_LINE =
   "Android (5900059 based on r365631c) clang version 9.0.8 (based on LLVM 9.0.8svn)";
 
-const libapp = (hash: string): Buffer =>
-  Buffer.concat([
-    // A minimal ELF64 header with valid type, table offsets, and counts,
-    // so the structural validity check passes alongside the magic.
-    (() => {
-      const header = Buffer.alloc(64);
-      header.writeUInt32LE(0x464c457f, 0); // magic
-      header[4] = 2; // ELFCLASS64
-      header[5] = 1; // little-endian
-      header.writeUInt16LE(3, 0x10); // ET_DYN
-      header.writeBigUInt64LE(BigInt(64), 0x20); // e_phoff
-      header.writeBigUInt64LE(BigInt(128), 0x28); // e_shoff
-      header.writeUInt16LE(1, 0x38); // e_phnum
-      header.writeUInt16LE(2, 0x3c); // e_shnum
-      return header;
-    })(),
-    Buffer.from("payload-prefix\x00"),
-    snapshotSection(hash),
-    Buffer.from("middle\x00"),
-    snapshotSection(hash),
-  ]);
+const libapp = aotFixtureImage;
 
 const libflutter = (): Buffer =>
   Buffer.concat([
@@ -94,24 +87,32 @@ const conflictingHashImage = (): Buffer => {
   ]);
 };
 
-/** Build a real APK-shaped zip with the `zip` CLI. */
+/** Build a real APK-shaped ZIP through the portable ZIP implementation. */
 const buildApk = async (
   name: string,
   files: ReadonlyArray<{ readonly path: string; readonly bytes: Buffer }>,
 ): Promise<string> => {
-  const root = await mkdtemp(join("/tmp", "rea-flutter-"));
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const root = await createTestTempDirectory("rea-flutter-");
+  const writer = new ZipWriter(new Uint8ArrayWriter(), {
+    useWebWorkers: false,
+  });
   for (const file of files) {
-    const target = join(root, file.path);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, file.bytes);
+    await writer.add(file.path, new Uint8ArrayReader(file.bytes));
   }
-  await run(
-    "zip",
-    ["-q", "-X", join(root, name), ...files.map((file) => file.path)],
-    { cwd: root },
-  );
+  await writeFile(join(root, name), await writer.close());
   return join(root, name);
+};
+
+const analyzeImage = async (bytes: Buffer, operation: FlutterOperation) => {
+  const path = await buildApk("image.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes },
+    { path: "lib/arm64-v8a/libflutter.so", bytes: libflutter() },
+  ]);
+  const provider = new FlutterBuildProvider({ environment: {} });
+  onTestFinished(() => provider.close());
+  const result = await provider.execute({ operation, input: { path } });
+  if (!result.ok) throw result.error;
+  return result.value;
 };
 
 it("projects each payload shape through the owned snapshot", async () => {
@@ -242,55 +243,52 @@ it("refuses a requested ABI the payload does not carry", async () => {
   expect(result.error.message).toContain("arm64-v8a");
 });
 
-test.skipIf(process.platform === "win32")(
-  "inspects a full synthetic AOT image end to end",
-  async () => {
-    const apk = await buildApk("realgallery.apk", [
-      { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
-    ]);
-    const result = await new FlutterBuildProvider({
-      environment: {},
-    }).execute({
-      operation: "inspect_dart_aot",
-      input: { path: apk },
-    });
-    if (!result.ok) throw new Error(result.error.message);
-    const value = result.value.result as {
-      abi: string;
-      libapp: {
-        snapshot_hash: string | null;
-        snapshot_hash_candidates: string[];
-        snapshot_hash_sources: number;
-        sections: { name: string; magic_valid: boolean }[];
-      };
-      string_pool: {
-        package_uri_count_at_least: number;
-        dart_uri_count_at_least: number;
-      };
-      coverage: string;
+it("inspects a full synthetic AOT image end to end", async () => {
+  const apk = await buildApk("realgallery.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+  ]);
+  const result = await new FlutterBuildProvider({
+    environment: {},
+  }).execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = result.value.result as {
+    abi: string;
+    libapp: {
+      snapshot_hash: string | null;
+      snapshot_hash_candidates: string[];
+      snapshot_hash_sources: number;
+      sections: { name: string; magic_valid: boolean }[];
     };
-    expect(value.abi).toBe("arm64-v8a");
-    expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
-    expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
-    expect(value.libapp.snapshot_hash_sources).toBe(2);
-    expect(value.libapp.sections.map((section) => section.name)).toEqual([
-      "_kDartVmSnapshotData",
-      "_kDartVmSnapshotInstructions",
-      "_kDartIsolateSnapshotData",
-      "_kDartIsolateSnapshotInstructions",
-    ]);
-    expect(
-      value.libapp.sections
-        .filter((section) => section.name.endsWith("Data"))
-        .every((section) => section.magic_valid),
-    ).toBe(true);
-    expect(value.string_pool.package_uri_count_at_least).toBe(2);
-    expect(value.string_pool.dart_uri_count_at_least).toBe(2);
-    // All four symbols present, both data magics valid, pool under budget:
-    // the honest answer for a complete payload is complete coverage.
-    expect(value.coverage).toBe("complete");
-  },
-);
+    string_pool: {
+      package_uri_count_at_least: number;
+      dart_uri_count_at_least: number;
+    };
+    coverage: string;
+  };
+  expect(value.abi).toBe("arm64-v8a");
+  expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+  expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
+  expect(value.libapp.snapshot_hash_sources).toBe(2);
+  expect(value.libapp.sections.map((section) => section.name)).toEqual([
+    "_kDartVmSnapshotData",
+    "_kDartVmSnapshotInstructions",
+    "_kDartIsolateSnapshotData",
+    "_kDartIsolateSnapshotInstructions",
+  ]);
+  expect(
+    value.libapp.sections
+      .filter((section) => section.name.endsWith("Data"))
+      .every((section) => section.magic_valid),
+  ).toBe(true);
+  expect(value.string_pool.package_uri_count_at_least).toBe(2);
+  expect(value.string_pool.dart_uri_count_at_least).toBe(2);
+  // All four symbols present, both data magics valid, pool under budget:
+  // the honest answer for a complete payload is complete coverage.
+  expect(value.coverage).toBe("complete");
+});
 
 it("reports aliased snapshot data symbols as partial coverage", async () => {
   const apk = await buildApk("aliased.apk", [
@@ -315,7 +313,7 @@ it("reports aliased snapshot data symbols as partial coverage", async () => {
   expect(value.libapp.snapshot_hash_sources).toBe(1);
   expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
   expect(result.value.limitations).toContain(
-    "Two or more snapshot data symbols share one offset and size; the aliased range is scanned once, so its hash counts as one source instead of two agreeing ones",
+    "Two or more snapshot data symbols share one header offset; its hash counts as one source instead of two agreeing ones",
   );
 });
 
@@ -379,6 +377,7 @@ it("retains failed snapshot cleanup and retries it on close", async () => {
     removeRoot: async (path) => {
       if (failing) throw new Error("cleanup refused");
       spaces.push(path);
+      await rm(path, { recursive: true, force: true });
     },
   });
   const result = await provider.execute({
@@ -409,3 +408,266 @@ it("cancels before creating any snapshot root", async () => {
   expect(result.ok).toBe(false);
   await provider.close();
 });
+
+it.each([1, 20, 47, 48, 61])(
+  "identifies a valid ELF when ZIP chunks are only %i bytes",
+  async (chunkBytes) => {
+    const originalOpen = ZipArtifactReader.prototype.open;
+    const spy = vi
+      .spyOn(ZipArtifactReader.prototype, "open")
+      .mockImplementation(async function (
+        this: ZipArtifactReader,
+        entry,
+        signal,
+      ) {
+        const source = await originalOpen.call(this, entry, signal);
+        return Readable.from(
+          (async function* () {
+            for await (const chunk of source) {
+              const bytes = chunk as Buffer;
+              for (let offset = 0; offset < bytes.length; offset += chunkBytes)
+                yield bytes.subarray(offset, offset + chunkBytes);
+            }
+          })(),
+        );
+      });
+    onTestFinished(() => spy.mockRestore());
+    const execution = await analyzeImage(aotImage(), "identify_flutter_build");
+    const value = flutterResultSchemas.identify_flutter_build.parse(
+      execution.result,
+    );
+    expect(value.coverage).toBe("complete");
+    expect(value.abis[0]?.libapp).toMatchObject({
+      elf_header_valid: true,
+      snapshot_hash: REFERENCE_HASH,
+      snapshot_hash_sources: 2,
+    });
+  },
+);
+
+it.each([
+  {
+    name: "zeroed offsets",
+    corrupt: (image: Buffer) => image.fill(0, 0x20, 0x30),
+  },
+  {
+    name: "program table past EOF",
+    corrupt: (image: Buffer) =>
+      image.writeBigUInt64LE(BigInt(image.length + 1), 0x20),
+  },
+  {
+    name: "section table past EOF",
+    corrupt: (image: Buffer) =>
+      image.writeBigUInt64LE(BigInt(image.length - 1), 0x28),
+  },
+  {
+    name: "zero program entry width",
+    corrupt: (image: Buffer) => image.writeUInt16LE(0, 0x36),
+  },
+  {
+    name: "short section entry width",
+    corrupt: (image: Buffer) => image.writeUInt16LE(1, 0x3a),
+  },
+  {
+    name: "absent program table",
+    corrupt: (image: Buffer) => image.writeUInt16LE(0, 0x38),
+  },
+  {
+    name: "unsupported class",
+    corrupt: (image: Buffer) => image.writeUInt8(3, 4),
+  },
+  {
+    name: "unsupported byte order",
+    corrupt: (image: Buffer) => image.writeUInt8(2, 5),
+  },
+  {
+    name: "unsafe table offset",
+    corrupt: (image: Buffer) => image.writeBigUInt64LE(1n << 63n, 0x20),
+  },
+  {
+    name: "table inside header",
+    corrupt: (image: Buffer) => image.writeBigUInt64LE(1n, 0x20),
+  },
+  {
+    name: "extended section count",
+    corrupt: (image: Buffer) => image.writeUInt16LE(0, 0x3c),
+  },
+])(
+  "retains hash observations with partial coverage for $name",
+  async ({ corrupt }) => {
+    const image = aotImage();
+    corrupt(image);
+    const execution = await analyzeImage(image, "identify_flutter_build");
+    const value = flutterResultSchemas.identify_flutter_build.parse(
+      execution.result,
+    );
+    expect(value.coverage).toBe("partial");
+    expect(value.abis[0]?.libapp).toMatchObject({
+      elf_header_valid: false,
+      snapshot_hash: REFERENCE_HASH,
+      snapshot_hash_sources: 2,
+    });
+    expect(execution.limitations.join("\n")).toContain(
+      "ELF header or table extent",
+    );
+  },
+);
+
+it.each([0, 4, 20, 47, 61])(
+  "reports a %i-byte ELF prefix as partial without throwing",
+  async (length) => {
+    const execution = await analyzeImage(
+      aotImage().subarray(0, length),
+      "identify_flutter_build",
+    );
+    const value = flutterResultSchemas.identify_flutter_build.parse(
+      execution.result,
+    );
+    expect(value.coverage).toBe("partial");
+    expect(value.abis[0]?.libapp.elf_header_valid).toBe(false);
+  },
+);
+
+it("accepts a section-stripped ELF32 header and bounds its program table", async () => {
+  const image = Buffer.alloc(52 + 32 + 104);
+  image.writeUInt32LE(0x464c457f);
+  image.set([1, 1, 1], 4); // ELF32, little-endian, version 1
+  image.writeUInt16LE(3, 0x10); // ET_DYN
+  image.writeUInt32LE(1, 0x14);
+  image.writeUInt32LE(52, 0x1c);
+  image.writeUInt16LE(52, 0x28);
+  image.writeUInt16LE(32, 0x2a);
+  image.writeUInt16LE(1, 0x2c);
+  image.writeUInt32LE(1, 52); // PT_LOAD
+  image.writeUInt32LE(image.length, 52 + 16);
+  snapshotSection(REFERENCE_HASH).copy(image, 84);
+  snapshotSection(REFERENCE_HASH).copy(image, 136);
+  const good = await analyzeImage(image, "identify_flutter_build");
+  expect(
+    flutterResultSchemas.identify_flutter_build.parse(good.result).coverage,
+  ).toBe("complete");
+  image.writeUInt32LE(image.length - 31, 0x1c); // One byte short of the table.
+  const bad = await analyzeImage(image, "identify_flutter_build");
+  expect(
+    flutterResultSchemas.identify_flutter_build.parse(bad.result).coverage,
+  ).toBe("partial");
+});
+
+it.each([0n, 15n, 47n, 49n, 1n << 63n])(
+  "retains malformed snapshot length %s as partial evidence",
+  async (length) => {
+    const image = aotImage();
+    image.writeBigUInt64LE(length, 0x1004);
+    const execution = await analyzeImage(image, "inspect_dart_aot");
+    const value = flutterResultSchemas.inspect_dart_aot.parse(execution.result);
+    expect(value.coverage).toBe("partial");
+    expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+    expect(value.libapp.sections[0]).toMatchObject({
+      magic_valid: true,
+      header_length:
+        length > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(length),
+    });
+    expect(execution.limitations.join("\n")).toContain(
+      "_kDartVmSnapshotData has an incomplete or invalid snapshot header",
+    );
+  },
+);
+
+it("does not let two VM records replace a missing isolate header hash", async () => {
+  const image = aotImage();
+  const elf = buildElf64Image([
+    { name: "_kDartVmSnapshotData", value: 0x1000, size: 104 },
+    { name: "_kDartVmSnapshotInstructions", value: 0x1800, size: 16 },
+    { name: "_kDartIsolateSnapshotData", value: 0x2000, size: 0x600 },
+    { name: "_kDartIsolateSnapshotInstructions", value: 0x2600, size: 16 },
+  ]);
+  elf.copy(image);
+  snapshotSection(REFERENCE_HASH).copy(image, 0x1000 + 52);
+  image[0x2000 + 20] = 0x78; // Keep the isolate magic but invalidate its hash.
+  const execution = await analyzeImage(image, "inspect_dart_aot");
+  const value = flutterResultSchemas.inspect_dart_aot.parse(execution.result);
+  expect(value.libapp.sections).toHaveLength(4);
+  expect(value.coverage).toBe("partial");
+  expect(value.libapp.snapshot_hash_sources).toBe(1);
+  expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
+  expect(execution.limitations.join("\n")).toContain(
+    "_kDartIsolateSnapshotData has an incomplete or invalid snapshot header",
+  );
+});
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s preserves an oversized APK refusal as a resource constraint",
+  async (operation) => {
+    const root = await createTestTempDirectory("rea-flutter-size-");
+    const path = join(root, "oversized.apk");
+    const file = await open(path, "wx");
+    try {
+      await file.truncate(2 * 1024 ** 3 + 1); // Sparse file: no multi-GiB allocation.
+    } finally {
+      await file.close();
+    }
+    const provider = new FlutterBuildProvider({ environment: {} });
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({ operation, input: { path } });
+    if (result.ok) throw new Error("expected a size refusal");
+    expect(result.error).toBeInstanceOf(AnalysisResourceConstraintError);
+    expect(projectAnalysisError(result.error).code).toBe("resource_constraint");
+    expect(result.error).toMatchObject({
+      operation,
+      reportedLimits: {
+        max_apk_bytes: 2 * 1024 ** 3,
+        observed_bytes: 2 * 1024 ** 3 + 1,
+      },
+    });
+  },
+);
+
+it.each([
+  { operation: "identify_flutter_build", phase: "copy" },
+  { operation: "inspect_dart_aot", phase: "digest" },
+] as const)(
+  "preserves native stream aborts during $operation $phase",
+  async ({ operation, phase }) => {
+    const path = await buildApk("abort.apk", [
+      { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+    ]);
+    const controller = new AbortController();
+    const nativeFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const streamMock = vi.mocked(createReadStream);
+    let abortCode: string | undefined;
+    streamMock.mockImplementation((streamPath, options) => {
+      const stream = nativeFs.createReadStream(streamPath, options);
+      if ((streamPath === path) === (phase === "copy")) {
+        stream.once("error", (cause: NodeJS.ErrnoException) => {
+          abortCode = cause.code;
+        });
+        stream.once("open", () =>
+          controller.abort(new Error("caller requested stop")),
+        );
+      }
+      return stream;
+    });
+    onTestFinished(() => {
+      streamMock.mockReset();
+    });
+    const removedRoots: string[] = [];
+    const provider = new FlutterBuildProvider({
+      environment: {},
+      removeRoot: async (root) => {
+        await rm(root, { recursive: true, force: true });
+        removedRoots.push(root);
+      },
+    });
+    onTestFinished(() => provider.close());
+    const result = await provider.execute(
+      { operation, input: { path } },
+      { signal: controller.signal },
+    );
+    if (result.ok) throw new Error("expected cancellation");
+    expect(abortCode).toBe("ABORT_ERR");
+    expect(result.error).toBeInstanceOf(AnalysisCancelledError);
+    expect(result.error).toMatchObject({ operation });
+    expect(projectAnalysisError(result.error).code).toBe("cancelled");
+    expect(removedRoots).toHaveLength(1);
+  },
+);

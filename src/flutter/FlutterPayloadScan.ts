@@ -32,9 +32,9 @@ const findBytes = (
 
 /** Magic starting every Dart VM and isolate snapshot section. */
 export const DART_SNAPSHOT_MAGIC = Uint8Array.from([0xf5, 0xf5, 0xdc, 0xdc]);
-const SNAPSHOT_HASH_OFFSET = 20;
-const SNAPSHOT_HASH_LENGTH = 32;
-const HASH_PATTERN = /^[0-9a-f]{32}$/u;
+export const SNAPSHOT_HASH_OFFSET = 20;
+export const SNAPSHOT_HASH_LENGTH = 32;
+export const SNAPSHOT_HASH_PATTERN = /^[0-9a-f]{32}$/u;
 
 export interface SnapshotHashScan {
   /** Snapshot sections found. */
@@ -81,7 +81,7 @@ export class SnapshotHashScanner {
           magic + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH,
         ),
       ).toString("latin1");
-      const isValidHash = HASH_PATTERN.test(candidate);
+      const isValidHash = SNAPSHOT_HASH_PATTERN.test(candidate);
       if (
         isValidHash &&
         this.candidates.length < MAX_SNAPSHOT_HASH_CANDIDATES &&

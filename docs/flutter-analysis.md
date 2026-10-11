@@ -33,9 +33,14 @@ ABIs alphabetically).
   through the ELF **dynamic symbol table** (ELF32 and ELF64, little-endian,
   every read bounds-checked), each with file offset, size, and — for data
   sections, which carry the `f5f5dcdc` magic — the parsed header kind and
-  length. A payload without exported snapshot symbols is refused rather
+  length (the stored length excludes the four magic bytes). Data headers
+  whose declared snapshot length does not fit their symbol retain their
+  observed fields and report partial coverage. A payload without exported snapshot symbols is refused rather
   than guessed at.
-- **The snapshot hash**, agreeing with `identify_flutter_build`.
+- **The snapshot hash** from the header at the start of each exported data
+  symbol. Complete hash coverage requires a valid header from both the VM
+  and isolate; duplicate records inside one symbol cannot stand in for the
+  other's header. Aliased or overlapping data symbols report partial coverage.
 - **A string-pool projection from the isolate data section**: distinct
   `package:` source URIs (the app's own and its dependencies' Dart files —
   a dependency inventory), `dart:` SDK URIs (which SDK libraries the app
@@ -47,12 +52,18 @@ ABIs alphabetically).
 
 - **`flutter_detected`** is true when any `lib/<abi>/libapp.so` exists. A
   negative answer reports complete coverage: absence is an answer.
-- **`snapshot_hash`** is the Dart build hash observed 20 bytes after each
-  snapshot magic (`f5 f5 dc dc`) inside `libapp.so`. The vm and isolate
-  sections are both read and cross-checked: `snapshot_hash_sources` counts
-  the sections found, and when they **disagree** the distinct values are
+- **`snapshot_hash`** is the Dart build hash observed 20 bytes after the
+  snapshot magic (`f5 f5 dc dc`) inside `libapp.so`. Identification scans
+  byte patterns; AOT inspection reads the exported VM and isolate headers.
+  `snapshot_hash_sources` counts the valid records observed by the chosen
+  operation, and when they **disagree** the distinct values are
   kept in `snapshot_hash_candidates` with `snapshot_hash: null` and
   `coverage: "partial"` rather than silently picking one.
+- **`elf_header_valid`** checks the supported little-endian ELF32/ELF64
+  header, table entry widths, and full table extents against the library's
+  actual byte length. Truncated, malformed, or unsupported headers report
+  false and partial coverage while retaining byte-scanned hashes. This
+  header check does not establish valid table contents or exported symbols.
 - **`libflutter` facts** are per-ABI observations: byte size, SHA-256
   digest, the GNU build-id note, and any _labeled_ strings the build
   carries. Release engine builds often strip the `Dart VM version` string —
@@ -69,7 +80,9 @@ ABIs alphabetically).
   provider-owned, read-only snapshot before digesting and parsing, so a
   concurrently modified original cannot mix into one observation; failed
   snapshot cleanup is retained and retried on `close()`.
-- **Bounded reads.** Library reads are bounded at 256 MiB each and ZIP
+- **Bounded reads.** APK snapshots are bounded at 2 GiB, including while
+  copying. Identification permits 768 MiB of cumulative library extraction;
+  declared sizes are checked before extraction. Library reads are bounded at 256 MiB each and ZIP
   metadata at 8 MiB; the AOT image buffer is allocated at exactly the
   declared size before reading. Exceeded budgets report
   `resource_constraint`.

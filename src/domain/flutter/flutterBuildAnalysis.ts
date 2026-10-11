@@ -68,7 +68,7 @@ export const flutterResultSchemas = {
           present: z.boolean(),
           bytes: z.number().int().nonnegative().nullable(),
           sha256: digestSchema.nullable(),
-          /** True when the first bytes carry the ELF magic. */
+          /** Supported ELF header with table extents inside the library; table contents are not validated. */
           elf_header_valid: z.boolean().nullable(),
           /** Number of Dart snapshot sections found (vm + isolate). */
           snapshot_hash_sources: z.number().int().nonnegative(),
@@ -121,7 +121,7 @@ export const flutterResultSchemas = {
         .nullable(),
       /** Distinct hashes found; more than one means the sections disagree. */
       snapshot_hash_candidates: z.array(z.string().regex(/^[0-9a-f]{32}$/u)),
-      /** Snapshot sections the hashes were read from. */
+      /** Distinct exported data headers with a valid hash at the header's fixed offset. */
       snapshot_hash_sources: z.number().int().nonnegative(),
       /** Snapshot symbols read from the dynamic symbol table. */
       sections: z.array(
@@ -131,6 +131,7 @@ export const flutterResultSchemas = {
           size: z.number().int().nonnegative(),
           magic_valid: z.boolean(),
           kind: z.number().int().nonnegative().nullable(),
+          /** Raw declared snapshot length, excluding the four magic bytes. */
           header_length: z.number().int().nonnegative().nullable(),
         }),
       ),

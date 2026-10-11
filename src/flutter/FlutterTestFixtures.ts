@@ -8,7 +8,7 @@ export { buildElf64Image, snapshotSection };
 export const REFERENCE_HASH = "65817c30a78bb44c3dc3771876b6010a";
 
 /** A synthetic AOT image with four symbols, two data sections, and a pool. */
-export const aotFixtureImage = (): Buffer => {
+export const aotFixtureImage = (hash: string = REFERENCE_HASH): Buffer => {
   const elf = buildElf64Image([
     { name: "_kDartVmSnapshotData", value: 0x1000, size: 52 },
     { name: "_kDartVmSnapshotInstructions", value: 0x1800, size: 16 },
@@ -23,9 +23,9 @@ export const aotFixtureImage = (): Buffer => {
     Buffer.from("dart:_http\x00dart:_http/crypto.dart\x00"),
     Buffer.from("AdaptiveBreakpoint\x00FadeScaleTransition\x00"),
   ]);
-  const vmSection = snapshotSection(REFERENCE_HASH);
+  const vmSection = snapshotSection(hash);
   const isolateSection = Buffer.concat([
-    snapshotSection(REFERENCE_HASH),
+    snapshotSection(hash),
     Buffer.from([0]),
     pool,
   ]);
