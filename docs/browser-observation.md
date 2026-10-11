@@ -18,6 +18,7 @@ REA can attach to a user-owned Chrome-family browser through the Chrome DevTools
 - `compare_web_captures` / `rea compare-web-captures` compares passive captures or exact-step-aligned browser scenarios. Scenario results commit reproducible literal normalization and expose alignment failures plus artifact-level action, screenshot, DOM, accessibility, URL, history, storage, and event differences. Missing or truncated evidence is never treated as equivalence.
 - `capture_web_screenshot` / `rea capture-web-screenshot` returns a content-addressed visible-viewport PNG.
 - `compare_web_screenshots` / `rea compare-web-screenshots` performs bounded local PNG pixel comparison without OCR or external services.
+- The CLI comparison commands accept each capture, screenshot artifact or normalization policy as inline JSON or a JSON file path. Use files for screenshot artifacts and scenario captures, whose embedded PNG bytes can exceed the host's command-line length limit.
 - Every surface has equivalent CLI and MCP contracts and returns Evidence provenance.
 - MCP tools return complete results inline and include the Evidence ID. Session evidence can be exported with `export_evidence_bundle`.
 
@@ -52,7 +53,18 @@ google-chrome \
 
 REA does not launch, own, or terminate this browser. Use a dedicated profile and stop it yourself when the investigation is complete. Do not expose the debugging port on a non-loopback interface.
 
+On Linux, a reachable but locked desktop keyring can stall Chrome before its
+first navigation. For a dedicated investigation profile, add
+`--password-store=basic` to bypass that keyring. Empty or placeholder frame URLs
+then describe an unloaded page; REA continues to require an allowed, committed
+URL. See [the startup investigation](https://github.com/morluto/rea/issues/1384#issuecomment-6093781686).
+
 ## Request boundary
+
+CDP connections enforce the shared 64 MiB limit per WebSocket message. A larger
+reply, including a valid reply from Chrome, fails with `payload_limit`. The limit
+counts message bytes before JSON parsing; it does not bound the memory used by
+decoded strings or JSON objects.
 
 Discovery supplies a literal loopback CDP endpoint and returns all eligible
 page targets unless an exact HTTP(S) origin filter narrows the result. Follow-up

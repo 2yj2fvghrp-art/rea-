@@ -26,12 +26,37 @@ import { RECOVERY_LIMITS } from "./WakaruRelease.js";
 
 const OPERATION = "recover_javascript_sources";
 const WAKARU_REQUIREMENT =
-  "Provide an absolute REA_WAKARU_COMMAND pointing to Wakaru 1.13.0 on Linux x64; no tool is installed by REA";
+  "Provide an absolute REA_WAKARU_COMMAND pointing to a Wakaru ^1.13.0 Linux x64 binary (verified with 1.14.0); no tool is installed by REA. See docs/javascript-recovery.md#install-wakaru.";
 
 /** Inject the owned process launcher while retaining production protocol parsing. */
 export type WakaruLauncher = (
   options: OwnedProviderProcessSpawnOptions,
 ) => Promise<SpawnedOwnedProviderProcess>;
+
+/** Cleanup failure carrying the live supervisor so the provider can retry it. */
+export class WakaruCleanupFailure extends ProviderCleanupError {
+  constructor(
+    readonly cleanupOwner: ProviderProcessSupervisor,
+    readonly runId: string,
+    readonly cwd: string,
+    reason: string,
+    previousError: unknown,
+    snapshot: ReturnType<ProviderProcessSupervisor["snapshot"]>,
+  ) {
+    super(
+      "wakaru",
+      [runId, cwd],
+      {
+        reason,
+        previous_error:
+          previousError instanceof Error ? previousError.message : null,
+        exit_code: snapshot.exitCode ?? null,
+        signal: snapshot.signal ?? null,
+      },
+      { operation: OPERATION, cause: previousError },
+    );
+  }
+}
 
 /** Resolve and fingerprint explicitly configured tools; acquire nothing at startup. */
 export const resolveWakaruCommand = async (
@@ -158,14 +183,15 @@ export const runWakaruCommand = async (context: WakaruCommandContext) => {
   }
   const stopped = await supervisor.stop();
   const snapshot = supervisor.snapshot();
-  supervisor.dispose();
   if (stopped.status === "incomplete")
-    throw new ProviderCleanupError("wakaru", [runId, context.cwd], {
-      reason: stopped.reason,
-      previous_error: failure instanceof Error ? failure.message : null,
-      exit_code: snapshot.exitCode ?? null,
-      signal: snapshot.signal ?? null,
-    });
+    throw new WakaruCleanupFailure(
+      supervisor,
+      runId,
+      context.cwd,
+      stopped.reason,
+      failure,
+      snapshot,
+    );
   if (failure !== undefined) throw failure;
   if (context.signal?.aborted === true)
     throw new AnalysisCancelledError(OPERATION);

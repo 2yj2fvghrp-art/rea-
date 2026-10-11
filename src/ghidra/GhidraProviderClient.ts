@@ -1,4 +1,4 @@
-import { analysisErrorWithCleanupFailure } from "../application/binary/AnalysisClientCleanup.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -8,6 +8,16 @@ import {
   type AnalysisOperation,
 } from "../application/AnalysisProvider.js";
 import type { AppConfig } from "../config/types.js";
+import type { JsonValue } from "../domain/jsonValue.js";
+import {
+  ghidraSeedCommitmentSchema,
+  ghidraSeedFailure,
+  ghidraSeedLimitations,
+} from "./GhidraAnalysisSeeds.js";
+import {
+  ghidraProfileLanguageOverride,
+  sameGhidraLanguageOverride,
+} from "./GhidraAnalysisProfile.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
@@ -104,6 +114,36 @@ export const createGhidraProviderClient = (input: {
       }),
     );
   const extensions = extensionProfile.data;
+  const seedProfile = ghidraSeedCommitmentSchema
+    .optional()
+    .safeParse(committedProfile.parameters.analysis_seeds);
+  if (
+    !seedProfile.success ||
+    (config.ghidraSeedFile === undefined) !== (seedProfile.data === undefined)
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "Resolve REA_GHIDRA_SEED_FILE into an analysis profile before opening the session.",
+        },
+      }),
+    );
+  const seeds = seedProfile.data;
+  const languageOverride = ghidraProfileLanguageOverride(
+    committedProfile.parameters,
+  );
+  if (
+    !sameGhidraLanguageOverride(languageOverride, config.ghidraLanguageOverride)
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed analysis profile and REA_GHIDRA_LANGUAGE_ID/REA_GHIDRA_COMPILER_SPEC_ID differ; reopen the target to resolve a new profile.",
+        },
+      }),
+    );
   const invalidProfile = validateGhidraExtensionProfile(
     extensions,
     config,
@@ -117,13 +157,19 @@ export const createGhidraProviderClient = (input: {
       }),
     );
   let extensionFailure: AnalysisError | undefined;
-  const targetLimitations =
-    target.format === "dos-mz"
+  // Replaced by the reported outcome once the session handshake is checked.
+  const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
+  const targetLimitations = [
+    ...(target.format === "dos-mz"
       ? [
           "DOS MZ uses 16-bit x86 real mode with the Ghidra load segment 0x1000. Returned addresses are linear byte coordinates; they do not identify a unique segment:offset alias.",
           "Static DOS analysis does not emulate BIOS, DOS interrupts, device ports, or self-modifying unpacking code. Packed targets require a separately identified unpacked artifact for original-program analysis; appended overlays are not the initialized load module.",
         ]
-      : [];
+      : []),
+    ...(target.kind === "executable" && target.architecture === "mips"
+      ? (target.mips.limitations ?? [])
+      : []),
+  ];
   const providerLimitations =
     installation.platform === "win32"
       ? windowsP0Limitations
@@ -144,6 +190,8 @@ export const createGhidraProviderClient = (input: {
       ),
       ...(target.format === "dos-mz" ? { dosMz: true } : {}),
       ...(target.format === "dos-com" ? { dosCom: true } : {}),
+      ...(languageOverride === undefined ? {} : { languageOverride }),
+      ...(seeds === undefined ? {} : { analysisSeeds: seeds }),
       platform: installation.platform,
       ...(extensions.length === 0 ? {} : { analysisExtensions: extensions }),
     }),
@@ -163,7 +211,14 @@ export const createGhidraProviderClient = (input: {
           expectedLanguageId: "x86:LE:16:Real Mode",
           expectedCompilerSpecId: "default",
         }
-      : {}),
+      : languageOverride === undefined
+        ? {}
+        : {
+            expectedLanguageId: languageOverride.languageId,
+            ...(languageOverride.compilerSpecId === undefined
+              ? {}
+              : { expectedCompilerSpecId: languageOverride.compilerSpecId }),
+          }),
     ...(context === undefined ? {} : { runId: context.runId }),
     logger: logger.child({ layer: "ghidra-bridge" }),
   });
@@ -171,11 +226,18 @@ export const createGhidraProviderClient = (input: {
     operation: AnalysisOperation,
     info: GhidraSessionInfo,
   ): Promise<AnalysisError | undefined> => {
-    extensionFailure = ghidraExtensionFailure(
-      extensions,
-      info.analysis_extensions ?? [],
-      operation,
-    );
+    extensionFailure =
+      ghidraExtensionFailure(
+        extensions,
+        info.analysis_extensions ?? [],
+        operation,
+      ) ?? ghidraSeedFailure(seeds, info.analysis_seeds, operation);
+    if (extensionFailure === undefined && info.analysis_seeds !== undefined)
+      seedLimitations.splice(
+        0,
+        seedLimitations.length,
+        ...ghidraSeedLimitations(seeds, info.analysis_seeds),
+      );
     if (extensionFailure === undefined) return undefined;
     const closed = await client.close();
     return closed.ok
@@ -189,10 +251,11 @@ export const createGhidraProviderClient = (input: {
   const releaseLimitation = unverifiedGhidraBuildLimitation(
     prerequisites.value.providerVersion,
   );
-  const sessionLimitations = [
+  const sessionLimitations = (): readonly string[] => [
     ...providerLimitations,
     ...targetLimitations,
     ...ghidraExtensionLimitations(extensions),
+    ...seedLimitations,
     ...(releaseLimitation === undefined ? [] : [releaseLimitation]),
   ];
   return {
@@ -225,7 +288,7 @@ export const createGhidraProviderClient = (input: {
         return ok(
           createAnalysisExecution(started.value, committedProfile.provider, {
             analysisProfile: committedProfile,
-            limitations: [...healthLimitations, ...sessionLimitations],
+            limitations: [...healthLimitations, ...sessionLimitations()],
           }),
         );
       }
@@ -233,7 +296,7 @@ export const createGhidraProviderClient = (input: {
         ? parseGhidraFunctionInput(operation, parameters)
         : parseGhidraInventoryInput(operation, parameters);
       if (!input.ok) return input;
-      if (extensions.length > 0) {
+      if (extensions.length > 0 || seeds !== undefined) {
         const started = await client.start(options?.signal);
         if (!started.ok)
           return err(
@@ -259,16 +322,23 @@ export const createGhidraProviderClient = (input: {
             config.ghidraStartupTimeoutMs,
           ),
         );
-      const result = isGhidraFunctionOperation(operation)
-        ? parseGhidraFunctionResult(operation, called.value)
-        : parseGhidraInventoryResult(operation, called.value);
-      if (!result.ok) return result;
-      let normalized = result.value;
+      let normalized: JsonValue;
+      let observationLimitations: readonly string[] = [];
+      if (isGhidraFunctionOperation(operation)) {
+        const result = parseGhidraFunctionResult(operation, called.value);
+        if (!result.ok) return result;
+        normalized = result.value.value;
+        observationLimitations = result.value.limitations;
+      } else {
+        const result = parseGhidraInventoryResult(operation, called.value);
+        if (!result.ok) return result;
+        normalized = result.value;
+      }
       if (operation === "inspect_native_load_image") {
         const attested = await attestGhidraNativeLoadImage(
           target,
           operation,
-          result.value,
+          normalized,
           client,
           (failure) =>
             projectSessionError(
@@ -284,7 +354,11 @@ export const createGhidraProviderClient = (input: {
         createAnalysisExecution(normalized, committedProfile.provider, {
           rawResult: called.value,
           analysisProfile: committedProfile,
-          limitations: [...limitationsFor(operation), ...sessionLimitations],
+          limitations: [
+            ...limitationsFor(operation),
+            ...observationLimitations,
+            ...sessionLimitations(),
+          ],
         }),
       );
     },

@@ -171,21 +171,31 @@ export const captureDom = (
       ? documentNodes.attributes
       : [];
     const baseIndex = nodes.length;
+    const svgContexts = new Map<number, boolean>();
     total += nodeTypes.length;
     for (let index = 0; index < nodeTypes.length; index += 1) {
       const attributeIndexes = numberArray(attributes[index]);
       const parent = Math.trunc(parents[index] ?? -1);
       const nodeIndex = nodes.length;
       const nodeName = indexedString(strings, nodeNames[index]);
+      const rawAttributeNames = attributeIndexes
+        .filter((_value, attributeIndex) => attributeIndex % 2 === 0)
+        .map((value) => indexedString(strings, value));
+      const seenAttributeNames = new Set<string>();
+      const attributeNames: string[] = [];
+      for (const name of rawAttributeNames) {
+        if (!seenAttributeNames.has(name)) {
+          seenAttributeNames.add(name);
+          attributeNames.push(name);
+        }
+      }
       nodes.push({
         index: nodeIndex,
         parent_index: parent < 0 ? -1 : baseIndex + parent,
         node_type: Math.max(0, Math.trunc(nodeTypes[index] ?? 0)),
         node_name: nodeName,
         node_value_length: indexedString(strings, nodeValues[index]).length,
-        attribute_names: attributeIndexes
-          .filter((_value, attributeIndex) => attributeIndex % 2 === 0)
-          .map((value) => indexedString(strings, value)),
+        attribute_names: attributeNames,
       });
       const metadata = domMetadata({
         strings,
@@ -196,6 +206,13 @@ export const captureDom = (
         nodeIndex,
         nodeName,
         allowedOrigins,
+        svgElement: elementInSvgContext(
+          index,
+          nodeNames,
+          parents,
+          strings,
+          svgContexts,
+        ),
       });
       for (const url of metadata.urls) {
         urls.push(url);
@@ -366,7 +383,43 @@ interface DomMetadataOptions {
   readonly nodeIndex: number;
   readonly nodeName: string;
   readonly allowedOrigins: ReadonlySet<string>;
+  readonly svgElement: boolean;
 }
+
+// DOMSnapshot carries no namespace URI. Chrome's HTML parser records SVG
+// local names (`svg`, `foreignObject`). Descendants of foreignObject are HTML
+// until a nested `svg`.
+const elementInSvgContext = (
+  index: number,
+  nodeNames: readonly number[],
+  parents: readonly number[],
+  strings: readonly string[],
+  contexts: Map<number, boolean>,
+): boolean => {
+  let current = index;
+  const seen = new Set<number>();
+  let inSvg = false;
+  while (current >= 0 && current < nodeNames.length && !seen.has(current)) {
+    const cached = contexts.get(current);
+    if (cached !== undefined) {
+      inSvg = cached;
+      break;
+    }
+    seen.add(current);
+    if (indexedString(strings, nodeNames[current]) === "svg") {
+      inSvg = true;
+      break;
+    }
+    const parent = Math.trunc(parents[current] ?? -1);
+    if (parent < 0 || parent === current) break;
+    if (indexedString(strings, nodeNames[parent]) === "foreignObject") break;
+    current = parent;
+  }
+  // Cache the entire examined chain, including forward references and cycles,
+  // so shared ancestors are examined once per document.
+  for (const node of seen) contexts.set(node, inSvg);
+  return inSvg;
+};
 
 const domMetadata = (
   options: DomMetadataOptions,
@@ -382,16 +435,25 @@ const domMetadata = (
     nodeIndex,
     nodeName,
     allowedOrigins,
+    svgElement,
   } = options;
   const pairs = new Map<string, string>();
   for (let index = 0; index + 1 < attributes.length; index += 2) {
-    const name = indexedString(strings, attributes[index]).toLowerCase();
+    // Chrome already folds HTML names; SVG/XML names remain case-sensitive.
+    const name = indexedString(strings, attributes[index]);
     const value = indexedString(strings, attributes[index + 1]);
-    pairs.set(name, value);
+    // HTML keeps the first declaration. A later repeat must not move dom_urls.
+    if (!pairs.has(name)) pairs.set(name, value);
   }
   const urls: WebPageInspection["metadata"]["dom_urls"] = [];
   for (const attribute of domUrlAttributes) {
-    const value = pairs.get(attribute);
+    // Chrome reads SVG xlink:href only when href itself is absent, and an
+    // empty href still wins. Report the fallback as href.
+    const value =
+      pairs.get(attribute) ??
+      (attribute === "href" && svgElement
+        ? pairs.get("xlink:href")
+        : undefined);
     if (value === undefined) continue;
     const tagName = nodeName.toLowerCase();
     // Chrome strips HTML whitespace for FORM.action, while submit controls
