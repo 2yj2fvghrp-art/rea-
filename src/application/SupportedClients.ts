@@ -357,7 +357,8 @@ const makiBaseDirectory = ({
     return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "maki");
   if (platform === "darwin")
     return join(home, "Library", "Application Support", "maki");
-  return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "maki");
+  // An empty XDG_CONFIG_HOME is unset, exactly as Maki and the XDG spec treat it.
+  return join(env.XDG_CONFIG_HOME || join(home, ".config"), "maki");
 };
 
 /**

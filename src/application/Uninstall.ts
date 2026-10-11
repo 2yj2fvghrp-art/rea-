@@ -381,7 +381,19 @@ const resolveUninstallConfigPath = async (
 
 /** Ownership rule for persistent MCP registrations created by REA setup. */
 const isOwnedRegistration = (value: unknown, client: SetupClient): boolean => {
-  if (client.format === "opencode" || client.format === "maki") {
+  if (client.format === "opencode") {
+    // OpenCode V1 entries carry a `type` discriminator; only the `local`
+    // shape setup writes is REA-owned, so a user-managed `remote` entry with a
+    // matching command array is retained.
+    const parsed = z
+      .object({ type: z.literal("local"), command: z.array(z.string()).min(1) })
+      .passthrough()
+      .safeParse(value);
+    if (!parsed.success) return false;
+    const command = parsed.data.command;
+    return isOwnedClientRegistrationCommand(command);
+  }
+  if (client.format === "maki") {
     const parsed = z
       .object({ command: z.array(z.string()).min(1) })
       .passthrough()

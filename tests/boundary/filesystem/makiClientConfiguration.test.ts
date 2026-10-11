@@ -39,6 +39,10 @@ describe("Maki configuration paths", () => {
     expect(makiPath({ XDG_CONFIG_HOME: "/custom/config" })?.configPath).toBe(
       join("/custom/config", "maki", "mcp.toml"),
     );
+    // An empty XDG_CONFIG_HOME is unset, not a relative working directory.
+    expect(makiPath({ XDG_CONFIG_HOME: "" })?.configPath).toBe(
+      join("/home/a", ".config", "maki", "mcp.toml"),
+    );
     // Maki uses %APPDATA%\maki on Windows.
     expect(
       makiPath({ APPDATA: "C:\\Users\\a\\AppData\\Roaming" }, "win32")
@@ -115,6 +119,38 @@ always_load = true
       defer_tools: 30,
       mcp: { other: { command: ["other-server"], always_load: true } },
     });
+  });
+
+  it("keeps the comment introducing the REA table and round-trips environment", async () => {
+    const { home, client } = await makiClient();
+    await writeFile(
+      client.configPath,
+      `# REA settings stay here.
+[mcp.rea]
+command = ["old-binary", "mcp"]
+`,
+    );
+    const environment = { REA_LOG_LEVEL: "silent" };
+    expect(
+      (await configureClientConfiguration(client, environment, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("# REA settings stay here.");
+    expect(parseToml(text)).toMatchObject({
+      mcp: {
+        rea: {
+          command: [...command],
+          environment: { REA_LOG_LEVEL: "silent" },
+        },
+      },
+    });
+    // Reconfiguring with the same environment is a no-op.
+    expect(
+      await configureClientConfiguration(client, environment, command),
+    ).toEqual({ status: "unchanged" });
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
   });
 
   it("creates mcp.toml when Maki has no configuration yet", async () => {

@@ -846,9 +846,9 @@ const disabledServerListLines = (
 
 /**
  * Replace REA's TOML server tables and assignments. Comments that introduce a
- * following table stay. Codex also retains comments around REA's own table.
- * Text inside strings is not treated as a header. Only Grok Build reads the
- * root `disabled_mcp_servers` list that registration also edits.
+ * following table stay. Codex and Maki also retain comments around REA's own
+ * table. Text inside strings is not treated as a header. Only Grok Build reads
+ * the root `disabled_mcp_servers` list that registration also edits.
  */
 const upsertTomlServerSection = (
   originalText: string,
@@ -994,7 +994,13 @@ const upsertTomlServerSection = (
       continue;
     }
     if (isBlankOrComment(line)) {
-      if (format === "toml" && line.trimStart().startsWith("#")) {
+      // Codex and Maki files carry user comments; keep a comment in place
+      // instead of buffering it, so one that introduces the REA table is not
+      // discarded with that table. Grok buffers and drops it.
+      if (
+        (format === "toml" || format === "maki") &&
+        line.trimStart().startsWith("#")
+      ) {
         flushPending();
         kept.push(physical);
       } else pending.push(physical);
