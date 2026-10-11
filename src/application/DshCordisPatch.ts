@@ -288,23 +288,30 @@ const yamlMapStringKeys = (
  * later direct `{ id, config }` replacement. Earlier direct patches, before an
  * insertion exists, do not establish a row.
  */
-const dshWinningConfigNode = (items: readonly unknown[]): unknown => {
+const dshWinningConfigNode = (
+  items: readonly unknown[],
+  yamlDocument: Document,
+): unknown => {
   let established = false;
   let winning: unknown;
   for (const item of items) {
     if (!isMap(item)) continue;
-    const insert = item.get("insert");
+    const insertNode = item.get("insert", true);
+    const insert = isAlias(insertNode)
+      ? insertNode.resolve(yamlDocument)
+      : insertNode;
     if (isSeq(insert)) {
       for (const entry of insert.items) {
-        if (!isMap(entry) || entry.get("id") !== DSH_ENTRY_ID) continue;
+        const entryMap = nodeMap(entry, yamlDocument);
+        if (entryMap?.get("id") !== DSH_ENTRY_ID) continue;
         established = true;
-        winning = entry.get("config");
+        winning = nodeMap(entryMap.get("config", true), yamlDocument);
       }
       continue;
     }
     if (!established || item.get("id") !== DSH_ENTRY_ID || !item.has("config"))
       continue;
-    winning = item.get("config");
+    winning = nodeMap(item.get("config", true), yamlDocument);
   }
   return winning;
 };
@@ -359,7 +366,7 @@ const cordisEnvironmentExpressions = (text: string): ReadonlySet<string> => {
   const yamlDocument = parseYamlDocument(text, { logLevel: "silent" });
   const root = yamlDocument.contents;
   if (!isSeq(root)) return new Set();
-  const winning = dshWinningConfigNode(root.items);
+  const winning = dshWinningConfigNode(root.items, yamlDocument);
   if (!isMap(winning)) return new Set();
   const env = winning.get("env");
   if (!isMap(env)) return new Set();
@@ -371,14 +378,16 @@ const cordisEnvironmentExpressions = (text: string): ReadonlySet<string> => {
   return keys;
 };
 
-/** The config node to edit: the kept entry's own node, or a clone of a later winner. */
+/** The config node to edit: the kept entry's own node, or a clone of a later or aliased winner. */
 const registrationConfigNode = (
+  yamlDocument: Document,
   entryMap: YAMLMap<unknown, unknown>,
   winningConfig: unknown,
 ): YAMLMap<unknown, unknown> | undefined => {
-  if (!isMap(winningConfig)) return undefined;
-  if (entryMap.get("config") === winningConfig) return winningConfig;
-  const cloned = winningConfig.clone();
+  const winning = nodeMap(winningConfig, yamlDocument);
+  if (winning === undefined) return undefined;
+  if (entryMap.get("config") === winning) return winning;
+  const cloned = winning.clone();
   return isMap(cloned) ? cloned : undefined;
 };
 
@@ -388,7 +397,7 @@ const applyDshRegistrationConfig = (
   desired: Record<string, unknown>,
   winningConfig: unknown,
 ): void => {
-  const config = registrationConfigNode(entryMap, winningConfig);
+  const config = registrationConfigNode(yamlDocument, entryMap, winningConfig);
   if (config === undefined) {
     entryMap.set("config", yamlDocument.createNode(desired));
     return;
@@ -461,14 +470,26 @@ export const serializeDshDocument = (
     // be edited in place, so a fresh patch list is emitted instead.
     return `${stringifyYaml(freshPatchList())}`;
   }
-  const winningConfig = dshWinningConfigNode(root.items);
+  const winningConfig = dshWinningConfigNode(root.items, yamlDocument);
   let carried = false;
   type PatchItem = (typeof root.items)[number];
   root.items = root.items.flatMap((item): PatchItem[] => {
     if (isAlias(item))
       return aliasOwnsReaEntry(item, yamlDocument) ? [] : [item];
     if (!isMap(item)) return [item];
-    const insert = item.get("insert");
+    const insertNode = item.get("insert", true);
+    // `insert: *rows` is an alias of another operation's list. Editing the
+    // anchored list and keeping the alias would still load the row twice.
+    if (isAlias(insertNode)) {
+      const resolved = insertNode.resolve(yamlDocument);
+      if (
+        isSeq(resolved) &&
+        resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument))
+      )
+        return [];
+      return [item];
+    }
+    const insert = insertNode;
     if (!isSeq(insert)) {
       // Direct patches to the REA row are superseded by the rewritten entry
       // and would otherwise override it again at their position.

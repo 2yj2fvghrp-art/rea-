@@ -1030,4 +1030,78 @@ describe("DeepSeek Harness alias collapse", () => {
   });
 });
 
+describe("DeepSeek Harness alias targets", () => {
+  it("collapses an alias of the insert list", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert: &rows
+    - id: other-tool
+      name: other
+      config:
+        command: keep-me
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+- insert: *rows
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("other-tool");
+    expect(text).not.toContain("*rows");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text) as { insert?: { id?: string }[] }[];
+    expect(
+      patches.flatMap(({ insert }) =>
+        (insert ?? []).filter((entry) => entry.id === "rea-mcp"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("keeps a Cordis tag when the config map is an alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &cfg
+  cwd: !!js process.cwd() # caller launch directory
+  serverName: rea
+  transport: stdio
+  command: stale-launcher
+  args: [mcp]
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config: *cfg
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.cwd()");
+    expect(text).toContain("# caller launch directory");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert?: { config?: { cwd?: unknown; command?: unknown } }[];
+    }[];
+    const row = patches.find((patch) => patch.insert !== undefined);
+    expect(row?.insert?.[0]?.config?.cwd).toBe("process.cwd()");
+    expect(row?.insert?.[0]?.config?.command).toBe(command[0]);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
