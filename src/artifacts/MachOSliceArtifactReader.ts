@@ -12,25 +12,33 @@ import {
   type LipoArchitecture,
 } from "../native/parsers/lipo.js";
 import type { MachoSlice } from "../domain/apple/dylibResolution.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import { readMachoImage, type ReadAt } from "./apple/MachoLoadCommandReader.js";
 import {
   ArtifactReaderFailure,
+  copyArtifactEntry,
+  sameArtifactEntry,
   type ArtifactEntry,
   type ArtifactReader,
 } from "./ArtifactReader.js";
 import { streamChunkToBuffer } from "./StreamBytes.js";
 import {
+  NonRegularFileReadError,
+  RegularFileAdmissionFailure,
   openRegularFile,
   sameRegularFileState,
   type StableRegularFileDescriptor,
 } from "../filesystem/RegularFile.js";
+import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
 
 /** Read-only universal Mach-O slice reader backed by native lipo metadata. */
 export class MachOSliceArtifactReader implements ArtifactReader {
   readonly format = "file" as const;
   #command: ArtifactCommand | undefined;
   #source: StableRegularFileDescriptor | undefined;
+  #ownedSource: OwnedFileHandle | undefined;
   #pendingSource: Promise<StableRegularFileDescriptor> | undefined;
+  readonly #entries = new Map<string, ArtifactEntry>();
   readonly #ownsSource: boolean;
   #closed = false;
   #closePromise: Promise<void> | undefined;
@@ -48,6 +56,7 @@ export class MachOSliceArtifactReader implements ArtifactReader {
   }
 
   async *entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry> {
+    this.#entries.clear();
     const source = await this.#ensureSource();
     await this.#verifySource(source);
     const captured = await this.runner.run(
@@ -127,7 +136,7 @@ export class MachOSliceArtifactReader implements ArtifactReader {
           "integrity",
           `lipo reported an out-of-bounds Mach-O slice: ${architecture.name}`,
         );
-      yield {
+      const entry: ArtifactEntry = {
         path: `slices/${architecture.name}`,
         kind: "slice",
         declaredSize: sliceSize,
@@ -163,6 +172,8 @@ export class MachOSliceArtifactReader implements ArtifactReader {
         ],
         adapterKey: `${String(offset)}:${String(sliceSize)}`,
       };
+      this.#entries.set(entry.adapterKey, copyArtifactEntry(entry));
+      yield entry;
     }
   }
 
@@ -171,14 +182,19 @@ export class MachOSliceArtifactReader implements ArtifactReader {
       return Promise.reject(
         new ArtifactReaderFailure("cancelled", "Mach-O slice read cancelled"),
       );
-    const [offsetText, sizeText] = entry.adapterKey.split(":");
-    const offset = parseSliceKeyInteger(offsetText);
-    const size = parseSliceKeyInteger(sizeText);
+    const produced = this.#entries.get(entry.adapterKey);
+    if (produced === undefined || !sameArtifactEntry(entry, produced))
+      throw new ArtifactReaderFailure(
+        "integrity",
+        "Mach-O slice entry metadata does not match this reader's inventory",
+      );
+    const offset = produced.byteOffset;
+    const size = produced.declaredSize;
     if (
-      !Number.isSafeInteger(offset) ||
-      !Number.isSafeInteger(size) ||
       offset === null ||
       size === null ||
+      !Number.isSafeInteger(offset) ||
+      !Number.isSafeInteger(size) ||
       offset < 0 ||
       size <= 0
     )
@@ -196,10 +212,9 @@ export class MachOSliceArtifactReader implements ArtifactReader {
         "integrity",
         `Mach-O slice range is outside the artifact: ${entry.path}`,
       );
-    const sourceStream = source.handle.createReadStream({
+    const sourceStream = readFileHandleChunks(source.handle, {
       start: offset,
       end: offset + size - 1,
-      autoClose: false,
       ...(signal === undefined ? {} : { signal }),
     });
     const verifySource = () => this.#verifySource(source);
@@ -272,23 +287,51 @@ export class MachOSliceArtifactReader implements ArtifactReader {
   }
 
   async #acquireSource(): Promise<StableRegularFileDescriptor> {
-    const handle = await openRegularFile(this.path, { symlinks: "reject" });
+    let handle: FileHandle;
+    try {
+      handle = await openRegularFile(this.path, { symlinks: "reject" });
+    } catch (cause: unknown) {
+      if (!(cause instanceof RegularFileAdmissionFailure)) throw cause;
+      this.#ownedSource = cause.owner;
+      const primary =
+        cause.cause instanceof NonRegularFileReadError
+          ? new ArtifactReaderFailure(
+              "format",
+              `Universal Mach-O source is not a regular file: ${this.path}`,
+              { cause: cause.cause },
+            )
+          : cause.cause;
+      throw ArtifactReaderFailure.withCleanup(
+        primary,
+        ArtifactReaderFailure.cleanupObservation(cause.cleanupCause, this.path),
+      );
+    }
+    const owner = new OwnedFileHandle(handle);
+    this.#ownedSource = owner;
     try {
       const initial = await handle.stat();
       const source = { handle, initial };
       this.#source = source;
       return source;
     } catch (cause: unknown) {
-      await handle.close().catch(() => undefined);
+      try {
+        await owner.close();
+        this.#ownedSource = undefined;
+      } catch (cleanupCause: unknown) {
+        throw ArtifactReaderFailure.withCleanup(
+          cause,
+          ArtifactReaderFailure.cleanupObservation(cleanupCause, this.path),
+        );
+      }
       throw cause;
     }
   }
 
   async #closeSource(): Promise<void> {
     await this.#pendingSource?.catch(() => undefined);
-    if (!this.#ownsSource || this.#source === undefined) return;
-    const source = this.#source;
-    await source.handle.close();
+    if (!this.#ownsSource || this.#ownedSource === undefined) return;
+    await this.#ownedSource.close();
+    this.#ownedSource = undefined;
     this.#source = undefined;
   }
 
@@ -357,9 +400,3 @@ const lipoMatchesSlice = (
 const lipoNameMatches = (reported: string, observed: string): boolean =>
   reported === observed ||
   (observed === "arm64e" && /^arm64e\.[A-Za-z0-9_]+$/u.test(reported));
-
-const parseSliceKeyInteger = (value: string | undefined): number | null => {
-  if (value === undefined || !/^\d+$/u.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-};

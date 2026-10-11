@@ -147,6 +147,53 @@ describe("browserScenarioSchema", () => {
     expect(secrets?.redact("prefix-suffix")).toBe("[REDACTED:login_input]");
   });
 
+  it("does not leave a declared secret inside its redaction marker", () => {
+    const secrets = BrowserScenarioSecrets.resolve(
+      browserScenarioSchema.parse({
+        ...baseScenario(),
+        secrets: [
+          ...baseScenario().secrets,
+          {
+            secret_id: "password",
+            environment_variable: "REA_TEST_SHORT_PASSWORD",
+          },
+        ],
+      }),
+      {
+        REA_TEST_SESSION: "prefix",
+        REA_TEST_PASSWORD: "prefix-suffix",
+        REA_TEST_COOKIE: "cookie",
+        REA_TEST_SHORT_PASSWORD: "pass",
+      },
+    );
+    expect(secrets?.redact("seen pass in the page")).toBe(
+      "seen [REDACTED] in the page",
+    );
+
+    const bytes = BrowserScenarioSecrets.resolve(
+      browserScenarioSchema.parse({
+        ...baseScenario(),
+        secrets: [
+          ...baseScenario().secrets,
+          {
+            secret_id: "password",
+            environment_variable: "REA_TEST_LONG_SECRET",
+          },
+          { secret_id: "pin", environment_variable: "REA_TEST_PIN" },
+        ],
+      }),
+      {
+        REA_TEST_SESSION: "prefix",
+        REA_TEST_PASSWORD: "prefix-suffix",
+        REA_TEST_COOKIE: "cookie",
+        REA_TEST_LONG_SECRET: "session-secret-value",
+        REA_TEST_PIN: "pass",
+      },
+    )?.redactBytes(Buffer.from("body session-secret-value tail"));
+    expect(bytes?.toString("utf8")).toBe("body [REDACTED] tail");
+    expect(bytes?.includes(Buffer.from("pass"))).toBe(false);
+  });
+
   it("does not resolve inherited environment properties as secret values", () => {
     const scenario = browserScenarioSchema.parse(baseScenario());
     const environment = Object.assign(
@@ -333,6 +380,21 @@ describe("browser scenario artifact secret spellings", () => {
       "[REDACTED:a_encoded] [REDACTED:a_encoded] [REDACTED:short]",
     );
   });
+
+  it.each([
+    [{ password: "pass" }, "pass", "[REDACTED]"],
+    [{ password: "SYN-a&b", pin: "pass" }, "SYN-a&amp;b", "[REDACTED]"],
+    [{ token: "REDACTED" }, "REDACTED", "…"],
+    [{ token: "REDACTED", fallback: "…" }, "REDACTED", ""],
+  ])(
+    "keeps the shared safe-marker policy for artifact spellings %#",
+    (values, spelling, marker) => {
+      const secrets = resolve(values);
+      expect(secrets.redactArtifactText(`before ${spelling} after`)).toBe(
+        `before ${marker} after`,
+      );
+    },
+  );
 
   it("fails closed without reprocessing markers that reconstruct a secret", () => {
     const secrets = resolve({ foo: "X", collision: "a[REDACTED:foo]b" });
