@@ -181,13 +181,18 @@ it("keeps encoded segments literal and distinguishes origin and method", () => {
 });
 
 it("refuses parents whose sensitive declarations it cannot check", () => {
-  for (const parameters of [{ sensitive_value_count: 1 }, {}, null])
-    expect(
-      project(analysisViewCaptureFixture(), 0, 50, parameters),
-    ).toMatchObject({
+  for (const parameters of [{ sensitive_value_count: 1 }, {}, null]) {
+    const result = project(analysisViewCaptureFixture(), 0, 50, parameters);
+    expect(result).toMatchObject({
       ok: false,
       error: { _tag: "AnalysisUnsupportedTargetError" },
     });
+    if (result.ok) continue;
+    expect(result.error).toMatchObject({
+      reason: "sensitive_values_unretained",
+    });
+    expect(result.error.message).not.toContain("path templates");
+  }
 });
 
 it("treats HAR missing-response sentinels as unknown", () => {
@@ -265,6 +270,42 @@ it("excludes slashless URL spellings instead of reading their paths", () => {
     { ordinal: 3, reason: "url-unparseable" },
   ]);
   expect(JSON.stringify(result.value)).not.toContain("pass");
+});
+
+it("charges a later path split against bytes already retained", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const retained = "/1".repeat(8_000);
+  const later = "/2".repeat(90_000);
+  capture.records = [
+    ...[0, 1].map((ordinal) => ({
+      ...record,
+      ordinal,
+      reported: {
+        request: {
+          method: "GET",
+          url: `https://api.example.test${retained}`,
+        },
+      },
+    })),
+    {
+      ...record,
+      ordinal: 2,
+      reported: {
+        request: { method: "GET", url: `https://api.example.test${later}` },
+      },
+    },
+  ];
+  capture.total_records = capture.records.length;
+  const result = project(capture);
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason:
+        "One recorded path has more segments than the reply budget allows.",
+    },
+  });
 });
 
 it("charges cumulative deduplication sets before allocating them", () => {

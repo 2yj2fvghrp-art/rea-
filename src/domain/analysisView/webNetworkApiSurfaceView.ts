@@ -190,9 +190,7 @@ export const projectWebNetworkApiSurfaceView = (
     .object({ sensitive_value_count: z.number().int().nonnegative() })
     .safeParse(parent.parameters);
   if (!declarations.success || declarations.data.sensitive_value_count > 0)
-    return unsupported(
-      "api-surface authors path templates and limitation text that cannot be checked against sensitive_values declarations, which the parent Evidence does not retain. Project a capture inspected without declarations.",
-    );
+    return unsupported("sensitive_values_unretained");
   const buckets = new Map<string, Group>();
   const excluded: Surface["excluded_records"] = [];
   let unavailableResponse = false;
@@ -237,8 +235,8 @@ export const projectWebNetworkApiSurfaceView = (
       excluded.push({ ordinal: record.ordinal, reason: "url-unparseable" });
       continue;
     }
-    // Bound the transient split of one path before allocating it.
-    if (slashCount(path) * SPLIT_SEGMENT_BYTES > budget)
+    // Transient split copies coexist with bytes already retained for other groups.
+    if (projectedBytes + slashCount(path) * SPLIT_SEGMENT_BYTES > budget)
       return overBudget(
         "One recorded path has more segments than the reply budget allows.",
       );

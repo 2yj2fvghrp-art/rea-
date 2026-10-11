@@ -149,9 +149,11 @@ unknown, not invented statuses or MIME types.
 The view makes no handler-identity, schema or causality claim. It performs no
 network activity. Native mitmproxy captures return a typed unsupported error.
 Parents inspected with `sensitive_values`, or whose Evidence does not record
-`sensitive_value_count`, also return a typed unsupported error: the view writes
-path templates and limitation text that it cannot check against declarations
-the parent does not retain. Each path is bounded before it is split, including
+`sensitive_value_count`, return a typed unsupported error whose reason is the
+canonical token `sensitive_values_unretained`. The view would write path
+templates and limitation text that it cannot check against declarations the
+parent does not retain, so the refusal does not repeat declaration text. Each
+path is bounded before it is split, including
 its retained text. Newly retained templated segments, distinct observed values,
 and deduplication sets created on the first merge are charged against the 96 MiB
 reply budget before those sets are allocated; exceeding the budget returns

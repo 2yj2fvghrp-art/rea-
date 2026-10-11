@@ -19,7 +19,7 @@ export const API_SURFACE_EXAMPLE = {
     parent_digest:
       "9e218c18bc6159ec9c8492a9130c286496fb1b6d9f03ec2f4ea3321ce2b15097",
     view_digest:
-      "4a96eeb513583d1fa1ef2bbb14c30f8d8223c736c7b64586fda3e35f95507b9b",
+      "47c1859b7a86dd10770061767300bdb6ec177a9254e8dc7863d5ea8603343da6",
     artifact: {
       path: "/fixtures/api-surface.har",
       sha256:
@@ -34,6 +34,7 @@ export const API_SURFACE_EXAMPLE = {
     },
     limitations: [
       "Grouping does not establish handler identity, URL-space schemas or causality.",
+      "HAR text is producer-decoded Unicode. Original body bytes remain unknown unless content explicitly uses valid base64; declared sizes are preserved independently of retained bytes. mitmproxy 12.2.3 SaveHar may report null optional postData.text; that null is retained and omitted only from the upstream validation copy.",
     ],
     unknowns: [],
     records: {
