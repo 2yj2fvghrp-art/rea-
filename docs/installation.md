@@ -288,10 +288,11 @@ REA-owned entries from every applicable user file so an older entry cannot
 become active again. Malformed applicable files block setup before changes.
 
 Maki loads `[mcp.rea]` stdio servers from `mcp.toml` in its platform config
-directory: `$XDG_CONFIG_HOME/maki` (or `~/.config/maki`) on Linux,
-`~/Library/Application Support/maki` on macOS, and `%APPDATA%\maki` on Windows.
-Maki collapses config, data, cache, and skill paths to `~/.maki` the moment
-that directory exists, so setup and doctor follow it there. The entry stores
+directory: `%APPDATA%\maki` on Windows, and `$XDG_CONFIG_HOME/maki` (or
+`~/.config/maki`, using an absolute override only) on macOS and Linux. Maki
+collapses config, data, cache, and skill paths to `~/.maki` the moment that
+directory exists, so setup and doctor follow it there while uninstall clears an
+REA entry from either location. The entry stores
 the whole argv in `command`, such as
 `command = ["npx", "-y", "rea-agents@<version>", "mcp"]`, and puts stdio
 environment under `environment`. Setup preserves unrelated `[mcp.*]` servers,

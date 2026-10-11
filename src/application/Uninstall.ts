@@ -183,12 +183,13 @@ export const systemUninstallHost = (
     clients: () =>
       Promise.resolve(
         supportedClients(home, platform, environment).flatMap((client) =>
-          client.configPaths === undefined
-            ? [client]
-            : client.configPaths.map((configPath) => ({
-                ...client,
-                configPath,
-              })),
+          [
+            ...new Set([
+              ...(client.configPaths ?? []),
+              ...(client.cleanupPaths ?? []),
+              client.configPath,
+            ]),
+          ].map((configPath) => ({ ...client, configPath })),
         ),
       ),
     inspectClient: async (client) => {

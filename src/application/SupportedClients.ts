@@ -14,6 +14,12 @@ export interface SetupClient {
   readonly configPath: string;
   /** User configuration files in increasing precedence, including the write target. */
   readonly configPaths?: readonly string[];
+  /**
+   * Additional REA-owned files to purge on uninstall when a client can load a
+   * registration from more than one location but does not merge them. These are
+   * never read for setup or doctor status, which use `configPath`.
+   */
+  readonly cleanupPaths?: readonly string[];
   /** Read-only Gemini scopes and trust inputs; never setup write targets. */
   readonly geminiSettings?: {
     readonly systemPath: string;
@@ -65,6 +71,7 @@ interface ClientDefinition {
   readonly format: NonNullable<SetupClient["format"]>;
   readonly skillPath?: ClientPath;
   readonly configPaths?: (context: ClientPathContext) => readonly string[];
+  readonly cleanupPaths?: (context: ClientPathContext) => readonly string[];
   readonly geminiSettings?: (
     context: ClientPathContext,
   ) => NonNullable<SetupClient["geminiSettings"]>;
@@ -344,9 +351,11 @@ const devinDirectory = ({ home, platform, env }: ClientPathContext): string =>
     : join(env.XDG_CONFIG_HOME || join(home, ".config"), "devin");
 
 /**
- * Maki's platform config base: `%APPDATA%\maki` on Windows, the Application
- * Support directory on macOS, and `$XDG_CONFIG_HOME/maki` (or `~/.config/maki`)
- * elsewhere.
+ * Maki's platform config base. Maki resolves it with etcetera's
+ * `choose_base_strategy`: `%APPDATA%\maki` on Windows, and the XDG config
+ * directory on macOS and Linux — that strategy uses XDG (not the Apple
+ * directory) on macOS. A `XDG_CONFIG_HOME` that is empty or not absolute is
+ * ignored, matching etcetera and the XDG spec.
  */
 const makiBaseDirectory = ({
   home,
@@ -354,11 +363,14 @@ const makiBaseDirectory = ({
   env,
 }: ClientPathContext): string => {
   if (platform === "win32")
-    return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "maki");
-  if (platform === "darwin")
-    return join(home, "Library", "Application Support", "maki");
-  // An empty XDG_CONFIG_HOME is unset, exactly as Maki and the XDG spec treat it.
-  return join(env.XDG_CONFIG_HOME || join(home, ".config"), "maki");
+    return join(env.APPDATA || join(home, "AppData", "Roaming"), "maki");
+  const xdg = env.XDG_CONFIG_HOME;
+  return join(
+    xdg !== undefined && xdg !== "" && isAbsolute(xdg)
+      ? xdg
+      : join(home, ".config"),
+    "maki",
+  );
 };
 
 /**
@@ -533,6 +545,14 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
       join(makiConfigDirectory(context), "skills"),
     configPath: (context: ClientPathContext) =>
       join(makiConfigDirectory(context), "mcp.toml"),
+    // Maki loads only the first existing file, legacy `~/.maki` before the
+    // platform directory, and never merges them. Uninstall clears an REA entry
+    // from either file so removing `~/.maki` cannot reactivate an older one,
+    // while setup and doctor read only the active `configPath`.
+    cleanupPaths: (context: ClientPathContext) => [
+      join(makiBaseDirectory(context), "mcp.toml"),
+      join(context.home, ".maki", "mcp.toml"),
+    ],
     markerPath: makiConfigDirectory,
     format: "maki",
   },
@@ -614,6 +634,17 @@ export const supportedClients = (
           : {
               configPaths: [
                 ...new Set([...definition.configPaths(context), configPath]),
+              ],
+            }),
+        ...(definition.cleanupPaths === undefined
+          ? {}
+          : {
+              cleanupPaths: [
+                ...new Set(
+                  definition
+                    .cleanupPaths(context)
+                    .filter((path) => path !== configPath),
+                ),
               ],
             }),
         markerPath: marker.value,

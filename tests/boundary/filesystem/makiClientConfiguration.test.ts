@@ -33,14 +33,22 @@ describe("Maki configuration paths", () => {
       name: "maki",
       displayName: "Maki",
       configPath: join("/home/a", ".config", "maki", "mcp.toml"),
+      // The inactive legacy file is tracked for cleanup only, never read.
+      cleanupPaths: [join("/home/a", ".maki", "mcp.toml")],
       markerPath: join("/home/a", ".config", "maki"),
       format: "maki",
     });
     expect(makiPath({ XDG_CONFIG_HOME: "/custom/config" })?.configPath).toBe(
       join("/custom/config", "maki", "mcp.toml"),
     );
-    // An empty XDG_CONFIG_HOME is unset, not a relative working directory.
-    expect(makiPath({ XDG_CONFIG_HOME: "" })?.configPath).toBe(
+    // An empty or relative XDG_CONFIG_HOME is unset, not a relative working
+    // directory, matching etcetera and the XDG spec.
+    for (const value of ["", "cfg"])
+      expect(makiPath({ XDG_CONFIG_HOME: value })?.configPath).toBe(
+        join("/home/a", ".config", "maki", "mcp.toml"),
+      );
+    // Maki's base strategy uses XDG on macOS, not Application Support.
+    expect(makiPath({}, "darwin")?.configPath).toBe(
       join("/home/a", ".config", "maki", "mcp.toml"),
     );
     // Maki uses %APPDATA%\maki on Windows.
@@ -56,7 +64,37 @@ describe("Maki configuration paths", () => {
     expect(makiPath({}, "linux", home)).toMatchObject({
       configPath: join(home, ".maki", "mcp.toml"),
       markerPath: join(home, ".maki"),
+      // The inactive platform file is tracked for cleanup only.
+      cleanupPaths: [join(home, ".config", "maki", "mcp.toml")],
     });
+  });
+
+  it("uninstalls an REA entry from both the platform and legacy locations", async () => {
+    const home = await createTestTempDirectory("rea-maki-both-");
+    await mkdir(join(home, ".maki"), { recursive: true });
+    await mkdir(join(home, ".config", "maki"), { recursive: true });
+    const legacy = join(home, ".maki", "mcp.toml");
+    const platform = join(home, ".config", "maki", "mcp.toml");
+    const entry = `[mcp.rea]\ncommand = [${command.map((part) => JSON.stringify(part)).join(", ")}]\n`;
+    await writeFile(legacy, entry);
+    await writeFile(platform, entry);
+
+    // Pin Linux so the platform location is `~/.config/maki` on every host.
+    const host = systemUninstallHost(home, undefined, {}, "linux");
+    const makiClients = (await host.clients()).filter(
+      ({ name }) => name === "maki",
+    );
+    // One entry per tracked location, so an older platform entry cannot
+    // become active again if ~/.maki is later removed.
+    expect(makiClients).toHaveLength(2);
+    for (const client of makiClients)
+      expect((await host.removeClient(client)).status).toBe("removed");
+    expect(parseToml(await readFile(legacy, "utf8"))).not.toHaveProperty(
+      "mcp.rea",
+    );
+    expect(parseToml(await readFile(platform, "utf8"))).not.toHaveProperty(
+      "mcp.rea",
+    );
   });
 });
 
@@ -151,6 +189,30 @@ command = ["old-binary", "mcp"]
     expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
       "removed",
     );
+  });
+
+  it("does not read an inactive location for doctor status", async () => {
+    const home = await createTestTempDirectory("rea-maki-inactive-");
+    await mkdir(join(home, ".maki"), { recursive: true });
+    await mkdir(join(home, ".config", "maki"), { recursive: true });
+    // Maki reads only the legacy file, which has no REA entry.
+    await writeFile(
+      join(home, ".maki", "mcp.toml"),
+      `[mcp.other]\ncommand = ["other-server"]\n`,
+    );
+    // The inactive platform file still holds an old REA entry; it must not
+    // surface as an aligned registration.
+    await writeFile(
+      join(home, ".config", "maki", "mcp.toml"),
+      `[mcp.rea]\ncommand = [${command.map((part) => JSON.stringify(part)).join(", ")}]\n`,
+    );
+    const status = (
+      await readClientRegistrationStatuses(home, undefined, {
+        platform: "linux",
+        environment: {},
+      })
+    ).find(({ client: name }) => name === "maki");
+    expect(status).toMatchObject({ state: "missing" });
   });
 
   it("creates mcp.toml when Maki has no configuration yet", async () => {
