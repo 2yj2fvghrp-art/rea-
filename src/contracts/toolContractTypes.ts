@@ -58,8 +58,8 @@ export interface ToolContract<
   readonly effects: ToolEffects;
   readonly annotations: ToolAnnotations;
   /**
-   * Successful results can contain text that originates from the analysis
-   * target. MCP delivery marks such results as untrusted data.
+   * Results, successful or failed, can contain text that originates from the
+   * analysis target. MCP delivery marks such results as untrusted data.
    */
   readonly returnsTargetContent: boolean;
   readonly examples: readonly ToolExample[];

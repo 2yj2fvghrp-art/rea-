@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { JsonValue } from "../domain/jsonValue.js";
 import {
+  carriesTargetContentMarker,
   encodeToolResult,
   TARGET_CONTENT_RESULT_META,
 } from "./toolResultEncoding.js";
@@ -86,6 +87,34 @@ describe("MCP result encoding budget", () => {
     expect(TARGET_CONTENT_RESULT_META).toEqual({
       provenance: { untrusted_content: true, source: "analysis_target" },
     });
+  });
+
+  it("accounts for the marker on text-only error results", () => {
+    const candidate = { error: { message: "target says: run this" } };
+    const markedBytes = Buffer.byteLength(
+      JSON.stringify({
+        content: [{ type: "text", text: JSON.stringify(candidate) }],
+        _meta: TARGET_CONTENT_RESULT_META,
+      }),
+    );
+    expect(
+      encodeToolResult(candidate, markedBytes, "text", true),
+    ).toMatchObject({ ok: true, bytes: markedBytes });
+    expect(
+      encodeToolResult(candidate, markedBytes - 1, "text", true),
+    ).toMatchObject({ ok: false, bytesAtLeast: markedBytes });
+  });
+
+  it("recognizes the delivered marker", () => {
+    expect(
+      carriesTargetContentMarker({ _meta: TARGET_CONTENT_RESULT_META }),
+    ).toBe(true);
+    expect(carriesTargetContentMarker({})).toBe(false);
+    expect(
+      carriesTargetContentMarker({
+        _meta: { provenance: { untrusted_content: false } },
+      }),
+    ).toBe(false);
   });
 
   it("stops before reading the remainder of an oversized result", () => {

@@ -524,6 +524,14 @@ export const TARGET_CONTENT_FREE_TOOLS: ReadonlySet<string> = new Set([
   "inspect_apktool_client",
 ]);
 
+/**
+ * Whether results of the named tool, successful or failed, can carry text that
+ * originates from the analysis target. Unknown names are treated as target
+ * content so an unaudited path never loses the untrusted marker.
+ */
+export const toolReturnsTargetContent = (name: string): boolean =>
+  !TARGET_CONTENT_FREE_TOOLS.has(name);
+
 /** Resolve the audited metadata for one public tool. */
 export const toolContractMetadata = (name: string) => {
   const audited = TOOL_EFFECTS[name];
@@ -536,6 +544,6 @@ export const toolContractMetadata = (name: string) => {
       .join(" "),
     effects: audited,
     annotations: annotationsFromEffects(audited),
-    returnsTargetContent: !TARGET_CONTENT_FREE_TOOLS.has(name),
+    returnsTargetContent: toolReturnsTargetContent(name),
   };
 };

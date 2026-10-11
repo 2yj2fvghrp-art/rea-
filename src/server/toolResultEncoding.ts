@@ -28,6 +28,20 @@ export const TARGET_CONTENT_RESULT_META = Object.freeze({
   }),
 });
 
+/** Whether a delivered tool result already carries the untrusted target-content marker. */
+export const carriesTargetContentMarker = (result: {
+  readonly _meta?: unknown;
+}): boolean => {
+  const meta = result._meta;
+  if (typeof meta !== "object" || meta === null) return false;
+  const provenance: unknown = Reflect.get(meta, "provenance");
+  return (
+    typeof provenance === "object" &&
+    provenance !== null &&
+    Reflect.get(provenance, "untrusted_content") === true
+  );
+};
+
 // `,"_meta":{...}` added to the delivered result object.
 const TARGET_CONTENT_META_BYTES =
   Buffer.byteLength(JSON.stringify({ _meta: TARGET_CONTENT_RESULT_META })) - 1;
