@@ -444,6 +444,21 @@ it.each([
   ],
   ["typed reference", [0x16], "typedbyref"],
   [
+    "adjacent modifiers in source order",
+    [0x1f, 0x05, 0x20, 0x09, 0x08],
+    "i4 modreq:5 modopt:9",
+  ],
+  [
+    "modifier runs separated by a pointer",
+    [0x1f, 0x05, 0x0f, 0x20, 0x09, 0x08],
+    "i4 modopt:9* modreq:5",
+  ],
+  [
+    "unmanaged cdecl function pointer",
+    [0x1b, 0x01, 0x01, 0x01, 0x18],
+    "fnptr[c](native-int)->void",
+  ],
+  [
     "array of generic instantiations",
     [0x1d, 0x15, 0x12, 0x05, 0x01, 0x14, 0x08, 0x01, 0x01, 0x03, 0x00],
     "class:5<i4[3]>[]",
@@ -467,6 +482,8 @@ it.each([
   ],
   ["truncated generic argument list", [0x15, 0x12, 0x05, 0x02, 0x08]],
   ["truncated function pointer", [0x1b, 0x00, 0x01, 0x08]],
+  ["function pointer with a field header", [0x1b, 0x06, 0x00, 0x01]],
+  ["function pointer with a reserved flag", [0x1b, 0x80, 0x00, 0x01]],
 ])("reports a %s as malformed", (_name, type) => {
   expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
     kind: "unknown",

@@ -365,6 +365,7 @@ const malformedSignature = (detail: string, offset: number): never => {
 // decoding keeps an explicit stack instead of recursing.
 type TypeContinuation =
   | { readonly kind: "wrap"; readonly apply: (inner: string) => string }
+  | { readonly kind: "modifiers"; readonly modifiers: string[] }
   | { readonly kind: "array" }
   | {
       readonly kind: "list";
@@ -404,6 +405,12 @@ const readMethodSignatureHeader = (
 };
 
 const MAX_ARRAY_RANK = 32;
+
+// FNPTR carries a method signature: managed DEFAULT/VARARG, or the unmanaged
+// C, STDCALL, THISCALL, FASTCALL, and UNMANAGED conventions that compilers
+// emit for unmanaged function pointers. FIELD, LOCAL_SIG, PROPERTY, and
+// GENERICINST headers are not method signatures.
+const FUNCTION_POINTER_CONVENTIONS = new Set([0, 1, 2, 3, 4, 5, 9]);
 
 const arrayShape = (
   blob: Buffer,
@@ -479,7 +486,11 @@ const readTypeSignature = (
     } else if (kind === 0x1f || kind === 0x20) {
       const token = readCompressed(blob, cursor + 1);
       const modifier = `${kind === 0x1f ? "modreq" : "modopt"}:${String(token.value)}`;
-      stack.push({ kind: "wrap", apply: (inner) => `${inner} ${modifier}` });
+      // A modifier frame on top was pushed by the directly preceding byte;
+      // keep an adjacent run together and in source order.
+      const top = stack.at(-1);
+      if (top?.kind === "modifiers") top.modifiers.push(modifier);
+      else stack.push({ kind: "modifiers", modifiers: [modifier] });
       cursor = token.next;
     } else if (kind === 0x11 || kind === 0x12) {
       const token = readCompressed(blob, cursor + 1);
@@ -519,6 +530,14 @@ const readTypeSignature = (
       cursor = argumentCount.next;
     } else if (kind === 0x1b) {
       const header = readMethodSignatureHeader(blob, cursor + 1);
+      if (
+        !FUNCTION_POINTER_CONVENTIONS.has(header.first & 0x0f) ||
+        (header.first & 0x80) !== 0
+      )
+        return malformedSignature(
+          `function pointer calling convention 0x${header.first.toString(16)} does not head a method signature`,
+          cursor + 1,
+        );
       const convention = callingConvention(header.first);
       const head =
         header.genericParameterCount === null
@@ -544,6 +563,8 @@ const readTypeSignature = (
       const top = stack.pop();
       if (top === undefined) return { value, next: cursor };
       if (top.kind === "wrap") value = top.apply(value);
+      else if (top.kind === "modifiers")
+        value = `${value} ${top.modifiers.join(" ")}`;
       else if (top.kind === "array") {
         const shape = arrayShape(blob, cursor);
         value += shape.value;
@@ -561,6 +582,17 @@ const readTypeSignature = (
   }
 };
 
+const CALLING_CONVENTION_NAMES = new Map([
+  [0, "default"],
+  [1, "c"],
+  [2, "stdcall"],
+  [3, "thiscall"],
+  [4, "fastcall"],
+  [5, "vararg"],
+  [6, "field"],
+  [9, "unmanaged"],
+]);
+
 const callingConvention = (value: number): string => {
   const base = value & 0x0f;
   const flags = [
@@ -568,14 +600,7 @@ const callingConvention = (value: number): string => {
     (value & 0x40) === 0 ? null : "explicit-this",
     (value & 0x10) === 0 ? null : "generic",
   ].filter((flag) => flag !== null);
-  const name =
-    base === 0
-      ? "default"
-      : base === 5
-        ? "vararg"
-        : base === 6
-          ? "field"
-          : `unknown:${String(base)}`;
+  const name = CALLING_CONVENTION_NAMES.get(base) ?? `unknown:${String(base)}`;
   return flags.length === 0 ? name : `${name} ${flags.join(" ")}`;
 };
 
