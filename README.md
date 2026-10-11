@@ -111,11 +111,14 @@ snapshots and scripting.
 REA changes quickly, and new releases include frequent bug fixes. Keep your
 installation up to date.
 
-For an npm-installed CLI:
+For a CLI installed with `npm install --global` or `bun add --global`:
 
 ```bash
 rea update
 ```
+
+Bun global updates require Bun 1.2.17 or later. With an older Bun release,
+upgrade Bun manually before running `rea update`.
 
 To refresh your agent registrations and skill, run the setup command printed
 by the update.
@@ -277,7 +280,7 @@ model provider has its own data policy.
 
 Update first; a recent release may already fix it.
 
-For an npm-installed CLI:
+For a CLI installed with `npm install --global` or `bun add --global`:
 
 ```bash
 rea update
@@ -311,7 +314,7 @@ Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## Star history
 
-🎉 **60,000 GitHub stars — thank you!**
+🎉 **80,000 GitHub stars — thank you!**
 
 Thanks to everyone using REA, reporting bugs, requesting features, testing builds, and contributing fixes.
 

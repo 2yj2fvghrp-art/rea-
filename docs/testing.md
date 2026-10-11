@@ -23,6 +23,11 @@ cases. Share setup without hiding inputs or expected evidence. For successful
 `.ok` assertion adds no coverage. Protocol fixtures must reject unmodeled
 commands and preserve actual producer reply shapes.
 
+Stateless source-analysis matrices may share a file-owned stdio MCP connection
+and retain representative compiled CLI parity checks. Every distinct source
+scenario still runs through the public workflow; session-lifecycle scenarios
+need their own sessions and cleanup assertions.
+
 Report unavailable authority as a named skip. Await owned cleanup before a
 verifier reports success. Native process inspectors are released at Vitest
 worker teardown; fork termination does not run Node exit hooks, and per-file
@@ -734,9 +739,15 @@ entries, external callees, target switches, cancellation draining, snapshot
 replay exclusion, ownership failures, and incomplete cleanup. They do not
 establish real IDA operation. The initial real workflows cover legacy upstream
 1.4.0 on a Windows GUI and the modern supervisor at upstream commit
-`c133c3853faa111a9b00ee615c013b720d0c4acd` with Windows x64 IDA 9.3.
-Linux/macOS headless, modern attached GUI tools, other engine versions and
-architectures remain unverified; see the [provider guide](ida-provider.md).
+`c133c3853faa111a9b00ee615c013b720d0c4acd` with Windows x64 IDA 9.3, and the
+headless profile on macOS arm64 with IDA Professional 9.1 (build 9.1.250226)
+at the same upstream commit, using `tests/conformance/ida/inventory.c` built
+with `clang -O0 -arch arm64` and the procedure `_rea_fixture_add` (Mach-O C
+symbols carry a leading underscore). Before the headless session waited out
+the transient `busy` health a worker can report right after opening, that lane
+failed intermittently on that host. Linux headless, modern attached GUI tools,
+other engine versions and architectures remain unverified; see the
+[provider guide](ida-provider.md).
 
 ## DOS Ghidra analysis
 
@@ -823,11 +834,39 @@ CI exercises the pinned Node.js runtime on native hosted runners:
 
 Package lanes assert the actual Node platform/architecture before verification
 and record those values with the Node version. The four-host package matrix
-runs at most two jobs concurrently with explicit timeouts and Node heap/thread
-limits; Windows retains its curated capability lane. Package checks cover
-installation, CLI/MCP discovery, target-free
-analysis, configuration backups/recovery, Evidence and owned lifecycle; Inspector
-checks execute source-owned loopback targets and special filename cases.
+runs up to four jobs concurrently on independent hosted runners with explicit
+timeouts and per-runner Node heap/thread limits; Windows retains its curated
+capability lane. Package checks cover installation, CLI/MCP discovery,
+target-free analysis, configuration backups/recovery, Evidence and owned
+lifecycle; Inspector checks execute source-owned loopback targets and special
+filename cases.
+
+POSIX package verification resolves the runner's configured npm cache before
+creating disposable client homes and passes that location to its child installs.
+This reuses the download cache restored by `setup-node` while keeping client
+configuration isolated. Installs retain their existing registry and integrity
+checks.
+
+The Apple artifact CLI/MCP lane uses one `macos-15` job to avoid adding demand
+for scarce macOS runner capacity. It runs the artifact-format and metadata
+verifiers, followed by one consolidated focused invocation containing all
+existing native and process-boundary regression paths.
+
+The Linux source-test shards download a shared runtime and generated test
+metadata snapshot produced by the build job with `npm run test:prepare`. The
+snapshot includes `dist/`, generated skills, the MCP tool catalog, product
+catalog, and managed-conformance metadata. Each shard still installs the locked
+dependencies and runs its assigned coverage-enabled tests; it no longer
+regenerates the same metadata independently.
+
+The build job also retrieves the merged timing report from the last successful
+default-branch push and includes that same report in each shard's snapshot.
+CI assigns discovered files by historical duration, with a deterministic
+fallback weight for new files, rather than dividing only by file count. Every
+discovered file still belongs to exactly one shard; worker limits, project
+ordering, coverage instrumentation, and aggregate thresholds remain unchanged.
+Missing or unusable history falls back to Vitest's default assignment. Only
+timing data is reused; persistent compile caches remain disabled.
 
 These native baseline checks complement the Linux source-test shards and the
 separate Apple-artifact and real-provider lanes. Actual Hopper, Ghidra, IDA,
@@ -930,16 +969,37 @@ provider evidence.
 Vitest projects use up to two workers, bounded by host parallelism.
 `process-boundary` runs later with serial files because process-tree sampling
 shares host resources. Acceptance and process-global cases use isolated forks
-without serial scheduling. Pure domain/service and MCP boundary projects share
-immutable module graphs; each MCP session still owns its resources. Other
-projects retain per-file isolation. See `vitest.config.ts` for current settings.
+without serial scheduling. Pure domain/service, composition, conformance,
+evaluation, and MCP boundary projects share module graphs; their tests avoid
+process-global state and keep resource cleanup test-scoped. Each MCP session
+still owns its resources. Adapter, non-MCP boundary, acceptance, and
+process-global projects retain per-file isolation. See `vitest.config.ts` for
+current settings.
+
+Vitest worker limits do not bound subprocesses launched within a test. Bound
+those batches separately so repeated CLI validation cannot oversubscribe the
+runner. Preserve simultaneous launches where concurrency is itself under test.
 
 Build/documentation writers hold checkout-local output locks. Tests do not
 hold a broad command lock; `check:pr` finishes tests before document validation.
 
-Vitest and Node persistent compile caches are deliberately not enabled by
-default. To evaluate repeated local runs, opt in for both cold and warm
-measurements with an isolated cache:
+Vitest's persistent compile cache remains disabled. The `cliTest` fixture shares
+a temporary Node compile cache among its fresh CLI subprocesses. The worker
+removes it after test-scoped processes finish. Explicit child environment
+settings take precedence; children requesting `NODE_V8_COVERAGE` do not receive
+the fixture cache. These subprocesses are outside aggregate Vitest coverage;
+subprocess coverage attachment remains disabled. Cold-start import checks launch
+independently without this fixture cache.
+
+The Apple artifact verifier step shares a job-temporary bytecode cache among
+its fresh CLI/MCP children via `REA_ARTIFACT_NODE_COMPILE_CACHE`. The artifact
+helper maps this setting to child `NODE_COMPILE_CACHE`; npm, Turbo, and nested
+Vitest runs do not inherit that setting. Explicit `NODE_COMPILE_CACHE` takes
+precedence, and coverage collection or `NODE_DISABLE_COMPILE_CACHE=1` disables
+the helper's cache. The cache is discarded with the CI job.
+
+To evaluate persistent compile caching for repeated local runs, opt in for both
+cold and warm measurements with an isolated cache:
 
 ```bash
 NODE_COMPILE_CACHE=.cache/node-compile npm test
@@ -961,6 +1021,19 @@ reports, uploads them together, and writes the slowest files to the workflow
 summary. Static checks, documentation, build, package verification, and
 real-system lanes remain separate jobs so one kind of evidence cannot stand in
 for another.
+
+The build job saves portable Turbo outputs across runs. Eight Linux real-system
+lanes restore this cache without waiting for the build job. The shared action
+derives its key from `test:prepare --dry=json` task hashes, runner OS and
+architecture, and `.npmrc`; test-only changes can reuse compiled outputs. Every
+build and verification command still runs, so Turbo checks task inputs and
+rebuilds misses. There is no prefix fallback to accumulate older build outputs.
+
+Native package jobs reuse the same workflow's Turbo cache for portable compiled
+JavaScript, skills, and catalogs. They retain the normal build and prepack
+commands, which restore matching outputs or rebuild on a cache miss. Native
+artifacts, dependency installs, package archives, and runtime verification remain
+host-local. Keep platform-dependent outputs out of this shared cache.
 
 The PR acceptance target is a median `npm run check:pr` wall time below three
 minutes across three warm-build runs on the benchmark host. Keep Vitest caches
@@ -1036,7 +1109,10 @@ and `REA_JAVASCRIPT_FIXTURE_TOOLS` pointing to an isolated npm prefix containing
 esbuild 0.25.10 and webpack 5.101.3. No global installation is required.
 The lane compiles source-owned fixtures, exercises CLI and stdio MCP, verifies
 published bytes and provenance, feeds recovered modules into existing analysis,
-and compares a finite set of known fixture results. The provider also accepts
+and compares a finite set of known fixture results. A webpack fixture with separate
+runtime, shared, entry and lazy chunks verifies multi-input recovery through both
+surfaces, per-file provenance and resolved cross-chunk imports in the downstream
+application graph. The provider also accepts
 other ^1.13.0 releases and reports them as unverified; this lane proves the
 audited release. It does not establish
 arbitrary recovered-application equivalence. CI installs these prerequisites only

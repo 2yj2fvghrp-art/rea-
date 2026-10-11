@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { defineConfig } from "vitest/config";
 
+import { CiTestSequencer } from "./tests/ciTestSequencer.js";
+
 // Playwright's registry does not derive a cache directory for Termux's
 // `android` platform. Match the production CLI fallback before workers import
 // browser modules.
@@ -59,6 +61,9 @@ const TEST_PROJECTS = [
     include: ["tests/composition/**/*.test.ts"],
     pool: "threads" as const,
     maxWorkers: MAX_TEST_WORKERS,
+    // Composition tests use provider-neutral sessions and test-scoped cleanup;
+    // sharing their immutable module graph avoids per-file startup work.
+    isolate: false,
   },
   {
     name: "boundary",
@@ -106,12 +111,16 @@ const TEST_PROJECTS = [
     include: ["tests/conformance/**/*.test.ts"],
     pool: "threads" as const,
     maxWorkers: MAX_TEST_WORKERS,
+    // Contract cases use recording providers and own no process-global state.
+    isolate: false,
   },
   {
     name: "evaluation",
     include: ["tests/evaluation/**/*.test.ts"],
     pool: "threads" as const,
     maxWorkers: MAX_TEST_WORKERS,
+    // Evaluator tests inspect deterministic inputs without mutating shared state.
+    isolate: false,
   },
 ];
 
@@ -144,6 +153,9 @@ export default defineConfig({
     env: { TMPDIR: CANONICAL_TEMPORARY_DIRECTORY },
     maxWorkers: MAX_TEST_WORKERS,
     projects,
+    ...(process.env.REA_CI_TEST_HISTORY
+      ? { sequence: { sequencer: CiTestSequencer } }
+      : {}),
     retry: 0,
     reporters: ["default"],
     runner: "./tests/processOwnershipRunner.ts",
