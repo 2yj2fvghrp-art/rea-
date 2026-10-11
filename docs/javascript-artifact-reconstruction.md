@@ -428,6 +428,15 @@ same conditional and invalid-entry handling as nested exports arrays.
 For imports and requires, the active Node conditions include `module-sync`;
 earlier active conditions retain precedence over later ones.
 
+Exact package-private `#alias` specifiers resolve against the importer's
+enclosing `package.json` `imports` map — the nearest same-container package
+scope, stopping at a `node_modules` directory so a nested package cannot inherit
+an ancestor's aliases. Selected targets are package-local `./` files with no
+extension or index fallback, using the same condition, array, and null selection
+as exports subpaths. A missing key, explicit null, or out-of-scope alias keeps
+an unresolved edge with that reason. Wildcard keys (`#internal/*`), recursive
+`#` targets, and external-package import targets remain unresolved.
+
 ESM relative module paths and selected package exports targets use URL suffix handling
 and one percent-decoding pass. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with
