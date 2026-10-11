@@ -277,6 +277,27 @@ it("fetches all class pages rather than silently retaining the first upstream pa
   await verifyCleanup(launches);
 });
 
+it("preserves duplicate class-name rows and reports lookup ambiguity", async () => {
+  const { service, apk, launches, provider } = await setup(
+    "duplicate-class-name",
+  );
+  const outcome = await service.execute("search_android_classes", {
+    path: apk,
+    query: "fixture.Target",
+  });
+  if (!outcome.ok) throw outcome.error;
+  const result = androidResultSchemas.search_android_classes.parse(
+    outcome.value.normalized_result,
+  );
+  expect(result.total_classes).toBe(402);
+  expect(result.matches).toEqual(["fixture.Target", "fixture.Target"]);
+  expect(result.duplicate_names).toEqual([
+    { name: "fixture.Target", occurrences: 2 },
+  ]);
+  await provider.close();
+  await verifyCleanup(launches);
+});
+
 it("exposes overload candidates and executes only an explicitly selected ambiguous method", async () => {
   const { service, apk, launches, provider } = await setup();
   const input = {
@@ -527,6 +548,14 @@ it("retries shutdown cleanup after ownership verification recovers", async () =>
     "normal",
     () => cleanupFails,
   );
+  const closeAfterRecovery = async () => {
+    cleanupFails = false;
+    // Closing the transport can leave the child between live and exited
+    // snapshots. Retry retained ownership until cleanup is actually verified.
+    await expect
+      .poll(() => provider.close(), { timeout: 5_000 })
+      .toBeUndefined();
+  };
   try {
     const outcome = await service.execute("inspect_android_package", {
       path: apk,
@@ -538,13 +567,11 @@ it("retries shutdown cleanup after ownership verification recovers", async () =>
     const workspace = launches[0]?.cwd;
     if (workspace === undefined) throw new Error("Expected acquired workspace");
     await expect(access(workspace)).resolves.toBeUndefined();
-    cleanupFails = false;
-    await provider.close();
+    await closeAfterRecovery();
     await verifyCleanup(launches);
     expect(launches).toHaveLength(1);
   } finally {
-    cleanupFails = false;
-    await provider.close();
+    await closeAfterRecovery();
   }
 });
 

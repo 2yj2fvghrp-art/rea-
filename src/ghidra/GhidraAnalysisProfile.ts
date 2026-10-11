@@ -13,10 +13,14 @@ import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { GhidraInstallationInspection } from "./GhidraInstallation.js";
+import { ghidraMipsProfileParameters } from "./GhidraMipsProfile.js";
+import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
+
 import {
-  ghidraMipsProfileParameters,
-  ghidraMipsUnsupportedReason,
-} from "./GhidraMipsProfile.js";
+  ghidraProcessorUnsupportedReason,
+  isGhidraPspTarget,
+} from "./GhidraPspProfile.js";
+import { resolveGhidraPspExtension } from "./GhidraPspExtension.js";
 import {
   NATIVE_AOT_MAX_REPORT_BYTES,
   NATIVE_AOT_MAX_SOURCE_BYTES,
@@ -26,12 +30,13 @@ import {
 } from "../domain/native/nativeAotPe.js";
 
 /** Resolve version-bound, deterministic semantics before Ghidra imports a target. */
-export const resolveGhidraAnalysisProfile = (
+export const resolveGhidraAnalysisProfile = async (
   target: BinaryTarget,
   identity: ProviderIdentity,
   installation: GhidraInstallationInspection,
   signal?: AbortSignal,
   languageOverride?: GhidraLanguageOverride,
+  disabledAnalyzers?: readonly string[],
 ): Promise<Result<AnalysisProfileResolution, AnalysisError>> => {
   if (signal?.aborted === true)
     return Promise.resolve(err(new AnalysisCancelledError("open_binary")));
@@ -41,7 +46,7 @@ export const resolveGhidraAnalysisProfile = (
     return Promise.resolve(
       err(new ProviderAdapterError(identity.id, "resolve_analysis_profile")),
     );
-  const mipsReason = ghidraMipsUnsupportedReason(target);
+  const mipsReason = ghidraProcessorUnsupportedReason(target);
   if (mipsReason !== null)
     return Promise.resolve(
       err(
@@ -52,7 +57,78 @@ export const resolveGhidraAnalysisProfile = (
         ),
       ),
     );
+  // A caller-selected generic processor cannot override this verified PSP loader.
+  if (isGhidraPspTarget(target) && languageOverride !== undefined)
+    return err(
+      new AnalysisUnsupportedTargetError(
+        "resolve_analysis_profile",
+        target.path,
+        "The bounded PSP Allegrex profile does not accept REA_GHIDRA_LANGUAGE_ID overrides.",
+      ),
+    );
+  const pspExtension = isGhidraPspTarget(target)
+    ? await resolveGhidraPspExtension(installation, signal)
+    : null;
+  if (pspExtension !== null && !pspExtension.ok) return pspExtension;
   const provider = { ...identity, version: installation.providerVersion };
+  const analyzerParameters =
+    disabledAnalyzers === undefined || disabledAnalyzers.length === 0
+      ? { analyzer_preset: "ghidra-default" }
+      : {
+          analyzer_preset: `ghidra-default+disabled:${disabledAnalyzers.join(",")}`,
+          analysis_options: { disabled_analyzers: [...disabledAnalyzers] },
+        };
+  if (target.format === "raw-binary") {
+    if (languageOverride !== undefined)
+      return Promise.resolve(
+        err(
+          new AnalysisUnsupportedTargetError(
+            "resolve_analysis_profile",
+            target.path,
+            "REA_GHIDRA_LANGUAGE_ID cannot override the admitted raw-binary import.",
+          ),
+        ),
+      );
+    const language = ghidraRawBinaryLanguage(target.architecture);
+    return Promise.resolve(
+      ok({
+        profile: createAnalysisProfile(provider, {
+          target_kind: target.kind,
+          target_format: target.format,
+          architecture: target.architecture,
+          available_architectures: [...target.availableArchitectures].sort(),
+          import_mode: "ephemeral-source-immutable",
+          annotation_policy: "atomic-function-entry-metadata-v1",
+          load_image_observations: "source-mappings-entry-context-v2",
+          function_body_evidence: "complete-inclusive-ranges-v1",
+          function_references: "complete-body-and-entry-reference-manager-v2",
+          string_inventory_evidence: "defined-data-coverage-v1",
+          location_resolution: "explicit-address-exact-entry-symbol-first-v3",
+          instruction_flow_evidence: "decoded-return-pcode-v1",
+          instruction_references: "exact-address-incoming-v1",
+          function_boundary_observations: "ghidra-terminal-call-limitations-v1",
+          no_return_repair:
+            installation.platform === "win32"
+              ? "disabled-windows-p0"
+              : "returning-imports-decoded-return-v2",
+          process_launch:
+            installation.platform === "win32"
+              ? "official-headless-script-v1"
+              : "inspected-jvm-launch-support-v1",
+          load_image_evidence: "independent-raw-mapping-context-v2",
+          jump_table_evidence: "typed-case-default-blocks-v1",
+          decompiler_jump_loads: true,
+          loader: "BinaryLoader",
+          language_id: language.languageId,
+          compiler_spec_id: language.compilerSpecId,
+          language_selection: "caller-supplied-v1",
+          entry_point: target.entryPoint,
+          entry_seed: "external-entry-and-function-before-analysis-v1",
+          ...analyzerParameters,
+        }),
+      }),
+    );
+  }
   const dosMz = target.format === "dos-mz";
   const dosCom = target.format === "dos-com";
   const dos = dosMz || dosCom;
@@ -97,6 +173,7 @@ export const resolveGhidraAnalysisProfile = (
         string_inventory_evidence: "defined-data-coverage-v1",
         location_resolution: "explicit-address-exact-entry-symbol-first-v3",
         instruction_flow_evidence: "decoded-return-pcode-v1",
+        instruction_references: "exact-address-incoming-v1",
         function_boundary_observations: "ghidra-terminal-call-limitations-v1",
         no_return_repair:
           installation.platform === "win32"
@@ -149,8 +226,17 @@ export const resolveGhidraAnalysisProfile = (
               entry_seed: "external-entry-and-function-before-analysis-v1",
             }
           : {}),
-        analyzer_preset: "ghidra-default",
+        ...analyzerParameters,
         ...ghidraMipsProfileParameters(target),
+        ...(pspExtension?.ok === true
+          ? {
+              mips_support_lane: "psp-elf32-exec-eabi32-allegrex-v2",
+              loader: "PspElfLoader",
+              language_id: "Allegrex:LE:32:default",
+              compiler_spec_id: "default",
+              psp_extension: { ...pspExtension.value },
+            }
+          : {}),
       }),
     }),
   );
@@ -177,3 +263,26 @@ export const sameGhidraLanguageOverride = (
 ): boolean =>
   left?.languageId === right?.languageId &&
   left?.compilerSpecId === right?.compilerSpecId;
+
+/** Read the analyzer-option commitment back from a resolved profile. */
+export const ghidraProfileDisabledAnalyzers = (
+  parameters: Readonly<Record<string, unknown>>,
+): readonly string[] | undefined => {
+  const options = parameters.analysis_options;
+  if (typeof options !== "object" || options === null) return undefined;
+  const disabled = (options as Record<string, unknown>).disabled_analyzers;
+  if (!Array.isArray(disabled)) return undefined;
+  return disabled.every((name) => typeof name === "string")
+    ? (disabled as readonly string[])
+    : undefined;
+};
+
+/** Whether a committed profile and the active configuration disable the same analyzers. */
+export const sameGhidraDisabledAnalyzers = (
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean =>
+  left === undefined || right === undefined
+    ? left === right
+    : left.length === right.length &&
+      left.every((name, index) => name === right[index]);
