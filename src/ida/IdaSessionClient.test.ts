@@ -342,6 +342,14 @@ const busyHealth = (busyTool?: JsonValue): JsonValue => ({
 const healthCalls = (producer: { calls: { name: string }[] }) =>
   producer.calls.filter(({ name }) => name === "server_health").length;
 
+const expectCleanClose = async (
+  producer: { closes: number },
+  client: { close: () => Promise<{ ok: boolean }> },
+): Promise<void> => {
+  expect((await client.close()).ok, "the owned worker is released").toBe(true);
+  expect(producer.closes, "the upstream connection is closed once").toBe(1);
+};
+
 describe("headless IDA transient busy health", () => {
   it("re-reads server_health until the worker reports ok", async () => {
     const { producer, client } = await fixture("headless");
@@ -358,15 +366,18 @@ describe("headless IDA transient busy health", () => {
       healthCalls(producer),
       "two busy reads and the ok read that settles the identity",
     ).toBe(3);
-    await client.close();
+    await expectCleanClose(producer, client);
   });
 
-  it("returns a retryable timeout naming the busy tool when the worker never settles", async () => {
+  it("returns a retryable timeout naming the busy tool at the registration deadline", async () => {
     const { producer, client } = await fixture("headless", 300);
+    const busy = busyHealth("config_json_get");
     producer.overrideCall = (name) =>
-      name === "server_health" ? busyHealth("config_json_get") : undefined;
+      name === "server_health" ? busy : undefined;
+    const started = Date.now();
 
     const result = await client.execute("health", {});
+    const elapsed = Date.now() - started;
 
     if (result.ok) throw new Error("expected a busy timeout");
     expect(result.error._tag, "the neutral timeout class is used").toBe(
@@ -379,9 +390,9 @@ describe("headless IDA transient busy health", () => {
     expect(projected.retryable, "the caller may retry").toBe(true);
     expect(
       projected.details,
-      "the observed busy tool is named in the operation",
+      "the observed busy tool is named exactly in the operation",
     ).toMatchObject({
-      operation: expect.stringContaining("config_json_get"),
+      operation: "server_health: headless worker still busy in config_json_get",
       timeout_ms: 300,
     });
     expect(
@@ -392,7 +403,18 @@ describe("headless IDA transient busy health", () => {
       `${result.error.message} ${projected.message}`,
       "no Hopper wording leaks in",
     ).not.toContain("Hopper");
-    await client.close();
+    expect(result.error.cause, "the raw busy payload is the cause").toEqual(
+      busy,
+    );
+    expect(
+      elapsed,
+      "the wait runs to the deadline, not less",
+    ).toBeGreaterThanOrEqual(290);
+    expect(
+      healthCalls(producer),
+      "reads are spaced by the retry delay, not a tight loop",
+    ).toBeLessThanOrEqual(6);
+    await expectCleanClose(producer, client);
   });
 
   it("never invents a busy tool the worker did not report", async () => {
@@ -404,11 +426,40 @@ describe("headless IDA transient busy health", () => {
 
     if (result.ok) throw new Error("expected a busy timeout");
     expect(
-      result.error.message,
-      "an omitted busy_tool is reported as unknown",
-    ).toContain("still busy in unknown");
-    await client.close();
+      projectAnalysisError(result.error).details,
+      "an omitted busy_tool is reported as exactly unknown",
+    ).toMatchObject({
+      operation: "server_health: headless worker still busy in unknown",
+    });
+    await expectCleanClose(producer, client);
   });
+
+  it.each([
+    ["free-form text", "token=abc123 /private/home/user secret"],
+    ["an over-long name", "x".repeat(200)],
+  ])(
+    "reports %s from the worker as unknown instead of echoing it",
+    async (_label, tool) => {
+      const { producer, client } = await fixture("headless", 300);
+      producer.overrideCall = (name) =>
+        name === "server_health" ? busyHealth(tool) : undefined;
+
+      const result = await client.execute("health", {});
+
+      if (result.ok) throw new Error("expected a busy timeout");
+      expect(
+        projectAnalysisError(result.error).details,
+        "only a tool-name-shaped value is repeated",
+      ).toMatchObject({
+        operation: "server_health: headless worker still busy in unknown",
+      });
+      expect(
+        result.error.message,
+        "the producer text never reaches the error message",
+      ).not.toContain(tool);
+      await expectCleanClose(producer, client);
+    },
+  );
 
   it("ends the wait at once when the caller aborts", async () => {
     const { producer, client } = await fixture("headless", 30_000);
@@ -433,9 +484,11 @@ describe("headless IDA transient busy health", () => {
       Date.now() - started,
       "the wait does not run to the registration deadline",
     ).toBeLessThan(5_000);
-    await client.close();
+    await expectCleanClose(producer, client);
   });
+});
 
+describe("headless IDA non-busy health payloads", () => {
   it.each([
     ["an unknown status", { status: "starting" }],
     ["a non-string busy_tool", busyHealth(5)],
@@ -455,9 +508,33 @@ describe("headless IDA transient busy health", () => {
         "only the narrow busy shape enters the wait",
       ).toBe("unreadable_output");
       expect(healthCalls(producer), "no re-read happened").toBe(1);
-      await client.close();
+      await expectCleanClose(producer, client);
     },
   );
+
+  it("stops waiting as soon as a later read is malformed", async () => {
+    const { producer, client } = await fixture("headless");
+    let reads = 0;
+    producer.overrideCall = (name) =>
+      name === "server_health"
+        ? reads++ === 0
+          ? busyHealth("config_json_get")
+          : busyHealth(5)
+        : undefined;
+
+    const result = await client.execute("health", {});
+
+    if (result.ok) throw new Error("expected unreadable output");
+    expect(
+      projectAnalysisError(result.error).code,
+      "a malformed re-read is not treated as busy",
+    ).toBe("unreadable_output");
+    expect(
+      healthCalls(producer),
+      "exactly the busy read and the bad read",
+    ).toBe(2);
+    await expectCleanClose(producer, client);
+  });
 });
 
 describe("headless IDA lifecycle boundaries", () => {
