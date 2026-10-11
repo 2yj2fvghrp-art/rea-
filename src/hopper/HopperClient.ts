@@ -441,20 +441,26 @@ export class HopperClient {
   }
 
   #rememberStartupFailure(failure: AnalysisError): void {
-    if (failure instanceof HopperProcessError)
+    if (failure instanceof HopperProcessError) {
       this.#rememberProcessFailure(failure, []);
-    else if (
-      this.#operationFailure === undefined &&
-      (failure instanceof HopperTimeoutError ||
-        failure instanceof HopperStartError)
-    )
-      this.#operationFailure = {
-        state:
-          failure instanceof HopperTimeoutError ? "not_started" : "unknown",
-        exitCode: null,
-        startupFailure: true,
-        requests: [],
-      };
+      return;
+    }
+    if (this.#operationFailure !== undefined) return;
+    // Fail closed: every startup failure records a producer state. An
+    // uncharacterized failure (cancelled startup, invalid health handshake,
+    // or any future error type) must never report idle to the fast-path
+    // probe — unknown/not_started both retire the client instead of
+    // fast-pathing a wedge whose next start stays blocked.
+    this.#operationFailure = {
+      state:
+        failure instanceof HopperTimeoutError ||
+        failure instanceof HopperCancelledError
+          ? "not_started"
+          : "unknown",
+      exitCode: null,
+      startupFailure: true,
+      requests: [],
+    };
   }
 
   /** Invoke one declared operation, returning timeout and cancellation as values. */
