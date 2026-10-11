@@ -47,6 +47,8 @@ const SOURCE_PATHS = {
   fridaProvider: "dist/frida/FridaInstrumentationManager.js",
   pwntoolsProvider: "dist/native/pwntools/PwntoolsRelease.js",
   nativeContracts: "dist/contracts/native/nativeToolContracts.js",
+  wasmContracts: "dist/contracts/wasm/wasmToolContracts.js",
+  wasmProvider: "dist/wasm/WabtRelease.js",
   evmContracts: "dist/contracts/evm/evmToolContracts.js",
   evmProvider: "dist/evm/EvmoleRelease.js",
   artifactContracts: "dist/contracts/artifactToolContracts.js",

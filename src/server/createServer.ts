@@ -1,3 +1,6 @@
+import type { WasmArtifactService } from "../application/wasm/WasmArtifactService.js";
+import { createWasmArtifactService } from "../composition/wasm.js";
+import { registerWasmTools } from "./registerWasmTools.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
@@ -106,6 +109,7 @@ const ACTIVE_TARGET_INSTRUCTIONS =
 export interface CreateServerOptions {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly delivery?: ToolResultDelivery;
+  readonly wasmArtifact?: WasmArtifactService;
   readonly evmInterface?: EvmInterfaceService;
   readonly logger?: Logger;
   readonly binaryLayout?: BinaryLayoutService;
@@ -144,6 +148,9 @@ const installSessionToolAvailability = (
   const basePolicy = sessionAvailabilityPolicy(options.availabilityPolicy, {
     optionalProviderLoadFailures: options.optionalProviderLoadFailures,
     optionalFeatures: {
+      wasmArtifactEnabled:
+        options.wasmArtifact !== undefined ||
+        isAbsolute(environment.REA_WABT_BIN_DIRECTORY ?? ""),
       evmInterfaceEnabled: options.evmInterface !== undefined || linuxX64,
       webModuleResolutionEnabled:
         options.webModuleTrace !== undefined ||
@@ -254,6 +261,8 @@ export const createServer = (
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
   const fridaInstrumentation =
     options.fridaInstrumentation ?? new FridaInstrumentationManager();
+  const wasmArtifact =
+    options.wasmArtifact ?? createWasmArtifactService(environment);
   const apktool =
     options.apktoolAnalysis ??
     createApktoolResourceAnalysisProvider(environment);
@@ -265,6 +274,7 @@ export const createServer = (
     providerClose ??= Promise.allSettled([
       android.close(),
       fridaInstrumentation.closeAll(),
+      wasmArtifact.close(),
       apktool.close(),
       jeb.close(),
       adbDevice.close(),
@@ -341,7 +351,13 @@ export const createServer = (
     for (const result of results)
       if (result.status === "rejected") throw result.reason;
   };
-  registerConfiguredAnalysisTools(toolContext, android, jeb, firmwareAnalysis);
+  registerConfiguredAnalysisTools(
+    toolContext,
+    android,
+    wasmArtifact,
+    jeb,
+    firmwareAnalysis,
+  );
   registerAdbTools(
     server,
     new AdbDeviceAnalysisService(adbDevice),
@@ -407,6 +423,7 @@ const registerConfiguredAnalysisTools = (
     withAdmittedAnalysis,
   }: ServerToolContext,
   android: AndroidAnalysisPort,
+  wasmArtifact: WasmArtifactService,
   jeb: JebAnalysisPort,
   firmwareAnalysis: FirmwareAnalysisService,
 ): void => {
@@ -442,6 +459,13 @@ const registerConfiguredAnalysisTools = (
   registerPeResourcesTool(
     server,
     createPeResourcesService(),
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerWasmTools(
+    server,
+    wasmArtifact,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,

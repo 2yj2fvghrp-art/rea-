@@ -38,6 +38,12 @@ Inspect separately obtained components explicitly and preserve their identities.
 A valid implementation marker establishes a candidate native boundary, not
 recovered native semantics or runtime behavior.
 
+An assembly targeting [.NET Standard](https://learn.microsoft.com/en-us/dotnet/standard/net-standard)
+declares API compatibility across multiple .NET implementations. REA preserves
+that target in `target_frameworks` and leaves `runtime_family` as `unknown`
+unless independent markers identify a runtime family, such as a ReadyToRun
+signature.
+
 ### Resource admission
 
 The static provider admits regular input files up to 128 MiB before retaining
@@ -119,6 +125,15 @@ PE/CLI classification, assembly and module identities, and metadata coverage.
 Member inspection binds build-local tokens, signatures, row offsets, method
 bodies, and decoded relationships to that artifact and MVID. Missing or malformed
 facts remain explicit in coverage and per-member status.
+
+`exported_types` reports ExportedType rows as declared. Facade assemblies such
+as .NET `System.Runtime.dll` provide their types this way: `forwarder: true`
+marks a type forwarder, and `implementation_token` names the AssemblyRef, File,
+or enclosing ExportedType row that implements it. REA does not load the
+implementing assembly to resolve the forwarded definition, and
+`compare_managed_members` does not compare exported types. Member Evidence
+recorded before this field existed reads back with `exported_types: null`,
+which means the table was not examined.
 
 CLI `#GUID` heap values retain their exact 16-byte GUID text. REA does not impose
 RFC 4122 UUID version or variant bits on MVID, EncId, or EncBaseId because
