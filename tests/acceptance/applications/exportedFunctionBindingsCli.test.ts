@@ -879,6 +879,65 @@ it("retains namespace re-export bindings and provenance through stdio MCP and CL
   }
 });
 
+it("excludes erased namespace type exports through stdio MCP and CLI", async () => {
+  const root = await createTestTempDirectory("rea-namespace-type-exports-");
+  const path = join(root, "barrel.mts");
+  await Promise.all([
+    writeFile(
+      path,
+      'export type * as Types from "./types.mjs";\nexport * as Values from "./values.mjs";',
+    ),
+    writeFile(
+      join(root, "types.mjs"),
+      'throw new Error("Type-only dependency must not execute");',
+    ),
+    writeFile(join(root, "values.mjs"), "export const value = 42;"),
+  ]);
+  // Node strips the type-only declaration without loading its throwing target.
+  expect(await runtimeExport(path, "Types")).toBeUndefined();
+  expect(await runtimeExport(path, "Values")).toEqual({ value: 42 });
+
+  const documents = [
+    await analyzeThroughMcp(root),
+    await runCli(["analyze-javascript-application", root, "--json"]),
+  ];
+  for (const document of documents) {
+    const { graph } = applicationEnvelope.parse(document).normalized_result;
+    const observations = graph.nodes.flatMap(
+      ({ observations }) => observations,
+    );
+    expect(
+      observations.find(
+        ({ properties }) =>
+          properties.semantic_role === "source-module" &&
+          properties.path === "barrel.mts",
+      )?.properties,
+    ).toMatchObject({
+      export_relationships: 1,
+      export_names: ["Values"],
+      omitted_export_names: 0,
+    });
+    expect(
+      observations.filter(
+        ({ properties }) =>
+          properties.semantic_role === "export-binding" &&
+          properties.module_path === "barrel.mts" &&
+          properties.exported_name === "Types",
+      ),
+    ).toEqual([]);
+    expect(
+      graph.edges.filter(
+        ({ properties }) => properties.exported_name === "Types",
+      ),
+    ).toEqual([]);
+    expect(graph.coverage).toMatchObject({
+      status: "complete",
+      omitted_count: 0,
+      truncated: false,
+    });
+  }
+});
+
 const expectRuntimeExports = async (
   fixture: Awaited<ReturnType<typeof analyzeVersions>>,
   expected: (count: number) => unknown,
