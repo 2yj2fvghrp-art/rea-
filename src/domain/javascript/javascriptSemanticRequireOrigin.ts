@@ -5,6 +5,7 @@ import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
   type JavaScriptSemanticAnalysisState,
+  type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
 import {
   semanticStaticPropertyKey,
@@ -62,6 +63,8 @@ export const semanticRequireOrigin = (
 // esbuild/Rolldown, TypeScript, and Babel emit these helpers for namespace
 // imports of CommonJS modules; each returns an object exposing every own
 // member of its operand, so member paths through the result are unchanged.
+// Helper bodies are not evaluated: recognition trusts a single program-scope
+// function definition under one of these emitted names.
 const NAMESPACE_INTEROP_HELPERS = new Set([
   "__importStar",
   "__toESM",
@@ -88,8 +91,41 @@ export const semanticNamespaceInteropOperand = (
   );
   const [operand] = call.arguments;
   return helper !== undefined &&
-    !helper.definitions.some(({ kind }) => kind === "assignment") &&
+    emittedInteropHelper(helper, state) &&
     t.isExpression(operand)
     ? operand
     : undefined;
+};
+
+// Emitters declare each helper once at program scope as a function, an
+// arrow/function expression, or `(this && this.name) || <function>`.
+const emittedInteropHelper = (
+  helper: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const [initializer] = helper.initializers;
+  if (
+    initializer === undefined ||
+    helper.initializers.length !== 1 ||
+    helper.definitions.length !== 1 ||
+    (helper.kind !== "function" && helper.kind !== "variable") ||
+    state.scopesById.get(helper.scopeId)?.kind !== "program"
+  )
+    return false;
+  const value = unwrapJavaScriptExpression(initializer.node).node;
+  const emitted =
+    t.isLogicalExpression(value, { operator: "||" }) &&
+    t.isLogicalExpression(unwrapJavaScriptExpression(value.left).node, {
+      operator: "&&",
+    })
+      ? unwrapJavaScriptExpression(value.right).node
+      : value;
+  return (
+    t.isFunctionDeclaration(emitted) ||
+    t.isFunctionExpression(emitted) ||
+    t.isArrowFunctionExpression(emitted) ||
+    (t.isCallExpression(emitted) &&
+      (t.isFunctionExpression(emitted.callee) ||
+        t.isArrowFunctionExpression(emitted.callee)))
+  );
 };

@@ -83,6 +83,7 @@ describe("Electron API identity", () => {
       new electron.BrowserWindow({ webPreferences: { preload: "./rolldown.js" } });
       var import_electron = __toESM(require("electron"));
       new import_electron.BrowserWindow({ webPreferences: { preload: "./esbuild.js" } });
+      function _interopRequireWildcard(mod) { return mod; }
       const Electron = __importStar(require("electron"));
       new Electron.BrowserWindow({ webPreferences: { preload: "./tsc.js" } });
 
@@ -93,13 +94,30 @@ describe("Electron API identity", () => {
       rewritten = __toESM(rewritten);
       rewritten = fake;
       new rewritten.BrowserWindow({ webPreferences: { preload: "./rewritten.js" } });
-      let unbound = require("electron");
-      unbound = _interopRequireWildcard(unbound);
-      new unbound.BrowserWindow({ webPreferences: { preload: "./unbound.js" } });
+      const babel = _interopRequireWildcard(require("electron"));
+      new babel.BrowserWindow({ webPreferences: { preload: "./babel.js" } });
+      function nested() {
+        const __toESM = (mod) => mod;
+        const scoped = __toESM(require("electron"));
+        new scoped.BrowserWindow({ webPreferences: { preload: "./nested.js" } });
+      }
     `);
 
     expect(
       analysis.electron.browser_windows.map(({ preload_path }) => preload_path),
-    ).toEqual(["./rolldown.js", "./esbuild.js", "./tsc.js"]);
+    ).toEqual(["./rolldown.js", "./esbuild.js", "./tsc.js", "./babel.js"]);
+  });
+
+  it("does not trust unbound helper names or non-function helper values", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const __toESM = makeLookalike();
+      const electron = __toESM(require("electron"));
+      new electron.BrowserWindow({});
+      let unbound = require("electron");
+      unbound = __importStar(unbound);
+      new unbound.BrowserWindow({});
+    `);
+
+    expect(analysis.electron.browser_windows).toEqual([]);
   });
 });
