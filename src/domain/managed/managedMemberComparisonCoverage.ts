@@ -116,5 +116,9 @@ export const comparisonLimitations = (
     limitations.push(
       "The observations select different declaring types; a member outside the other side's selection is unknown, not added or removed.",
     );
+  else if (left.selection !== null)
+    limitations.push(
+      `Both observations cover only the selected declaring types (${left.selection.type_names.join(", ")}); member totals and statuses describe those types, not the whole assembly.`,
+    );
   return limitations;
 };

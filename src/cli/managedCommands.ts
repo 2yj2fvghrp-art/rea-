@@ -59,7 +59,7 @@ const registerInspectManagedMembers = (
         .array(z.string())
         .optional()
         .describe(
-          "Inspect only members declared by this exact type full name, such as System.Threading.Monitor (repeatable)",
+          "Inspect only members declared by this exact type full name, such as System.Threading.Monitor; a nested type is named by its bare name, which selects every nested type of that name (repeatable)",
         ),
     }),
     run: ({ args, options }) =>

@@ -523,6 +523,9 @@ describe("managed member comparison of selected types", () => {
 
     expect(result.methods[0]).toMatchObject({ status: "unchanged" });
     expect(result.coverage.status).toBe("complete-within-inputs");
+    expect(result.limitations).toContain(
+      "Both observations cover only the selected declaring types (Fixture.Program); member totals and statuses describe those types, not the whole assembly.",
+    );
   });
 });
 
