@@ -113,9 +113,11 @@ export class IdaOperationRunner {
 
   /**
    * Resolves a procedure. When `requestedBy` names the caller's operation, an
-   * upstream "not found" or "not a function" answer is the caller's input
-   * mistake; every other failed lookup, including an address IDA itself
-   * reported, stays a producer fault.
+   * upstream "not found" or "not a function" answer is reported as invalid
+   * input; every other failed lookup stays a producer fault. Callee resolution
+   * inside `relationships()` passes no `requestedBy`, because those addresses
+   * were reported by IDA itself. Composed workflows that expand reported
+   * addresses through `run()` do pass the operation.
    */
   async resolve(query: string, requestedBy?: string): Promise<IdaFunction> {
     if (this.protocol === "modern") {
@@ -138,7 +140,7 @@ export class IdaOperationRunner {
           },
           [
             {
-              path: ["procedure"],
+              path: [],
               reason: "invalid_value",
               message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${item.error}.`,
             },
