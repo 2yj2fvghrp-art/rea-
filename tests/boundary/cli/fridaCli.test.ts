@@ -66,7 +66,7 @@ it("maps one-shot Frida CLI target, script, duration, and remote options", async
     },
     async closeSession(sessionId) {
       calls.push({ operation: "close", sessionId });
-      return { ok: true, value: null };
+      return { ok: true, value: { targetResumeObserved: false } };
     },
     async closeAll() {},
   };
@@ -84,6 +84,8 @@ it("maps one-shot Frida CLI target, script, duration, and remote options", async
       "127.0.0.1:27042",
       "--token",
       "synthetic-secret-token",
+      "--keepalive-interval",
+      "10",
       "--duration-ms",
       "0",
       "--json",
@@ -107,7 +109,11 @@ it("maps one-shot Frida CLI target, script, duration, and remote options", async
       input: {
         mode: "attach",
         pid: 71,
-        remote: { address: "127.0.0.1:27042", token: "synthetic-secret-token" },
+        remote: {
+          address: "127.0.0.1:27042",
+          token: "synthetic-secret-token",
+          keepaliveInterval: 10,
+        },
         source: { sourceKind: "inline", source: "send('hello')" },
         durationMs: 0,
       },

@@ -54,7 +54,7 @@ const createProvider = (
     return undefined;
   },
   async closeSession() {
-    return { ok: true, value: null };
+    return { ok: true, value: { targetResumeObserved: false } };
   },
   async closeAll() {},
   ...overrides,
@@ -139,7 +139,7 @@ it("does not resume a spawned target when cancellation arrives during script loa
       },
       async closeSession() {
         closes += 1;
-        return { ok: true, value: null };
+        return { ok: true, value: { targetResumeObserved: true } };
       },
     }),
   );
@@ -161,7 +161,8 @@ it("does not resume a spawned target when cancellation arrives during script loa
     expect(result.error.partialObservation).toMatchObject({
       normalized_result: {
         cleanup_error: null,
-        target_resume_observed: false,
+        target_state_before_cleanup: "paused",
+        target_resume_observed: true,
         instrumentation_cleanup: "released",
         target_liveness_after_cleanup: "unknown",
       },
@@ -195,7 +196,7 @@ it("reports the spawned session when cancellation arrives during resume", async 
       },
       async closeSession() {
         closes += 1;
-        return { ok: true, value: null };
+        return { ok: true, value: { targetResumeObserved: false } };
       },
     }),
   );
@@ -217,7 +218,8 @@ it("reports the spawned session when cancellation arrives during resume", async 
     expect(result.error._tag).toBe("AnalysisCancelledError");
     expect(result.error.partialObservation).toMatchObject({
       normalized_result: {
-        target_resume_observed: true,
+        target_state_before_cleanup: "running",
+        target_resume_observed: false,
         instrumentation_cleanup: "released",
         target_liveness_after_cleanup: "unknown",
       },
@@ -353,7 +355,7 @@ it("cleans up a session and returns typed cancellation after a pending start", a
     },
     async closeSession(sessionId) {
       closed.push(sessionId);
-      return { ok: true, value: null };
+      return { ok: true, value: { targetResumeObserved: false } };
     },
     async closeAll() {},
   };

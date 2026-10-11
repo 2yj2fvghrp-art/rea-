@@ -22,6 +22,7 @@ import type {
   FridaSessionStatus,
   StartFridaSessionInput,
 } from "../application/frida/FridaInstrumentationPort.js";
+import type { OptionalProviderLoadFailure } from "../application/OptionalObservationProviders.js";
 import {
   AnalysisAccessDeniedError,
   AnalysisCapabilityUnavailableError,
@@ -62,12 +63,14 @@ interface ManagedSession {
   readonly deviceManager: DeviceManager;
   readonly remote: FridaRemoteConnection | undefined;
   remoteReferenceHeld: boolean;
+  remoteRemovalPending: boolean;
   readonly session: Session;
   readonly target: string;
   readonly pid: number;
   readonly mode: "attach" | "spawn";
   readonly scripts: Map<string, ManagedScript>;
   readonly messages: JsonValue[];
+  readonly messagesByScript: Map<string, JsonValue[]>;
   state: "paused" | "running" | "detached";
   resumeAfterDetachPending: boolean;
   capturedBytes: number;
@@ -85,7 +88,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   readonly #sessionQueues = new Map<string, Promise<void>>();
   readonly #sessionClosures = new Map<
     string,
-    Promise<Result<null, AnalysisError>>
+    Promise<Result<{ readonly targetResumeObserved: boolean }, AnalysisError>>
   >();
   readonly #remoteDevices = new Map<
     string,
@@ -94,12 +97,17 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   readonly #remoteQueues = new Map<string, Promise<void>>();
   readonly #deviceManagerLoader: () => Promise<DeviceManager>;
   #deviceManager: DeviceManager | undefined;
+  #availabilityFailure: OptionalProviderLoadFailure | undefined;
 
   constructor(options: FridaInstrumentationManagerOptions = {}) {
     this.#deviceManager = options.deviceManager;
     this.#deviceManagerLoader =
       options.deviceManagerLoader ??
       (async () => (await import("frida")).getDeviceManager());
+  }
+
+  availabilityFailure(): OptionalProviderLoadFailure | undefined {
+    return this.#availabilityFailure;
   }
 
   async listDevices(remote?: FridaRemoteConnection): Promise<
@@ -246,12 +254,14 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         deviceManager: manager,
         remote: input.remote,
         remoteReferenceHeld: remoteHeld,
+        remoteRemovalPending: false,
         session,
         target,
         pid,
         mode: input.mode,
         scripts: new Map(),
         messages: [],
+        messagesByScript: new Map(),
         state: input.mode === "spawn" ? "paused" : "running",
         resumeAfterDetachPending: false,
         capturedBytes: 0,
@@ -337,9 +347,10 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       .digest("hex");
     const scriptId = randomUUID();
     const scriptName = `rea-${scriptId}`;
+    managed.messagesByScript.set(scriptId, []);
     let nativeScript: Script | undefined;
     const onMessage = (message: FridaMessage, data: Buffer | null): void => {
-      this.#recordMessage(managed, message, data);
+      this.#recordMessage(managed, scriptId, message, data);
     };
     try {
       nativeScript = await managed.session.createScript(scriptSource, {
@@ -360,7 +371,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         sourceKind: source.sourceKind,
         sourcePath: source.sourceKind === "file" ? source.path : null,
         sourceSha256,
-        messages: [...managed.messages],
+        messages: [...(managed.messagesByScript.get(scriptId) ?? [])],
         messagesTruncated: managed.messagesTruncated,
       });
     } catch (cause: unknown) {
@@ -369,6 +380,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         entry === undefined
           ? undefined
           : await this.#releaseScript(managed, entry);
+      managed.messagesByScript.delete(scriptId);
       return err(
         providerError(
           "load_frida_script",
@@ -462,6 +474,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       return sanitizeError(cause, managed.remote);
     }
     managed.scripts.delete(entry.id);
+    managed.messagesByScript.delete(entry.id);
     return undefined;
   }
 
@@ -479,7 +492,11 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     };
   }
 
-  closeSession(sessionId: string): Promise<Result<null, AnalysisError>> {
+  closeSession(
+    sessionId: string,
+  ): Promise<
+    Result<{ readonly targetResumeObserved: boolean }, AnalysisError>
+  > {
     const pending = this.#sessionClosures.get(sessionId);
     if (pending !== undefined) return pending;
     const closing = this.#withSessionLock(sessionId, () =>
@@ -494,7 +511,11 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     return closing;
   }
 
-  async #closeSession(sessionId: string): Promise<Result<null, AnalysisError>> {
+  async #closeSession(
+    sessionId: string,
+  ): Promise<
+    Result<{ readonly targetResumeObserved: boolean }, AnalysisError>
+  > {
     const managed = this.#sessions.get(sessionId);
     if (managed === undefined)
       return err(new AnalysisInputError("close_frida_session"));
@@ -506,6 +527,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       managed.mode === "spawn" &&
       ((!parentSessionReleased && managed.state === "paused") ||
         managed.resumeAfterDetachPending);
+    let targetResumeObserved = false;
     for (const entry of [...managed.scripts.values()]) {
       const failure = await this.#releaseScript(
         managed,
@@ -537,6 +559,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         await managed.device.resume(managed.pid);
         managed.state = "running";
         managed.resumeAfterDetachPending = false;
+        targetResumeObserved = true;
       } catch (cause: unknown) {
         managed.resumeAfterDetachPending = true;
         cleanupFailures.push(
@@ -547,18 +570,22 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     const failures = [...scriptFailures.values(), ...cleanupFailures];
     if (
       managed.remote !== undefined &&
-      managed.remoteReferenceHeld &&
+      (managed.remoteReferenceHeld || managed.remoteRemovalPending) &&
       parentSessionReleased &&
       managed.scripts.size === 0 &&
       !managed.resumeAfterDetachPending
     ) {
+      const releaseReference = managed.remoteReferenceHeld;
+      managed.remoteReferenceHeld = false;
       try {
         await this.#releaseRemote(
           managed.deviceManager,
           managed.remote.address,
+          releaseReference,
         );
-        managed.remoteReferenceHeld = false;
+        managed.remoteRemovalPending = false;
       } catch (cause: unknown) {
+        managed.remoteRemovalPending = true;
         failures.push(
           `Unable to close remote Frida connection: ${sanitizeError(cause, managed.remote)}`,
         );
@@ -579,7 +606,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         ),
       );
     this.#sessions.delete(sessionId);
-    return ok(null);
+    return ok({ targetResumeObserved });
   }
 
   async closeAll(): Promise<void> {
@@ -634,6 +661,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
 
   #recordMessage(
     managed: ManagedSession,
+    scriptId: string,
     message: FridaMessage,
     data: Buffer | null,
   ): void {
@@ -714,6 +742,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     )
       managed.messagesTruncated = true;
     const observation: JsonValue = {
+      script_id: scriptId,
       type: type.value,
       ...(type.truncated ? { type_truncated: true } : {}),
       ...(payloadResult === undefined
@@ -746,16 +775,44 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       managed.capturedBytes + charge > MAX_SESSION_CAPTURE_BYTES
     ) {
       const removed = managed.messages.shift();
-      if (removed !== undefined)
+      if (removed !== undefined) {
         managed.capturedBytes -= Buffer.byteLength(JSON.stringify(removed));
+        if (
+          typeof removed === "object" &&
+          removed !== null &&
+          !Array.isArray(removed) &&
+          typeof removed.script_id === "string"
+        ) {
+          const scriptMessages = managed.messagesByScript.get(
+            removed.script_id,
+          );
+          const index = scriptMessages?.indexOf(removed) ?? -1;
+          if (scriptMessages !== undefined && index >= 0) {
+            scriptMessages.splice(index, 1);
+            if (scriptMessages.length === 0)
+              managed.messagesByScript.delete(removed.script_id);
+          }
+        }
+      }
       managed.messagesTruncated = true;
     }
     managed.messages.push(observation);
+    managed.messagesByScript.get(scriptId)?.push(observation);
     managed.capturedBytes += charge;
   }
 
   async #getDeviceManager(): Promise<DeviceManager> {
-    this.#deviceManager ??= await this.#deviceManagerLoader();
+    if (this.#deviceManager === undefined) {
+      try {
+        this.#deviceManager = await this.#deviceManagerLoader();
+      } catch (cause: unknown) {
+        this.#availabilityFailure = {
+          providerId: "frida",
+          reason: cause instanceof Error ? cause.message : String(cause),
+        };
+        throw cause;
+      }
+    }
     return this.#deviceManager;
   }
 
@@ -803,11 +860,16 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     });
   }
 
-  async #releaseRemote(manager: DeviceManager, address: string): Promise<void> {
+  async #releaseRemote(
+    manager: DeviceManager,
+    address: string,
+    releaseReference = true,
+  ): Promise<void> {
     return this.#withRemoteLock(address, async () => {
       const reference = this.#remoteDevices.get(address);
       if (reference === undefined) return;
-      reference.references = Math.max(0, reference.references - 1);
+      if (releaseReference)
+        reference.references = Math.max(0, reference.references - 1);
       if (reference.references > 0) return;
       try {
         await reference.device;

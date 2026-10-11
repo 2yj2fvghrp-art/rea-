@@ -111,13 +111,14 @@ const installSessionToolAvailability = (
   session: BinarySessionPort | undefined,
   options: CreateServerOptions,
   environment: Readonly<NodeJS.ProcessEnv>,
+  fridaInstrumentation: FridaInstrumentationPort,
 ) => {
   if (session === undefined) return undefined;
   const linux = process.platform === "linux";
   const linuxX64 = linux && process.arch === "x64";
   const pwntools =
     linuxX64 && isAbsolute(environment.REA_PWNTOOLS_PYTHON ?? "");
-  const policy = sessionAvailabilityPolicy(options.availabilityPolicy, {
+  const basePolicy = sessionAvailabilityPolicy(options.availabilityPolicy, {
     optionalProviderLoadFailures: options.optionalProviderLoadFailures,
     optionalFeatures: {
       evmInterfaceEnabled: options.evmInterface !== undefined || linuxX64,
@@ -144,6 +145,21 @@ const installSessionToolAvailability = (
         options.javascriptRuntimeObservation !== undefined,
     },
   });
+  const policy = (): AvailabilityPolicy => {
+    const value = basePolicy();
+    const fridaFailure =
+      options.optionalProviderLoadFailures?.fridaInstrumentation ??
+      fridaInstrumentation.availabilityFailure?.();
+    return fridaFailure === undefined
+      ? value
+      : {
+          ...value,
+          optionalProviderLoadFailures: {
+            ...value.optionalProviderLoadFailures,
+            fridaInstrumentation: fridaFailure,
+          },
+        };
+  };
   return {
     policy,
   };
@@ -196,6 +212,7 @@ export const createServer = (
     session,
     selectedOptions,
     environment,
+    fridaInstrumentation,
   );
   const toolLogger = logger.child({ layer: "server" });
   const {

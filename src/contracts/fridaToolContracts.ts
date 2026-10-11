@@ -5,6 +5,9 @@ import { evidenceResultOf } from "./toolOutputSchemaPrimitives.js";
 import { toolContractMetadata } from "./toolEffects.js";
 import { isValidFridaRemoteAddress } from "./fridaRemoteAddress.js";
 
+export const FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION =
+  "Remote keepalive interval in seconds";
+
 const remoteConnection = z.strictObject({
   address: z.string().min(1).max(2048).refine(isValidFridaRemoteAddress, {
     message: "Expected a Frida host address, optionally followed by a port",
@@ -12,7 +15,12 @@ const remoteConnection = z.strictObject({
   token: z.string().min(1).optional(),
   certificate: z.string().min(1).optional(),
   origin: z.string().min(1).optional(),
-  keepalive_interval: z.number().int().positive().optional(),
+  keepalive_interval: z
+    .number()
+    .int()
+    .positive()
+    .describe(FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION)
+    .optional(),
 });
 
 const deviceSelector = z.strictObject({
@@ -218,9 +226,11 @@ export const FRIDA_TOOL_CONTRACTS = [
     outputSchema: evidenceResultOf(
       z.strictObject({
         session_id: sessionId,
+        device_id: z.string(),
         state: z.enum(["paused", "running", "detached"]),
         target: z.string(),
         pid: z.number().int().nonnegative(),
+        mode: z.enum(["attach", "spawn"]),
         scripts: z.array(
           z.strictObject({ script_id: z.string().uuid(), name: z.string() }),
         ),

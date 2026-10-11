@@ -569,6 +569,86 @@ describe("FridaInstrumentationManager", () => {
   });
 });
 
+it("does not release a newer remote lease when retrying an older session close", async () => {
+  const bindings = new FakeDeviceManager();
+  bindings.removeRemoteFailureCount = 1;
+  const manager = new FridaInstrumentationManager({ deviceManager: bindings });
+  const remote = { address: "127.0.0.1:27042" };
+  const first = await manager.startSession({
+    mode: "attach",
+    remote,
+    pid: 512,
+  });
+  expect(first.ok).toBe(true);
+  if (!first.ok) return;
+
+  const failedClose = await manager.closeSession(first.value.sessionId);
+  expect(failedClose.ok).toBe(false);
+
+  const second = await manager.startSession({
+    mode: "attach",
+    remote,
+    pid: 512,
+  });
+  expect(second.ok).toBe(true);
+  if (!second.ok) return;
+
+  const retry = await manager.closeSession(first.value.sessionId);
+  expect(retry.ok).toBe(true);
+  expect(bindings.removedRemote).toEqual([]);
+  expect(manager.status(second.value.sessionId)).toBeDefined();
+
+  const secondClose = await manager.closeSession(second.value.sessionId);
+  expect(secondClose.ok).toBe(true);
+  expect(bindings.removedRemote).toEqual([remote.address]);
+});
+
+it("attributes messages to their producing script and returns each load's messages", async () => {
+  const bindings = new FakeDeviceManager();
+  const manager = new FridaInstrumentationManager({ deviceManager: bindings });
+  const started = await manager.startSession({
+    mode: "attach",
+    deviceId: "local",
+    pid: 512,
+  });
+  expect(started.ok).toBe(true);
+  if (!started.ok) return;
+
+  bindings.device.session.nextPayload = { tag: "A" };
+  const first = await manager.loadScript(started.value.sessionId, {
+    sourceKind: "inline",
+    source: "send({tag: 'A'});",
+  });
+  expect(first.ok).toBe(true);
+  if (!first.ok) return;
+
+  bindings.device.session.nextPayload = { tag: "B" };
+  const second = await manager.loadScript(started.value.sessionId, {
+    sourceKind: "inline",
+    source: "send({tag: 'B'});",
+  });
+  expect(second.ok).toBe(true);
+  if (!second.ok) return;
+
+  expect(first.value.messages).toEqual([
+    expect.objectContaining({
+      script_id: first.value.scriptId,
+      payload: { tag: "A" },
+    }),
+  ]);
+  expect(second.value.messages).toEqual([
+    expect.objectContaining({
+      script_id: second.value.scriptId,
+      payload: { tag: "B" },
+    }),
+  ]);
+  expect(manager.status(started.value.sessionId)?.messages).toEqual([
+    expect.objectContaining({ script_id: first.value.scriptId }),
+    expect.objectContaining({ script_id: second.value.scriptId }),
+  ]);
+  await manager.closeAll();
+});
+
 it("serializes a final remote release against a new same-endpoint session", async () => {
   const bindings = new FakeDeviceManager();
   let enteredRemoval: (() => void) | undefined;

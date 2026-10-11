@@ -1005,6 +1005,6 @@ detaches. This lane requires Linux on the REA host and the optional Frida
 binding; it does not need a Frida server or a caller-selected process. To run
 the separate remote attach lane, pass `-- --address HOST:PORT --pid PID` for an
 explicitly selected process. Optional remote flags are `--token`,
-`--certificate`, `--origin`, and `--keepalive-interval`; authentication values
+`--certificate`, `--origin`, and `--keepalive-interval` (seconds); authentication values
 are not written to files or included in the report. Mock tests do not establish
 real device/server compatibility.

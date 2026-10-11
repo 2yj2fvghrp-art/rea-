@@ -46,7 +46,10 @@ export class FridaInstrumentationService {
   ) {
     if (signal?.aborted)
       return err(
-        new AnalysisCancelledError(operation, (signal.reason === undefined ? {} : { cause: signal.reason })),
+        new AnalysisCancelledError(
+          operation,
+          signal.reason === undefined ? {} : { cause: signal.reason },
+        ),
       );
     const started = await this.#provider.startSession(input);
     if (!started.ok || !signal?.aborted) return started;
@@ -68,6 +71,7 @@ export class FridaInstrumentationService {
       messagesTruncated: loaded?.messagesTruncated ?? false,
     };
     const closed = await this.#provider.closeSession(session.sessionId);
+    const statusAfterCleanup = this.#provider.status(session.sessionId);
     const partialObservation = fridaEvidence(
       operation,
       {
@@ -80,8 +84,11 @@ export class FridaInstrumentationService {
               source_sha256: loaded.sourceSha256,
             }),
         cleanup_error: closed.ok ? null : closed.error.message,
-        target_resume_observed:
-          observation.mode === "spawn" && observation.state === "running",
+        target_state_before_cleanup: observation.state,
+        target_resume_observed: closed.ok
+          ? closed.value.targetResumeObserved
+          : observation.state !== "running" &&
+            statusAfterCleanup?.state === "running",
         instrumentation_cleanup: closed.ok
           ? "released"
           : "incomplete_or_unknown",
@@ -365,9 +372,11 @@ const scriptOutput = (script: FridaScriptObservation) => ({
 
 const sessionStatusOutput = (status: FridaSessionStatus) => ({
   session_id: status.sessionId,
+  device_id: status.deviceId,
   state: status.state,
   target: status.target,
   pid: status.pid,
+  mode: status.mode,
   scripts: status.scripts.map((script) => ({
     script_id: script.scriptId,
     name: script.name,

@@ -6,6 +6,7 @@ import { FridaInstrumentationService } from "../application/frida/FridaInstrumen
 import type { FridaInstrumentationPort } from "../application/frida/FridaInstrumentationPort.js";
 import type { FridaRemoteConnection } from "../application/frida/FridaInstrumentationPort.js";
 import { toolContract } from "../contracts/toolContracts.js";
+import { evidenceSchema } from "../domain/evidence.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
 import { jsonValueSchema } from "../domain/jsonValue.js";
 import { logToolExecution } from "./toolLogging.js";
@@ -118,7 +119,10 @@ export const registerFridaTools = (
                 error: new AnalysisInputError(start.name),
               }),
       );
-      if (!result.ok) return delivery.toCallToolResult(result, start);
+      if (!result.ok) {
+        recordPartialEvidence(result.error, recordEvidence);
+        return delivery.toCallToolResult(result, start);
+      }
       return delivery.toCallToolResult(
         {
           ok: true,
@@ -274,7 +278,10 @@ export const registerFridaTools = (
         instrument.name,
         () => operation,
       );
-      if (!result.ok) return delivery.toCallToolResult(result, instrument);
+      if (!result.ok) {
+        recordPartialEvidence(result.error, recordEvidence);
+        return delivery.toCallToolResult(result, instrument);
+      }
       return delivery.toEvidenceToolResult(
         result.value.evidence,
         instrument,
@@ -282,6 +289,15 @@ export const registerFridaTools = (
       );
     },
   );
+};
+
+const recordPartialEvidence = (
+  error: { readonly partialObservation?: unknown },
+  recordEvidence: EvidenceWriter["recordEvidence"] | undefined,
+): void => {
+  if (error.partialObservation === undefined) return;
+  const parsed = evidenceSchema.safeParse(error.partialObservation);
+  if (parsed.success) recordEvidence?.(parsed.data);
 };
 
 const remoteConnection = (

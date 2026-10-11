@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import { TOOL_CONTRACTS } from "./toolContracts.js";
+import { FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION } from "./fridaToolContracts.js";
 import { isValidFridaRemoteAddress } from "./fridaRemoteAddress.js";
 
+const contract = (name: string) => {
+  const found = TOOL_CONTRACTS.find((candidate) => candidate.name === name);
+  if (found === undefined) throw new Error(`Missing contract ${name}`);
+  return found.inputSchema;
+};
+
 describe("Frida tool contracts", () => {
+  it("documents Frida Core keepalive intervals in seconds", () => {
+    expect(FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION).toBe(
+      "Remote keepalive interval in seconds",
+    );
+  });
+
   it("rejects incomplete or conflicting mode and source selectors", () => {
-    const contract = (name: string) => {
-      const found = TOOL_CONTRACTS.find((candidate) => candidate.name === name);
-      if (found === undefined) throw new Error(`Missing contract ${name}`);
-      return found.inputSchema;
-    };
     const start = contract("start_frida_session");
     const load = contract("load_frida_script");
     const instrument = contract("instrument_with_frida");

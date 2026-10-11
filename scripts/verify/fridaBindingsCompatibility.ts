@@ -17,7 +17,7 @@ type VendorSessionFitsShim = Assert<
 >;
 type VendorScriptFitsShim = Assert<VendorScript extends Script ? true : false>;
 
-// These type aliases intentionally fail compilation if the pinned Frida API narrows incompatibly.
+// These aliases intentionally fail when the pinned Frida API narrows incompatibly.
 const compatibility: readonly [
   VendorDeviceManagerFitsShim,
   VendorDeviceFitsShim,

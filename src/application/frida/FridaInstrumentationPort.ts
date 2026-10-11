@@ -1,4 +1,5 @@
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
+import type { OptionalProviderLoadFailure } from "../OptionalObservationProviders.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import type { Result } from "../../domain/result.js";
 
@@ -68,8 +69,13 @@ export interface FridaSessionStatus extends FridaSessionObservation {
   readonly messagesTruncated: boolean;
 }
 
+export interface FridaSessionCleanupObservation {
+  readonly targetResumeObserved: boolean;
+}
+
 /** Shared application boundary for Frida runtime instrumentation workflows. */
 export interface FridaInstrumentationPort {
+  availabilityFailure?(): OptionalProviderLoadFailure | undefined;
   listDevices(remote?: FridaRemoteConnection): Promise<
     Result<
       {
@@ -102,6 +108,8 @@ export interface FridaInstrumentationPort {
     scriptId: string,
   ): Promise<Result<null, AnalysisError>>;
   status(sessionId: string): FridaSessionStatus | undefined;
-  closeSession(sessionId: string): Promise<Result<null, AnalysisError>>;
+  closeSession(
+    sessionId: string,
+  ): Promise<Result<FridaSessionCleanupObservation, AnalysisError>>;
   closeAll(): Promise<void>;
 }

@@ -10,6 +10,7 @@ import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import { FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION } from "../contracts/fridaToolContracts.js";
 import { isValidFridaRemoteAddress } from "../contracts/fridaRemoteAddress.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
@@ -41,7 +42,7 @@ export const registerFridaCommands = (
       .number()
       .int()
       .positive()
-      .describe("Remote keepalive interval in milliseconds")
+      .describe(FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION)
       .optional(),
   });
   const remoteFrom = (

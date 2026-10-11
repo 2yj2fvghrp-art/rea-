@@ -1,13 +1,17 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import type { AnySchema } from "ajv";
 import { expect, it, onTestFinished } from "vitest";
 
 import type { FridaInstrumentationPort } from "../../../src/application/frida/FridaInstrumentationPort.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
+import { FridaInstrumentationManager } from "../../../src/frida/FridaInstrumentationManager.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 
-const createFridaTestProvider = (): FridaInstrumentationPort => ({
+const createFridaTestProvider = (
+  overrides: Partial<FridaInstrumentationPort> = {},
+): FridaInstrumentationPort => ({
   async listDevices() {
     return {
       ok: true,
@@ -71,10 +75,38 @@ const createFridaTestProvider = (): FridaInstrumentationPort => ({
     };
   },
   async closeSession() {
-    return { ok: true, value: null };
+    return { ok: true, value: { targetResumeObserved: false } };
   },
   async closeAll() {},
+  ...overrides,
 });
+
+const expectFridaToolsAvailable = async (client: Client) => {
+  const inventory = await client.callTool({
+    name: "binary_session",
+    arguments: {},
+  });
+  const parsedInventory = toolContract("binary_session").outputSchema.safeParse(
+    inventory.structuredContent,
+  );
+  if (!parsedInventory.success)
+    throw new Error("Invalid binary session output");
+  const toolAvailability = parsedInventory.data.result.tool_availability;
+  expect(toolAvailability).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: "list_frida_devices",
+        available: true,
+        reason: "available",
+      }),
+      expect.objectContaining({
+        name: "instrument_with_frida",
+        available: true,
+        reason: "available",
+      }),
+    ]),
+  );
+};
 
 it("advertises Frida MCP schemas and keeps remote credentials out of results", async () => {
   const session = createTestBinarySession(() => {
@@ -188,7 +220,10 @@ it("advertises Frida MCP schemas and keeps remote credentials out of results", a
     ],
   ] as const) {
     const result = await client.callTool({ name, arguments: args });
-    expect(result.isError).not.toBe(true);
+    expect(
+      result.isError,
+      `${name}: ${JSON.stringify(result.structuredContent)}`,
+    ).not.toBe(true);
   }
 
   const invalidAddress = await client.callTool({
@@ -198,4 +233,173 @@ it("advertises Frida MCP schemas and keeps remote credentials out of results", a
     },
   });
   expect(invalidAddress.isError).toBe(true);
+
+  const oneShot = await client.callTool({
+    name: "instrument_with_frida",
+    arguments: {
+      mode: "attach",
+      pid: 10,
+      source_kind: "inline",
+      source: "send('one-shot');",
+      duration_ms: 0,
+    },
+  });
+  expect(oneShot.isError).not.toBe(true);
+  const oneShotContract = tools.find(
+    (tool) => tool.name === "instrument_with_frida",
+  );
+  if (oneShotContract?.outputSchema === undefined)
+    throw new Error("Missing one-shot Frida output schema");
+  const validateOneShot = ajv.compile(
+    oneShotContract.outputSchema as AnySchema,
+  );
+  expect(validateOneShot(oneShot.structuredContent)).toBe(true);
+
+  await expectFridaToolsAvailable(client);
+});
+
+it("reports Frida tools as unavailable after the optional binding fails to load", async () => {
+  const session = createTestBinarySession(() => {
+    throw new Error("Binary provider must not start");
+  });
+  const provider = new FridaInstrumentationManager({
+    deviceManagerLoader: async () => {
+      throw new Error("Cannot find package 'frida'");
+    },
+  });
+  const server = createServer(
+    { kind: "session", session },
+    { fridaInstrumentation: provider },
+  );
+  const client = new Client({ name: "frida-optional-binding", version: "1" });
+  onTestFinished(async () => {
+    await client.close();
+    await server.close();
+    await session.close();
+  });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const missing = await client.callTool({
+    name: "list_frida_devices",
+    arguments: {},
+  });
+  expect(missing.isError).toBe(true);
+
+  const inventory = await client.callTool({
+    name: "binary_session",
+    arguments: {},
+  });
+  expect(inventory.structuredContent).toMatchObject({
+    result: {
+      tool_availability: expect.arrayContaining([
+        expect.objectContaining({
+          name: "list_frida_devices",
+          available: false,
+          reason: "provider_unavailable",
+          remediation: expect.stringContaining("Cannot find package 'frida'"),
+        }),
+      ]),
+    },
+  });
+});
+
+it("retains cancellation Evidence after the MCP client stops waiting", async () => {
+  const session = createTestBinarySession(() => {
+    throw new Error("Binary provider must not start");
+  });
+  let finishLoad: (() => void) | undefined;
+  const loadGate = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  let markLoadStarted: (() => void) | undefined;
+  const loadStarted = new Promise<void>((resolve) => {
+    markLoadStarted = resolve;
+  });
+  let markSessionClosed: (() => void) | undefined;
+  const sessionClosed = new Promise<void>((resolve) => {
+    markSessionClosed = resolve;
+  });
+  const provider = createFridaTestProvider({
+    async loadScript() {
+      markLoadStarted?.();
+      await loadGate;
+      return {
+        ok: true,
+        value: {
+          scriptId: "00000000-0000-4000-8000-000000000002",
+          sourceKind: "inline",
+          sourcePath: null,
+          sourceSha256: "a".repeat(64),
+          messages: [{ type: "send", payload: "cancel-observed" }],
+          messagesTruncated: false,
+        },
+      };
+    },
+    status(sessionId) {
+      return {
+        sessionId,
+        deviceId: "remote-device",
+        target: "fixture",
+        pid: 10,
+        mode: "attach",
+        state: "running",
+        scripts: [],
+        messages: [{ type: "send", payload: "cancel-observed" }],
+        messagesTruncated: false,
+      };
+    },
+    async closeSession() {
+      markSessionClosed?.();
+      return { ok: true, value: { targetResumeObserved: false } };
+    },
+  });
+  const server = createServer(
+    { kind: "session", session },
+    { fridaInstrumentation: provider },
+  );
+  const client = new Client({ name: "frida-cancellation", version: "1" });
+  const controller = new AbortController();
+  onTestFinished(async () => {
+    finishLoad?.();
+    controller.abort();
+    await client.close();
+    await server.close();
+    await session.close();
+  });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const call = client.callTool(
+    {
+      name: "instrument_with_frida",
+      arguments: {
+        mode: "attach",
+        pid: 10,
+        source_kind: "inline",
+        source: "send('cancel-observed');",
+        duration_ms: 1_000,
+      },
+    },
+    { signal: controller.signal },
+  );
+  await loadStarted;
+  controller.abort(new Error("cancel Frida observation"));
+  finishLoad?.();
+  await expect(call).rejects.toThrow("cancel Frida observation");
+  await sessionClosed;
+  await client.ping();
+
+  const bundle = await client.callTool({
+    name: "get_evidence_bundle",
+    arguments: {},
+  });
+  expect(JSON.stringify(bundle.structuredContent)).toContain("cancel-observed");
+  expect(JSON.stringify(bundle.structuredContent)).toContain(
+    "instrument_with_frida",
+  );
 });
