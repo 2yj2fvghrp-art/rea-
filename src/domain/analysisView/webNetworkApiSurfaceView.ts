@@ -97,6 +97,9 @@ const DEDUP_SET_BYTES = 1024;
 // Template, map key, and canonical serialization each copy a retained path.
 const RETAINED_PATH_COPIES = 4;
 
+// Group key and canonical output each retain method and origin text.
+const IDENTITY_TEXT_COPIES = 2;
+
 // type/subtype token after parameter stripping, per RFC 9110.
 const MEDIA_TYPE_ESSENCE =
   /^[a-z0-9!#$%&'*+.^_`|~-]+\/[a-z0-9!#$%&'*+.^_`|~-]+$/u;
@@ -263,6 +266,15 @@ export const projectWebNetworkApiSurfaceView = (
         return `{${rule}}`;
       })
       .join("/");
+    // The key retains method and origin text; serialize it only after that fits.
+    const identityBytes = method.length + parsedUrl.origin.length;
+    if (
+      identityBytes * IDENTITY_TEXT_COPIES > budget ||
+      projectedBytes + identityBytes + template.length > budget
+    )
+      return overBudget(
+        "Retained request method or origin would exceed the capture reply budget.",
+      );
     // Rule positions keep a recorded literal "{numeric}" apart from a templated one.
     const key = JSON.stringify([
       method,
@@ -272,7 +284,7 @@ export const projectWebNetworkApiSurfaceView = (
     ]);
     let group = buckets.get(key);
     if (group === undefined) {
-      projectedBytes += path.length * 2;
+      projectedBytes += path.length * 2 + identityBytes;
       for (const segment of segments)
         projectedBytes +=
           TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length;

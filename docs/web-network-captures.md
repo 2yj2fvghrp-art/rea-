@@ -133,7 +133,9 @@ at zero after the leading slash. Each matched segment lists its observed literal
 and `basis: "inferred"`. `templated_groups` counts templated groups across every
 page. Because paging follows the full grouping, every page is inferred Evidence
 when that count is nonzero, and derived Evidence only when no group was templated. Version prefixes, short opaque IDs
-and digit-bearing route names stay literal. No cross-sample merging occurs.
+and digit-bearing route names stay literal. Samples merge only when method,
+origin, and exact segment rules match. The view does not infer further
+cross-sample patterns.
 
 Groups cite parent record ordinals and distinct statuses and MIME types (lowercase
 type/subtype without parameters). A malformed media type is unknown, not a content
@@ -154,7 +156,8 @@ canonical token `sensitive_values_unretained`. The view would write path
 templates and limitation text that it cannot check against declarations the
 parent does not retain, so the refusal does not repeat declaration text. Each
 path is bounded before it is split, including
-its retained text. Newly retained templated segments, distinct observed values,
+its retained text. Request method and origin text is charged before the group
+key is serialized. Newly retained templated segments, distinct observed values,
 and deduplication sets created on the first merge are charged against the 96 MiB
 reply budget before those sets are allocated; exceeding the budget returns
 `resource_constraint`. Limitations on the examined records are deduplicated onto

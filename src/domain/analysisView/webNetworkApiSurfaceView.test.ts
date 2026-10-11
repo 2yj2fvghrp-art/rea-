@@ -369,6 +369,27 @@ it("keeps a recorded literal placeholder apart from a templated segment", () => 
   ).toEqual([0, 1]);
 });
 
+it("charges request method text before serializing a group key", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.records[0]!.reported = {
+    request: {
+      method: "M".repeat(
+        Math.floor(WEB_NETWORK_CAPTURE_LIMITS.outputBytes / 2) + 1,
+      ),
+      url: "https://api.example.test/a",
+    },
+  };
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason:
+        "Retained request method or origin would exceed the capture reply budget.",
+    },
+  });
+});
+
 it("rejects one literal path whose retained copies exceed the reply budget", () => {
   const capture = analysisViewCaptureFixture();
   capture.records = capture.records.slice(0, 1);
