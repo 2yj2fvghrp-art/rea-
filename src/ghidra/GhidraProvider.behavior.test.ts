@@ -562,6 +562,25 @@ describe("Ghidra result projection", () => {
     });
   });
 
+  it("discloses that string search covers only Ghidra-defined strings", async () => {
+    const ghidra = provider(installationHost(), () => ({
+      start: () => Promise.resolve(ok(sessionInfo())),
+      callTool: () => Promise.resolve(ok([])),
+      close: () => Promise.resolve(ok(null)),
+    }));
+    const client = await createElfClient(ghidra);
+    const searched = await client.execute("search_strings", {
+      pattern: "projection cache ignored",
+    });
+    if (!searched.ok) throw searched.error;
+    expect(searched.value.result).toEqual([]);
+    expect(searched.value.limitations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Only Ghidra-defined string Data is searched"),
+      ]),
+    );
+  });
+
   it.each([
     ["invalid_request", "AnalysisInputError"],
     ["not_found", "AnalysisInputError"],

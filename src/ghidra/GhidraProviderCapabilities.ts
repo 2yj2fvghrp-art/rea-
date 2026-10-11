@@ -38,6 +38,9 @@ export const windowsP0Limitations = Object.freeze([
 ]);
 
 /** Limitation text for one admitted operation, including the common base. */
+const REGEX_SEARCH_LIMITATION =
+  "Regex mode uses Java Pattern semantics. Matcher or compiler stack exhaustion returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.";
+
 export const limitationsFor = (operation: string): readonly string[] => {
   const common = [
     ...healthLimitations,
@@ -106,10 +109,12 @@ export const limitationsFor = (operation: string): readonly string[] => {
         "Memory-block end addresses are exclusive; permissions come from Ghidra MemoryBlock flags rather than inference from section names.",
       ];
     case "search_procedures":
+      return [...common, REGEX_SEARCH_LIMITATION];
     case "search_strings":
       return [
         ...common,
-        "Regex mode uses Java Pattern semantics. Matcher or compiler stack exhaustion returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.",
+        REGEX_SEARCH_LIMITATION,
+        "Only Ghidra-defined string Data is searched, so text Ghidra did not define as a string is not matched and an empty result does not show that the bytes are absent. read_bytes and xrefs can inspect a known address.",
       ];
     case "procedure_pseudo_code":
       return [
