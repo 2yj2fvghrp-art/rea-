@@ -482,6 +482,33 @@ describe("managed member comparison of selected types", () => {
     );
   });
 
+  it("does not remap members across types neither side observed", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-a.dll", [
+      "Fixture.Program",
+    ]);
+    const right = inspect(
+      buildManagedPeFixture({
+        mvid: Buffer.from("00112233445566778899aabbccddeefe", "hex"),
+        typeName: "A",
+        typeNamespace: "X",
+      }),
+      "/tmp/right-b.dll",
+      ["X.A"],
+    );
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.matching.exact_il_signature).toBe(0);
+    expect(result.summary).toMatchObject({
+      unchanged: 0,
+      added: 0,
+      removed: 0,
+      unknown: 4,
+    });
+  });
+
   it("compares two identical selections within those types", () => {
     const left = inspect(buildManagedPeFixture(), "/tmp/left-sel.dll", [
       "Fixture.Program",
