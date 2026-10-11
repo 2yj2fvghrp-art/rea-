@@ -18,13 +18,8 @@ describe("target-content provenance audit", () => {
         returnsTargetContent: !TARGET_CONTENT_FREE_TOOLS.has(contract.name),
       });
     expect([...TARGET_CONTENT_FREE_TOOLS].sort()).toEqual([
-      "binary_session",
-      "close_binary",
       "export_evidence_bundle",
-      "inspect_adb_client",
-      "inspect_apktool_client",
       "record_unknown",
-      "update_unknown",
     ]);
   });
 
@@ -45,6 +40,11 @@ describe("target-content provenance audit", () => {
     "capture_process_scenario",
     "get_evidence_bundle",
     "inspect_analysis_view",
+    "binary_session",
+    "close_binary",
+    "inspect_adb_client",
+    "inspect_apktool_client",
+    "update_unknown",
   ])("marks %s as returning target content", (name) => {
     expect(
       TOOL_CONTRACTS.find((contract) => contract.name === name)

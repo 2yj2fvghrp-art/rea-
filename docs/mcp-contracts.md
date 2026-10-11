@@ -354,10 +354,15 @@ result's `_meta`, whether the call succeeded or failed:
 ```
 
 The marker is declared once per tool contract (`returnsTargetContent`) and is
-on by default: only `binary_session`, `close_binary`, `export_evidence_bundle`,
-`record_unknown`, `update_unknown`, `inspect_adb_client`, and
-`inspect_apktool_client`, whose results contain only REA session state or
-caller-supplied values, omit it. A new tool is marked until it is audited into
+on by default: only `export_evidence_bundle` and `record_unknown`, whose
+results and errors contain only REA session state or caller-supplied values,
+omit it. Tools whose results or errors can include provider, launcher, or
+device output stay marked, including `binary_session` (provider failure
+reasons and availability diagnostics), `close_binary` (provider cleanup
+diagnostics with captured launcher output), `inspect_adb_client` and
+`inspect_apktool_client` (version output and stderr excerpts), and
+`update_unknown` (it echoes the stored question and domain, which an imported
+bundle can supply). A new tool is marked until it is audited into
 that exception list. Error results (`isError: true`) from a marked tool carry
 the marker too, because a failure can include target-derived text: an error
 message, captured output, or a `partial_observation` such as terminal data

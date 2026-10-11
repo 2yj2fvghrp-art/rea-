@@ -508,20 +508,20 @@ export const annotationsFromEffects = (
 });
 
 /**
- * Tools whose successful results carry only REA-authored session state or
- * caller-supplied values, never text originating from an analysis target.
- * Every other tool returns target-derived content (strings, symbols, code,
- * page text, scripts, captures, logs, file listings or provider output), so
- * a newly added tool is marked untrusted until it is audited into this set.
+ * Tools whose results, successful or failed, carry only REA-authored session
+ * state or caller-supplied values, never text originating from an analysis
+ * target, a provider, a launcher or a device. Every other tool can return
+ * such text (strings, symbols, code, page text, scripts, captures, logs, file
+ * listings, provider diagnostics or captured process output), so a newly
+ * added tool is marked untrusted until it is audited into this set. A tool
+ * stays out when any error path can project external process output, as
+ * close_binary (provider cleanup diagnostics), binary_session (provider
+ * failure reasons and availability diagnostics) and the adb and apktool
+ * client probes (version output and stderr excerpts) can.
  */
 export const TARGET_CONTENT_FREE_TOOLS: ReadonlySet<string> = new Set([
-  "binary_session",
-  "close_binary",
   "export_evidence_bundle",
   "record_unknown",
-  "update_unknown",
-  "inspect_adb_client",
-  "inspect_apktool_client",
 ]);
 
 /**

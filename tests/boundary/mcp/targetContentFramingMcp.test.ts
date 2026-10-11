@@ -44,10 +44,19 @@ describe("MCP target-content framing", () => {
       provenance: { untrusted_content: true, source: "analysis_target" },
     });
     const unmarked = await client.callTool({
-      name: "binary_session",
-      arguments: {},
+      name: "record_unknown",
+      arguments: {
+        question: "Which boundary remains unknown?",
+        domain: "fixture",
+        severity: "medium",
+        required_authority: null,
+        required_confidence: "derived",
+        required_environment: null,
+        recommended_probes: [],
+        relationships: [],
+      },
     });
-    expect(unmarked.isError).not.toBe(true);
+    expect(unmarked.isError, JSON.stringify(unmarked)).not.toBe(true);
     expect(unmarked._meta).toBeUndefined();
   });
 });

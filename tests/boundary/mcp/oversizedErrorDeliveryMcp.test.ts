@@ -212,7 +212,7 @@ it("keeps the untrusted target-content marker on an oversized error's replacemen
       failureWithName(STDIO_DEFAULT_MAX_BUFFER_SIZE + 64 * 1024, true),
   );
   server.registerTool(
-    "binary_session",
+    "record_unknown",
     { inputSchema: z.object({ required: z.string() }) },
     async (): Promise<CallToolResult> => ({ content: [] }),
   );
@@ -247,12 +247,12 @@ it("keeps the untrusted target-content marker on an oversized error's replacemen
     });
     expect(invalidTarget.isError).toBe(true);
     expect(invalidTarget._meta).toEqual(UNTRUSTED_TARGET_CONTENT);
-    const invalidSession = await client.callTool({
-      name: "binary_session",
+    const invalidContentFree = await client.callTool({
+      name: "record_unknown",
       arguments: {},
     });
-    expect(invalidSession.isError).toBe(true);
-    expect(invalidSession._meta).toBeUndefined();
+    expect(invalidContentFree.isError).toBe(true);
+    expect(invalidContentFree._meta).toBeUndefined();
   } finally {
     await Promise.all([client.close(), server.close()]);
   }

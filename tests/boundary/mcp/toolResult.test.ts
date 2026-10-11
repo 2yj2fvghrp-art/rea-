@@ -456,9 +456,9 @@ describe("untrusted provenance on failed tool results", () => {
   });
 
   it("leaves an error from a content-free tool unmarked", () => {
-    const sessionContract = toolContract("binary_session");
-    expect(sessionContract.returnsTargetContent).toBe(false);
-    const result = delivery.toCallToolResult(err(failure()), sessionContract);
+    const recordContract = toolContract("record_unknown");
+    expect(recordContract.returnsTargetContent).toBe(false);
+    const result = delivery.toCallToolResult(err(failure()), recordContract);
     expect(result.isError).toBe(true);
     expect(result._meta).toBeUndefined();
     expect(delivery.toErrorToolResult(failure(), false)._meta).toBeUndefined();
