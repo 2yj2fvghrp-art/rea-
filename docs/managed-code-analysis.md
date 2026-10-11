@@ -42,7 +42,7 @@ An assembly targeting [.NET Standard](https://learn.microsoft.com/en-us/dotnet/s
 declares API compatibility across multiple .NET implementations. REA preserves
 that target in `target_frameworks` and leaves `runtime_family` as `unknown`
 unless independent markers identify a runtime family, such as a ReadyToRun
-signature or Unity references.
+signature.
 
 ### Resource admission
 
