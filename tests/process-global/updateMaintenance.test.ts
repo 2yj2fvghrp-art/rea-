@@ -100,6 +100,29 @@ describe("OMP integration maintenance", () => {
       existingMaintenanceScope(home, entryPoint, process.env),
     ).resolves.toMatchObject({ clients: ["omp"] });
   });
+
+  it("preserves Grok Build disabled_mcp_servers during maintenance planning", async () => {
+    // Strict identity: a user-disabled integration must never be selected
+    // for maintenance, even with a healthy owned entry underneath.
+    const registration = `[mcp_servers.rea]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(entryPoint)}, "mcp"]\nstartup_timeout_sec = 30\n`;
+    const configPath = await writeClient(
+      "grok_build",
+      `disabled_mcp_servers = ["rea", "other"]\n${registration}`,
+    );
+    await expect(
+      existingMaintenanceScope(home, entryPoint, process.env),
+    ).resolves.toMatchObject({ clients: [] });
+    expect(await readFile(configPath, "utf8")).toContain(
+      'disabled_mcp_servers = ["rea", "other"]',
+    );
+    await writeFile(
+      configPath,
+      `disabled_mcp_servers = ["other"]\n${registration}`,
+    );
+    await expect(
+      existingMaintenanceScope(home, entryPoint, process.env),
+    ).resolves.toMatchObject({ clients: ["grok_build"] });
+  });
 });
 
 describe("existing REA integration maintenance", () => {
@@ -125,6 +148,7 @@ describe("existing REA integration maintenance", () => {
     ).resolves.toEqual({
       clients: ["codex", "vscode"],
       skill: false,
+      skillDestinations: [],
     });
   });
 
@@ -134,6 +158,7 @@ describe("existing REA integration maintenance", () => {
     ).resolves.toEqual({
       clients: [],
       skill: false,
+      skillDestinations: [],
     });
     await writeSkill("---\nname: another-skill\n---\nUser-authored content\n");
     await expect(
@@ -141,6 +166,7 @@ describe("existing REA integration maintenance", () => {
     ).resolves.toEqual({
       clients: [],
       skill: false,
+      skillDestinations: [],
     });
   });
 
@@ -154,6 +180,12 @@ describe("existing REA integration maintenance", () => {
     ).resolves.toEqual({
       clients: [],
       skill: true,
+      skillDestinations: [
+        {
+          client: "shared",
+          path: join(home, ".agents", "skills", PRODUCT_IDENTITY.skillName),
+        },
+      ],
     });
     expect(await readFile(path, "utf8")).toBe(original);
   });
@@ -201,7 +233,7 @@ describe("existing REA integration maintenance", () => {
     ]);
     expect(result).toEqual({
       status: "planned",
-      scope: { clients: ["codex"], skill: false },
+      scope: { clients: ["codex"], skill: false, skillDestinations: [] },
       command: recorded[0]?.slice(0, -2),
       plannedActions: [action],
     });

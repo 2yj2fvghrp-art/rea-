@@ -4,6 +4,7 @@ import type { Readable } from "node:stream";
 
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
+import type { ArtifactResourceScope } from "../ArtifactResourceScope.js";
 import {
   ArtifactPathRegistry,
   normalizeArtifactPath,
@@ -39,6 +40,7 @@ interface ExpectedContainer {
 }
 
 interface ReadContext {
+  readonly resources: ArtifactResourceScope;
   readonly expected: ReadonlyMap<string, ExpectedFile>;
   readonly expectedContainers: ReadonlyMap<string, ExpectedContainer>;
   readonly registry: ArtifactPathRegistry;
@@ -59,6 +61,7 @@ interface ReadTextInput {
 export const readJavaScriptArtifactFiles = async (
   reader: ArtifactReader,
   snapshot: ArtifactInventorySnapshot,
+  resources: ArtifactResourceScope,
   signal?: AbortSignal,
 ): Promise<JavaScriptArtifactFileSet> => {
   if (reader instanceof AsarArtifactReader) {
@@ -71,7 +74,7 @@ export const readJavaScriptArtifactFiles = async (
         "Root artifact node is missing",
       );
     await verifyEntryBytes(
-      reader.openContainer(signal),
+      await reader.openContainer(signal),
       { path: ".", sha256: root.sha256, bytes: root.size },
       signal,
     );
@@ -79,6 +82,7 @@ export const readJavaScriptArtifactFiles = async (
   const inventory = expectedInventory(snapshot);
   const expected = inventory.files;
   const context: ReadContext = {
+    resources,
     expected,
     expectedContainers: inventory.containers,
     registry: new ArtifactPathRegistry(),
@@ -114,16 +118,19 @@ const visitReader = async (
     readonly prefix: string;
     readonly containerSha256: string;
     readonly iterator: AsyncIterator<ArtifactEntry>;
-    readonly owned: boolean;
   }> = [
     {
       reader,
       prefix,
       containerSha256,
       iterator: reader.entries(context.signal)[Symbol.asyncIterator](),
-      owned: false,
     },
   ];
+  const ownedReaders: {
+    readonly reader: ArtifactReader;
+    readonly path: string;
+  }[] = [];
+  let failure: { readonly cause: unknown } | undefined;
   try {
     while (stack.length > 0) {
       const frame = stack.at(-1);
@@ -131,7 +138,6 @@ const visitReader = async (
       const next = await frame.iterator.next();
       if (next.done) {
         stack.pop();
-        if (frame.owned) await frame.reader.close();
         continue;
       }
       const entry = next.value;
@@ -175,13 +181,14 @@ const visitReader = async (
         );
         context.containers.push(inventory);
         const nested = new AsarArtifactReader(entry.adapterKey);
+        ownedReaders.push({ reader: nested, path });
         stack.push({
           reader: nested,
           prefix: path,
           containerSha256: inventory.sha256,
           iterator: nested.entries(context.signal)[Symbol.asyncIterator](),
-          owned: true,
         });
+        await nested.prepareContainer(inventory.sha256, context.signal);
         continue;
       }
       const expected = context.expected.get(path);
@@ -202,16 +209,42 @@ const visitReader = async (
         text,
       });
     }
+  } catch (cause: unknown) {
+    failure = { cause };
   } finally {
-    await Promise.allSettled(
-      stack
-        .filter(({ owned }) => owned)
-        .map(async ({ reader, iterator }) => {
-          await iterator.return?.();
-          await reader.close();
-        }),
-    );
+    for (const { iterator, prefix, reader } of stack.reverse()) {
+      try {
+        await iterator.return?.();
+      } catch (cause: unknown) {
+        failure = {
+          cause: ArtifactReaderFailure.withCleanup(
+            failure === undefined ? cause : failure.cause,
+            ArtifactReaderFailure.cleanupObservation(
+              cause,
+              `JavaScript artifact traversal for ${prefix || reader.format}`,
+            ),
+          ),
+        };
+      }
+    }
+    for (const owned of ownedReaders.reverse()) {
+      const resource = `nested ASAR reader for ${owned.path}`;
+      const cleanup = await context.resources.release({
+        kind: "reader",
+        reader: owned.reader,
+        resource,
+      });
+      if (cleanup.kind === "failed") {
+        failure = {
+          cause: ArtifactReaderFailure.withCleanup(
+            failure === undefined ? cleanup.cause : failure.cause,
+            ArtifactReaderFailure.cleanupObservation(cleanup.cause, resource),
+          ),
+        };
+      }
+    }
   }
+  if (failure !== undefined) throw failure.cause;
 };
 
 const readText = async (

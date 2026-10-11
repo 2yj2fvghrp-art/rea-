@@ -10,7 +10,7 @@ for (const argument of arguments_)
     throw new Error(`Unknown skill metadata option: ${argument}`);
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceRoot = join(root, "skill-src/reverse-engineer-anything");
+const sourceRoot = join(root, ".agents/skills/reverse-engineer-anything");
 const outputRoot = join(root, "skills/reverse-engineer-anything");
 const check = arguments_.has("--check");
 const current = (
@@ -20,19 +20,19 @@ const cacheBust = String(Date.now());
 const { CATALOG_IDENTITY } = await import(
   `${pathToFileURL(join(root, "dist/catalogIdentity.js")).href}?${cacheBust}`
 );
-const { PACKAGE_METADATA } = await import(
-  `${pathToFileURL(join(root, "dist/generatedPackageMetadata.js")).href}?${cacheBust}`
+const { PRODUCT_IDENTITY } = await import(
+  `${pathToFileURL(join(root, "dist/identity.js")).href}?${cacheBust}`
 );
 if (/^\s{2}(?:tool_count|catalog_digest):/mu.test(current))
   throw new Error(
-    "Catalog metadata belongs in the generated skill, not skill-src",
+    "Catalog metadata belongs in the generated skill, not the authored source",
   );
 const versionLine = /^ {2}version: "[^"\r\n]+"$/mu;
 if (!versionLine.test(current))
   throw new Error("Missing authored skill version");
 // A shipped skill must run the version it ships with, not whatever `@latest` resolves to.
-const latestSpecifier = `${PACKAGE_METADATA.name}@latest`;
-const pinnedSpecifier = `${PACKAGE_METADATA.name}@${PACKAGE_METADATA.version}`;
+const latestSpecifier = PRODUCT_IDENTITY.packageSpecifier;
+const pinnedSpecifier = PRODUCT_IDENTITY.registrationPackageSpecifier;
 const source = current
   .replace(
     versionLine,

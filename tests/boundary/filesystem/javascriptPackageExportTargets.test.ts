@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { z } from "zod";
 
-import { reconstructJavaScriptArtifact } from "../../../src/application/javascript/JavaScriptArtifactReconstruction.js";
+import { reconstructJavaScriptArtifact } from "../../support/javascriptApplicationScope.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const cases: readonly {
@@ -101,6 +101,27 @@ const cases: readonly {
   {
     name: "inactive invalid condition does not block default",
     exports: { browser: "./../outside.cjs", default: "./actual.cjs" },
+    expected: "node_modules/fixture/actual.cjs",
+  },
+  {
+    name: "active module-sync rejects an invalid target instead of default",
+    exports: { "module-sync": "./../outside.cjs", default: "./actual.cjs" },
+    expected: null,
+    nodeError: "ERR_INVALID_PACKAGE_TARGET",
+    rejectedTarget: "./../outside.cjs",
+  },
+  {
+    name: "module-sync null blocks default",
+    exports: { "module-sync": null, default: "./actual.cjs" },
+    expected: null,
+    nodeError: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  },
+  {
+    name: "unmatched nested module-sync permits default",
+    exports: {
+      "module-sync": { browser: "./missing.cjs" },
+      default: "./actual.cjs",
+    },
     expected: "node_modules/fixture/actual.cjs",
   },
   ...["./bad%.cjs", "./bad%C3.cjs"].map((target) => ({

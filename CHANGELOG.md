@@ -1,5 +1,237 @@
 # Changelog
 
+## [6.4.0](https://github.com/morluto/rea/compare/rea-agents-6.3.0...rea-agents-6.4.0) (2026-10-11)
+
+### Highlights
+
+- Android: added device inspection, split-APK acquisition, logs, screenshots, file transfers and explicit app lifecycle actions through ADB, plus manifest and localized-string decoding with Apktool. ([#1552](https://github.com/morluto/rea/pull/1552), [#1556](https://github.com/morluto/rea/pull/1556)) Thanks @3QL.
+- JEB: browse project units and decompile selected items through a caller-started local JEB MCP server. ([#1536](https://github.com/morluto/rea/pull/1536)) Thanks @3QL.
+- Large analyses: discover retained Evidence without loading every payload, and inspect JavaScript graphs, binary layouts and function dossiers through summaries and selected views. ([#1682](https://github.com/morluto/rea/pull/1682), [#1568](https://github.com/morluto/rea/pull/1568), [#1570](https://github.com/morluto/rea/pull/1570), [#1345](https://github.com/morluto/rea/pull/1345), [#1507](https://github.com/morluto/rea/pull/1507), [#1247](https://github.com/morluto/rea/issues/1247)) Thanks @jhuang-tw, @kaoru0822-kitauji, @N0zoM1z0.
+- JavaScript: isolate source analysis in an owned process with configurable heap and timeout limits; retain completed facts and explicit unknowns when analysis runs out of resources. ([#1651](https://github.com/morluto/rea/pull/1651), [#1563](https://github.com/morluto/rea/issues/1563), [#1565](https://github.com/morluto/rea/issues/1565)) Thanks @N0zoM1z0, @peter-research.
+- Ghidra: configure import language/compiler specifications and seed functions, code and labels before auto-analysis. ([#1667](https://github.com/morluto/rea/pull/1667)) Thanks @sqmagellan.
+- RPC discovery: recognize supported tRPC calls, HTTP-link URLs and named GraphQL operations in JavaScript applications and web bundles. ([#1670](https://github.com/morluto/rea/pull/1670)) Thanks @pompiliodonatoapp.
+
+### Changes
+
+- Added Ghidra support for Windows PE DLLs and bounded MIPS ELF analysis, including carved MIPS inputs with incomplete section tables. Windows P0 remains read-only. ([#1303](https://github.com/morluto/rea/pull/1303), [#1362](https://github.com/morluto/rea/pull/1362), [#1629](https://github.com/morluto/rea/pull/1629), [#1290](https://github.com/morluto/rea/issues/1290), [#718](https://github.com/morluto/rea/issues/718), [#1619](https://github.com/morluto/rea/issues/1619)) Thanks @bqw371, @jaelliot, @kvalls, @N0zoM1z0.
+- Enabled `set_address_name` and `set_addresses_names` for Ghidra sessions with mutation authority, including namespace-aware data labels and per-address batch results. ([#1635](https://github.com/morluto/rea/pull/1635), [#1634](https://github.com/morluto/rea/issues/1634)) Thanks @giri256.
+- Recovered additional signed AArch64 relative jump-table patterns. ([#1592](https://github.com/morluto/rea/pull/1592)) Thanks @RishTheFish21.
+- Added PE resource inspection and read-only NativeAOT metadata parsing for supported x64 PE32+/.NET 8 RTR 9.1 inputs. The NativeAOT parser’s Windows-host Ghidra workflow remains unverified on a real Windows host. ([#1482](https://github.com/morluto/rea/pull/1482), [76d8f68](https://github.com/morluto/rea/commit/76d8f68cb918dfb43869f2b649a0b6c0c1cf266d), [#1254](https://github.com/morluto/rea/issues/1254)) Thanks @N0zoM1z0, @thangldw.
+- Added Pi, Hermes and Qwen Code setup, including Hermes active-profile support. ([#1376](https://github.com/morluto/rea/pull/1376), [#1403](https://github.com/morluto/rea/pull/1403), [#1415](https://github.com/morluto/rea/pull/1415), [#1409](https://github.com/morluto/rea/issues/1409)) Thanks @rasatpetabit, @yiliang114, @zaydiscold.
+- Added `REA_MCP_INPUT_SCHEMA_PROFILE=compact` for size-capped MCP clients such as Kimi/Moonshot, while retaining canonical runtime validation. ([#1514](https://github.com/morluto/rea/pull/1514), [#1580](https://github.com/morluto/rea/pull/1580), [#1484](https://github.com/morluto/rea/issues/1484), [#1581](https://github.com/morluto/rea/issues/1581)) Thanks @haythemsellami, @N0zoM1z0.
+- Added live process-capture progress and optional `finalization_ms` to capture shutdown output before timeout escalation; cancellation remains immediate. ([#1483](https://github.com/morluto/rea/pull/1483), [#1583](https://github.com/morluto/rea/pull/1583), [#1252](https://github.com/morluto/rea/issues/1252), [#1253](https://github.com/morluto/rea/issues/1253), [modelcontextprotocol/typescript-sdk#2997](https://github.com/modelcontextprotocol/typescript-sdk/issues/2997)) Thanks @N0zoM1z0, @nikolay-dementiev, @sathariels.
+- Improved Codex onboarding and recovery from observed client, PATH and provider blockers. ([#1613](https://github.com/morluto/rea/pull/1613)) Thanks @N0zoM1z0.
+- Reduced redirected JSON and terminal output size, and deferred heavy imports until their commands need them. ([#1413](https://github.com/morluto/rea/pull/1413), [#1450](https://github.com/morluto/rea/pull/1450), [#1439](https://github.com/morluto/rea/pull/1439), [21dbcf7](https://github.com/morluto/rea/commit/21dbcf7a1458219989ad291e44ce7d017378b727)) Thanks @kaoru0822-kitauji.
+
+### Fixes
+
+- Electron analysis: follow renamed and default-imported APIs and optional calls, ignore overwritten identities and media preload attributes, and resolve packaged `app.asar` pages and unpacked companions. ([#1391](https://github.com/morluto/rea/pull/1391), [#1393](https://github.com/morluto/rea/pull/1393), [#1400](https://github.com/morluto/rea/pull/1400), [#1664](https://github.com/morluto/rea/pull/1664), [#1673](https://github.com/morluto/rea/pull/1673)) Thanks @kaoru0822-kitauji, @marnixpluim, @N0zoM1z0, @suninrain086.
+- JavaScript data flow: preserve returned/yielded reference uncertainty, invalidate property-stored aliases correctly, and retain bundled-module runtime scope. ([#1437](https://github.com/morluto/rea/pull/1437), [#1445](https://github.com/morluto/rea/pull/1445), [#1471](https://github.com/morluto/rea/pull/1471), [#1577](https://github.com/morluto/rea/pull/1577), [#1428](https://github.com/morluto/rea/issues/1428), [#1442](https://github.com/morluto/rea/issues/1442), [#1449](https://github.com/morluto/rea/issues/1449), [#1576](https://github.com/morluto/rea/issues/1576)) Thanks @CassieFox23, @dakjdakd, @N0zoM1z0.
+- JavaScript packages: resolve exact exports subpaths, preserve trailing-slash directory requests and exact CommonJS keys, and respect shadowed `require` bindings. ([#1424](https://github.com/morluto/rea/pull/1424), [#1615](https://github.com/morluto/rea/pull/1615), [5485483](https://github.com/morluto/rea/commit/5485483f7da2f6cb66441bb784aaf2a1a5f8731a), [8b2f851](https://github.com/morluto/rea/commit/8b2f8514c50e469c3add8ce9ba7ebebef888b14f), [f998fcb](https://github.com/morluto/rea/commit/f998fcb1cca9994c3589fb70d6e0127fc215f76f), [1e51c73](https://github.com/morluto/rea/commit/1e51c732bbf08191688d6526bf58ab2650b601e3), [#1365](https://github.com/morluto/rea/issues/1365)) Thanks @akshitkhokhani, @AWUQAQ, @immanuwell, @rudycelekli.
+- Large JavaScript inputs: handle oversized inline source maps, deep returns and reassignment loops; avoid argument expansion limits and yield during large analysis passes. ([#1386](https://github.com/morluto/rea/pull/1386), [#1368](https://github.com/morluto/rea/pull/1368), [#1390](https://github.com/morluto/rea/pull/1390), [#1539](https://github.com/morluto/rea/pull/1539), [#1525](https://github.com/morluto/rea/pull/1525), [#1542](https://github.com/morluto/rea/pull/1542), [#1545](https://github.com/morluto/rea/pull/1545), [#1557](https://github.com/morluto/rea/pull/1557), [#1380](https://github.com/morluto/rea/issues/1380), [#1401](https://github.com/morluto/rea/issues/1401), [#1538](https://github.com/morluto/rea/issues/1538), [#1462](https://github.com/morluto/rea/issues/1462)) Thanks @cold-atom, @KadirJeager, @kaoru0822-kitauji, @marnixpluim, @N0zoM1z0, @rudycelekli.
+- JavaScript receivers: expand escaped methods once, index returned-object targets, and avoid replaying earlier writes or duplicating retained graph allocations. ([#1517](https://github.com/morluto/rea/pull/1517), [#1537](https://github.com/morluto/rea/pull/1537), [#1444](https://github.com/morluto/rea/pull/1444), [#1601](https://github.com/morluto/rea/pull/1601), [#1495](https://github.com/morluto/rea/issues/1495)) Thanks @CassieFox23, @geekwolf, @kaoru0822-kitauji, @N0zoM1z0, @zeynelacikgoez.
+- Browser captures: retain WebSocket URLs, empty connections and frame order; compare only common known payload coverage and preserve incomplete WebMCP replay coverage. ([db4e360](https://github.com/morluto/rea/commit/db4e3608465486466591b594cf77037ac150c988), [aa257ea](https://github.com/morluto/rea/commit/aa257ea4b16f2d2a35c12df63359d650b48b1154), [e52c0a7](https://github.com/morluto/rea/commit/e52c0a72c59c740315e89149881a27ce4d89a11c))
+- Browser scenarios: seed storage in the correct partition, normalize loopback attach identities, retain declared-secret redaction and require verified lineage before Windows Electron signals. ([#1604](https://github.com/morluto/rea/pull/1604), [#1590](https://github.com/morluto/rea/pull/1590), [#1588](https://github.com/morluto/rea/pull/1588), [8b4c3de](https://github.com/morluto/rea/commit/8b4c3de3b3a3b580adec266f94f29ccedf1da228), [#1497](https://github.com/morluto/rea/issues/1497), [#1591](https://github.com/morluto/rea/issues/1591), [#1589](https://github.com/morluto/rea/issues/1589)) Thanks @Adolanium, @akushonkamen, @dakjdakd.
+- Added Termux Android browser-scenario support. ([#1655](https://github.com/morluto/rea/pull/1655)) Thanks @tyloryang.
+- Web inputs: accept BOM-prefixed HAR, preserve the first duplicate DOM attribute and resolve SVG/XLink URLs in HTML and XHTML. ([#1509](https://github.com/morluto/rea/pull/1509), [#1516](https://github.com/morluto/rea/pull/1516), [#1602](https://github.com/morluto/rea/pull/1602), [#1683](https://github.com/morluto/rea/pull/1683), [#1496](https://github.com/morluto/rea/issues/1496), [#1586](https://github.com/morluto/rea/issues/1586)) Thanks @CassieFox23, @kaoru0822-kitauji, @sathariels, @taljeri.
+- Screenshot comparisons: validate PNG chunks, distinguish corruption from unsupported encodings and bound comparison memory. ([4e4b15b](https://github.com/morluto/rea/commit/4e4b15b8250b29e176d4191c9610a3931b693474), [b3e977e](https://github.com/morluto/rea/commit/b3e977e6d073ab1783cece8581279f87fc360411)) Thanks @rudycelekli.
+- Archives: preserve case-distinct names, report collisions at their diverging segment, detect nested formats from bytes and reject Windows alternate-stream extraction paths. ([#1480](https://github.com/morluto/rea/pull/1480), [#1505](https://github.com/morluto/rea/pull/1505), [#1553](https://github.com/morluto/rea/pull/1553), [573598c](https://github.com/morluto/rea/commit/573598c6324698cc48ceafd24ed3864670e08d00), [#1470](https://github.com/morluto/rea/issues/1470), [#1491](https://github.com/morluto/rea/issues/1491)) Thanks @CassieFox23, @kaoru0822-kitauji.
+- Cleanup: retain failed readers, ASAR handles, output trees and provider workers for retry without discarding completed output or partial observations. ([ffe0574](https://github.com/morluto/rea/commit/ffe0574e17b9d973860371083cb1a351be912131), [de0d341](https://github.com/morluto/rea/commit/de0d341524dc68250a45b41eb7e49fcecc1e32a9), [3f8c51e](https://github.com/morluto/rea/commit/3f8c51e9b506d88fc41aded7b1a22b9a09037c26), [d1235fa](https://github.com/morluto/rea/commit/d1235fadc901e1fb9ab3149d53063306c8545414), [026126e](https://github.com/morluto/rea/commit/026126eafe741e5a8b857433587fd615cdd44c19))
+- Providers: canonicalize IDA workspace roots before identity checks, respect IDA cancellation, serialize JEB acquisition and correct Ghidra no-return/imported-symbol recovery. ([#1481](https://github.com/morluto/rea/pull/1481), [#1419](https://github.com/morluto/rea/pull/1419), [5f30ea6](https://github.com/morluto/rea/commit/5f30ea6ff2dd89aab7af6da6e8dfa5e508ed459b), [f88c990](https://github.com/morluto/rea/commit/f88c99021b88ce67e513025901f57478d8107d0c), [49e6f00](https://github.com/morluto/rea/commit/49e6f00ed08b225abf9ddb7c762553607fdab115)) Thanks @AS9929, @JonahSimon, @Y0UW1SH.
+- Binary metadata: respect PE/.NET section extents, bound binary-plist expansion, scope keyed-archive traversal and decode app `Info.plist` files without `plutil`. ([#1678](https://github.com/morluto/rea/pull/1678), [#1515](https://github.com/morluto/rea/pull/1515), [#1378](https://github.com/morluto/rea/pull/1378), [#1476](https://github.com/morluto/rea/pull/1476), [975dff2](https://github.com/morluto/rea/commit/975dff2e25b14b634e14dd5e0db1537d0ca9815b), [76296c5](https://github.com/morluto/rea/commit/76296c5a3868ba3b54be6ed3896719283d6de5f8)) Thanks @jayhemnani9910, @kaoru0822-kitauji, @rudycelekli.
+- Windows runtimes: preserve drive-root paths when creating private provider directories. ([ee46323](https://github.com/morluto/rea/commit/ee46323b493994902b04824a7dc8aae2a8117903))
+- Compatibility: load Windows native controls under Node-API hosts with renamed executables, preserve dylib directory requirements, support Wakaru 1.x and reject directory-valued Hopper launchers. ([#1531](https://github.com/morluto/rea/pull/1531), [#1623](https://github.com/morluto/rea/pull/1623), [#1540](https://github.com/morluto/rea/pull/1540), [#1426](https://github.com/morluto/rea/pull/1426)) Thanks @evenafterallisaid, @Fazmin, @pionxzh, @xeropresence.
+- Reference imports: normalize internal symlink lookup consistently, preserve exact paths and exclusion provenance, report root access failures and reject FIFO replacements without blocking. ([#1535](https://github.com/morluto/rea/pull/1535), [2ca3ad2](https://github.com/morluto/rea/commit/2ca3ad238608adfca80a7ff1aaadea6e59a58225), [6636045](https://github.com/morluto/rea/commit/6636045c9c5b472bba51afee9d434394861e93a4), [3967cfa](https://github.com/morluto/rea/commit/3967cfa43e786c65a57e89c265343983d19ef9d0), [f1c58cc](https://github.com/morluto/rea/commit/f1c58cc53fbd83b968e11b3e2eccebca51299c54)) Thanks @anujsingh-cse.
+- Setup: honor active configuration and skill roots, preserve configured MCP environments, validate Hermes/OMP profiles before writing, recognize Omarchy and retain recovery backups. ([#1504](https://github.com/morluto/rea/pull/1504), [#1607](https://github.com/morluto/rea/pull/1607), [#1528](https://github.com/morluto/rea/pull/1528), [#1562](https://github.com/morluto/rea/pull/1562), [#1662](https://github.com/morluto/rea/pull/1662), [a011485](https://github.com/morluto/rea/commit/a01148553e2a37c72ae78405418ab648876a96a6), [#1606](https://github.com/morluto/rea/issues/1606), [#1521](https://github.com/morluto/rea/issues/1521), [#1561](https://github.com/morluto/rea/issues/1561)) Thanks @Adkid-Zephyr, @CassieFox23, @LuisTaffelli, @N0zoM1z0, @peter-research.
+- Process capture: retain descendant lineage after launcher exit, preserve identity uncertainty before signaling and release terminals after observation failures. ([80896a1](https://github.com/morluto/rea/commit/80896a1d64b216ef893907249cd4252f86215d49), [c916850](https://github.com/morluto/rea/commit/c9168508527302ac57bc86385ccf0d824697b5dc)) Thanks @Y0UW1SH.
+- CLI/MCP errors: accept JSON files for web comparisons, preserve native option help and union correction details, remove invalid aliases and validate doctor against its discovered output contract. ([#1397](https://github.com/morluto/rea/pull/1397), [#1395](https://github.com/morluto/rea/pull/1395), [#1425](https://github.com/morluto/rea/pull/1425), [#1461](https://github.com/morluto/rea/pull/1461), [8b4c96e](https://github.com/morluto/rea/commit/8b4c96e6c6b3ed6806e4cd72b556b5db6114304a), [#1421](https://github.com/morluto/rea/issues/1421), [#1454](https://github.com/morluto/rea/issues/1454)) Thanks @Fazmin, @kaoru0822-kitauji, @N0zoM1z0.
+
+### ⚠ BREAKING CHANGES
+
+- WebSocket results: use `network.websocket_connections` instead of `network.websocket_events`. Connections contain `request_id`, `url` and `events`; allow `payload_bytes: null` when size is unknown. No legacy alias remains. ([db4e360](https://github.com/morluto/rea/commit/db4e3608465486466591b594cf77037ac150c988))
+- Direct resource APIs: pass a caller-owned `ArtifactResourceScope` to inventory/extraction, JavaScript analysis, reference imports and web exports; retain it through cleanup/shutdown. For `readJavaScriptArtifactFiles`, scope is argument three and abort signal is argument four. Keep each root inventory source’s single cleanup owner. Use `OwnedFileHandle` owners, injected ASAR `fd`/`read` handles instead of `createReadStream`, VCS `Result` values, and `WebScriptExportError`’s options object. CLI/MCP inputs for the scoped operations are unchanged. ([ffe0574](https://github.com/morluto/rea/commit/ffe0574e17b9d973860371083cb1a351be912131), [53e7fad](https://github.com/morluto/rea/commit/53e7fadbd078422ba3d55b5499a70d237c5f4908), [684199b](https://github.com/morluto/rea/commit/684199ba0be7822266d57ddb8a40e95f087fdc42), [be75ed5](https://github.com/morluto/rea/commit/be75ed5e4b4bfb146af497f8fa5d172a1ea19462), [be6272f](https://github.com/morluto/rea/commit/be6272f26115bd8e94f2ab0df4cf092004587a18), [e0e49e9](https://github.com/morluto/rea/commit/e0e49e9dd53d9d1f1d2330b23f7f880dc1c81774), [95a77b6](https://github.com/morluto/rea/commit/95a77b6e25420b3879bd0e32bdbb14d452b38776))
+- Saved reference graphs: exclusions require their matching `pattern` and distinguish `project-ignored` from `default-ignored`. Re-import graphs missing that provenance. ([6585293](https://github.com/morluto/rea/commit/6585293c562853b95c3a70df02c12ad8cc17afc4))
+- Terminal captures: keep initial and resized buffers within 1,000,000 cells using `columns × (rows + scrollback)`; oversized scenarios are rejected before launch. ([f9ea9a9](https://github.com/morluto/rea/commit/f9ea9a9268c854d31048da9f8a50cfa37703fe5a))
+- Optional agent-verification reports: accept schema version 4, nullable `expectedFirstTool` and `targetClarificationPassed`. Production CLI/MCP contracts are unchanged. ([#1613](https://github.com/morluto/rea/pull/1613))
+- Capture comparisons: recapture both sides with matching `literal-replacements-v1` semantics when custom normalization patterns are used. Legacy unversioned pattern captures remain readable but cannot be compared with new pattern captures; captures without patterns are unaffected. ([#1456](https://github.com/morluto/rea/pull/1456), [2b6f14f](https://github.com/morluto/rea/commit/2b6f14f528297cf12c776c960af0859f5cfbefbf)) Thanks @Madhavan006, @N0zoM1z0.
+- Artifact graph edges: read child artifact IDs and paths from the occurrence selected by `occurrence_id`, not edge fields `child_artifact_id`/`logical_path`. Earlier inventory Evidence no longer validates against the new commitment. ([#1493](https://github.com/morluto/rea/pull/1493)) Thanks @kaoru0822-kitauji.
+- Semantic graph schema: nodes and relations no longer include `identifier_strategy`, and relation IDs no longer hash it. Earlier Evidence no longer validates against this schema. ([#1474](https://github.com/morluto/rea/pull/1474)) Thanks @kaoru0822-kitauji.
+- Semantic identities: select IDs from the parent graph; read exact event names from `event_name`, endpoints from `endpoint` and literal values from `properties.value`. New analyses use digest-based IDs for long/reserved event and endpoint names and `value-sha256` literal role keys, with shorter labels; string literal labels now read `string literal`. Previously stored graphs retain their original IDs and remain valid workflow inputs. ([#1427](https://github.com/morluto/rea/pull/1427), [#1423](https://github.com/morluto/rea/pull/1423), [#1407](https://github.com/morluto/rea/pull/1407)) Thanks @N0zoM1z0.
+
+### Contributors
+
+- Thanks also to @BaaRai, @commit-regrets, @coygeek, @Franky100-pig, @inii-sayaa, @jopemachine, @JosephDemarest, @keemsisi, @Totopo27 for contributions included in this release.
+
+Full contribution record: [336 commits and 163 merged PRs](https://github.com/morluto/rea/blob/rea-agents-6.4.0/docs/releases/6.4.0.contributions.json).
+
+## [6.3.0](https://github.com/morluto/rea/compare/rea-agents-6.2.0...rea-agents-6.3.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **captures:** Historical captures without current producer accounting or transaction identity, and web diffs missing accessibility or storage dimensions, are rejected. Preserve original captures and recapture with the current producer; update comparison consumers to include every dimension rather than synthesizing missing observations. See the [process capture guide](docs/process-capture.md) and [browser scenario contract](docs/browser-scenario-contract.md). ([3283a45](https://github.com/morluto/rea/commit/3283a45d09457c79e3adadb50a48620926d4bc5b))
+* **browser:** JSON shape paths now contain typed property and array-element segments. WebMCP input_schema_shape is replaced by input_schema and input_schema_sha256, retaining declared examples and defaults.
+* **process:** Filesystem digest omission entries now require system_code; budget and changed-file omissions use null, and unavailable-file omissions preserve the operating-system error code.
+* **contracts:** Provider analysis outputs must explicitly supply metadata previously repaired with defaults; unsupported nullable facets must be reported as null.
+* **javascript:** Semantic graph facts now store evidence context IDs and locations. Graph and semantic trace results require an inline evidence_contexts table.
+* **contracts:** source-map URLs now live in target observations selected by declared_url_sha256, and doctor skill identity no longer emits installed_catalog_digest. Use the documented observation join and identity.skill.state instead.
+* **javascript:** remove the never-incremented truncated_scopes statistic from JavaScript application analysis results and schemas.
+* **native:** Objective-C attribute tokens now contain only name and value. Properties report nullable atomicity and readonly facts; class flags, ivar counts, and method requirement flags are nullable when unobserved.
+
+### Features
+
+* **setup:** register OMP during setup ([#1301](https://github.com/morluto/rea/pull/1301)) ([8b4c359](https://github.com/morluto/rea/commit/8b4c3591358ee59297d8298ede1b63d08459d817))
+* **javascript:** record Electron integrity mismatches ([7915ee5](https://github.com/morluto/rea/commit/7915ee51781878ed67e094259924b6e6f3093b3f))
+
+
+### Bug Fixes
+
+* **inspector:** retain observations after capture failures ([dea3498](https://github.com/morluto/rea/commit/dea3498b2b8d919606eefc4fd62f6ebcbbe5ed30))
+* **artifacts:** bind ASAR interpretation to owned snapshots ([d79317c](https://github.com/morluto/rea/commit/d79317cda0bbe8240eb7e25b0a5de90dcffca5fa))
+* **artifacts:** infer legacy Mach-O simulator platforms ([5aa2002](https://github.com/morluto/rea/commit/5aa200285ab066e48b37b716495936e6e2a963fd))
+* **artifacts:** preserve archive facts and Unicode path identity ([5751f5c](https://github.com/morluto/rea/commit/5751f5caac86c770123ae739a4e4101a72b0989c))
+* **artifacts:** reject incomplete inventoried extraction ([5e8fb53](https://github.com/morluto/rea/commit/5e8fb531e255a4a04fc053c54096f66d5c84cde3))
+* **artifacts:** retain DMG ownership through uncertain attachment ([a27794c](https://github.com/morluto/rea/commit/a27794c246b3f11d7f92ae7f6d276718190ab731))
+* **artifacts:** validate only active extraction entries ([cfb12e4](https://github.com/morluto/rea/commit/cfb12e47dc241f057be93a00892f7d7361d6119d))
+* **browser:** follow only HTTP redirect statuses for source maps ([82bbe74](https://github.com/morluto/rea/commit/82bbe743336244d398e67512659ea6943d43a4a4))
+* **browser:** preserve payload shapes and WebMCP declarations ([4951a89](https://github.com/morluto/rea/commit/4951a897c53bb6882300c5d7a9660a3f43e374f5))
+* **browser:** release attached viewport overrides without resizing the external page ([f6cfbfc](https://github.com/morluto/rea/commit/f6cfbfcc554ff24173dd7ad5333e8e26ab9c962d))
+* **browser:** retain attached scenario emulation until cleanup ([a0523b3](https://github.com/morluto/rea/commit/a0523b375eb3147f1d2d1e7eb10a2f4546f5d0fc))
+* **browser:** retain malformed redirect diagnostics ([617cd84](https://github.com/morluto/rea/commit/617cd84d27d100e7cc3cd4b5721dea4a996c9775))
+* **browser:** serialize attached scenarios through cleanup settlement ([cfce91d](https://github.com/morluto/rea/commit/cfce91d418fbcde4a9ef283a61549279751854e7))
+* **ci:** scope verification and reuse native runners ([#1344](https://github.com/morluto/rea/issues/1344)) ([d5cb8ae](https://github.com/morluto/rea/commit/d5cb8aee063065a48233458e04771635167825c8))
+* **cli:** avoid duplicate primary cleanup diagnostics ([37fcea7](https://github.com/morluto/rea/commit/37fcea78cecbeeadd869e9a3d77dd133ed264a0a))
+* **cli:** classify JSON input permission denials ([08daf05](https://github.com/morluto/rea/commit/08daf056cc8e4d092f9592574d09d5182457b7bc))
+* **cli:** classify oversized JSON inputs ([f7cf4c8](https://github.com/morluto/rea/commit/f7cf4c890d4b9c70b1f56e6c627b44a59e58fd73))
+* **cli:** stream JSON inputs beyond the whole-document string limit ([#1360](https://github.com/morluto/rea/issues/1360)) ([6ce3288](https://github.com/morluto/rea/commit/6ce3288f3bd65a886e47905455ed5c9b661015e6)), closes [#1331](https://github.com/morluto/rea/issues/1331)
+* **cli:** stream JSON results at the shared command boundary ([810107a](https://github.com/morluto/rea/commit/810107a2ad15cc52afd6662aec24d231d8c77225))
+* **contracts:** advertise NUL with a portable hex escape ([3f59a84](https://github.com/morluto/rea/commit/3f59a84bd1039763bb349894542601ed78be2033)), closes [#1329](https://github.com/morluto/rea/issues/1329)
+* **contracts:** require observed provider output metadata ([a4ba8ae](https://github.com/morluto/rea/commit/a4ba8aecd507637b6261026afc17f79516840d50))
+* **electron:** preserve unrepresentable numeric option evidence ([41a228c](https://github.com/morluto/rea/commit/41a228c1b01a89127858b1706879ede08a81deaf))
+* **evidence:** order canonical projections independently of locale ([614fb76](https://github.com/morluto/rea/commit/614fb7681ee9e4eba7219c1ee9e90d6a85d78095))
+* **files:** reject nonregular capture and JSON inputs ([5f16124](https://github.com/morluto/rea/commit/5f16124a31fa4a82bd03037506809d6be959d768))
+* **filesystem:** reject unstable artifact targets ([7829b1a](https://github.com/morluto/rea/commit/7829b1aeef8f43f186be2d2adbd6c67541306a7a))
+* **ghidra:** reject a native decompiler built for another host ([#1280](https://github.com/morluto/rea/issues/1280)) ([3728c82](https://github.com/morluto/rea/commit/3728c8267b4fb6da78cbae42a2a6cbddff80ea84)), closes [#1192](https://github.com/morluto/rea/issues/1192)
+* **ghidra:** retain process ownership after failed launch rollback ([07675f7](https://github.com/morluto/rea/commit/07675f78c66ce9e8706e808d417265e18ba9f3a5))
+* **ghidra:** verify dense jump tables on an optimized fixture ([#1374](https://github.com/morluto/rea/issues/1374)) ([73a664b](https://github.com/morluto/rea/commit/73a664bc78ee618045a2733b8714821281f77403))
+* **hopper:** allow restart after verified owned-provider shutdown ([1c12349](https://github.com/morluto/rea/commit/1c123493a21cc579ba7532c40e7ef30df45db3e8))
+* **hopper:** probe interior navigation from multi-byte instructions ([#1285](https://github.com/morluto/rea/issues/1285)) ([bf934d5](https://github.com/morluto/rea/commit/bf934d5592e707ba5e7769043de3a430ed8d4923))
+* **ida:** compare admitted document paths consistently ([890bb66](https://github.com/morluto/rea/commit/890bb66b35d5f9f8ee54ff0049bf7dc7b82b2480))
+* **javascript:** avoid positive-zero evidence for signed zero ([9055bd6](https://github.com/morluto/rea/commit/9055bd695b75f72fb1b8a538d1485d30c0b0ee0b))
+* **javascript:** decline source-map UNC references with an unusable host ([#1372](https://github.com/morluto/rea/issues/1372)) ([f504c2a](https://github.com/morluto/rea/commit/f504c2a351027f17ac353fba2d7cfc3505ee17d6))
+* **javascript:** distinguish prefix-only builtins from packages ([2b4abbf](https://github.com/morluto/rea/commit/2b4abbf1ccb6dd6ad1248cf48e381df0842542c1))
+* **javascript:** honor module-sync package exports ([#1361](https://github.com/morluto/rea/issues/1361)) ([d0e6069](https://github.com/morluto/rea/commit/d0e606930acb701790c286340226b1e3e7060b4f))
+* **javascript:** parse declaration artifacts in ambient mode ([4896adc](https://github.com/morluto/rea/commit/4896adcd0f9316034e83129685ed3807ade6f3ea))
+* **javascript:** preserve agreeing module provenance ([db171be](https://github.com/morluto/rea/commit/db171be6e570fd1261a30d711e4da2d17de85a93))
+* **javascript:** preserve capture-time guards and ordering ([001851f](https://github.com/morluto/rea/commit/001851fde6f972e6ebd01fddccdff4c645a85f63))
+* **javascript:** preserve semantic evidence through satisfies ([e995b19](https://github.com/morluto/rea/commit/e995b19f834ba78faa294f5959fd3ad8a97290ca))
+* **javascript:** preserve uncertainty after references escape to calls ([#1292](https://github.com/morluto/rea/issues/1292)) ([355a292](https://github.com/morluto/rea/commit/355a292198bf58245c67ae315fdb4f77e62769cc))
+* **javascript:** reject invalid package exports configurations ([7a4f268](https://github.com/morluto/rea/commit/7a4f2685d41b134507331c322f0f5da8e1f6c3f4))
+* **javascript:** resolve exported callables through lexical bindings ([#1351](https://github.com/morluto/rea/issues/1351)) ([a9f5dad](https://github.com/morluto/rea/commit/a9f5dad5a8f196c88f6305d8d958b355cc0b52c2))
+* **javascript:** resolve query-only HTML references to their document ([55a46f7](https://github.com/morluto/rea/commit/55a46f7c7176075c9edda4fe61ed995f2ceadf6a))
+* **javascript:** retain array identity after length mutations ([4bcea1a](https://github.com/morluto/rea/commit/4bcea1aa76e3e7ca665197181739c5e27a62c40a))
+* **javascript:** retain conditional mutation ordering uncertainty ([b8a8190](https://github.com/morluto/rea/commit/b8a8190b2f30e377eee2d69d1ba31ea454fa70b9))
+* **javascript:** retain distinct module provenance path components ([2bd7de6](https://github.com/morluto/rea/commit/2bd7de6f8ca62fc1d48334cfa7fdced461b7b153))
+* **javascript:** retain unresolved value frontiers in provenance queries ([3e19875](https://github.com/morluto/rea/commit/3e19875c7fa9c61cff655bbe6046ddc4ab558533))
+* **javascript:** store source map URLs once ([ed8fcae](https://github.com/morluto/rea/commit/ed8fcae94b699b62b44162f880faa077a36c455d))
+* **json:** preserve runtime limits across JSON file readers ([#1350](https://github.com/morluto/rea/issues/1350)) ([9c4a68b](https://github.com/morluto/rea/commit/9c4a68bc19a0f7d39557e3cc039f5877f6550f63))
+* **managed:** bind graph facts to their source Evidence ([cc7b5af](https://github.com/morluto/rea/commit/cc7b5af0777fc68ebba10ec061244729ebf2357d))
+* **mcp:** admit composed analysis through result bookkeeping ([e11f4d3](https://github.com/morluto/rea/commit/e11f4d371abaa8cb65ebf7b94fa216329fd78d88))
+* **mcp:** advertise object roots for union input schemas ([#1373](https://github.com/morluto/rea/issues/1373)) ([39dabd0](https://github.com/morluto/rea/commit/39dabd0608ed9617d60f16ece05993089f24ff38))
+* **mcp:** advertise primitive semantic literal seeds ([f62b449](https://github.com/morluto/rea/commit/f62b44971deee0e99df6fcf32758c8e5592400ed))
+* **mcp:** preserve JavaScript workflow identity validation ([#1366](https://github.com/morluto/rea/issues/1366)) ([53ed942](https://github.com/morluto/rea/commit/53ed942a85f51ff9f0e4f01cbb53359df476071d)), closes [#1364](https://github.com/morluto/rea/issues/1364) [#1065](https://github.com/morluto/rea/issues/1065)
+* **mcp:** retry failed shutdown resources and retain failure reasons ([e64678e](https://github.com/morluto/rea/commit/e64678e8f9768dd819d8f5f12cc844a6660ff2c5))
+* **native:** distinguish symbol definitions from metadata ([70bad53](https://github.com/morluto/rea/commit/70bad53847b0e14489acee73d204ff645e1adfcd))
+* **native:** preserve unknown Objective-C metadata ([b112d44](https://github.com/morluto/rea/commit/b112d44a3961939881779c81a57e7a3f9d1372f7))
+* **native:** refuse to list architectures of non-Mach-O targets ([#1325](https://github.com/morluto/rea/issues/1325)) ([1b73b5a](https://github.com/morluto/rea/commit/1b73b5ab4bc75bd424e643de8e49f142ffa2b336))
+* **native:** retain LLDB cleanup ownership through client close ([7ad353f](https://github.com/morluto/rea/commit/7ad353fa8b3f07e14face80336678d23cc7c6507))
+* **process:** keep unobserved file contents unknown ([#1358](https://github.com/morluto/rea/issues/1358)) ([f91f279](https://github.com/morluto/rea/commit/f91f2798b4dc6adb61b3ffe28a24a5d55adbd6ff))
+* **process:** retain per-file digest open failures ([415145d](https://github.com/morluto/rea/commit/415145d04f09a15cbfb7dda8ea9dc363a77f9bf0))
+* **reference:** report malformed UTF-8 before import parsing ([f166a2a](https://github.com/morluto/rea/commit/f166a2ae15b072216173a51a8f5cad930a858366))
+* report malformed application evidence as input errors ([218c131](https://github.com/morluto/rea/commit/218c13160ec0ed7116d6633fc76559ec39dae4d7))
+* retain completed observations when later analysis steps fail ([35f121f](https://github.com/morluto/rea/commit/35f121f4acac821e848c485fb82a2c42f51f6ea1))
+* **setup:** install the skill for Claude Code ([b4a1919](https://github.com/morluto/rea/commit/b4a19193fe3baf9075f8ac419517021ea0c71ea3))
+* **setup:** recognize supported Nobara hosts ([f0dc233](https://github.com/morluto/rea/commit/f0dc233d64de4c215c453c346e516b7622713e95))
+* **skill:** pin packaged commands to the shipping package version ([2793672](https://github.com/morluto/rea/commit/2793672ee2a575f97a8011c7fec5288098cdd5d1))
+* **skill:** pin packaged commands to the shipping package version ([#1346](https://github.com/morluto/rea/issues/1346)) ([f39e71c](https://github.com/morluto/rea/commit/f39e71ce1897bb5c704b33a8b0049567f11e3a13))
+* **snapshot:** preserve complete investigation revision histories ([#1354](https://github.com/morluto/rea/issues/1354)) ([1c0cc8a](https://github.com/morluto/rea/commit/1c0cc8a6753b5ac781b28ebb1832f3a6a1771a68))
+* **targets:** cancel resolution before provider admission ([f3c4a33](https://github.com/morluto/rea/commit/f3c4a332f7bd198bd67f0187bc2a85c7b31bb960))
+* **update:** preserve disabled client registrations ([abf5e24](https://github.com/morluto/rea/commit/abf5e243c4d2cae03404b6e1fb1ccc77be917b53))
+
+
+### Performance Improvements
+
+* **javascript:** index version relationships once per comparison ([#1347](https://github.com/morluto/rea/issues/1347)) ([b1e85ad](https://github.com/morluto/rea/commit/b1e85ad711743a594c572dbd5b0d5cb664e2a502))
+* **javascript:** validate the version change graph once ([#1370](https://github.com/morluto/rea/issues/1370)) ([037709a](https://github.com/morluto/rea/commit/037709a52c0824f4d2bbee90d8e2642b2d88d364))
+* **json:** encode streamed JSON iteratively ([#1322](https://github.com/morluto/rea/issues/1322)) ([56598be](https://github.com/morluto/rea/commit/56598beb4e82968a313deb9efdf4b98db5bd1f4f))
+
+
+### Code Refactoring
+
+* use canonical implementations and types directly ([765e809](https://github.com/morluto/rea/commit/765e809e366eff21b4b9c224f1a813ad64245ea3))
+* **artifacts:** remove unused root classifier ([5291bca](https://github.com/morluto/rea/commit/5291bca108af781214572fac709f9808bb8aa4db))
+* **artifacts:** test inventory changes at materialization boundary ([750fb65](https://github.com/morluto/rea/commit/750fb6565052e9eaad40b946b6a284d0730d14f8))
+* **browser:** open scenario sessions without a factory wrapper ([d1983a4](https://github.com/morluto/rea/commit/d1983a45767bfcdc020652f48109a78a3f9fa590))
+* **catalog:** import CLI metadata from its owner ([8c96baa](https://github.com/morluto/rea/commit/8c96baab80dc258d31ca1632d761fffb11dbaaae))
+* consolidate boundary semantics and prune redundant tests ([392f1f3](https://github.com/morluto/rea/commit/392f1f310733f2c365da7bc57a1154cf10ec4ba0))
+* **javascript:** normalize erased expression syntax once ([b628bba](https://github.com/morluto/rea/commit/b628bba1fa65fd3b51363bf4b745f0afc57e1dba))
+* **javascript:** parse runtime evidence into one verified owner ([006b295](https://github.com/morluto/rea/commit/006b295f1de19fd5351832cf52d98a202a5cd5cd))
+* **javascript:** remove obsolete scope truncation statistic ([449d570](https://github.com/morluto/rea/commit/449d57075eec71b2f064af8877c50cbbde30a283))
+* **javascript:** share Babel child traversal ([0f10499](https://github.com/morluto/rea/commit/0f10499245ec2fab8823f116caf34450b3a7385b))
+* **javascript:** share semantic evidence at fact construction ([e3bbb9a](https://github.com/morluto/rea/commit/e3bbb9ac453da8d15f3b32511180451613710616))
+* **process:** remove duplicate observation and trace entry points ([070339a](https://github.com/morluto/rea/commit/070339af50a50a0f23e82db859e761c53277ee79))
+* **providers:** use canonical artifact and managed identities ([87f0051](https://github.com/morluto/rea/commit/87f0051496aff1b05ab24d6b63f79884f4ca9b8f))
+* **reference:** simplify malformed UTF-8 handling ([377df71](https://github.com/morluto/rea/commit/377df715ea5b2523cd6c1084fdc286eb8a056182))
+* remove obsolete source exclusions and identity wrapper ([44c92f8](https://github.com/morluto/rea/commit/44c92f88c51841735741811a68cc89fde14efa80))
+* remove single-use forwarding helpers ([4144e45](https://github.com/morluto/rea/commit/4144e454f385c372d29e301e6bb959092c606a6e))
+
+
+### Documentation
+
+* keep license sections text-only ([e10f1f0](https://github.com/morluto/rea/commit/e10f1f0901fa56fb4443837cf9528b31a12e140e))
+* align translated README artwork and layout ([ccfbe87](https://github.com/morluto/rea/commit/ccfbe87e984e456e12c66d0d2fe6d5a559d09518))
+* add README artwork and refine closing sections ([4b8e744](https://github.com/morluto/rea/commit/4b8e744d90579e353371649047215c4e4be7a5f6))
+* add repository-local REA tool design skill ([7738c1f](https://github.com/morluto/rea/commit/7738c1f6a9ccf1ec9868ef832f154abe9ba5eebd))
+* celebrate 40,000 GitHub stars 🎉 ([3edb217](https://github.com/morluto/rea/commit/3edb2172def0e0bd9076f23148f0c41cd2f341a3))
+* celebrate 40,000 GitHub stars 🎉 ([5ecc98a](https://github.com/morluto/rea/commit/5ecc98a5eac4c10d33e9c418b9ffae61c68e3ef2))
+* consolidate agent guidance around ownership and boundaries ([ba44222](https://github.com/morluto/rea/commit/ba4422296dc409d49836f25642555e00463bfe3b))
+* **contracts:** explain canonical URL and skill metadata ownership ([e36afa1](https://github.com/morluto/rea/commit/e36afa112fd7b7ab5a925ca452de93b68f12a6ab))
+* correct MCP error and capture import guidance ([077d6c4](https://github.com/morluto/rea/commit/077d6c407b3ea7443a7277ae0e5531b3927dd742))
+* correct README setup and runtime guidance ([5b3715e](https://github.com/morluto/rea/commit/5b3715ef825a30150b02d3f1bb7d40dd89453018))
+* explain CI scope and native runner reuse ([#1348](https://github.com/morluto/rea/issues/1348)) ([6c9161d](https://github.com/morluto/rea/commit/6c9161d61745e242643f224ce49e7468143a15f3))
+* prune repeated contributor and tool design instructions ([5d79387](https://github.com/morluto/rea/commit/5d79387505ebae1ec8d800ee3ffd901920a9d8be))
+* remove retired architecture and migration artifacts ([7a0c800](https://github.com/morluto/rea/commit/7a0c80085128e6329ca2e4f54f3539f3245c57d1))
+
+
+### Tests
+
+* share the client registration command to restore the jscpd gate ([#1317](https://github.com/morluto/rea/pull/1317)) ([5d16be2](https://github.com/morluto/rea/commit/5d16be2a7185db8b70a5fcbc5f5e1be63297f2c8))
+* **mcp:** remove arbitrary schema inventory thresholds ([24673aa](https://github.com/morluto/rea/commit/24673aaae497ca4ef0902544c0cd69817f5424ed))
+* **android:** allow provider readiness under load ([961c3c3](https://github.com/morluto/rea/commit/961c3c3de79ec44d608d011eb3fa3d6bd645cf6a))
+* **artifacts:** verify extraction races with real filesystem changes ([1ac8389](https://github.com/morluto/rea/commit/1ac8389c5c1f75faf8d7f2f3faf2f24febad5fea))
+* **browser:** avoid duplicating source-map listener setup ([9367dc1](https://github.com/morluto/rea/commit/9367dc13bd8d2732d36d5376b5de170c9f4af424))
+* **browser:** report redirect status cases independently ([5a61562](https://github.com/morluto/rea/commit/5a61562dc200120c7b8020854085c17b8203e95d))
+* **cli:** remove duplicate malformed JSON assertion ([5d32e42](https://github.com/morluto/rea/commit/5d32e4252941e93065cadd83b9f02aa6427544d8))
+* exercise source test selection through Git and Vitest ([25711ad](https://github.com/morluto/rea/commit/25711ad2590af136dfb301839dddd6d30971ba76))
+* **filesystem:** bound FIFO regressions at consumers ([0bfb6e0](https://github.com/morluto/rea/commit/0bfb6e00abae1e67a96e548d64954bb21861f621))
+* **ghidra:** allow rollback tests to reach spawned process ([d761d73](https://github.com/morluto/rea/commit/d761d7358b45fe0724b182a206241fd605f338b0))
+* **javascript:** share primitive expansion producer fixtures ([c867bcd](https://github.com/morluto/rea/commit/c867bcd0aadd63473865f9a328459e0db3c89565))
+* **javascript:** share semantic graph test facts ([ac356c4](https://github.com/morluto/rea/commit/ac356c46ad6a17c8864bc5d350984786db62d2f5))
+* **javascript:** verify distinct module origins through reconstruction ([96b2b24](https://github.com/morluto/rea/commit/96b2b245fdefc9c78f5dcf6ce054232b51f7c117))
+* **json:** remove assertions covered by CLI output consumers ([a959a83](https://github.com/morluto/rea/commit/a959a8309db79fbee6477efd7ee541615e625627))
+* **managed:** include shared dossier fixture in artifact inputs ([66a20a2](https://github.com/morluto/rea/commit/66a20a2597b5daebc0a292361aa62a78b7df6e7d))
+* **native:** retain trace diagnostics when observed hits differ ([048b798](https://github.com/morluto/rea/commit/048b79878c70c594789909082499dc675472b63a))
+* **package:** share validated native dossier fixtures ([ca90109](https://github.com/morluto/rea/commit/ca9010936a934a49fbc6cf69eb1d7fc2242b6da9))
+* **process:** publish capture readiness atomically ([74be526](https://github.com/morluto/rea/commit/74be52611e66f680ef1919d521fc3c304bc2326e))
+* **process:** report cleanup details on cancellation failures ([79d5b9a](https://github.com/morluto/rea/commit/79d5b9a826b9204c1ef59b0a5c5ec83e7a2f2bec))
+* **process:** use owned CLI and workspace fixtures ([4940a86](https://github.com/morluto/rea/commit/4940a867e2e56cbb974bfa321008a8f35db47d52))
+* share snapshot replay and managed graph fixtures ([d83cbd2](https://github.com/morluto/rea/commit/d83cbd2abf1bbf15beef990f5353457fdbaaeb8e))
+
+
+### Continuous Integration
+
+* enforce architecture guards with portable checkout paths ([ecc67ca](https://github.com/morluto/rea/commit/ecc67cab2d85cacda245890ffe84b80ac395d79e))
+
 ## [6.2.0](https://github.com/morluto/rea/compare/rea-agents-6.1.0...rea-agents-6.2.0) (2026-10-09)
 
 

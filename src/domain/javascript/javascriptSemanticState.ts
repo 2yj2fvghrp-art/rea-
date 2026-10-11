@@ -1,5 +1,7 @@
 import * as t from "@babel/types";
 
+import type { JavaScriptSemanticPropertyPath } from "./javascriptSemanticPropertyPaths.js";
+
 import type {
   JavaScriptModuleOrigin,
   JavaScriptSemanticDefinition,
@@ -12,6 +14,17 @@ import type {
 interface JavaScriptSemanticInitializer {
   readonly node: t.Node;
   readonly projection: readonly (string | number | null)[];
+  readonly entryBody?: t.BlockStatement;
+}
+
+/** Additional references from destructuring copies and possible defaults. */
+interface JavaScriptSemanticReferenceInitializer extends JavaScriptSemanticInitializer {
+  readonly copyKind?: "object-rest" | "array-rest";
+  readonly copyProjectionOffset?: number;
+  readonly copyExcludedKeys?: readonly string[];
+  readonly copyStartIndex?: number;
+  readonly fallbackSources?: readonly JavaScriptSemanticInitializer[];
+  readonly requiredSources?: readonly JavaScriptSemanticInitializer[];
 }
 
 /** Mutable binding state used only while constructing the immutable IR. */
@@ -21,9 +34,14 @@ export interface JavaScriptSemanticBindingState {
   readonly name: string;
   kind: JavaScriptSemanticDefinition["kind"];
   mutable: boolean;
-  readonly mutatedPaths: (readonly (string | number | null)[])[];
+  readonly mutatedPaths: JavaScriptSemanticPropertyPath[];
+  readonly escapedPaths: {
+    readonly path: JavaScriptSemanticPropertyPath;
+    readonly node: t.Node | undefined;
+  }[];
   readonly definitions: JavaScriptSemanticDefinition[];
   readonly initializers: JavaScriptSemanticInitializer[];
+  readonly referenceInitializers: JavaScriptSemanticReferenceInitializer[];
   readonly directOrigins: JavaScriptModuleOrigin[];
 }
 
@@ -39,13 +57,20 @@ export interface JavaScriptSemanticScopeState {
 
 /** Shared state for semantic collection and evaluation. */
 export interface JavaScriptSemanticAnalysisState {
+  readonly parentsByNode: WeakMap<t.Node, t.Node>;
   readonly scopes: JavaScriptSemanticScopeState[];
   readonly scopesById: Map<string, JavaScriptSemanticScopeState>;
+  /** Scope boundaries and descendant scopes resolved on demand. */
   readonly scopeByNode: WeakMap<t.Node, JavaScriptSemanticScopeState>;
   readonly bindingsById: Map<string, JavaScriptSemanticBindingState>;
   readonly callables: JavaScriptSemanticCallable[];
   readonly callableNodesById: Map<string, t.Node>;
   readonly moduleLinks: JavaScriptSemanticModuleLink[];
+  readonly moduleLinkBindings: WeakMap<
+    JavaScriptSemanticModuleLink,
+    JavaScriptSemanticBindingState
+  >;
+  readonly conditionalInitializers: WeakSet<t.Node>;
 }
 
 /** Return the active scope from a non-empty construction stack. */
@@ -64,13 +89,17 @@ export const semanticScopeId = (
 ): string =>
   `scope:${kind}:${String(node.start ?? -1)}:${String(node.end ?? -1)}`;
 
+/** Create the canonical identity used by one binding in a lexical scope. */
+export const semanticBindingId = (scopeId: string, name: string): string =>
+  `${scopeId}:binding:${encodeURIComponent(name)}`;
+
 /** Resolve one lexical name from the scope containing a node. */
 export const resolveSemanticBindingState = (
   state: JavaScriptSemanticAnalysisState,
   node: t.Node,
   name: string,
 ): JavaScriptSemanticBindingState | undefined => {
-  let scope = state.scopeByNode.get(node);
+  let scope = semanticScopeForNode(state, node);
   while (scope !== undefined) {
     const binding = scope.bindings.get(name);
     if (binding !== undefined) return binding;
@@ -89,7 +118,7 @@ export const semanticResolutionBlocked = (
   node: t.Node,
   name: string,
 ): boolean => {
-  let scope = state.scopeByNode.get(node);
+  let scope = semanticScopeForNode(state, node);
   while (scope !== undefined) {
     if (scope.bindings.has(name)) return false;
     if (!scope.bindingsComplete) return true;
@@ -99,6 +128,28 @@ export const semanticResolutionBlocked = (
         : state.scopesById.get(scope.parentScopeId);
   }
   return false;
+};
+
+const semanticScopeForNode = (
+  state: JavaScriptSemanticAnalysisState,
+  node: t.Node,
+): JavaScriptSemanticScopeState | undefined => {
+  let candidate: t.Node | undefined = node;
+  while (candidate !== undefined) {
+    const scope = state.scopeByNode.get(candidate);
+    if (scope !== undefined) {
+      // Repeated references in a deep expression share this ancestry. Cache
+      // the traversed path without eagerly indexing nodes never resolved.
+      let descendant: t.Node | undefined = node;
+      while (descendant !== undefined && descendant !== candidate) {
+        state.scopeByNode.set(descendant, scope);
+        descendant = state.parentsByNode.get(descendant);
+      }
+      return scope;
+    }
+    candidate = state.parentsByNode.get(candidate);
+  }
+  return undefined;
 };
 
 /** Resolve one name starting from an explicitly selected lexical scope. */

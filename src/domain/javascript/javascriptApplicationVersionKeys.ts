@@ -1,5 +1,8 @@
 import { canonicalJson } from "../comparisonSemantics.js";
-import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
+import {
+  compareUnicodeCodePoints,
+  compositeKey,
+} from "../unicodeCodePointOrder.js";
 import type { ApplicationNode } from "./javascriptApplicationGraphSchemas.js";
 import type { JsonValue } from "../jsonValue.js";
 
@@ -254,7 +257,15 @@ const semanticValue = (
     return (
       joined(
         properties.specifier,
-        stringList(properties.requested_members).join(","),
+        compositeKey([
+          stringList(properties.requested_members),
+          typeof properties.namespace_access === "boolean"
+            ? properties.namespace_access
+            : null,
+          typeof properties.dynamic_member_access === "boolean"
+            ? properties.dynamic_member_access
+            : null,
+        ]),
       ) ?? firstLabel(node)
     );
   if (
@@ -295,7 +306,7 @@ const uniqueStringProperty = (
 
 const joined = (...values: readonly unknown[]): string | null => {
   const strings = values.map(nonEmptyString);
-  return strings.some((value) => value === null) ? null : strings.join("\0");
+  return strings.some((value) => value === null) ? null : compositeKey(strings);
 };
 
 const nonEmptyString = (value: unknown): string | null =>

@@ -21,14 +21,14 @@ async function fixture(eol = "\n") {
     await mkdir(dirname(join(root, path)), { recursive: true });
     await copyFile(join(repositoryRoot, path), join(root, path));
   }
-  const sourceRoot = join(root, "skill-src/reverse-engineer-anything");
+  const sourceRoot = join(root, ".agents/skills/reverse-engineer-anything");
   const outputRoot = join(root, "skills/reverse-engineer-anything");
   await mkdir(join(sourceRoot, "references"), { recursive: true });
   await mkdir(join(root, "dist"));
   await writeFile(join(root, "package.json"), '{"type":"module"}\n');
   await writeFile(
-    join(root, "dist/generatedPackageMetadata.js"),
-    'export const PACKAGE_METADATA = { name: "rea-agents", version: "6.2.0" };\n',
+    join(root, "dist/identity.js"),
+    'export const PRODUCT_IDENTITY = { packageSpecifier: "rea-agents@latest", registrationPackageSpecifier: "rea-agents@6.2.0" };\n',
   );
   await writeFile(join(sourceRoot, "SKILL.md"), authored.replaceAll("\n", eol));
   await writeFile(

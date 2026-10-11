@@ -6,23 +6,32 @@ import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import { canonicalJsonDigestSteps } from "../canonicalJsonDigestSteps.js";
 import { freezeOwnedJsonSnapshotSteps } from "../immutableJson.js";
-import type { ApplicationGraphEvidence } from "./javascriptApplicationEvidenceSchemas.js";
+import {
+  arrayContainerSchema,
+  parseElementSteps,
+} from "../zodCollectionSteps.js";
+import type {
+  ApplicationGraphEvidence,
+  ApplicationGraphEvidenceContext,
+} from "./javascriptApplicationEvidenceSchemas.js";
+import { applicationGraphEvidenceSchema } from "./javascriptApplicationEvidenceSchemas.js";
 import {
   JAVASCRIPT_SEMANTIC_RELATION_FAMILIES,
   JAVASCRIPT_SEMANTIC_RELATION_FAMILY,
   javaScriptSemanticFingerprintInputSchema,
-  javaScriptSemanticFingerprintSchema,
+  javaScriptSemanticEvidenceContextSchema,
   javaScriptSemanticGraphInputSchema,
   javaScriptSemanticGraphRecordSchema,
   javaScriptSemanticNodeInputSchema,
-  javaScriptSemanticNodeSchema,
   javaScriptSemanticRelationInputSchema,
-  javaScriptSemanticRelationSchema,
   javaScriptSemanticUnknownInputSchema,
-  javaScriptSemanticUnknownSchema,
   type JavaScriptSemanticGraphInput,
   type JavaScriptSemanticGraphNode,
   type JavaScriptSemanticGraphRelation,
+  type JavaScriptSemanticGraphUnknown,
+  type JavaScriptSemanticFingerprint,
+  type JavaScriptSemanticEvidenceContext,
+  type JavaScriptSemanticEvidenceReference,
 } from "./javascriptSemanticGraphSchemas.js";
 
 const normalizeEvidence = (
@@ -42,6 +51,94 @@ const normalizeEvidence = (
   evidence_ids: uniqueSorted(evidence.evidence_ids),
 });
 
+const evidenceContextId = (context: ApplicationGraphEvidenceContext): string =>
+  `jsrg_evidence_${digestCanonicalValue(context, "JavaScript semantic evidence context")}`;
+
+/** Graph-scoped owner for canonical provenance shared by semantic facts. */
+export class JavaScriptSemanticEvidenceContextRegistry {
+  readonly #contexts = new Map<string, JavaScriptSemanticEvidenceContext>();
+  // Facts share a few contexts, so key them by canonical text and hash each
+  // distinct context once instead of on every fact.
+  readonly #idsByCanonicalContext = new Map<string, string>();
+
+  /** Intern normalized non-location provenance at fact construction. */
+  intern(
+    evidence: ApplicationGraphEvidence,
+  ): JavaScriptSemanticEvidenceReference {
+    const normalized = normalizeEvidence(evidence);
+    const { location, ...context } = normalized;
+    const canonicalContext = canonicalJson(
+      context,
+      "JavaScript semantic graph",
+    );
+    const internedId = this.#idsByCanonicalContext.get(canonicalContext);
+    if (internedId !== undefined) return { context_id: internedId, location };
+    const contextId = evidenceContextId(context);
+    // This canonical context is new, so a row already stored under its
+    // digest holds different provenance.
+    if (this.#contexts.has(contextId))
+      throw new TypeError(
+        "JavaScript semantic evidence context digest collision",
+      );
+    this.#contexts.set(contextId, { ...context, context_id: contextId });
+    this.#idsByCanonicalContext.set(canonicalContext, contextId);
+    return { context_id: contextId, location };
+  }
+
+  /** Resolve one already interned fact reference for derived evidence. */
+  resolve(
+    reference: JavaScriptSemanticEvidenceReference,
+  ): ApplicationGraphEvidence {
+    const context = this.#contexts.get(reference.context_id);
+    if (context === undefined)
+      throw new TypeError(
+        "Semantic evidence reference names an absent context",
+      );
+    const { context_id: _contextId, ...evidenceContext } = context;
+    return { ...evidenceContext, location: reference.location };
+  }
+
+  /** Return the deterministic context table owned by this graph projection. */
+  get contexts(): JavaScriptSemanticEvidenceContext[] {
+    return [...this.#contexts.values()].sort((left, right) =>
+      compareUnicodeCodePoints(left.context_id, right.context_id),
+    );
+  }
+
+  /** Release interned contexts after the owning graph is finalized. */
+  clear(): void {
+    this.#contexts.clear();
+    this.#idsByCanonicalContext.clear();
+  }
+
+  /** Validate and intern provenance decoded in this realm from an analysis worker. */
+  adopt(input: unknown): void {
+    const context = javaScriptSemanticEvidenceContextSchema.parse(input);
+    const { context_id: identifier, ...value } = context;
+    if (identifier !== evidenceContextId(value))
+      throw new TypeError(
+        "Transferred semantic evidence context identifier is stale",
+      );
+    const canonical = canonicalJson(
+      value,
+      "JavaScript semantic evidence context",
+    );
+    const existing = this.#contexts.get(identifier);
+    if (existing !== undefined) {
+      const { context_id: _existingIdentifier, ...existingValue } = existing;
+      if (
+        canonical !==
+        canonicalJson(existingValue, "JavaScript semantic evidence context")
+      )
+        throw new TypeError(
+          "Transferred semantic evidence context digest collision",
+        );
+    }
+    this.#contexts.set(identifier, context);
+    this.#idsByCanonicalContext.set(canonical, identifier);
+  }
+}
+
 /** Derive a semantic node ID from its kind and exact artifact identity. */
 export const javaScriptSemanticNodeId = (
   node: Pick<JavaScriptSemanticGraphNode, "kind" | "identity">,
@@ -51,59 +148,59 @@ export const javaScriptSemanticNodeId = (
 /** Normalize one semantic entity and derive its artifact-version identifier. */
 export const createJavaScriptSemanticGraphNode = (
   input: unknown,
+  evidenceContexts: JavaScriptSemanticEvidenceContextRegistry,
 ): JavaScriptSemanticGraphNode => {
   const parsed = javaScriptSemanticNodeInputSchema.parse(input);
   const semantic = {
     ...parsed,
     application_node_ids: uniqueSorted(parsed.application_node_ids),
-    evidence: normalizeEvidence(parsed.evidence),
-    identifier_strategy: {
-      strategy: "semantic-content-sha256" as const,
-      stability: "artifact-version" as const,
-    },
+    evidence: evidenceContexts.intern(parsed.evidence),
   };
-  return javaScriptSemanticNodeSchema.parse({
+  return {
     ...semantic,
     node_id: javaScriptSemanticNodeId(semantic),
-  });
+  };
 };
 
 /** Normalize one semantic relationship and derive its exact identifier. */
 export const createJavaScriptSemanticGraphRelation = (
   input: unknown,
+  evidenceContexts: JavaScriptSemanticEvidenceContextRegistry,
 ): JavaScriptSemanticGraphRelation => {
   const parsed = javaScriptSemanticRelationInputSchema.parse(input);
   const semantic = {
     ...parsed,
-    evidence: normalizeEvidence(parsed.evidence),
-    identifier_strategy: {
-      strategy: "semantic-content-sha256" as const,
-      stability: "relationship-exact" as const,
-    },
+    evidence: evidenceContexts.intern(parsed.evidence),
   };
-  return javaScriptSemanticRelationSchema.parse({
+  return {
     ...semantic,
     relation_id: `jsrg_relation_${digestCanonicalValue(semantic, "JavaScript semantic graph")}`,
-  });
+  };
 };
 
 /** Normalize one unresolved semantic frontier and derive its identifier. */
-export const createJavaScriptSemanticGraphUnknown = (input: unknown) => {
+export const createJavaScriptSemanticGraphUnknown = (
+  input: unknown,
+  evidenceContexts: JavaScriptSemanticEvidenceContextRegistry,
+): JavaScriptSemanticGraphUnknown => {
   const parsed = javaScriptSemanticUnknownInputSchema.parse(input);
   const semantic = {
     ...parsed,
     relation_kinds: uniqueSorted(parsed.relation_kinds),
     candidate_node_ids: uniqueSorted(parsed.candidate_node_ids),
-    evidence: normalizeEvidence(parsed.evidence),
+    evidence: evidenceContexts.intern(parsed.evidence),
   };
-  return javaScriptSemanticUnknownSchema.parse({
+  return {
     ...semantic,
     unknown_id: `jsrg_unknown_${digestCanonicalValue(semantic, "JavaScript semantic graph")}`,
-  });
+  };
 };
 
 /** Normalize one function fingerprint and derive its component commitment. */
-export const createJavaScriptSemanticFingerprint = (input: unknown) => {
+export const createJavaScriptSemanticFingerprint = (
+  input: unknown,
+  evidenceContexts: JavaScriptSemanticEvidenceContextRegistry,
+): JavaScriptSemanticFingerprint => {
   const parsed = javaScriptSemanticFingerprintInputSchema.parse(input);
   const semantic = {
     ...parsed,
@@ -112,13 +209,13 @@ export const createJavaScriptSemanticFingerprint = (input: unknown) => {
       effects: uniqueSorted(parsed.components.effects),
     },
     limitations: uniqueSorted(parsed.limitations),
-    evidence: normalizeEvidence(parsed.evidence),
+    evidence: evidenceContexts.intern(parsed.evidence),
   };
   const fingerprintSha256 = digestCanonicalValue(
     semantic.components,
     "JavaScript semantic graph",
   );
-  return javaScriptSemanticFingerprintSchema.parse({
+  return {
     ...semantic,
     fingerprint_sha256: fingerprintSha256,
     fingerprint_id: `jsrg_fingerprint_${digestCanonicalValue(
@@ -129,7 +226,7 @@ export const createJavaScriptSemanticFingerprint = (input: unknown) => {
       },
       "JavaScript semantic graph",
     )}`,
-  });
+  };
 };
 
 type GraphRecord = z.infer<typeof javaScriptSemanticGraphRecordSchema>;
@@ -253,6 +350,12 @@ const checkCanonicalOrder = (
     context,
   );
   sortedUniqueIssue(
+    graph.evidence_contexts.map(({ context_id }) => context_id),
+    ["evidence_contexts"],
+    "Evidence contexts",
+    context,
+  );
+  sortedUniqueIssue(
     graph.nodes.map(({ node_id }) => node_id),
     ["nodes"],
     "Nodes",
@@ -278,6 +381,66 @@ const checkCanonicalOrder = (
   );
   sortedUniqueIssue(graph.limitations, ["limitations"], "Limitations", context);
 };
+
+function* checkEvidenceContextReferencesSteps(
+  graph: GraphRecord,
+  context: GraphIssueReporter,
+): Generator<void> {
+  const contexts = new Map(
+    graph.evidence_contexts.map((value) => [value.context_id, value]),
+  );
+  const referenced = new Set<string>();
+  const validateReferences = function* (
+    entities: readonly { evidence: JavaScriptSemanticEvidenceReference }[],
+    entityKind: "nodes" | "relations" | "unknowns" | "fingerprints",
+  ): Generator<void> {
+    for (const [index, { evidence }] of entities.entries()) {
+      if (index % 256 === 0) yield;
+      referenced.add(evidence.context_id);
+      const evidenceContext = contexts.get(evidence.context_id);
+      if (evidenceContext === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: [entityKind, index, "evidence", "context_id"],
+          message: "Evidence reference names an absent context",
+        });
+        continue;
+      }
+      const { context_id: _contextId, ...evidenceValue } = evidenceContext;
+      if (
+        !applicationGraphEvidenceSchema.safeParse({
+          ...evidenceValue,
+          location: evidence.location,
+        }).success
+      )
+        context.addIssue({
+          code: "custom",
+          path: [entityKind, index, "evidence"],
+          message: "Evidence context is incompatible with its fact location",
+        });
+    }
+  };
+  yield* validateReferences(graph.nodes, "nodes");
+  yield* validateReferences(graph.relations, "relations");
+  yield* validateReferences(graph.unknowns, "unknowns");
+  yield* validateReferences(graph.fingerprints, "fingerprints");
+  for (const [index, evidenceContext] of graph.evidence_contexts.entries()) {
+    if (index % 256 === 0) yield;
+    const { context_id: identifier, ...value } = evidenceContext;
+    if (identifier !== evidenceContextId(value))
+      context.addIssue({
+        code: "custom",
+        path: ["evidence_contexts", index, "context_id"],
+        message: "Evidence context identifier is stale",
+      });
+    if (!referenced.has(identifier))
+      context.addIssue({
+        code: "custom",
+        path: ["evidence_contexts", index],
+        message: "Evidence context is not referenced by a graph fact",
+      });
+  }
+}
 
 function* checkNodesSteps(
   graph: GraphRecord,
@@ -323,6 +486,7 @@ function* checkRootsSteps(
 function* checkRelationsSteps(
   graph: GraphRecord,
   nodes: ReadonlyMap<string, JavaScriptSemanticGraphNode>,
+  evidenceContexts: ReadonlyMap<string, JavaScriptSemanticEvidenceContext>,
   context: GraphIssueReporter,
 ): Generator<void> {
   for (const [index, relation] of graph.relations.entries()) {
@@ -355,7 +519,7 @@ function* checkRelationsSteps(
       });
     if (
       relation.resolution === "candidate" &&
-      relation.evidence.state === "observed"
+      evidenceContexts.get(relation.evidence.context_id)?.state === "observed"
     )
       context.addIssue({
         code: "custom",
@@ -368,6 +532,7 @@ function* checkRelationsSteps(
 function* checkUnknownsSteps(
   graph: GraphRecord,
   nodes: ReadonlyMap<string, JavaScriptSemanticGraphNode>,
+  evidenceContexts: ReadonlyMap<string, JavaScriptSemanticEvidenceContext>,
   context: GraphIssueReporter,
 ): Generator<void> {
   for (const [index, unknown] of graph.unknowns.entries()) {
@@ -405,7 +570,10 @@ function* checkUnknownsSteps(
         path: ["unknowns", index, "relation_kinds"],
         message: "Unknown relation kinds must belong to their declared family",
       });
-    if (!["unknown", "unavailable"].includes(unknown.evidence.state))
+    const evidenceState = evidenceContexts.get(
+      unknown.evidence.context_id,
+    )?.state;
+    if (evidenceState !== "unknown" && evidenceState !== "unavailable")
       context.addIssue({
         code: "custom",
         path: ["unknowns", index, "evidence", "state"],
@@ -485,6 +653,13 @@ function* checkGraphContentSteps(
   context: GraphIssueReporter,
 ): Generator<void> {
   checkCanonicalOrder(graph, context);
+  yield* checkEvidenceContextReferencesSteps(graph, context);
+  const evidenceContexts = new Map(
+    graph.evidence_contexts.map((evidenceContext) => [
+      evidenceContext.context_id,
+      evidenceContext,
+    ]),
+  );
   const nodes = new Map<string, JavaScriptSemanticGraphNode>();
   for (const [index, node] of graph.nodes.entries()) {
     if (index % 256 === 0) yield;
@@ -492,8 +667,8 @@ function* checkGraphContentSteps(
   }
   yield* checkNodesSteps(graph, nodes, context);
   yield* checkRootsSteps(graph, nodes, context);
-  yield* checkRelationsSteps(graph, nodes, context);
-  yield* checkUnknownsSteps(graph, nodes, context);
+  yield* checkRelationsSteps(graph, nodes, evidenceContexts, context);
+  yield* checkUnknownsSteps(graph, nodes, evidenceContexts, context);
   checkUnknownReferences(graph, context);
   yield* checkFingerprintsSteps(graph, nodes, context);
   yield* checkCoverageSteps(graph, context);
@@ -538,11 +713,28 @@ export type JavaScriptSemanticGraph = z.infer<
   typeof javaScriptSemanticGraphSchema
 >;
 
+/** Resolve one fact's compact provenance without changing its stored shape. */
+export const resolveJavaScriptSemanticEvidence = (
+  graph: Pick<JavaScriptSemanticGraph, "evidence_contexts">,
+  reference: JavaScriptSemanticEvidenceReference,
+): ApplicationGraphEvidence => {
+  const context = graph.evidence_contexts.find(
+    ({ context_id }) => context_id === reference.context_id,
+  );
+  if (context === undefined)
+    throw new TypeError("Semantic evidence reference names an absent context");
+  const { context_id: _contextId, ...evidenceContext } = context;
+  return { ...evidenceContext, location: reference.location };
+};
+
 const normalizeGraphInput = (
   parsed: JavaScriptSemanticGraphInput,
 ): JavaScriptSemanticGraphInput => ({
   ...parsed,
   root_node_ids: uniqueSorted(parsed.root_node_ids),
+  evidence_contexts: [...parsed.evidence_contexts].sort((left, right) =>
+    compareUnicodeCodePoints(left.context_id, right.context_id),
+  ),
   nodes: [...parsed.nodes].sort((left, right) =>
     compareUnicodeCodePoints(left.node_id, right.node_id),
   ),
@@ -601,6 +793,15 @@ export const createJavaScriptSemanticGraph = (
 
 const validatedImmutableSemanticGraphs = new WeakSet<object>();
 
+const semanticGraphShape = javaScriptSemanticGraphInputSchema.shape;
+const semanticGraphContainerSchema = javaScriptSemanticGraphInputSchema.extend({
+  evidence_contexts: arrayContainerSchema(semanticGraphShape.evidence_contexts),
+  nodes: arrayContainerSchema(semanticGraphShape.nodes),
+  relations: arrayContainerSchema(semanticGraphShape.relations),
+  fingerprints: arrayContainerSchema(semanticGraphShape.fingerprints),
+  unknowns: arrayContainerSchema(semanticGraphShape.unknowns),
+});
+
 /** Clone input synchronously; commit, check and seal the owned graph in steps. */
 export const createImmutableJavaScriptSemanticGraphSteps = (
   input: unknown,
@@ -608,6 +809,58 @@ export const createImmutableJavaScriptSemanticGraphSteps = (
   validateAndSealSemanticGraphSteps(
     normalizeGraphInput(javaScriptSemanticGraphInputSchema.parse(input)),
   );
+
+/**
+ * Seal a graph whose input the caller transfers: the caller neither retains nor
+ * mutates any part of it afterwards. Only the graph's own fields are validated
+ * synchronously; collection elements are validated and cloned in steps, because
+ * a whole-graph parse of a large application held the event loop for seconds.
+ */
+export const sealTransferredJavaScriptSemanticGraphSteps = (
+  input: unknown,
+): Generator<void, JavaScriptSemanticGraph> =>
+  parseAndSealSemanticGraphSteps(semanticGraphContainerSchema.parse(input));
+
+function* parseAndSealSemanticGraphSteps(
+  container: z.output<typeof semanticGraphContainerSchema>,
+): Generator<void, JavaScriptSemanticGraph> {
+  const issues: z.core.$ZodIssue[] = [];
+  const parsed: JavaScriptSemanticGraphInput = {
+    ...container,
+    evidence_contexts: yield* parseElementSteps(
+      semanticGraphShape.evidence_contexts.element,
+      container.evidence_contexts,
+      ["evidence_contexts"],
+      issues,
+    ),
+    nodes: yield* parseElementSteps(
+      semanticGraphShape.nodes.element,
+      container.nodes,
+      ["nodes"],
+      issues,
+    ),
+    relations: yield* parseElementSteps(
+      semanticGraphShape.relations.element,
+      container.relations,
+      ["relations"],
+      issues,
+    ),
+    fingerprints: yield* parseElementSteps(
+      semanticGraphShape.fingerprints.element,
+      container.fingerprints,
+      ["fingerprints"],
+      issues,
+    ),
+    unknowns: yield* parseElementSteps(
+      semanticGraphShape.unknowns.element,
+      container.unknowns,
+      ["unknowns"],
+      issues,
+    ),
+  };
+  if (issues.length > 0) throw new z.ZodError(issues);
+  return yield* validateAndSealSemanticGraphSteps(normalizeGraphInput(parsed));
+}
 
 function* validateAndSealSemanticGraphSteps(
   semantic: JavaScriptSemanticGraphInput,

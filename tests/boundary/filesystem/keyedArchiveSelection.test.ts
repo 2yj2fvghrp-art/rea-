@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readdir, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { build } from "plist";
@@ -63,6 +64,82 @@ it.each([
         },
       ],
     });
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "rejects a selected unreadable directory before descending into it",
+  async () => {
+    const root = await bundle();
+    const selected = join(root, "Contents", "Resources");
+    await chmod(selected, 0);
+    try {
+      await expect(readdir(selected)).rejects.toMatchObject({ code: "EACCES" });
+      await expect(
+        inspect(root, { path: "Contents/Resources" }),
+      ).rejects.toMatchObject({
+        issues: [
+          {
+            path: ["path"],
+            reason: "invalid_value",
+            message: expect.stringContaining("selects a directory"),
+          },
+        ],
+      });
+    } finally {
+      await chmod(selected, 0o700);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "inspects an active standalone archive without opening unrelated directories",
+  async () => {
+    const root = await createTestTempDirectory("rea-keyed-standalone-scope-");
+    const path = join(root, "Model.plist");
+    const bytes = Buffer.from(archive);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    await writeFile(path, bytes);
+    const blocked = join(root, "unrelated");
+    await mkdir(blocked);
+    await chmod(blocked, 0);
+    try {
+      await expect(readdir(blocked)).rejects.toMatchObject({ code: "EACCES" });
+      const result = await new ArtifactProvider(process.env, "darwin")
+        .createClient({ path, sha256, kind: "artifact", format: "plist" })
+        .execute("inspect_keyed_archive", {});
+      if (!result.ok) throw result.error;
+      expect(result.value.result).toMatchObject({
+        archive_path: "Model.plist",
+        archive_sha256: sha256,
+      });
+    } finally {
+      await chmod(blocked, 0o700);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "reports the selected oversized archive limit despite an unreadable sibling",
+  async () => {
+    const root = await createTestTempDirectory("rea-keyed-size-scope-");
+    const path = join(root, "Large.plist");
+    await writeFile(path, archive);
+    await truncate(path, 64 * 1024 * 1024 + 1);
+    const blocked = join(root, "unrelated");
+    await mkdir(blocked);
+    await chmod(blocked, 0);
+    try {
+      await expect(readdir(blocked)).rejects.toMatchObject({ code: "EACCES" });
+      await expect(
+        inspect(root, { path: "Large.plist" }),
+      ).rejects.toMatchObject({
+        reason: "limit",
+        message: "Keyed archive exceeds 64 MiB",
+      });
+    } finally {
+      await chmod(blocked, 0o700);
+    }
   },
 );
 
@@ -165,6 +242,84 @@ it("keeps a damaged NSKeyedArchiver archive a format failure", async () => {
     reason: "format",
     message: expect.stringContaining("$objects array"),
   });
+});
+
+it("selects a decomposed bundle path by its normalized spelling and reports the raw identity", async () => {
+  const root = await bundle();
+  const rawPath = `Contents/Resources/Caf\u0065\u0301.plist`;
+  const bytes = Buffer.from(archive);
+  await writeFile(join(root, rawPath), bytes);
+
+  const result = await inspect(root, {
+    path: rawPath.normalize("NFC"),
+  });
+
+  expect(result.archive_path).toBe(rawPath);
+  expect(result.archive_sha256).toBe(
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+});
+
+it("selects normalized intermediate directories while preserving their raw spelling", async () => {
+  const root = await createTestTempDirectory("rea-keyed-unicode-ancestors-");
+  const directory = "Cafe\u0301/Neste\u0301";
+  const rawPath = `${directory}/Model.plist`;
+  await mkdir(join(root, directory), { recursive: true });
+  await writeFile(join(root, rawPath), archive);
+  const result = await inspect(root, { path: rawPath.normalize("NFC") });
+  expect(result.archive_path).toBe(rawPath);
+});
+
+it.skipIf(process.platform === "darwin" || process.platform === "win32")(
+  "rejects equivalent archive paths beneath distinct Unicode-equivalent directories",
+  async () => {
+    const root = await createTestTempDirectory("rea-keyed-unicode-branches-");
+    for (const directory of ["Caf\u00e9", "Cafe\u0301"]) {
+      await mkdir(join(root, directory));
+      await writeFile(join(root, directory, "Model.plist"), archive);
+    }
+    await expect(
+      inspect(root, { path: "Caf\u00e9/Model.plist" }),
+    ).rejects.toMatchObject({
+      issues: [
+        {
+          path: ["path"],
+          reason: "invalid_value",
+          message: expect.stringContaining("Unicode-equivalent"),
+        },
+      ],
+    });
+  },
+);
+
+it("keeps an archive readable when a non-finite real is an explicit unknown", async () => {
+  const root = await bundle();
+  const bytes = Buffer.from(
+    build({
+      $archiver: "NSKeyedArchiver",
+      $version: 100000,
+      $objects: ["$null", Number.NaN],
+      $top: { root: { CF$UID: 1 } },
+    }),
+  );
+  await writeFile(
+    join(root, "Contents", "Resources", "NonFinite.plist"),
+    bytes,
+  );
+
+  const result = await inspect(root, {
+    path: "Contents/Resources/NonFinite.plist",
+  });
+
+  expect(result.objects).toContainEqual(
+    expect.objectContaining({
+      id: 1,
+      value: { $plist_type: "real", value: null },
+    }),
+  );
+  expect(result.limitations).toContain(
+    '1 non-finite real value(s) are reported as { "$plist_type": "real", "value": null } because JSON evidence cannot preserve NaN vs infinity.',
+  );
 });
 
 const asAnalysisError = (value: unknown): AnalysisError => {

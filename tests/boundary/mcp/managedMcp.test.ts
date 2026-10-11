@@ -1,5 +1,6 @@
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
+import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -28,8 +29,16 @@ it("runs every managed static inspection independently of an active native targe
   );
   const path = join(directory, "fixture.dll");
   const otherPath = join(directory, "other-fixture.dll");
+  const partialPath = join(directory, "partial-method.dll");
   await writeFile(path, buildManagedPeFixture());
   await writeFile(otherPath, buildManagedPeFixture({ methodName: "Other" }));
+  await writeFile(
+    partialPath,
+    buildManagedPeFixture({
+      virtualSectionSize: 0x801,
+      ilBody: Buffer.from([0x06, 0x2a]),
+    }),
+  );
   const session = composeBinarySession(new AnalysisProviderRegistry([]), [
     new ManagedStaticProvider(),
   ]);
@@ -114,6 +123,27 @@ it("runs every managed static inspection independently of an active native targe
       operation: "inspect_managed_native_boundaries",
       provider: { id: "rea-dotnet-static" },
       subject: { local_path: path, format: "pe" },
+    });
+    const partial = structured(
+      await client.callTool({
+        name: "inspect_managed_members",
+        arguments: { path: partialPath },
+      }),
+    );
+    expect(partial).toMatchObject({
+      subject: { local_path: partialPath, format: "pe" },
+      normalized_result: {
+        methods: [
+          {
+            body: {
+              status: "malformed",
+              normalized_il_sha256: null,
+              issue: "Method body leaves file-backed PE section data",
+            },
+          },
+        ],
+        coverage: { state: "partial" },
+      },
     });
   } finally {
     await Promise.all([client.close(), server.close()]);
@@ -385,13 +415,30 @@ const verifyImport = async (
     operation: "import_managed_reconstruction",
     provider: { id: "rea-dotnet-workflows" },
     confidence: "inferred",
+    authority: "analyst-inference",
     normalized_result: {
+      phase: "reconstruction-import",
       executed: false,
+      decompiler: { name: "ilspycmd", version: "9.1.0.7988", family: "ilspy" },
       summary: { imported_methods: 1, decompiled_csharp_methods: 1 },
       methods: [
         {
           token: method.token,
-          validation: { canonical_observation: false },
+          signature_sha256: method.signature.raw_sha256,
+          normalized_il_sha256: method.body.normalized_il_sha256,
+          reconstruction: {
+            kind: "decompiled-csharp",
+            language: "csharp",
+            text_sha256: createHash("sha256")
+              .update("internal static void Main() { }")
+              .digest("hex"),
+          },
+          validation: {
+            matched_static_member: true,
+            exact_build_required: true,
+            canonical_observation: false,
+            confidence_floor: "inference",
+          },
         },
       ],
     },

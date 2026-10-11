@@ -151,6 +151,8 @@ const createBuildCacheFixture = async (): Promise<string> => {
   const scripts = asRecord(packageJson?.scripts);
   if (
     packageJson === undefined ||
+    typeof packageJson.name !== "string" ||
+    typeof packageJson.version !== "string" ||
     typeof scripts?.["build:cached"] !== "string"
   )
     throw new Error("package is missing its cached build command");
@@ -167,7 +169,7 @@ const createBuildCacheFixture = async (): Promise<string> => {
     "scripts/clean-build-output.mjs",
     "scripts/generate-package-metadata.mjs",
     "scripts/lib/generated-file.mjs",
-    "skill-src/reverse-engineer-anything/SKILL.md",
+    ".agents/skills/reverse-engineer-anything/SKILL.md",
     "src/generatedPackageMetadata.ts",
   ];
   await Promise.all(
@@ -189,12 +191,11 @@ const createBuildCacheFixture = async (): Promise<string> => {
   );
   await writeFile(
     join(root, "scripts/cache-fixture-build.mjs"),
-    `import { mkdir, readFile, writeFile } from "node:fs/promises";
-const { name, version } = JSON.parse(await readFile("package.json", "utf8"));
+    `import { mkdir, writeFile } from "node:fs/promises";
 await mkdir("dist", { recursive: true });
 await writeFile("dist/cache-fixture.js", "built");
 await writeFile("dist/catalogIdentity.js", "export const CATALOG_IDENTITY = { counts: { mcp_tools: 1 } };\\n");
-await writeFile("dist/generatedPackageMetadata.js", "export const PACKAGE_METADATA = " + JSON.stringify({ name, version }) + ";\\n");
+await writeFile("dist/identity.js", ${JSON.stringify(`export const PRODUCT_IDENTITY = ${JSON.stringify({ packageSpecifier: `${packageJson.name}@latest`, registrationPackageSpecifier: `${packageJson.name}@${packageJson.version}` })};\n`)});
 `,
   );
   await createNodeModulesLinks(root);

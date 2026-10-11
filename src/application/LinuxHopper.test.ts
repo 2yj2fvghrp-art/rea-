@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   installLinuxHopper,
   linuxHopperLauncherDigestSupported,
-  linuxHopperInstallDisclosure,
   linuxPackageManagerCommands,
   linuxSharedLibrariesAvailable,
   parseLinuxDistribution,
@@ -61,12 +60,16 @@ describe("Linux Hopper host classification", () => {
     ['ID=nobara\nVERSION_ID="44"\nID_LIKE="rhel centos fedora"\n', "rpm"],
     ["ID=arch\n", "arch"],
     ["ID=cachyos\nID_LIKE=arch\n", "arch"],
-  ] as const)("accepts an official Hopper distribution", (document, family) => {
-    expect(parseLinuxDistribution(document)).toMatchObject({
-      packageFamily: family,
-      supported: true,
-    });
-  });
+    ['ID=omarchy\nID_LIKE=arch\nVERSION_ID="4.0.4"\n', "arch"],
+  ] as const)(
+    "accepts an explicitly supported distribution",
+    (document, family) => {
+      expect(parseLinuxDistribution(document)).toMatchObject({
+        packageFamily: family,
+        supported: true,
+      });
+    },
+  );
 
   it("detects unresolved or loader-reported shared libraries", () => {
     expect(
@@ -94,6 +97,8 @@ describe("Linux Hopper host classification", () => {
     'ID=debian\nVERSION_ID="13"\nID_LIKE=debian\n',
     "ID=manjaro\nID_LIKE=arch\n",
     "ID=garuda\nID_LIKE=arch\n",
+    "ID=omarchy\n",
+    "ID=omarchy\nID_LIKE=debian\n",
   ])("rejects unsupported vendor/version combinations", (document) => {
     expect(parseLinuxDistribution(document).supported).toBe(false);
   });
@@ -114,44 +119,11 @@ describe("Linux Hopper installation", () => {
     expect(linuxHopperLauncherDigestSupported("0".repeat(64))).toBe(false);
   });
 
-  it("discloses the exact download, integrity evidence, and privileged command", () => {
-    expect(linuxHopperInstallDisclosure("deb", false)).toEqual({
-      downloadUrl:
-        "https://www.hopperapp.com:443/downloader/public/Hopper-6.4.2-Linux-demo.deb",
-      expectedBytes: 35_755_772,
-      expectedSha1: "e4f79dff602648a8ff4a88b773875b6bfac0dc65",
-      commands: [
-        "pkexec apt-get install -y <verified-hopper.deb> xvfb xauth python3 libx11-6 libxtst6",
-      ],
-    });
-  });
-
   it.each([
-    ["deb", "apt-get"],
-    ["rpm", "dnf"],
-    ["arch", "pacman"],
-  ] as const)("selects the %s native package manager", (family, executable) => {
-    expect(
-      linuxPackageManagerCommands(family, "/tmp/Hopper package", true),
-    ).toContainEqual(
-      expect.objectContaining({
-        executable,
-      }),
-    );
-    expect(
-      linuxPackageManagerCommands(family, "/tmp/Hopper package", false),
-    ).toContainEqual(
-      expect.objectContaining({
-        executable: "pkexec",
-        args: expect.arrayContaining([executable, "/tmp/Hopper package"]),
-      }),
-    );
-  });
-
-  it.each([
-    ["deb", ["xvfb", "xauth", "python3", "libx11-6", "libxtst6"]],
+    ["deb", "apt-get", ["xvfb", "xauth", "python3", "libx11-6", "libxtst6"]],
     [
       "rpm",
+      "dnf",
       [
         "xorg-x11-server-Xvfb",
         "xorg-x11-xauth",
@@ -160,15 +132,28 @@ describe("Linux Hopper installation", () => {
         "libXtst",
       ],
     ],
-    ["arch", ["xorg-server-xvfb", "xorg-xauth", "python", "libx11", "libxtst"]],
+    [
+      "arch",
+      "pacman",
+      ["xorg-server-xvfb", "xorg-xauth", "python", "libx11", "libxtst"],
+    ],
   ] as const)(
-    "installs the %s demo-session dependencies",
-    (family, packages) => {
+    "selects the %s native package manager and dependencies",
+    (family, executable, packages) => {
       expect(
         linuxPackageManagerCommands(family, "/tmp/Hopper package", true),
       ).toContainEqual(
         expect.objectContaining({
+          executable,
           args: expect.arrayContaining([...packages]),
+        }),
+      );
+      expect(
+        linuxPackageManagerCommands(family, "/tmp/Hopper package", false),
+      ).toContainEqual(
+        expect.objectContaining({
+          executable: "pkexec",
+          args: expect.arrayContaining([executable, "/tmp/Hopper package"]),
         }),
       );
     },

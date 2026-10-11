@@ -20,13 +20,14 @@ import type { SemanticFlowProjectionContext } from "./JavaScriptSemanticGraphFlo
 import { semanticPropertySlot } from "./JavaScriptSemanticGraphValueProjection.js";
 
 /** Project static object reads, writes, spreads, and destructuring. */
-export const projectSemanticObjects = (
+export function* projectSemanticObjects(
   context: SemanticFlowProjectionContext,
-): void => {
+): Generator<void, void> {
   const values = new Map(
     context.ir.bindings.map((binding) => [binding.bindingId, binding.value]),
   );
-  for (const operation of context.ir.objectOperations) {
+  for (const [index, operation] of context.ir.objectOperations.entries()) {
+    if (index % 64 === 0) yield;
     const occurrence = addObjectOccurrence(context, operation);
     const target = objectTarget(context, values, operation);
     const ends = objectRelationEnds(context, operation, occurrence, target);
@@ -43,7 +44,7 @@ export const projectSemanticObjects = (
     if (!resolved)
       addObjectUnknown(context, operation, target.slot ?? occurrence, target);
   }
-};
+}
 
 const OBJECT_RELATIONS = {
   read: "reads-property",
@@ -168,14 +169,17 @@ const addObjectUnknown = (
   const relation = OBJECT_RELATIONS[operation.kind];
   addSemanticGraphUnknown(
     context.state,
-    createJavaScriptSemanticGraphUnknown({
-      node_id: node?.node_id ?? null,
-      family: "object-flow",
-      relation_kinds: [relation],
-      reason: "ambiguous-target",
-      detail: `Static ${operation.kind} property ${operation.propertyPath === null ? "path is unresolved" : semanticPropertyPointer(operation.propertyPath)} has ${target.presence} presence; its receiver is ${target.receiverResolved ? "a retained container" : "unresolved or not a retained container"}; object identity is ${operation.resolution}.`,
-      candidate_node_ids: [],
-      evidence: unknownSemanticEvidence(context.file, operation.location),
-    }),
+    createJavaScriptSemanticGraphUnknown(
+      {
+        node_id: node?.node_id ?? null,
+        family: "object-flow",
+        relation_kinds: [relation],
+        reason: "ambiguous-target",
+        detail: `Static ${operation.kind} property ${operation.propertyPath === null ? "path is unresolved" : semanticPropertyPointer(operation.propertyPath)} has ${target.presence} presence; its receiver is ${target.receiverResolved ? "a retained container" : "unresolved or not a retained container"}; object identity is ${operation.resolution}.`,
+        candidate_node_ids: [],
+        evidence: unknownSemanticEvidence(context.file, operation.location),
+      },
+      context.state.evidenceContexts,
+    ),
   );
 };
