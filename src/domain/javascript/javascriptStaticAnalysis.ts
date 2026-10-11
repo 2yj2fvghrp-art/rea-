@@ -234,6 +234,10 @@ const finalizeStaticAnalysis = (
         accumulator.nativeAddonBindings,
         accumulator.moduleRangeIndex,
       ),
+      webview_attachments: finalizeLocatedFindings(
+        accumulator.webviewAttachments,
+        accumulator.moduleRangeIndex,
+      ),
     },
     constant_folding: constantFolding,
     limitations,
