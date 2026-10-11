@@ -246,7 +246,7 @@ const bareModuleCandidate = (
     return unresolvedCandidate("rejected", [
       "Percent signs are not admitted in ES module package names.",
     ]);
-  const self = commonJsSelfCandidate(input, declared);
+  const self = packageSelfCandidate(input, declared);
   if (self !== null) return self;
   const subpath =
     declared === packageName ? "." : `.${declared.slice(packageName.length)}`;
@@ -391,11 +391,11 @@ const selectPackageImportTarget = (
 };
 
 /** Self references use the nearest package scope before dependency lookup. */
-const commonJsSelfCandidate = (
+const packageSelfCandidate = (
   input: ResolveArtifactPathInput,
   declared: string,
 ): CandidateResolution | null => {
-  if (input.moduleKind !== "require" || !input.files.has(input.sourcePath))
+  if (input.moduleKind === undefined || !input.files.has(input.sourcePath))
     return null;
   const metadata = enclosingPackageMetadata(input);
   if (metadata.kind === "none") return null;
