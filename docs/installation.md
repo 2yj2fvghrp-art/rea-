@@ -531,6 +531,20 @@ export HOPPER_LAUNCHER_PATH=/absolute/path/to/Hopper
 rea doctor --provider hopper --json
 ```
 
+Hopper startup allows 120,000 ms for launch, initial analysis, and authenticated
+bridge readiness. For large targets, set `REA_HOPPER_STARTUP_TIMEOUT_MS` to a
+decimal integer from 1 to 2,147,483,647 milliseconds in the environment that
+starts REA. CLI and MCP use the same setting; invalid values fail configuration
+validation. An MCP client's own request timeout must also allow enough time.
+
+If macOS denies Apple Events, allow the application that starts REA under
+**System Settings → Privacy & Security → Automation**, then retry. REA releases
+the target reservation when the native helper reports its complete authorization
+rejection before document handoff. Other failed handoffs retain ownership until
+document closure is confirmed. If a timed-out bridge becomes ready later,
+`close_binary` reconnects to that run, authenticates its identity, and requests
+document shutdown; retry close when the bridge is still unavailable.
+
 If a Linux launcher exists but cannot start, inspect its shared libraries:
 
 ```bash

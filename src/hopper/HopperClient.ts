@@ -53,7 +53,11 @@ import {
   type HopperServerInfo,
 } from "./HopperSessionValues.js";
 import { connectHopperSocketOnce } from "./HopperSocketConnection.js";
-import { hopperLauncherFailureDiagnostic } from "./HopperProcessDiagnostic.js";
+import {
+  hopperLauncherFailureDiagnostic,
+  nativeHopperLaunchWasDenied,
+} from "./HopperProcessDiagnostic.js";
+import { DEFAULT_HOPPER_STARTUP_TIMEOUT_MS } from "../config/providerStartupTimeout.js";
 import {
   HopperRequestQueue,
   type HopperRequestActivity,
@@ -114,6 +118,8 @@ export class HopperClient {
   #launcherFailureDiagnostic: HopperStartupFailureDiagnostic | undefined;
   #operationFailure: OperationFailureRecord | undefined;
   #startupController: AbortController | undefined;
+  #startupFailureResult: AnalysisError | undefined;
+  #runId: string | undefined;
   #startPromise: Promise<Result<HopperServerInfo, AnalysisError>> | undefined;
   #closePromise: Promise<Result<null, AnalysisError>> | undefined;
   readonly #onSocketData = (chunk: string): void => {
@@ -169,7 +175,8 @@ export class HopperClient {
     this.#logger = options.logger ?? silentLogger;
     this.#options = {
       ...options,
-      startupTimeoutMs: options.startupTimeoutMs ?? 120_000,
+      startupTimeoutMs:
+        options.startupTimeoutMs ?? DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
     };
     this.#requests = new HopperRequestQueue(
       ({ id, method, params }, failed) => {
@@ -311,14 +318,18 @@ export class HopperClient {
     signal?: AbortSignal,
   ): Promise<Result<HopperServerInfo, AnalysisError>> {
     if (isAborted(signal)) return err(new HopperCancelledError());
-    this.#operationFailure = undefined;
     if (
       this.#socket !== undefined ||
       this.#resources.launch !== undefined ||
       this.#resources.runtimeRoot !== undefined
     ) {
-      return err(new HopperProtocolError("Hopper client is already started"));
+      return err(
+        this.#startupFailureResult ??
+          new HopperProtocolError("Hopper client is already started"),
+      );
     }
+    this.#operationFailure = undefined;
+    this.#startupFailureResult = undefined;
     this.#resources.shutdownConfirmed = false;
     const deadline = new ProviderStartupDeadline(
       this.#options.startupTimeoutMs,
@@ -351,6 +362,7 @@ export class HopperClient {
     this.#launcherExitCode = undefined;
     this.#launcherFailureDiagnostic = undefined;
     const runId = this.#options.runId ?? randomUUID();
+    this.#runId = runId;
     const launched: Result<
       BridgeLaunch,
       HopperStartError | HopperCancelledError | HopperProcessError
@@ -427,11 +439,11 @@ export class HopperClient {
   ): Promise<Result<never, AnalysisError>> {
     this.#rememberStartupFailure(primary);
     const closed = await this.#cleanup();
-    return err(
-      closed.ok
-        ? primary
-        : analysisErrorWithCleanupFailure(primary, closed.error, "open_binary"),
-    );
+    const failure = closed.ok
+      ? primary
+      : analysisErrorWithCleanupFailure(primary, closed.error, "open_binary");
+    this.#startupFailureResult = failure;
+    return err(failure);
   }
 
   #rememberStartupFailure(failure: AnalysisError): void {
@@ -500,6 +512,7 @@ export class HopperClient {
       // best-effort cleanup: a rejected startup must not mask close/cleanup;
       // #cleanup reports the authoritative close result.
       await starting?.catch(() => undefined);
+      await this.#reconnectForCleanup();
       return await this.#cleanup(options);
     } finally {
       if (this.#startPromise === starting) this.#startPromise = undefined;
@@ -507,6 +520,56 @@ export class HopperClient {
         this.#startupController = undefined;
       }
       this.#closePromise = undefined;
+    }
+  }
+
+  /** Recover only this run's authenticated bridge when it became ready late. */
+  async #reconnectForCleanup(): Promise<void> {
+    const root = this.#resources.runtimeRoot;
+    const runId = this.#runId;
+    if (
+      this.#socket !== undefined ||
+      this.#startupFailureResult === undefined ||
+      root === undefined ||
+      runId === undefined ||
+      this.#token === undefined ||
+      this.#resources.shutdownConfirmed ||
+      this.#resources.launch?.providerLifetime !== "external-application"
+    )
+      return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SHUTDOWN_TIMEOUT_MS);
+    this.#closing = true;
+    try {
+      const connected = await connectHopperSocketOnce(
+        join(root.path, "bridge.sock"),
+        controller.signal,
+      );
+      if (!connected.ok) return;
+      const socket = connected.value;
+      this.#socket = socket;
+      this.#attachSocket(socket);
+      const health = await this.#request(
+        "health",
+        {},
+        {
+          signal: controller.signal,
+          timeoutMs: SHUTDOWN_TIMEOUT_MS,
+        },
+      );
+      if (health.ok && parseHopperServerInfo(health.value, runId).ok) return;
+      this.#failAll(
+        new HopperProtocolError(
+          "Retained Hopper bridge identity was not confirmed",
+        ),
+      );
+      this.#detachSocket(socket);
+      socket.destroy();
+      this.#socket = undefined;
+      this.#responses.reset();
+    } finally {
+      this.#closing = false;
+      clearTimeout(timer);
     }
   }
 
@@ -534,7 +597,11 @@ export class HopperClient {
     } finally {
       if (this.#socket?.destroyed === true) this.#socket = undefined;
 
-      if (this.#socket === undefined) this.#token = undefined;
+      // Retained external launches may publish their authenticated socket later.
+      if (this.#resources.runtimeRoot === undefined) {
+        this.#token = undefined;
+        this.#runId = undefined;
+      }
       if (this.#socket === undefined) this.#responses.reset();
       if (this.#resources.processSupervisor === undefined) {
         this.#launcherExitCode = undefined;
@@ -662,6 +729,14 @@ export class HopperClient {
         "launch",
         launcherFailure,
       );
+    if (nativeHopperLaunchWasDenied(launcherFailure)) {
+      this.#resources.shutdownConfirmed = true;
+      return new HopperStartError({
+        userMessage:
+          "macOS denied permission to send Apple Events to Hopper. Allow the application that starts REA under System Settings > Privacy & Security > Automation, then retry opening the target.",
+        launcherFailure,
+      });
+    }
     return new HopperStartError({
       userMessage:
         "Hopper's launcher helper failed before bridge readiness. Review details.launcher and complete Hopper setup before retrying.",
