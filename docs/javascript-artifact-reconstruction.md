@@ -484,8 +484,11 @@ URL targets before selecting a later package-local file; an unsupported bare
 package or recursive alias keeps its unresolved outcome rather than selecting
 a later fallback.
 
-ESM relative module paths and selected package exports targets use URL suffix handling
-and one percent-decoding pass. CommonJS relative paths and legacy package main
+ESM relative module paths, legacy package subpaths without exports, and selected
+package exports targets use URL suffix handling and one percent-decoding pass.
+Bare specifiers retain their complete query/fragment text for exports key matching.
+Without an exports map, ESM subpaths select exact files; directory imports and
+extension fallback are refused. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with
 `./` and exclude `.`, `..`, and `node_modules` path segments, including their
 encoded forms, before URL normalization. Arrays skip invalid exports targets

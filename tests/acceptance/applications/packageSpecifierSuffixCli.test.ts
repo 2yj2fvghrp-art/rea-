@@ -11,6 +11,93 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
+const requests = [
+  {
+    specifier: "fixture/feature?cache=1",
+    target: null,
+    status: "external",
+    value: null,
+    error: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  },
+  {
+    specifier: "fixture/feature#entry",
+    target: null,
+    status: "external",
+    value: null,
+    error: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  },
+  {
+    specifier: "fixture/literal?cache=1",
+    target: "node_modules/fixture/literal.cjs",
+    status: "resolved",
+    value: "literal",
+    error: null,
+  },
+  {
+    specifier: "legacy/?cache=1",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  },
+  {
+    specifier: "legacy/#entry",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  },
+  {
+    specifier: "legacy/nested/?cache=1",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  },
+  {
+    specifier: "legacy/nested/#entry",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  },
+  {
+    specifier: "legacy/feature.js",
+    target: "node_modules/legacy/feature.js",
+    status: "resolved",
+    value: "legacy feature",
+    error: null,
+  },
+  {
+    specifier: "legacy/feature.js?cache=1",
+    target: "node_modules/legacy/feature.js",
+    status: "resolved",
+    value: "legacy feature",
+    error: null,
+  },
+  {
+    specifier: "legacy/feature.js#entry",
+    target: "node_modules/legacy/feature.js",
+    status: "resolved",
+    value: "legacy feature",
+    error: null,
+  },
+  {
+    specifier: "legacy/with%20space.js?cache=1",
+    target: "node_modules/legacy/with space.js",
+    status: "resolved",
+    value: "legacy spaced feature",
+    error: null,
+  },
+  {
+    specifier: "legacy/feature",
+    target: null,
+    status: "not-found",
+    value: null,
+    error: "ERR_MODULE_NOT_FOUND",
+  },
+];
+
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "keeps bare package query and fragment keys exact through %s",
   async (surface, { cli }) => {
@@ -19,7 +106,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const legacyPackagePath = join(root, "node_modules", "legacy");
     await Promise.all([
       mkdir(packagePath, { recursive: true }),
-      mkdir(legacyPackagePath, { recursive: true }),
+      mkdir(join(legacyPackagePath, "nested"), { recursive: true }),
     ]);
     await writeFile(
       join(packagePath, "package.json"),
@@ -41,57 +128,30 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     await Promise.all([
       writeFile(
         join(legacyPackagePath, "package.json"),
-        JSON.stringify({ name: "legacy" }),
+        JSON.stringify({ name: "legacy", main: "./main.cjs" }),
+      ),
+      writeFile(
+        join(legacyPackagePath, "main.cjs"),
+        'module.exports = "legacy root";',
       ),
       writeFile(
         join(legacyPackagePath, "feature.js"),
         'module.exports = "legacy feature";',
       ),
+      writeFile(
+        join(legacyPackagePath, "with space.js"),
+        'module.exports = "legacy spaced feature";',
+      ),
+      writeFile(
+        join(legacyPackagePath, "nested", "package.json"),
+        JSON.stringify({ main: "./main.cjs" }),
+      ),
+      writeFile(
+        join(legacyPackagePath, "nested", "main.cjs"),
+        'module.exports = "legacy nested";',
+      ),
     ]);
-    const requests = [
-      {
-        specifier: "fixture/feature?cache=1",
-        target: null,
-        status: "external",
-        value: null,
-        error: "ERR_PACKAGE_PATH_NOT_EXPORTED",
-      },
-      {
-        specifier: "fixture/feature#entry",
-        target: null,
-        status: "external",
-        value: null,
-        error: "ERR_PACKAGE_PATH_NOT_EXPORTED",
-      },
-      {
-        specifier: "fixture/literal?cache=1",
-        target: "node_modules/fixture/literal.cjs",
-        status: "resolved",
-        value: "literal",
-        error: null,
-      },
-      {
-        specifier: "legacy/feature.js",
-        target: "node_modules/legacy/feature.js",
-        status: "resolved",
-        value: "legacy feature",
-        error: null,
-      },
-      {
-        specifier: "legacy/feature.js?cache=1",
-        target: "node_modules/legacy/feature.js",
-        status: "resolved",
-        value: "legacy feature",
-        error: null,
-      },
-      {
-        specifier: "legacy/feature.js#entry",
-        target: "node_modules/legacy/feature.js",
-        status: "resolved",
-        value: "legacy feature",
-        error: null,
-      },
-    ];
+
     await writeFile(
       join(root, "main.mjs"),
       requests
@@ -101,27 +161,29 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         )
         .join("\n"),
     );
-    const native = await promisify(execFile)(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        `const requests = ${JSON.stringify(requests.map(({ specifier }) => specifier))};
-        const results = await Promise.all(requests.map(async (specifier) => {
-          try {
-            const result = await import(specifier);
-            return { value: result.default, error: null };
-          } catch (error) {
-            return { value: null, error: error.code };
-          }
-        }));
-        console.log(JSON.stringify(results));`,
-      ],
-      { cwd: root, timeout: 5_000 },
-    );
-    expect(JSON.parse(native.stdout)).toEqual(
-      requests.map(({ value, error }) => ({ value, error })),
-    );
+    if (surface === "CLI") {
+      const native = await promisify(execFile)(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `const requests = ${JSON.stringify(requests.map(({ specifier }) => specifier))};
+          const results = await Promise.all(requests.map(async (specifier) => {
+            try {
+              const result = await import(specifier);
+              return { value: result.default, error: null };
+            } catch (error) {
+              return { value: null, error: error.code };
+            }
+          }));
+          console.log(JSON.stringify(results));`,
+        ],
+        { cwd: root, timeout: 5_000 },
+      );
+      expect(JSON.parse(native.stdout)).toEqual(
+        requests.map(({ value, error }) => ({ value, error })),
+      );
+    }
 
     let document: unknown;
     if (surface === "CLI") {
