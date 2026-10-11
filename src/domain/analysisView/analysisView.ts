@@ -30,17 +30,9 @@ const facetViewSchema = z.strictObject({
   kind: z.literal("facet"),
   facet: z.enum(["mitigations", "linkage"]),
 });
-/**
- * Module selection: exact observed path or node_id. An empty path reference is valid.
- *
- * The collection/selector pairing is expressed as a discriminated union rather
- * than a `superRefine`, because a refinement is absent from the converted JSON
- * Schema: clients that validate against the advertised input schema accepted
- * `modules` with `index` and `sections` with `node_id`, then had the server
- * reject those same arguments. Keeping the alternatives in the contract makes
- * the advertised schema and runtime validation agree.
- */
-const moduleItemSelectorSchema = z.union([
+const itemSelectorSchema = z.union([
+  z.strictObject({ index: z.number().int().nonnegative() }),
+  z.strictObject({ name: z.string() }),
   z.strictObject({
     path: z
       .string()
@@ -50,23 +42,32 @@ const moduleItemSelectorSchema = z.union([
   }),
   z.strictObject({ node_id: prefixedDigestSchema("jag_node") }),
 ]);
-/** Section and symbol selection: index or exact name. */
-const namedItemSelectorSchema = z.union([
-  z.strictObject({ index: z.number().int().nonnegative() }),
-  z.strictObject({ name: z.string() }),
-]);
-const itemViewSchema = z.discriminatedUnion("collection", [
-  z.strictObject({
+const itemViewSchema = z
+  .strictObject({
     kind: z.literal("item"),
-    collection: z.literal("modules"),
-    selector: moduleItemSelectorSchema,
-  }),
-  z.strictObject({
-    kind: z.literal("item"),
-    collection: z.enum(["sections", "symbols"]),
-    selector: namedItemSelectorSchema,
-  }),
-]);
+    collection: z.enum(["sections", "symbols", "modules"]),
+    selector: itemSelectorSchema,
+  })
+  .superRefine((value, context) => {
+    const selector = value.selector;
+    if (value.collection === "modules") {
+      if (!("path" in selector) && !("node_id" in selector))
+        context.addIssue({
+          code: "custom",
+          path: ["selector"],
+          message:
+            "Module items are selected by exact path or node_id, not index or name.",
+        });
+      return;
+    }
+    if (!("index" in selector) && !("name" in selector))
+      context.addIssue({
+        code: "custom",
+        path: ["selector"],
+        message:
+          "Section and symbol items are selected by index or exact name, not path or node_id.",
+      });
+  });
 const pageViewSchema = z.strictObject({
   kind: z.literal("page"),
   collection: z.enum(["sections", "symbols", "modules"]),
