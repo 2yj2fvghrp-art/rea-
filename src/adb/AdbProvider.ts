@@ -8,9 +8,9 @@ import type {
   ExecutionOptions,
   ProviderAvailability,
 } from "../application/AnalysisProvider.js";
+import { providerConfigurationRefusal } from "../domain/providerConfigurationRefusal.js";
 import {
   createAnalysisExecution,
-  providerConfigurationRefusal,
   type AnalysisExecution,
 } from "../application/AnalysisProvider.js";
 import type { AdbRequest } from "../domain/adb/adbDeviceAnalysis.js";

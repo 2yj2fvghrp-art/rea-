@@ -20,9 +20,9 @@ import type {
   ExecutionOptions,
   ProviderAvailability,
 } from "../application/AnalysisProvider.js";
+import { providerConfigurationRefusal } from "../domain/providerConfigurationRefusal.js";
 import {
   createAnalysisExecution,
-  providerConfigurationRefusal,
   type AnalysisExecution,
 } from "../application/AnalysisProvider.js";
 import type { ApktoolRequest } from "../domain/apktool/apktoolResourceAnalysis.js";
@@ -410,7 +410,7 @@ export class ApktoolProvider {
       );
     } catch (cause) {
       if (cause instanceof AnalysisCancelledError) return err(cause);
-      if (cause instanceof ApktoolConfigurationFailure)
+      if (cause instanceof ApktoolConfigurationFailure) {
         return err(
           providerConfigurationRefusal(
             APKTOOL_PROVIDER_IDENTITY.id,
@@ -418,6 +418,7 @@ export class ApktoolProvider {
             cause,
           ),
         );
+      }
       return err(
         new AnalysisProtocolError(
           `apktool version probe failed for ${request.operation}`,
