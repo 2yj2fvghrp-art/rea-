@@ -281,6 +281,35 @@ describe("headless IDA procedure lookup failures", () => {
   });
 });
 
+describe("provider-derived procedure selectors", () => {
+  it.each(["Not found", "Not a function"])(
+    "reports a derived selector answered %s as a producer fault",
+    async (upstream) => {
+      const client = await missingProcedureFixture((query) =>
+        lookup(query, null, upstream),
+      );
+      try {
+        const result = await client.execute(
+          "procedure_callees",
+          { procedure: "0x2000" },
+          { selectorOrigin: "provider" },
+        );
+
+        if (result.ok) throw new Error("expected a producer fault");
+        expect(result.error._tag, "not the caller's mistake").toBe(
+          "AnalysisProtocolError",
+        );
+        expect(
+          projectAnalysisError(result.error).code,
+          "projected as on main",
+        ).toBe("unreadable_output");
+      } finally {
+        expect((await client.close()).ok).toBe(true);
+      }
+    },
+  );
+});
+
 describe("attached IDA procedure lookup failures", () => {
   it("leaves a failed legacy lookup as unreadable output", async () => {
     const { root, target } = await createIdaTarget();
