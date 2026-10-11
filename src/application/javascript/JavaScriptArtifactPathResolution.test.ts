@@ -1119,6 +1119,25 @@ describe("TypeScript NodeNext emitted-extension resolution", () => {
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
   });
 
+  it("resolves an emitted dotfile name within its own directory", () => {
+    const files = fileMap([
+      file("src/main.ts", container),
+      file("src/.ts", container),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./.js",
+        sourcePath: "src/main.ts",
+        context: "module-specifier",
+        moduleKind: "import",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "src/.ts",
+    });
+  });
+
   it("keeps resolving extensionless specifiers through the existing runtime candidates", () => {
     const files = fileMap([
       file("src/main.ts", container),

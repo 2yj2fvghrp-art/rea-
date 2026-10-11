@@ -1,11 +1,17 @@
-import { posix } from "node:path";
+/** Emitted NodeNext suffixes and the TypeScript source counterparts they name. */
+const EMITTED_SUFFIXES: ReadonlyArray<
+  readonly [suffix: string, sourceSuffixes: readonly string[]]
+> = [
+  [".js", [".ts", ".tsx", ".d.ts"]],
+  [".mjs", [".mts", ".d.mts"]],
+  [".cjs", [".cts", ".d.cts"]],
+  [".jsx", [".tsx", ".d.ts"]],
+];
 
 /**
  * TypeScript source commonly names the extension emitted for NodeNext, so a
- * missing emitted name resolves to its present source counterpart: `./dep.js`
- * to `dep.ts`/`dep.tsx`/`dep.d.ts`, `./x.mjs` to `x.mts`/`x.d.mts`, `./x.cjs`
- * to `x.cts`/`x.d.cts`, and `./x.jsx` to `x.tsx`/`x.d.ts`. Candidates are
- * returned only for TypeScript-family callers and explicit filenames;
+ * missing emitted name resolves to its present source counterpart. Candidates
+ * are returned only for TypeScript-family callers and explicit filenames;
  * directory and index resolution never substitutes a counterpart, and any
  * present runtime file wins because callers try it first.
  */
@@ -14,16 +20,12 @@ export const typescriptEmittedSourceCandidates = (
   candidate: string,
 ): readonly string[] => {
   if (!/\.(?:ts|tsx|mts|cts)$/u.test(sourcePath)) return [];
-  const suffixes = candidate.endsWith(".js")
-    ? [".ts", ".tsx", ".d.ts"]
-    : candidate.endsWith(".mjs")
-      ? [".mts", ".d.mts"]
-      : candidate.endsWith(".cjs")
-        ? [".cts", ".d.cts"]
-        : candidate.endsWith(".jsx")
-          ? [".tsx", ".d.ts"]
-          : [];
-  if (suffixes.length === 0) return [];
-  const stem = candidate.slice(0, -posix.extname(candidate).length);
-  return suffixes.map((suffix) => `${stem}${suffix}`);
+  const emitted = EMITTED_SUFFIXES.find(([suffix]) =>
+    candidate.endsWith(suffix),
+  );
+  if (emitted === undefined) return [];
+  // Strip the matched suffix by length. posix.extname would miss dotfile
+  // names such as ".js", whose whole basename is the emitted suffix itself.
+  const stem = candidate.slice(0, candidate.length - emitted[0].length);
+  return emitted[1].map((suffix) => `${stem}${suffix}`);
 };
