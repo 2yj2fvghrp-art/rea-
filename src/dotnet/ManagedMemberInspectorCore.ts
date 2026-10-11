@@ -338,15 +338,66 @@ const ELEMENT_TYPES = new Map<number, string>([
   [0x0c, "r4"],
   [0x0d, "r8"],
   [0x0e, "string"],
+  [0x16, "typedbyref"],
   [0x18, "native-int"],
   [0x19, "native-uint"],
   [0x1c, "object"],
 ]);
 
-const readTypeSignature = (
+interface TypeFrame {
+  readonly open: string;
+  readonly close: string;
+  readonly suffix: string;
+  readonly deferred: "array" | null;
+  remaining: number;
+  readonly parts: string[];
+}
+
+const readArrayShape = (
   blob: Buffer,
   offset: number,
-): { readonly value: string; readonly next: number } => {
+): { readonly text: string; readonly next: number } => {
+  const rank = readCompressed(blob, offset);
+  if (rank.value === 0)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "array rank must be at least 1",
+      offset,
+    );
+  let cursor = rank.next;
+  const sizes: number[] = [];
+  const sizeCount = readCompressed(blob, cursor);
+  cursor = sizeCount.next;
+  for (let index = 0; index < sizeCount.value; index += 1) {
+    const size = readCompressed(blob, cursor);
+    sizes.push(size.value);
+    cursor = size.next;
+  }
+  const lowerCount = readCompressed(blob, cursor);
+  cursor = lowerCount.next;
+  const lowerBounds: number[] = [];
+  for (let index = 0; index < lowerCount.value; index += 1) {
+    const lower = readCompressed(blob, cursor);
+    lowerBounds.push(lower.value);
+    cursor = lower.next;
+  }
+  const dims: string[] = [];
+  for (let index = 0; index < rank.value; index += 1) {
+    const lower = lowerBounds[index] ?? null;
+    const size = sizes[index] ?? null;
+    if (lower !== null && size !== null)
+      dims.push(`${String(lower)}...${String(lower + size - 1)}`);
+    else if (lower !== null) dims.push(`${String(lower)}...`);
+    else dims.push("0...");
+  }
+  return { text: dims.join(","), next: cursor };
+};
+
+const readTypeSuffixes = (
+  blob: Buffer,
+  offset: number,
+): { readonly suffix: string; readonly next: number } => {
   const suffixes: string[] = [];
   let cursor = offset;
   let kind = blob[cursor];
@@ -355,36 +406,196 @@ const readTypeSignature = (
     cursor += 1;
     kind = blob[cursor];
   }
+  return { suffix: suffixes.reverse().join(""), next: cursor };
+};
+
+type TypeElement =
+  | {
+      readonly delivered: string;
+      readonly frame: null;
+      readonly next: number;
+    }
+  | {
+      readonly delivered: null;
+      readonly frame: TypeFrame;
+      readonly next: number;
+    };
+
+const readGenericInstantiation = (
+  blob: Buffer,
+  offset: number,
+  suffix: string,
+): TypeElement => {
+  const classOrValueType = blob[offset];
+  if (classOrValueType !== 0x11 && classOrValueType !== 0x12)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "GENERICINST must be followed by ELEMENT_TYPE_CLASS or ELEMENT_TYPE_VALUETYPE",
+      offset,
+    );
+  const token = readCompressed(blob, offset + 1);
+  const count = readCompressed(blob, token.next);
+  const open = `${classOrValueType === 0x11 ? "valuetype" : "class"}:${String(token.value)}<`;
+  if (count.value === 0)
+    return {
+      delivered: `${open}>${suffix}`,
+      frame: null,
+      next: count.next,
+    };
+  return {
+    delivered: null,
+    next: count.next,
+    frame: {
+      open,
+      close: `>${suffix}`,
+      suffix,
+      deferred: null,
+      remaining: count.value,
+      parts: [],
+    },
+  };
+};
+
+const readFunctionPointer = (
+  blob: Buffer,
+  offset: number,
+  suffix: string,
+): { readonly frame: TypeFrame; readonly next: number } => {
+  const convention = blob[offset];
+  if (convention === undefined)
+    throw managedFailure(
+      "invalid-blob",
+      "signature",
+      "truncated type signature",
+      offset,
+    );
+  let at = offset + 1;
+  if ((convention & 0x10) !== 0) {
+    const generic = readCompressed(blob, at);
+    at = generic.next;
+  }
+  const count = readCompressed(blob, at);
+  return {
+    frame: {
+      open:
+        convention === 0
+          ? "fnptr("
+          : `fnptr[${callingConvention(convention)}](`,
+      close: `)${suffix}`,
+      suffix,
+      deferred: null,
+      remaining: count.value + 1,
+      parts: [],
+    },
+    next: count.next,
+  };
+};
+
+const readTypeElement = (blob: Buffer, offset: number): TypeElement => {
+  const scanned = readTypeSuffixes(blob, offset);
+  const suffix = scanned.suffix;
+  const kind = blob[scanned.next];
   if (kind === undefined)
     throw managedFailure(
       "invalid-blob",
       "signature",
       "truncated type signature",
-      cursor,
+      scanned.next,
     );
   const named = ELEMENT_TYPES.get(kind);
-  let value: string;
-  let next: number;
-  if (named !== undefined) {
-    value = named;
-    next = cursor + 1;
-  } else if (kind === 0x11 || kind === 0x12) {
-    const token = readCompressed(blob, cursor + 1);
-    value = `${kind === 0x11 ? "valuetype" : "class"}:${String(token.value)}`;
-    next = token.next;
-  } else if (kind === 0x1e || kind === 0x13) {
-    const variable = readCompressed(blob, cursor + 1);
-    value = `${kind === 0x1e ? "mvar" : "var"}:${String(variable.value)}`;
-    next = variable.next;
-  } else {
-    throw managedFailure(
-      "unsupported-signature",
-      "signature",
-      `unsupported element type 0x${kind.toString(16)}`,
-      cursor,
-    );
+  if (named !== undefined)
+    return { delivered: named + suffix, frame: null, next: scanned.next + 1 };
+  if (kind === 0x11 || kind === 0x12) {
+    const token = readCompressed(blob, scanned.next + 1);
+    return {
+      delivered: `${kind === 0x11 ? "valuetype" : "class"}:${String(token.value)}${suffix}`,
+      frame: null,
+      next: token.next,
+    };
   }
-  return { value: value + suffixes.reverse().join(""), next };
+  if (kind === 0x1e || kind === 0x13) {
+    const variable = readCompressed(blob, scanned.next + 1);
+    return {
+      delivered: `${kind === 0x1e ? "mvar" : "var"}:${String(variable.value)}${suffix}`,
+      frame: null,
+      next: variable.next,
+    };
+  }
+  if (kind === 0x15)
+    return readGenericInstantiation(blob, scanned.next + 1, suffix);
+  if (kind === 0x1f || kind === 0x20) {
+    const token = readCompressed(blob, scanned.next + 1);
+    return {
+      delivered: null,
+      next: token.next,
+      frame: {
+        open: `${kind === 0x1f ? "modreq" : "modopt"}:${String(token.value)}(`,
+        close: `)${suffix}`,
+        suffix,
+        deferred: null,
+        remaining: 1,
+        parts: [],
+      },
+    };
+  }
+  if (kind === 0x14)
+    return {
+      delivered: null,
+      next: scanned.next + 1,
+      frame: {
+        open: "",
+        close: "",
+        suffix,
+        deferred: "array",
+        remaining: 1,
+        parts: [],
+      },
+    };
+  if (kind === 0x1b) {
+    const pointer = readFunctionPointer(blob, scanned.next + 1, suffix);
+    return { delivered: null, frame: pointer.frame, next: pointer.next };
+  }
+  throw managedFailure(
+    "unsupported-signature",
+    "signature",
+    `unsupported element type 0x${kind.toString(16)}`,
+    scanned.next,
+  );
+};
+
+const readTypeSignature = (
+  blob: Buffer,
+  offset: number,
+): { readonly value: string; readonly next: number } => {
+  const frames: TypeFrame[] = [];
+  let cursor = offset;
+  for (;;) {
+    const element = readTypeElement(blob, cursor);
+    cursor = element.next;
+    if (element.frame !== null) {
+      frames.push(element.frame);
+      continue;
+    }
+    let delivered = element.delivered;
+    for (;;) {
+      const frame = frames.pop();
+      if (frame === undefined) return { value: delivered, next: cursor };
+      frame.parts.push(delivered);
+      frame.remaining -= 1;
+      if (frame.remaining > 0) {
+        frames.push(frame);
+        break;
+      }
+      let close = frame.close;
+      if (frame.deferred === "array") {
+        const shape = readArrayShape(blob, cursor);
+        close = `[${shape.text}]${frame.suffix}`;
+        cursor = shape.next;
+      }
+      delivered = `${frame.open}${frame.parts.join(",")}${close}`;
+    }
+  }
 };
 
 const callingConvention = (value: number): string => {

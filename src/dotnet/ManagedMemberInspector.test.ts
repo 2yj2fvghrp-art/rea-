@@ -390,18 +390,184 @@ it.each([
   },
 );
 
-it("keeps an admitted but unimplemented element type unsupported", () => {
-  // ECMA-335 ELEMENT_TYPE_ARRAY is valid, but multidimensional arrays are not decoded here.
-  const bytes = buildManagedPeFixture({
-    fieldSignature: Buffer.from([6, 0x14, 8, 1, 0, 0]),
+describe("managed signature element types", () => {
+  const inspectFieldSignature = (fieldSignature: number[]) => {
+    const bytes = buildManagedPeFixture({
+      fieldSignature: Buffer.from(fieldSignature),
+    });
+    return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes))
+      .fields[0]?.signature;
+  };
+
+  it.each<[string, number[], string]>([
+    [
+      "an array shape without declared bounds",
+      [6, 0x14, 8, 1, 0, 0],
+      "i4[0...]",
+    ],
+    [
+      "an array shape with size and lower bound",
+      [6, 0x14, 8, 1, 1, 4, 1, 2],
+      "i4[2...5]",
+    ],
+    [
+      "a generic instantiation",
+      [6, 0x15, 0x12, 0x71, 1, 0x0e],
+      "class:113<string>",
+    ],
+    [
+      "nested generic instantiations",
+      [6, 0x15, 0x12, 0x80, 0x81, 1, 0x12, 0x3c],
+      "class:129<class:60>",
+    ],
+    [
+      "a generic instantiation behind SZARRAY",
+      [6, 0x1d, 0x15, 0x12, 0x80, 0xa0, 1, 0x12, 0x70],
+      "class:160<class:112>[]",
+    ],
+    [
+      "a generic instantiation behind a pointer",
+      [6, 0x0f, 0x15, 0x12, 0x71, 1, 0x0e],
+      "class:113<string>*",
+    ],
+    [
+      "generic arguments that are type parameters",
+      [6, 0x15, 0x11, 0x0a, 2, 0x13, 0, 0x1e, 1],
+      "valuetype:10<var:0,mvar:1>",
+    ],
+    [
+      "a required custom modifier",
+      [6, 0x1f, 0x81, 0x3d, 2],
+      "modreq:317(bool)",
+    ],
+    ["an optional custom modifier", [6, 0x20, 0x81, 0x3d, 8], "modopt:317(i4)"],
+    ["a typedbyref element type", [6, 0x16], "typedbyref"],
+  ])("decodes %s", (_label, fieldSignature, fieldType) => {
+    expect(inspectFieldSignature(fieldSignature)).toMatchObject({
+      parse_status: "decoded",
+      field_type: fieldType,
+      issue: null,
+    });
   });
-  const result = inspectManagedMembersBytes(
-    bytes,
-    managedPeFixtureTarget(bytes),
-  );
-  expect(result.fields[0]?.signature).toMatchObject({
-    parse_status: "unsupported",
-    issue: "unsupported element type 0x14",
+
+  it.each<[string, number[], string]>([
+    [
+      "a generic instantiation without a class or valuetype",
+      [6, 0x15, 8, 1, 0x0e],
+      "GENERICINST must be followed by ELEMENT_TYPE_CLASS or ELEMENT_TYPE_VALUETYPE",
+    ],
+    [
+      "a truncated generic argument list",
+      [6, 0x15, 0x12, 0x71, 2, 0x0e],
+      "truncated type signature",
+    ],
+    [
+      "an array shape with rank zero",
+      [6, 0x14, 8, 0, 0, 0],
+      "array rank must be at least 1",
+    ],
+  ])("marks %s malformed", (_label, fieldSignature, detail) => {
+    expect(inspectFieldSignature(fieldSignature)).toMatchObject({
+      kind: "unknown",
+      parse_status: "malformed",
+      issue: detail,
+    });
+  });
+});
+
+describe("managed method signature element types", () => {
+  it("decodes a method whose return type is a generic instantiation", () => {
+    // Observed method 0x06000001 signature in System.Runtime.Caching.
+    const bytes = buildManagedPeFixture({
+      methodSignature: Buffer.from([0x20, 0, 0x15, 0x12, 0x71, 1, 0x0e]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.methods[0]?.signature).toMatchObject({
+      kind: "method",
+      parse_status: "decoded",
+      calling_convention: "default has-this",
+      return_type: "class:113<string>",
+      parameter_types: [],
+      issue: null,
+    });
+  });
+
+  it("decodes a function pointer parameter", () => {
+    // Observed method 0x06000060 signature in the .NET 7 System.Diagnostics.Process assembly.
+    const bytes = buildManagedPeFixture({
+      methodSignature: Buffer.from([
+        0, 2, 0x11, 0x80, 0x98, 0x1b, 9, 2, 0x11, 0x80, 0x98, 0x18, 0x18, 0x18,
+      ]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.methods[0]?.signature).toMatchObject({
+      parse_status: "decoded",
+      calling_convention: "default",
+      return_type: "valuetype:152",
+      parameter_types: [
+        "fnptr[unknown:9](valuetype:152,native-int,native-int)",
+        "native-int",
+      ],
+      issue: null,
+    });
+  });
+
+  it("decodes a nested generic instantiation after a sibling argument", () => {
+    // Observed method 0x06000020 signature in System.Collections.Immutable.
+    const bytes = buildManagedPeFixture({
+      methodSignature: Buffer.from([
+        0x10, 3, 3, 0x15, 0x12, 0x41, 1, 0x1e, 2, 0x15, 0x11, 0x80, 0xac, 1,
+        0x1e, 0, 0x15, 0x12, 0x45, 2, 0x1e, 0, 0x15, 0x12, 0x41, 1, 0x1e, 1,
+        0x15, 0x12, 0x4d, 3, 0x1e, 0, 0x1e, 1, 0x1e, 2,
+      ]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.methods[0]?.signature).toMatchObject({
+      kind: "method",
+      parse_status: "decoded",
+      calling_convention: "default generic",
+      generic_parameter_count: 3,
+      parameter_count: 3,
+      return_type: "class:65<mvar:2>",
+      parameter_types: [
+        "valuetype:172<mvar:0>",
+        "class:69<mvar:0,class:65<mvar:1>>",
+        "class:77<mvar:0,mvar:1,mvar:2>",
+      ],
+      issue: null,
+    });
+  });
+
+  it("decodes deeply nested generic instantiations without recursion", () => {
+    const depth = 8_000;
+    const levels = Buffer.alloc(depth * 4);
+    for (let index = 0; index < depth; index += 1)
+      levels.set([0x15, 0x11, 1, 1], index * 4);
+    const bytes = buildManagedPeFixture({
+      fieldSignature: Buffer.concat([
+        Buffer.from([6]),
+        levels,
+        Buffer.from([0x08]),
+      ]),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.fields[0]?.signature).toMatchObject({
+      parse_status: "decoded",
+      field_type: `${"valuetype:1<".repeat(depth)}i4${">".repeat(depth)}`,
+      issue: null,
+    });
   });
 });
 
