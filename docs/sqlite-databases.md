@@ -97,3 +97,25 @@ Changed input identities, special files, malformed databases, unsupported
 formats and resource failures are reported as errors with the selected path and
 meaningful reason. Encrypted databases, database repair, arbitrary SQL,
 cross-database queries and live capture are outside this inspection's coverage.
+
+## Compatibility verification
+
+Run `npm run test:sqlite` after changing the SQLite adapter or its shared
+process, filesystem, CLI or MCP boundaries. It prepares the compiled runtime
+and runs SQLite service, snapshot, inspection, cleanup and public CLI/MCP
+tests. Directory-based selection includes new SQLite service and boundary
+tests automatically. `npm run test:sqlite:run` runs the same cases when the
+compiled runtime and generated test artifacts are already current.
+
+The reusable SQLite CI workflow consumes the shared build artifact and tests
+the latest Node 22.x unavailable-runtime diagnostics, the minimum supported
+24.15.0 release, and the latest 24.x and 26.x releases. The repository-pinned
+runtime also runs the full suite. CI's required gate waits for every selected
+SQLite matrix job; a failed, cancelled, skipped or missing selected lane blocks
+the gate. Workflow changes themselves select the build and compatibility lane.
+
+PR checks run against GitHub's merge with the current base branch. A later
+change to `main` can introduce failures outside SQLite; inspect the failing
+job and recheck the updated merge before treating an earlier green run as
+current verification. Compatibility checks detect regressions, but cannot
+guarantee that an arbitrary future upstream change remains compatible.
