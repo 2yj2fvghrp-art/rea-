@@ -258,6 +258,36 @@ describe("partial navigation availability", () => {
       remediation: "Navigation requires macOS.",
     });
   });
+
+  it("lists shared missing operations once in combined remediation", () => {
+    const availability = entry(
+      "get_navigation_context",
+      status({ open: true, kind: "executable" }),
+    );
+
+    expect(availability).toMatchObject({
+      reason: "provider_missing",
+      remediation:
+        "Configure a provider for one of: current_document, current_address, resolve_containing_procedure.",
+      modes: [
+        {
+          name: "current_selection",
+          missing_operations: [
+            "current_document",
+            "current_address",
+            "resolve_containing_procedure",
+          ],
+        },
+        {
+          name: "explicit_document",
+          missing_operations: [
+            "current_address",
+            "resolve_containing_procedure",
+          ],
+        },
+      ],
+    });
+  });
 });
 
 it("reports host denial before target mismatch but keeps composed workflow prerequisites", () => {

@@ -119,6 +119,14 @@ and optional negotiated client features plus the currently missing features.
 The optional inputs `expected_package_version`, `expected_catalog_digest`, and
 `expected_server_path` compare the live session with the caller's expectations.
 
+`server_identity.catalog` contains catalog counts and schema digests. Tool names,
+surfaces, effects, and annotations appear once in `tool_availability`; use
+`tools/list` for complete canonical tool definitions, including input and output
+schemas. Clients that previously read `server_identity.catalog.tools` should
+read `tool_availability` for these facts. The same catalog identity summary is
+returned by CLI `capabilities` and `providers`; MCP tool definitions remain
+available through `tools/list`.
+
 `binary_session.analysis_provider_candidates` is authoritative for deep-engine
 discovery. Target-free discovery is sorted by provider ID, reports host
 availability and `unknown` target support, and does not create an analysis

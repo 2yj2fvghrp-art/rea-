@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { lt, rcompare } from "semver";
 
 import { CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
+import { TOOL_CONTRACTS } from "../dist/contracts/toolContracts.js";
 import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 
 const verifierRun = createVerifierRun();
@@ -54,20 +55,23 @@ try {
   await client.connect(transport);
   const tools = await client.listTools();
   const toolNames = tools.tools.map(({ name }) => name);
-  const canonicalToolNames = new Set(
-    CATALOG_IDENTITY.tools.map(({ name }) => name),
-  );
+  const canonicalToolNames = new Set(TOOL_CONTRACTS.map(({ name }) => name));
   const unknownToolNames = toolNames.filter(
     (name) => !canonicalToolNames.has(name),
+  );
+  const publishedToolNames = new Set(toolNames);
+  const missingToolNames = [...canonicalToolNames].filter(
+    (name) => !publishedToolNames.has(name),
   );
   publishedToolCount = toolNames.length;
   if (
     publishedToolCount === 0 ||
-    new Set(toolNames).size !== publishedToolCount ||
-    unknownToolNames.length > 0
+    publishedToolNames.size !== publishedToolCount ||
+    unknownToolNames.length > 0 ||
+    missingToolNames.length > 0
   )
     throw new Error(
-      `Published MCP exposed an invalid capability-scoped tool projection (${String(publishedToolCount)} tools, unknown: ${unknownToolNames.join(", ") || "none"})`,
+      `Published MCP exposed an invalid canonical tool catalog (${String(publishedToolCount)} tools, unknown: ${unknownToolNames.join(", ") || "none"}, missing: ${missingToolNames.join(", ") || "none"})`,
     );
   const status = await client.callTool({
     name: "binary_session",

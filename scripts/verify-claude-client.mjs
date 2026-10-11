@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
+import { CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
 import {
   TOOL_CONTRACTS,
   toolContract,
@@ -58,6 +59,8 @@ await writeFile(
   'export function result() { return { clientCompatibility: "REA_CLIENT_FIXTURE", count: 7 }; }\n',
 );
 let skillRequested = false;
+let sessionRequested = false;
+let sessionStatusSeen = false;
 let skillLoaded = false;
 let expectedSkillBody;
 let evidenceSeen = false;
@@ -73,7 +76,7 @@ const containsText = (value, text) => {
     return Object.values(value).some((nested) => containsText(nested, text));
   return false;
 };
-const extractEvidence = (value) => {
+const extractInlineResult = (value, matches) => {
   if (typeof value === "string") {
     try {
       // Native Claude appends this resource hint to tool results. Original bodies remain intact in request artifacts.
@@ -81,20 +84,16 @@ const extractEvidence = (value) => {
         /\n\n<system-reminder>\n<total_tokens>\d+ tokens left<\/total_tokens>\n<\/system-reminder>$/u,
         "",
       );
-      return extractEvidence(JSON.parse(json));
+      return extractInlineResult(JSON.parse(json), matches);
     } catch {
       return undefined;
     }
   }
   if (value && typeof value === "object") {
-    if (
-      typeof value.evidence_id === "string" &&
-      value.normalized_result?.graph?.nodes?.length > 0
-    )
-      return value;
+    if (matches(value)) return value;
     for (const nested of Object.values(value)) {
-      const evidence = extractEvidence(nested);
-      if (evidence) return evidence;
+      const result = extractInlineResult(nested, matches);
+      if (result) return result;
     }
   }
   return undefined;
@@ -146,11 +145,55 @@ const fixture = await createAnthropicModelFixture({
         schemasChecked++;
       }
     }
+    if (mode === "call" && !sessionStatusSeen) {
+      const observedStatus = extractInlineResult(
+        body.messages,
+        (value) =>
+          Boolean(value.result?.server_identity) &&
+          Array.isArray(value.result?.tool_availability),
+      );
+      if (observedStatus) {
+        const status =
+          toolContract("binary_session").outputSchema.parse(observedStatus);
+        assert.deepEqual(
+          status.result.server_identity.catalog,
+          CATALOG_IDENTITY,
+          "binary_session must return the exact compact catalog counts and digests",
+        );
+        assert.equal(
+          Object.hasOwn(status.result.server_identity.catalog, "tools"),
+          false,
+          "binary_session must not inline the duplicated canonical tool catalog",
+        );
+        assert.deepEqual(
+          status.result.tool_availability.map((entry) => entry.name).sort(),
+          TOOL_CONTRACTS.map((contract) => contract.name).sort(),
+          "binary_session must retain complete canonical tool availability",
+        );
+        sessionStatusSeen = true;
+      } else {
+        assert(
+          !sessionRequested,
+          "Claude must return the inline binary_session result before continuing",
+        );
+        const session = tools.find(
+          (tool) => tool.name === `${prefix}binary_session`,
+        );
+        assert(session, "Claude must expose the REA binary_session tool");
+        sessionRequested = true;
+        return call(session.name, {});
+      }
+    }
     skillLoaded ||=
       expectedSkillBody !== undefined &&
       containsText(body.messages, expectedSkillBody) &&
       containsText(body.messages, skillDirectory);
-    const observed = extractEvidence(body.messages);
+    const observed = extractInlineResult(
+      body.messages,
+      (value) =>
+        typeof value.evidence_id === "string" &&
+        value.normalized_result?.graph?.nodes?.length > 0,
+    );
     if (observed) {
       const evidence = toolContract(
         "analyze_javascript_application",
@@ -184,7 +227,7 @@ const fixture = await createAnthropicModelFixture({
       await writeFile(join(lab, "claude-evidence.json"), bytes);
       evidenceSeen = true;
     }
-    if (mode === "chat" || evidenceSeen) {
+    if (mode === "chat" || (sessionStatusSeen && evidenceSeen)) {
       finalSeen = true;
       return [{ type: "text", text: "REA_CLIENT_COMPATIBILITY_OK" }];
     }
@@ -294,6 +337,7 @@ try {
             "Skill",
             "WaitForMcpServers",
             "mcp__rea__analyze_javascript_application",
+            ...(mode === "call" ? ["mcp__rea__binary_session"] : []),
           ],
         },
       }),
@@ -324,7 +368,7 @@ try {
   assert.equal(parsed.result, "REA_CLIENT_COMPATIBILITY_OK");
   assert.deepEqual(parsed.permission_denials, []);
   assert(finalSeen);
-  if (mode === "call") assert(evidenceSeen && skillLoaded);
+  if (mode === "call") assert(evidenceSeen && skillLoaded && sessionStatusSeen);
 } catch (cause) {
   failure = cause;
   if (typeof cause?.stdout === "string")
@@ -355,6 +399,7 @@ try {
     schemasChecked,
     pendingServerWaits,
     evidenceSeen,
+    sessionStatusSeen,
     skillLoaded,
     artifactDigest,
     finalSeen,

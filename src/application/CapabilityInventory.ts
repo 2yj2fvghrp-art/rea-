@@ -626,14 +626,15 @@ const navigationContextAvailability = (
   };
   if (availableMode !== undefined)
     return { ...facts, reason: "available", remediation: null };
+  const missingOperations = [
+    ...new Set(modes.flatMap((mode) => mode.missing_operations)),
+  ];
   return {
     ...facts,
     reason: failure?.reason ?? "provider_missing",
     remediation:
       specificFailureRemediation ??
-      `Configure a provider for one of: ${modes
-        .flatMap((mode) => mode.missing_operations)
-        .join(", ")}.`,
+      `Configure a provider for one of: ${missingOperations.join(", ")}.`,
   };
 };
 

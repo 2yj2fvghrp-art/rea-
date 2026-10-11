@@ -387,7 +387,18 @@ export const sessionProvider = z
       negotiated_protocol_version: z.string().nullable(),
       client: z.object({ name: z.string(), version: z.string() }).nullable(),
       skill: z.object({ name: z.string(), expected_version: z.string() }),
-      catalog: z.record(z.string(), jsonValueSchema),
+      catalog: z.strictObject({
+        counts: z.strictObject({
+          cli_commands: z.number().int().min(0),
+          mcp_tools: z.number().int().min(0),
+          mcp_prompts: z.number().int().min(0),
+        }),
+        digests: z.strictObject({
+          tools_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+          prompts_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+          combined_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+        }),
+      }),
       protocol_features: z.object({
         progress: z.boolean(),
         cancellation: z.boolean(),
