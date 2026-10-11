@@ -167,6 +167,7 @@ describe("production stdio runtime", () => {
     15_000,
   );
 
+  // Catalog discovery and child startup share the suite's coverage-aware deadline.
   it("serves the compiled catalog without an initial target or fatal record", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -227,7 +228,7 @@ describe("production stdio runtime", () => {
         record.level >= 50,
     );
     expect(fatal).toEqual([]);
-  }, 15_000);
+  });
 
   it.runIf(process.platform === "darwin")(
     "serves a database-kind initial target without a fatal record on macOS",
