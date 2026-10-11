@@ -239,6 +239,12 @@ export class LabeledStringScanner {
   }
 
   #consider(text: string): void {
+    // A run longer than any accepted pattern is rejected, not truncated:
+    // publishing a prefix as verbatim would fabricate evidence.
+    if (text.length > CARRY_BYTES) {
+      this.#toolchainCapped = true;
+      return;
+    }
     if (this.#dartVersion === null) {
       const match = DART_VERSION_PATTERN.exec(text);
       if (match !== null) this.#dartVersion = match[0].trim();

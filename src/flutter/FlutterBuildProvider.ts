@@ -676,6 +676,8 @@ export class FlutterBuildProvider {
         const file = await openFile(imagePath, "r");
         try {
           while (imageLength < image.length) {
+            if (signal?.aborted === true)
+              return err(new AnalysisCancelledError("inspect_dart_aot"));
             const result = await file.read(
               image,
               imageLength,
@@ -705,9 +707,6 @@ export class FlutterBuildProvider {
         header_length: number | null;
       }[] = [];
       let isolateData: Buffer | null = null;
-      const scanner = new SnapshotHashScanner();
-      scanner.push(bounded);
-      const hashScan = scanner.result();
       for (const name of symbolNames) {
         const parsed = readElfSymbol(bounded, name);
         if ("failure" in parsed) continue;
@@ -733,6 +732,17 @@ export class FlutterBuildProvider {
             parsed.symbol.offset + parsed.symbol.size,
           );
       }
+      // Hash scanning is bounded to the exported data symbols' byte ranges
+      // so decoy or stale magic/hash sequences elsewhere in the image
+      // cannot inflate source counts or contribute candidates.
+      const dataRanges = sections
+        .filter((section) => section.name.endsWith("Data"))
+        .map((section) =>
+          bounded.subarray(section.offset, section.offset + section.size),
+        );
+      const scanner = new SnapshotHashScanner();
+      for (const range of dataRanges) scanner.push(range);
+      const hashScan = scanner.result();
       if (sections.length === 0)
         return err(
           new AnalysisUnsupportedTargetError(

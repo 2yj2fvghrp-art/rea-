@@ -75,11 +75,13 @@ export const readElfSymbol = (
   const e_phoff = is64 ? reader.u64(0x20) : reader.u32(0x1c);
   const e_phentsize = reader.u16(is64 ? 0x36 : 0x2a);
   const e_phnum = reader.u16(is64 ? 0x38 : 0x2c);
+  const MIN_SHENT = is64 ? 64 : 40;
   if (
     e_shoff === null ||
     e_shentsize === null ||
     e_shnum === null ||
     e_shnum === 0 ||
+    e_shentsize < MIN_SHENT ||
     e_shoff + e_shentsize * e_shnum > bytes.length
   )
     return {
@@ -87,10 +89,12 @@ export const readElfSymbol = (
         reason: "ELF section header table is missing or out of bounds",
       },
     };
+  const MIN_PHENT = is64 ? 56 : 32;
   if (
     e_phoff === null ||
     e_phentsize === null ||
     e_phnum === null ||
+    e_phentsize < MIN_PHENT ||
     e_phoff + e_phentsize * e_phnum > bytes.length
   )
     return {

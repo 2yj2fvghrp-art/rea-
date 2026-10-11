@@ -66,7 +66,7 @@ if (options.apk !== null) {
         .every(
           (abi) =>
             abi.libapp.snapshot_hash !== null &&
-            abi.libapp.snapshot_hash_sources >= 2,
+            abi.libapp.snapshot_hash_sources === 2,
         ),
       `hash=${identified.abis.find((abi) => abi.libapp.present)?.libapp.snapshot_hash}`,
     );
