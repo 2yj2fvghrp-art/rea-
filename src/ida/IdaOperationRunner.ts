@@ -186,6 +186,15 @@ export class IdaOperationRunner {
     return entry;
   }
 
+  /** True only for modern callee reads on targets not proven x86-only; x86 reads never reach the graph code. */
+  private readsCallGraph(direction: "callers" | "callees"): boolean {
+    return (
+      this.protocol === "modern" &&
+      direction === "callees" &&
+      this.options.x86Only === false
+    );
+  }
+
   /** Add depth-one call graph callees on targets where `callees` may not recognise calls. */
   private async addCallGraphCallees(
     fn: IdaFunction,
@@ -388,7 +397,7 @@ export class IdaOperationRunner {
       const resolved = identity(await this.resolve(query));
       result.set(resolved.address, resolved);
     }
-    if (this.protocol === "modern" && direction === "callees")
+    if (this.readsCallGraph(direction))
       await this.addCallGraphCallees(fn, result, upstreamCalleesEmpty);
     return [...result.values()];
   }

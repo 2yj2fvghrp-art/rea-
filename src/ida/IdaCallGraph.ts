@@ -8,9 +8,11 @@ import {
 
 /** Reported when `callees` returned nothing for a non-x86 procedure. */
 export const EMPTY_CALLEES_LIMITATION =
-  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; callee edges come from the upstream call graph, which reports calls to recognized functions only, so other call targets remain unknown.";
+  "Upstream callees reported no calls for this procedure on a target that is not proven x86-only; REA adds edges from the upstream call graph when it is available, and that graph reports calls to recognized functions only, so other call targets remain unknown.";
 const TRUNCATED_LIMITATION =
   "Upstream callgraph was truncated; additional callees remain unknown.";
+const POSSIBLY_TRUNCATED_LIMITATION =
+  "Upstream callgraph may be truncated; additional callees may remain unknown.";
 
 const X86_FAMILIES: ReadonlySet<string> = new Set(["x86", "x86_64"]);
 
@@ -21,6 +23,8 @@ const X86_FAMILIES: ReadonlySet<string> = new Set(["x86", "x86_64"]);
  */
 export const isX86OnlyTarget = (target: BinaryTarget): boolean =>
   target.kind === "executable" &&
+  // IDA can load a managed PE with the CLI loader instead of as x86 code.
+  !(target.format === "pe" && target.managed) &&
   X86_FAMILIES.has(target.architecture) &&
   target.availableArchitectures.every((family) => X86_FAMILIES.has(family));
 
@@ -76,10 +80,12 @@ export const readCallGraphCallees = async (
     BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0,
   );
   const truncated =
-    row.truncated === true ||
-    (row.limit_reason ?? null) !== null ||
-    (row.max_edges_per_func !== undefined &&
-      edges.length >= row.max_edges_per_func);
+    row.truncated === true || (row.limit_reason ?? null) !== null;
+  // Reaching the per-function cap can break the scan without setting a flag,
+  // so a saturated count is a possible, not a certain, truncation.
+  const saturated =
+    row.max_edges_per_func !== undefined &&
+    edges.length >= row.max_edges_per_func;
   return {
     callees: targets.map((to) => {
       const name = names.get(to);
@@ -88,6 +94,10 @@ export const readCallGraphCallees = async (
         name: name === null || name === undefined || name === "" ? to : name,
       };
     }),
-    limitations: truncated ? [TRUNCATED_LIMITATION] : [],
+    limitations: truncated
+      ? [TRUNCATED_LIMITATION]
+      : saturated
+        ? [POSSIBLY_TRUNCATED_LIMITATION]
+        : [],
   };
 };
