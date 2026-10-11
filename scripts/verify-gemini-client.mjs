@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import {
@@ -18,11 +18,13 @@ const runtimeRoot = process.env.REA_VERIFY_RUNTIME_ROOT ?? repo;
 const command = process.env.REA_VERIFY_GEMINI_COMMAND ?? "gemini";
 const mode = process.argv[2] ?? "call";
 // npm installs of Gemini CLI provide a JavaScript entry point; on Windows only a gemini.cmd shim reaches
-// PATH, which Node does not spawn without a shell, so a selected .js entry runs under this Node.
+// PATH, which Node does not spawn without a shell, so a selected .js entry runs under this Node. It is
+// resolved once, because the preflight runs from the caller's directory and the client from the workspace.
+const entryPoint = /\.(c|m)?js$/iu.test(command) ? resolve(command) : undefined;
 const launch = (args) =>
-  /\.(c|m)?js$/iu.test(command)
-    ? [process.execPath, [command, ...args]]
-    : [command, args];
+  entryPoint === undefined
+    ? [command, args]
+    : [process.execPath, [entryPoint, ...args]];
 assert(
   ["chat", "call"].includes(mode),
   "Usage: verify-gemini-client.mjs [chat|call]",
