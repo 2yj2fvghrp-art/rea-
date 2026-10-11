@@ -62,10 +62,6 @@ const STATIC_CHECKPOINT_RETENTION_FACTOR = 6;
 const STATIC_CHECKPOINT_RETENTION_BYTES =
   DEFAULTS.checkpointBytes * STATIC_CHECKPOINT_RETENTION_FACTOR;
 
-// Parent admission is bounded by the CLI/MCP process heap, not the worker's.
-const PARENT_RESULT_REMEDIATION =
-  "The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap (for example NODE_OPTIONS=--max-old-space-size), then rerun. Retained static and module facts remain usable.";
-
 const OPERATION = "analyze_javascript_application";
 const PROVIDER = "javascript-static-analysis";
 const MIB = 1024 * 1024;
@@ -73,6 +69,12 @@ const pendingCleanup = new Set<JavaScriptAnalysisWorker>();
 /** The worker runs on this executable; Bun accepts but ignores V8 heap flags. */
 const WORKER_HEAP_FLAGS_ENFORCED =
   javaScriptRuntime(process.versions).id === "node";
+
+// Parent admission is bounded by the CLI/MCP process heap, not the worker's.
+// That process runs on the same runtime, so only Node.js honors heap flags.
+const PARENT_RESULT_REMEDIATION = WORKER_HEAP_FLAGS_ENFORCED
+  ? "The CLI/MCP process's own result budget, derived from its Node.js heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once or start REA with a larger Node.js heap (for example NODE_OPTIONS=--max-old-space-size), then rerun. Retained static and module facts remain usable."
+  : "The CLI/MCP process's own result budget, derived from its runtime heap, was exhausted; max_heap_mb only sizes the analyzer worker. Analyze fewer sources at once, or run REA where its process has more memory available, then rerun. Retained static and module facts remain usable.";
 
 /** One sequential owned worker, retained between source files and closed after analysis. */
 export class JavaScriptAnalysisWorker {

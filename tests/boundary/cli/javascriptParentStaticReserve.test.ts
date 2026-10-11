@@ -19,7 +19,9 @@ const outputSchema = z.object({
   }),
 });
 
-cliTest(
+// Bun ignores V8 heap flags, so only Node.js can bound the nested CLI's
+// parent heap to the capacity this scenario needs.
+cliTest.skipIf(process.versions.bun !== undefined)(
   "keeps an earlier semantic graph when only one small source remains",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-js-static-reserve-");
