@@ -474,6 +474,23 @@ it.each([
   });
 });
 
+it("rejects array ranks beyond the CLR limit before rendering dimensions", () => {
+  expect(
+    signature(
+      Buffer.from([0x06, 0x14, 0x08, 0xdf, 0xff, 0xff, 0xff, 0x00, 0x00]),
+    ),
+  ).toMatchObject({
+    parse_status: "unsupported",
+    issue: "array rank 536870911 exceeds the 32 dimensions the CLR supports",
+  });
+  expect(
+    signature(Buffer.from([0x06, 0x14, 0x08, 0x20, 0x00, 0x00])),
+  ).toMatchObject({
+    parse_status: "decoded",
+    field_type: `i4[${",".repeat(31)}]`,
+  });
+});
+
 it("keeps element types that member signatures do not assign unsupported", () => {
   expect(signature(Buffer.from([0x06, 0x45, 0x08]))).toMatchObject({
     parse_status: "unsupported",

@@ -403,12 +403,23 @@ const readMethodSignatureHeader = (
   };
 };
 
+const MAX_ARRAY_RANK = 32;
+
 const arrayShape = (
   blob: Buffer,
   offset: number,
 ): { readonly value: string; readonly next: number } => {
   const rank = readCompressed(blob, offset);
   if (rank.value === 0) return malformedSignature("array rank is zero", offset);
+  // ECMA-335 leaves rank unbounded, but the CLR loads at most 32 dimensions;
+  // larger ranks would expand a few bytes into an unbounded rendering.
+  if (rank.value > MAX_ARRAY_RANK)
+    throw managedFailure(
+      "unsupported-signature",
+      "signature",
+      `array rank ${String(rank.value)} exceeds the ${String(MAX_ARRAY_RANK)} dimensions the CLR supports`,
+      offset,
+    );
   const sizeCount = readCompressed(blob, rank.next);
   if (sizeCount.value > rank.value)
     return malformedSignature("array has more sizes than dimensions", offset);
