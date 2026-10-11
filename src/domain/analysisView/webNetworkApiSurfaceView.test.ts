@@ -435,6 +435,63 @@ it("charges a distinct content type against bytes already retained", () => {
   });
 });
 
+it("rejects a new group whose combined copies exceed the reply budget", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  capture.records = [
+    {
+      ...record,
+      ordinal: 0,
+      reported: {
+        request: {
+          method: "GET",
+          url: `https://api.example.test/${"z".repeat(4_999_999)}`,
+        },
+      },
+    },
+    {
+      ...record,
+      ordinal: 1,
+      reported: {
+        request: {
+          method: "M".repeat(12_000_000),
+          url: `https://api.example.test/${"y".repeat(14_199_999)}`,
+        },
+      },
+    },
+  ];
+  capture.total_records = capture.records.length;
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      reason: "Retained group text would exceed the capture reply budget.",
+    },
+  });
+});
+
+it("keeps distinct content types without repeating a retained essence", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const types = ["text/plain", "application/json", "text/plain"];
+  capture.records = types.map((mimeType, ordinal) => ({
+    ...record,
+    ordinal,
+    reported: {
+      request: { method: "GET", url: "https://api.example.test/a" },
+      response: { status: 200, content: { mimeType } },
+    },
+  }));
+  capture.total_records = capture.records.length;
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups[0]?.content_types).toEqual([
+    "application/json",
+    "text/plain",
+  ]);
+});
+
 it("charges cumulative deduplication sets before allocating them", () => {
   const capture = analysisViewCaptureFixture();
   const record = capture.records[0]!;

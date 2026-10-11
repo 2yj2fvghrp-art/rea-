@@ -72,6 +72,7 @@ export const apiSurfaceFields = {
 };
 type Group = z.output<typeof groupSchema>;
 type Surface = Extract<UnsignedAnalysisView, { kind: "api-surface" }>;
+type GroupBuckets = Map<string, Map<string, Map<string, Map<string, Group>>>>;
 const requestSchema = z.object({
   request: z.object({ url: z.unknown(), method: z.unknown() }),
 });
@@ -202,12 +203,13 @@ export const projectWebNetworkApiSurfaceView = (
     .safeParse(parent.parameters);
   if (!declarations.success || declarations.data.sensitive_value_count > 0)
     return unsupported("sensitive_values_unretained");
-  const buckets = new Map<string, Group>();
+  const buckets: GroupBuckets = new Map();
   const excluded: Surface["excluded_records"] = [];
   let unavailableResponse = false;
   let projectedBytes = 0;
   const budget = WEB_NETWORK_CAPTURE_LIMITS.outputBytes;
-  const retained = new Map<string, Set<string>[]>();
+  const retained = new Map<Group, Set<string>[]>();
+  const contentTypes = new Map<Group, Set<string>>();
   const overBudget = (reason: string) =>
     err(
       new AnalysisResourceConstraintError(
@@ -278,23 +280,30 @@ export const projectWebNetworkApiSurfaceView = (
         "Retained request method or origin would exceed the capture reply budget.",
       );
     // Rule positions keep a recorded literal "{numeric}" apart from a templated one.
-    const key = JSON.stringify([
-      method,
-      parsedUrl.origin,
-      template,
+    const rules = JSON.stringify(
       segments.map((segment) => [segment.segment_index, segment.rule]),
-    ]);
-    let group = buckets.get(key);
+    );
+    const origin = parsedUrl.origin;
+    const segmentBytes = segments.reduce(
+      (sum, segment) =>
+        sum + TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length,
+      0,
+    );
+    const groupBytes =
+      path.length * RETAINED_PATH_COPIES +
+      identityBytes * IDENTITY_TEXT_COPIES +
+      segmentBytes;
+    let group = buckets.get(method)?.get(origin)?.get(template)?.get(rules);
     if (group === undefined) {
-      projectedBytes +=
-        path.length * RETAINED_PATH_COPIES +
-        identityBytes * IDENTITY_TEXT_COPIES;
-      for (const segment of segments)
-        projectedBytes +=
-          TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length;
+      // Path, identity, and segment charges are retained together.
+      if (projectedBytes + groupBytes > budget)
+        return overBudget(
+          "Retained group text would exceed the capture reply budget.",
+        );
+      projectedBytes += groupBytes;
       group = {
         method,
-        origin: parsedUrl.origin,
+        origin,
         path_template: template,
         templated_segments: segments,
         record_ordinals: [],
@@ -302,12 +311,19 @@ export const projectWebNetworkApiSurfaceView = (
         content_types: [],
         flags: [],
       };
-      buckets.set(key, group);
+      const byOrigin = buckets.get(method) ?? new Map();
+      buckets.set(method, byOrigin);
+      const byTemplate = byOrigin.get(origin) ?? new Map();
+      byOrigin.set(origin, byTemplate);
+      const byRule = byTemplate.get(template) ?? new Map();
+      byTemplate.set(template, byRule);
+      byRule.set(rules, group);
+      contentTypes.set(group, new Set());
     } else {
       // Equal templates have the same ordered rule positions; keep new values only.
       // Deduplication sets are created on the first merge, not for every group.
       const existing = group.templated_segments;
-      let seen = retained.get(key);
+      let seen = retained.get(group);
       if (seen === undefined) {
         const dedupBytes = existing.length * DEDUP_SET_BYTES;
         if (projectedBytes + dedupBytes > budget)
@@ -316,7 +332,7 @@ export const projectWebNetworkApiSurfaceView = (
           );
         projectedBytes += dedupBytes;
         seen = existing.map((segment) => new Set(segment.observed_values));
-        retained.set(key, seen);
+        retained.set(group, seen);
       }
       segments.forEach((segment, index) => {
         const value = segment.observed_values[0]!;
@@ -349,13 +365,19 @@ export const projectWebNetworkApiSurfaceView = (
       );
     const essence = rawMime.split(";", 1).join("").trim().toLowerCase();
     if (MEDIA_TYPE_ESSENCE.test(essence)) {
-      if (!group.content_types.includes(essence)) {
+      const seenTypes = contentTypes.get(group);
+      if (seenTypes !== undefined && !seenTypes.has(essence)) {
         projectedBytes += essence.length;
+        seenTypes.add(essence);
         group.content_types.push(essence);
       }
     } else unavailableResponse = true;
   }
-  const groups = [...buckets.values()].sort(
+  const groups: Group[] = [];
+  for (const byOrigin of buckets.values())
+    for (const byTemplate of byOrigin.values())
+      for (const byRule of byTemplate.values()) groups.push(...byRule.values());
+  groups.sort(
     (a, b) =>
       compare(a.origin, b.origin) ||
       compare(a.path_template, b.path_template) ||
