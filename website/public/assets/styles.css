@@ -1112,7 +1112,7 @@ pre code {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-.step-comparison pre .is-active {
+.step-comparison pre .code-step.is-active {
   display: inline-block;
   width: 100%;
   border-radius: 4px;
