@@ -126,6 +126,14 @@ Member inspection binds build-local tokens, signatures, row offsets, method
 bodies, and decoded relationships to that artifact and MVID. Missing or malformed
 facts remain explicit in coverage and per-member status.
 
+`inspect_managed_members` reports `exported_types` separately from `types`
+because facade assemblies forward their public surface without matching TypeDef
+rows. Each entry resolves its `Implementation` scope to a File, an AssemblyRef
+(simple name and version), a parent ExportedType, the current module, or an
+unresolved value with a coverage issue; nested exported names join their parent
+with `/`. A chain that revisits a row, or nests deeper than 64 levels, is
+reported as a coverage issue instead of being followed.
+
 CLI `#GUID` heap values retain their exact 16-byte GUID text. REA does not impose
 RFC 4122 UUID version or variant bits on MVID, EncId, or EncBaseId because
 ECMA-335 metadata does not require those bit patterns. Tokens and RVAs are

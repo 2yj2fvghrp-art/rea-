@@ -110,6 +110,29 @@ const managedTypeSchema = z.object({
   }),
 });
 
+const managedExportedTypeSchema = z.object({
+  token: tokenSchema,
+  row_offset: offsetSchema,
+  flags: z.number().int().min(0).max(0xffff_ffff),
+  forwarder: z.boolean(),
+  type_def_id: z.number().int().min(0).max(0xffff_ffff),
+  namespace: z.string(),
+  name: z.string(),
+  full_name: z.string(),
+  implementation: z.object({
+    kind: z.enum([
+      "assembly-ref",
+      "file",
+      "exported-type",
+      "current-module",
+      "unresolved",
+    ]),
+    token: tokenSchema.nullable(),
+    name: z.string().nullable(),
+    version: z.string().nullable(),
+  }),
+});
+
 const managedFieldSchema = z.object({
   token: tokenSchema,
   row_offset: offsetSchema,
@@ -420,6 +443,8 @@ export const managedMemberInspectionSchema = z.object({
     requires_mvid: cliMetadataGuidSchema.nullable(),
   }),
   types: z.array(managedTypeSchema),
+  // Evidence recorded before ExportedType parsing stays readable.
+  exported_types: z.array(managedExportedTypeSchema).default([]),
   fields: z.array(managedFieldSchema),
   methods: z.array(managedMethodSchema),
   member_refs: z.array(managedMemberReferenceSchema),

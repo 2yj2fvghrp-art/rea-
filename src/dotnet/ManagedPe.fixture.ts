@@ -2,13 +2,29 @@ import { createHash } from "node:crypto";
 
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 
+interface FixtureExportedType {
+  readonly name: string;
+  readonly namespace?: string;
+  readonly flags?: number;
+  readonly typeDefId?: number;
+  readonly implementation?:
+    | {
+        readonly kind: "assembly-ref" | "file" | "exported-type";
+        readonly row: number;
+      }
+    | { readonly kind: "current-module" }
+    | { readonly kind: "raw"; readonly raw: number };
+}
+
 interface ManagedPeFixtureOptions {
   readonly cliFlags?: number;
   readonly corruptMetadataSignature?: boolean;
   readonly customAttributeTypeRaw?: number;
+  readonly exportedTypes?: readonly FixtureExportedType[];
   readonly extendsRaw?: number;
   readonly fieldName?: string;
   readonly fieldSignature?: Buffer;
+  readonly files?: readonly string[];
   readonly ilBody?: Buffer;
   readonly malformedAssemblyReferenceRows?: readonly number[];
   readonly malformedCustomAttributeRows?: readonly number[];
@@ -361,6 +377,47 @@ const manifestResourceRow = (
     metadataIndex(implementationRaw, implementationSize),
   ]);
 
+const EXPORTED_TYPE_IMPLEMENTATION_TAGS = {
+  file: 0,
+  "assembly-ref": 1,
+  "exported-type": 2,
+} as const;
+
+const fileRow = (
+  name: number,
+  stringSize: MetadataIndexSize,
+  blobSize: MetadataIndexSize,
+): Buffer =>
+  Buffer.concat([
+    u32(0),
+    metadataIndex(name, stringSize),
+    metadataIndex(0, blobSize),
+  ]);
+
+const exportedTypeRow = (
+  exported: FixtureExportedType,
+  name: number,
+  namespace: number,
+  stringSize: MetadataIndexSize,
+  implementationSize: MetadataIndexSize,
+): Buffer => {
+  const implementation = exported.implementation;
+  const implementationRaw =
+    implementation === undefined || implementation.kind === "current-module"
+      ? 0
+      : implementation.kind === "raw"
+        ? implementation.raw
+        : (implementation.row << 2) |
+          EXPORTED_TYPE_IMPLEMENTATION_TAGS[implementation.kind];
+  return Buffer.concat([
+    u32(exported.flags ?? 0),
+    u32(exported.typeDefId ?? 0),
+    metadataIndex(name, stringSize),
+    metadataIndex(namespace, stringSize),
+    metadataIndex(implementationRaw, implementationSize),
+  ]);
+};
+
 const fixedStringAttributeBlob = (value: string): Buffer => {
   const bytes = Buffer.from(textEncoder.encode(value));
   if (bytes.length > 0x7f)
@@ -456,6 +513,14 @@ interface FixtureMetadataRowContext {
   readonly options: ManagedPeFixtureOptions;
   readonly methodRva: number;
   readonly referenceStringIndexes: readonly number[];
+  readonly fileIndexes: readonly number[] | undefined;
+  readonly exportedTypeIndexes:
+    | readonly {
+        readonly exported: FixtureExportedType;
+        readonly name: number;
+        readonly namespace: number;
+      }[]
+    | undefined;
   readonly indexes: {
     readonly moduleName: number;
     readonly assemblyName: number;
@@ -521,6 +586,71 @@ const customAttributeRows = (
         ),
       ];
 
+const optionalMetadataTableRows = ({
+  options,
+  indexes,
+  heapSizes,
+  fileIndexes,
+  exportedTypeIndexes,
+  widths,
+}: Pick<
+  FixtureMetadataRowContext,
+  "options" | "indexes" | "heapSizes" | "fileIndexes" | "exportedTypeIndexes"
+> & { readonly widths: FixtureIndexWidths }): readonly (readonly [
+  number,
+  readonly Buffer[],
+])[] => [
+  ...(indexes.pinvokeModuleName === null
+    ? []
+    : ([
+        [26, [moduleRefRow(indexes.pinvokeModuleName, heapSizes.strings)]],
+      ] as const)),
+  ...(indexes.pinvokeImportName === null
+    ? []
+    : ([
+        [
+          28,
+          [
+            implMapRow(
+              indexes.pinvokeImportName,
+              1,
+              options.pinvoke?.mappingFlags ?? 0x0344,
+              heapSizes.strings,
+              widths.coded([4, 6], 1),
+              widths.table(26),
+              options.pinvoke?.memberForwardedRaw ?? (1 << 1) | 1,
+            ),
+          ],
+        ],
+      ] as const)),
+  ...(fileIndexes === undefined
+    ? []
+    : ([
+        [
+          38,
+          fileIndexes.map((name) =>
+            fileRow(name, heapSizes.strings, heapSizes.blobs),
+          ),
+        ],
+      ] as const)),
+  ...(exportedTypeIndexes === undefined
+    ? []
+    : ([
+        [
+          39,
+          exportedTypeIndexes.map(({ exported, name, namespace }) =>
+            exportedTypeRow(
+              exported,
+              name,
+              namespace,
+              heapSizes.strings,
+              widths.implementation,
+            ),
+          ),
+        ],
+      ] as const)),
+];
+
 const fixtureIndexWidths = ({
   options,
   referenceStringIndexes,
@@ -539,6 +669,12 @@ const fixtureIndexWidths = ({
     ...(indexes.pinvokeImportName === null ? [] : ([[28, 1]] as const)),
     [32, options.assemblyRowCount ?? 1],
     [35, referenceStringIndexes.length],
+    ...(options.files === undefined
+      ? []
+      : ([[38, options.files.length]] as const)),
+    ...(options.exportedTypes === undefined
+      ? []
+      : ([[39, options.exportedTypes.length]] as const)),
     [40, 1],
   ]);
   const count = (table: number): number => rowCounts.get(table) ?? 0;
@@ -569,6 +705,8 @@ const fixtureMetadataRows = ({
   options,
   methodRva,
   referenceStringIndexes,
+  fileIndexes,
+  exportedTypeIndexes,
   indexes,
   heapSizes,
 }: FixtureMetadataRowContext): ReadonlyMap<number, readonly Buffer[]> => {
@@ -576,6 +714,8 @@ const fixtureMetadataRows = ({
     options,
     methodRva,
     referenceStringIndexes,
+    fileIndexes,
+    exportedTypeIndexes,
     indexes,
     heapSizes,
   });
@@ -656,29 +796,14 @@ const fixtureMetadataRows = ({
       ],
     ],
     [12, customAttributeRows({ options, indexes, heapSizes }, widths)],
-    ...(indexes.pinvokeModuleName === null
-      ? []
-      : ([
-          [26, [moduleRefRow(indexes.pinvokeModuleName, heapSizes.strings)]],
-        ] as const)),
-    ...(indexes.pinvokeImportName === null
-      ? []
-      : ([
-          [
-            28,
-            [
-              implMapRow(
-                indexes.pinvokeImportName,
-                1,
-                options.pinvoke?.mappingFlags ?? 0x0344,
-                heapSizes.strings,
-                widths.coded([4, 6], 1),
-                widths.table(26),
-                options.pinvoke?.memberForwardedRaw ?? (1 << 1) | 1,
-              ),
-            ],
-          ],
-        ] as const)),
+    ...optionalMetadataTableRows({
+      options,
+      indexes,
+      heapSizes,
+      fileIndexes,
+      exportedTypeIndexes,
+      widths,
+    }),
     [
       32,
       repeatedRows(options.assemblyRowCount ?? 1, () =>
@@ -740,6 +865,18 @@ const buildManagedFixtureMetadata = (
   const referenceStringIndexes = referenceNames.map((name) =>
     strings.add(name),
   );
+  const fileIndexes =
+    options.files === undefined
+      ? undefined
+      : options.files.map((name) => strings.add(name));
+  const exportedTypeIndexes =
+    options.exportedTypes === undefined
+      ? undefined
+      : options.exportedTypes.map((exported) => ({
+          exported,
+          name: strings.add(exported.name),
+          namespace: strings.add(exported.namespace ?? ""),
+        }));
   const tokenBlob = blobs.add(Buffer.from("b77a5c561934e089", "hex"));
   const fieldSignature = blobs.add(
     options.fieldSignature ?? Buffer.from([0x06, 0x08]),
@@ -762,6 +899,8 @@ const buildManagedFixtureMetadata = (
     options,
     methodRva,
     referenceStringIndexes,
+    fileIndexes,
+    exportedTypeIndexes,
     indexes: {
       moduleName,
       assemblyName,

@@ -260,6 +260,214 @@ describe("managed derived caller names", () => {
   });
 });
 
+describe("managed exported types", () => {
+  it("inventories forwarded and nested exported types that TypeDef omits", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        {
+          name: "IntPtr",
+          namespace: "System",
+          flags: 0x0020_0000,
+          implementation: { kind: "assembly-ref", row: 1 },
+        },
+        {
+          name: "Enumerator",
+          implementation: { kind: "exported-type", row: 1 },
+        },
+        {
+          name: "Marker",
+          implementation: { kind: "exported-type", row: 2 },
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.metadata.table_row_counts.ExportedType).toBe(3);
+    expect(result.types.map(({ full_name }) => full_name)).toEqual([
+      "Fixture.Program",
+    ]);
+    expect(result.exported_types[0]).toEqual({
+      token: "0x27000001",
+      row_offset: expect.any(Number),
+      flags: 0x0020_0000,
+      forwarder: true,
+      type_def_id: 0,
+      namespace: "System",
+      name: "IntPtr",
+      full_name: "System.IntPtr",
+      implementation: {
+        kind: "assembly-ref",
+        token: "0x23000001",
+        name: "System.Runtime",
+        version: "8.0.0.0",
+      },
+    });
+    expect(result.exported_types.slice(1)).toMatchObject([
+      {
+        token: "0x27000002",
+        forwarder: false,
+        name: "Enumerator",
+        full_name: "System.IntPtr/Enumerator",
+        implementation: {
+          kind: "exported-type",
+          token: "0x27000001",
+          name: "System.IntPtr",
+        },
+      },
+      {
+        token: "0x27000003",
+        name: "Marker",
+        full_name: "System.IntPtr/Enumerator/Marker",
+        implementation: {
+          kind: "exported-type",
+          token: "0x27000002",
+          name: "System.IntPtr/Enumerator",
+        },
+      },
+    ]);
+    expect(result.coverage).toEqual({ state: "complete", issues: [] });
+  });
+});
+
+describe("managed exported type implementation scopes", () => {
+  it("resolves File and null Implementation scopes without inventing a target", () => {
+    const bytes = buildManagedPeFixture({
+      files: ["Legacy.netmodule"],
+      exportedTypes: [
+        {
+          name: "Widget",
+          namespace: "Legacy",
+          implementation: { kind: "file", row: 1 },
+        },
+        { name: "Local", namespace: "Legacy" },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types).toMatchObject([
+      {
+        full_name: "Legacy.Widget",
+        implementation: {
+          kind: "file",
+          token: "0x26000001",
+          name: "Legacy.netmodule",
+          version: null,
+        },
+      },
+      {
+        full_name: "Legacy.Local",
+        implementation: {
+          kind: "current-module",
+          token: null,
+          name: null,
+          version: null,
+        },
+      },
+    ]);
+    expect(result.coverage).toMatchObject({ state: "complete", issues: [] });
+  });
+
+  it("retains an exported type whose Implementation coded index is invalid", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        {
+          name: "Broken",
+          namespace: "Fixture",
+          implementation: { kind: "raw", raw: 0xffff },
+        },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types[0]).toMatchObject({
+      full_name: "Fixture.Broken",
+      implementation: {
+        kind: "unresolved",
+        token: null,
+        name: null,
+        version: null,
+      },
+    });
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        expect.objectContaining({
+          code: "invalid-row",
+          scope: "metadata.ExportedType:0x27000001",
+          detail: expect.stringContaining(
+            "ExportedType implementation coded index 0xffff is invalid: coded index tag 3 is not defined",
+          ),
+        }),
+      ],
+    });
+  });
+
+  it("stops a self-referential nested Implementation chain without hanging", () => {
+    const bytes = buildManagedPeFixture({
+      exportedTypes: [
+        { name: "Loop", implementation: { kind: "exported-type", row: 1 } },
+      ],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types[0]).toMatchObject({
+      full_name: "Loop",
+      implementation: { kind: "exported-type", token: "0x27000001" },
+    });
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        expect.objectContaining({
+          code: "invalid-row",
+          detail: expect.stringContaining(
+            "ExportedType Implementation chain revisits a row",
+          ),
+        }),
+      ],
+    });
+  });
+
+  it("bounds a deep Implementation chain instead of expanding it quadratically", () => {
+    const depth = 4000;
+    const bytes = buildManagedPeFixture({
+      exportedTypes: Array.from({ length: depth }, (_, index) => ({
+        name: `T${String(index + 1)}`,
+        ...(index === 0
+          ? {}
+          : { implementation: { kind: "exported-type" as const, row: index } }),
+      })),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.exported_types).toHaveLength(depth);
+    const deepest = result.exported_types[depth - 1];
+    expect(deepest?.full_name.endsWith(`/T${String(depth)}`)).toBe(true);
+    expect(deepest?.full_name.split("/").length).toBeLessThanOrEqual(65);
+    expect(result.coverage.state).toBe("partial");
+    expect(result.coverage.issues).toContainEqual(
+      expect.objectContaining({
+        code: "invalid-row",
+        detail: expect.stringContaining("nesting levels"),
+      }),
+    );
+  });
+});
+
 describe("managed member reference bounds", () => {
   it("retains members and reports an out-of-range TypeDef coded index as partial", () => {
     const bytes = buildManagedPeFixture({ extendsRaw: 12 });

@@ -7,9 +7,10 @@ import type {
   ManagedMemberInspection,
   ManagedParseIssue,
 } from "../domain/managed/managedArtifact.js";
-import type {
-  ManagedMetadataLayout,
-  MetadataTableLayout,
+import {
+  metadataRowOffset,
+  type ManagedMetadataLayout,
+  type MetadataTableLayout,
 } from "./ManagedMetadataLayout.js";
 import {
   metadataRowCursor,
@@ -19,8 +20,15 @@ import {
   readMetadataString,
   sha256Bytes,
 } from "./ManagedMetadataHeaps.js";
+import {
+  managedDecodeBudget,
+  managedJsonStringBytes,
+} from "./ManagedDecodeBudget.js";
+import { readAssemblyReference } from "./ManagedMetadataInventoryRows.js";
 
 export type ManagedType = ManagedMemberInspection["types"][number];
+export type ManagedExportedType =
+  ManagedMemberInspection["exported_types"][number];
 export type ManagedField = ManagedMemberInspection["fields"][number];
 export type ManagedMethod = ManagedMemberInspection["methods"][number];
 export type ManagedMemberRef = ManagedMemberInspection["member_refs"][number];
@@ -283,6 +291,230 @@ export const parseTypes = (
     }, issues);
   }
   return { types: items, issues };
+};
+
+const IMPLEMENTATION_TABLES = [38, 35, 39] as const;
+
+interface RawExportedType {
+  readonly row: number;
+  readonly rowOffset: number;
+  readonly flags: number;
+  readonly typeDefId: number;
+  readonly namespace: string;
+  readonly name: string;
+  readonly implementationRaw: number;
+  readonly implementationOffset: number;
+}
+
+const readExportedTypeRow = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+  row: number,
+): RawExportedType => {
+  const heapString = (index: number): string =>
+    readMetadataString(bytes, layout, index, layout.strings.size);
+  const cursor = metadataRowCursor(bytes, layout, 39, row);
+  const flags = cursor.readUInt32();
+  const typeDefId = cursor.readUInt32();
+  const nameIndex = cursor.readIndex(layout.stringIndexSize);
+  const namespaceIndex = cursor.readIndex(layout.stringIndexSize);
+  const implementationOffset = cursor.offset;
+  const implementationRaw = cursor.readIndex(
+    layout.codedIndexSize("Implementation"),
+  );
+  return {
+    row,
+    rowOffset: cursor.start,
+    flags,
+    typeDefId,
+    namespace: heapString(namespaceIndex),
+    name: heapString(nameIndex),
+    implementationRaw,
+    implementationOffset,
+  };
+};
+
+const exportedTypeParent = (
+  rows: ReadonlyMap<number, RawExportedType>,
+  raw: RawExportedType,
+): RawExportedType | undefined =>
+  (raw.implementationRaw & 3) === 2
+    ? rows.get(Math.floor(raw.implementationRaw / 4))
+    : undefined;
+
+/** Each walked level repeats inside every descendant name, so the walk is bounded. */
+const MAX_EXPORTED_TYPE_NESTING = 64;
+
+/**
+ * Nested exported types link to their parent ExportedType row through
+ * Implementation. Join names outermost-first with the metadata `/` separator
+ * so identical short names stay distinguishable. The bounded walk reports a
+ * cycle, or a chain deeper than MAX_EXPORTED_TYPE_NESTING, instead of
+ * following it, and the joined name's JSON bytes are reserved before it is
+ * built because each level repeats inside every descendant.
+ */
+const exportedTypeFullName = (
+  layout: ManagedMetadataLayout,
+  rows: ReadonlyMap<number, RawExportedType>,
+  raw: RawExportedType,
+  issues: ManagedParseIssue[],
+): string => {
+  const parents: RawExportedType[] = [];
+  const path = new Set<number>([raw.row]);
+  let parent = exportedTypeParent(rows, raw);
+  while (parent !== undefined) {
+    if (path.has(parent.row)) {
+      issues.push({
+        code: "invalid-row",
+        scope: `metadata.ExportedType:${metadataToken(39, parent.row)}`,
+        offset: metadataRowOffset(layout, 39, parent.row),
+        detail:
+          "ExportedType Implementation chain revisits a row before reaching a top-level type",
+      });
+      break;
+    }
+    if (parents.length === MAX_EXPORTED_TYPE_NESTING) {
+      issues.push({
+        code: "invalid-row",
+        scope: `metadata.ExportedType:${metadataToken(39, raw.row)}`,
+        offset: raw.rowOffset,
+        detail: `ExportedType Implementation chain exceeds ${String(MAX_EXPORTED_TYPE_NESTING)} nesting levels; full_name joins only its innermost levels`,
+      });
+      break;
+    }
+    path.add(parent.row);
+    parents.push(parent);
+    parent = exportedTypeParent(rows, parent);
+  }
+  const outermost = parents[parents.length - 1] ?? raw;
+  const segments = [fullName(outermost.namespace, outermost.name)];
+  for (const nested of parents.slice(0, -1).reverse())
+    segments.push(nested.name);
+  if (parents.length > 0) segments.push(raw.name);
+  let bytes = 0;
+  for (const [index, segment] of segments.entries())
+    bytes += managedJsonStringBytes(segment) - (index === 0 ? 0 : 1);
+  managedDecodeBudget(layout).reserve(bytes, raw.rowOffset);
+  return segments.join("/");
+};
+
+const readExportedTypeImplementation = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+  raw: RawExportedType,
+  names: ReadonlyMap<number, string>,
+  issues: ManagedParseIssue[],
+): ManagedExportedType["implementation"] => {
+  const unresolved: ManagedExportedType["implementation"] = {
+    kind: "unresolved",
+    token: null,
+    name: null,
+    version: null,
+  };
+  if (raw.implementationRaw === 0)
+    return { ...unresolved, kind: "current-module" };
+  const reason = metadataCodedTokenInvalidReason(
+    raw.implementationRaw,
+    2,
+    IMPLEMENTATION_TABLES,
+    layout.rowCounts,
+  );
+  if (reason !== null) {
+    issues.push({
+      code: "invalid-row",
+      scope: `metadata.ExportedType:${metadataToken(39, raw.row)}`,
+      offset: raw.implementationOffset,
+      detail: `ExportedType implementation coded index 0x${raw.implementationRaw.toString(16)} is invalid: ${reason}`,
+    });
+    return unresolved;
+  }
+  const token = metadataCodedToken(
+    raw.implementationRaw,
+    2,
+    IMPLEMENTATION_TABLES,
+    layout.rowCounts,
+  );
+  const tag = raw.implementationRaw & 3;
+  const row = Math.floor(raw.implementationRaw / 4);
+  if (tag === 1) {
+    const reference = readAssemblyReference(
+      bytes,
+      layout,
+      row,
+      layout.strings.size,
+    );
+    return {
+      kind: "assembly-ref",
+      token,
+      name: reference.name,
+      version: reference.version,
+    };
+  }
+  if (tag === 0) {
+    const cursor = metadataRowCursor(bytes, layout, 38, row);
+    cursor.readUInt32();
+    const name = readMetadataString(
+      bytes,
+      layout,
+      cursor.readIndex(layout.stringIndexSize),
+      layout.strings.size,
+    );
+    return { kind: "file", token, name, version: null };
+  }
+  return {
+    kind: "exported-type",
+    token,
+    name: names.get(row) ?? null,
+    version: null,
+  };
+};
+
+/**
+ * Inventory ExportedType rows: type forwarders and exported nested types are
+ * absent from the TypeDef view, so facade assemblies need this table to expose
+ * forwarded types and their implementation targets.
+ */
+export const parseExportedTypes = (
+  bytes: Buffer,
+  layout: ManagedMetadataLayout,
+): {
+  readonly exportedTypes: readonly ManagedExportedType[];
+  readonly issues: readonly ManagedParseIssue[];
+} => {
+  const issues: ManagedParseIssue[] = [];
+  const rows = new Map<number, RawExportedType>();
+  const total = layout.table(39)?.rowCount ?? 0;
+  for (let row = 1; row <= total; row += 1)
+    readManagedValue(() => {
+      rows.set(row, readExportedTypeRow(bytes, layout, row));
+    }, issues);
+  const names = new Map<number, string>();
+  for (const raw of rows.values())
+    names.set(raw.row, exportedTypeFullName(layout, rows, raw, issues));
+  const items: ManagedExportedType[] = [];
+  for (const raw of rows.values()) {
+    const implementation = readManagedValue(
+      () => readExportedTypeImplementation(bytes, layout, raw, names, issues),
+      issues,
+    ) ?? {
+      kind: "unresolved",
+      token: null,
+      name: null,
+      version: null,
+    };
+    items.push({
+      token: metadataToken(39, raw.row),
+      row_offset: raw.rowOffset,
+      flags: raw.flags,
+      forwarder: (raw.flags & 0x0020_0000) !== 0,
+      type_def_id: raw.typeDefId,
+      namespace: raw.namespace,
+      name: raw.name,
+      full_name: names.get(raw.row) ?? fullName(raw.namespace, raw.name),
+      implementation,
+    });
+  }
+  return { exportedTypes: items, issues };
 };
 
 const readCompressed = (

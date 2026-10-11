@@ -22,7 +22,11 @@ import {
   ManagedReaderFailure,
   uniqueManagedParseIssues,
 } from "./ManagedReaderFailure.js";
-import { parseTypes, typeRanges } from "./ManagedMemberInspectorCore.js";
+import {
+  parseExportedTypes,
+  parseTypes,
+  typeRanges,
+} from "./ManagedMemberInspectorCore.js";
 import {
   edges,
   parseFields,
@@ -60,6 +64,7 @@ const unavailable = (
         requires_mvid: null,
       },
       types: [],
+      exported_types: [],
       fields: [],
       methods: [],
       member_refs: [],
@@ -117,6 +122,8 @@ export const inspectManagedMembersBytes = (
     const ranges = typeRanges(bytes, layout, issues);
     const parsedTypes = parseTypes(bytes, layout, ranges);
     issues.push(...parsedTypes.issues);
+    const exportedTypes = parseExportedTypes(bytes, layout);
+    issues.push(...exportedTypes.issues);
     const fields = parseFields(bytes, layout, ranges);
     const memberRefs = parseMemberRefs(bytes, layout);
     issues.push(...memberRefs.issues);
@@ -165,6 +172,7 @@ export const inspectManagedMembersBytes = (
             requires_mvid: inventory.module?.mvid ?? null,
           },
           types: parsedTypes.types,
+          exported_types: exportedTypes.exportedTypes,
           fields: fields.fields,
           methods: methods.methods,
           member_refs: memberRefs.refs,
