@@ -225,7 +225,7 @@ it("charges only templated segments and keeps recorded dot segments", () => {
   const capture = analysisViewCaptureFixture();
   capture.records = capture.records.slice(0, 3);
   const urls = [
-    `https://api.example.test${"/a".repeat(800_000)}`,
+    `https://api.example.test${"/a".repeat(500_000)}`,
     "https://api.example.test/a/%2e%2e/admin",
     "https://api.example.test/admin",
   ];
@@ -239,4 +239,41 @@ it("charges only templated segments and keeps recorded dot segments", () => {
     expect.arrayContaining(["/a/%2e%2e/admin", "/admin"]),
   );
   expect(result.value.groups).toHaveLength(3);
+});
+
+it("excludes slashless URL spellings instead of reading their paths", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 2);
+  const urls = ["https:user:pass@example.test/path", "https:123/456"];
+  capture.records.forEach((record, index) => {
+    record.reported = { request: { method: "GET", url: urls[index] ?? null } };
+  });
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups).toEqual([]);
+  expect(result.value.excluded_records).toEqual([
+    { ordinal: 0, reason: "url-unparseable" },
+    { ordinal: 1, reason: "url-unparseable" },
+  ]);
+  expect(JSON.stringify(result.value)).not.toContain("pass");
+});
+
+it("charges repeated observed values once when merging", () => {
+  const capture = analysisViewCaptureFixture();
+  const record = capture.records[0]!;
+  const path = "/1".repeat(800);
+  capture.records = Array.from({ length: 1_000 }, (_, ordinal) => ({
+    ...record,
+    ordinal,
+    reported: {
+      request: { method: "GET", url: `https://api.example.test${path}` },
+    },
+  }));
+  capture.total_records = capture.records.length;
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups).toHaveLength(1);
+  expect(result.value.groups[0]?.templated_segments).toHaveLength(800);
 });

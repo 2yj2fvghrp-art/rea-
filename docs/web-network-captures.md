@@ -138,7 +138,8 @@ Groups cite parent record ordinals and distinct statuses and MIME types (without
 parameters). Flags report single samples, mixed statuses or mixed content types.
 `coverage` pages groups; `records` separately reports examined, total and excluded
 parent records. Ordinal subsets carry a limitation. Null URLs are excluded as
-`url-redacted`; unparseable URLs or URLs without an origin as `url-unparseable`.
+`url-redacted`; unparseable URLs, URLs without an origin, and spellings without
+`scheme://authority` (such as `https:host/path`) as `url-unparseable`.
 Unavailable request objects or methods are explicitly excluded. Unavailable
 response fields, including HAR's `status: 0` and an empty `mimeType`, remain
 unknown, not invented statuses or MIME types.
@@ -148,9 +149,9 @@ network activity. Native mitmproxy captures return a typed unsupported error.
 Parents inspected with `sensitive_values`, or whose Evidence does not record
 `sensitive_value_count`, also return a typed unsupported error: the view writes
 path templates and limitation text that it cannot check against declarations
-the parent does not retain. Retained templated segments are budgeted against the
-96 MiB reply budget and return `resource_constraint` when exceeded; literal
-segments are not charged.
+the parent does not retain. Each path is bounded before it is split, and newly
+retained templated segments and distinct observed values are charged against the
+96 MiB reply budget; exceeding either returns `resource_constraint`.
 
 ## Resource and lifecycle boundaries
 

@@ -79,15 +79,29 @@ const responseSchema = z.object({
 // Upper bound of serialized bytes one templated segment adds to a group.
 const TEMPLATED_SEGMENT_BYTES = 128;
 
-/** Recorded path before WHATWG dot-segment removal; query and fragment excluded. */
-const recordedPath = (url: string): string => {
-  const authority = url.indexOf("//");
-  const start = authority < 0 ? url.indexOf(":") + 1 : authority + 2;
-  const tail = url.slice(start);
-  const end = tail.search(/[?#]/u);
-  const beforeQuery = end < 0 ? tail : tail.slice(0, end);
-  const slash = authority < 0 ? 0 : beforeQuery.indexOf("/");
-  return slash < 0 ? "/" : beforeQuery.slice(slash);
+// Serialized bytes one retained observed value adds beyond its own text.
+const OBSERVED_VALUE_BYTES = 16;
+
+/**
+ * Recorded path of a canonical `scheme://authority/path` URL, before WHATWG
+ * dot-segment removal; null for spellings whose path cannot be read verbatim.
+ */
+const recordedPath = (url: string): string | null => {
+  const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.exec(url);
+  if (scheme === null) return null;
+  const rest = url.slice(scheme[0].length);
+  const authorityEnd = rest.search(/[/?#]/u);
+  if (authorityEnd < 0 || rest[authorityEnd] !== "/") return "/";
+  const path = rest.slice(authorityEnd);
+  const end = path.search(/[?#]/u);
+  return end < 0 ? path : path.slice(0, end);
+};
+
+const slashCount = (path: string): number => {
+  let count = 0;
+  for (let index = 0; index < path.length; index += 1)
+    if (path.charCodeAt(index) === 0x2f) count += 1;
+  return count;
 };
 
 const segmentRule = (value: string): z.output<typeof ruleSchema> | null => {
@@ -158,6 +172,17 @@ export const projectWebNetworkApiSurfaceView = (
   const excluded: Surface["excluded_records"] = [];
   let unavailableResponse = false;
   let projectedBytes = 0;
+  const budget = WEB_NETWORK_CAPTURE_LIMITS.outputBytes;
+  const retained = new Map<string, Set<string>[]>();
+  const overBudget = (reason: string) =>
+    err(
+      new AnalysisResourceConstraintError(
+        "inspect_analysis_view",
+        "memory",
+        reason,
+        { output_bytes: budget },
+      ),
+    );
   for (const record of capture.records) {
     const request = requestSchema.safeParse(record.reported);
     if (!request.success) {
@@ -183,18 +208,21 @@ export const projectWebNetworkApiSurfaceView = (
       continue;
     }
     const path = recordedPath(url);
+    if (path === null) {
+      excluded.push({ ordinal: record.ordinal, reason: "url-unparseable" });
+      continue;
+    }
+    // Bound the transient split of one path before allocating it.
+    if (slashCount(path) * TEMPLATED_SEGMENT_BYTES > budget)
+      return overBudget(
+        "One recorded path has more segments than the reply budget allows.",
+      );
     const segments: Group["templated_segments"] = [];
-    let overBudget = false;
     const template = path
       .split("/")
       .map((value, index) => {
         const rule = segmentRule(value);
-        if (rule === null || overBudget) return value;
-        projectedBytes += TEMPLATED_SEGMENT_BYTES + value.length;
-        if (projectedBytes > WEB_NETWORK_CAPTURE_LIMITS.outputBytes) {
-          overBudget = true;
-          return value;
-        }
+        if (rule === null) return value;
         segments.push({
           segment_index: index - 1,
           rule,
@@ -204,18 +232,12 @@ export const projectWebNetworkApiSurfaceView = (
         return `{${rule}}`;
       })
       .join("/");
-    if (overBudget)
-      return err(
-        new AnalysisResourceConstraintError(
-          "inspect_analysis_view",
-          "memory",
-          "Retained templated segments would exceed the capture reply budget.",
-          { output_bytes: WEB_NETWORK_CAPTURE_LIMITS.outputBytes },
-        ),
-      );
     const key = JSON.stringify([method, parsedUrl.origin, template]);
     let group = buckets.get(key);
     if (group === undefined) {
+      for (const segment of segments)
+        projectedBytes +=
+          TEMPLATED_SEGMENT_BYTES + segment.observed_values[0]!.length;
       group = {
         method,
         origin: parsedUrl.origin,
@@ -227,15 +249,26 @@ export const projectWebNetworkApiSurfaceView = (
         flags: [],
       };
       buckets.set(key, group);
+      retained.set(
+        key,
+        segments.map((segment) => new Set(segment.observed_values)),
+      );
     } else {
-      // Equal templates have the same ordered rule positions.
-      const existingSegments = group.templated_segments;
+      // Equal templates have the same ordered rule positions; keep new values only.
+      const seen = retained.get(key) ?? [];
       segments.forEach((segment, index) => {
-        existingSegments[index]?.observed_values.push(
-          ...segment.observed_values,
-        );
+        const value = segment.observed_values[0]!;
+        const values = seen[index];
+        if (values === undefined || values.has(value)) return;
+        values.add(value);
+        group?.templated_segments[index]?.observed_values.push(value);
+        projectedBytes += OBSERVED_VALUE_BYTES + value.length;
       });
     }
+    if (projectedBytes > budget)
+      return overBudget(
+        "Retained templated segments would exceed the capture reply budget.",
+      );
     group.record_ordinals.push(record.ordinal);
     const response = responseSchema.safeParse(record.reported);
     const status = response.success ? response.data.response.status : undefined;
