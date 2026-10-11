@@ -1,4 +1,5 @@
-import { chmod, copyFile, readdir, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, rm, rmdir } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 
 import { describe, expect, onTestFinished } from "vitest";
@@ -29,6 +30,38 @@ const RetainedRuntime = z.object({
 const listLeases = async (): Promise<ReadonlySet<string>> =>
   new Set(await readdir(HOPPER_TARGET_LEASE_DIRECTORY).catch(() => []));
 
+const refusesConnections = (socketPath: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = createConnection(socketPath);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once("error", (error: NodeJS.ErrnoException) =>
+      resolve(error.code === "ECONNREFUSED"),
+    );
+  });
+
+/**
+ * Remove a lease socket only when its owner has exited, holding the same
+ * recovery reservation as production so a concurrent acquirer is never
+ * unlinked. Live or busy leases are left for their owners.
+ */
+const removeStaleLease = async (socketPath: string): Promise<void> => {
+  const recoveryPath = `${socketPath}.recovery`;
+  try {
+    await mkdir(recoveryPath, { mode: 0o700 });
+  } catch {
+    return;
+  }
+  try {
+    if (await refusesConnections(socketPath))
+      await rm(socketPath, { force: true });
+  } finally {
+    await rmdir(recoveryPath);
+  }
+};
+
 describe("Hopper launcher failure through the one-shot CLI", () => {
   // Hopper target leases are acquired only for the macOS launcher route.
   workspaceCliTest.skipIf(process.platform !== "darwin")(
@@ -44,10 +77,8 @@ describe("Hopper launcher failure through the one-shot CLI", () => {
       const leasesBefore = await listLeases();
       onTestFinished(async () => {
         for (const name of await listLeases())
-          if (!leasesBefore.has(name))
-            await rm(join(HOPPER_TARGET_LEASE_DIRECTORY, name), {
-              force: true,
-            });
+          if (!leasesBefore.has(name) && name.endsWith(".sock"))
+            await removeStaleLease(join(HOPPER_TARGET_LEASE_DIRECTORY, name));
       });
 
       for (const attempt of ["first", "retry"]) {
