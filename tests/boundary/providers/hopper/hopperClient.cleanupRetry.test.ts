@@ -210,7 +210,15 @@ it("blocks a fresh launch while cleanup remains unverified", async () => {
   const { client, child } = await failedStartup(launcher);
   await expect(client.start()).resolves.toMatchObject({
     ok: false,
-    error: { _tag: "HopperProtocolError" },
+    error: {
+      cleanupIncomplete: true,
+      cause: { _tag: "HopperTimeoutError" },
+      diagnostics: { primary_error: { code: "provider_timeout" } },
+    },
+  });
+  expect(client.operationHealth()).toMatchObject({
+    state: "not_started",
+    stage: "launch",
   });
   expect(launcher.processes).toEqual([child]);
   launcher.allowCleanup = true;
@@ -226,10 +234,16 @@ it("preserves failed startup state through a blocked retry until cleanup succeed
   // The startup timeout leaves the client in not_started with retained
   // resources; cleanup is still incomplete.
   expect(client.operationHealth()).toMatchObject({ state: "not_started" });
-  // An intervening retry is blocked by the retained resources...
+  // An intervening retry is blocked by the retained resources, and now
+  // surfaces the recorded startup failure (upstream 069308bb) instead of
+  // a generic protocol error...
   await expect(client.start()).resolves.toMatchObject({
     ok: false,
-    error: { _tag: "HopperProtocolError" },
+    error: {
+      _tag: "ProviderAdapterError",
+      cleanupIncomplete: true,
+      cause: { _tag: "HopperTimeoutError" },
+    },
   });
   // ...but must not wipe the failed-startup state: the client still
   // reports not_started (never idle) until cleanup succeeds, so a
@@ -329,7 +343,10 @@ it("retries a failed lease release after document, process, and runtime cleanup 
   });
   await expect(client.start()).resolves.toMatchObject({
     ok: false,
-    error: { _tag: "HopperProtocolError" },
+    error: {
+      cleanupIncomplete: true,
+      diagnostics: { primary_error: { code: "provider_timeout" } },
+    },
   });
   releaseAllowed = true;
   await expect(client.close()).resolves.toEqual({ ok: true, value: null });
