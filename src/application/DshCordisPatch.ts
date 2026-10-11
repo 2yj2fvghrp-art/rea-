@@ -55,6 +55,9 @@ const parsePatchList = (text: string): readonly unknown[] => {
   const value: unknown = parseYaml(text, {
     customTags: [CORDIS_JAVASCRIPT_TAG],
   });
+  // A comment-only file has no document value. Cordis loads that as no patches,
+  // the same as an empty file, instead of a malformed root.
+  if (value === null) return [];
   if (!Array.isArray(value))
     throw new SyntaxError(
       "DeepSeek Harness cordis.patch.yml must be a YAML list of patch operations",
@@ -279,11 +282,44 @@ const dshWinningConfigNode = (items: readonly unknown[]): unknown => {
   return winning;
 };
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Update `env` in place. An entry whose scalar still equals the desired string
+ * keeps its node, so a Cordis `!!js` tag survives a launcher repair. A real
+ * override replaces only that entry.
+ */
+const applyDshEnvConfig = (
+  yamlDocument: Document,
+  config: YAMLMap<unknown, unknown>,
+  desiredEnv: unknown,
+): void => {
+  if (!isPlainRecord(desiredEnv)) {
+    config.set("env", yamlDocument.createNode(desiredEnv));
+    return;
+  }
+  const existing = config.get("env");
+  if (!isMap(existing)) {
+    config.set("env", yamlDocument.createNode(desiredEnv));
+    return;
+  }
+  const retained = new Set(Object.keys(desiredEnv));
+  for (const key of yamlMapStringKeys(existing))
+    if (!retained.has(key)) existing.delete(key);
+  for (const [key, value] of Object.entries(desiredEnv)) {
+    const current = existing.get(key, true);
+    if (isScalar(current) && current.value === value) continue;
+    existing.set(key, yamlDocument.createNode(value));
+  }
+};
+
 /**
  * Overlay REA-owned keys on the winning config node. Caller keys already on
  * that node keep their AST, so a Cordis tag such as `!!js` survives a refresh.
- * A winning node that lives on a later patch is cloned onto the kept entry
- * before that patch is removed.
+ * Environment values that were not overridden keep their nodes too. A winning
+ * node that lives on a later patch is cloned onto the kept entry before that
+ * patch is removed.
  */
 /** The config node to edit: the kept entry's own node, or a clone of a later winner. */
 const registrationConfigNode = (
@@ -311,9 +347,14 @@ const applyDshRegistrationConfig = (
   const retained = new Set(Object.keys(desired));
   for (const key of yamlMapStringKeys(config))
     if (!retained.has(key)) config.delete(key);
-  for (const key of DSH_OWNED_CONFIG_KEYS)
-    if (Object.hasOwn(desired, key))
-      config.set(key, yamlDocument.createNode(desired[key]));
+  for (const key of DSH_OWNED_CONFIG_KEYS) {
+    if (!Object.hasOwn(desired, key)) continue;
+    if (key === "env") {
+      applyDshEnvConfig(yamlDocument, config, desired.env);
+      continue;
+    }
+    config.set(key, yamlDocument.createNode(desired[key]));
+  }
   for (const [key, value] of Object.entries(desired)) {
     if (DSH_OWNED_CONFIG_KEYS.has(key) || config.has(key)) continue;
     config.set(key, yamlDocument.createNode(value));
@@ -329,6 +370,9 @@ const applyDshRegistrationConfig = (
  * collapse away, and a fresh root insertion is appended only when no
  * insertion carried the entry. Caller-owned config nodes, including Cordis
  * `!!js` tags, stay on the winning config; only REA-owned keys are replaced.
+ * Environment entries keep their tags unless the value actually changed. A
+ * comment-only file is an empty patch list, and its comments stay when the
+ * registration is appended.
  */
 export const serializeDshDocument = (
   document: Record<string, unknown>,
@@ -351,6 +395,15 @@ export const serializeDshDocument = (
   )
     return `${stringifyYaml(freshPatchList())}`;
   const yamlDocument = parseYamlDocument(originalText);
+  if (yamlDocument.contents === null) {
+    // No document value: comments only. Leave the file untouched when there
+    // is nothing to write; otherwise start a sequence on this document so
+    // those comments survive the appended registration.
+    if (desired === undefined)
+      return originalText.endsWith("\n") ? originalText : `${originalText}\n`;
+    const empty = parseYamlDocument("[]\n");
+    if (isSeq(empty.contents)) yamlDocument.contents = empty.contents;
+  }
   const root = yamlDocument.contents;
   if (!isSeq(root)) {
     // The file was a patch list when parsed; a root that no longer is cannot

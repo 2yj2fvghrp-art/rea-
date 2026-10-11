@@ -264,8 +264,9 @@ DeepSeek Harness registers MCP clients through a Cordis YAML patch sequence
 rather than a `mcpServers` object. `rea setup --client dsh` appends (or
 replaces) the REA entry in the home patch `$DSH_HOME/cordis.patch.yml`
 (`~/.dsh/cordis.patch.yml` when `DSH_HOME` is unset), preserving unrelated
-patches and comments; `rea doctor --client dsh` and `rea uninstall --client dsh`
-use the same entry id. The home patch applies to every Harness profile, so the
+patches and comments. `rea doctor --client dsh` checks that same entry id.
+`rea uninstall` removes it by scanning supported clients; uninstall takes no
+`--client` flag. The home patch applies to every Harness profile, so the
 registration is written once and no per-profile edit is needed. The written
 entry is:
 

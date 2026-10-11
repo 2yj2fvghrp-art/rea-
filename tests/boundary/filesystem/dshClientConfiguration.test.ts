@@ -710,4 +710,124 @@ describe("DeepSeek Harness canonical row repair", () => {
   });
 });
 
+describe("DeepSeek Harness document edges", () => {
+  it("keeps Cordis tags on environment values that were not overridden", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          OTHER: !!js process.env.OTHER
+          TOKEN: !!js process.env.TOKEN # caller token
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.env.TOKEN");
+    expect(text).toContain("# caller token");
+    expect(text).toContain("!!js process.env.OTHER");
+    expect(text).not.toContain("stale-launcher");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert: { config: { env?: Record<string, string>; command?: string } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.command).toBe(command[0]);
+    expect(patches[0]?.insert[0]?.config.env).toEqual({
+      OTHER: "process.env.OTHER",
+      TOKEN: "process.env.TOKEN",
+    });
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await readFile(client.configPath, "utf8")).toContain(
+      "!!js process.env.TOKEN",
+    );
+  });
+
+  it("replaces only the environment entry a caller overrode", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+        env:
+          OTHER: !!js process.env.OTHER
+          TOKEN: !!js process.env.TOKEN
+`,
+    );
+
+    expect(
+      (
+        await configureClientConfiguration(
+          client,
+          { TOKEN: "literal-override" },
+          command,
+        )
+      ).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("!!js process.env.OTHER");
+    expect(text).not.toContain("!!js process.env.TOKEN");
+    expect(text).toContain("literal-override");
+    const patches = parseYaml(text, { logLevel: "error" }) as {
+      insert: { config: { env?: Record<string, string> } }[];
+    }[];
+    expect(patches[0]?.insert[0]?.config.env).toEqual({
+      OTHER: "process.env.OTHER",
+      TOKEN: "literal-override",
+    });
+  });
+
+  it("appends a registration to a comment-only patch file", async () => {
+    const { home, client } = await harnessClient();
+    const notes = "# harness notes\n# keep me\n";
+    await writeFile(client.configPath, notes);
+
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "dsh"),
+    ).toMatchObject({ state: "missing" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("# harness notes");
+    expect(text).toContain("# keep me");
+    expect(text).toContain("id: rea-mcp");
+    expect(text).not.toMatch(/^null$/mu);
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const removed = await readFile(client.configPath, "utf8");
+    expect(removed).toContain("# harness notes");
+    expect(removed).toContain("# keep me");
+    expect(removed).not.toContain("rea-mcp");
+    expect(removed).not.toMatch(/^null$/mu);
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
