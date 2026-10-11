@@ -264,6 +264,26 @@ describe("parsePmPathOutput", () => {
       "not of the form",
     ],
     ["a non-APK name", "/data/app/x/base.so", "base.so", "not of the form"],
+    ["a trailing tab", "/data/app/x/base.apk\t", "base.apk\t", "whitespace"],
+    ["a trailing space", "/data/app/x/base.apk ", "base.apk ", "whitespace"],
+    [
+      "a leading space in the path",
+      " /data/app/x/base.apk",
+      "base.apk",
+      "whitespace",
+    ],
+    [
+      "a space inside a directory segment",
+      "/data/app/x y/base.apk",
+      "base.apk",
+      "whitespace",
+    ],
+    [
+      "a C1 control character",
+      "/data/app/x/base.apk\u0085",
+      "base.apk\u0085",
+      "control characters",
+    ],
   ])(
     "rejects %s as a host file name and keeps the raw device path",
     (_, devicePath, fileName, reason) => {
@@ -281,4 +301,39 @@ describe("parsePmPathOutput", () => {
       ]);
     },
   );
+
+  it("strips only the protocol line terminator from each entry", () => {
+    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
+      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\n",
+    );
+    expect(unparsedLines).toEqual([]);
+    expect(rejectedPaths).toEqual([]);
+    expect(paths.map((entry) => entry.device_path)).toEqual([
+      "/data/app/x/base.apk",
+      "/data/app/x/split_a.apk",
+    ]);
+  });
+
+  it("rejects a carriage return left over after the line terminator", () => {
+    const { paths, rejectedPaths } = parsePmPathOutput(
+      "package:/data/app/x/base.apk\r\r\n",
+    );
+    expect(paths).toEqual([]);
+    expect(rejectedPaths).toEqual([
+      {
+        device_path: "/data/app/x/base.apk\r",
+        file_name: "base.apk\r",
+        reason: expect.stringContaining("control characters") as unknown,
+      },
+    ]);
+  });
+
+  it("does not trim whitespace before the package: prefix", () => {
+    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
+      " package:/data/app/x/base.apk\n",
+    );
+    expect(paths).toEqual([]);
+    expect(rejectedPaths).toEqual([]);
+    expect(unparsedLines).toEqual([" package:/data/app/x/base.apk"]);
+  });
 });

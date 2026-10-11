@@ -1157,20 +1157,9 @@ export class AdbProvider {
     );
     if (!paths.ok) return paths;
     const parsed = parsePmPathOutput(paths.value.stdout);
-    if (parsed.paths.length === 0 && parsed.unparsedLines.length === 0)
-      return err(
-        new AnalysisUnsupportedTargetError(
-          operation,
-          serial,
-          `Package Manager reported no APK paths for ${packageName}; it may not be installed for user 0`,
-        ),
-      );
-    if (parsed.unparsedLines.length > 0)
-      return err(
-        new AnalysisProtocolError(
-          `pm path reported an unrecognized line: ${parsed.unparsedLines[0]}`,
-        ),
-      );
+    // Rejected paths win over the empty/unparsed checks: a listing whose only
+    // entry is unsafe is hostile output, not package absence, and the error
+    // must carry the raw path and the captured output as evidence.
     const rejected = parsed.rejectedPaths[0];
     if (rejected !== undefined)
       return err(
@@ -1183,6 +1172,20 @@ export class AdbProvider {
               truncated: false,
             },
           },
+        ),
+      );
+    if (parsed.paths.length === 0 && parsed.unparsedLines.length === 0)
+      return err(
+        new AnalysisUnsupportedTargetError(
+          operation,
+          serial,
+          `Package Manager reported no APK paths for ${packageName}; it may not be installed for user 0`,
+        ),
+      );
+    if (parsed.unparsedLines.length > 0)
+      return err(
+        new AnalysisProtocolError(
+          `pm path reported an unrecognized line: ${parsed.unparsedLines[0]}`,
         ),
       );
     const directory = await prepareOutputDirectory(

@@ -315,6 +315,46 @@ it("refuses a pm path file name that would escape the package directory", async 
   await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
 });
 
+it.each([
+  ["a dot-dot final segment", "'package:/data/app/x/..'", '"/data/app/x/.."'],
+  [
+    "a trailing space",
+    "'package:/data/app/x/base.apk '",
+    '"/data/app/x/base.apk "',
+  ],
+])(
+  "refuses a pm path whose only entry has %s instead of reporting absence",
+  async (_, paths, quotedPath) => {
+    const { binary, root } = await writeAdbStub((root) =>
+      pullStub(
+        paths,
+        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
+  printf 'x' > "$5"`,
+      ),
+    );
+    const output = join(root, "pulls");
+    const result = await providerOver(binary).execute({
+      operation: "pull_adb_package",
+      input: {
+        serial: "emulator-5554",
+        package: "com.hostile",
+        output_directory: output,
+      },
+    });
+    if (result.ok) throw new Error("expected a refusal");
+    expect(result.error._tag).toBe("AnalysisProtocolError");
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "unreadable_output",
+    });
+    expect(result.error.message).toContain(quotedPath);
+    expect(result.error.capturedOutput?.stdout).toContain(
+      "package:/data/app/x/",
+    );
+    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+  },
+);
+
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi

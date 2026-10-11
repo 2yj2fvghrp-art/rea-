@@ -218,19 +218,24 @@ const fileNameOf = (devicePath: string): string => {
  */
 const SAFE_HOST_APK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/u;
 
-/** Why a device-reported file name cannot be used as a host file name. */
-const unsafeHostFileNameReason = (fileName: string): string | undefined => {
+/**
+ * Whitespace or control characters anywhere in a device path. Package Manager
+ * never emits them, and keeping them would make the retained path differ from
+ * what a trimmed or terminal-rendered copy shows.
+ */
+const DEVICE_PATH_WHITESPACE_OR_CONTROL = /[\s\p{Cc}]/u;
+
+/** Why a device-reported APK path cannot be pulled under a host file name. */
+const unsafeDevicePathReason = (
+  devicePath: string,
+  fileName: string,
+): string | undefined => {
+  if (DEVICE_PATH_WHITESPACE_OR_CONTROL.test(devicePath))
+    return "the path contains whitespace, NUL, or control characters";
   if (fileName === "") return "the path has no final file name segment";
   if (fileName === "." || fileName === "..")
     return "the final segment is a dot segment";
   if (fileName.includes("\\")) return "the file name contains a path separator";
-  if (
-    [...fileName].some((character) => {
-      const code = character.codePointAt(0)!;
-      return code < 0x20 || code === 0x7f;
-    })
-  )
-    return "the file name contains NUL or control characters";
   if (!SAFE_HOST_APK_FILE_NAME.test(fileName))
     return "the file name is not of the form [A-Za-z0-9][A-Za-z0-9._-]*.apk";
   return undefined;
@@ -247,9 +252,11 @@ export interface AdbRejectedPackagePath {
 /**
  * Parse `pm path PACKAGE` lines. The base/split role is derived from the file
  * name (`base.apk`, `split_*.apk`), which is the only signal the output
- * carries; any other name reports an unknown role. File names that are not
- * safe host file names are reported in `rejectedPaths` with the raw device
- * path, never renamed.
+ * carries; any other name reports an unknown role. Only the protocol line
+ * terminator (`\n` or `\r\n`) is stripped, so each retained device path is
+ * byte-for-byte what the device reported. Paths with whitespace or control
+ * characters, and file names that are not safe host file names, are reported
+ * in `rejectedPaths` with that raw device path, never trimmed or renamed.
  */
 export const parsePmPathOutput = (
   stdout: string,
@@ -261,17 +268,16 @@ export const parsePmPathOutput = (
   const paths: AdbPackagePathEntry[] = [];
   const rejectedPaths: AdbRejectedPackagePath[] = [];
   const unparsedLines: string[] = [];
-  for (const rawLine of stdout.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (line === "") continue;
-    const match = /^package:(\S+)$/u.exec(line);
+  for (const line of stdout.split(/\r?\n/u)) {
+    if (line.trim() === "") continue;
+    const match = /^package:(.+)$/su.exec(line);
     if (match === null) {
       unparsedLines.push(line);
       continue;
     }
     const devicePath = match[1]!;
     const fileName = fileNameOf(devicePath);
-    const unsafe = unsafeHostFileNameReason(fileName);
+    const unsafe = unsafeDevicePathReason(devicePath, fileName);
     if (unsafe !== undefined) {
       rejectedPaths.push({
         device_path: devicePath,
