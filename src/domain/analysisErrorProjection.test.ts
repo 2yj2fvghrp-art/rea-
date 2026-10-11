@@ -396,6 +396,14 @@ describe("analysis error projection: retry guidance", () => {
       new ProviderAdapterError("firmware", "inspect_firmware_regions"),
       "execution_failure",
     ],
+    [
+      "Hopper remote failure",
+      new HopperRemoteError(7, "Hopper analysis failed", {
+        diagnosticType: "bridge_exception",
+        operation: "trace_feature",
+      }),
+      "execution_failure",
+    ],
   ])(
     "does not recommend an unchanged retry for non-retryable %s",
     (_name, error, code) => {
