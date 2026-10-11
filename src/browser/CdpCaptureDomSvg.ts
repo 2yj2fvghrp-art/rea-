@@ -11,21 +11,16 @@ interface DomSnapshotNodes {
   readonly attributes: readonly unknown[];
 }
 
-interface NamespaceScope {
-  readonly bindings: ReadonlyMap<string, string>;
-}
-
-interface XmlElementScope {
+interface XmlSvgLink {
   readonly svgElement: boolean;
   readonly xlinkHref: string | undefined;
-  readonly scope: NamespaceScope;
 }
 
 interface DocumentSvgAncestry {
   readonly xml: boolean;
   readonly nodes: DomSnapshotNodes;
   readonly svgContexts: Map<number, boolean>;
-  readonly xmlScopes: Map<number, XmlElementScope>;
+  readonly xmlLinks: Map<number, XmlSvgLink>;
 }
 
 interface DomSvgLink {
@@ -34,7 +29,10 @@ interface DomSvgLink {
   readonly xlinkHref: string | undefined;
 }
 
-const EMPTY_SCOPE: NamespaceScope = { bindings: new Map() };
+const UNRESOLVED: XmlSvgLink = {
+  svgElement: false,
+  xlinkHref: undefined,
+};
 
 const stringAt = (strings: readonly string[], index: unknown): string => {
   const integer = numberValue(index);
@@ -50,8 +48,8 @@ const numberArray = (value: unknown): readonly number[] =>
     : [];
 
 // DOMSnapshot has no namespace URI. HTML documents use uppercase `HTML` and
-// the parser's local names. XHTML/XML documents use lowercase `html` (or a
-// prefixed root) and keep xmlns declarations as attributes.
+// the parser's local names. XML documents preserve prefixed names and xmlns
+// declarations, including those on standalone SVG roots.
 const xmlDocument = (nodes: DomSnapshotNodes): boolean => {
   const documentIndex = nodes.nodeTypes.findIndex(
     (nodeType) => Math.trunc(nodeType) === 9,
@@ -61,19 +59,31 @@ const xmlDocument = (nodes: DomSnapshotNodes): boolean => {
     if (Math.trunc(nodes.nodeTypes[index] ?? 0) !== 1) continue;
     if (Math.trunc(nodes.parents[index] ?? -1) !== documentIndex) continue;
     const name = stringAt(nodes.strings, nodes.nodeNames[index]);
-    return name === "html" || name.includes(":");
+    if (name === "HTML") return false;
+    if (name === "html" || name.includes(":")) return true;
+    // Explicit namespaces also identify standalone SVG and other XML roots.
+    // Namespace-free synthetic snapshots retain the legacy HTML behavior.
+    const attributes = numberArray(nodes.attributes[index]);
+    return attributes.some(
+      (value, offset) =>
+        offset % 2 === 0 &&
+        xmlnsPrefix(stringAt(nodes.strings, value)) !== undefined,
+    );
   }
   return false;
 };
 
 export const createDocumentSvgAncestry = (
   nodes: DomSnapshotNodes,
-): DocumentSvgAncestry => ({
-  xml: xmlDocument(nodes),
-  nodes,
-  svgContexts: new Map(),
-  xmlScopes: new Map(),
-});
+): DocumentSvgAncestry => {
+  const xml = xmlDocument(nodes);
+  return {
+    xml,
+    nodes,
+    svgContexts: new Map(),
+    xmlLinks: xml ? resolveXmlElements(nodes) : new Map(),
+  };
+};
 
 export const domSvgLink = (
   ancestry: DocumentSvgAncestry,
@@ -90,7 +100,7 @@ export const domSvgLink = (
       xlinkHref: undefined,
     };
   }
-  const resolved = xmlElementScope(index, ancestry.nodes, ancestry.xmlScopes);
+  const resolved = ancestry.xmlLinks.get(index) ?? UNRESOLVED;
   return {
     svgElement: resolved.svgElement,
     xmlDocument: true,
@@ -135,105 +145,84 @@ const elementInSvgContext = (
   return inSvg;
 };
 
-const xmlElementScope = (
-  index: number,
+interface NamespaceRestore {
+  readonly prefix: string;
+  readonly previous: string | undefined;
+}
+
+type XmlWalkStep =
+  | { readonly node: number }
+  | { readonly restore: readonly NamespaceRestore[] };
+
+// Walk parent-before-child with one mutable namespace environment. Restore
+// declarations on exit so siblings retain their own scope. Only declarations
+// on the active path are retained, rather than cumulative maps at every node.
+const resolveXmlElements = (
   nodes: DomSnapshotNodes,
-  scopes: Map<number, XmlElementScope>,
-): XmlElementScope => {
-  const cached = scopes.get(index);
-  if (cached !== undefined) return cached;
-  const chain: number[] = [];
-  const seen = new Set<number>();
-  let current = index;
-  while (
-    current >= 0 &&
-    current < nodes.nodeNames.length &&
-    !seen.has(current)
-  ) {
-    if (scopes.has(current)) break;
-    seen.add(current);
-    chain.push(current);
-    const parent = Math.trunc(nodes.parents[current] ?? -1);
-    if (parent < 0 || parent === current || parent >= nodes.nodeNames.length) {
-      current = -1;
-      break;
+): Map<number, XmlSvgLink> => {
+  const children = new Map<number, number[]>();
+  const pending: XmlWalkStep[] = [];
+  for (let node = 0; node < nodes.nodeNames.length; node += 1) {
+    const parent = Math.trunc(nodes.parents[node] ?? -1);
+    if (parent < 0) pending.push({ node });
+    else if (parent < nodes.nodeNames.length && parent !== node) {
+      const siblings = children.get(parent);
+      if (siblings === undefined) children.set(parent, [node]);
+      else siblings.push(node);
     }
-    current = parent;
   }
-  if (current >= 0 && seen.has(current)) return cacheUnresolved(chain, scopes);
-  return cacheChain(chain, parentScope(current, scopes), nodes, scopes);
-};
-
-const cacheUnresolved = (
-  chain: readonly number[],
-  scopes: Map<number, XmlElementScope>,
-): XmlElementScope => {
-  const unresolved: XmlElementScope = {
-    svgElement: false,
-    xlinkHref: undefined,
-    scope: EMPTY_SCOPE,
-  };
-  for (const node of chain) scopes.set(node, unresolved);
-  return unresolved;
-};
-
-const parentScope = (
-  current: number,
-  scopes: Map<number, XmlElementScope>,
-): NamespaceScope =>
-  current >= 0 ? (scopes.get(current)?.scope ?? EMPTY_SCOPE) : EMPTY_SCOPE;
-
-const cacheChain = (
-  chain: readonly number[],
-  inherited: NamespaceScope,
-  nodes: DomSnapshotNodes,
-  scopes: Map<number, XmlElementScope>,
-): XmlElementScope => {
-  let scope = inherited;
-  let resolved: XmlElementScope = {
-    svgElement: false,
-    xlinkHref: undefined,
-    scope,
-  };
-  for (let cursor = chain.length - 1; cursor >= 0; cursor -= 1) {
-    const node = chain[cursor] ?? -1;
+  const bindings = new Map<string, string>();
+  const resolved = new Map<number, XmlSvgLink>();
+  while (pending.length > 0) {
+    const step = pending.pop();
+    if (step === undefined) break;
+    if ("restore" in step) {
+      for (const { prefix, previous } of step.restore) {
+        if (previous === undefined) bindings.delete(prefix);
+        else bindings.set(prefix, previous);
+      }
+      continue;
+    }
+    const { node } = step;
     const attributes = numberArray(nodes.attributes[node]);
-    scope = scopeWithDeclarations(scope, attributes, nodes.strings);
+    const restore = applyDeclarations(bindings, attributes, nodes.strings);
     const svgElement =
       Math.trunc(nodes.nodeTypes[node] ?? 0) === 1 &&
       elementNamespace(
         stringAt(nodes.strings, nodes.nodeNames[node]),
-        scope,
+        bindings,
       ) === SVG_NAMESPACE;
-    resolved = {
+    resolved.set(node, {
       svgElement,
       xlinkHref: svgElement
-        ? xlinkHrefValue(attributes, nodes.strings, scope)
+        ? xlinkHrefValue(attributes, nodes.strings, bindings)
         : undefined,
-      scope,
-    };
-    scopes.set(node, resolved);
+    });
+    pending.push({ restore });
+    for (const child of children.get(node) ?? []) pending.push({ node: child });
   }
+  // Cycles (including self-parents) and dangling chains cannot reach a root,
+  // so remain unresolved instead of deriving URLs from an invalid ancestry.
   return resolved;
 };
 
-const scopeWithDeclarations = (
-  parent: NamespaceScope,
+const applyDeclarations = (
+  bindings: Map<string, string>,
   attributes: readonly number[],
   strings: readonly string[],
-): NamespaceScope => {
-  let bindings: Map<string, string> | undefined;
+): readonly NamespaceRestore[] => {
+  const restore: NamespaceRestore[] = [];
   const seen = new Set<string>();
   for (let index = 0; index + 1 < attributes.length; index += 2) {
     const prefix = xmlnsPrefix(stringAt(strings, attributes[index]));
     if (prefix === undefined || seen.has(prefix)) continue;
     seen.add(prefix);
-    bindings ??= new Map(parent.bindings);
+    restore.push({ prefix, previous: bindings.get(prefix) });
     const value = stringAt(strings, attributes[index + 1]);
     if (value.length === 0) bindings.delete(prefix);
     else bindings.set(prefix, value);
   }
-  return bindings === undefined ? parent : { bindings };
+  return restore;
 };
 
 const xmlnsPrefix = (name: string): string | undefined => {
@@ -245,9 +234,12 @@ const xmlnsPrefix = (name: string): string | undefined => {
   return prefix;
 };
 
-const elementNamespace = (nodeName: string, scope: NamespaceScope): string => {
+const elementNamespace = (
+  nodeName: string,
+  bindings: ReadonlyMap<string, string>,
+): string => {
   const colon = nodeName.indexOf(":");
-  if (colon < 0) return scope.bindings.get("") ?? "";
+  if (colon < 0) return bindings.get("") ?? "";
   const prefix = nodeName.slice(0, colon);
   const local = nodeName.slice(colon + 1);
   if (
@@ -257,7 +249,7 @@ const elementNamespace = (nodeName: string, scope: NamespaceScope): string => {
     prefix === "xmlns"
   )
     return "";
-  return scope.bindings.get(prefix) ?? "";
+  return bindings.get(prefix) ?? "";
 };
 
 // First prefixed href bound to the XLink namespace. Duplicate names keep the
@@ -265,7 +257,7 @@ const elementNamespace = (nodeName: string, scope: NamespaceScope): string => {
 const xlinkHrefValue = (
   attributes: readonly number[],
   strings: readonly string[],
-  scope: NamespaceScope,
+  bindings: ReadonlyMap<string, string>,
 ): string | undefined => {
   const seen = new Set<string>();
   for (let index = 0; index + 1 < attributes.length; index += 2) {
@@ -276,8 +268,7 @@ const xlinkHrefValue = (
     if (colon <= 0) continue;
     const prefix = name.slice(0, colon);
     const local = name.slice(colon + 1);
-    if (local !== "href" || scope.bindings.get(prefix) !== XLINK_NAMESPACE)
-      continue;
+    if (local !== "href" || bindings.get(prefix) !== XLINK_NAMESPACE) continue;
     return stringAt(strings, attributes[index + 1]);
   }
   return undefined;

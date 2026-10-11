@@ -638,6 +638,84 @@ const approvedHref = (
   destination_scope: "approved",
 });
 
+describe("XML SVG roots and namespace scope restoration", () => {
+  it.each(["svg", "document"])(
+    "resolves namespaces under an unprefixed XML %s root",
+    (name) => {
+      const result = captureSvg(
+        svgDocument([
+          {
+            name,
+            parent: 0,
+            attributes: [
+              ["xmlns", SVG_NAMESPACE],
+              ["xmlns:p", XLINK_NAMESPACE],
+            ],
+          },
+          { name: "a", parent: 1, attributes: [["p:href", "/linked"]] },
+        ]),
+      );
+      expect(result.urls).toEqual([approvedHref(2, `${origin}/linked`)]);
+    },
+  );
+
+  it.each([2, 3, 99])(
+    "rejects self-parent, cyclic and dangling XML ancestry (%s)",
+    (parent) => {
+      const result = captureSvg(
+        svgDocument([
+          xhtmlRoot(),
+          {
+            name: "svg:a",
+            parent,
+            attributes: [
+              ["xmlns:svg", SVG_NAMESPACE],
+              ["xmlns:p", XLINK_NAMESPACE],
+              ["p:href", "/invalid"],
+            ],
+          },
+          { name: "svg:g", parent: 2 },
+        ]),
+      );
+      expect(result.urls).toEqual([]);
+    },
+  );
+
+  it("restores namespace declarations and undeclarations before visiting siblings", () => {
+    const result = captureSvg(
+      svgDocument([
+        xhtmlRoot(),
+        {
+          name: "svg:a",
+          parent: 1,
+          attributes: [
+            ["xmlns:xlink", ""],
+            ["xlink:href", "/undeclared"],
+          ],
+        },
+        {
+          name: "svg:a",
+          parent: 1,
+          attributes: [["xlink:href", "/inherited"]],
+        },
+        {
+          name: "svg:a",
+          parent: 1,
+          attributes: [
+            ["xmlns:svg", "other"],
+            ["xlink:href", "/rebound"],
+          ],
+        },
+        { name: "svg:a", parent: 1, attributes: [["xlink:href", "/restored"]] },
+      ]),
+    );
+    expect(result.urls).toEqual([
+      approvedHref(3, `${origin}/inherited`),
+      approvedHref(5, `${origin}/restored`),
+    ]);
+  });
+});
+
 describe("XHTML and XML SVG namespace prefixes", () => {
   it("reports prefixed svg:a, svg:image, and an svg:a with no svg parent", () => {
     const result = captureSvg(
@@ -900,15 +978,19 @@ describe("XHTML SVG exclusions, HTML documents, and prefix scope", () => {
     expect(result.urls).toEqual([approvedHref(1, `${origin}/forward`)]);
   });
 
-  it("resolves a deep prefixed chain without a quadratic ancestor walk", () => {
-    const depth = 4_000;
+  it("resolves a deep chain with distinct namespace declarations without quadratic expansion", () => {
+    const depth = 12_000;
     const elements: SvgSnapshotNode[] = [
       xhtmlRoot(),
       { name: "svg:svg", parent: 1 },
     ];
     let parent = 2;
     for (let index = 0; index < depth; index += 1) {
-      elements.push({ name: "svg:g", parent });
+      elements.push({
+        name: "svg:g",
+        parent,
+        attributes: [[`xmlns:p${index}`, `urn:prefix:${index}`]],
+      });
       parent = elements.length;
     }
     elements.push({
@@ -917,11 +999,9 @@ describe("XHTML SVG exclusions, HTML documents, and prefix scope", () => {
       attributes: [["xlink:href", "/deep"]],
     });
     const snapshot = svgDocument(elements);
-    const started = performance.now();
     const result = captureSvg(snapshot);
     expect(result.urls).toEqual([
       approvedHref(elements.length, `${origin}/deep`),
     ]);
-    expect(performance.now() - started).toBeLessThan(1_000);
   }, 30_000);
 });

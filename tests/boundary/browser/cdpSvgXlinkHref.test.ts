@@ -186,117 +186,134 @@ const xhtmlPage = `<?xml version="1.0" encoding="UTF-8"?>
 </html>
 `;
 
-it.skipIf(chromeExecutable === undefined)(
-  "reports prefixed SVG links from an XHTML page through headless Chrome",
-  async ({ processes }) => {
-    const executable = chromeExecutable;
-    if (executable === undefined) return;
-    const profile = await createTestTempDirectory("rea-svg-xhtml-");
-    const server = createServer((_request, response) => {
-      response.writeHead(200, {
-        "content-type": "application/xhtml+xml; charset=utf-8",
-      });
-      response.end(xhtmlPage);
-    });
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (address === null || typeof address === "string")
-      throw new Error("XHTML fixture server did not bind a TCP port");
-    const origin = `http://127.0.0.1:${String(address.port)}`;
-    const pageUrl = `${origin}/page.xhtml`;
-    let stderr = "";
-    const child = processes.spawn(executable, [
-      "--headless=new",
-      ...(process.env.REA_BROWSER_NO_SANDBOX === "true"
-        ? ["--no-sandbox"]
-        : []),
-      "--remote-debugging-address=127.0.0.1",
-      "--remote-debugging-port=0",
-      `--user-data-dir=${profile}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-background-networking",
-      "--disable-component-update",
-      "--disable-dev-shm-usage",
-      "--disable-sync",
-      "--metrics-recording-only",
-      pageUrl,
-    ]);
-    child.stdout.on("data", () => undefined);
-    child.stderr.on("data", (chunk: Buffer) => {
-      if (stderr.length < 8_192) stderr += chunk.toString("utf8");
-    });
-    try {
-      const port = await waitForBrowserDevtoolsPort({
-        child,
-        executable,
-        activePortPath: join(profile, "DevToolsActivePort"),
-        stderr: () => stderr,
-        timeoutMs: 20_000,
-      });
-      const endpoint = `http://127.0.0.1:${String(port)}`;
-      const provider = new CdpBrowserProvider();
-      const targetId = await pageTarget(provider, endpoint, origin, pageUrl);
-      const result = await provider.inspectPage(
-        inspectWebPageInputSchema.parse({
-          cdp_endpoint: endpoint,
-          allowed_origins: [origin],
-          target_id: targetId,
-          observation_ms: 0,
-        }),
-      );
-      if (!result.ok) throw result.error;
-      const urls = result.value.metadata.dom_urls;
-      expect(
-        result.value.dom.nodes.some((node) => node.node_name === "html"),
-      ).toBe(true);
-      expect(
-        result.value.dom.nodes.some(
-          (node) =>
-            node.node_name === "svg:a" &&
-            node.attribute_names.includes("xlink:href"),
-        ),
-      ).toBe(true);
-      expect(
-        result.value.dom.nodes.some((node) => node.node_name === "bogus:svg"),
-      ).toBe(true);
-      expect(urls.map(({ attribute }) => attribute)).toEqual([
-        "href",
-        "href",
-        "href",
-        "href",
-        "href",
-        "href",
-        "href",
-        "href",
-      ]);
-      expect(
-        urls.map(({ url, destination_scope }) => ({
-          url,
-          destination_scope,
-        })),
-      ).toEqual([
-        { url: `${origin}/xl-pa1`, destination_scope: "approved" },
-        { url: `${origin}/xl-image`, destination_scope: "approved" },
-        { url: `${origin}/xl-fo-svg`, destination_scope: "approved" },
-        { url: `${origin}/xl-orphan`, destination_scope: "approved" },
-        { url: `${origin}/xl-custom`, destination_scope: "approved" },
-        { url: `${origin}/href-wins`, destination_scope: "approved" },
-        { url: pageUrl, destination_scope: "approved" },
-        { url: null, destination_scope: "outside_policy" },
-      ]);
-    } finally {
-      child.kill("SIGTERM");
-      if (!(await waitForExit(child, 2_000))) child.kill("SIGKILL");
-      await waitForExit(child, 2_000);
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
-    }
+for (const { format, page, contentType, nodeNames, link, destinations } of [
+  {
+    format: "XHTML",
+    page: xhtmlPage,
+    contentType: "application/xhtml+xml",
+    nodeNames: ["html", "svg:a", "bogus:svg"],
+    link: { name: "svg:a", attribute: "xlink:href" },
+    destinations: [
+      "/xl-pa1",
+      "/xl-image",
+      "/xl-fo-svg",
+      "/xl-orphan",
+      "/xl-custom",
+      "/href-wins",
+      "",
+      null,
+    ],
   },
-);
+  {
+    format: "SVG",
+    page: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="http://www.w3.org/1999/xlink"><a p:href="/linked"><text>link</text></a></svg>`,
+    contentType: "image/svg+xml",
+    nodeNames: ["svg", "a"],
+    link: { name: "a", attribute: "p:href" },
+    destinations: ["/linked"],
+  },
+]) {
+  it.skipIf(chromeExecutable === undefined)(
+    `reports namespaced SVG links from a standalone ${format} document through headless Chrome`,
+    async ({ processes }) => {
+      const executable = chromeExecutable;
+      if (executable === undefined) return;
+      const profile = await createTestTempDirectory("rea-svg-xhtml-");
+      const server = createServer((_request, response) => {
+        response.writeHead(200, {
+          "content-type": `${contentType}; charset=utf-8`,
+        });
+        response.end(page);
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("XHTML fixture server did not bind a TCP port");
+      const origin = `http://127.0.0.1:${String(address.port)}`;
+      const pageUrl = `${origin}/page.xhtml`;
+      let stderr = "";
+      const child = processes.spawn(executable, [
+        "--headless=new",
+        ...(process.env.REA_BROWSER_NO_SANDBOX === "true"
+          ? ["--no-sandbox"]
+          : []),
+        "--remote-debugging-address=127.0.0.1",
+        "--remote-debugging-port=0",
+        `--user-data-dir=${profile}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-dev-shm-usage",
+        "--disable-sync",
+        "--metrics-recording-only",
+        pageUrl,
+      ]);
+      child.stdout.on("data", () => undefined);
+      child.stderr.on("data", (chunk: Buffer) => {
+        if (stderr.length < 8_192) stderr += chunk.toString("utf8");
+      });
+      try {
+        const port = await waitForBrowserDevtoolsPort({
+          child,
+          executable,
+          activePortPath: join(profile, "DevToolsActivePort"),
+          stderr: () => stderr,
+          timeoutMs: 20_000,
+        });
+        const endpoint = `http://127.0.0.1:${String(port)}`;
+        const provider = new CdpBrowserProvider();
+        const targetId = await pageTarget(provider, endpoint, origin, pageUrl);
+        const result = await provider.inspectPage(
+          inspectWebPageInputSchema.parse({
+            cdp_endpoint: endpoint,
+            allowed_origins: [origin],
+            target_id: targetId,
+            observation_ms: 0,
+          }),
+        );
+        if (!result.ok) throw result.error;
+        const urls = result.value.metadata.dom_urls;
+        for (const name of nodeNames) {
+          expect(
+            result.value.dom.nodes.some((node) => node.node_name === name),
+          ).toBe(true);
+        }
+        expect(
+          result.value.dom.nodes.some(
+            (node) =>
+              node.node_name === link.name &&
+              node.attribute_names.includes(link.attribute),
+          ),
+        ).toBe(true);
+        expect(urls).toEqual(
+          destinations.map((destination) =>
+            expect.objectContaining({
+              attribute: "href",
+              url:
+                destination === null
+                  ? null
+                  : destination === ""
+                    ? pageUrl
+                    : `${origin}${destination}`,
+              destination_scope:
+                destination === null ? "outside_policy" : "approved",
+            }),
+          ),
+        );
+      } finally {
+        child.kill("SIGTERM");
+        if (!(await waitForExit(child, 2_000))) child.kill("SIGKILL");
+        await waitForExit(child, 2_000);
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      }
+    },
+  );
+}
 
 const pageTarget = async (
   provider: CdpBrowserProvider,
