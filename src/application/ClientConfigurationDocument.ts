@@ -78,6 +78,7 @@ export const clientConfigurationServersKey = (
     case "hermes":
       return "mcp_servers";
     case "opencode":
+    case "maki":
       return "mcp";
     case "vscode":
       return "servers";
@@ -97,7 +98,7 @@ const parseDocument = (
   text: string,
   format: ClientConfigurationFormat,
 ): Record<string, unknown> => {
-  if (format === "toml" || format === "grok")
+  if (format === "toml" || format === "grok" || format === "maki")
     return objectSchema.parse(parseToml(text));
   // Pi loads `mcp.json` with a strict `JSON.parse` and no BOM tolerance, so
   // comments, trailing commas, a BOM, or an empty existing file must be
@@ -410,11 +411,12 @@ const isBlankOrComment = (line: string): boolean => {
 const looksLikeTomlHeader = (line: string): boolean =>
   line.trimStart().startsWith("[");
 
-/** `mcp_servers.<server>` and tables nested under it, compared by key segment. */
+/** `<serversKey>.<server>` and tables nested under it, compared by key segment. */
 const isTomlServerTable = (
   path: readonly string[],
+  serversKey: string,
   serverKey: string,
-): boolean => path[0] === "mcp_servers" && path[1] === serverKey;
+): boolean => path[0] === serversKey && path[1] === serverKey;
 
 const parseKeyPath = (
   text: string,
@@ -852,7 +854,8 @@ const upsertTomlServerSection = (
   originalText: string,
   serverKey: string,
   entry: unknown,
-  format: "toml" | "grok",
+  format: "toml" | "grok" | "maki",
+  serversKey = "mcp_servers",
 ): string => {
   // smol-toml accepts a leading BOM. Leave it in place or the first header is missed.
   const bom = originalText.startsWith("\uFEFF");
@@ -902,7 +905,7 @@ const upsertTomlServerSection = (
     const header = parseTomlTableHeader(line);
     if (header !== undefined) {
       tablePath = header.path;
-      if (isTomlServerTable(header.path, serverKey)) {
+      if (isTomlServerTable(header.path, serversKey, serverKey)) {
         discardPending();
         skipping = true;
         lineIndex += 1;
@@ -959,9 +962,12 @@ const upsertTomlServerSection = (
       const open = skipWsAndComments(text, valueOffset);
       const closesServerTable =
         absolute.length === 1 &&
-        absolute[0] === "mcp_servers" &&
+        absolute[0] === serversKey &&
         text[open] === "{";
-      if (closesServerTable || isTomlServerTable(absolute, serverKey)) {
+      if (
+        closesServerTable ||
+        isTomlServerTable(absolute, serversKey, serverKey)
+      ) {
         if (closesServerTable) {
           flushPending();
           const edited = editInlineServerTable(
@@ -1015,7 +1021,7 @@ const upsertTomlServerSection = (
   if (body.endsWith("\r")) body += "\n";
   if (entry !== undefined && !inlineServerTable) {
     let fragment = stringifyToml({
-      mcp_servers: { [serverKey]: entry },
+      [serversKey]: { [serverKey]: entry },
     }).replace(/\n+$/u, "");
     if (crlf) fragment = fragment.replaceAll("\n", "\r\n");
     const nl = crlf ? "\r\n" : "\n";
@@ -1034,8 +1040,9 @@ const upsertTomlServerSection = (
 const tomlServerEntry = (
   document: Record<string, unknown>,
   serverKey: string,
+  serversKey = "mcp_servers",
 ): unknown => {
-  const servers = objectSchema.safeParse(document.mcp_servers);
+  const servers = objectSchema.safeParse(document[serversKey]);
   if (!servers.success || !Object.hasOwn(servers.data, serverKey))
     return undefined;
   return servers.data[serverKey];
@@ -1277,6 +1284,8 @@ export const serializeClientConfiguration = (
     return serializeCodexConfiguration(document, originalText);
   if (format === "grok")
     return serializeGrokConfiguration(document, originalText);
+  if (format === "maki")
+    return serializeMakiConfiguration(document, originalText);
   if (format === "hermes")
     return serializeHermesConfiguration(document, originalText);
   // An empty original holds no comments or settings to preserve. Writing a
@@ -1316,6 +1325,30 @@ export const legacyClientServerPath = (
   Object.hasOwn(parsed.legacyServers, name)
     ? [parsed.serversPath[0] ?? "mcp", name]
     : undefined;
+
+/**
+ * Keep an existing Maki `mcp.toml` intact aside from the REA `[mcp.rea]` table.
+ * The document is TOML with `[mcp.<name>]` tables, so unrelated servers, the
+ * top-level `defer_tools` key, and comments are preserved by the in-place
+ * section upsert rather than a full re-serialization.
+ */
+const serializeMakiConfiguration = (
+  document: Record<string, unknown>,
+  originalText: string | undefined,
+): string => {
+  if (
+    originalText === undefined ||
+    isEmptyClientConfigurationText(originalText)
+  )
+    return stringifyToml(document);
+  return upsertTomlServerSection(
+    originalText,
+    PRODUCT_IDENTITY.mcpServerKey,
+    tomlServerEntry(document, PRODUCT_IDENTITY.mcpServerKey, "mcp"),
+    "maki",
+    "mcp",
+  );
+};
 
 /**
  * Keep an existing Hermes `config.yaml` intact aside from the REA server entry.
@@ -1404,6 +1437,15 @@ export const clientRegistrationEntry = (
         args,
         ...(Object.keys(environment).length === 0 ? {} : { env: environment }),
         enabled: true,
+      };
+    case "maki":
+      // Maki reads `[mcp.<name>]` from `mcp.toml`, where `command` is the full
+      // argv array and stdio environment lives under `environment`.
+      return {
+        command: [...command],
+        ...(Object.keys(environment).length === 0
+          ? {}
+          : { environment: { ...environment } }),
       };
     default:
       return {

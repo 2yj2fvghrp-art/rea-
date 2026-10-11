@@ -265,6 +265,22 @@ const parseRegistration = (
       args,
     });
   }
+  if (client.format === "maki") {
+    // Maki stores the whole argv in one `command` array under `environment`.
+    const entry = z
+      .object({
+        command: z.array(z.string()).min(1),
+        environment: z.record(z.string(), z.string()).optional(),
+      })
+      .passthrough()
+      .parse(value);
+    const [command = "", ...args] = entry.command;
+    return registrationSchema.parse({
+      ...entry,
+      command,
+      args,
+    });
+  }
   const registration = registrationSchema.parse(value);
   if (
     (client.format === "vscode" || client.format === "copilot_cli") &&

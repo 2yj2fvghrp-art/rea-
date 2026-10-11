@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { lstatSync } from "node:fs";
+import { lstatSync, statSync } from "node:fs";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   HermesClientPathError,
@@ -37,6 +37,7 @@ export interface SetupClient {
     | "omp"
     | "pi"
     | "hermes"
+    | "maki"
     | "unsupported";
 }
 
@@ -342,6 +343,39 @@ const devinDirectory = ({ home, platform, env }: ClientPathContext): string =>
     ? join(env.APPDATA ?? join(home, "AppData", "Roaming"), "devin")
     : join(env.XDG_CONFIG_HOME || join(home, ".config"), "devin");
 
+/**
+ * Maki's platform config base: `%APPDATA%\maki` on Windows, the Application
+ * Support directory on macOS, and `$XDG_CONFIG_HOME/maki` (or `~/.config/maki`)
+ * elsewhere.
+ */
+const makiBaseDirectory = ({
+  home,
+  platform,
+  env,
+}: ClientPathContext): string => {
+  if (platform === "win32")
+    return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "maki");
+  if (platform === "darwin")
+    return join(home, "Library", "Application Support", "maki");
+  return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "maki");
+};
+
+/**
+ * Maki collapses every config, data, cache and skill path to the legacy
+ * `~/.maki` directory the moment it exists, and only then falls back to the
+ * platform config base. Setup and doctor must write where Maki reads.
+ */
+const makiConfigDirectory = (context: ClientPathContext): string => {
+  const legacy = join(context.home, ".maki");
+  try {
+    if (statSync(legacy).isDirectory()) return legacy;
+  } catch (cause: unknown) {
+    // An absent or unreadable legacy directory leaves the platform base.
+    void cause;
+  }
+  return makiBaseDirectory(context);
+};
+
 /** Stable product metadata used to derive setup discovery and documentation. */
 export const SUPPORTED_CLIENT_DEFINITIONS = [
   {
@@ -490,6 +524,16 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
       join(hermesDirectory(context), "config.yaml"),
     markerPath: hermesDirectory,
     format: "hermes",
+  },
+  {
+    name: "maki",
+    displayName: "Maki",
+    skillPath: (context: ClientPathContext) =>
+      join(makiConfigDirectory(context), "skills"),
+    configPath: (context: ClientPathContext) =>
+      join(makiConfigDirectory(context), "mcp.toml"),
+    markerPath: makiConfigDirectory,
+    format: "maki",
   },
   {
     name: "grok_bot",

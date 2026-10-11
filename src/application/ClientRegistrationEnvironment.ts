@@ -15,7 +15,9 @@ export const clientRegistrationEnvironment = (
   overrides: Readonly<Record<string, string>> = {},
 ): Result<Readonly<Record<string, string>>, ConfigurationError> => {
   const key =
-    parsed?.dialect === "opencode" || parsed?.dialect === "opencode_v2"
+    parsed?.dialect === "opencode" ||
+    parsed?.dialect === "opencode_v2" ||
+    parsed?.dialect === "maki"
       ? "environment"
       : "env";
   const registration =

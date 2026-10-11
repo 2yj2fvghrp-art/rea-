@@ -89,7 +89,10 @@ const configureClientDocument = async (
   let parsed: ClientConfigurationDocument;
   try {
     parsed = parseClientConfiguration(
-      original ?? (format === "toml" || format === "grok" ? "" : "{}"),
+      original ??
+        (format === "toml" || format === "grok" || format === "maki"
+          ? ""
+          : "{}"),
       format,
     );
     const policy = await readClientPolicyBlock(

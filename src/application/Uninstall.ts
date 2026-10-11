@@ -257,7 +257,7 @@ const readClientConfiguration = async (
       item(
         client.name,
         "failed",
-        `Configuration is not valid ${client.format === "toml" || client.format === "grok" ? "TOML" : client.format === "opencode" ? "JSONC" : "JSON"} and was not changed. Repair it, then rerun uninstall.`,
+        `Configuration is not valid ${client.format === "toml" || client.format === "grok" || client.format === "maki" ? "TOML" : client.format === "opencode" ? "JSONC" : "JSON"} and was not changed. Repair it, then rerun uninstall.`,
       ),
     );
   }
@@ -381,9 +381,9 @@ const resolveUninstallConfigPath = async (
 
 /** Ownership rule for persistent MCP registrations created by REA setup. */
 const isOwnedRegistration = (value: unknown, client: SetupClient): boolean => {
-  if (client.format === "opencode") {
+  if (client.format === "opencode" || client.format === "maki") {
     const parsed = z
-      .object({ type: z.literal("local"), command: z.array(z.string()).min(1) })
+      .object({ command: z.array(z.string()).min(1) })
       .passthrough()
       .safeParse(value);
     if (!parsed.success) return false;

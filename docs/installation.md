@@ -143,6 +143,7 @@ listed after the table because its connector is not one of these files:
 | OMP                | `omp`            |
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
+| Maki               | `maki`           |
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
@@ -286,6 +287,20 @@ custom directory is selected. Doctor checks the merged user registration; uninst
 REA-owned entries from every applicable user file so an older entry cannot
 become active again. Malformed applicable files block setup before changes.
 
+Maki loads `[mcp.rea]` stdio servers from `mcp.toml` in its platform config
+directory: `$XDG_CONFIG_HOME/maki` (or `~/.config/maki`) on Linux,
+`~/Library/Application Support/maki` on macOS, and `%APPDATA%\maki` on Windows.
+Maki collapses config, data, cache, and skill paths to `~/.maki` the moment
+that directory exists, so setup and doctor follow it there. The entry stores
+the whole argv in `command`, such as
+`command = ["npx", "-y", "rea-agents@<version>", "mcp"]`, and puts stdio
+environment under `environment`. Setup preserves unrelated `[mcp.*]` servers,
+the top-level `defer_tools` key, and comments, and installs the bundled skill
+under the config directory's `skills`. Inspect the plan with
+`rea setup --client maki --dry-run --json`, approve it with
+`rea setup --client maki --yes --json`, and check it with
+`rea doctor --client maki --json`.
+
 Grok Build loads `[mcp_servers.rea]` from `$GROK_HOME/config.toml`, or from
 `~/.grok/config.toml` when `GROK_HOME` is unset or empty. Setup edits that server
 table, `[mcp_servers.rea.env]`, and a root `disabled_mcp_servers` entry that
@@ -328,8 +343,9 @@ save verified paths for an existing Ghidra installation.
 The bundled skill is installed where each selected client discovers personal
 skills: Claude Code uses `~/.claude/skills` (or
 `$CLAUDE_CONFIG_DIR/skills` when configured). Gemini CLI uses `.agents/skills`
-under its selected home; Antigravity 2.0 uses `~/.gemini/config/skills`.
-Other integrations, including Qwen Code, use `~/.agents/skills`.
+under its selected home; Antigravity 2.0 uses `~/.gemini/config/skills`;
+Maki uses its config directory's `skills`. Other integrations, including
+Qwen Code, use `~/.agents/skills`.
 A mixed selection plans each distinct destination. Selecting the skill without a client uses the shared
 directory. Setup leaves existing skill copies in other locations untouched.
 
