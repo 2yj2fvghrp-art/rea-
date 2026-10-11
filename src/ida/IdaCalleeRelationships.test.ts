@@ -135,6 +135,7 @@ describe("headless IDA call graph degradation", () => {
       "a failing call graph tool",
       { callgraphFailure: "unknown tool callgraph" },
     ],
+    ["a transport-truncated reply", { callgraphTruncatedOutput: true }],
     [
       "an error row",
       {
@@ -144,25 +145,29 @@ describe("headless IDA call graph degradation", () => {
       },
     ],
     ["an unreadable reply", { callgraph: { unexpected: true } as JsonValue }],
+    [
+      "a reply for another root",
+      {
+        callgraph: [{ root: "0x2000", nodes: [], edges: [] }] as JsonValue,
+      },
+    ],
   ])(
-    "keeps the callees observation and says the graph was unavailable for %s",
+    "fails the callee read instead of reporting a partial list for %s",
     async (_label, graph) => {
       const { client } = await session({
         callees: [{ addr: "0x3000", name: "printf_stub", type: "internal" }],
         ...graph,
       });
       try {
-        const execution = await callees(client);
+        const result = await client.execute("procedure_callees", {
+          procedure: "main",
+        });
 
-        expect(execution.result, "the observed callee survives").toEqual([
-          "0x3000",
-        ]);
+        if (result.ok) throw new Error("expected a producer fault");
         expect(
-          execution.limitations.some((text) =>
-            text.startsWith("Upstream callgraph was unavailable ("),
-          ),
-          "the failure is visible as a limitation",
-        ).toBe(true);
+          result.error._tag,
+          "a callgraph the producer could not give consistently is a producer fault",
+        ).toBe("AnalysisProtocolError");
       } finally {
         expect((await client.close()).ok).toBe(true);
       }

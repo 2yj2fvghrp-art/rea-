@@ -190,49 +190,49 @@ describe("reading callees from a depth-one call graph", () => {
     ]);
   });
 
-  it("rejects a reply for a different root instead of trusting its edges", async () => {
-    const result = await readCallGraphCallees(
-      async () => [
-        {
-          root: "0x2000",
-          nodes: [],
-          edges: [call("0x1000", "0x20")],
-        },
-      ],
-      "0x1000",
-    );
-
-    expect(result.callees, "edges of another root are not observed").toEqual(
-      [],
-    );
-    expect(
-      result.limitations[0],
-      "the mismatch is visible as an unavailable graph",
-    ).toContain("Upstream callgraph was unavailable (");
+  it("fails the read for a reply about a different root", async () => {
+    await expect(
+      readCallGraphCallees(
+        async () => [
+          { root: "0x2000", nodes: [], edges: [call("0x1000", "0x20")] },
+        ],
+        "0x1000",
+      ),
+      "edges of another root are never observed",
+    ).rejects.toThrow(/different root/u);
   });
 
-  it("turns a tool failure into a limitation but lets cancellation and transport failures surface", async () => {
-    const failed = await readCallGraphCallees(async () => {
-      throw new AnalysisProtocolError("IDA MCP tool failed: boom");
-    }, "0x1000");
+  it("fails the read for an error row and for an unreadable reply", async () => {
+    await expect(
+      readCallGraphCallees(
+        async () => [
+          { root: "0x1000", error: "Function not found", nodes: [], edges: [] },
+        ],
+        "0x1000",
+      ),
+      "the upstream reason is kept",
+    ).rejects.toThrow("Function not found");
+    await expect(
+      readCallGraphCallees(async () => ({ unexpected: true }), "0x1000"),
+      "an unreadable reply is a producer fault",
+    ).rejects.toThrow(/unreadable/u);
+  });
 
-    expect(
-      failed.limitations,
-      "a failing tool keeps the other observations",
-    ).toEqual([
-      "Upstream callgraph was unavailable (IDA MCP tool failed: boom); callees may be incomplete.",
-    ]);
-    await expect(
-      readCallGraphCallees(async () => {
-        throw new AnalysisCancelledError("callgraph");
-      }, "0x1000"),
-      "cancellation is never swallowed",
-    ).rejects.toBeInstanceOf(AnalysisCancelledError);
-    await expect(
-      readCallGraphCallees(async () => {
-        throw new Error("transport timed out");
-      }, "0x1000"),
-      "a transport failure is not reported as an observation",
-    ).rejects.toThrow("transport timed out");
+  it("lets tool failures, truncated output, cancellation and transport failures surface unchanged", async () => {
+    const failures = [
+      new AnalysisProtocolError("IDA MCP tool failed: boom"),
+      new AnalysisProtocolError(
+        "IDA MCP truncated its output; the preview cannot establish a complete observation.",
+      ),
+      new AnalysisCancelledError("callgraph"),
+      new Error("transport timed out"),
+    ];
+    for (const failure of failures)
+      await expect(
+        readCallGraphCallees(async () => {
+          throw failure;
+        }, "0x1000"),
+        `${failure.message} is not turned into an observation`,
+      ).rejects.toBe(failure);
   });
 });

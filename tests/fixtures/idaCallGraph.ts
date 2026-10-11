@@ -72,6 +72,8 @@ export interface Upstream {
   /** Raw `callgraph` reply, or undefined when the tool is absent/failing. */
   readonly callgraph?: JsonValue;
   readonly callgraphFailure?: string;
+  /** Make the fake transport report a truncated preview for the `callgraph` reply. */
+  readonly callgraphTruncatedOutput?: boolean;
 }
 
 export const callGraphSession = async (
@@ -84,10 +86,16 @@ export const callGraphSession = async (
   const producer = new RecordingIdaMcp(target, "headless");
   if (upstream.tools !== undefined) producer.tools = upstream.tools;
   producer.beforeCall = async (name) => {
-    if (name === "callgraph" && upstream.callgraphFailure !== undefined)
+    if (name !== "callgraph") return;
+    if (upstream.callgraphFailure !== undefined)
       decodeIdaToolResult({
         content: [{ type: "text", text: upstream.callgraphFailure }],
         isError: true,
+      });
+    if (upstream.callgraphTruncatedOutput === true)
+      decodeIdaToolResult({
+        content: [{ type: "text", text: "preview" }],
+        _meta: { ida_mcp: { output_truncated: true } },
       });
   };
   producer.overrideCall = (name, args): JsonValue | undefined => {

@@ -109,3 +109,31 @@ it("traverses every ARM64 callee in a call path without a goal and records no fa
     expect((await client.close()).ok).toBe(true);
   }
 });
+
+it("records a failed ARM64 call graph read as the node's error, not as a complete node", async () => {
+  const { client } = await callGraphSession({
+    callees: [],
+    callgraphTruncatedOutput: true,
+  });
+  try {
+    const result = await new EnhancedTools(client).execute("get_call_graph", {
+      address: "main",
+    });
+
+    if (!result.ok) throw result.error;
+    expect(
+      result.value,
+      "the transport-truncated graph is a recorded failure and no callee list is invented",
+    ).toEqual({
+      "0": [
+        {
+          address: "0x1000",
+          status: "error",
+          error: expect.objectContaining({ code: "unreadable_output" }),
+        },
+      ],
+    });
+  } finally {
+    expect((await client.close()).ok).toBe(true);
+  }
+});
