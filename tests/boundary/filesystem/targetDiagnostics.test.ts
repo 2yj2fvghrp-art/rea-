@@ -7,6 +7,47 @@ import { projectAnalysisError } from "../../../src/domain/analysisErrorProjectio
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 describe("target route diagnostics", () => {
+  it.each(["NE", "LE", "LX"] as const)(
+    "reports unsupported %s executables without path advice",
+    async (signature) => {
+      const directory = await createTestTempDirectory(
+        `rea-target-${signature.toLowerCase()}-`,
+      );
+      const path = join(directory, "unsupported.exe");
+      const bytes = Buffer.alloc(0x80 + 24);
+      bytes.write("MZ", 0, "ascii");
+      bytes.writeUInt32LE(0x80, 0x3c);
+      bytes.write(signature, 0x80, "ascii");
+      await writeFile(path, bytes);
+
+      const result = await parseBinaryTarget(path);
+      if (result.ok)
+        throw new Error(`unsupported ${signature} target was admitted`);
+      const reason = `unsupported ${signature} executable in MZ image`;
+      const projected = projectAnalysisError(result.error);
+      expect(projected).toMatchObject({
+        code: "target_unavailable",
+        message: `Cannot open artifact: ${reason}.`,
+        details: {
+          reason,
+          constraint: "file_format_rejected",
+        },
+        remediation: {
+          action:
+            "Review the reported file-format reason and select a supported, well-formed target.",
+        },
+      });
+      expect(projected.message).not.toContain("Check that the path");
+
+      expect(await systemDoctorHost().inspectTarget?.(path)).toMatchObject({
+        classification: "unsupported_target",
+        details: { constraint: "file_format_rejected" },
+        remediation:
+          "Review the reported file-format reason and select a supported, well-formed target.",
+      });
+    },
+  );
+
   it("identifies the directory opening constraint and gives the direct analysis route", async () => {
     const directory = await createTestTempDirectory("rea-js-target-");
     await writeFile(join(directory, "index.js"), "export const answer = 42;\n");
@@ -32,10 +73,14 @@ describe("target route diagnostics", () => {
     });
     const missing = await parseBinaryTarget(join(directory, "missing"));
     if (missing.ok) throw new Error("missing target was admitted");
-    expect(projectAnalysisError(missing.error)).toMatchObject({
+    const missingProjection = projectAnalysisError(missing.error);
+    expect(missingProjection).toMatchObject({
       details: { reason: expect.stringContaining("does not exist") },
       message: expect.stringContaining("does not exist"),
     });
+    expect(missingProjection.message).toContain(
+      "Check that the path exists, is readable, and points to a supported file.",
+    );
     expect(
       await doctor.inspectTarget?.(join(directory, "missing")),
     ).toMatchObject({
@@ -54,10 +99,14 @@ describe("target route diagnostics", () => {
       try {
         const result = await parseBinaryTarget(path);
         if (result.ok) throw new Error("unreadable target was admitted");
-        expect(projectAnalysisError(result.error)).toMatchObject({
+        const projected = projectAnalysisError(result.error);
+        expect(projected).toMatchObject({
           details: { reason: expect.stringContaining("permission denied") },
           message: expect.stringContaining("permission denied"),
         });
+        expect(projected.message).toContain(
+          "Check that the path exists, is readable, and points to a supported file.",
+        );
         expect(await systemDoctorHost().inspectTarget?.(path)).toMatchObject({
           ok: false,
           classification: "config_drift",
