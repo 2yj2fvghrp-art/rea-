@@ -88,7 +88,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
-  const electronIdentity = yield* indexJavaScriptElectronIdentitySteps(
+  const electron = yield* indexJavaScriptElectronIdentitySteps(
     file.program,
     bindings,
   );
@@ -103,7 +103,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
       ),
       accumulator,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
-      electronBindings: electronIdentity.bindings,
+      electron,
       rpcScan: createJavaScriptRpcScan(source, clientRoots),
     },
     bindings,
@@ -113,7 +113,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     bindings,
     source,
     accumulator,
-    electronIdentity,
+    electron,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
   return finalizeStaticAnalysis(

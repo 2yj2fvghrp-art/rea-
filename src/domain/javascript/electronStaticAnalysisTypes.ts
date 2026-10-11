@@ -68,8 +68,14 @@ export type ElectronContextBridgeFinding = ElectronContextBridgeApiKey & {
   readonly resolution_basis?: "wrapper-substitution";
   readonly world: "main" | "isolated";
   readonly world_id: ElectronStaticValue | null;
-  readonly api_status: "object-literal" | "dynamic" | "missing";
+  readonly api_status:
+    | "object-literal"
+    | "object-binding"
+    | "dynamic"
+    | "missing";
   readonly members: readonly string[];
+  /** Keys present only in one branch of a conditional object spread. */
+  readonly conditional_members: readonly string[];
   readonly unknown_members: number;
   readonly electron_identity: ElectronApiIdentity;
   readonly module_key: string | null;

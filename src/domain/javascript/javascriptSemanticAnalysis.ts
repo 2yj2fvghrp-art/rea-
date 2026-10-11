@@ -55,6 +55,11 @@ import type { JavaScriptSemanticValue } from "./javascriptSemanticValueTypes.js"
 import type { ElectronCalleeBinding } from "./electronStaticAnalysisTypes.js";
 import { createElectronWrapperParameters } from "./javascriptElectronWrapperParameters.js";
 import {
+  isContextBridgeExposure,
+  resolveElectronApiObjects,
+} from "./javascriptElectronApiObjects.js";
+import type { JavaScriptElectronSemanticFacts } from "./javascriptStaticAnalysisState.js";
+import {
   collectJavaScriptIdentityWritesSteps,
   electronExportPath,
   electronMemberPath,
@@ -405,28 +410,35 @@ const resolveGlobalAliasFact = (
 };
 
 /**
- * Proven Electron export path segments for call and construction roots, keyed by
- * root offset. Only proven Electron origins are present; callers must not
- * infer an Electron export from an absent entry or familiar local name.
+ * Classified Electron identities for call and construction roots, keyed by
+ * root offset, and the object literals bound to contextBridge API arguments.
+ * Only classified origins are present; callers must not infer an Electron
+ * export from an absent entry or familiar local name.
  */
 export const classifyParsedJavaScriptElectronBindings = (
   file: ParsedJavaScriptSource,
-): ReadonlyMap<number, ElectronCalleeBinding> =>
+): JavaScriptElectronSemanticFacts =>
   completeSemanticSteps(classifyParsedJavaScriptElectronBindingsSteps(file));
 
 /** Resolve Electron aliases while yielding during lexical and AST scans. */
 export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
-): Generator<void, ReadonlyMap<number, ElectronCalleeBinding>> {
+): Generator<void, JavaScriptElectronSemanticFacts> {
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
-  return (yield* indexJavaScriptElectronIdentitySteps(file.program, state))
-    .bindings;
+  const { callees, apiObjects } = yield* indexJavaScriptElectronIdentitySteps(
+    file.program,
+    state,
+  );
+  return { callees, apiObjects };
 }
 
-/** Shared lexical identity and visible-write proof for direct and wrapped calls. */
-export interface JavaScriptElectronIdentity {
-  readonly bindings: ReadonlyMap<number, ElectronCalleeBinding>;
+/**
+ * Shared lexical identity and visible-write proof for direct and wrapped
+ * calls, with the classified callee identities and bound bridge API objects
+ * of one source.
+ */
+export interface JavaScriptElectronIdentity extends JavaScriptElectronSemanticFacts {
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
   readonly exportPath: (root: t.Node) => readonly string[] | undefined;
 }
@@ -436,6 +448,8 @@ export function* indexJavaScriptElectronIdentitySteps(
   state: JavaScriptSemanticAnalysisState,
 ): Generator<void, JavaScriptElectronIdentity> {
   const facts = new Map<number, ElectronCalleeBinding>();
+  const exposures: (t.CallExpression | t.OptionalCallExpression)[] = [];
+  const memberWritten = new Set<string>();
   const interop = createSemanticModuleInterop(state);
   const writes = new SemanticPropertyPathCoverage();
   let collectedWrites = false;
@@ -469,6 +483,10 @@ export function* indexJavaScriptElectronIdentitySteps(
     program,
     (root, kind) => {
       if (kind === "opaque-call") return interop.opaqueMutationPath(root);
+      if (kind === "member" && t.isIdentifier(root)) {
+        const written = resolveSemanticBindingState(state, root, root.name);
+        if (written !== undefined) memberWritten.add(written.bindingId);
+      }
       const exported = kind === "binding" ? undefined : rootExport(root);
       return exported === undefined
         ? (interop.intrinsicPath(root) ??
@@ -499,6 +517,8 @@ export function* indexJavaScriptElectronIdentitySteps(
       )
         return;
       const { root, members } = electronMemberPath(node.callee);
+      if (!t.isNewExpression(node) && isContextBridgeExposure(members.at(-1)))
+        exposures.push(node);
       const exported = rootExport(root);
       if (exported === undefined) {
         wrappers.defer(root, members);
@@ -516,7 +536,17 @@ export function* indexJavaScriptElectronIdentitySteps(
   for (const { root, binding } of wrappers.resolved())
     if (intactExport(["electron", ...binding.path]))
       facts.set(root.start ?? -1, binding);
-  return { bindings: facts, intactExport, exportPath: rootExport };
+  return {
+    callees: facts,
+    apiObjects: resolveElectronApiObjects(
+      state,
+      exposures,
+      facts,
+      memberWritten,
+    ),
+    intactExport,
+    exportPath: rootExport,
+  };
 }
 
 // Read import and require origins directly; general value evaluation is

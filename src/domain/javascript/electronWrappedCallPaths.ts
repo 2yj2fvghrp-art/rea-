@@ -317,6 +317,7 @@ export const collectElectronWrappedCallPaths = (
       api_status: "dynamic" as const,
       resolution_basis: "wrapper-substitution" as const,
       members,
+      conditional_members: [],
       unknown_members: resolver.unknownMembers(object),
       electron_identity: { basis: "module-binding" as const },
       module_key: null,
@@ -334,9 +335,12 @@ export const collectElectronWrappedCallPaths = (
     if (guarded) accumulator.unknownFindings += 1;
     // Existing entries are raw syntax observations and remain valid even when
     // symbolic substitution can only describe this call under a predicate.
+    // A bound object keeps its nested member paths, conditional members and
+    // member-write uncertainty, which substitution does not report.
     if (!guarded && existing)
-      (existing.value.api_status !== "object-literal" ||
-        existing.value.unknown_members > 0) &&
+      existing.value.api_status !== "object-binding" &&
+        (existing.value.api_status !== "object-literal" ||
+          existing.value.unknown_members > 0) &&
         accumulator.contextBridgeApis.splice(
           accumulator.contextBridgeApis.indexOf(existing),
           1,
