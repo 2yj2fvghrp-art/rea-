@@ -508,6 +508,22 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
   ]);
 });
 
+it("reports byte-accurate total_bytes for multibyte UTF-8 logcat output", async () => {
+  const dump =
+    "08-10 13:00:00.000 I/Tag( 1): \u4e2d\u6587\n" +
+    "08-10 13:00:01.000 I/Tag( 1): \ud83d\ude00\n";
+  const { binary } = await writeAdbStub(shellStub({ logcat: dump }));
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  expect(result.total_bytes).toBe(Buffer.byteLength(dump, "utf8"));
+  expect(result.lines).toEqual([
+    "08-10 13:00:00.000 I/Tag( 1): \u4e2d\u6587",
+    "08-10 13:00:01.000 I/Tag( 1): \ud83d\ude00",
+  ]);
+});
+
 it("projects package details from dumpsys package output", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
