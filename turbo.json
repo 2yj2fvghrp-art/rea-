@@ -46,6 +46,7 @@
       ]
     },
     "lint": {
+      "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
         ".nvmrc",
         ".oxlintrc.json",
@@ -59,6 +60,7 @@
     },
     "lint:built": {
       "dependsOn": ["compile"],
+      "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
         ".nvmrc",
         ".oxlintrc.json",
@@ -91,9 +93,11 @@
         ".jscpd.json",
         "package.json",
         "package-lock.json",
+        "scripts/ci/static-check-report.mjs",
         "src/**",
         "tests/**"
-      ]
+      ],
+      "outputs": [".cache/static-checks/jscpd/jscpd-report.json"]
     },
     "scan:todos": {
       "inputs": [
