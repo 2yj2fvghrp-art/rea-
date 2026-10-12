@@ -46,6 +46,8 @@ globalThis.effects.push('lazy');
 export const lazyUrl = import.meta.url;`,
         "dist/composition/javascriptAnalysisWorkerProcess.js":
           'process.stdout.write("worker-entry");',
+        "dist/generatedPackageMetadata.js":
+          'export const generatedPackageMetadata = { version: "1.0.0" };',
         "dist/cli.js": 'export { facts, run } from "./main.js";',
         "dist/cliOutput.js": 'export { facts } from "./provider/probe λ.js";',
         "dist/cli/streamedJsonOutput.js":
@@ -53,6 +55,7 @@ export const lazyUrl = import.meta.url;`,
         "dist/mcpDoctor.js": 'export { run } from "./main.js";',
         "dist/main.js": `
 import { facts } from './provider/probe λ.js';
+import { generatedPackageMetadata } from './generatedPackageMetadata.js';
 export { facts };
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +64,7 @@ export const run = async () => {
   const beforeLazy = [...globalThis.effects];
   const { lazyUrl } = await import('./lazy.js');
   return {
-    ...facts, beforeLazy, afterLazy: globalThis.effects, lazyUrl,
+    ...facts, version: generatedPackageMetadata.version, beforeLazy, afterLazy: globalThis.effects, lazyUrl,
     workerOutput: execFileSync(process.execPath, [fileURLToPath(facts.worker)], { encoding: 'utf8' })
   };
 };`,
@@ -114,6 +117,14 @@ export const run = async () => {
       expect(
         (await readdir(join(workspace.root, "dist/mcp"))).length,
       ).toBeGreaterThan(1);
+      await workspace.write(
+        "dist/generatedPackageMetadata.js",
+        'export const generatedPackageMetadata = { version: "0.0.0" };',
+      );
+      const previousRelease = await invoke("dist/main.js");
+      expect(previousRelease).toMatchObject({ version: "0.0.0" });
+      expect(await invoke("dist/mcp/main.js")).toEqual(previousRelease);
+      expect(await invoke("dist/cli-runtime/cli.js")).toEqual(previousRelease);
     },
   );
 

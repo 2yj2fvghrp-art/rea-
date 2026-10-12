@@ -8,7 +8,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * external, dynamic imports lazy, and original compiled worker entrypoints.
  */
 export const bundleRuntime = async (root) => {
-  const compiledRoot = join(root, "dist");
+  const compiledRoot = resolve(root, "dist");
+  // CLI, MCP, workers and updater fixtures share one release-identity owner.
+  const metadataModule = join(compiledRoot, "generatedPackageMetadata.js");
+  const isMetadataModule = (id) =>
+    isAbsolute(id) && resolve(id) === metadataModule;
   const { rolldown, RUNTIME_MODULE_ID } = await import("rolldown");
   const { imports = {} } = JSON.parse(
     await readFile(join(root, "package.json"), "utf8"),
@@ -34,7 +38,9 @@ export const bundleRuntime = async (root) => {
       ),
       platform: "node",
       treeshake: false,
-      external: (source) => !source.startsWith(".") && !isAbsolute(source),
+      external: (source) =>
+        isMetadataModule(source) ||
+        (!source.startsWith(".") && !isAbsolute(source)),
       plugins: [
         {
           name: "preserve-compiled-module-locations",
@@ -103,7 +109,19 @@ export const bundleRuntime = async (root) => {
         dir: join(compiledRoot, directory),
         format: "esm",
         entryFileNames: "[name].js",
-        chunkFileNames: "[name]-[hash].js",
+        chunkFileNames:
+          directory === "mcp"
+            ? "[name]-[hash].js"
+            : (chunk) => {
+                // Keep lazy facades distinguishable when source basenames repeat.
+                if (typeof chunk.facadeModuleId !== "string")
+                  return "[name]-[hash].js";
+                const path = relative(compiledRoot, chunk.facadeModuleId);
+                return `${path.replace(/\.js$/u, "").split(sep).join("__")}-[hash].js`;
+              },
+        paths: (id) =>
+          isMetadataModule(id) ? "../generatedPackageMetadata.js" : id,
+        minifyInternalExports: directory === "mcp",
         codeSplitting: true,
         strictExecutionOrder: true,
         minify: false,
