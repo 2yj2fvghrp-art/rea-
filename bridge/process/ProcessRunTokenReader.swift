@@ -122,6 +122,7 @@ private func csops(
 
 private let csOpsStatus: UInt32 = 0
 private let csPlatformBinary: UInt32 = 0x0400_0000
+private let csRestrict: UInt32 = 0x0000_0800
 
 /**
  * Whether the target image is an Apple platform binary. Current macOS omits
@@ -130,11 +131,25 @@ private let csPlatformBinary: UInt32 = 0x0400_0000
  * environment is genuinely absent or transiently unreadable.
  */
 func isPlatformBinary(pid: Int32) -> Bool {
+  codeSigningStatus(pid: pid).map { $0 & csPlatformBinary != 0 } ?? false
+}
+
+/**
+ * Whether the target runs with CS_RESTRICT. XNU omits the environment of
+ * restricted processes from KERN_PROCARGS2 for ordinary callers, so this
+ * names why a token was unreadable. It is diagnostic only: ownership policy
+ * still treats such a candidate as unreadable.
+ */
+func isRestrictedProcess(pid: Int32) -> Bool {
+  codeSigningStatus(pid: pid).map { $0 & csRestrict != 0 } ?? false
+}
+
+private func codeSigningStatus(pid: Int32) -> UInt32? {
   var flags: UInt32 = 0
   let result = withUnsafeMutablePointer(to: &flags) { pointer in
     csops(pid, csOpsStatus, UnsafeMutableRawPointer(pointer), MemoryLayout<UInt32>.size)
   }
-  return result == 0 && (flags & csPlatformBinary) != 0
+  return result == 0 ? flags : nil
 }
 
 private func readRunToken(pid: Int32, pointerSize: Int) -> RunTokenObservation {
@@ -169,7 +184,9 @@ private func readRunToken(pid: Int32, pointerSize: Int) -> RunTokenObservation {
       pid: pid,
       reason: isPlatformBinary(pid: pid)
         ? "platform_binary_environment_withheld"
-        : "environment_unavailable"
+        : isRestrictedProcess(pid: pid)
+          ? "restricted_process_environment_withheld"
+          : "environment_unavailable"
     )
   } catch RunTokenReadError.appleVectorUnavailable {
     return unavailable(pid: pid, reason: "apple_vector_unavailable")
