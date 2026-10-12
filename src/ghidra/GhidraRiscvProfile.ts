@@ -18,6 +18,12 @@ const ET_REL = 1;
 const ET_EXEC = 2;
 const ET_DYN = 3;
 
+/**
+ * Bits this lane reads. Anything else in `e_flags` — reserved today or defined by
+ * a newer psABI — is refused rather than assumed compatible.
+ */
+const EF_RISCV_DECLARED_BITS = EF_RISCV_RVC | EF_RISCV_FLOAT_ABI;
+
 /** Header declarations outside the verified generic-language lane. */
 const riscvUnsupportedFloatAbi = (abi: number): string =>
   abi === 0
@@ -66,18 +72,24 @@ export const ghidraRiscvUnsupportedReason = (
   if ((metadata.flags & EF_RISCV_TSO) !== 0)
     return "EF_RISCV_TSO declares the total-store-order memory model; this lane verifies the baseline model only.";
   if (metadata.type !== ET_EXEC)
-    return `This Ghidra RISC-V lane supports static ET_EXEC only; ${
+    return `This Ghidra RISC-V lane supports fixed-address ET_EXEC only; ${
       metadata.type === ET_REL
         ? "relocatable"
         : metadata.type === ET_DYN
           ? "shared and position-independent"
           : `e_type ${metadata.type}`
-    } images need separate load verification.`;
+    } images need separate load verification. ET_EXEC alone does not establish static linkage, which this lane does not inspect.`;
   const abi = metadata.flags & EF_RISCV_FLOAT_ABI;
   if (abi !== EF_RISCV_FLOAT_ABI_DOUBLE)
     return `This Ghidra RISC-V lane requires the EF_RISCV_FLOAT_ABI_DOUBLE declaration (${riscvUnsupportedFloatAbi(
       abi,
     )} observed); the pinned generic language uses the double-float compiler specification.`;
+  if ((metadata.flags & ~EF_RISCV_DECLARED_BITS) !== 0)
+    return `RISC-V e_flags declares bits outside the verified lane (0x${(
+      metadata.flags & ~EF_RISCV_DECLARED_BITS
+    ).toString(
+      16,
+    )}); reserved or newer declarations are not treated as compatible with this profile.`;
   return null;
 };
 
@@ -114,5 +126,6 @@ export const ghidraRiscvLimitations = (
     ? [
         `RISC-V ELF: REA pins Ghidra's generic \`RISCV:LE:${target.riscv.elfClass}:default\` language with the \`gcc\` compiler specification instead of accepting the loader's header-based choice, which selects \`RISCV:LE:32:AndeStar_v5\` for ordinary RV32 images on Ghidra 12.1.4.`,
         "The pinned generic language models the double-float ABI declared by `e_flags`; the declaration is recorded as an ELF fact and is not evidence of the original compiler or of verified instruction semantics.",
+        "Admission reads `e_type` only: a fixed-address ET_EXEC declaration does not establish static linkage, and program headers (`PT_INTERP`, dynamic dependencies) are not inspected by this lane.",
       ]
     : [];

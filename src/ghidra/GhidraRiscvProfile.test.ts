@@ -12,6 +12,7 @@ import { HopperProvider } from "../hopper/HopperProvider.js";
 import { hopperLoaderArgsForTarget } from "../hopper/HopperAnalysisProfile.js";
 import { IdaProvider } from "../ida/IdaProvider.js";
 import { GhidraProvider } from "./GhidraProvider.js";
+import { ghidraRiscvLimitations } from "./GhidraRiscvProfile.js";
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 import {
   ghidraPinnedLanguage,
@@ -164,14 +165,16 @@ describe("bounded Ghidra RISC-V admission", () => {
 
   it.each([
     [{ byteOrder: "big" }, "little-endian"],
-    [{ type: 3 }, "static ET_EXEC only"],
-    [{ type: 1 }, "static ET_EXEC only"],
+    [{ type: 3 }, "fixed-address ET_EXEC only"],
+    [{ type: 1 }, "fixed-address ET_EXEC only"],
     [{ type: 0xffa0 }, "e_type 65440"],
     [{ flags: 0xc }, "EF_RISCV_RVE"],
     [{ flags: 0x14 }, "EF_RISCV_TSO"],
     [{ flags: 0x1 }, "soft-float convention"],
     [{ flags: 0x3 }, "single-float"],
     [{ flags: 0x7 }, "quad-float"],
+    [{ flags: 0x8000_0005 }, "bits outside the verified lane"],
+    [{ flags: 0x24 }, "bits outside the verified lane"],
   ] satisfies [Partial<RiscvElfMetadata>, string][])(
     "refuses an unverified RISC-V interpretation %j",
     async (change, reason) => {
@@ -210,6 +213,23 @@ describe("bounded Ghidra RISC-V admission", () => {
     expect(resolved.value.profile.parameters.language_id).toBe(
       "RISCV:LE:64:default",
     );
+  });
+
+  it("states the linkage claim boundary in the lane limitations", () => {
+    const notes = ghidraRiscvLimitations(target());
+    expect(notes).toHaveLength(3);
+    expect(notes.join(" ")).toContain("does not establish static linkage");
+    expect(notes[0]).toContain("RISCV:LE:64:default");
+    expect(
+      ghidraRiscvLimitations({
+        path: "/other.elf",
+        sha256: "b".repeat(64),
+        kind: "executable",
+        format: "elf",
+        architecture: "x86_64",
+        availableArchitectures: ["x86_64"],
+      }),
+    ).toEqual([]);
   });
 
   it("keeps RISC-V out of unverified Hopper and IDA adapter lanes", () => {
