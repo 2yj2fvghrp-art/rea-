@@ -39,9 +39,11 @@ scope, not every historical release or third-party client. A new client targetin
 an older server must discover the actual schema and use a supported equivalent
 where available; this study does not implement a universal automatic fallback.
 The catalog intentionally gains more precise/additive schemas, so its bytes and
-digest are not frozen: final complete catalog JSON is about 2.6% larger. Optional
-views can reduce model-visible result data; old complete requests do not silently
-switch delivery or acquire that reduction automatically.
+digest are not frozen: measured runtime `259e99dd9` has about 2.6% larger complete
+catalog JSON than the frozen baseline. The separate post-integration receipt
+records the newer runtime, including upstream changes. Optional views can reduce
+model-visible result data; old complete requests do not silently switch delivery
+or acquire that reduction automatically.
 
 ## Reproduce a measurement
 
@@ -304,7 +306,9 @@ ShareX HelpersLib 19.0.2. All complete normalized artifact and native-boundary
 fields match between baseline and pilot, including source Evidence identities.
 This covers nonempty declarations beyond the main ShareX DLL's empty import
 tables. It does not verify native exports, execute the assembly or resolve CLR
-dependencies.
+dependencies. The curated receipt keeps identities, coverage, all ModuleRefs,
+the first three PInvoke records and digests of the complete boundary payloads.
+Full producer tables and comparison inputs stay in the private lab outputs.
 
 [Verification receipts](results/verification-20261012.json) include 42 real
 WABT CLI/MCP cases and the complete real SQLite CLI JSON: the unchanged default
@@ -344,3 +348,32 @@ python3 experiments/analysis-efficiency/resource-run.py -- \
   --inspection-reply /absolute/baseline-complete-inspection-reply.json \
   --output /absolute/new-migration-directory
 ```
+
+## PR integration verification
+
+[The separate PR receipt](results/pr-readiness-20261012.json) pins runtime
+`0eb42a1eb8ab17aed04240174cb77612e733a1d8`, integrated with main
+`c22111eca2c4bc84a084f12711f405b3e7422a40`. Conflict resolution preserves main's
+HAR API-surface views, portable capture admission, exact layout/JavaScript
+summary carriers and existing CLI tests alongside inventory/WASM views.
+Earlier real-model observations keep their original runtime fingerprints.
+
+Build, the complete `check` static gate and generated documentation checks pass.
+Twelve focused files pass 123 assertions, including the presentation test run
+separately with its original deadline. Actual package creation, private-prefix
+installation and 42 real WABT CLI/MCP cases pass. No package is published.
+The complete generic package verifier and full `check:pr` remain CI/review scope.
+
+Genuine old SQLite/Obsidian Evidence migration passes again with WABT unavailable.
+A fresh public SDK cohort preserves the original Obsidian default result size
+(937,404 compact JSON bytes), atomic inventory identity and every selected fact;
+explicit summary plus exact paths still returns 16,322 bytes. Complete catalog
+JSON is 2,359,082 bytes versus the original baseline's 2,326,609 (about 1.4%
+larger). That difference includes intervening main changes and does not isolate
+this PR's catalog contribution. One cohort is not a latency distribution.
+
+Recorded integration scopes have no OOM/OOM-kill or hard-limit abort. The full
+source-check scope reports three `memory.high` events near its 3 GiB soft
+threshold; these observations remain in the receipt. Heavy lanes stay serial
+with the existing CPU, memory and no-swap controls. No further REA bug repairs
+are included; separate local findings remain for team follow-up.
