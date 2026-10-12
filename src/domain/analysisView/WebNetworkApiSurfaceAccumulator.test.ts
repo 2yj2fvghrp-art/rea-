@@ -26,6 +26,35 @@ const add = (
   if (!result.ok) throw result.error;
 };
 
+it("admits the capture schema clone and grouping against the same budget", () => {
+  const sample = record(0, `/${"a".repeat(1200)}`);
+  const isolated = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+  add(isolated, sample);
+  const accumulator = new WebNetworkApiSurfaceAccumulator(64 * 1024);
+  expect(
+    accumulator.admitCaptureClone({
+      headers: Array.from({ length: 40 }, () => ({ name: "x", value: "y" })),
+    }).ok,
+  ).toBe(true);
+  expect(accumulator.add(sample)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+  expect(accumulator.page(0, 1).groups).toEqual([]);
+});
+
+it("charges non-enumerable fields that the capture schema would clone", () => {
+  const value = Object.defineProperty({}, "records", {
+    value: Array.from({ length: 100 }, () => ({ reported: {} })),
+  });
+  expect(
+    new WebNetworkApiSurfaceAccumulator(64 * 1024).admitCaptureClone(value),
+  ).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
+});
+
 it("bounds many short literal groups, including groups with unavailable MIME types", () => {
   const accumulator = new WebNetworkApiSurfaceAccumulator(64 * 1024);
   let accepted = 0;

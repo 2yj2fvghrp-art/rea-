@@ -21,6 +21,8 @@ import {
 import type { Evidence } from "../../domain/evidence.js";
 import { EvidenceIntegrityError } from "../../domain/evidenceErrors.js";
 import { err, ok } from "../../domain/result.js";
+import { EvidenceLedger } from "../investigation/EvidenceLedger.js";
+import { WEB_NETWORK_CAPTURE_LIMITS } from "../../domain/webNetworkCapture.js";
 
 it.each(["/fixtures/unknown.exe", ""])(
   "preserves recorded empty native identity fields: path=%j",
@@ -399,4 +401,44 @@ it("rejects a null projected digest under a present parent subject", () => {
       view: { kind: "api-surface" },
     }),
   ).toMatchObject({ ok: false, error: { _tag: "EvidenceIntegrityError" } });
+});
+
+it("refuses an object-dense borrowed capture before making a full schema clone", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.total_records = 1;
+  capture.records[0]!.reported = {
+    request: {
+      method: "GET",
+      url: "https://api.test/items/1",
+      headers: Array.from({ length: 100_000 }, () => ({
+        name: "x",
+        value: "y",
+      })),
+    },
+  };
+  expect(Buffer.byteLength(JSON.stringify(capture))).toBeLessThan(
+    WEB_NETWORK_CAPTURE_LIMITS.inputBytes,
+  );
+  const parent = analysisViewCaptureEvidence(capture);
+  const ledger = new EvidenceLedger();
+  const recorded = ledger.record(parent);
+  if (!recorded.ok) throw recorded.error;
+  const borrowed = ledger.forAnalysis(parent.evidence_id)!;
+  expect(Object.isFrozen(borrowed.normalized_result)).toBe(true);
+  const result = inspectAnalysisView(
+    {
+      source: { kind: "retained-evidence", evidence_id: parent.evidence_id },
+      view: { kind: "api-surface", limit: 1 },
+    },
+    (id) => ledger.forAnalysis(id),
+  );
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      resource: "memory",
+    },
+  });
+  expect(ledger.forAnalysis(parent.evidence_id)).toBe(borrowed);
 });

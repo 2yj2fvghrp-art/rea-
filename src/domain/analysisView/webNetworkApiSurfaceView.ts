@@ -82,6 +82,9 @@ export const projectWebNetworkApiSurfaceView = (
     return unsupported(
       `View ${view.kind} is unsupported for parent operation ${parent.operation}; api-surface requires inspect_web_network_capture.`,
     );
+  const accumulator = new WebNetworkApiSurfaceAccumulator();
+  const admitted = accumulator.admitCaptureClone(parent.normalizedResult);
+  if (!admitted.ok) return admitted;
   const parsed = webNetworkCaptureSchema.safeParse(parent.normalizedResult);
   if (!parsed.success)
     return err(
@@ -104,7 +107,6 @@ export const projectWebNetworkApiSurfaceView = (
     .safeParse(parent.parameters);
   if (!declarations.success || declarations.data.sensitive_value_count > 0)
     return unsupported("sensitive_values_unretained");
-  const accumulator = new WebNetworkApiSurfaceAccumulator();
   const limitations = accumulator.addLimitations([
     ...parent.limitations,
     "Grouping does not establish handler identity, URL-space schemas or causality.",

@@ -164,7 +164,9 @@ parent does not retain, so the refusal does not repeat declaration text.
 
 One accumulator owns group identity, observed-value/status/MIME sets, ordinals,
 exclusions and deduplicated limitations. It scans path spans without splitting
-literal paths into arrays. Temporary URL/path/MIME work and retained state must
+literal paths into arrays. Before schema parsing, it reserves the capture clone
+and validation scratch by walking the parent without cloning it. That reservation
+stays charged during grouping. Temporary URL/path/MIME work and retained state must
 fit together within a 96 MiB projection representation budget. A whole group or
 merge is admitted before allocating its retained sets, map entries or array
 values. Fixed group storage, distinct text, exclusions and limitations count as

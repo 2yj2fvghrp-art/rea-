@@ -194,6 +194,41 @@ it("refuses parents whose sensitive declarations it cannot check", () => {
   }
 });
 
+it("rejects cyclic captures and accessor members without invoking them", () => {
+  const cyclic: { self?: unknown } = {};
+  cyclic.self = cyclic;
+  let accessed = false;
+  const accessor = {
+    get records() {
+      accessed = true;
+      return [];
+    },
+  };
+  const hiddenAccessor = Object.defineProperty({}, "records", {
+    get() {
+      accessed = true;
+      return [];
+    },
+  });
+  const inherited = Object.create({ records: [] }) as unknown;
+  for (const normalizedResult of [cyclic, accessor, hiddenAccessor, inherited])
+    expect(
+      projectAnalysisView(
+        {
+          evidenceId: `ev_${"a".repeat(64)}`,
+          operation: "inspect_web_network_capture",
+          normalizedResult,
+          limitations: [],
+        },
+        { kind: "api-surface", offset: 0, limit: 1 },
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisInputError" },
+    });
+  expect(accessed).toBe(false);
+});
+
 it("treats HAR missing-response sentinels as unknown", () => {
   const capture = analysisViewCaptureFixture();
   capture.records = capture.records.slice(0, 1);
