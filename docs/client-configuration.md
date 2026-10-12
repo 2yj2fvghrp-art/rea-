@@ -156,6 +156,10 @@ user directory (`%APPDATA%\Trae\User` on Windows,
 `~/.trae/skills` (`%userprofile%\.trae\skills` on Windows), so setup
 installs its skill copy there.
 
+The user-level MCP paths follow the editor's VS Code layout. Trae's official
+documentation describes the raw JSON editor without specifying those paths;
+loading this registration in Trae remains unverified.
+
 ## DeepSeek Harness
 
 DeepSeek Harness registers MCP clients through a Cordis YAML patch sequence
