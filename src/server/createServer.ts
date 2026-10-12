@@ -5,7 +5,7 @@ import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
-import { createEvmInterfaceService } from "../composition/evm.js";
+import { evmInterfaceModule } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
 import { registerRecordedCrashTools } from "./registerRecordedCrashTools.js";
 import { createRecordedCrashService } from "../composition/binaryDiagnostics.js";
@@ -75,6 +75,7 @@ import type { FirmwareAnalysisPort } from "../application/firmware/FirmwareAnaly
 import { createFirmwareAnalysisProvider } from "../composition/firmware.js";
 import { registerAndroidTools } from "./registerAndroidTools.js";
 import { registerApktoolTools } from "./registerApktoolTools.js";
+import { registerFlutterTools } from "./registerFlutterTools.js";
 import { registerJebTools } from "./registerJebTools.js";
 import { registerAdbTools } from "./registerAdbTools.js";
 import { AndroidAnalysisService } from "../application/android/AndroidAnalysisService.js";
@@ -82,8 +83,11 @@ import { JebAnalysisService } from "../application/jeb/JebAnalysisService.js";
 import type { AndroidAnalysisPort } from "../application/android/AndroidAnalysisPort.js";
 import type { ApktoolResourceAnalysisPort } from "../application/apktool/ApktoolResourceAnalysisPort.js";
 import { ApktoolResourceAnalysisService } from "../application/apktool/ApktoolResourceAnalysisService.js";
+import type { FlutterBuildAnalysisPort } from "../application/flutter/FlutterBuildAnalysisPort.js";
+import { FlutterBuildAnalysisService } from "../application/flutter/FlutterBuildAnalysisService.js";
 import { createAndroidAnalysisProvider } from "../composition/android.js";
 import { createApktoolResourceAnalysisProvider } from "../composition/apktool.js";
+import { createFlutterBuildAnalysisProvider } from "../composition/flutter.js";
 import type { JebAnalysisPort } from "../application/jeb/JebAnalysisPort.js";
 import { createJebAnalysisProvider } from "../composition/jeb.js";
 import type { AdbDeviceAnalysisPort } from "../application/adb/AdbDeviceAnalysisPort.js";
@@ -126,6 +130,7 @@ export interface CreateServerOptions {
   readonly webNetworkCapture?: WebNetworkCaptureService;
   readonly androidAnalysis?: AndroidAnalysisPort;
   readonly apktoolAnalysis?: ApktoolResourceAnalysisPort;
+  readonly flutterAnalysis?: FlutterBuildAnalysisPort;
   readonly jebAnalysis?: JebAnalysisPort;
   readonly adbDeviceAnalysis?: AdbDeviceAnalysisPort;
   readonly browserObservation?: BrowserObservationPort;
@@ -237,7 +242,11 @@ export const createServer = (
   const environment = snapshotEnvironment(options.environment ?? process.env);
   const delivery = selectToolResultDelivery(environment, options.delivery);
   const evmInterface =
-    options.evmInterface ?? createEvmInterfaceService(environment);
+    options.evmInterface ?? evmInterfaceModule.create(environment);
+  const binaryLayout =
+    options.binaryLayout ?? createBinaryLayoutService(environment);
+  const recordedCrash =
+    options.recordedCrash ?? createRecordedCrashService(environment);
   const webSourceLocation =
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const webModuleTrace =
@@ -253,6 +262,8 @@ export const createServer = (
     environment,
     delivery,
     evmInterface,
+    binaryLayout,
+    recordedCrash,
     webSourceLocation,
     webModuleTrace,
     javascriptRecovery,
@@ -266,6 +277,8 @@ export const createServer = (
   );
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
+  const flutter =
+    options.flutterAnalysis ?? createFlutterBuildAnalysisProvider();
   const fridaInstrumentation =
     options.fridaInstrumentation ?? new FridaInstrumentationManager();
   const wasmArtifact = wasmArtifactModule.create(
@@ -287,7 +300,10 @@ export const createServer = (
       apktool.close(),
       jeb.close(),
       adbDevice.close(),
+      flutter.close(),
       evmInterface.close(),
+      binaryLayout.close(),
+      recordedCrash.close(),
       webSourceLocation.close(),
       webModuleTrace.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
@@ -364,12 +380,20 @@ export const createServer = (
     toolContext,
     android,
     wasmArtifact,
+    evmInterface,
     jeb,
     firmwareAnalysis,
   );
   registerAdbTools(
     server,
     new AdbDeviceAnalysisService(adbDevice),
+    toolLogger,
+    recordEvidence,
+    analysisAdmission,
+  );
+  registerFlutterTools(
+    server,
+    new FlutterBuildAnalysisService(flutter),
     toolLogger,
     recordEvidence,
     analysisAdmission,
@@ -434,6 +458,7 @@ const registerConfiguredAnalysisTools = (
   }: ServerToolContext,
   android: AndroidAnalysisPort,
   wasmArtifact: Pick<WasmArtifactService, "inspect" | "close">,
+  evmInterface: EvmInterfaceService,
   jeb: JebAnalysisPort,
   firmwareAnalysis: FirmwareAnalysisService,
 ): void => {
@@ -490,7 +515,7 @@ const registerConfiguredAnalysisTools = (
   );
   registerEvmTools(
     server,
-    options.evmInterface ?? createEvmInterfaceService(environment),
+    evmInterface,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
