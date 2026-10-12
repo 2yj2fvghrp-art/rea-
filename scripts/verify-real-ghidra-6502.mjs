@@ -188,9 +188,13 @@ try {
   // Preserve the owned workspace if connection cleanup fails.
   await rm(workspace, { recursive: true, force: true });
 }
+const verifierRun = await completeVerifierRun(run);
+if (process.platform !== "win32") {
+  assert.equal(verifierRun.process_lineage.status, "verified");
+  assert.deepEqual(verifierRun.process_lineage.descendants, []);
+}
 process.stdout.write(
-  JSON.stringify({ verifier_run: await completeVerifierRun(run), ...report }) +
-    "\n",
+  JSON.stringify({ verifier_run: verifierRun, ...report }) + "\n",
 );
 
 async function call(name, args = {}) {
