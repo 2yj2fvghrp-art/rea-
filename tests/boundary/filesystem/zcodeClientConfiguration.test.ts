@@ -40,6 +40,7 @@ describe("ZCode configuration paths", () => {
       configPath: join("/home/a", ".zcode", "cli", "config.json"),
       markerPath: join("/home/a", ".zcode", "cli"),
       format: "zcode",
+      zcodeFallbackPath: join("/home/a", ".agents", "mcp.json"),
     });
     expect(zcodePath("/Users/a", "darwin")?.configPath).toBe(
       join("/Users/a", ".zcode", "cli", "config.json"),
@@ -73,6 +74,7 @@ describe("ZCode JSON registration", () => {
       client.configPath,
       `{
   "mcp": {
+    "rea": { "unrelated": true },
     "servers": {
       "other": { "command": "other-server" }
     }
@@ -84,6 +86,7 @@ describe("ZCode JSON registration", () => {
       (await configureClientConfiguration(client, {}, command)).status,
     ).toBe("configured");
     const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
+    expect(parsed.mcp.rea).toEqual({ unrelated: true });
     expect(parsed.mcp.servers.other).toEqual({ command: "other-server" });
     expect(parsed.mcp.servers.rea).toEqual({
       command: command[0],
@@ -154,45 +157,70 @@ describe("ZCode JSON registration", () => {
   });
 });
 
+const fallbackPath = (home: string) => join(home, ".agents", "mcp.json");
+
 describe("ZCode .agents fallback preservation", () => {
-  const fallbackPath = (home: string) => join(home, ".agents", "mcp.json");
-
-  it("migrates fallback servers the first native registration would suppress", async () => {
-    const { home, client } = await zcodeClient();
-    await mkdir(join(home, ".agents"), { recursive: true });
-    await writeFile(
-      fallbackPath(home),
-      JSON.stringify(
-        {
-          mcpServers: {
-            other: { command: "other-server", env: { TOKEN: "x" } },
+  it.each([undefined, '{"ui":{"theme":"dark"}}\n', '{"mcp":{"servers":{}}}\n'])(
+    "migrates fallback servers with native config %s",
+    async (original) => {
+      const { home, client } = await zcodeClient();
+      if (original !== undefined) await writeFile(client.configPath, original);
+      await mkdir(join(home, ".agents"), { recursive: true });
+      await writeFile(
+        fallbackPath(home),
+        JSON.stringify(
+          {
+            mcpServers: {
+              other: { command: "other-server", env: { TOKEN: "x" } },
+              rea: {
+                command: "old-rea",
+                args: ["mcp"],
+                env: {
+                  REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
+                  GHIDRA_INSTALL_DIR: "/caller/ghidra",
+                  CALLER_CHOICE: "keep-me",
+                },
+              },
+            },
           },
-        },
-        null,
-        2,
-      ),
-    );
+          null,
+          2,
+        ),
+      );
 
-    expect(
-      (await configureClientConfiguration(client, {}, command)).status,
-    ).toBe("configured");
-    const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
-    expect(parsed.mcp.servers.other).toEqual({
-      command: "other-server",
-      env: { TOKEN: "x" },
-    });
-    expect(parsed.mcp.servers.rea).toEqual({
-      command: command[0],
-      args: command.slice(1),
-    });
-    // The fallback file stays in place; ZCode ignores it from now on.
-    expect(
-      JSON.parse(await readFile(fallbackPath(home), "utf8")).mcpServers.other,
-    ).toEqual({ command: "other-server", env: { TOKEN: "x" } });
-    expect(await configureClientConfiguration(client, {}, command)).toEqual({
-      status: "unchanged",
-    });
-  });
+      expect(
+        (await configureClientConfiguration(client, {}, command)).status,
+      ).toBe("configured");
+      const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
+      expect(parsed.mcp.servers.other).toEqual({
+        command: "other-server",
+        env: { TOKEN: "x" },
+      });
+      expect(parsed.mcp.servers.rea).toEqual({
+        command: command[0],
+        args: command.slice(1),
+        env: {
+          REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
+          GHIDRA_INSTALL_DIR: "/caller/ghidra",
+          CALLER_CHOICE: "keep-me",
+        },
+      });
+      if (original !== undefined) {
+        expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
+          original,
+        );
+        if (JSON.parse(original).ui !== undefined)
+          expect(parsed.ui).toEqual({ theme: "dark" });
+      }
+      // The fallback file stays in place; ZCode ignores it from now on.
+      expect(
+        JSON.parse(await readFile(fallbackPath(home), "utf8")).mcpServers.other,
+      ).toEqual({ command: "other-server", env: { TOKEN: "x" } });
+      expect(await configureClientConfiguration(client, {}, command)).toEqual({
+        status: "unchanged",
+      });
+    },
+  );
 
   it("leaves an existing native table alone instead of merging the fallback", async () => {
     const { home, client } = await zcodeClient();
@@ -227,6 +255,36 @@ describe("ZCode .agents fallback preservation", () => {
     });
     expect(parsed.mcp.servers.shared).toBeUndefined();
   });
+});
+
+describe("ZCode fallback admission", () => {
+  it.each([{ PORT: 123 }, { REA_MCP_INPUT_SCHEMA_PROFILE: "unknown" }])(
+    "refuses malformed fallback REA environment %j before native writes",
+    async (env) => {
+      const { home, client } = await zcodeClient();
+      await mkdir(join(home, ".agents"), { recursive: true });
+      const original = JSON.stringify({
+        mcpServers: { rea: { command: "old-rea", env } },
+      });
+      await writeFile(fallbackPath(home), original);
+      expect(
+        await inspectClientConfiguration(client, {}, command),
+      ).toMatchObject({
+        status: "invalid",
+        remediation: expect.stringContaining(
+          Object.keys(env)[0] ?? "environment",
+        ),
+      });
+      expect(await configureClientConfiguration(client, {}, command)).toEqual({
+        status: "failed",
+        reason: "readback",
+      });
+      await expect(readFile(client.configPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(await readFile(fallbackPath(home), "utf8")).toBe(original);
+    },
+  );
 
   it("fails closed when the fallback configuration is malformed", async () => {
     const { home, client } = await zcodeClient();
@@ -311,4 +369,33 @@ describe("ZCode disabled registrations", () => {
     ).toBe("configured");
     expect(await statusFor()).toMatchObject({ state: "aligned", command });
   });
+});
+
+describe("ZCode strict native JSON", () => {
+  it.each(['{ // comment\n "mcp": {}}', '{"mcp":{},}', "\uFEFF{}"])(
+    "rejects unreadable native syntax without modifying %s",
+    async (original) => {
+      const { home, client } = await zcodeClient();
+      await writeFile(client.configPath, original);
+      expect(
+        await inspectClientConfiguration(client, {}, command),
+      ).toMatchObject({ status: "invalid" });
+      expect(await configureClientConfiguration(client, {}, command)).toEqual({
+        status: "failed",
+        reason: "readback",
+      });
+      expect(await readFile(client.configPath, "utf8")).toBe(original);
+      await expect(
+        readFile(`${client.configPath}.rea.backup`),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      expect(
+        (
+          await readClientRegistrationStatuses(home, undefined, {
+            platform: process.platform,
+            environment: {},
+          })
+        ).find(({ client }) => client === "zcode"),
+      ).toMatchObject({ state: "invalid" });
+    },
+  );
 });

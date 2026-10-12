@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
+import { logicalPathEscapesRoot } from "../domain/artifactIdentity.js";
 import {
-  logicalPathEscapesRoot,
-  normalizeJoinedLogicalPath,
-} from "../domain/artifactIdentity.js";
+  createReferenceSourcePathLookup,
+  isPortableAbsoluteReferenceTarget,
+  type ReferenceSourcePathLookup,
+} from "../domain/referenceSourcePathIdentity.js";
 import {
   classifyReferenceSourcePath,
   detectReferenceSourceLanguage,
@@ -16,6 +18,7 @@ import type {
   ReferenceSourceRead,
 } from "../reference/ReferenceSourceReaderTypes.js";
 import { PARSEABLE_REFERENCE_SOURCE_LANGUAGES } from "./ReferenceSourceImportTypes.js";
+import { typescriptEmittedSourceCandidates } from "./TypeScriptEmittedSourceCandidates.js";
 
 export interface ParsedReferenceSourceEntries {
   readonly entries: HistoricalSourceGraphInput["entries"];
@@ -83,11 +86,11 @@ const failedEntry = (
 const resolveInternalSpecifier = (
   fromPath: string,
   specifier: string,
-  filePaths: ReadonlySet<string>,
+  lookupPath: ReferenceSourcePathLookup,
 ): { to: string; resolution: "internal" | "unresolved" } => {
   if (posix.isAbsolute(specifier))
     return { to: specifier, resolution: "unresolved" };
-  const normalized = normalizeJoinedLogicalPath(
+  const normalized = posix.normalize(
     posix.join(posix.dirname(fromPath), specifier),
   );
   if (logicalPathEscapesRoot(normalized))
@@ -97,23 +100,10 @@ const resolveInternalSpecifier = (
     `${normalized}${suffix}`,
     `${normalized}/index${suffix}`,
   ]);
-  // TypeScript source commonly names the extension emitted for NodeNext.
   // Retain present runtime files first; substitute only a missing counterpart.
   // Counterparts cover explicit filenames, not directory/index resolution.
-  if (/\.(?:ts|tsx|mts|cts)$/u.test(fromPath)) {
-    const sourceSuffixes = normalized.endsWith(".js")
-      ? [".ts", ".tsx", ".d.ts"]
-      : normalized.endsWith(".mjs")
-        ? [".mts", ".d.mts"]
-        : normalized.endsWith(".cjs")
-          ? [".cts", ".d.cts"]
-          : normalized.endsWith(".jsx")
-            ? [".tsx", ".d.ts"]
-            : [];
-    const stem = normalized.slice(0, -posix.extname(normalized).length);
-    candidates.push(...sourceSuffixes.map((suffix) => `${stem}${suffix}`));
-  }
-  const match = candidates.find((candidate) => filePaths.has(candidate));
+  candidates.push(...typescriptEmittedSourceCandidates(fromPath, normalized));
+  const match = lookupPath.resolveCandidates(candidates);
   return match === undefined
     ? { to: normalized, resolution: "unresolved" }
     : { to: match, resolution: "internal" };
@@ -121,7 +111,7 @@ const resolveInternalSpecifier = (
 
 const appendFile = (
   entry: Extract<ReferenceSourceEntry, { status: "read"; kind: "file" }>,
-  filePaths: ReadonlySet<string>,
+  lookupPath: ReferenceSourcePathLookup,
   output: ParsedReferenceSourceEntries,
 ): void => {
   const language = detectReferenceSourceLanguage(entry.path);
@@ -146,7 +136,7 @@ const appendFile = (
     const resolved = resolveInternalSpecifier(
       relationship.from_path,
       relationship.to,
-      filePaths,
+      lookupPath,
     );
     output.relationships.push({
       ...relationship,
@@ -159,11 +149,11 @@ const appendFile = (
 
 const appendReadEntry = (
   entry: Extract<ReferenceSourceEntry, { status: "read" }>,
-  filePaths: ReadonlySet<string>,
+  lookupPath: ReferenceSourcePathLookup,
   output: ParsedReferenceSourceEntries,
 ): void => {
   if (entry.kind === "file") {
-    appendFile(entry, filePaths, output);
+    appendFile(entry, lookupPath, output);
     return;
   }
   const classifications = classifyReferenceSourcePath(entry.path);
@@ -180,7 +170,14 @@ const appendReadEntry = (
   output.entries.push({
     path: entry.path,
     kind: "symlink",
-    target: entry.target,
+    // The reader resolves inventory identities from its root; the persisted
+    // graph represents relative symlink targets from the link's directory.
+    target:
+      entry.targetState === "internal" ||
+      (entry.targetState === "missing" &&
+        !isPortableAbsoluteReferenceTarget(entry.target))
+        ? posix.relative(posix.dirname(entry.path), entry.target) || "."
+        : entry.target,
     target_state: entry.targetState,
     classifications,
     limitations: [],
@@ -199,10 +196,11 @@ export const parseReferenceSourceEntries = (
     parseFailures: [],
     limitations: [...read.limitations],
   };
+  const lookupPath = createReferenceSourcePathLookup(filePaths);
   for (const entry of read.entries) {
     if (signal?.aborted === true) break;
     if (entry.status === "failed") output.entries.push(failedEntry(entry));
-    else appendReadEntry(entry, filePaths, output);
+    else appendReadEntry(entry, lookupPath, output);
   }
   return output;
 };
