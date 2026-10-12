@@ -33,10 +33,10 @@ import type {
   JavaScriptReferenceInput as ReferenceInput,
 } from "./javascriptStaticAnalysisState.js";
 import {
-  isUnshadowedGlobal,
   resolveSemanticBindingState,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
+import { isUnmodifiedGlobalReference } from "./javascriptSemanticGlobalWrites.js";
 
 type JavaScriptCallLike =
   | t.CallExpression
@@ -71,11 +71,19 @@ export const inspectCall = (
     });
   for (const specifier of vitePreloadDependencySpecifiers(source, node, name))
     addReference(context, { node, kind: "dynamic-import", specifier });
-  if (name === "Worker" || name.endsWith(".Worker"))
+  const worker =
+    t.isNewExpression(node) && isWorkerConstructor(node.callee, bindings)
+      ? node
+      : undefined;
+  if (worker !== undefined || name === "Worker" || name.endsWith(".Worker"))
     addReference(context, {
       node,
       kind: "worker",
-      specifier: first ?? workerUrlSpecifier(node, bindings),
+      specifier:
+        first ??
+        (worker === undefined
+          ? undefined
+          : workerUrlSpecifier(worker, bindings)),
     });
   if (name.endsWith("serviceWorker.register"))
     addReference(context, { node, kind: "service-worker", specifier: first });
@@ -114,33 +122,28 @@ export const inspectCall = (
 };
 
 const workerUrlSpecifier = (
-  worker: JavaScriptCallLike,
+  worker: t.NewExpression,
   bindings: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
-  if (
-    !t.isNewExpression(worker) ||
-    !isWorkerConstructor(worker.callee, bindings)
-  )
-    return undefined;
   const argumentExpression = argumentNode(worker.arguments[0]);
   if (argumentExpression === undefined) return undefined;
   const node = unwrapJavaScriptExpression(argumentExpression).node;
+  if (!t.isNewExpression(node)) return undefined;
+  const callee = unwrapJavaScriptExpression(node.callee).node;
   if (
-    !t.isNewExpression(node) ||
-    !isUnshadowedGlobal(
-      unwrapJavaScriptExpression(node.callee).node,
-      bindings,
-      "URL",
-    ) ||
+    !t.isIdentifier(callee, { name: "URL" }) ||
+    !isUnmodifiedGlobalReference(callee, bindings, "URL") ||
     !isImportMetaUrl(argumentNode(node.arguments[1]))
   )
     return undefined;
   const specifier = stringValue(node.arguments[0]);
   if (specifier === undefined) return undefined;
   const pathname = stripQueryAndFragment(specifier);
-  // Keep paths requiring normalization or the source-file base explicit as
-  // expressions. Normalization confined to a URL suffix does not change its file.
+  // The module URL's scheme and filesystem/origin root are unavailable. Only
+  // relative pathnames can establish a location within the artifact; retain
+  // rooted paths and paths requiring URL text normalization as expressions.
   return pathname.length > 0 &&
+    !pathname.startsWith("/") &&
     stripQueryAndFragment(htmlUrlText(specifier)) === pathname
     ? specifier
     : undefined;
@@ -156,13 +159,10 @@ const isWorkerConstructor = (
     semanticStaticPropertyName(node.property, node.computed) === "Worker";
   const root = unwrapJavaScriptExpression(member ? node.object : node).node;
   if (!t.isIdentifier(root)) return false;
-  if (
-    member
-      ? ["globalThis", "window", "self"].some((name) =>
-          isUnshadowedGlobal(root, bindings, name),
-        )
-      : isUnshadowedGlobal(root, bindings, "Worker")
-  )
+  const browserGlobal = member
+    ? ["globalThis", "window", "self"].includes(root.name)
+    : root.name === "Worker";
+  if (browserGlobal && isUnmodifiedGlobalReference(node, bindings, "Worker"))
     return true;
   const binding = resolveSemanticBindingState(bindings, root, root.name);
   const [origin] = binding?.directOrigins ?? [];

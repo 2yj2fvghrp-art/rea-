@@ -53,8 +53,42 @@ cliTest(
           resolves: true,
         },
       ]),
+      {
+        prefix: 'import { Worker as ThreadWorker } from "node:worker_threads";',
+        constructor: "new ThreadWorker",
+        suffix: "",
+        resolves: true,
+      },
+      {
+        prefix: 'import { Worker } from "node:worker_threads";',
+        constructor: "new (Worker as typeof Worker)",
+        suffix: "",
+        resolves: true,
+      },
+      {
+        prefix: 'import * as threads from "node:worker_threads";',
+        constructor: "new ((threads as typeof threads).Worker!)",
+        suffix: "",
+        resolves: true,
+      },
+      {
+        prefix:
+          'import { Worker } from "node:worker_threads"; function start(globalThis) { globalThis.URL = Fake;',
+        constructor: "new Worker",
+        suffix: "}",
+        resolves: true,
+      },
+      {
+        prefix: 'globalThis.unrelated = Fake; URL.extra = "metadata";',
+        constructor: "new Worker",
+        suffix: "",
+        resolves: true,
+      },
       ...[
         ["class Worker {}", "new Worker", ""],
+        ["globalThis.Worker = Fake;", "new Worker", ""],
+        ["globalThis.Worker = Fake;", "new window.Worker", ""],
+        ["globalThis = replacement;", "new globalThis.Worker", ""],
         ["function start(Worker) {", "new Worker", "}"],
         ['import { Worker } from "./custom.js";', "new Worker", ""],
         ["const custom = { Worker: class {} };", "new custom.Worker", ""],
@@ -118,11 +152,16 @@ cliTest(
       ),
       "worker.js": "self.postMessage('existing worker file');",
       "custom.js": "export class Worker {}",
+      "custom-alias.mjs":
+        'import { Worker as ThreadWorker } from "./custom.js"; new ThreadWorker(new URL("./worker.js", import.meta.url));',
     });
     const result = await analyzeJavaScriptDirectory("CLI", cli, root);
     expect(result.statistics.parse_failures).toBe(0);
     const references = workerReferences(result.graph);
     expect(references).toHaveLength(identityCases.length);
+    expect(references.some(({ source }) => source === "custom-alias.mjs")).toBe(
+      false,
+    );
     for (const { source, expression, resolves } of identityCases)
       expect(references).toContainEqual({
         source,
@@ -261,6 +300,26 @@ cliTest(
     const root = await createTestTempDirectory("rea-worker-url-unknown-");
     const expressions = {
       "dynamic-path.mjs": "new Worker(new URL(path, import.meta.url));",
+      "absolute.mjs":
+        'import { Worker } from "node:worker_threads"; new Worker(new URL("/worker.js", import.meta.url));',
+      ...Object.fromEntries(
+        ["globalThis.URL", "URL", 'globalThis["URL"]'].map((target, index) => [
+          `overwritten-url-${index}.mjs`,
+          `import { Worker } from "node:worker_threads"; const RealURL = URL; ${target} = class { constructor() { return new RealURL("./other.js", import.meta.url); } }; new Worker(new URL("./worker.js", import.meta.url));`,
+        ]),
+      ),
+      ...Object.fromEntries(
+        [
+          "delete globalThis.URL;",
+          "({ URL: globalThis.URL } = replacements);",
+          "globalThis[key] = replacement;",
+          'Object.defineProperty(globalThis, "URL", { value: replacement });',
+          'Reflect.set(globalThis, "URL", replacement);',
+        ].map((mutation, index) => [
+          `mutated-url-${index}.mjs`,
+          `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
+        ]),
+      ),
       "dynamic-base.mjs": 'new Worker(new URL("./worker.js", base));',
       "shadowed.mjs":
         'function start(URL) { return new Worker(new URL("./worker.js", import.meta.url)); }',
@@ -306,6 +365,7 @@ cliTest(
     await writeFixtureFiles(root, {
       ...expressions,
       "worker.js": "self.postMessage('existing decoy');",
+      "other.js": "self.postMessage('custom URL result decoy');",
       "extensionless.js": "self.postMessage('extension decoy');",
       "directory/index.js": "self.postMessage('index decoy');",
       "package-worker/package.json": JSON.stringify({ main: "selected.js" }),

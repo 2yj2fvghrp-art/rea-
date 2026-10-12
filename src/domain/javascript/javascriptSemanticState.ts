@@ -1,6 +1,9 @@
 import * as t from "@babel/types";
 
-import type { JavaScriptSemanticPropertyPath } from "./javascriptSemanticPropertyPaths.js";
+import type {
+  JavaScriptSemanticPropertyPath,
+  SemanticPropertyPathCoverage,
+} from "./javascriptSemanticPropertyPaths.js";
 
 import type {
   JavaScriptModuleOrigin,
@@ -75,6 +78,8 @@ export interface JavaScriptSemanticAnalysisState {
     JavaScriptSemanticBindingState
   >;
   readonly conditionalInitializers: WeakSet<t.Node>;
+  /** Source-local writes to ambient names and direct global-object properties. */
+  readonly globalWrites: SemanticPropertyPathCoverage;
 }
 
 /**

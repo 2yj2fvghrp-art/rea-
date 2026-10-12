@@ -42,6 +42,7 @@ import {
 } from "./javascriptSemanticTraversal.js";
 import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { collectSemanticMemberMutationsSteps } from "./javascriptSemanticMemberMutations.js";
+import { indexJavaScriptGlobalWritesSteps } from "./javascriptSemanticGlobalWrites.js";
 import {
   collectSemanticReturns,
   resolveSemanticModuleCallables,
@@ -129,6 +130,7 @@ export function* indexJavaScriptBindingsSteps(
 ): Generator<void, JavaScriptSemanticAnalysisState> {
   const state = createState(program);
   yield* collectDefinitionsSteps(program, state);
+  yield* indexJavaScriptGlobalWritesSteps(program, state);
   return state;
 }
 
@@ -539,6 +541,7 @@ const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
     linkedRequireCalls: new WeakSet(),
     moduleLinkBindings: new WeakMap(),
     conditionalInitializers: new WeakSet(),
+    globalWrites: new SemanticPropertyPathCoverage(),
   };
 };
 
