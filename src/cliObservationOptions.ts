@@ -19,21 +19,33 @@ export const browserScopeOptions = {
     .describe("Optional exact-origin filter"),
 };
 
-/** Opt-in HAR network evidence for observe-web-session; header capture enables it. */
+/** Opt-in HAR network evidence for observe-web-session; any content flag enables it. */
 export const sessionNetworkOptions = {
   network: z
     .boolean()
     .default(false)
     .describe("Record in-scope network traffic as a HAR 1.2 log"),
+  requestBodies: z
+    .boolean()
+    .default(false)
+    .describe("Retain request bodies reported with each request"),
+  responseBodies: z
+    .enum(["none", "json", "all"])
+    .default("none")
+    .describe("Read completed response bodies: none, json or all"),
   headerValues: z
     .boolean()
     .default(false)
     .describe("Retain headers other than transport credentials"),
+  websocketPayloads: z
+    .boolean()
+    .default(false)
+    .describe("Retain WebSocket frame payloads"),
   sensitiveValue: z
     .array(z.string().min(1))
     .default([])
     .describe(
-      "Literal value replaced in every retained URL, header and timeline field; repeat as needed",
+      "Literal value replaced in every retained URL, header, body, payload and timeline field; repeat as needed",
     ),
   sensitiveQueryParameter: z
     .array(z.string().min(1))

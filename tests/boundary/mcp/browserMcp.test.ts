@@ -493,7 +493,7 @@ it("records observe_web_session traffic as HAR Evidence without persisting decla
       allowed_origins: [browser.allowedOrigin],
       target_id: "allowed-page",
       observation_ms: 50,
-      network: { header_values: true },
+      network: { request_bodies: true, header_values: true },
       sensitive_values: ["FP456"],
     },
   });
@@ -501,7 +501,12 @@ it("records observe_web_session traffic as HAR Evidence without persisting decla
   expect(result.isError).not.toBe(true);
   const evidence = evidenceFor(result.structuredContent);
   expect(evidence.parameters).toMatchObject({
-    network: { header_values: true },
+    network: {
+      request_bodies: true,
+      response_bodies: "none",
+      header_values: true,
+      websocket_payloads: false,
+    },
     sensitive_value_count: 1,
     sensitive_query_parameters: [],
   });
@@ -516,7 +521,10 @@ it("records observe_web_session traffic as HAR Evidence without persisting decla
                   headers: [
                     { name: "X-Fingerprint", value: "[REDACTED:value-1]" },
                   ],
-                  bodySize: -1,
+                  postData: {
+                    mimeType: "",
+                    text: "fingerprint=[REDACTED:value-1]",
+                  },
                 }),
               }),
             ],

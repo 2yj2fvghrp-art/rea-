@@ -342,6 +342,8 @@ it(
     const recorded = await runCli(
       [
         ...session,
+        "--response-bodies",
+        "json",
         "--header-values",
         "--sensitive-value",
         "FP456",
@@ -354,7 +356,12 @@ it(
     expect(recorded).toMatchObject({
       operation: "observe_web_session",
       parameters: {
-        network: { header_values: true },
+        network: {
+          request_bodies: false,
+          response_bodies: "json",
+          header_values: true,
+          websocket_payloads: false,
+        },
         sensitive_value_count: 1,
         sensitive_query_parameters: ["device_id"],
       },
@@ -426,6 +433,105 @@ it(
         ? navigationOnly.normalized_result.network
         : "missing",
     ).toBeUndefined();
+  },
+  INTEGRATION_TEST_TIMEOUT_MS,
+);
+
+it(
+  "records request bodies or WebSocket payloads when either flag alone is given",
+  async () => {
+    const browser = await startFakeCdpBrowser({
+      commandEvents: ({ method, sessionId }, origin) =>
+        method === "Network.enable" && sessionId === "session-1"
+          ? [
+              {
+                method: "Network.requestWillBeSent",
+                sessionId,
+                params: {
+                  requestId: "cli-post",
+                  type: "Fetch",
+                  wallTime: Date.now() / 1_000,
+                  timestamp: 1,
+                  request: {
+                    url: `${origin}/api`,
+                    method: "POST",
+                    headers: {},
+                    hasPostData: true,
+                    postData: '{"q":"cli-body"}',
+                  },
+                },
+              },
+              {
+                method: "Network.webSocketCreated",
+                sessionId,
+                params: {
+                  requestId: "cli-socket",
+                  url: `${origin.replace("http:", "ws:")}/live`,
+                },
+              },
+              {
+                method: "Network.webSocketFrameReceived",
+                sessionId,
+                params: {
+                  requestId: "cli-socket",
+                  timestamp: 2,
+                  response: { opcode: 1, payloadData: "cli-frame" },
+                },
+              },
+            ]
+          : undefined,
+    });
+    browsers.push(browser);
+    const session = [
+      "observe-web-session",
+      browser.endpoint,
+      "allowed-page",
+      "--allowed-origins",
+      browser.allowedOrigin,
+      "--observation-ms",
+      "100",
+      "--json",
+    ];
+    for (const flag of ["--request-bodies", "--websocket-payloads"]) {
+      const observed = await runCli([...session, flag], process.env);
+
+      const bodies = flag === "--request-bodies";
+      expect(observed).toMatchObject({
+        operation: "observe_web_session",
+        parameters: {
+          network: {
+            request_bodies: bodies,
+            response_bodies: "none",
+            header_values: false,
+            websocket_payloads: !bodies,
+          },
+        },
+        normalized_result: {
+          network: {
+            har: {
+              log: {
+                entries: expect.arrayContaining([
+                  bodies
+                    ? expect.objectContaining({
+                        request: expect.objectContaining({
+                          postData: { mimeType: "", text: '{"q":"cli-body"}' },
+                        }),
+                      })
+                    : expect.objectContaining({
+                        _webSocketMessages: [
+                          expect.objectContaining({ data: "cli-frame" }),
+                        ],
+                      }),
+                ]),
+              },
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(observed)).not.toContain(
+        bodies ? "cli-frame" : "cli-body",
+      );
+    }
   },
   INTEGRATION_TEST_TIMEOUT_MS,
 );

@@ -12,6 +12,7 @@ import {
   recordsValue,
   cdpStringValue,
 } from "./CdpCaptureValues.js";
+import { decodeBase64 } from "./network/Base64.js";
 
 type StorageFingerprint =
   WebPageInspection["storage"]["content_fingerprints"][number];
@@ -390,13 +391,13 @@ const addCacheEntry = async (
     run.limitations,
   );
   const body = cdpStringValue(recordValue(recordValue(raw)?.response)?.body);
-  const decoded = body === undefined ? null : decodeBase64(body);
-  const complete = decoded !== null;
+  const decoded = body === undefined ? undefined : decodeBase64(body);
+  const complete = decoded !== undefined;
   if (!complete) run.state.complete = false;
   addFingerprint(run.state, {
     scope: "cache_entry",
     identity: { cache: cache.name, requestURL, requestMethod, requestHeaders },
-    value: decoded ?? undefined,
+    value: decoded,
     complete,
   });
 };
@@ -482,15 +483,4 @@ const remoteObjectComplete = (value: unknown): boolean => {
     (record.type !== "object" || record.value !== undefined) &&
     stableValueComplete(record)
   );
-};
-
-const decodeBase64 = (value: string): Buffer | null => {
-  if (
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(
-      value,
-    )
-  )
-    return null;
-  return Buffer.from(value, "base64");
 };

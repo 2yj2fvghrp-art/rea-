@@ -156,7 +156,12 @@ const registerObservationSession = (
     run: ({ args, options }) =>
       logCliCommand(logger, "observe-web-session", async () => {
         const context = browserContext();
-        const network = options.network || options.headerValues;
+        const network =
+          options.network ||
+          options.requestBodies ||
+          options.responseBodies !== "none" ||
+          options.headerValues ||
+          options.websocketPayloads;
         const parsed = observeWebSessionInputSchema.safeParse({
           cdp_endpoint: args.endpoint,
           allowed_origins: options.allowedOrigins,
@@ -164,7 +169,12 @@ const registerObservationSession = (
           observation_ms: options.observationMs,
           ...(network
             ? {
-                network: { header_values: options.headerValues },
+                network: {
+                  request_bodies: options.requestBodies,
+                  response_bodies: options.responseBodies,
+                  header_values: options.headerValues,
+                  websocket_payloads: options.websocketPayloads,
+                },
               }
             : {}),
           sensitive_values: options.sensitiveValue,

@@ -1,8 +1,10 @@
 import { parseRecordedTransportUrl } from "../domain/recordedTransportUrl.js";
-import type {
-  ObserveWebSessionInput,
-  WebSessionNetwork,
+import {
+  WEB_SESSION_NETWORK_CONTENT_BYTES,
+  type ObserveWebSessionInput,
+  type WebSessionNetwork,
 } from "../domain/browserSession.js";
+import { WEB_NETWORK_CAPTURE_LIMITS } from "../domain/webNetworkCapture.js";
 import {
   cdpStringValue,
   numberValue,
@@ -12,6 +14,7 @@ import {
 import {
   headerUrlTargets,
   type CdpSessionNetwork,
+  type RecordedContent,
   type RecordedExchange,
   type RecordedSocket,
 } from "./CdpSessionNetwork.js";
@@ -26,6 +29,8 @@ interface SessionEntry {
   readonly started: number;
   readonly entry: HarObject;
   readonly frames?: number;
+  /** Bodies or frame payloads withheld because redaction emptied them. */
+  readonly withheld: number;
 }
 
 /** Limitations stated whenever observe_web_session records network evidence. */
@@ -33,7 +38,8 @@ export const SESSION_NETWORK_LIMITATIONS = [
   "Network evidence covers selected-origin requests and WebSocket connections of the page's own target that start after REA attaches; frames on earlier sockets carry no URL and are excluded.",
   "Traffic of out-of-process (cross-site) iframes and of the page's workers (dedicated, shared and service workers), which the browser runs as separate targets, is not recorded, even when their origin is selected; a dedicated worker's script request can appear without its response.",
   "Authorization, Proxy-Authorization, Cookie and Set-Cookie headers are never retained, and HAR cookie arrays are empty. Headers are those CDP reports on request and response events.",
-  "Request and response bodies and WebSocket payloads are not retained; sizes are reported where CDP provides them.",
+  "Bodies are browser-decoded. Response bodies are read after loading finishes and can be unavailable once the browser releases them; each omission is stated in its entry comment.",
+  `Retained bodies and WebSocket payloads share a ${String(WEB_SESSION_NETWORK_CONTENT_BYTES)} byte budget, equal to inspect_web_network_capture's input budget; request and frame metadata are not capped.`,
 ];
 
 interface HarContext {
@@ -74,6 +80,11 @@ export const sessionNetworkEvidence = (input: {
     (URL.canParse(url) ? admissible : omitted).push(item);
   }
   const sockets = omitted.filter(({ frames }) => frames !== undefined);
+  // Withheld content counts only where its entry is retained.
+  const withheld = { network_bodies: 0, websocket_frames: 0 };
+  for (const { frames, withheld: count } of admissible)
+    withheld[frames === undefined ? "network_bodies" : "websocket_frames"] +=
+      count;
   for (const [section, count] of [
     ["network_requests", omitted.length - sockets.length],
     ["websocket_connections", sockets.length],
@@ -81,6 +92,8 @@ export const sessionNetworkEvidence = (input: {
       "websocket_frames",
       sockets.reduce((sum, { frames = 0 }) => sum + frames, 0),
     ],
+    ["network_bodies", withheld.network_bodies],
+    ["websocket_frames", withheld.websocket_frames],
   ] as const)
     if (count > 0)
       network.context.completeness.exclude(
@@ -91,6 +104,10 @@ export const sessionNetworkEvidence = (input: {
   if (omitted.length > 0)
     network.context.limitations.push(
       `${String(omitted.length)} HAR entries were omitted because every placeholder URL spells a declared sensitive value.`,
+    );
+  if (withheld.websocket_frames > 0)
+    network.context.limitations.push(
+      `${String(withheld.websocket_frames)} WebSocket payloads have data null because redacting declared sensitive values emptied them.`,
     );
   const har: WebSessionNetwork["har"] = {
     log: {
@@ -104,9 +121,15 @@ export const sessionNetworkEvidence = (input: {
     },
   };
   const harBytes = Buffer.byteLength(JSON.stringify(har));
+  if (harBytes > WEB_NETWORK_CAPTURE_LIMITS.inputBytes)
+    network.context.limitations.push(
+      `The ${String(harBytes)} byte HAR exceeds inspect_web_network_capture's ${String(WEB_NETWORK_CAPTURE_LIMITS.inputBytes)} byte input budget; select fewer origins, bodies or WebSocket payloads, drop header values, or use a shorter window.`,
+    );
   return {
     har,
     har_bytes: harBytes,
+    content_budget_bytes: WEB_SESSION_NETWORK_CONTENT_BYTES,
+    retained_content_bytes: network.retainedContentBytes,
     targets: network.targets.map(({ sessionId: _sessionId, ...target }) => ({
       ...target,
       target_id: redactor.text(target.target_id),
@@ -137,6 +160,8 @@ const exchangeEntry = (
     wait: elapsed(exchange.timestamp, exchange.responseTimestamp) ?? 0,
     receive: elapsed(exchange.responseTimestamp, exchange.endTimestamp) ?? 0,
   };
+  const postData = redacted(redactor, exchange.postData);
+  const body = redacted(redactor, exchange.body);
   const comment = [
     response === undefined && exchange.error === null
       ? "No response was observed on this target before the observation window ended."
@@ -149,11 +174,18 @@ const exchangeEntry = (
     exchange.redirectExcluded
       ? "The redirect target was outside the selected origins and is not retained."
       : undefined,
+    postData === null
+      ? "Request body withheld: redacting declared sensitive values emptied it."
+      : omission(postData),
+    body === null
+      ? "Response body withheld: redacting declared sensitive values emptied it."
+      : omission(body),
   ]
     .filter((part) => part !== undefined)
     .join(" ");
   return {
     started,
+    withheld: Number(postData === null) + Number(body === null),
     entry: {
       startedDateTime: new Date(started).toISOString(),
       time: timings.send + timings.wait + timings.receive,
@@ -165,14 +197,14 @@ const exchangeEntry = (
           exchange.requestHeaders,
         ),
         httpVersion,
-        // HAR uses -1 for a body whose size was not retained.
-        bodySize: exchange.hasBody ? -1 : 0,
+        ...harPostData(context, exchange, postData),
       },
       response: {
         ...harResponse(context, response, httpVersion, exchange.url),
         content: {
           size: exchange.decodedBytes,
           mimeType: redactor.text(cdpStringValue(response?.mimeType) ?? ""),
+          ...harContent(body),
         },
         redirectURL:
           exchange.redirectUrl === null
@@ -186,7 +218,8 @@ const exchangeEntry = (
         (exchange.resourceType ?? "other").toLowerCase(),
       ),
       _rea_target_id: redactor.text(exchange.target.target_id),
-      ...(comment === "" ? {} : { comment }),
+      // Omission reasons can quote the browser's error text.
+      ...(comment === "" ? {} : { comment: context.redactor.text(comment) }),
     },
   };
 };
@@ -194,32 +227,42 @@ const exchangeEntry = (
 const socketEntry = (
   context: HarContext,
   socket: RecordedSocket,
-): SessionEntry => ({
-  started: socket.startedAtMs,
-  frames: socket.messages.length,
-  entry: {
-    startedDateTime: new Date(socket.startedAtMs).toISOString(),
-    time: 0,
-    request: {
-      ...harRequest(context, "GET", socket.url, socket.requestHeaders),
-      httpVersion: "HTTP/1.1",
-      bodySize: 0,
+): SessionEntry => {
+  // A payload redaction empties has no data, like one beyond the budget.
+  let withheld = 0;
+  const messages = socket.messages.map((message) => {
+    const data =
+      message.data === null
+        ? null
+        : redactedText(context.redactor, message.data, message.opcode !== 1);
+    if (data === null && message.data !== null) withheld += 1;
+    return { ...message, data };
+  });
+  return {
+    started: socket.startedAtMs,
+    frames: messages.length,
+    withheld,
+    entry: {
+      startedDateTime: new Date(socket.startedAtMs).toISOString(),
+      time: 0,
+      request: {
+        ...harRequest(context, "GET", socket.url, socket.requestHeaders),
+        httpVersion: "HTTP/1.1",
+        bodySize: 0,
+      },
+      response: {
+        ...harResponse(context, socket.response, "HTTP/1.1", socket.url),
+        content: { size: 0, mimeType: "" },
+        redirectURL: "",
+      },
+      cache: {},
+      timings: { send: 0, wait: 0, receive: 0 },
+      _resourceType: "websocket",
+      _rea_target_id: context.redactor.text(socket.target.target_id),
+      _webSocketMessages: messages,
     },
-    response: {
-      ...harResponse(context, socket.response, "HTTP/1.1", socket.url),
-      content: { size: 0, mimeType: "" },
-      redirectURL: "",
-    },
-    cache: {},
-    timings: { send: 0, wait: 0, receive: 0 },
-    _resourceType: "websocket",
-    _rea_target_id: context.redactor.text(socket.target.target_id),
-    _webSocketMessages: socket.messages.map((message) => ({
-      ...message,
-      data: null,
-    })),
-  },
-});
+  };
+};
 
 const harRequest = (
   context: HarContext,
@@ -279,6 +322,35 @@ const harResponse = (
   headersSize: -1,
   bodySize: -1,
 });
+
+/** HAR postData from the redacted body; its size is the body's as sent. */
+const harPostData = (
+  context: HarContext,
+  exchange: RecordedExchange,
+  postData: RecordedContent | null | undefined,
+) => {
+  const sent = exchange.postData;
+  // HAR uses -1 for a body whose size was not retained.
+  if (sent === undefined) return { bodySize: exchange.hasBody ? -1 : 0 };
+  if (!("text" in sent)) return { bodySize: sent.bytes ?? -1 };
+  const bodySize = Buffer.byteLength(sent.text);
+  // A withheld body keeps the size it was sent with.
+  if (postData === null || postData === undefined || !("text" in postData))
+    return { bodySize };
+  const contentType = Object.entries(exchange.requestHeaders ?? {}).find(
+    ([name]) => name.toLowerCase() === "content-type",
+  )?.[1];
+  return {
+    bodySize,
+    postData: {
+      mimeType:
+        typeof contentType === "string"
+          ? context.redactor.text(contentType)
+          : "",
+      text: postData.text,
+    },
+  };
+};
 
 const harHeaders = (
   context: HarContext,
@@ -356,6 +428,39 @@ const inScope = (url: string, allowedOrigins: ReadonlySet<string>): boolean => {
   const origin = new URL(url).origin;
   return origin !== "null" && allowedOrigins.has(origin);
 };
+
+/**
+ * Redacted text or base64, or null when redaction emptied it: such content is
+ * withheld, since empty text would read as empty content.
+ */
+const redactedText = (
+  redactor: SessionRedactor,
+  text: string,
+  base64: boolean,
+): string | null => {
+  const replaced = base64 ? redactor.base64(text) : redactor.text(text);
+  return replaced === "" && text !== "" ? null : replaced;
+};
+
+/** Retained content with its text redacted, or null when withheld. */
+const redacted = (
+  redactor: SessionRedactor,
+  content: RecordedContent | undefined,
+): RecordedContent | null | undefined => {
+  if (content === undefined || !("text" in content)) return content;
+  const text = redactedText(redactor, content.text, content.base64);
+  return text === null ? null : { text, base64: content.base64 };
+};
+
+const harContent = (body: RecordedContent | null | undefined) =>
+  body === null || body === undefined || !("text" in body)
+    ? {}
+    : body.base64
+      ? { text: body.text, encoding: "base64" }
+      : { text: body.text };
+
+const omission = (content: RecordedContent | undefined): string | undefined =>
+  content !== undefined && "omitted" in content ? content.omitted : undefined;
 
 const HTTP_VERSIONS = new Map([
   ["http/1.0", "HTTP/1.0"],

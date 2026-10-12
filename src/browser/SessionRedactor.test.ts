@@ -83,6 +83,38 @@ it("finds declared values behind invalid UTF-8, nested and JSON encodings", () =
   }
 });
 
+it("checks every decoding within three steps, whichever path reaches it first", () => {
+  // Form decoding spells "pass \\\word", and so does percent decoding then
+  // form decoding. A search that meets it two steps deep first must expand it
+  // again from one step, where two JSON unescapes still spell the value.
+  const redactor = new SessionRedactor(["pass \\word"]);
+
+  expect(redactor.text("pass+%5C\\\\word")).toBe("");
+  expect(redactor.fields).toBe(1);
+});
+
+it("rebuilds a value spelled with thousands of escapes whole", () => {
+  // Decoding replaces thousands of escapes a slice at a time; a counter
+  // never repeats, so a piece lost, repeated or misplaced breaks the value.
+  const token = Array.from({ length: 2_000 }, (_, index) =>
+    index.toString(16).padStart(3, "0"),
+  ).join("");
+  const escaped = (character: string) =>
+    character.charCodeAt(0).toString(16).padStart(2, "0");
+  const spellings = [
+    [...token].map((character) => `\\u00${escaped(character)}`).join(""),
+    [...token]
+      .map((character, index) =>
+        index % 2 === 0 ? `%${escaped(character)}` : character,
+      )
+      .join(""),
+  ];
+  for (const spelling of spellings) {
+    expect(new SessionRedactor([token]).text(spelling)).toBe("");
+    expect(new SessionRedactor([`${token}!`]).text(spelling)).toBe(spelling);
+  }
+});
+
 it("undoes only JSON's own escapes", () => {
   const redactor = new SessionRedactor(["secret", "José"]);
 

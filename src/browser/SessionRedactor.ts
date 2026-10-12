@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 import { REDACTED_URL_HOST } from "../domain/browserSession.js";
+import { decodeBase64 } from "./network/Base64.js";
 
 /**
  * Multi-literal search (Aho-Corasick over UTF-16 code units). Built once, it
@@ -119,10 +122,39 @@ class LiteralMatcher {
   }
 }
 
+/** Replaced pieces joined at a time, so a field's matches never all live at once. */
+const JOINED_PIECES = 4_096;
+
+/**
+ * The value with each match of a global pattern replaced, or the value itself
+ * when nothing matches. String#replace gathers every match before replacing
+ * any, and a 32 MiB field can hold millions of them.
+ */
+const replaceMatches = (
+  value: string,
+  pattern: RegExp,
+  replace: (match: RegExpExecArray) => string,
+): string => {
+  const joined: string[] = [];
+  let pieces: string[] = [];
+  let offset = 0;
+  for (const match of value.matchAll(pattern)) {
+    pieces.push(value.slice(offset, match.index), replace(match));
+    offset = match.index + match[0].length;
+    if (pieces.length >= JOINED_PIECES) {
+      joined.push(pieces.join(""));
+      pieces = [];
+    }
+  }
+  if (joined.length === 0 && pieces.length === 0) return value;
+  joined.push(pieces.join(""), value.slice(offset));
+  return joined.join("");
+};
+
 /** Decode every %XX run byte-wise; invalid UTF-8 becomes U+FFFD, as in URLSearchParams. */
 const percentDecoded = (value: string): string =>
   value.includes("%")
-    ? value.replace(/(?:%[0-9a-f]{2})+/giu, (run) =>
+    ? replaceMatches(value, /(?:%[0-9a-f]{2})+/giu, ([run]) =>
         Buffer.from(run.replaceAll("%", ""), "hex").toString("utf8"),
       )
     : value;
@@ -141,9 +173,10 @@ const JSON_ESCAPES: Readonly<Record<string, string>> = {
 /** Undo JSON string escapes, including non-canonical ones such as \/ and é. */
 const jsonUnescaped = (value: string): string =>
   value.includes("\\")
-    ? value.replace(
+    ? replaceMatches(
+        value,
         /\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))/gu,
-        (_, hex: string | undefined, escape: string | undefined) =>
+        ([, hex, escape]) =>
           hex === undefined
             ? (JSON_ESCAPES[escape ?? ""] ?? "")
             : String.fromCharCode(Number.parseInt(hex, 16)),
@@ -153,28 +186,43 @@ const jsonUnescaped = (value: string): string =>
 /** Nested encodings a consumer might undo, bounded to a few levels. */
 const DECODING_DEPTH = 3;
 
-const decodings = (value: string): string[] => {
-  const seen = new Set([value]);
-  let frontier = [value];
-  for (
-    let depth = 0;
-    depth < DECODING_DEPTH && frontier.length > 0;
-    depth += 1
-  ) {
-    const next: string[] = [];
-    for (const text of frontier)
-      for (const decoded of [
-        percentDecoded(text),
-        percentDecoded(text.replaceAll("+", " ")),
-        jsonUnescaped(text),
-      ])
-        if (!seen.has(decoded)) {
-          seen.add(decoded);
-          next.push(decoded);
-        }
-    frontier = next;
+/** Percent, form and JSON decoding; each returns text it cannot change as is. */
+const DECODERS: ReadonlyArray<(text: string) => string> = [
+  percentDecoded,
+  // Without a '+', a form reads text exactly as percent decoding does.
+  (text) =>
+    text.includes("+") ? percentDecoded(text.replaceAll("+", " ")) : text,
+  jsonUnescaped,
+];
+
+/** Names a text by its exact UTF-16 code units without keeping it. */
+const digest = (text: string): string =>
+  createHash("sha256").update(text, "utf16le").digest("base64");
+
+/**
+ * The value, then each distinct nested decoding as it is produced. Fields
+ * reach 32 MiB, so the search is depth-first: at most one decoding per level
+ * is alive, and a consumer that stops at a match builds none of the rest.
+ */
+const decodings = function* (value: string): Generator<string> {
+  yield value;
+  // Fewest steps that reached each decoding: one reached again in fewer steps
+  // is expanded again, so every decoding within DECODING_DEPTH steps is seen.
+  const steps = new Map<string, number>();
+  function* expand(text: string, depth: number): Generator<string> {
+    if (depth === DECODING_DEPTH) return;
+    for (const decode of DECODERS) {
+      const decoded = decode(text);
+      if (decoded === text) continue;
+      const key = digest(decoded);
+      const reached = steps.get(key);
+      if (reached !== undefined && reached <= depth + 1) continue;
+      steps.set(key, depth + 1);
+      if (reached === undefined) yield decoded;
+      yield* expand(decoded, depth + 1);
+    }
   }
-  return [...seen];
+  yield* expand(value, 0);
 };
 
 /** Lone surrogates, which have no UTF-8 spelling, read as U+FFFD as URL encoders write them. */
@@ -197,6 +245,10 @@ const spellings = (literal: string): string[] => [
   ]),
 ];
 
+/** A UTF-8 string's bytes as one latin1 char per byte. */
+const asBytes = (text: string): string =>
+  Buffer.from(text, "utf8").toString("latin1");
+
 const URL_PARTS =
   /^([a-z][a-z\d+.-]*:)(\/\/[^/?#]*)?([^?#]*)(\?[^#]*)?(#[\s\S]*)?$/iu;
 
@@ -212,6 +264,8 @@ export class SessionRedactor {
   readonly #detector: LiteralMatcher | undefined;
   readonly #replacer: LiteralMatcher | undefined;
   readonly #markers: readonly string[] = [];
+  readonly #byteReplacer: LiteralMatcher | undefined;
+  readonly #byteMarkers: readonly string[] = [];
 
   constructor(literals: readonly string[]) {
     const declared = [...new Set(literals)].filter((literal) => literal !== "");
@@ -232,6 +286,9 @@ export class SessionRedactor {
     );
     this.#detector = new LiteralMatcher(declared);
     this.#replacer = replacer;
+    // Binary content is matched on bytes: one latin1 char per byte.
+    this.#byteReplacer = new LiteralMatcher(forms.flat().map(asBytes));
+    this.#byteMarkers = this.#markers.map(asBytes);
   }
 
   /** A URL keeps its exact bytes except the pieces that spell a literal. */
@@ -293,13 +350,44 @@ export class SessionRedactor {
     return this.#changed(value, this.#leaks(redacted) ? "" : redacted);
   }
 
+  /**
+   * Canonical base64 content, matched on its decoded bytes and on the base64
+   * text itself, which spells a base64 literal whose bytes sit at an offset
+   * divisible by three. Retention admits only canonical base64, and base64
+   * text cannot be edited without changing other bytes, so anything else, or
+   * a literal surviving in either form, fails closed.
+   */
+  base64(value: string): string {
+    if (this.#detector === undefined) return value;
+    const bytes = decodeBase64(value);
+    if (bytes === undefined || bytes.toString("base64") !== value)
+      return this.#changed(value, "");
+    if (!this.#bytesLeak(bytes) && !this.#leaks(value)) return value;
+    const redacted = Buffer.from(
+      this.#replace(
+        bytes.toString("latin1"),
+        this.#byteReplacer,
+        this.#byteMarkers,
+      ),
+      "latin1",
+    );
+    const encoded = redacted.toString("base64");
+    return this.#changed(
+      value,
+      this.#bytesLeak(redacted) || this.#leaks(encoded) ? "" : encoded,
+    );
+  }
+
+  #bytesLeak(bytes: Buffer): boolean {
+    return this.#leaks(bytes.toString("utf8"));
+  }
+
   /** True when a declared literal appears in any decoding of the value. */
   #leaks(value: string): boolean {
     const detector = this.#detector;
-    return (
-      detector !== undefined &&
-      decodings(value).some((text) => detector.has(text))
-    );
+    if (detector === undefined) return false;
+    for (const text of decodings(value)) if (detector.has(text)) return true;
+    return false;
   }
 
   #pair(pair: string): string {
@@ -337,13 +425,17 @@ export class SessionRedactor {
       : encoded;
   }
 
-  #replace(value: string): string {
-    const matches = this.#replacer?.matches(value) ?? [];
+  #replace(
+    value: string,
+    matcher = this.#replacer,
+    markers = this.#markers,
+  ): string {
+    const matches = matcher?.matches(value) ?? [];
     if (matches.length === 0) return value;
     let output = "";
     let offset = 0;
     for (const [start, end, pattern] of matches) {
-      output += value.slice(offset, start) + (this.#markers[pattern] ?? "");
+      output += value.slice(offset, start) + (markers[pattern] ?? "");
       offset = end;
     }
     return output + value.slice(offset);

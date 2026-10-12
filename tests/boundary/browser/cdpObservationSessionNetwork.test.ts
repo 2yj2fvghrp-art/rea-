@@ -4,8 +4,11 @@ import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { decodeHarCapture } from "../../../src/browser/history/HarCapture.js";
 import {
   observeWebSessionInputSchema,
+  WEB_SESSION_NETWORK_CONTENT_BYTES,
   type WebObservationSession,
 } from "../../../src/domain/browserSession.js";
+import { WEB_NETWORK_CAPTURE_LIMITS } from "../../../src/domain/webNetworkCapture.js";
+import { WEB_RUNTIME_LIMITS } from "../../../src/domain/webRuntime.js";
 import {
   startFakeCdpBrowser,
   type FakeCdpBrowser,
@@ -13,6 +16,7 @@ import {
 } from "../../fixtures/fakeCdpBrowser.js";
 import { trackBrowser } from "./cdpBrowserProvider.support.js";
 
+type FakeCommand = Parameters<NonNullable<FakeOptions["commandResult"]>>[0];
 interface FakeEvent {
   readonly method: string;
   readonly params: unknown;
@@ -32,6 +36,9 @@ interface NetworkScript {
     origin: string,
     sessionId: string | undefined,
   ) => readonly FakeEvent[];
+  readonly result?: (
+    command: FakeCommand,
+  ) => Readonly<Record<string, unknown>> | undefined;
   readonly options?: FakeOptions;
 }
 
@@ -40,6 +47,7 @@ const startNetworkBrowser = async (
   script: NetworkScript,
 ): Promise<FakeCdpBrowser> => {
   const browser = await startFakeCdpBrowser({
+    commandResult: (command) => script.result?.(command),
     ...script.options,
     commandEvents: (command, origin) => {
       if (command.method !== "Network.enable") return undefined;
@@ -160,6 +168,19 @@ const decodings = (value: string): string[] => {
   return [value, decode(value.replaceAll("+", "%2B")), decode(value)];
 };
 
+type BodyReply = string | Readonly<Record<string, unknown>>;
+
+/** Network.getResponseBody replies by request ID; a string is a text body. */
+const bodies =
+  (byRequestId: Readonly<Record<string, BodyReply>>) =>
+  (command: FakeCommand) => {
+    if (command.method !== "Network.getResponseBody") return undefined;
+    const reply = byRequestId[String(command.params.requestId)];
+    return typeof reply === "string"
+      ? { body: reply, base64Encoded: false }
+      : reply;
+  };
+
 const entries = (session: WebObservationSession): HarEntry[] =>
   session.network?.har.log.entries ?? [];
 
@@ -174,6 +195,42 @@ const urlOf = (entry: HarEntry): string => {
     throw new Error("HAR entry has no request URL");
   return requestValue.url;
 };
+
+/** Each frame's retained payload length, or null when absent, and its bytes. */
+const payloadSizes = (entry: HarEntry | undefined) => {
+  const messages = entry?._webSocketMessages;
+  if (!Array.isArray(messages))
+    throw new Error("HAR entry has no WebSocket messages");
+  return messages.map((message) => {
+    if (
+      typeof message !== "object" ||
+      message === null ||
+      Array.isArray(message)
+    )
+      throw new Error("WebSocket message is not an object");
+    const { data, bytes } = message;
+    return { data: typeof data === "string" ? data.length : data, bytes };
+  });
+};
+
+/** An in-scope WebSocket that receives one text frame per payload. */
+const socketEvents = (
+  origin: string,
+  session: string | undefined,
+  payloads: readonly string[],
+): FakeEvent[] => [
+  event("Network.webSocketCreated", session, {
+    requestId: "socket",
+    url: `${origin.replace("http:", "ws:")}/live`,
+  }),
+  ...payloads.map((payloadData, index) =>
+    event("Network.webSocketFrameReceived", session, {
+      requestId: "socket",
+      timestamp: 500 + index,
+      response: { opcode: 1, payloadData },
+    }),
+  ),
+];
 
 it("records traffic across a same-origin navigation as one admissible HAR", async () => {
   const browser = await startNetworkBrowser({
@@ -205,9 +262,12 @@ it("records traffic across a same-origin navigation as one admissible HAR", asyn
         }),
       ];
     },
+    result: bodies({ first: '{"a":1}', second: '{"b":2}' }),
   });
 
-  const session = await observe(browser);
+  const session = await observe(browser, {
+    network: { response_bodies: "json", websocket_payloads: true },
+  });
 
   expect(session.window.end_reason).toBe("window_elapsed");
   expect(session.timeline).toContainEqual(
@@ -222,19 +282,21 @@ it("records traffic across a same-origin navigation as one admissible HAR", asyn
     request: { httpVersion: "HTTP/2" },
     response: {
       status: 200,
-      content: { mimeType: "application/json" },
+      content: { mimeType: "application/json", text: '{"a":1}' },
     },
     _rea_target_id: "allowed-page",
   });
   expect(entries(session)[2]).toMatchObject({
     _resourceType: "websocket",
     _webSocketMessages: [
-      { type: "send", opcode: 1, data: null, bytes: 4 },
-      { type: "receive", opcode: 1, data: null, bytes: 4 },
+      { type: "send", opcode: 1, data: "ping", bytes: 4 },
+      { type: "receive", opcode: 1, data: "pong", bytes: 4 },
     ],
   });
   expect(session.network).toMatchObject({
     prior_activity_available: false,
+    content_budget_bytes: WEB_SESSION_NETWORK_CONTENT_BYTES,
+    retained_content_bytes: 14 + 8,
     targets: [{ target_id: "allowed-page", type: "page" }],
   });
   // Out-of-process iframes and workers are separate targets REA does not attach.
@@ -289,10 +351,16 @@ it("replaces declared literals and query values everywhere and never keeps trans
         },
       }),
     ],
+    result: bodies({ post: '{"echo":"FP456"}' }),
   });
 
   const session = await observe(browser, {
-    network: { header_values: true },
+    network: {
+      request_bodies: true,
+      response_bodies: "all",
+      header_values: true,
+      websocket_payloads: true,
+    },
     sensitive_values: ["FP456"],
     sensitive_query_parameters: ["device_id"],
   });
@@ -324,11 +392,12 @@ it("replaces declared literals and query values everywhere and never keeps trans
     response: { cookies: [] },
   });
   // Changed fields: the POST URL and its device_id query value, two header
-  // values, and the socket URL and its query value.
+  // values, the request and response bodies, the socket URL and its query
+  // value, and both frames.
   expect(session.network?.redactions).toEqual({
     transport_credential_headers: 3,
     out_of_scope_url_headers: 0,
-    explicit_value_fields: 6,
+    explicit_value_fields: 10,
   });
   expect(session.target.final_url).not.toContain("dev-123");
   expect(
@@ -1077,10 +1146,11 @@ it("keeps the HAR admissible when a declared value spells every URL", async () =
       timestamp: 300,
       response: { opcode: 1, payloadData: "ping" },
     }),
+    // JSON-escaped "ws", which redaction cannot replace as written.
     event("Network.webSocketFrameReceived", session, {
       requestId: "socket",
       timestamp: 301,
-      response: { opcode: 1, payloadData: "pong" },
+      response: { opcode: 1, payloadData: "w\\u0073" },
     }),
   ];
   const omissions = (session: WebObservationSession) => ({
@@ -1130,9 +1200,11 @@ it("keeps the HAR admissible when a declared value spells every URL", async () =
   ).toHaveLength(0);
 
   // Only the socket's URL spells a value that every placeholder spells, so
-  // only the socket and its frames are omitted.
+  // only the socket and its frames are omitted; a payload redaction withholds
+  // on the omitted socket is not counted twice.
   const browser = await startNetworkBrowser({ page: withSocket });
   const socket = await observe(browser, {
+    network: { websocket_payloads: true },
     sensitive_values: ["ws", "urn", "x:y"],
   });
   expect(entries(socket).map(urlOf)).toEqual([
@@ -1149,6 +1221,7 @@ it("keeps the HAR admissible when a declared value spells every URL", async () =
       { section: "websocket_frames", reason: "provider_unavailable", count: 2 },
     ],
   });
+  expect(socket.limitations.join(" ")).not.toContain("data null");
 });
 
 it("emits browser-serialized URLs that the HAR decoder accepts", async () => {
@@ -1474,6 +1547,817 @@ it("redacts query values and literals that only the navigation timeline retains"
     },
     { type: "lifecycle", frame_id: frame, detail: "[REDACTED:value-3]" },
   ]);
+});
+
+it("states when the HAR exceeds the capture decoder's input budget", async () => {
+  const budget = WEB_NETWORK_CAPTURE_LIMITS.inputBytes;
+  let padding = 0;
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "big", `${origin}/big`),
+      response(session, "big", "text/plain", { "X-Pad": "a".repeat(padding) }),
+      finished(session, "big"),
+    ],
+  });
+  const observeWith = async (bytes: number) => {
+    padding = bytes;
+    const session = await observe(browser, {
+      network: { header_values: true },
+    });
+    return {
+      harBytes: session.network?.har_bytes,
+      budget: session.limitations.filter((text) =>
+        text.includes("byte HAR exceeds"),
+      ),
+    };
+  };
+
+  // Each padding byte adds one serialized byte, so the HAR can sit exactly at
+  // the budget, which inspect_web_network_capture still accepts.
+  const { harBytes: frame = 0 } = await observeWith(0);
+  expect(await observeWith(budget - frame)).toStrictEqual({
+    harBytes: budget,
+    budget: [],
+  });
+  expect(await observeWith(budget - frame + 1)).toStrictEqual({
+    harBytes: budget + 1,
+    budget: [
+      `The ${String(budget + 1)} byte HAR exceeds inspect_web_network_capture's ${String(budget)} byte input budget; select fewer origins, bodies or WebSocket payloads, drop header values, or use a shorter window.`,
+    ],
+  });
+});
+
+it("omits bodies beyond the retained-content budget without reading them", async () => {
+  // Each 10 MiB read reserves its base64 worst case while in flight, so the
+  // third concurrent read no longer fits the shared budget.
+  const tenMiB = 10 * 1024 * 1024;
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...["one", "two", "three"].flatMap((id) => [
+        request(session, id, `${origin}/${id}`),
+        response(session, id, "application/json"),
+        finished(session, id, tenMiB),
+      ]),
+      ...exchange(session, "html", `${origin}/page`, "text/html"),
+    ],
+    result: bodies({ one: "[1]", two: "[2]", html: "<p>not read</p>" }),
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "json" },
+  });
+
+  const [one, two, three, html] = entries(session);
+  expect(one).toMatchObject({ response: { content: { text: "[1]" } } });
+  expect(two).toMatchObject({ response: { content: { text: "[2]" } } });
+  expect(three).toMatchObject({
+    comment: expect.stringContaining("budget was exhausted"),
+  });
+  expect(JSON.stringify(html?.response)).not.toContain('"text"');
+  const reads = browser.commands
+    .filter(({ method }) => method === "Network.getResponseBody")
+    .map(({ params }) => params.requestId);
+  expect(reads).toEqual(["one", "two"]);
+  expect(session.completeness.truncated_sections).toContain("network_bodies");
+  expect(session.completeness.excluded).toContainEqual(
+    expect.objectContaining({
+      section: "network_bodies",
+      reason: "resource_budget_exhausted",
+    }),
+  );
+});
+
+it("keeps WebSocket payloads only while they fit the retained-content budget", async () => {
+  // Four 8 MiB text frames fill the budget exactly; the fifth no longer fits.
+  const frame = "a".repeat(WEB_SESSION_NETWORK_CONTENT_BYTES / 4);
+  const browser = await startNetworkBrowser({
+    page: (origin, session) =>
+      socketEvents(
+        origin,
+        session,
+        Array.from({ length: 5 }, () => frame),
+      ),
+  });
+
+  const session = await observe(browser, {
+    network: { websocket_payloads: true },
+  });
+
+  const size = { data: frame.length, bytes: frame.length };
+  expect(payloadSizes(entries(session)[0])).toEqual([
+    size,
+    size,
+    size,
+    size,
+    { data: null, bytes: frame.length },
+  ]);
+  expect(session.network?.retained_content_bytes).toBe(
+    WEB_SESSION_NETWORK_CONTENT_BYTES,
+  );
+  expect(session.completeness.truncated_sections).toEqual(["websocket_frames"]);
+  expect(session.completeness.excluded).toEqual([
+    {
+      section: "websocket_frames",
+      reason: "resource_budget_exhausted",
+      count: 1,
+    },
+  ]);
+});
+
+it("omits a request body that does not fit the budget the payloads left", async () => {
+  // The frames leave 10 bytes: an 18-byte body does not fit, a 10-byte one does.
+  const frame = "a".repeat(WEB_SESSION_NETWORK_CONTENT_BYTES / 4);
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => {
+      const post = (path: string, body: string) =>
+        request(session, path, `${origin}/${path}`, {
+          request: {
+            method: "POST",
+            hasPostData: true,
+            postData: body,
+            postDataEntries: [{ bytes: Buffer.from(body).toString("base64") }],
+          },
+        });
+      return [
+        ...socketEvents(origin, session, [
+          frame,
+          frame,
+          frame,
+          frame.slice(10),
+        ]),
+        post("large", "name=a-larger-body"),
+        post("fits", "name=fits!"),
+      ];
+    },
+  });
+
+  const session = await observe(browser, {
+    network: { request_bodies: true, websocket_payloads: true },
+  });
+
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  expect(byPath("/large")).toMatchObject({
+    request: { bodySize: 18 },
+    comment: expect.stringContaining("budget was exhausted"),
+  });
+  expect(byPath("/large")?.request).not.toHaveProperty("postData");
+  expect(byPath("/fits")).toMatchObject({
+    request: { bodySize: 10, postData: { text: "name=fits!" } },
+  });
+  expect(session.network?.retained_content_bytes).toBe(
+    WEB_SESSION_NETWORK_CONTENT_BYTES,
+  );
+  expect(session.completeness.truncated_sections).toEqual(["network_bodies"]);
+  expect(session.completeness.excluded).toEqual([
+    {
+      section: "network_bodies",
+      reason: "resource_budget_exhausted",
+      count: 1,
+    },
+  ]);
+});
+
+it("does not read a body whose reply could exceed the CDP message limit", async () => {
+  // 12 MiB of non-ASCII text is up to 72 MiB of \\uXXXX escapes on the wire.
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "wide", `${origin}/wide`),
+      response(session, "wide", "text/plain"),
+      finished(session, "wide", 12 * 1024 * 1024),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all" },
+  });
+
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining("CDP message limit"),
+  });
+  expect(
+    browser.commands.some(({ method }) => method === "Network.getResponseBody"),
+  ).toBe(false);
+});
+
+it("states released and disconnected bodies and fails on protocol errors", async () => {
+  const released = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "gone", `${origin}/gone`),
+    options: {
+      commandError: (command) =>
+        command.method === "Network.getResponseBody"
+          ? {
+              code: -32_000,
+              message: "No resource with given identifier found",
+            }
+          : undefined,
+    },
+  });
+
+  const session = await observe(released, {
+    network: { response_bodies: "all" },
+  });
+
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining("No resource with given identifier found"),
+  });
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+
+  // The browser's reason is page-adjacent text and is redacted like any field.
+  const declared = await observe(released, {
+    network: { response_bodies: "all" },
+    sensitive_values: ["identifier"],
+  });
+  expect(entries(declared)[0]).toMatchObject({
+    comment: expect.stringContaining(
+      "No resource with given [REDACTED:value-1]",
+    ),
+  });
+  expect(JSON.stringify(declared)).not.toContain("identifier");
+
+  // A disconnect during a read ends the session like any other disconnect.
+  const closing = await startNetworkBrowser({
+    options: { closeOnMethod: "Network.getResponseBody" },
+  });
+  // Emitted after setup, so the disconnect lands in the window.
+  setTimeout(() => {
+    for (const lost of exchange(
+      PAGE_SESSION,
+      "lost",
+      `${closing.allowedOrigin}/lost`,
+    ))
+      closing.emitEvent(lost);
+  }, 500);
+  const closed = await observe(closing, {
+    observation_ms: 10_000,
+    network: { response_bodies: "all" },
+  });
+  expect(closed.window.end_reason).toBe("target_terminated");
+  expect(entries(closed)[0]).toMatchObject({
+    comment: expect.stringContaining("target ended before"),
+  });
+
+  // Other transport and protocol failures still fail the observation.
+  const corrupt = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "bad", `${origin}/bad`),
+    options: { malformedMessageOnMethod: "Network.getResponseBody" },
+  });
+  const result = await new CdpBrowserProvider().observeSession(
+    observeWebSessionInputSchema.parse({
+      cdp_endpoint: corrupt.endpoint,
+      allowed_origins: [corrupt.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 250,
+      network: { response_bodies: "all" },
+    }),
+  );
+  expect(result.ok).toBe(false);
+});
+
+it("states bodies it could not read: unfinished, unexposed or malformed", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "stream", `${origin}/stream`),
+      response(session, "stream", "application/json"),
+      request(session, "upload", `${origin}/upload`, {
+        request: { method: "POST", hasPostData: true },
+      }),
+      ...exchange(session, "odd", `${origin}/odd`),
+    ],
+    result: bodies({ odd: {} }),
+  });
+
+  const session = await observe(browser, {
+    network: { request_bodies: true, response_bodies: "all" },
+  });
+
+  const comments = entries(session).map((entry) => entry.comment);
+  expect(comments).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("Its body was not read."),
+      expect.stringContaining("Request body was not exposed"),
+      expect.stringContaining("malformed response body"),
+    ]),
+  );
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+  expect(session.completeness.excluded).toContainEqual(
+    expect.objectContaining({
+      section: "network_bodies",
+      reason: "invalid_protocol_value",
+    }),
+  );
+});
+
+it("redacts base64 bodies on their bytes and refuses malformed base64", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...exchange(session, "binary", `${origin}/binary`, "image/png"),
+      ...exchange(session, "broken", `${origin}/broken`, "image/png"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live`,
+      }),
+      event("Network.webSocketFrameReceived", session, {
+        requestId: "socket",
+        timestamp: 500,
+        response: { opcode: 2, payloadData: "FP456!" },
+      }),
+    ],
+    result: bodies({
+      binary: {
+        body: Buffer.from("png FP456 bytes").toString("base64"),
+        base64Encoded: true,
+      },
+      broken: { body: "FP456-not-base64!", base64Encoded: true },
+    }),
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all", websocket_payloads: true },
+    sensitive_values: ["FP456"],
+  });
+
+  expect(JSON.stringify(session)).not.toContain("FP456");
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  const [binary, broken] = [byPath("/binary"), byPath("/broken")];
+  expect(binary).toMatchObject({
+    response: {
+      content: {
+        encoding: "base64",
+        text: Buffer.from("png [REDACTED:value-1] bytes").toString("base64"),
+      },
+    },
+  });
+  expect(broken).toMatchObject({
+    comment: expect.stringContaining("malformed response body"),
+  });
+  expect(session.completeness.excluded).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        section: "network_bodies",
+        reason: "invalid_protocol_value",
+      }),
+      expect.objectContaining({
+        section: "websocket_frames",
+        reason: "invalid_protocol_value",
+      }),
+    ]),
+  );
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(3);
+});
+
+it("fails base64 content closed when its text spells a base64 literal", async () => {
+  // A key declared in its base64 form, carried as raw bytes at an offset
+  // divisible by three, appears verbatim in the content's base64 text.
+  const key = Buffer.from(
+    "00112233445566778899aabbccddeeff0123456789abcdef",
+    "hex",
+  );
+  const literal = key.toString("base64");
+  const payload = Buffer.concat([
+    Buffer.from([0x0a, 0x18, 0x00]),
+    key,
+    Buffer.from("tail"),
+  ]).toString("base64");
+  expect(payload).toContain(literal);
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...exchange(session, "proto", `${origin}/proto`, "application/grpc-web"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live`,
+      }),
+      event("Network.webSocketFrameReceived", session, {
+        requestId: "socket",
+        timestamp: 500,
+        response: { opcode: 2, payloadData: payload },
+      }),
+    ],
+    result: bodies({ proto: { body: payload, base64Encoded: true } }),
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all", websocket_payloads: true },
+    sensitive_values: [literal],
+  });
+
+  expect(JSON.stringify(session)).not.toContain(literal);
+  expect(
+    session.network?.redactions.explicit_value_fields,
+  ).toBeGreaterThanOrEqual(2);
+  // Content that fails closed is withheld, not reported as empty.
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  const [proto, socket] = [byPath("/proto"), byPath("/live")];
+  expect(proto).toMatchObject({
+    response: { content: { mimeType: "application/grpc-web" } },
+    comment:
+      "Response body withheld: redacting declared sensitive values emptied it.",
+  });
+  expect(proto?.response).not.toHaveProperty(["content", "text"]);
+  expect(proto?.response).not.toHaveProperty(["content", "encoding"]);
+  expect(payloadSizes(socket)).toEqual([
+    { data: null, bytes: Buffer.from(payload, "base64").length },
+  ]);
+  expect(session.completeness.unavailable_sections).toEqual([
+    "network_bodies",
+    "websocket_frames",
+  ]);
+  expect(session.completeness.excluded).toEqual([
+    { section: "network_bodies", reason: "provider_unavailable", count: 1 },
+    { section: "websocket_frames", reason: "provider_unavailable", count: 1 },
+  ]);
+  expect(session.limitations).toContainEqual(
+    "1 WebSocket payloads have data null because redacting declared sensitive values emptied them.",
+  );
+  const decoded = decodeHarCapture(JSON.stringify(session.network?.har), []);
+  expect(decoded.records).toHaveLength(2);
+  expect(decoded.records.flatMap((record) => record.binary_fields)).toEqual([]);
+});
+
+it("retains multi-megabyte binary bodies and frames", async () => {
+  // Large images and media are ordinary; validating their base64 text must
+  // not exhaust the regex backtracking stack.
+  const payload = Buffer.alloc(8 * 1024 * 1024, 7).toString("base64");
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...exchange(session, "image", `${origin}/image`, "image/png"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live`,
+      }),
+      event("Network.webSocketFrameReceived", session, {
+        requestId: "socket",
+        timestamp: 500,
+        response: { opcode: 2, payloadData: payload },
+      }),
+    ],
+    result: bodies({ image: { body: payload, base64Encoded: true } }),
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all", websocket_payloads: true },
+    sensitive_values: ["FP456"],
+  });
+
+  const retained = entries(session).filter((entry) =>
+    JSON.stringify(entry).includes(payload),
+  );
+  expect(retained).toHaveLength(2);
+  expect(session.network?.retained_content_bytes).toBe(2 * payload.length);
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(2);
+});
+
+it("redacts multi-megabyte payloads dense with escapes in every decoding", async () => {
+  // Both payloads hold '%', '+' and '\' escapes, so each has nested decodings
+  // that differ from it. The first spells the value as written: its redacted
+  // text is checked in all of them. The second spells it only twice
+  // percent-decoded, after 4 MiB of escapes, and is withheld.
+  const record =
+    '{"q":"a%20b+c","path":"C:\\\\tmp\\\\new","note":"line\\nnext","fp":"FP456"},';
+  const written = record.repeat(Math.ceil((16 * 1024 * 1024) / record.length));
+  const nested = `${"a%2Bb+c\\\\n".repeat(400_000)}%2546P456`;
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => socketEvents(origin, session, [written, nested]),
+  });
+
+  const session = await observe(browser, {
+    network: { websocket_payloads: true },
+    sensitive_values: ["FP456"],
+  });
+
+  const messages = entries(session)[0]?._webSocketMessages;
+  const data = Array.isArray(messages)
+    ? messages.map((message: unknown) =>
+        typeof message === "object" && message !== null && "data" in message
+          ? message.data
+          : undefined,
+      )
+    : [];
+  const redacted = written.replaceAll("FP456", "[REDACTED:value-1]");
+  expect(data[0] === redacted).toBe(true);
+  expect(payloadSizes(entries(session)[0])).toEqual([
+    { data: redacted.length, bytes: written.length },
+    { data: null, bytes: nested.length },
+  ]);
+  expect(session.network?.retained_content_bytes).toBe(
+    written.length + nested.length,
+  );
+  expect(session.limitations).toContainEqual(
+    "1 WebSocket payloads have data null because redacting declared sensitive values emptied them.",
+  );
+}, 120_000);
+
+it("retains request bodies from their exact bytes and only the size of non-UTF-8 ones", async () => {
+  // Chrome decodes postData as UTF-8, else as Latin-1; postDataEntries lists
+  // the bytes themselves, here with a byte-order mark and split inside a
+  // two-byte UTF-8 character.
+  const binary = Buffer.concat([
+    Buffer.from(Array.from({ length: 40 }, (_, index) => 0x80 + index)),
+    Buffer.from("a".repeat(60)),
+  ]);
+  const text = Buffer.from('\uFEFF{"name":"héllo €","fp":"FP456"}');
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => {
+      const post = (
+        path: string,
+        postData: string,
+        postDataEntries: readonly unknown[],
+      ) =>
+        request(session, path, `${origin}/${path}`, {
+          request: {
+            method: "POST",
+            hasPostData: true,
+            postData,
+            postDataEntries,
+          },
+        });
+      return [
+        post("binary", binary.toString("latin1"), [
+          { bytes: binary.toString("base64") },
+        ]),
+        post("text", text.toString(), [
+          { bytes: text.subarray(0, 14).toString("base64") },
+          { bytes: text.subarray(14).toString("base64") },
+        ]),
+        post("broken", "x", [{ bytes: "eA" }]),
+      ];
+    },
+  });
+
+  const session = await observe(browser, {
+    network: { request_bodies: true },
+    sensitive_values: ["FP456"],
+  });
+
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  expect(byPath("/binary")).toMatchObject({
+    request: { bodySize: binary.length },
+    comment: expect.stringContaining(
+      `its ${String(binary.length)} bytes are not UTF-8`,
+    ),
+  });
+  expect(byPath("/binary")?.request).not.toHaveProperty("postData");
+  expect(byPath("/text")).toMatchObject({
+    request: {
+      bodySize: text.length,
+      postData: {
+        text: '\uFEFF{"name":"héllo €","fp":"[REDACTED:value-1]"}',
+      },
+    },
+  });
+  expect(byPath("/broken")).toMatchObject({
+    request: { bodySize: -1 },
+    comment: expect.stringContaining("malformed request body"),
+  });
+  expect(JSON.stringify(session)).not.toContain("FP456");
+  expect(session.network?.retained_content_bytes).toBe(text.length);
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+  expect(session.completeness.excluded).toContainEqual(
+    expect.objectContaining({
+      section: "network_bodies",
+      reason: "invalid_protocol_value",
+    }),
+  );
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(3);
+});
+
+it("bounds a body read the browser never answers", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "slow", `${origin}/slow`),
+    options: { hangOnMethod: "Network.getResponseBody" },
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all" },
+  });
+
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining("did not finish within 5 s"),
+  });
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+});
+
+it("abandons body reads when the target ends and stops on cancellation", async () => {
+  const crashing = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...exchange(session, "late", `${origin}/late`),
+      event("Inspector.targetCrashed", session, {}),
+    ],
+    options: { hangOnMethod: "Network.getResponseBody" },
+  });
+
+  const startedAt = Date.now();
+  const crashed = await observe(crashing, {
+    observation_ms: 10_000,
+    network: { response_bodies: "all" },
+  });
+
+  expect(crashed.window.end_reason).toBe("target_terminated");
+  expect(Date.now() - startedAt).toBeLessThan(4_000);
+  expect(entries(crashed)[0]).toMatchObject({
+    comment: expect.stringContaining("target ended before"),
+  });
+
+  const hanging = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "held", `${origin}/held`),
+    options: { hangOnMethod: "Network.getResponseBody" },
+  });
+  const controller = new AbortController();
+  const cancelled = new CdpBrowserProvider().observeSession(
+    observeWebSessionInputSchema.parse({
+      cdp_endpoint: hanging.endpoint,
+      allowed_origins: [hanging.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 100,
+      network: { response_bodies: "all" },
+    }),
+    { signal: controller.signal },
+  );
+  setTimeout(() => controller.abort(), 1_000);
+  const result = await cancelled;
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error._tag).toBe("AnalysisCancelledError");
+});
+
+it("fails bodies closed when a declared value survives any decoding", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      ...exchange(
+        session,
+        "form",
+        `${origin}/form`,
+        "application/octet-stream",
+      ),
+      ...exchange(session, "json", `${origin}/json`),
+      ...exchange(session, "empty", `${origin}/empty`),
+      request(session, "post", `${origin}/post`, {
+        request: {
+          method: "POST",
+          hasPostData: true,
+          postData: "q=caf%c3%a9%2A1",
+        },
+      }),
+      ...socketEvents(origin, session, ['{"token":"Ab\\/cd+ef=="}', ""]),
+    ],
+    result: bodies({
+      form: {
+        body: Buffer.from("q=caf%c3%a9%2A1").toString("base64"),
+        base64Encoded: true,
+      },
+      json: '{"token":"Ab\\/cd+ef==","name":"Jos\\u00e9"}',
+      empty: "",
+    }),
+  });
+
+  const session = await observe(browser, {
+    network: {
+      request_bodies: true,
+      response_bodies: "all",
+      websocket_payloads: true,
+    },
+    sensitive_values: ["café*1", "Ab/cd+ef==", "José"],
+  });
+
+  const texts = entries(session).map((entry) => JSON.stringify(entry.response));
+  expect(texts.join("")).not.toContain("Ab\\\\/cd");
+  expect(texts.join("")).not.toContain("u00e9");
+  expect(
+    texts.join("").includes(Buffer.from("q=caf%c3%a9%2A1").toString("base64")),
+  ).toBe(false);
+  // Content that redaction empties is withheld; empty content is kept.
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  for (const path of ["/form", "/json"]) {
+    expect(byPath(path)?.comment).toBe(
+      "Response body withheld: redacting declared sensitive values emptied it.",
+    );
+    expect(byPath(path)?.response).not.toHaveProperty(["content", "text"]);
+  }
+  expect(byPath("/post")).toMatchObject({
+    request: { bodySize: 15 },
+    comment: expect.stringContaining(
+      "Request body withheld: redacting declared sensitive values emptied it.",
+    ),
+  });
+  expect(byPath("/post")?.request).not.toHaveProperty("postData");
+  expect(byPath("/empty")).toMatchObject({
+    response: { content: { text: "" } },
+  });
+  expect(byPath("/empty")).not.toHaveProperty("comment");
+  expect(payloadSizes(byPath("/live"))).toEqual([
+    { data: null, bytes: 23 },
+    { data: 0, bytes: 0 },
+  ]);
+  expect(session.completeness.unavailable_sections).toEqual([
+    "network_bodies",
+    "websocket_frames",
+  ]);
+  expect(session.completeness.excluded).toEqual([
+    { section: "network_bodies", reason: "provider_unavailable", count: 3 },
+    { section: "websocket_frames", reason: "provider_unavailable", count: 1 },
+  ]);
+  expect(session.limitations).toContainEqual(
+    "1 WebSocket payloads have data null because redacting declared sensitive values emptied them.",
+  );
+  const decoded = decodeHarCapture(JSON.stringify(session.network?.har), []);
+  expect(decoded.records).toHaveLength(5);
+  expect(decoded.records.flatMap((record) => record.binary_fields)).toEqual([]);
+});
+
+it("ends the timeline with the window and abandons reads when the target ends while settling", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "slow", `${origin}/slow`),
+    options: { hangOnMethod: "Network.getResponseBody" },
+  });
+  setTimeout(
+    () =>
+      browser.emitEvent(
+        navigation(PAGE_SESSION, "https://elsewhere.example.test/"),
+      ),
+    700,
+  );
+  setTimeout(
+    () => browser.emitEvent(event("Inspector.targetCrashed", PAGE_SESSION, {})),
+    1_200,
+  );
+  const startedAt = Date.now();
+
+  const session = await observe(browser, {
+    observation_ms: 300,
+    network: { response_bodies: "all" },
+  });
+
+  expect(Date.now() - startedAt).toBeLessThan(4_000);
+  expect(session.window.end_reason).toBe("window_elapsed");
+  expect(JSON.stringify(session.timeline)).not.toContain("elsewhere");
+  expect(session.target.final_url).not.toBeNull();
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining("target ended before"),
+  });
+});
+
+it("treats a browser without response bodies as an omission and caps inline post data", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "data", `${origin}/data`),
+    options: { unsupportedMethods: ["Network.getResponseBody"] },
+  });
+
+  const session = await observe(browser, {
+    network: { request_bodies: true, response_bodies: "all" },
+  });
+
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining("Network.getResponseBody was unavailable"),
+  });
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+  const enable = browser.commands.find(
+    ({ method, sessionId }) =>
+      method === "Network.enable" && sessionId === PAGE_SESSION,
+  );
+  expect(enable?.params.maxPostDataSize).toBe(
+    Math.floor((64 * 1024 * 1024 - 1024 * 1024) / 8),
+  );
+});
+
+it("ends the window when a navigation's inline body exceeds the CDP message limit", async () => {
+  // Chrome ignores maxPostDataSize for navigations and inlines a form
+  // submission's body whole, so its request event can exceed the limit.
+  const browser: FakeCdpBrowser = await startNetworkBrowser({
+    result: (command) => {
+      // After the last setup reply, so the event lands in the window.
+      if (command.method === "Page.setLifecycleEventsEnabled")
+        setImmediate(() => {
+          browser.emitEvent(
+            request(PAGE_SESSION, "form", `${browser.allowedOrigin}/submit`, {
+              event: { type: "Document" },
+              request: {
+                method: "POST",
+                hasPostData: true,
+                postData: "a".repeat(WEB_RUNTIME_LIMITS.protocolBytes),
+              },
+            }),
+          );
+        });
+      return undefined;
+    },
+  });
+
+  const session = await observe(browser, {
+    observation_ms: 10_000,
+    network: { request_bodies: true },
+  });
+
+  expect(session.window.end_reason).toBe("target_terminated");
+  expect(entries(session)).toStrictEqual([]);
 });
 
 it("keeps navigation-only sessions unchanged when network is not selected", async () => {

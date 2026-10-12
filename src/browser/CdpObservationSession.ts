@@ -67,15 +67,19 @@ export const observeCdpSession = async (
     initialUrl,
   );
   const removeListener = context.connection.onEvent((event) => {
+    // A terminated target never answers reads still in flight, even after
+    // the window while they settle.
+    if (isTermination(event, context.sessionId)) network?.abandonReads();
     if (cdpTargetEventMatches(event, context.sessionId)) capture.ingest(event);
     // The event that ends the timeline (an out-of-scope document redirect)
     // still completes its in-scope hop; recording stops right after it.
     network?.ingest(event);
     if (capture.ended) network?.stop();
   });
-  const removeDisconnectListener = context.connection.onDisconnect(() =>
-    capture.targetTerminated(),
-  );
+  const removeDisconnectListener = context.connection.onDisconnect(() => {
+    capture.targetTerminated();
+    network?.abandonReads();
+  });
   try {
     await context.connection.send(
       "Page.enable",
@@ -85,7 +89,7 @@ export const observeCdpSession = async (
     );
     await context.connection.send(
       "Network.enable",
-      {},
+      network?.enableParameters ?? {},
       context.sessionId,
       context.signal,
     );
@@ -110,9 +114,12 @@ export const observeCdpSession = async (
       capture,
       context.signal,
     );
+    // The timeline ends with the window; later events are not observed.
+    capture.end(endReason);
     network?.stop();
     if (endReason === "window_elapsed")
       endReason = await captureFinalUrl(context, capture, allowedOrigins);
+    await network?.settle();
     await context.progress?.report({
       phase: "browser_observation",
       completed: 2,
@@ -171,6 +178,8 @@ const sessionRecorders = (
     options === undefined
       ? undefined
       : new CdpSessionNetwork({
+          connection: context.connection,
+          signal: context.signal,
           options,
           allowedOrigins,
           completeness,
@@ -429,6 +438,14 @@ const waitForWindow = async (
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted === true) onAbort();
   });
+
+const isTermination = (
+  event: CdpEvent,
+  sessionId: string | undefined,
+): boolean =>
+  (event.method === "Inspector.targetCrashed" ||
+    event.method === "Target.detachedFromTarget") &&
+  cdpTargetEventMatches(event, sessionId);
 
 const captureFinalUrl = async (
   context: ObservationContext,

@@ -12,6 +12,7 @@ const browserSectionSchema = z.enum([
   "resources",
   "network_requests",
   "network_initiators",
+  "network_bodies",
   "console_events",
   "console_text",
   "websocket_connections",

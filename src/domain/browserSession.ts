@@ -7,14 +7,42 @@ import {
 import { browserCompletenessSchema } from "./browserCompleteness.js";
 import { browserVersionSchema } from "./browserObservationSchemas.js";
 import { jsonValueSchema } from "./jsonValue.js";
+import { WEB_NETWORK_CAPTURE_LIMITS } from "./webNetworkCapture.js";
+
+/**
+ * Retained bodies and WebSocket payloads share a budget equal to the
+ * historical inspector's input budget. It bounds retained content only:
+ * JSON escaping and entry metadata can still make the serialized HAR larger,
+ * which har_bytes and a limitation report.
+ */
+export const WEB_SESSION_NETWORK_CONTENT_BYTES =
+  WEB_NETWORK_CAPTURE_LIMITS.inputBytes;
 
 const observeWebSessionNetworkSchema = z
   .strictObject({
+    request_bodies: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Retain request bodies CDP reports with each request; a body that is not UTF-8 keeps only its size.",
+      ),
+    response_bodies: z
+      .enum(["none", "json", "all"])
+      .default("none")
+      .describe(
+        "Read completed response bodies: none, JSON media types only, or all.",
+      ),
     header_values: z
       .boolean()
       .default(false)
       .describe(
         "Retain request and response headers; transport credentials are always omitted.",
+      ),
+    websocket_payloads: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Retain WebSocket frame payloads; otherwise only direction, opcode, time and size.",
       ),
   })
   .describe(
@@ -47,7 +75,7 @@ export const observeWebSessionInputSchema = z.strictObject({
     .array(z.string().min(1))
     .default([])
     .describe(
-      "Literal text replaced in every retained URL, header and timeline field. Never persisted in Evidence parameters; only the count is.",
+      "Literal text replaced in every retained URL, header, body, payload and timeline field. Never persisted in Evidence parameters; only the count is.",
     ),
   sensitive_query_parameters: z
     .array(z.string().min(1))
@@ -100,6 +128,20 @@ export const webSessionNetworkSchema = z.object({
     .int()
     .min(0)
     .describe("UTF-8 bytes of the compact JSON serialization of har."),
+  content_budget_bytes: z
+    .number()
+    .int()
+    .min(1)
+    .describe(
+      "Shared budget for retained bodies and WebSocket payloads, equal to inspect_web_network_capture's input budget.",
+    ),
+  retained_content_bytes: z
+    .number()
+    .int()
+    .min(0)
+    .describe(
+      "Budget used by retained bodies and payloads, counted as received before redaction: UTF-8 bytes of text, and the base64 text of base64 content.",
+    ),
   targets: z
     .array(
       z.object({
@@ -131,7 +173,7 @@ export const webSessionNetworkSchema = z.object({
       .int()
       .min(0)
       .describe(
-        "HAR and network target fields changed by declared sensitive values or observed sensitive query parameter values: URLs, query parameter names and values, header names and values, methods, status texts, MIME types, resource types and target IDs, including those of HAR entries later omitted. The top-level browser, target and timeline fields are redacted the same way but not counted.",
+        "HAR and network target fields changed by declared sensitive values or observed sensitive query parameter values: URLs, query parameter names and values, header names and values, bodies, WebSocket payloads, entry comments, methods, status texts, MIME types, resource types and target IDs, including those of HAR entries later omitted. The top-level browser, target and timeline fields are redacted the same way but not counted.",
       ),
   }),
   coverage_started_at: z.iso.datetime(),

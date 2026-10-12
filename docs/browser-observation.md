@@ -156,19 +156,23 @@ rea observe-web-session http://127.0.0.1:9222 TARGET_ID \
   --allowed-origins https://app.example.test \
   --allowed-origins https://api.example.test \
   --observation-ms 30000 \
-  --network --header-values \
+  --network --response-bodies json --websocket-payloads \
   --sensitive-query-parameter device_id \
   --json > session.json
 jq -c '.normalized_result.network.har' session.json > session.har
 rea inspect-web-network-capture "$PWD/session.har" har --json
 ```
 
-Select `header_values` (`--header-values`) to retain request and response
-headers except `Authorization`, `Proxy-Authorization`, `Cookie` and
-`Set-Cookie`; otherwise header arrays are empty. Request and response bodies and
-WebSocket payloads are not retained: a request that carried a body has
-`bodySize` `-1`, responses report their decoded size, and WebSocket frames keep
-direction, opcode, time and byte size. HAR cookie arrays are always empty, and
+| MCP `network` field                        | CLI flag               | Retained when selected                                                                                                     |
+| ------------------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `request_bodies`                           | `--request-bodies`     | Request bodies CDP reports with each request event, from their exact bytes; one that is not UTF-8 keeps only its size.     |
+| `response_bodies`: `none`, `json` or `all` | `--response-bodies`    | Completed response bodies, read with `Network.getResponseBody` after loading finishes; `json` reads JSON media types only. |
+| `header_values`                            | `--header-values`      | Request and response headers except `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`.                     |
+| `websocket_payloads`                       | `--websocket-payloads` | Frame payloads: text frames as text, binary frames as base64.                                                              |
+
+Unselected content is absent: header arrays are empty, a request body that was
+not retained has `bodySize` `-1` unless CDP listed its bytes, and frames keep
+only direction, opcode, time and byte size. HAR cookie arrays are always empty, and
 transport credential headers are never retained; their count is reported in
 `redactions.transport_credential_headers`. URL-valued headers (`Location`,
 `Content-Location`, `Referer`, `Origin`, `Link` and `Refresh`) follow the request
@@ -195,19 +199,24 @@ its entry comment.
 timeline. Out-of-scope requests, sockets and their frames are excluded and
 counted in `completeness.excluded`. A redirect to an excluded origin keeps the
 in-scope hop with an empty `redirectURL` and an entry comment. Recording stops
-when the window elapses or the timeline ends, whichever is first. Chrome runs
-out-of-process cross-site iframes and the page's dedicated, shared and service
-workers as separate targets. REA does not attach them, so their traffic is not
-recorded even when their origin is selected, and a dedicated worker's script
-request can appear without its response; a limitation says so.
+when the window elapses or the timeline ends, whichever is first; body reads that
+already started still complete. Chrome runs out-of-process cross-site iframes and
+the page's dedicated, shared and service workers as separate targets. REA does
+not attach them, so their traffic is not recorded even when their origin is
+selected, and a dedicated worker's script request can appear without its
+response; a limitation says so.
 
 **Declared sensitive values.** `sensitive_values` (`--sensitive-value`, repeatable)
 lists literals to replace with `[REDACTED:value-N]` markers in every retained
-URL, query parameter, header, timeline and browser metadata field. Each field is
+URL, query parameter, header, body, WebSocket payload, timeline and browser
+metadata field. Each field is
 checked as written and in its UTF-8 percent-decoded, form-decoded and
 JSON-unescaped forms, nested up to three levels, with invalid UTF-8 escapes read
 as U+FFFD; HAR `queryString` names and values are checked again, after URL
-decoding, as fields of their own. A declared value with an unpaired UTF-16
+decoding, as fields of their own; binary bodies and payloads are matched on
+their decoded bytes and on their base64 text, and a declared value that the
+base64 text spells fails the field closed, since base64 cannot be edited in place. A
+declared value with an unpaired UTF-16
 surrogate has no UTF-8 spelling and is matched as written or JSON-escaped.
 Other spellings, such as percent-encoding in a legacy charset (`%E9` from a
 windows-1252 form), HTML entities or base64 inside a header, are not detected;
@@ -245,15 +254,20 @@ for is omitted and counted in `completeness.excluded` as `provider_unavailable`:
 a request under `network_requests`, and a WebSocket under
 `websocket_connections` with its frames under `websocket_frames`. Any other field
 in which a declared value survives replacement is emptied; an emptied query
-flag stays as an empty `=` pair, so the remaining pairs keep their positions. A
+flag stays as an empty `=` pair, so the remaining pairs keep their positions.
+A body or WebSocket payload that redaction would empty is withheld instead, so
+it never reads as empty content: a body keeps its size but not its text, its
+entry comment says why, and it is counted under `network_bodies` as
+`provider_unavailable`; a payload has `data: null`, is counted under
+`websocket_frames` as `provider_unavailable`, and a limitation states how many. A
 marker is chosen so that neither it nor its percent-encoding spells a declared
 value; when none qualifies the value is removed without a marker. Target IDs,
 MIME types, methods and the browser metadata in `browser` and
 `har.log.browser`, which also names the Evidence environment, are redacted like
 any other field. `redactions.explicit_value_fields` counts the HAR and network
 target fields that changed: URLs, query parameter names and values, header
-names and values, methods, status texts, MIME types, resource types and target
-IDs, including those of HAR entries later omitted. The top-level `browser`,
+names and values, bodies, WebSocket payloads, entry comments, methods, status
+texts, MIME types, resource types and target IDs, including those of HAR entries later omitted. The top-level `browser`,
 `target` and `timeline` fields are redacted the same way but not counted.
 `sensitive_query_parameters`
 (`--sensitive-query-parameter`, repeatable) names exact query parameters; every
@@ -266,18 +280,55 @@ such as a hash-routed `#/reset?token=...` or an implicit-grant
 Evidence parameters keep the parameter names and the number of declared
 literals, never the literals; a request parameter or parameter name that
 spells one is left empty, and the result says so. REA does not infer sensitivity from names or
-patterns: everything else, including query values, is retained verbatim, so
+patterns: everything else, including query values and bodies, is retained
+verbatim, so
 treat the HAR as sensitive local evidence.
 
-**Coverage.** Request and frame metadata are not capped, and `har_bytes`
-reports the log's serialized size. REA does not check it against
-`inspect_web_network_capture`'s 32 MiB input budget or 96 MiB decoder reply
-limit. The decoder's reply is several times the log's size, about five times
-for a log dominated by WebSocket frames, so a log can exceed the reply limit
-well below 32 MiB. Coverage starts at
+**Redaction cost.** With declared values, each retained body and payload is
+checked in every decoding listed above before the result is returned. Memory
+stays bounded, but the check is CPU-bound and runs after the window closes:
+on the order of seconds for a 32 MiB body, and longer for content made mostly
+of escapes.
+
+**Budget and coverage.** Retained bodies and payloads share a 32 MiB budget,
+equal to `inspect_web_network_capture`'s input budget and reported as
+`content_budget_bytes`; `retained_content_bytes` reports what they used,
+counted as received before redaction: UTF-8 bytes of text, and the base64 text
+of base64 content. A response body read
+reserves its base64 worst case while in flight. A body that does not fit is
+omitted with an entry comment, and a frame payload that does not fit has `data:
+null`; `network_bodies` or `websocket_frames` is then reported truncated. A body
+whose CDP reply could exceed the 64 MiB message limit (Chrome escapes non-ASCII
+text six-fold, so above about 10.6 MiB decoded) is not read, and its entry says
+so. For the same reason, REA asks Chrome to inline selected request bodies
+only up to about 7.9 MiB; a larger one is not retained, and its entry says it
+was not exposed. That cap covers subresource requests such as `fetch` and XHR,
+not navigations: Chrome inlines a form submission's body whole, as escaped text
+and again as base64, whether or not request bodies are selected. A navigation's
+request event therefore exceeds the message limit once its body passes 8.7 to
+27 MiB, depending on how much of it Chrome escapes (about 15 MiB of two-byte
+UTF-8 text); REA's connection then closes and the observation ends with
+`window.end_reason` `target_terminated`. A
+request body is taken from the exact bytes CDP lists in `postDataEntries`, not
+from its `postData` text, which Chrome decodes as Latin-1 when the bytes are not
+UTF-8; such a body is not retained, since HAR `postData` carries text only, so
+its entry comment says why, `bodySize` reports its byte count and
+`network_bodies` is reported unavailable. Without `postDataEntries`, the
+`postData` text is retained as the browser reported it. Each
+body read has a 5-second deadline; a read that misses it, a body still loading
+when recording stopped, a body the browser has already released, a browser
+without `Network.getResponseBody`, and reads still pending when the target ends
+or disconnects are stated in their entry comments and reported unavailable. Malformed CDP content, including non-canonical base64, is
+not retained and is counted as `invalid_protocol_value`. Transport and other
+protocol failures fail the observation. Request and frame metadata are not
+capped, and `har_bytes` reports the log's serialized size, with a limitation
+when it exceeds the inspector's 32 MiB input budget. REA does not check the
+96 MiB decoder reply limit: the decoder's reply is several times the log's
+size, about five times for a log dominated by WebSocket frames, so such a log
+can exceed the reply limit well below 32 MiB. Coverage starts at
 `coverage_started_at`, after REA attaches, and `prior_activity_available` is
-always `false`. Frames on sockets opened earlier have no URL to authorize and are
-excluded as `unattributed_origin`.
+always `false`. Frames on sockets opened earlier have no URL to authorize and
+are excluded as `unattributed_origin`.
 
 ## MCP input
 
@@ -306,9 +357,10 @@ REA retains local observation data and removes only URL userinfo credentials, ex
 - DOM snapshots retain node types, node names, value lengths, and attribute names, but not text or attribute values.
 - Accessibility structure and roles are retained by default, while names and descriptions require `include_accessibility_text: true`.
 - Network observations retain method, status, MIME type, size, type, initiator stack location, and complete URLs with userinfo credentials removed. Redirects reported by CDP are attached as ordered `redirects` on the one request ID, with the prior request URL, CDP response URL, method/type, response status/MIME/encoded length, request timestamp, and the next `requestWillBeSent` event timestamp. CDP delivers `redirectResponse` with that next request event, so the latter is an event boundary rather than an exact response timestamp. Redirect response headers and bodies are discarded; hops outside the selected origins are discarded with the request chain. Headers are discarded after an allowlisted projection of length/encoding, structured CSP/Link/policy fields, and untrusted agent hints. Cookies and authorization headers are never retained.
-- Request/response bodies are not requested or parsed by default. When selected, only allowed-origin JSON media types are read, converted immediately to complete value-free typed paths, types and observation counts, and discarded. Each path segment is either `{ "kind": "property", "name": "raw property name" }` or `{ "kind": "array-element" }`; array-element types include primitives and nested arrays. Literal `*` properties remain distinct from array elements. `Network.getResponseBody` is never sent unless JSON body shape capture is selected. Comparison uses body shapes only when both captures selected them, and compares request/response shapes only where both observations provide those facts. Unavailable or truncated selected coverage makes equivalence unknown; observed differences still report changed.
+- For `inspect_web_page`, request/response bodies are not requested or parsed by default. When selected, only allowed-origin JSON media types are read, converted immediately to complete value-free typed paths, types and observation counts, and discarded. Each path segment is either `{ "kind": "property", "name": "raw property name" }` or `{ "kind": "array-element" }`; array-element types include primitives and nested arrays. Literal `*` properties remain distinct from array elements. `Network.getResponseBody` is never sent unless JSON body shape capture is selected. Comparison uses body shapes only when both captures selected them, and compares request/response shapes only where both observations provide those facts. Unavailable or truncated selected coverage makes equivalence unknown; observed differences still report changed.
+- `observe_web_session` retains selected request and response bodies and WebSocket payloads verbatim, as described in [Record session traffic as HAR](#record-session-traffic-as-har).
 - Console observations with a stack source retain call type, argument types, timestamp, and source location. When console text capture is selected, already-delivered primitive values are retained verbatim; objects, getters, and remote properties are never expanded.
-- WebSocket observations retain direction, opcode, and payload byte length. When shape capture is selected, text frames are classified as text or complete value-free JSON shape; binary bytes, hashes, prefixes, and raw frames are never retained.
+- For `inspect_web_page`, WebSocket observations retain direction, opcode, and payload byte length. When shape capture is selected, text frames are classified as text or complete value-free JSON shape; binary bytes, hashes, prefixes, and raw frames are never retained.
 - Storage observations always redact values. Key names, IndexedDB names, and cache names require `include_storage_keys`; stable content fingerprints require the additional `include_storage_fingerprints` selection. Cookie fingerprints cover cookies applicable to the current main-frame URL, including its path, rather than every cookie path on that origin. Other storage remains scoped to the origin. Cache bodies above 64 KiB and partial IndexedDB remote objects make fingerprint coverage incomplete, so identical observations remain `unknown`.
 - Script metadata is included only when CDP supplies a URL on an allowed origin. Stable keys exclude transient CDP script IDs, and exact transient raw URLs are used only during script/resource reconciliation. URL-less scripts are excluded because their origin cannot be established. When CDP supplies an execution-context association, the accepted script retains its authorized frame ID for later attribution. Script metadata admission bounds retained identity and source-map strings to 8 MiB and 50,000 records. When a source-map URL cannot fit, the script identity remains and source-map coverage reports `resource_budget_exhausted`; rejected script observations are counted without retaining their IDs. Source content is omitted unless explicitly requested and is returned inline as a self-verifying artifact with its SHA-256 digest.
 

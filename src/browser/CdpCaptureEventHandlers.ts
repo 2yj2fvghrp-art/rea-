@@ -18,7 +18,6 @@ import {
 } from "./CdpCaptureEventBodyShapes.js";
 import {
   consolePrimitive,
-  decodeBase64,
   exclusionReasonForUrl,
   executionContextKey,
   firstCallFrame,
@@ -28,6 +27,7 @@ import {
   isMainFrameNavigation,
 } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureEventsState } from "./CdpCaptureEventState.js";
+import { decodeBase64 } from "./network/Base64.js";
 import {
   CDP_CAPTURE_SCRIPT_METADATA_LIMITS,
   type CapturedScript,

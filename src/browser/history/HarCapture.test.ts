@@ -330,6 +330,43 @@ it("retains valid base64 bytes independently of declared sizes", () => {
   );
 });
 
+it("validates multi-megabyte base64 content without exhausting the regex stack", () => {
+  // observe_web_session retains image, font and wasm bodies this large.
+  const bytes = Buffer.alloc(8 * 1024 * 1024, 7);
+  const fixture = historicalHar();
+  const entry = fixture.log.entries[0];
+  if (entry === undefined) throw new Error("fixture missing");
+  const content = {
+    size: bytes.length,
+    mimeType: "image/png",
+    encoding: "base64",
+    text: bytes.toString("base64"),
+  };
+  const capture = (text: string) =>
+    JSON.stringify({
+      log: {
+        ...fixture.log,
+        entries: [
+          {
+            ...entry,
+            response: { ...entry.response, content: { ...content, text } },
+          },
+        ],
+      },
+    });
+
+  const result = decodeHarCapture(capture(content.text), []);
+  expect(result.records[0]?.binary_fields[0]).toMatchObject({
+    state: "retained",
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+  // A non-canonical final quartet is found only after scanning the whole text.
+  expect(() =>
+    decodeHarCapture(capture(`${content.text.slice(0, -4)}AR==`), []),
+  ).toThrow("not valid canonical base64");
+});
+
 it("redacts actual authentication fields and explicit binary values while preserving similarly named extensions", () => {
   const fixture = historicalHar();
   const entry = fixture.log.entries[0];

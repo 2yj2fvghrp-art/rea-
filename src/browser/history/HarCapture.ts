@@ -16,6 +16,7 @@ import {
 } from "./CaptureRedaction.js";
 import { createHarValidator } from "./HarSchema.js";
 import { HAR_CAPTURE_PROVIDER_IDENTITY } from "./CaptureRelease.js";
+import { decodeBase64 } from "../network/Base64.js";
 
 type DecodedCapture = Omit<
   WebNetworkCapture,
@@ -242,13 +243,8 @@ const projectHar = (
 
 const decodeHarBase64 = (value: string, pointer: string): Buffer => {
   const compact = value.replace(/[\t\n\r ]/g, "");
-  const bytes = Buffer.from(compact, "base64");
-  if (
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      compact,
-    ) ||
-    bytes.toString("base64") !== compact
-  )
+  const bytes = decodeBase64(compact);
+  if (bytes === undefined || bytes.toString("base64") !== compact)
     throw new CaptureFormatError(
       "format",
       "HAR content declares base64 but its text is not valid canonical base64 (ASCII whitespace is allowed).",

@@ -4,9 +4,10 @@ import {
   cdpStringValue,
   type UnknownRecord,
 } from "./CdpCaptureValues.js";
-import { decodeBase64, isJsonContentType } from "./CdpCaptureEventHelpers.js";
+import { isJsonContentType } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureEventsState } from "./CdpCaptureEventState.js";
 import type { NetworkState } from "./CdpCaptureEventTypes.js";
+import { decodeBase64 } from "./network/Base64.js";
 
 export const ingestResponseBodyShape = (
   state: CdpCaptureEventsState,

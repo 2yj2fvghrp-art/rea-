@@ -194,7 +194,8 @@ describe("CdpBrowserProvider: page cookie scope", () => {
 
 describe("CdpBrowserProvider: complete storage fingerprints", () => {
   it("fingerprints cache bodies above the former byte ceiling", async () => {
-    const body = "x".repeat(64 * 1_024 + 1);
+    // Multi-MiB base64 must not exhaust the regex backtracking stack either.
+    const body = "x".repeat(8 * 1_024 * 1_024);
     const browser = await startFakeCdpBrowser({ cachedResponseBody: body });
     trackBrowser(browser);
     const result = await new CdpBrowserProvider().inspectPage(
