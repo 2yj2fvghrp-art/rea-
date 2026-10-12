@@ -387,7 +387,7 @@ const workflowAvailabilityFor = ({
       : {
           reason: "provider_missing",
           remediation:
-            "Supply TShark 4.x via absolute REA_TSHARK_COMMAND. No active binary target or hardware is required; the tool is checked at execution.",
+            "On Linux, supply TShark 4.x via absolute REA_TSHARK_COMMAND and util-linux prlimit (REA_TSHARK_PRLIMIT_COMMAND, default /usr/bin/prlimit). No active binary target or hardware is required; the tool is checked at execution.",
         };
   if (name === "inspect_wasm_artifact")
     return policy.wasmArtifactEnabled === true

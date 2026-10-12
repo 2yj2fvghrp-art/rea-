@@ -153,7 +153,7 @@ const installSessionToolAvailability = (
     optionalFeatures: {
       packetCaptureEnabled:
         options.packetCapture !== undefined ||
-        isAbsolute(environment.REA_TSHARK_COMMAND ?? ""),
+        (linux && isAbsolute(environment.REA_TSHARK_COMMAND ?? "")),
       wasmArtifactEnabled:
         options.wasmArtifact !== undefined ||
         isAbsolute(environment.REA_WABT_BIN_DIRECTORY ?? ""),

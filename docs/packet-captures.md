@@ -6,7 +6,11 @@ field/filter interface when the installed TShark supports their encapsulation
 and dissectors. This tool does not acquire traffic, open an interface or control
 a device. HAR/mitmproxy web-capture workflows remain separate.
 
-Supply an existing TShark 4.x installation:
+Supply an existing TShark 4.x installation **on Linux**, with util-linux
+`prlimit` available at `/usr/bin/prlimit`. Override its absolute path with
+`REA_TSHARK_PRLIMIT_COMMAND` if required. Unsupported hosts, including macOS
+and Windows, are refused before inspection because this integration requires
+an enforced address-space limit:
 
 ```sh
 export REA_TSHARK_COMMAND=/absolute/path/to/tshark
@@ -59,7 +63,7 @@ visible even on exit zero. Two-pass mode cannot recover missing capture bytes.
 
 Each call uses a private read-only capture copy and an empty personal
 configuration directory (`WIRESHARK_CONFIG_DIR`), with name resolution disabled.
-The executable and private input copy are rechecked after execution. Owned
+The executable, resource limiter and private input copy are rechecked after execution. Owned
 processes and private files are cleaned up; failed cleanup retains ownership and
 completed observations for retry. Source files are never passed to TShark.
 Installed libraries, global configuration and plugins remain trusted, are not
@@ -67,8 +71,13 @@ fully fingerprinted, and can influence dissection. This is not an OS sandbox.
 
 Input is limited to 32 MiB before reading, each command to 30 seconds, and
 combined stdout/stderr to 4 MiB during collection. Output overflow fails instead
-of returning truncated success. These limits do not bound child heap usage or
-compressed-capture expansion. No arbitrary process flags are accepted.
+of returning truncated success. Before execution, `prlimit` enforces **1 GiB
+address space per process**, **64 MiB per file**, **30 CPU seconds** and no core
+dumps. Both soft and hard limits are inherited, so dissector allocations and
+compressed-capture expansion cannot exceed the per-process address-space cap.
+These are not aggregate process-memory or filesystem quotas. The selected
+limiter is trusted; its path, digest and arguments are retained in Evidence.
+No arbitrary process flags are accepted.
 
 ## Verification
 
@@ -83,7 +92,10 @@ fields, filtering, decode-as, both pass modes, a packet limit before matching
 frames, Evidence persistence, failure diagnostics, source identity and cleanup.
 An optional positional REA entrypoint verifies an installed package.
 
-The local real-tool lane covers TShark 4.6.9 on macOS arm64. The added Ubuntu CI
-lane uses its distribution package; check its outcome before claiming that
-version/platform verified. Other formats (including PCAPNG), USB, BLE ATT,
-Windows and actual physical capture are not established by these fixtures.
+The real-tool lane requires Linux and TShark 4.x. A separate kernel-limit
+regression checks the inherited soft/hard limits and verifies an oversized
+allocation is refused before it can consume memory. The Ubuntu workflow uses
+its distribution package; check its outcome before claiming that build verified.
+The earlier macOS check does not establish the current bounded integration,
+which deliberately refuses unsupported hosts. Other formats (including PCAPNG),
+USB, BLE ATT and actual physical capture are not established by these fixtures.

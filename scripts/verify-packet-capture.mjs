@@ -13,6 +13,10 @@ import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 
+if (process.platform !== "linux")
+  throw new Error(
+    "Real packet capture verification requires Linux with util-linux prlimit.",
+  );
 if (!isAbsolute(process.env.REA_TSHARK_COMMAND ?? ""))
   throw new Error("Supply absolute REA_TSHARK_COMMAND for TShark 4.x.");
 const entrypoint =
@@ -117,6 +121,10 @@ try {
         .digest("hex"),
     );
     assert.equal(report.hardware_acquisition, "not-performed");
+    assert.equal(report.limits.address_space_bytes, 1073741824);
+    assert.ok(
+      report.resource_limiter.arguments.includes("--as=1073741824:1073741824"),
+    );
     assert.equal(report.configuration, "private-empty-personal-profile");
     const flags = Object.entries(input)
       .filter(([key]) => key !== "path")

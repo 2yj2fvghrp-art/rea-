@@ -11,7 +11,7 @@ export const CAPTURE_TOOL_CONTRACTS = [
     ...toolContractMetadata("inspect_packet_capture"),
     kind: "artifact-provider",
     description:
-      "Inspect caller-selected fields in an existing local packet capture with TShark 4.x. Preserve repeated values, frame numbers, display filter, decode-as rules and pass mode in inline Evidence with source/tool identity and diagnostics. Optional packet_limit counts input packets before filtering. Configure absolute REA_TSHARK_COMMAND. File-only analysis; no live capture or device communication. Missing fields or no matches do not establish absence of device traffic.",
+      "Inspect caller-selected fields in an existing local packet capture with TShark 4.x. Preserve repeated values, frame numbers, display filter, decode-as rules and pass mode in inline Evidence with source/tool identity and diagnostics. Optional packet_limit counts input packets before filtering. Requires Linux, util-linux prlimit, and absolute REA_TSHARK_COMMAND. File-only analysis; no live capture or device communication. Missing fields or no matches do not establish absence of device traffic.",
     inputSchema: inspectPacketCaptureInputSchema,
     outputSchema: evidenceResultOf(packetCaptureSchema),
     examples: [

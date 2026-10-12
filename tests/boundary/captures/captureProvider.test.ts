@@ -1,5 +1,5 @@
 import { it, expect, onTestFinished } from "vitest";
-import { writeFile, readdir } from "node:fs/promises";
+import { writeFile, readdir, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { TsharkCaptureProvider } from "../../../src/captures/TsharkCaptureProvider.js";
 import { PacketCaptureService } from "../../../src/application/captures/PacketCaptureService.js";
@@ -26,11 +26,16 @@ else if (${JSON.stringify(mode)} === 'invalid-json') console.log('not json');
 else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wrong copy'); console.log(JSON.stringify([{_source:{layers:{"frame.number":["1"],"ip.addr":["192.0.2.1","192.0.2.2"]}}}])); console.error('producer warning'); }
 `,
   );
+  await chmod(script, 0o700);
   const controller = new AbortController();
   let calls = 0;
   let mayClean = !failCleanup;
   const provider = new TsharkCaptureProvider(
-    { ...process.env, REA_TSHARK_COMMAND: process.execPath },
+    {
+      ...process.env,
+      REA_TSHARK_COMMAND: script,
+      REA_TSHARK_PRLIMIT_COMMAND: script,
+    },
     async (input) => {
       calls++;
       const spawned = await spawnOwnedProviderProcess({
@@ -44,10 +49,16 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
       return spawned;
     },
     async () => {
+      if (mode === "workspace-full")
+        throw Object.assign(new Error("No space left on device"), {
+          code: "ENOSPC",
+        });
       const root = await PrivateRuntimeRoot.create({
         parent: directory,
         prefix: "decoder-",
       });
+      if (mode === "snapshot-write-failure")
+        await writeFile(join(root.path, "capture"), "existing");
       return {
         path: root.path,
         close: async () => {
@@ -56,6 +67,7 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
         },
       };
     },
+    "linux",
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -206,5 +218,62 @@ it("retains a completed observation when cancellation arrives at the service bou
         { "frame.number": ["1"], "ip.addr": ["192.0.2.1", "192.0.2.2"] },
       ],
     },
+  });
+});
+
+it.each([
+  ["workspace-full", "AnalysisResourceConstraintError"],
+  ["snapshot-write-failure", "ProviderAdapterError"],
+])(
+  "reports %s against the private workspace, not the selected input",
+  async (mode, tag) => {
+    const f = await fixture(mode);
+    const result = await f.service.inspect({
+      path: f.path,
+      fields: ["ip.addr"],
+    });
+    if (result.ok) throw new Error("Expected workspace failure");
+    expect(result.error._tag).toBe(tag);
+    if (result.error._tag === "ProviderAdapterError")
+      expect(result.error).toMatchObject({
+        diagnostics: {
+          stage: "workspace",
+          system_code: "EEXIST",
+        },
+      });
+    if (result.error._tag === "AnalysisResourceConstraintError")
+      expect(result.error).toMatchObject({
+        reportedLimits: {
+          system_code: "ENOSPC",
+        },
+      });
+    expect(f.calls()).toBe(mode === "workspace-full" ? 0 : 1);
+    expect(
+      (await readdir(f.directory)).filter((name) =>
+        name.startsWith("decoder-"),
+      ),
+    ).toEqual([]);
+  },
+);
+
+it("refuses unsupported hosts before launching or allocating a workspace", async () => {
+  const provider = new TsharkCaptureProvider(
+    { REA_TSHARK_COMMAND: process.execPath },
+    async () => {
+      throw new Error("Must not launch");
+    },
+    async () => {
+      throw new Error("Must not allocate");
+    },
+    "darwin",
+  );
+  const result = await new PacketCaptureService(provider).inspect({
+    path: "/recording.pcap",
+    fields: ["ip.addr"],
+  });
+  if (result.ok) throw new Error("Expected host refusal");
+  expect(result.error).toMatchObject({
+    _tag: "AnalysisCapabilityUnavailableError",
+    reason: expect.stringContaining("Linux"),
   });
 });
