@@ -296,6 +296,26 @@ describe("managed user strings", () => {
     );
   });
 
+  it("ignores a 0x70 token carried by an instruction other than ldstr", () => {
+    const { heap, tokens } = fixtureUserStringHeap(["not loaded"]);
+    const token = Number.parseInt(tokens[0] ?? "", 16);
+    const ldtoken = Buffer.from([0xd0, 0, 0, 0, 0, 0x26, 0x2a]);
+    ldtoken.writeUInt32LE(token, 1);
+    const result = inspect({
+      ilBody: Buffer.concat([
+        Buffer.from([(ldtoken.length << 2) | 2]),
+        ldtoken,
+      ]),
+      userStringHeap: heap,
+    });
+
+    expect(result.methods[0]?.body.anchors[0]).toMatchObject({
+      opcode: "ldtoken",
+      operand_kind: "string",
+    });
+    expect(result.user_strings).toEqual([]);
+  });
+
   it("keeps the method and reports partial coverage when #US is absent", () => {
     const result = inspect({ ilBody: ldstrBody(["0x70000001"]) });
 

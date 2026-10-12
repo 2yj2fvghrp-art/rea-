@@ -329,10 +329,10 @@ export const parseUserStrings = (
   readonly issues: readonly ManagedParseIssue[];
 } => {
   const tokens = new Set<string>();
+  // Only ldstr loads a literal; a malformed ldtoken can still carry a 0x70 token.
   for (const method of methods)
-    for (const anchor of method.body.anchors)
-      if (anchor.operand_kind === "string" && anchor.operand !== null)
-        tokens.add(anchor.operand);
+    for (const { opcode, operand } of method.body.anchors)
+      if (opcode === "ldstr" && operand !== null) tokens.add(operand);
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   // Tokens are fixed-width lowercase hex, so string order is token order.
