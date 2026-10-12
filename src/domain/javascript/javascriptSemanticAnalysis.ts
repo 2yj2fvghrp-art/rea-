@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { typescriptImportResolutionMode } from "./typescriptImportResolutionMode.js";
 
 import {
   failedJavaScriptSemanticIr,
@@ -159,7 +160,11 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
   yield;
   const callables = collectSemanticReturns(state, parserPartial);
   yield;
-  const moduleLinks = resolveSemanticModuleCallables(state, callables);
+  const moduleLinks = resolveSemanticModuleCallables(
+    state,
+    callables,
+    bindings,
+  );
   const derived = yield* collectJavaScriptDerivedSemanticsSteps(
     file.program,
     state,
@@ -803,7 +808,7 @@ const bindImportEquals = (
     mutable: false,
     definitionNode: node.id,
     initializer: null,
-    directOrigin: { specifier, importedPath: [] },
+    directOrigin: { specifier, importedPath: [], resolutionMode: "require" },
   });
 };
 
@@ -977,6 +982,7 @@ const bindImports = (
   scope: JavaScriptSemanticScopeState,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
+  const resolutionMode = typescriptImportResolutionMode(node);
   for (const specifier of node.specifiers) {
     const importedPath = t.isImportDefaultSpecifier(specifier)
       ? ["default"]
@@ -991,7 +997,11 @@ const bindImports = (
       mutable: false,
       definitionNode: specifier.local,
       initializer: null,
-      directOrigin: { specifier: node.source.value, importedPath },
+      directOrigin: {
+        specifier: node.source.value,
+        importedPath,
+        ...(resolutionMode === undefined ? {} : { resolutionMode }),
+      },
     });
   }
 };

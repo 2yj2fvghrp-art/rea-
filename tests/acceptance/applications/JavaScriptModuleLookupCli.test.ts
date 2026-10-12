@@ -33,6 +33,10 @@ const ctsResolutionSource = [
   'const second: RequireOnly = { source: "require" };',
   "console.log(JSON.stringify([first.source, second.source]));",
 ].join("\n");
+const ctsReexportSource = [
+  'export type { ImportOnly as DirectImportOnly } from "cts-package" with { "resolution-mode": "import" };',
+  'export type * from "cts-package" with { "resolution-mode": "import" };',
+].join("\n");
 const ctsPackageFiles = {
   "node_modules/cts-package/package.json": JSON.stringify({
     exports: { require: "./actual.cjs", import: "./decoy.mjs" },
@@ -56,6 +60,7 @@ const createModuleLookupFixture = async () => {
     "cts/package.json": JSON.stringify({ type: "commonjs" }),
     "cts/entry.cts": ctsSource,
     "cts/resolution.cts": ctsResolutionSource,
+    "cts/reexport.cts": ctsReexportSource,
     "cts/runtime-dep.js": "module.exports = 42;",
     "esm/entry.mjs": [
       'import "./extensionless";',
@@ -173,6 +178,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       emitted,
       join(root, "cts/entry.cts"),
       join(root, "cts/resolution.cts"),
+      join(root, "cts/reexport.cts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
@@ -383,6 +389,29 @@ const expectCtsResolutionModes = (
     "node_modules/cts-package/actual.cjs",
     "node_modules/cts-package/decoy.mjs",
   ]);
+  const direct = graph.edges.filter(
+    ({ relation, evidence: edgeEvidence }) =>
+      relation === "imports" &&
+      edgeEvidence.location.available &&
+      edgeEvidence.location.value.kind === "source-range" &&
+      edgeEvidence.location.value.source === "cts/reexport.cts",
+  );
+  const directDigest = createHash("sha256")
+    .update(ctsReexportSource)
+    .digest("hex");
+  expect(direct).toHaveLength(4);
+  for (const edge of direct) {
+    expect(edge.properties.resolved_path).toBe(
+      "node_modules/cts-package/decoy.mjs",
+    );
+    expect(edge.evidence.artifact).toMatchObject({
+      available: true,
+      sha256: directDigest,
+    });
+  }
+  expect(direct.map(({ properties }) => properties.exported_name)).toContain(
+    "DirectImportOnly",
+  );
 };
 
 cliTest.for(["CLI", "stdio MCP"] as const)(

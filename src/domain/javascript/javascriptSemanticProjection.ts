@@ -72,11 +72,13 @@ export const collectSemanticModuleLink = (
 ): void => {
   if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
   else if (t.isImportDeclaration(node)) collectImports(node, state);
-  else if (t.isExportAllDeclaration(node))
+  else if (t.isExportAllDeclaration(node)) {
+    const resolutionMode = typescriptImportResolutionMode(node);
     addModuleLink(
       state,
       {
         kind: "re-export",
+        ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: "*",
         localName: null,
@@ -85,7 +87,7 @@ export const collectSemanticModuleLink = (
       },
       node,
     );
-  else if (t.isExportNamedDeclaration(node)) collectNamedExports(node, state);
+  } else if (t.isExportNamedDeclaration(node)) collectNamedExports(node, state);
   else if (t.isExportDefaultDeclaration(node))
     addModuleLink(
       state,
@@ -323,6 +325,7 @@ const collectNamedExports = (
   node: t.ExportNamedDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
+  const resolutionMode = typescriptImportResolutionMode(node);
   if (node.declaration !== null && node.declaration !== undefined)
     for (const localName of declarationNames(node.declaration))
       addModuleLink(
@@ -347,6 +350,7 @@ const collectNamedExports = (
         state,
         {
           kind: node.source == null ? "export" : "re-export",
+          ...(resolutionMode === undefined ? {} : { resolutionMode }),
           specifier: node.source?.value ?? null,
           importedName: t.isExportNamespaceSpecifier(specifier)
             ? "*"

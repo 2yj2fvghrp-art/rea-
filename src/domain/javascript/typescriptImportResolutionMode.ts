@@ -1,10 +1,16 @@
-import type { ImportDeclaration } from "@babel/types";
+import type {
+  ExportAllDeclaration,
+  ExportNamedDeclaration,
+  ImportDeclaration,
+} from "@babel/types";
 
-/** An explicit type-import attribute overrides the source file's loader default. */
+/** An explicit type import/export attribute overrides the file's loader default. */
 export const typescriptImportResolutionMode = (
-  node: ImportDeclaration,
+  node: ImportDeclaration | ExportNamedDeclaration | ExportAllDeclaration,
 ): "import" | "require" | undefined => {
-  if (node.importKind !== "type") return undefined;
+  const kind =
+    node.type === "ImportDeclaration" ? node.importKind : node.exportKind;
+  if (kind !== "type") return undefined;
   const attribute = node.attributes?.find(
     ({ key }) =>
       (key.type === "StringLiteral" ? key.value : key.name) ===

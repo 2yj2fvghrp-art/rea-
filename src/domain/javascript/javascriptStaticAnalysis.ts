@@ -243,22 +243,22 @@ const inspectNode = (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined
   ) {
-    const resolutionMode = t.isImportDeclaration(node)
-      ? typescriptImportResolutionMode(node)
-      : undefined;
+    const resolutionMode = typescriptImportResolutionMode(node);
     addReference(findings, {
       node,
       kind: "static-import",
       specifier: node.source.value,
       ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
-  } else if (t.isExportNamedDeclaration(node) && node.source != null)
+  } else if (t.isExportNamedDeclaration(node) && node.source != null) {
+    const resolutionMode = typescriptImportResolutionMode(node);
     addReference(findings, {
       node,
       kind: "static-import",
       specifier: node.source.value,
+      ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
-  else if (t.isImportExpression(node))
+  } else if (t.isImportExpression(node))
     addReference(findings, {
       node,
       kind: "dynamic-import",

@@ -474,7 +474,16 @@ const semanticValue: z.ZodType<JavaScriptSemanticValue> = z.lazy(() =>
       };
     }),
 );
-const origin = z.strictObject({ specifier: z.string(), importedPath: strings });
+const origin = z
+  .strictObject({
+    specifier: z.string(),
+    importedPath: strings,
+    resolutionMode: z.enum(["import", "require"]).optional(),
+  })
+  .transform(({ resolutionMode, ...rest }) => ({
+    ...rest,
+    ...(resolutionMode === undefined ? {} : { resolutionMode }),
+  }));
 const provenance = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("module"),

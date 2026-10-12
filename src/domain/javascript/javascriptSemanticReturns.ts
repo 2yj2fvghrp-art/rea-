@@ -6,6 +6,7 @@ import {
 } from "./javascriptSemanticSlots.js";
 
 import type {
+  JavaScriptSemanticBinding,
   JavaScriptSemanticCallable,
   JavaScriptSemanticModuleLink,
   JavaScriptSemanticReturnSite,
@@ -93,9 +94,12 @@ const semanticReturnSiteId = (
 export const resolveSemanticModuleCallables = (
   state: JavaScriptSemanticAnalysisState,
   callables: readonly JavaScriptSemanticCallable[],
+  bindings: readonly JavaScriptSemanticBinding[],
 ): JavaScriptSemanticModuleLink[] => {
   const callableIds = new Set(callables.map(({ callableId }) => callableId));
-  const resolutionModes = moduleResolutionModesByBinding(state);
+  const provenanceByBinding = new Map(
+    bindings.map(({ bindingId, provenance }) => [bindingId, provenance]),
+  );
   return state.moduleLinks.map((link) => {
     // Named exports follow their lexical binding, including every assignment.
     // A declaration's ID or a callable's display name cannot prove that link.
@@ -108,10 +112,14 @@ export const resolveSemanticModuleCallables = (
       binding === undefined
         ? []
         : callableIdsForBinding(binding, state, callableIds, new Set());
-    const resolutionMode =
+    const provenance =
       binding === undefined || link.specifier !== null
         ? undefined
-        : resolutionModes.get(binding);
+        : provenanceByBinding.get(binding.bindingId);
+    const resolutionMode =
+      provenance?.status === "module"
+        ? provenance.origins[0].resolutionMode
+        : undefined;
     return {
       ...link,
       ...(resolutionMode === "import" || resolutionMode === "require"
@@ -120,29 +128,6 @@ export const resolveSemanticModuleCallables = (
       callableId: resolved.length === 1 ? (resolved[0] ?? null) : null,
     };
   });
-};
-
-const moduleResolutionModesByBinding = (
-  state: JavaScriptSemanticAnalysisState,
-): ReadonlyMap<
-  JavaScriptSemanticBindingState,
-  JavaScriptSemanticModuleLink["resolutionMode"] | null
-> => {
-  const modes = new Map<
-    JavaScriptSemanticBindingState,
-    JavaScriptSemanticModuleLink["resolutionMode"] | null
-  >();
-  for (const link of state.moduleLinks) {
-    if (link.kind !== "import" && link.kind !== "require") continue;
-    const binding = state.moduleLinkBindings.get(link);
-    if (binding === undefined) continue;
-    const mode = link.kind === "require" ? "require" : link.resolutionMode;
-    modes.set(
-      binding,
-      modes.has(binding) && modes.get(binding) !== mode ? null : mode,
-    );
-  }
-  return modes;
 };
 
 const directReturnExpressions = (callable: t.Node): ReturnExpression[] =>
