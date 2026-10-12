@@ -52,92 +52,19 @@ export interface JavaScriptIntrinsicInvocation {
     | undefined;
 }
 
-/** Ordered property effects of an already-proven intrinsic invocation. */
-export interface JavaScriptIntrinsicMutation {
-  readonly site: t.CallExpression | t.OptionalCallExpression;
-  readonly target: t.Node;
-  readonly path: readonly (string | null)[];
-  readonly value?: t.Node;
-  readonly operation:
-    | "value"
-    | "delete"
-    | "descriptor"
-    | "copy"
-    | "descriptors"
-    | "identity";
-  readonly readAt: t.Node;
-  readonly returnsTarget: boolean;
-  readonly dispatchTarget?: t.Node;
-  readonly definite: boolean;
-}
-
-const intrinsicMutationEffects = (
-  site: t.CallExpression | t.OptionalCallExpression,
-  invocation: JavaScriptIntrinsicInvocation,
-  staticString: (node: t.Node | undefined) => string | undefined,
-): readonly JavaScriptIntrinsicMutation[] => {
-  const args = invocation.arguments;
-  if (!args || args.some(t.isSpreadElement)) return [];
-  const method = invocation.path.at(-1);
-  const owner = invocation.path[1];
-  const target =
-    owner === "Reflect" && method === "set" && args.length >= 4
-      ? args[3]
-      : args[0];
-  if (!t.isNode(target)) return [];
-  const effects: JavaScriptIntrinsicMutation[] = [];
-  const readAt = site.arguments.at(-1) ?? site.callee;
-  const retain = (
-    operation: JavaScriptIntrinsicMutation["operation"],
-    key: string | null,
-    value: t.Node | undefined,
-  ): void => {
-    effects.push({
-      site,
-      target,
-      path: [key],
-      ...(value === undefined ? {} : { value }),
-      operation,
-      readAt,
-      returnsTarget: owner === "Object",
-      ...(owner === "Reflect" &&
-      method === "set" &&
-      args.length >= 4 &&
-      t.isNode(args[0])
-        ? { dispatchTarget: args[0] }
-        : {}),
-      definite:
-        key !== null || operation === "copy" || operation === "descriptors",
-    });
-  };
-  const key = staticString(args[1]) ?? null;
-  if (method === "set") retain("value", key, args[2]);
-  else if (method === "deleteProperty") retain("delete", key, undefined);
-  else if (method === "defineProperty") retain("descriptor", key, args[2]);
-  else if (method === "assign") {
-    for (const source of args.slice(1)) retain("copy", null, source);
-  } else if (method === "defineProperties")
-    retain("descriptors", null, args[1]);
-  if (effects.length === 0) retain("identity", null, undefined);
-  // Prototype changes do not replace known own properties. Source objects and
-  // descriptors retain their syntax for the shared symbolic property owner.
-  return effects;
-};
-
-/** Index writes through caller-proven identities of bindings and receiver values. */
+/** Index member and binding writes through caller-proven lexical identities. */
 export function* collectJavaScriptIdentityWritesSteps(
   program: t.Program,
   origin: (
-    target: t.Node,
+    root: t.Node,
     kind: "binding" | "member" | "opaque-call",
-  ) => readonly (readonly (string | null)[])[],
+  ) => readonly string[] | undefined,
   intrinsicInvocation: (
     node: t.CallExpression | t.OptionalCallExpression,
   ) => JavaScriptIntrinsicInvocation | undefined,
   staticString: (node: t.Node | undefined) => string | undefined,
   freshObject: (node: t.Node) => boolean,
   retain: (node: t.Node, path: readonly (string | null)[]) => void,
-  retainMutation?: (mutation: JavaScriptIntrinsicMutation) => void,
 ): Generator<void> {
   const objectMutators = new Set([
     "defineProperty",
@@ -157,7 +84,8 @@ export function* collectJavaScriptIdentityWritesSteps(
       if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
         const invocation = intrinsicInvocation(node);
         if (invocation?.kind === "opaque") {
-          for (const scope of origin(node, "opaque-call")) retain(node, scope);
+          const scope = origin(node, "opaque-call");
+          if (scope !== undefined) retain(node, scope);
           return;
         }
         const callee = invocation?.path;
@@ -168,13 +96,6 @@ export function* collectJavaScriptIdentityWritesSteps(
           (owner === "Object" && objectMutators.has(method ?? "")) ||
           (owner === "Reflect" && reflectMutators.has(method ?? ""))
         ) {
-          if (invocation && retainMutation)
-            for (const effect of intrinsicMutationEffects(
-              node,
-              invocation,
-              staticString,
-            ))
-              retainMutation(effect);
           // Reflect.set can write through its explicit receiver as well as
           // dispatching through its target. Both identities need examination.
           const targets =
@@ -193,20 +114,20 @@ export function* collectJavaScriptIdentityWritesSteps(
             // A known mutator with an opaque argument list can overwrite any
             // captured intrinsic. Do not turn an unexamined target into proof.
             if (target === undefined || t.isSpreadElement(target)) {
-              for (const scope of origin(node, "opaque-call"))
-                retain(node, scope);
+              const scope = origin(node, "opaque-call");
+              if (scope !== undefined) retain(node, scope);
             }
             if (t.isNode(target) && !t.isSpreadElement(target)) {
-              const exports = origin(target, "member");
-              if (exports.length > 0) {
+              const { root, members } = electronMemberPath(target);
+              const exported = origin(root, "member");
+              if (exported !== undefined) {
                 const key = keyedMutators.has(method ?? "")
                   ? [staticString(arguments_?.[1]) ?? null]
                   : [];
-                for (const exported of exports)
-                  retain(node, [...exported, ...key]);
+                retain(node, [...exported, ...members, ...key]);
               } else if (!freshObject(target)) {
-                for (const scope of origin(node, "opaque-call"))
-                  retain(node, scope);
+                const scope = origin(node, "opaque-call");
+                if (scope !== undefined) retain(node, scope);
               }
             }
           }
@@ -224,15 +145,13 @@ export function* collectJavaScriptIdentityWritesSteps(
       if (target === undefined) return;
       for (const leaf of semanticWriteTargets(target)) {
         if (t.isIdentifier(leaf)) {
-          for (const exported of origin(leaf, "binding"))
-            retain(node, exported);
+          const exported = origin(leaf, "binding");
+          if (exported !== undefined) retain(node, exported);
           continue;
         }
-        // Replacing a container slot does not mutate the value previously in
-        // that slot. Resolve its receiver, then append the written key once.
-        const key = semanticStaticPropertyKey(leaf.property, leaf.computed);
-        for (const exported of origin(leaf.object, "member"))
-          retain(node, [...exported, key]);
+        const { root, members } = electronMemberPath(leaf);
+        const exported = origin(root, "member");
+        if (exported !== undefined) retain(node, [...exported, ...members]);
       }
     },
   });

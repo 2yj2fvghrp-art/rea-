@@ -1,5 +1,5 @@
 import * as t from "@babel/types";
-import type { JavaScriptSymbolicBindings } from "./javascriptSymbolicBindings.js";
+import { JavaScriptSymbolicBindings } from "./javascriptSymbolicBindings.js";
 import {
   symbolicVariants,
   symbolicTruth,
@@ -8,6 +8,7 @@ import {
   type SymbolicEnvironment,
   type SymbolicFunction,
 } from "./javascriptSymbolicValues.js";
+import type { JavaScriptSemanticAnalysisState } from "./javascriptSemanticState.js";
 import type { JavaScriptElectronIdentity } from "./javascriptSemanticAnalysis.js";
 import type { JavaScriptAnalysisAccumulator } from "./javascriptStaticAnalysisState.js";
 import type {
@@ -45,7 +46,7 @@ interface PathContext {
 /** Substitutes inert wrapper syntax; every emitted path remains a candidate. */
 export const collectElectronWrappedCallPaths = (
   program: t.Program,
-  resolver: JavaScriptSymbolicBindings,
+  state: JavaScriptSemanticAnalysisState,
   source: string,
   accumulator: JavaScriptAnalysisAccumulator,
   identity: JavaScriptElectronIdentity,
@@ -53,7 +54,7 @@ export const collectElectronWrappedCallPaths = (
   // Bounds repeated interprocedural expansion independently of bundle bytes.
   // Exhaustion is reported as unknown coverage, never as a negative finding.
   let remainingVisits = 1_000_000;
-  const { state } = resolver;
+  const resolver = new JavaScriptSymbolicBindings(state, program, identity);
   const paths: ElectronCallPath[] = [];
   const seen = new Set<string>();
   const step = (
