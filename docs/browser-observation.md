@@ -193,11 +193,30 @@ validation and resource bounds. Omitted script metadata makes its affected
 section explicitly truncated.
 Disallowed-origin entries are filtered before retention.
 
-CDP discovery, WebSocket connection, and commands continue until the peer responds or the caller cancels the operation; REA has no internal byte, message-count, or pending-command quota for these exchanges. Without caller cancellation, a stalled peer can leave an operation waiting. On cancellation, REA closes only its own WebSocket, waiting up to one second before terminating it. Malformed unsolicited events and malformed replies to pending commands poison the connection so later commands fail closed. When a correlated reply reports a session ID, it must match the command's selected session. An optional method is reported unavailable only when the browser rejects it as unknown; other command rejections retain their reported failure.
+CDP discovery, connection, and commands wait for the peer or caller cancellation;
+a stalled peer can leave an operation waiting. WebSocket messages remain subject
+to the [64 MiB limit](#request-boundary). REA does not impose a message-count or
+pending-command quota. On cancellation, it closes only its own WebSocket,
+waiting up to one second before terminating it. Malformed unsolicited events
+and malformed replies to pending commands poison the connection so later
+commands fail closed. A correlated reply's session ID must match the command's
+selected session. An optional method is unavailable only when the browser
+rejects it as unknown; other command rejections retain their reported failure.
 
 Network and console coverage starts only after REA attaches and enables the relevant CDP domains. `prior_activity_available` is always `false`; absence from these arrays is not evidence that an event never occurred. If CDP reuses a request ID without supplying redirect metadata, REA retains the predecessor observation and marks network coverage incomplete.
 
 Source maps are not fetched by inspection. Bundle analysis fetches them only when `fetch_source_maps` is selected, with exact-origin redirect checks and no credentials, cookies, or referrer. Each fetch operation has a 30-second deadline and a 64 MiB aggregate streamed-response budget across redirects. A deadline or byte-limit failure remains explicitly unavailable and makes bundle completeness partial. Source-map decoding also bounds raw resolved identities to 64 MiB and aggregate inline evidence to 32 MiB. Failed maps preserve their failure context when it fits; if another context cannot fit, collection stops with the full requested count, the returned processed count, and an explicit unknown-results limitation. Retained mappings and original sources are returned inline. See [source-location limits](web-source-location.md) for the structural decoder bounds. Original source artifacts with `.ts`, `.tsx`, `.mts`, or `.cts` suffixes carry `text/typescript`; other source names retain `text/javascript`.
+
+source-map items retain the script's `declared_url` separately from the observed
+`effective_url`. successful maps use the latter as their source-resolution base.
+failed fetches retain the last response URL observed within the approved origins;
+`effective_url` is `null` when no response was observed. query parameters are
+preserved, and both URLs count toward the inline evidence budget.
+Current fetches emit a string or null; historical observations may omit
+`effective_url` without changing their stored content or Evidence identity.
+An observed URL must fit before its response body is read. If it cannot fit,
+remaining map results are explicitly unknown; failed cancellation retains its
+cleanup context and resource constraint.
 
 ## Non-goals and threat model
 

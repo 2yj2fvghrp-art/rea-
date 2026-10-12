@@ -51,9 +51,9 @@ export interface AnalysisCleanupObservation {
 
 /** Optional provider-neutral context that must survive typed error projection. */
 export interface AnalysisErrorOptions extends ErrorOptions {
-  readonly capturedOutput?: AnalysisCapturedOutput;
-  readonly cleanup?: AnalysisCleanupObservation;
-  readonly partialObservation?: AnalysisPartialObservation;
+  readonly capturedOutput?: AnalysisCapturedOutput | undefined;
+  readonly cleanup?: AnalysisCleanupObservation | undefined;
+  readonly partialObservation?: AnalysisPartialObservation | undefined;
 }
 
 /** Base class for expected analysis, provider, and session failures. */
@@ -109,6 +109,11 @@ import type {
   AdbPackagePullPartialObservation,
 } from "./adb/adbDeviceAnalysis.js";
 import type { NativeUiObservationResult } from "./native/nativeUiObservation.js";
+import type { BinaryLayout } from "./native/binaryLayout.js";
+import type {
+  RecordedCrash,
+  RecordedCrashPartialObservation,
+} from "./native/recordedCrash.js";
 
 /** Provider-neutral evidence collected before a typed analysis failure. */
 export type AnalysisPartialObservation =
@@ -123,6 +128,9 @@ export type AnalysisPartialObservation =
   | WebScriptExportPartialObservation
   | JavaScriptRecoveryPartialObservation
   | Evidence
+  | BinaryLayout
+  | RecordedCrash
+  | RecordedCrashPartialObservation
   | AndroidPartialObservation
   | FirmwarePartialObservation
   | NativeUiObservationResult

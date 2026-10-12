@@ -17,7 +17,10 @@ import {
   parseExecutableHeader,
   type ExecutableMetadata,
 } from "../domain/binaryTarget.js";
-import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
+import {
+  isMachOFormat,
+  type BinaryArchitecture,
+} from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 import {
   ghidraApplicationProperties,
@@ -28,7 +31,6 @@ import {
   ghidraReleaseCompatibility,
   ghidraReleaseLine,
   ghidraVersionDetail,
-  SUPPORTED_GHIDRA_JAVA_MAJOR,
   SUPPORTED_GHIDRA_VERSION,
   type GhidraApplicationProperties,
   type GhidraJavaRequirement,
@@ -132,7 +134,10 @@ const assessNativeDecompiler = (
     };
   const observed = `${parsed.value.format} ${parsed.value.architecture}`;
   const expected = `${expectedFormat} ${expectedArchitecture}`;
-  if (observed === expected)
+  const formatMatches = isMachOFormat(expectedFormat)
+    ? isMachOFormat(parsed.value.format)
+    : parsed.value.format === expectedFormat;
+  if (formatMatches && parsed.value.architecture === expectedArchitecture)
     return {
       status: "compatible",
       detail: `${path} reports ${observed}, which matches ${platform}/${architecture}`,
@@ -729,7 +734,16 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
   probeJava(command, environment) {
     const observed = spawnSync(
       command,
-      ["-XX:-UsePerfData", "-XshowSettings:properties", "-version"],
+      [
+        "-Dstdout.encoding=UTF-8",
+        "-Dstderr.encoding=UTF-8",
+        // JDK 17/18 use the legacy names; JDK 19+ use the names above.
+        "-Dsun.stdout.encoding=UTF-8",
+        "-Dsun.stderr.encoding=UTF-8",
+        "-XX:-UsePerfData",
+        "-XshowSettings:properties",
+        "-version",
+      ],
       {
         encoding: "utf8",
         env: environment,

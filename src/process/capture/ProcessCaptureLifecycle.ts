@@ -3,7 +3,7 @@ import { constants, statSync, type BigIntStats } from "node:fs";
 import { open, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { setImmediate, setTimeout as delay } from "node:timers/promises";
 import type { IPty } from "@lydell/node-pty";
 
 import type { ProcessCapture } from "../../domain/process/processCaptureParsing.js";
@@ -271,6 +271,10 @@ export const settleProcessCaptureJournal = async (
   let lastChangeAt = Date.now();
   while (Date.now() < deadline) {
     await new Promise<void>((resolve) => setTimeout(resolve, 4));
+    // A stalled event loop can leave timer and poll callbacks that were already
+    // due queued behind this wake-up. Drain them before judging silence so a
+    // trailing observation is not dropped by an early settle.
+    await setImmediate();
     if (journal.length !== observed) {
       observed = journal.length;
       lastChangeAt = Date.now();
@@ -658,6 +662,7 @@ export const observeSettlement = async (
   }
   const started = Date.now();
   let consecutiveEmpty = 0;
+  let sawLive = false;
   let deadlineReached = false;
   while (!deadlineReached) {
     onLiveProgress?.();
@@ -681,13 +686,20 @@ export const observeSettlement = async (
         recordEvent("lifecycle", 1);
         return { state: "quiesced", elapsed_ms: Date.now() - started };
       }
-    } else consecutiveEmpty = 0;
+    } else {
+      consecutiveEmpty = 0;
+      sawLive = true;
+    }
     deadlineReached = Date.now() - started >= settleMs;
     if (deadlineReached) break;
     await delay(50, undefined, { signal });
   }
   recordEvent("lifecycle", 1);
-  return { state: "alive_at_deadline", elapsed_ms: Date.now() - started };
+  // A lone empty observation proves neither liveness nor quiescence; only an
+  // observed live member justifies alive_at_deadline.
+  return sawLive
+    ? { state: "alive_at_deadline", elapsed_ms: Date.now() - started }
+    : { state: "unverifiable", elapsed_ms: Date.now() - started };
 };
 
 /** Name why an attempt is unverified; a blank message never reaches the capture schema. */

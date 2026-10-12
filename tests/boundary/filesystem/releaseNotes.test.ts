@@ -1,9 +1,20 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import {
+  createTestWorkspace,
+  removeTestWorkspace,
+} from "../../support/workspace/workspaceFixture.js";
 import {
   executeWorkflowFixture as exec,
   workflowGit as git,
@@ -23,8 +34,20 @@ const page = (nodes: unknown[], cursor: string | null = null) => ({
   pageInfo: { hasNextPage: cursor !== null, endCursor: cursor },
 });
 
-async function fixture() {
-  const directory = await createTestTempDirectory("rea-release-notes-");
+interface ReleaseNotesSeed {
+  readonly directory: string;
+  readonly base: string;
+  readonly target: string;
+}
+
+let seed: ReleaseNotesSeed | undefined;
+let seedWorkspaceRoot: string | undefined;
+
+beforeAll(async () => {
+  const workspace = await createTestWorkspace("rea-release-notes-seed-");
+  seedWorkspaceRoot = workspace.root;
+  const directory = workspace.path("repository");
+  await mkdir(directory, { recursive: true });
   await git(directory, ["init", "--initial-branch=main"]);
   await writeFile(join(directory, "product.txt"), "base");
   await writeFile(
@@ -83,6 +106,7 @@ async function fixture() {
           author("platformbot", "Bot"),
           author("claude"),
           author("cursoragent"),
+          author("morluto"),
         ]),
         associatedPullRequests: page([]),
       },
@@ -141,6 +165,25 @@ process.stdout.write(JSON.stringify({data:{repository:result}}));
 `,
   );
   await chmod(join(bin, "gh"), 0o755);
+  seed = { directory, base, target };
+});
+
+afterAll(async () => {
+  if (seedWorkspaceRoot !== undefined)
+    await removeTestWorkspace(seedWorkspaceRoot);
+});
+
+async function fixture() {
+  const initial = seed;
+  if (initial === undefined)
+    throw new Error("Release notes seed was not initialized");
+  const directory = await createTestTempDirectory("rea-release-notes-");
+  await cp(initial.directory, directory, {
+    recursive: true,
+    dereference: true,
+  });
+  const { base, target } = initial;
+  const bin = join(directory, "bin");
   const manifest = join(directory, "inventory.json");
   const invoke = (args: string[]) =>
     exec(process.execPath, [cli, ...args], {
@@ -186,7 +229,7 @@ it("inventories side branches and paginated credits, then checks and renders syn
   );
   expect(f.record).toContain("Thanks @dana.");
   expect(f.record).not.toMatch(
-    /@(?:merger|automation|platformbot|claude|cursoragent)/u,
+    /@(?:merger|automation|platformbot|claude|cursoragent|morluto)/u,
   );
   const body = join(f.directory, "body.md");
   await writeFile(
@@ -211,6 +254,37 @@ it("inventories side branches and paginated credits, then checks and renders syn
   await expect(
     f.invoke(["render", "--manifest", f.manifest, "--output", output]),
   ).rejects.toMatchObject({ stderr: expect.stringContaining("EEXIST") });
+  const { stdout: summary } = await f.invoke([
+    "record",
+    "--manifest",
+    f.manifest,
+    "--summary",
+  ]);
+  expect(summary).toContain("3 commits and 1 merged PR]");
+  expect(summary).toContain(
+    "/blob/rea-agents-6.4.0/docs/releases/6.4.0.contributions.json",
+  );
+  expect(summary).not.toContain("Thanks");
+  const conciseNotes = f.notes
+    .replace(f.record, summary)
+    .replace(
+      "### Changes\n",
+      "### Changes\n\n- Capability details (#101).\n- Related migration (#51).\n",
+    );
+  await writeFile(join(f.directory, "CHANGELOG.md"), conciseNotes);
+  await f.invoke(["check", "--manifest", f.manifest]);
+  await writeFile(
+    join(f.directory, "CHANGELOG.md"),
+    conciseNotes.replace(
+      "6.4.0.contributions.json",
+      "6.3.0.contributions.json",
+    ),
+  );
+  await expect(
+    f.invoke(["check", "--manifest", f.manifest]),
+  ).rejects.toMatchObject({
+    stderr: expect.stringContaining("Contribution record differs"),
+  });
   await expect(
     f.invoke([
       "inventory",
@@ -238,16 +312,16 @@ it("rejects lost grouped credits, fabricated references, bots, and stale PR bodi
     throw new Error("Fixture is missing its direct contribution");
   for (const [replacement, error] of [
     [f.bullet.replace(", @bob", ""), "Missing Thanks @bob"],
+    [
+      f.bullet.replace(", @bob", "") + "\n- Thanks @bob for other work.",
+      "Missing Thanks @bob",
+    ],
     [f.bullet + " (#999)", "Unknown release reference #999"],
     [f.bullet + "a".repeat(65_536), "inline PR body limit"],
     [f.bullet + "汉".repeat(43_000), "GitHub's body budget"],
     [
       f.bullet + `\n- Fixed direct behavior (${directLink}).`,
       "Missing Thanks @dana",
-    ],
-    [
-      f.bullet + "\n- Fixed the reported problem (#51).",
-      "Missing Thanks @reporter",
     ],
     [
       f.bullet + " Thanks @automation[bot].",

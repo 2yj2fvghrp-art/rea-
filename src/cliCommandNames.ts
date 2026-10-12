@@ -1,5 +1,6 @@
 /** Canonical names used by every one-shot CLI command registration. */
 export const CLI_COMMANDS = Object.freeze({
+  inspectWasmArtifact: "inspect-wasm-artifact",
   inspectEvmInterface: "inspect-evm-interface",
   inspectWebNetworkCapture: "inspect-web-network-capture",
   observeWebExecution: "observe-web-execution",
@@ -41,12 +42,18 @@ export const CLI_COMMANDS = Object.freeze({
   inspectManagedArtifact: "inspect-managed-artifact",
   inspectRecordedCrash: "inspect-recorded-crash",
   inspectBinaryLayout: "inspect-binary-layout",
+  inspectGoBinary: "inspect-go-binary",
   inspectPeResources: "inspect-pe-resources",
   inspectAnalysisView: "inspect-analysis-view",
+  listFridaDevices: "list-frida-devices",
+  listFridaProcesses: "list-frida-processes",
+  instrumentWithFrida: "instrument-with-frida",
   inspectEvidenceBundle: "inspect-evidence-bundle",
   inspectFirmwareRegions: "inspect-firmware-regions",
   extractFirmware: "extract-firmware",
   inspectAndroidPackage: "inspect-android-package",
+  identifyFlutterBuild: "identify-flutter-build",
+  inspectDartAot: "inspect-dart-aot",
   inspectApktoolClient: "inspect-apktool-client",
   decodeAndroidResources: "decode-android-resources",
   inspectAdbClient: "inspect-adb-client",
@@ -127,6 +134,7 @@ export const CLI_COMMANDS = Object.freeze({
   evaluateReconstructionCoverage: "evaluate-reconstruction-coverage",
   projectAndroidApplicationGraph: "project-android-application-graph",
   projectAppleApplicationGraph: "project-apple-application-graph",
+  projectHarmonyApplicationGraph: "project-harmony-application-graph",
 });
 
 /** Ordered primary CLI inventory; aliases are intentionally excluded. */
@@ -146,6 +154,9 @@ export const CLI_COMMAND_TOOL_ALIASES = Object.freeze({
   search: ["search_strings", "search_procedures"],
   "capture-process": ["capture_process_scenario"],
   "compare-bundles": ["compare_bundles"],
+  "list-frida-devices": ["list_frida_devices"],
+  "list-frida-processes": ["list_frida_processes"],
+  "instrument-with-frida": ["instrument_with_frida"],
 });
 
 /** MCP operations without a dedicated CLI command or direct command alias. */
@@ -203,4 +214,10 @@ export const MCP_TOOLS_WITHOUT_DEDICATED_CLI = Object.freeze([
   "get_evidence_bundle",
   "get_navigation_context",
   "inspect_address_context",
+  "start_frida_session",
+  "load_frida_script",
+  "resume_frida_session",
+  "unload_frida_script",
+  "frida_session_status",
+  "close_frida_session",
 ]);
