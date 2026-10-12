@@ -2,6 +2,41 @@ import { expect, it } from "vitest";
 
 import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
 
+it("does not recover a replaced method through a subsequent alias", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `const fs = require('node:fs'); fs.readFileSync = custom; const read = fs.readFileSync; read('config.json');`,
+  );
+  expect(ir.configurationOperations).toEqual([]);
+});
+
+it.each([
+  "fs.readFileSync = custom; fs.createReadStream = custom; cp.spawn = custom; timers.setTimeout = custom; http.get = custom;",
+  "patch(fs); patch(cp); patch(timers); patch(http);",
+  "const fsAlias = fs; fsAlias.readFileSync = custom; fsAlias.createReadStream = custom; const cpAlias = cp; cpAlias.spawn = custom; timers[key] = custom; delete http.get;",
+])("excludes replaced or escaped CommonJS methods: %s", (mutation) => {
+  const ir = analyzeJavaScriptSemantics(`
+    const fs = require('node:fs'); const cp = require('node:child_process');
+    const timers = require('node:timers'); const http = require('node:http');
+    ${mutation}
+    fs.readFileSync('config.json'); fs.createReadStream('config.json');
+    cp.spawn('tool', []); timers.setTimeout(callback, 1); http.get('http://example.test');
+  `);
+  expect(ir.configurationOperations).toEqual([]);
+  expect(ir.resourceOperations).toEqual([]);
+  expect(ir.childProcessSpawns).toEqual([]);
+  expect(ir.timerOperations).toEqual([]);
+  expect(ir.requestOperations).toEqual([]);
+});
+
+it("preserves unaffected CommonJS methods after sibling property mutation", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `const fs = require('node:fs'); fs.writeFileSync = custom; fs.readFileSync('config.json');`,
+  );
+  expect(ir.configurationOperations).toMatchObject([
+    { kind: "file", key: "config.json" },
+  ]);
+});
+
 it.each([
   `const fs = require("node:fs"); const cp = require("node:child_process");
    const timers = require("node:timers"); const http = require("node:http");

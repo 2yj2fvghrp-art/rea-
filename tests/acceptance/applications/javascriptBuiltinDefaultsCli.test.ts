@@ -12,6 +12,57 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 
 const execute = promisify(execFile);
 
+it("excludes monkey-patched CommonJS effects from CLI and MCP evidence", async () => {
+  const root = await createTestTempDirectory("rea-builtin-mutated-");
+  await writeFile(
+    join(root, "app.cjs"),
+    `
+    throw new Error("parse only");
+    const fs = require("node:fs"); fs.readFileSync = custom; fs.createReadStream = custom;
+    const cp = require("node:child_process"); cp.spawn = custom;
+    const timers = require("node:timers"); patch(timers);
+    const http = require("node:http"); delete http.get;
+    fs.readFileSync("config.json"); const stream = fs.createReadStream("config.json"); stream.destroy();
+    const child = cp.spawn("tool", []); child.kill();
+    const timer = timers.setTimeout(callback, 1); clearTimeout(timer);
+    http.get("http://example.test");
+  `,
+  );
+  const { stdout } = await execute(
+    process.execPath,
+    ["scripts/rea.mjs", "analyze-javascript-application", root, "--json"],
+    { cwd: process.cwd(), maxBuffer: 16 * 1024 * 1024 },
+  );
+  const evidence = parseEvidence(JSON.parse(stdout));
+  const result = javascriptApplicationAnalysisResultSchema.parse(
+    evidence.normalized_result,
+  );
+  expect(
+    result.semantic_graph.nodes.filter(({ kind }) =>
+      [
+        "config-source",
+        "resource",
+        "child-process",
+        "timer",
+        "request",
+      ].includes(kind),
+    ),
+  ).toEqual([]);
+  expect(
+    result.semantic_graph.relations.filter(({ relation }) =>
+      ["releases", "forwards-signal", "cancels-timer"].includes(relation),
+    ),
+  ).toEqual([]);
+  const { client, call } = await connectLocalToolsMcp();
+  const response = await call("analyze_javascript_application", {
+    input_path: root,
+    format: "auto",
+  });
+  expect(response.isError, JSON.stringify(response)).not.toBe(true);
+  expect(response.structuredContent).toEqual(evidence);
+  await client.ping();
+}, 60000);
+
 it("retains CommonJS builtin effects and handle links through CLI and MCP", async () => {
   const root = await createTestTempDirectory("rea-builtin-commonjs-");
   await writeFile(
