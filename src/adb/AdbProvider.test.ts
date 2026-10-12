@@ -53,6 +53,28 @@ const refusedBy = async (
   return projectAnalysisError(result.error);
 };
 
+const namesAliasOnVolume = async (
+  parent: string,
+  firstName: string,
+  secondName: string,
+): Promise<boolean> => {
+  const probe = join(parent, "destination-name-probe");
+  await mkdir(probe);
+  try {
+    await mkdir(join(probe, firstName));
+    try {
+      await mkdir(join(probe, secondName));
+      return false;
+    } catch (cause) {
+      if (cause instanceof Error && "code" in cause && cause.code === "EEXIST")
+        return true;
+      throw cause;
+    }
+  } finally {
+    await rm(probe, { recursive: true, force: true });
+  }
+};
+
 it("inspects the adb client without contacting the server", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; fi`,
@@ -155,7 +177,7 @@ const pullStub = (
   paths: string,
   pullBody: string,
 ): string => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then
+if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then
   printf '%s\\n' ${paths}
   exit 0
 fi
@@ -177,7 +199,7 @@ const shellStub = (
         second === undefined
           ? `[ "$4" = "${first}" ]`
           : `[ "$4" = "${first}" ] && [ "$5" = "${second}" ]`;
-      return `  if ${guard}; then printf '%b' '${output.replace(/'/gu, "'\\''")}'; exit 0; fi`;
+      return `  if ${guard}; then printf '%b' '${output.replaceAll("\\", "\\\\").replaceAll("\0", "\\000").replace(/'/gu, "'\\''")}'; exit 0; fi`;
     })
     .join("\n");
   return () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
@@ -284,240 +306,105 @@ it("refuses to reuse an existing package output directory", async () => {
   expect(result.error.message).toContain("already exists");
 });
 
-it("refuses a pm path file name that would escape the package directory", async () => {
-  const { binary, root } = await writeAdbStub((root) =>
-    pullStub(
-      "'package:/data/app/x/base.apk' 'package:/data/app/x/..'",
-      `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
-    ),
-  );
-  const output = join(root, "pulls");
-  const result = await providerOver(binary).execute({
-    operation: "pull_adb_package",
-    input: {
-      serial: "emulator-5554",
-      package: "com.hostile",
-      output_directory: output,
-    },
-  });
-  if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisOutputError");
-  const projected = projectAnalysisError(result.error);
-  expect(projected).toMatchObject({
-    code: "unreadable_output",
-    retryable: false,
-    details: {
-      operation: "pull_adb_package",
-      reason: "unsafe_device_path",
-      diagnostics: {
-        package_name: "com.hostile",
-        rejected_paths: [
-          {
-            device_path: "/data/app/x/..",
-            file_name: "..",
-            reason: "dot_segment",
-          },
-        ],
-      },
-    },
-  });
-  expect(projected.message).toContain('"/data/app/x/.."');
-  expect(projected.message).toContain("dot_segment");
-  expect(projected.message).not.toContain("rea doctor");
-  expect(projected.details?.captured_output).toMatchObject({
-    stdout: expect.stringContaining("package:/data/app/x/..") as unknown,
-  });
-  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
-});
-
 it.each([
+  ["an empty filename", "package:/data/app/x/"],
   [
-    "a dot-dot final segment",
-    "'package:/data/app/x/..'",
-    "/data/app/x/..",
-    "dot_segment",
+    "duplicate local filenames",
+    "package:/data/app/x/base.apk\npackage:/data/app/y/base.apk",
   ],
-  [
-    "a trailing space",
-    "'package:/data/app/x/base.apk '",
-    "/data/app/x/base.apk ",
-    "whitespace_or_control",
-  ],
-])(
-  "refuses a pm path whose only entry has %s instead of reporting absence",
-  async (_, paths, devicePath, reason) => {
-    const { binary, root } = await writeAdbStub((root) =>
-      pullStub(
-        paths,
-        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
-      ),
-    );
-    const output = join(root, "pulls");
-    const result = await providerOver(binary).execute({
-      operation: "pull_adb_package",
-      input: {
-        serial: "emulator-5554",
-        package: "com.hostile",
-        output_directory: output,
-      },
-    });
-    if (result.ok) throw new Error("expected a refusal");
-    expect(result.error._tag).toBe("AnalysisOutputError");
-    const projected = projectAnalysisError(result.error);
-    expect(projected).toMatchObject({
-      code: "unreadable_output",
-      details: {
-        reason: "unsafe_device_path",
-        diagnostics: { rejected_paths: [{ device_path: devicePath, reason }] },
-      },
-    });
-    expect(projected.message).toContain(JSON.stringify(devicePath));
-    expect(result.error.capturedOutput?.stdout).toContain(
-      "package:/data/app/x/",
-    );
-    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
-  },
-);
-
-it("refuses case-folded file name aliases before any filesystem effect", async () => {
-  const { binary, root } = await writeAdbStub((root) =>
-    pullStub(
-      "'package:/data/app/x/base.apk' 'package:/data/app/y/BASE.apk'",
-      `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
-    ),
-  );
-  const output = join(root, "pulls");
-  const result = await providerOver(binary).execute({
-    operation: "pull_adb_package",
-    input: {
-      serial: "emulator-5554",
-      package: "com.hostile",
-      output_directory: output,
-    },
-  });
-  if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisOutputError");
-  const projected = projectAnalysisError(result.error);
-  expect(projected).toMatchObject({
-    code: "unreadable_output",
-    details: {
-      operation: "pull_adb_package",
-      reason: "aliased_device_paths",
-      diagnostics: {
-        package_name: "com.hostile",
-        alias_reason: "case_fold_alias",
-        aliased_paths: [
-          { device_path: "/data/app/x/base.apk", file_name: "base.apk" },
-          { device_path: "/data/app/y/BASE.apk", file_name: "BASE.apk" },
-        ],
-      },
-    },
-  });
-  expect(projected.message).toContain('"/data/app/x/base.apk"');
-  expect(projected.message).toContain('"/data/app/y/BASE.apk"');
-  expect(projected.details?.captured_output).toMatchObject({
-    stdout: expect.stringContaining("package:/data/app/y/BASE.apk") as unknown,
-  });
-  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
-});
-
-it("runs pm path without a remote PTY", async () => {
+])("refuses %s before creating output or pulling", async (_, pmOutput) => {
   const { binary, root } = await writeAdbStub(
     (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-printf '%s\\n' "$@" >> ${join(root, "argv.log")}
-if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ]; then exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf '%b' '${pmOutput.replaceAll("'", "'\\''").replaceAll("\n", "\\n")}\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then : > '${join(root, "pull-ran")}'; exit 0; fi
 exit 1`,
   );
-  await refusedBy(providerOver(binary), {
+  const output = join(root, "pulls");
+  const result = await providerOver(binary).execute({
     operation: "pull_adb_package",
     input: {
       serial: "emulator-5554",
       package: "com.example",
-      output_directory: join(root, "pulls"),
+      output_directory: output,
     },
   });
-  const logged = (await readFile(join(root, "argv.log"), "utf8"))
-    .trim()
-    .split("\n");
-  expect(logged).toEqual([
-    "-s",
-    "emulator-5554",
-    "shell",
-    "-T",
-    "pm",
-    "path",
-    "com.example",
-  ]);
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error.capturedOutput?.stdout).toContain(
+    pmOutput.split("\n")[0],
+  );
+  await expect(readFile(join(root, "pull-ran"))).rejects.toThrow();
+  await expect(lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 it.each([
   [
-    "a CR before the LF terminator",
-    `"$(printf 'package:/data/app/x/base.apk\\r')"`,
-    "/data/app/x/base.apk\r",
+    "an unusable final segment",
+    "package:/data/app/x/base.apk\npackage:/data/app/x/..\npackage:/data/app/y/",
+    {
+      reason: "unsafe_device_path",
+      diagnostics: {
+        package_name: "com.example",
+        rejected_paths: [
+          { device_path: "/data/app/x/..", reason: "dot_segment" },
+          { device_path: "/data/app/y/", reason: "empty_file_name" },
+        ],
+      },
+    },
+    '"/data/app/x/.." (dot_segment) and 1 other path(s)',
   ],
   [
-    "mixed CRLF and LF framing",
-    `"$(printf 'package:/data/app/x/base.apk\\r')" 'package:/data/app/x/split_a.apk'`,
-    "/data/app/x/base.apk\r",
+    "a duplicate local file name",
+    "package:/data/app/x/base.apk\npackage:/data/app/y/base.apk",
+    {
+      reason: "duplicate_local_destination",
+      diagnostics: {
+        package_name: "com.example",
+        file_name: "base.apk",
+        device_paths: ["/data/app/x/base.apk", "/data/app/y/base.apk"],
+      },
+    },
+    '"/data/app/x/base.apk" and "/data/app/y/base.apk"',
   ],
 ])(
-  "refuses a pm path record with %s instead of pulling a different path",
-  async (_, paths, devicePath) => {
-    const { binary, root } = await writeAdbStub((root) =>
-      pullStub(
-        paths,
-        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
-      ),
+  "projects %s as a diagnosable pm path refusal",
+  async (_, pmOutput, details, excerpt) => {
+    const { binary, root } = await writeAdbStub(
+      () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf '%b' '${pmOutput}\\n'; exit 0; fi
+exit 1`,
     );
-    const output = join(root, "pulls");
-    const result = await providerOver(binary).execute({
+    const projected = await refusedBy(providerOver(binary), {
       operation: "pull_adb_package",
       input: {
         serial: "emulator-5554",
-        package: "com.hostile",
-        output_directory: output,
+        package: "com.example",
+        output_directory: join(root, "pulls"),
       },
     });
-    if (result.ok) throw new Error("expected a refusal");
-    const projected = projectAnalysisError(result.error);
     expect(projected).toMatchObject({
       code: "unreadable_output",
       retryable: false,
       details: {
-        reason: "unsafe_device_path",
-        diagnostics: {
-          rejected_paths: [
-            {
-              device_path: devicePath,
-              file_name: "base.apk\r",
-              reason: "whitespace_or_control",
-            },
-          ],
+        operation: "pull_adb_package",
+        ...details,
+        captured_output: {
+          stdout: expect.stringContaining("package:/data/app/") as unknown,
         },
       },
     });
-    expect(projected.message).toContain('"/data/app/x/base.apk\\r"');
-    expect(result.error.capturedOutput?.stdout).toContain(
-      "package:/data/app/x/base.apk\r\n",
-    );
-    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+    expect(projected.message).toContain(excerpt);
+    expect(projected.message).not.toContain("rea doctor");
+    expect(projected.remediation.action).toContain("details.diagnostics");
   },
 );
 
-it("reports a device that only offers a PTY shell as a target refusal", async () => {
+it("projects a destination the output filesystem cannot create before pulling", async () => {
+  const fileName = `${"a".repeat(300)}.apk`;
   const { binary, root } = await writeAdbStub(
     (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then printf 'pulled\\n' >> ${join(root, "pull.log")}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "-T" ]; then printf 'error: device only supports allocating a pty\\n' >&2; exit 1; fi
+if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf 'package:/data/app/x/${fileName}\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then : > '${join(root, "pull-ran")}'; exit 0; fi
 exit 1`,
   );
   const output = join(root, "pulls");
@@ -529,143 +416,116 @@ exit 1`,
       output_directory: output,
     },
   });
-  expect(projected).toMatchObject({ code: "unsupported_target" });
-  expect(projected.message).toContain("only supports allocating a pty");
-  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
-});
-
-it("pulls a lone mixed-case file name unchanged", async () => {
-  const { binary, root } = await writeAdbStub(() =>
-    pullStub(
-      "'package:/data/app/x/Base.apk'",
-      `  printf 'apk-bytes-for-testing' > "$5"`,
-    ),
-  );
-  const output = join(root, "pulls");
-  const result = await evidenceResult(providerOver(binary), {
-    operation: "pull_adb_package",
-    input: {
-      serial: "emulator-5554",
-      package: "com.mixed",
-      output_directory: output,
-    },
-  });
-  expect(result.coverage).toBe("complete");
-  expect(result.artifacts).toMatchObject([
-    {
-      file_name: "Base.apk",
-      local_path: join(output, "com.mixed", "Base.apk"),
-    },
-  ]);
-});
-
-it("refuses a reserved Windows device file name before any filesystem effect", async () => {
-  const { binary, root } = await writeAdbStub((root) =>
-    pullStub(
-      "'package:/data/app/x/base.apk' 'package:/data/app/x/NUL.apk'",
-      `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
-    ),
-  );
-  const output = join(root, "pulls");
-  const result = await providerOver(binary).execute({
-    operation: "pull_adb_package",
-    input: {
-      serial: "emulator-5554",
-      package: "com.hostile",
-      output_directory: output,
-    },
-  });
-  if (result.ok) throw new Error("expected a refusal");
-  expect(result.error._tag).toBe("AnalysisOutputError");
-  expect(projectAnalysisError(result.error)).toMatchObject({
+  expect(projected).toMatchObject({
+    code: "unreadable_output",
+    retryable: false,
     details: {
-      reason: "unsafe_device_path",
+      reason: "local_destination_unavailable",
       diagnostics: {
-        rejected_paths: [
-          {
-            device_path: "/data/app/x/NUL.apk",
-            file_name: "NUL.apk",
-            reason: "reserved_name",
-          },
-        ],
+        package_name: "com.example",
+        device_path: `/data/app/x/${fileName}`,
+        file_name: fileName,
+        error_code: "ENAMETOOLONG",
       },
     },
   });
-  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+  expect(projected.message).toContain("ENAMETOOLONG");
+  await expect(readFile(join(root, "pull-ran"))).rejects.toThrow();
+  await expect(lstat(join(output, "com.example"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+});
+
+it("escapes invisible and bidi code points in refusal prose but keeps raw details", async () => {
+  const devicePath = "/data/app/x/\u202egpj.apk";
+  const { binary, root } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf 'package:%s\\npackage:%s\\n' '${devicePath}' '/data/app/y/\u202egpj.apk'; exit 0; fi
+exit 1`,
+  );
+  const projected = await refusedBy(providerOver(binary), {
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.example",
+      output_directory: join(root, "pulls"),
+    },
+  });
+  expect(projected.details).toMatchObject({
+    reason: "duplicate_local_destination",
+    diagnostics: {
+      file_name: "\u202egpj.apk",
+      device_paths: [devicePath, "/data/app/y/\u202egpj.apk"],
+    },
+  });
+  expect(projected.message).toContain('"/data/app/x/\\u{202E}gpj.apk"');
+  expect(projected.message).not.toContain("\u202e");
 });
 
 it.each([
-  ["U+202E", "\u202e"],
-  ["U+200B", "\u200b"],
-  ["U+FEFF", "\ufeff"],
-  ["U+2066", "\u2066"],
-  ["U+034F", "\u034f"],
-  ["U+115F", "\u115f"],
-  ["U+3164", "\u3164"],
-  ["U+FFA0", "\uffa0"],
-  ["U+180B", "\u180b"],
-  ["U+E0001", "\u{e0001}"],
+  ["case-only names", "base.apk", "BASE.APK"],
+  ["normalization-equivalent names", "caf\u00e9.apk", "cafe\u0301.apk"],
 ])(
-  "refuses %s format controls and default-ignorables in directory and file names before any filesystem effect",
-  async (_, char) => {
-    const inDirectory = `/data/${char}ppa/x/base.apk`;
-    const inFileName = `/data/app/x/split${char}_a.apk`;
+  "checks %s against the actual destination filesystem before pulling",
+  async (_, firstName, secondName) => {
     const { binary, root } = await writeAdbStub((root) =>
       pullStub(
-        `'package:${inDirectory}' 'package:${inFileName}'`,
-        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
-  printf 'x' > "$5"`,
+        `'package:/data/app/x/${firstName}' 'package:/data/app/y/${secondName}'`,
+        `printf 'pulled\\n' >> '${join(root, "pull.log")}'
+  printf 'apk' > "$5"`,
       ),
     );
-    const output = join(root, "pulls");
+    const aliases = await namesAliasOnVolume(root, firstName, secondName);
     const result = await providerOver(binary).execute({
       operation: "pull_adb_package",
       input: {
         serial: "emulator-5554",
-        package: "com.hostile",
-        output_directory: output,
+        package: "com.example",
+        output_directory: root,
       },
     });
-    if (result.ok) throw new Error("expected a refusal");
-    const projected = projectAnalysisError(result.error);
-    expect(projected).toMatchObject({
-      code: "unreadable_output",
-      details: {
-        reason: "unsafe_device_path",
-        diagnostics: {
-          rejected_paths: [
-            {
-              device_path: inDirectory,
-              file_name: "base.apk",
-              reason: "whitespace_or_control",
-            },
-            {
-              device_path: inFileName,
-              file_name: `split${char}_a.apk`,
-              reason: "whitespace_or_control",
-            },
-          ],
+    const pullLog = join(root, "pull.log");
+    const packageDirectory = join(root, "com.example");
+    if (aliases) {
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(projectAnalysisError(result.error)).toMatchObject({
+        code: "unreadable_output",
+        retryable: false,
+        remediation: {
+          action: expect.stringContaining("details.diagnostics") as unknown,
         },
-      },
-    });
-    // The raw path stays in the structured details; the prose escapes it.
-    expect(projected.message).not.toContain(char);
-    expect(projected.message).toContain(
-      `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`,
+        details: {
+          reason: "local_destination_unavailable",
+          diagnostics: {
+            package_name: "com.example",
+            device_path: `/data/app/y/${secondName}`,
+            file_name: secondName,
+            error_code: "EEXIST",
+          },
+        },
+      });
+      await expect(readFile(pullLog)).rejects.toThrow();
+      await expect(lstat(packageDirectory)).rejects.toThrow();
+      return;
+    }
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(
+      (
+        result.value.result as { artifacts: { file_name: string }[] }
+      ).artifacts.map((artifact) => artifact.file_name),
+    ).toEqual([firstName, secondName]);
+    expect((await readFile(pullLog, "utf8")).trim().split("\n")).toHaveLength(
+      2,
     );
-    expect(projected.message).toContain("and 1 other path(s)");
-    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
-    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
   },
 );
 
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then exit 0; fi`,
+if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then exit 0; fi`,
   );
   const projected = await refusedBy(providerOver(binary), {
     operation: "pull_adb_package",
@@ -715,9 +575,35 @@ it("reports a missing selected binary as a capability gap with recovery", async 
   if (result.ok) return;
   const projected = projectAnalysisError(result.error);
   expect(projected).toMatchObject({ code: "capability_unavailable" });
+  expect(projected.message).toContain("REA_ADB_PATH");
+  expect(projected.remediation).toMatchObject({
+    action: expect.stringContaining("REA_ADB_PATH") as unknown,
+  });
   expect(projected.details).toMatchObject({
     provider_id: "adb",
     reason: expect.stringContaining("not found") as unknown,
+  });
+});
+
+it("reports relative adb configuration as an actionable refusal", async () => {
+  const provider = new AdbProvider({
+    environment: { REA_ADB_PATH: "relative/adb" },
+  });
+  const availability = await provider.inspectAvailability();
+  expect(availability).toMatchObject({
+    status: "unavailable",
+    reason: expect.stringContaining("REA_ADB_PATH") as unknown,
+  });
+  const projected = await refusedBy(provider, {
+    operation: "list_adb_devices",
+    input: {},
+  });
+  expect(projected).toMatchObject({
+    code: "capability_unavailable",
+    message: expect.stringContaining("REA_ADB_PATH") as unknown,
+    remediation: {
+      action: expect.stringContaining("REA_ADB_PATH") as unknown,
+    },
   });
 });
 
@@ -749,7 +635,7 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
       logcat:
-        "08-10 13:00:00.000 I/Tag( 123): first\\n08-10 13:00:01.000 I/Tag( 123): second\\n",
+        "08-10 13:00:00.000 I/Tag( 123): first\n08-10 13:00:01.000 I/Tag( 123): second\n",
     }),
   );
   const result = await evidenceResult(providerOver(binary), {
@@ -818,18 +704,63 @@ exit 1`,
     operation: "pull_adb_file",
     input: {
       serial: "emulator-5554",
-      device_path: "/data/local/tmp/notes.txt",
+      device_path: "/data/local/tmp/My Notes:r*sumé.txt",
       output_directory: output,
     },
   });
   const digest = createHash("sha256").update("file-bytes").digest("hex");
   expect(result).toMatchObject({
-    device_path: "/data/local/tmp/notes.txt",
-    local_path: join(output, "notes.txt"),
+    device_path: "/data/local/tmp/My Notes:r*sumé.txt",
+    local_path: join(output, "My Notes:r*sumé.txt"),
     bytes: 10,
     sha256: digest,
   });
 });
+
+it.each([
+  ["/data/local/tmp/..", "dot_segment"],
+  ["/data/local/tmp/", "empty_file_name"],
+] as const)(
+  "refuses the unsafe device path %s before pulling",
+  async (devicePath, reason) => {
+    const { binary, root } = await writeAdbStub(
+      (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+: > "${join(root, "pull-ran")}"
+exit 0`,
+    );
+    const output = join(root, "pulls");
+    const result = await providerOver(binary).execute({
+      operation: "pull_adb_file",
+      input: {
+        serial: "emulator-5554",
+        device_path: devicePath,
+        output_directory: output,
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const projected = projectAnalysisError(result.error);
+    expect(projected).toMatchObject({ code: "invalid_request" });
+    expect(projected.details).toMatchObject({
+      issues: [
+        {
+          path: ["device_path"],
+          reason: "invalid_value",
+          message: expect.stringContaining(
+            `${JSON.stringify(devicePath)} does not name`,
+          ),
+        },
+      ],
+    });
+    expect(
+      (projected.details as { issues: { message: string }[] }).issues[0]!
+        .message,
+    ).toContain(reason);
+    // No host directory and no adb invocation are effects of a refused pull.
+    await expect(readFile(join(root, "pull-ran"))).rejects.toThrow();
+    await expect(lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
 
 it("pushes a file and verifies the device-side digest", async () => {
   const { binary, root } = await writeAdbStub(
@@ -989,42 +920,74 @@ it("lists processes, features, and services through fixed commands", async () =>
   ]);
 });
 
-it("lists a device directory with kinds and symlink targets", async () => {
-  const { binary } = await writeAdbStub(
-    shellStub({
-      ls: "total 4\n-rw-rw---- u0_a1 u0_a1 4096 2026-01-02 11:00 app.db\nlrwxrwxrwx root root 2026-01-01 10:00 lib -> /apex/com.android.art/lib\n",
-    }),
-  );
-  const result = await evidenceResult(providerOver(binary), {
-    operation: "list_adb_directory",
-    input: {
-      serial: "emulator-5554",
-      device_path: "/data/data/com.example.app",
-    },
-  });
-  expect(result.entries).toEqual([
-    {
-      name: "app.db",
-      kind: "file",
-      permissions: "-rw-rw----",
-      owner: "u0_a1",
-      group: "u0_a1",
-      bytes: 4096,
-      date: "2026-01-02 11:00",
-      link_target: null,
-    },
-    {
-      name: "lib",
-      kind: "symlink",
-      permissions: "lrwxrwxrwx",
-      owner: "root",
-      group: "root",
-      bytes: null,
-      date: "2026-01-01 10:00",
-      link_target: "/apex/com.android.art/lib",
-    },
-  ]);
-});
+it.each(["complete", "truncated"] as const)(
+  "preserves framed directory identities with %s output",
+  async (variant) => {
+    const date = "2026-01-02 11:00:00.000000000 +0000";
+    const names = [
+      "app.db",
+      " app.db ",
+      "   ",
+      "one -> two -> three",
+      "line\r",
+      "line\u2028break",
+      "foo\n-rw-rw---- root root 0 2026-01-01 10:00 ghost",
+      "literal\\n",
+    ];
+    const links = [
+      ["lib", "/apex/com.android.art/lib"],
+      [" lib ", " /apex/lib "],
+      ["one -> two\n", "three -> four\n\n"],
+    ] as const;
+    const truncated = `-rw-rw----|u0_a1|u0_a1|4096|${date}\0unfinished`;
+    const output = [
+      ...names.map(
+        (name) => `-rw-rw----|u0_a1|u0_a1|4096|${date}\0${name}\0\0`,
+      ),
+      ...links.map(
+        ([name, target]) =>
+          `lrwxrwxrwx|root|root|${Buffer.byteLength(target)}|${date}\0${name}\0${target}\0`,
+      ),
+      ...(variant === "truncated" ? [truncated] : []),
+    ].join("");
+    const { binary } = await writeAdbStub(shellStub({ sh: output }));
+    const result = await evidenceResult(providerOver(binary), {
+      operation: "list_adb_directory",
+      input: {
+        serial: "emulator-5554",
+        device_path: "/data/data/com.example.app",
+      },
+    });
+    expect(result.entries).toEqual([
+      ...names.map((name) => ({
+        name,
+        kind: "file",
+        permissions: "-rw-rw----",
+        owner: "u0_a1",
+        group: "u0_a1",
+        bytes: 4096,
+        date,
+        link_target: null,
+      })),
+      ...links.map(([name, target]) => ({
+        name,
+        kind: "symlink",
+        permissions: "lrwxrwxrwx",
+        owner: "root",
+        group: "root",
+        bytes: Buffer.byteLength(target),
+        date,
+        link_target: target,
+      })),
+    ]);
+    expect(result.unparsed_lines).toEqual(
+      variant === "truncated" ? [truncated] : [],
+    );
+    expect(result.coverage).toBe(
+      variant === "truncated" ? "partial" : "complete",
+    );
+  },
+);
 
 it("inspects the display and window focus", async () => {
   const { binary } = await writeAdbStub(
@@ -1080,7 +1043,7 @@ it("resolves packages by case-insensitive substring", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
       "pm:list":
-        "package:/data/app/x/base.apk=com.whatsapp\\npackage:/data/app/y/base.apk=com.whatsapp.w4b\\npackage:/data/app/z/base.apk=com.example\\n",
+        "package:/data/app/x/base.apk=com.whatsapp\npackage:/data/app/y/base.apk=com.whatsapp.w4b\npackage:/data/app/z/base.apk=com.example\n",
     }),
   );
   const result = await evidenceResult(providerOver(binary), {
@@ -1286,20 +1249,23 @@ exit 1`,
 
 it("quotes caller text before adb joins the remote shell command", async () => {
   const { binary, root } = await writeAdbStub(
-    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
 shift 3
 # Model adb's remote command joining, then execute the resulting shell string.
-printf '#!/bin/sh\nprintf "%%s" "$@" > "${join(root, "observed")}"\n' > "${join(root, "ls")}"
-chmod +x "${join(root, "ls")}"
-PATH="${root}:$PATH" sh -c "$*"
+sh -c "$*"
 `,
   );
-  const value = `/sdcard/a 'quoted'; touch ${join(root, "injected")}`;
-  await providerOver(binary).execute({
+  const value = join(root, `device 'quoted'; touch ${join(root, "injected")}`);
+  await mkdir(value, { recursive: true });
+  const result = await evidenceResult(providerOver(binary), {
     operation: "list_adb_directory",
     input: { serial: "device", device_path: value },
   });
-  expect(await readFile(join(root, "observed"), "utf8")).toContain(value);
+  expect(result).toMatchObject({
+    device_path: value,
+    entries: [],
+    coverage: "complete",
+  });
   await expect(readFile(join(root, "injected"))).rejects.toThrow();
 });
 

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  displayDevicePath,
-  findAliasedPackagePaths,
   parseAdbDevicesOutput,
   parseGetpropOutput,
   parsePackageListOutput,
@@ -241,298 +239,35 @@ describe("parsePmPathOutput", () => {
       role: "unknown",
     });
   });
-});
 
-describe("parsePmPathOutput unsafe device paths", () => {
-  it.each([
-    ["a dot-dot segment", "/data/app/x/..", "..", "dot_segment"],
-    ["a dot segment", "/data/app/x/.", ".", "dot_segment"],
-    ["an empty final segment", "/data/app/x/", "", "empty_file_name"],
-    [
-      "a backslash separator",
-      "/data/app/x/..\\..\\evil.apk",
-      "..\\..\\evil.apk",
-      "path_separator",
-    ],
-    [
-      "a NUL character",
-      "/data/app/x/base\u0000.apk",
-      "base\u0000.apk",
-      "whitespace_or_control",
-    ],
-    [
-      "an escape character",
-      "/data/app/x/\u001b[2Jbase.apk",
-      "\u001b[2Jbase.apk",
-      "whitespace_or_control",
-    ],
-    [
-      "a hidden file name",
-      "/data/app/x/.base.apk",
-      ".base.apk",
-      "not_portable_apk_name",
-    ],
-    [
-      "a non-APK name",
-      "/data/app/x/base.so",
-      "base.so",
-      "not_portable_apk_name",
-    ],
-    [
-      "a trailing tab",
-      "/data/app/x/base.apk\t",
-      "base.apk\t",
-      "whitespace_or_control",
-    ],
-    [
-      "a trailing space",
-      "/data/app/x/base.apk ",
-      "base.apk ",
-      "whitespace_or_control",
-    ],
-    [
-      "a leading space in the path",
-      " /data/app/x/base.apk",
-      "base.apk",
-      "whitespace_or_control",
-    ],
-    [
-      "a space inside a directory segment",
-      "/data/app/x y/base.apk",
-      "base.apk",
-      "whitespace_or_control",
-    ],
-    [
-      "a C1 control character",
-      "/data/app/x/base.apk\u0085",
-      "base.apk\u0085",
-      "whitespace_or_control",
-    ],
-    ...[
-      ["U+202E right-to-left override", "\u202e"],
-      ["U+200B zero-width space", "\u200b"],
-      ["U+FEFF byte-order mark", "\ufeff"],
-      ["U+2066 left-to-right isolate", "\u2066"],
-      ["U+E000 private-use character", "\ue000"],
-      ["a lone surrogate", "\ud800"],
-      ["U+034F combining grapheme joiner", "\u034f"],
-      ["U+115F Hangul choseong filler", "\u115f"],
-      ["U+3164 Hangul filler", "\u3164"],
-      ["U+FFA0 halfwidth Hangul filler", "\uffa0"],
-      ["U+180B Mongolian free variation selector", "\u180b"],
-      ["U+E0001 language tag", "\u{e0001}"],
-      ["U+FDD0 noncharacter", "\ufdd0"],
-      ["U+FFFF noncharacter", "\uffff"],
-    ].flatMap(([name, char]) => [
-      [
-        `${name!} in a directory segment`,
-        `/data/${char!}ppa/x/base.apk`,
-        "base.apk",
-        "whitespace_or_control",
-      ],
-      [
-        `${name!} in the file name`,
-        `/data/app/x/base${char!}.apk`,
-        `base${char!}.apk`,
-        "whitespace_or_control",
-      ],
-    ]),
-  ])(
-    "rejects %s as a host file name and keeps the raw device path",
-    (_, devicePath, fileName, reason) => {
-      const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-        `package:/data/app/x/base.apk\npackage:${devicePath}\n`,
-      );
-      expect(unparsedLines).toEqual([]);
-      expect(paths.map((entry) => entry.file_name)).toEqual(["base.apk"]);
-      expect(rejectedPaths).toEqual([
-        {
-          device_path: devicePath,
-          file_name: fileName,
-          reason,
-        },
-      ]);
-    },
-  );
-});
-
-describe("parsePmPathOutput record framing", () => {
-  it("splits LF-framed records without altering any entry", () => {
+  it("preserves whitespace and the exact POSIX device path", () => {
+    const devicePath = "/data/app/My App/résumé:final\\draft*.apk";
     const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      "package:/data/app/x/base.apk\npackage:/data/app/x/split_a.apk\n",
+      `package:${devicePath}\r\n`,
     );
-    expect(unparsedLines).toEqual([]);
-    expect(rejectedPaths).toEqual([]);
-    expect(paths.map((entry) => entry.device_path)).toEqual([
-      "/data/app/x/base.apk",
-      "/data/app/x/split_a.apk",
-    ]);
-  });
-
-  it.each([
-    [
-      "a CR before the LF terminator",
-      "package:/data/app/x/base.apk\r\n",
-      ["/data/app/x/base.apk\r"],
-    ],
-    [
-      "two CRs before the LF terminator",
-      "package:/data/app/x/base.apk\r\r\n",
-      ["/data/app/x/base.apk\r\r"],
-    ],
-    [
-      "uniform CRLF framing",
-      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\r\n",
-      ["/data/app/x/base.apk\r", "/data/app/x/split_a.apk\r"],
-    ],
-    [
-      "a final CR with no LF",
-      "package:/data/app/x/base.apk\r",
-      ["/data/app/x/base.apk\r"],
-    ],
-  ])("keeps %s in the device path and refuses it", (_, stdout, devicePaths) => {
-    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(stdout);
-    expect(paths).toEqual([]);
-    expect(unparsedLines).toEqual([]);
-    expect(rejectedPaths).toEqual(
-      devicePaths.map((devicePath) => ({
-        device_path: devicePath,
-        file_name: devicePath.slice(devicePath.lastIndexOf("/") + 1),
-        reason: "whitespace_or_control",
-      })),
-    );
-  });
-
-  it("refuses only the CR-bearing record in mixed framing", () => {
-    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\n",
-    );
-    expect(unparsedLines).toEqual([]);
-    expect(paths.map((entry) => entry.device_path)).toEqual([
-      "/data/app/x/split_a.apk",
-    ]);
-    expect(rejectedPaths).toEqual([
+    expect(paths).toEqual([
       {
-        device_path: "/data/app/x/base.apk\r",
-        file_name: "base.apk\r",
-        reason: "whitespace_or_control",
+        device_path: devicePath,
+        file_name: "résumé:final\\draft*.apk",
+        role: "unknown",
       },
     ]);
+    expect(rejectedPaths).toEqual([]);
+    expect(unparsedLines).toEqual([]);
   });
 
-  it("does not skip a record that holds only a CR", () => {
-    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      "package:/data/app/x/base.apk\n\r\n",
-    );
-    expect(paths.map((entry) => entry.device_path)).toEqual([
-      "/data/app/x/base.apk",
+  it("rejects an empty final component without normalizing the source", () => {
+    const devicePath = "/data/app/pkg/base.apk/";
+    const parsed = parsePmPathOutput(`package:${devicePath}\n`);
+    expect(parsed.paths).toEqual([]);
+    expect(parsed.rejectedPaths).toEqual([
+      { device_path: devicePath, reason: "empty_file_name" },
     ]);
-    expect(rejectedPaths).toEqual([]);
-    expect(unparsedLines).toEqual(["\r"]);
   });
 
-  it("does not trim whitespace before the package: prefix", () => {
-    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      " package:/data/app/x/base.apk\n",
-    );
-    expect(paths).toEqual([]);
-    expect(rejectedPaths).toEqual([]);
-    expect(unparsedLines).toEqual([" package:/data/app/x/base.apk"]);
-  });
-});
-
-describe("parsePmPathOutput host file name policy", () => {
-  it.each([
-    "NUL.apk",
-    "con.apk",
-    "COM1.apk",
-    "lpt9.apk",
-    "Aux.apk",
-    "prn.x.apk",
-  ])(
-    "rejects the reserved Windows device name %s on every host",
-    (fileName) => {
-      const devicePath = `/data/app/x/${fileName}`;
-      const { paths, rejectedPaths } = parsePmPathOutput(
-        `package:/data/app/x/base.apk\npackage:${devicePath}\n`,
-      );
-      expect(paths.map((entry) => entry.file_name)).toEqual(["base.apk"]);
-      expect(rejectedPaths).toEqual([
-        {
-          device_path: devicePath,
-          file_name: fileName,
-          reason: "reserved_name",
-        },
-      ]);
-    },
-  );
-
-  it.each(["Base.apk", "console.apk", "nullable.apk", "com10.apk", "lpt0.apk"])(
-    "accepts the ordinary file name %s",
-    (fileName) => {
-      const { paths, rejectedPaths } = parsePmPathOutput(
-        `package:/data/app/x/${fileName}\n`,
-      );
-      expect(rejectedPaths).toEqual([]);
-      expect(paths.map((entry) => entry.file_name)).toEqual([fileName]);
-      expect(findAliasedPackagePaths(paths)).toBeUndefined();
-    },
-  );
-});
-
-describe("findAliasedPackagePaths", () => {
-  const entries = (...devicePaths: string[]) =>
-    parsePmPathOutput(devicePaths.map((path) => `package:${path}\n`).join(""))
-      .paths;
-
-  it("reports two file names that differ only by case", () => {
+  it("retains malformed lines including surrounding whitespace", () => {
     expect(
-      findAliasedPackagePaths(
-        entries(
-          "/data/app/x/base.apk",
-          "/data/app/x/split_a.apk",
-          "/data/app/y/BASE.apk",
-        ),
-      ),
-    ).toMatchObject({
-      first: { device_path: "/data/app/x/base.apk" },
-      second: { device_path: "/data/app/y/BASE.apk" },
-      reason: "case_fold_alias",
-    });
-  });
-
-  it("leaves exact repeats to the pull loop's overwrite guard", () => {
-    expect(
-      findAliasedPackagePaths(
-        entries("/data/app/x/base.apk", "/data/app/y/base.apk"),
-      ),
-    ).toBeUndefined();
-  });
-});
-
-describe("displayDevicePath", () => {
-  it("escapes format controls so a bidi override cannot reorder prose", () => {
-    expect(displayDevicePath("/data/\u202eapp/x\u200b/base\ufeff.apk")).toBe(
-      '"/data/\\u{202E}app/x\\u{200B}/base\\u{FEFF}.apk"',
-    );
-    expect(displayDevicePath("/data/app/x/base.apk\u0085 ")).toBe(
-      '"/data/app/x/base.apk\\u{85} "',
-    );
-  });
-
-  it.each(["\u034f", "\u115f", "\u3164", "\uffa0", "\u180b", "\u{e0001}"])(
-    "escapes the default-ignorable %j so it cannot hide in prose",
-    (char) => {
-      const escaped = `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`;
-      const rendered = displayDevicePath(`/data/a${char}/base.apk`);
-      expect(rendered).toBe(`"/data/a${escaped}/base.apk"`);
-      expect(rendered).not.toContain(char);
-    },
-  );
-
-  it("leaves ordinary paths and non-ASCII letters readable", () => {
-    expect(displayDevicePath("/data/app/caf\u00e9/base.apk")).toBe(
-      '"/data/app/caf\u00e9/base.apk"',
-    );
+      parsePmPathOutput(" package:/data/app/pkg/base.apk \n").unparsedLines,
+    ).toEqual([" package:/data/app/pkg/base.apk "]);
   });
 });

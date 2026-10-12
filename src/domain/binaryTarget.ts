@@ -1,9 +1,11 @@
 import type {
   BinaryArchitecture,
   MipsElfMetadata,
+  UniversalMachOSlice,
 } from "./binaryTargetTypes.js";
 import { err, ok, type Result } from "./result.js";
 import { mzWindowsHeaderOffset, parseDosMzHeader } from "./dosMz.js";
+import { decodePeMachine } from "./peMachine.js";
 
 /** Format and architecture facts recovered from an executable header. */
 export type ExecutableMetadata =
@@ -20,6 +22,16 @@ export type ExecutableMetadata =
         BinaryArchitecture,
         "mips"
       >[];
+      readonly universalSlice?: never;
+    }
+  | {
+      readonly format: "mach-o-universal";
+      readonly architecture: Exclude<BinaryArchitecture, "mips">;
+      readonly availableArchitectures: readonly Exclude<
+        BinaryArchitecture,
+        "mips"
+      >[];
+      readonly universalSlice: UniversalMachOSlice;
     }
   | {
       readonly format: "pe";
@@ -104,7 +116,10 @@ const parseFatMachO = (
   if (count === 0 || count > 128 || bytes.length < 8 + count * entrySize)
     return err("truncated or invalid FAT architecture table");
   const architectures: Exclude<BinaryArchitecture, "mips">[] = [];
-  const sliceEnds = new Map<BinaryArchitecture, bigint>();
+  const slices = new Map<
+    Exclude<BinaryArchitecture, "mips">,
+    { readonly offset: bigint; readonly size: bigint }
+  >();
   for (let index = 0; index < count; index += 1) {
     const entry = 8 + index * entrySize;
     const architecture = machArchitecture(read(entry));
@@ -121,7 +136,7 @@ const parseFatMachO = (
         ? bytes.readBigUInt64LE(entry + 16)
         : bytes.readBigUInt64BE(entry + 16)
       : BigInt(read(entry + 12));
-    sliceEnds.set(architecture, offset + size);
+    slices.set(architecture, { offset, size });
   }
   const preferred =
     host === "arm64"
@@ -133,17 +148,30 @@ const parseFatMachO = (
           : host === "arm"
             ? "arm"
             : undefined;
-  if (preferred === undefined || !architectures.includes(preferred))
+  const slice = preferred === undefined ? undefined : slices.get(preferred);
+  if (preferred === undefined || slice === undefined)
     return err(`FAT binary has no host-compatible ${host} architecture`);
-  const sliceEnd = sliceEnds.get(preferred) ?? 0n;
+  const tableEnd = BigInt(8 + count * entrySize);
+  if (slice.offset < tableEnd)
+    return err(`FAT slice for ${preferred} overlaps the architecture table`);
+  const minimumHeaderSize =
+    preferred === "arm64" || preferred === "x86_64" ? 32n : 28n;
+  if (slice.size < minimumHeaderSize)
+    return err(`FAT slice for ${preferred} is shorter than its Mach-O header`);
+  const sliceEnd = slice.offset + slice.size;
   if (sliceEnd > BigInt(fileSize))
     return err(
       `truncated FAT slice: the ${preferred} slice ends at byte ${sliceEnd}; the file has ${fileSize}`,
     );
+  const sliceOffset = Number(slice.offset);
+  const sliceSize = Number(slice.size);
+  if (!Number.isSafeInteger(sliceOffset) || !Number.isSafeInteger(sliceSize))
+    return err(`FAT slice for ${preferred} exceeds addressable byte bounds`);
   return ok({
-    format: "mach-o",
+    format: "mach-o-universal",
     architecture: preferred,
     availableArchitectures: architectures,
+    universalSlice: { offset: sliceOffset, size: sliceSize },
   });
 };
 
@@ -216,14 +244,17 @@ export const parsePeRecord = (
     record.toString("binary", 0, 4) !== "PE\u0000\u0000"
   )
     return err("invalid or truncated PE header");
-  const architecture = peArchitecture(record.readUInt16LE(4));
-  if (architecture === undefined) return err("unsupported PE architecture");
+  const machine = decodePeMachine(record.readUInt16LE(4));
+  if (machine === undefined) return err("unsupported PE architecture");
+  const { architecture } = machine;
   const optionalHeaderSize = record.readUInt16LE(20);
   if (optionalHeaderSize > 4096 || record.length < 24 + optionalHeaderSize)
     return err("invalid or truncated PE optional header");
   const optionalHeader = record.subarray(24, 24 + optionalHeaderSize);
   const managed = peManagedStatus(optionalHeader, architecture);
   if (!managed.ok) return managed;
+  if (machine.nativeOsOverride && !managed.value)
+    return err("unsupported PE architecture");
   const characteristics = record.readUInt16LE(22);
   return ok({
     format: "pe",
@@ -295,24 +326,6 @@ const elfArchitecture = (machine: number): BinaryArchitecture | undefined => {
     case 40:
       return "arm";
     case 183:
-      return "arm64";
-  }
-  return undefined;
-};
-
-const peArchitecture = (
-  machine: number,
-): Exclude<BinaryArchitecture, "mips"> | undefined => {
-  switch (machine) {
-    case 0x14c:
-      return "x86";
-    case 0x8664:
-      return "x86_64";
-    case 0x1c0:
-    case 0x1c2:
-    case 0x1c4:
-      return "arm";
-    case 0xaa64:
       return "arm64";
   }
   return undefined;

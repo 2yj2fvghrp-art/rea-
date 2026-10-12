@@ -4,11 +4,11 @@ import type {
   CapturedWebScript,
   ExportedWebScript,
 } from "./webScriptExport.js";
-import { isWindowsReservedFileName } from "./windowsReservedFileName.js";
 
 const hash = (text: string): string =>
   createHash("sha256").update(text).digest("hex");
 const PORTABLE_SEGMENT = /^[A-Za-z0-9_~.-]+$/u;
+const RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 
 /** One planned file, or an explicit missing source with no filesystem effect. */
 export interface PlannedWebScript {
@@ -85,7 +85,7 @@ const candidatePath = (script: CapturedWebScript): CandidatePath => {
         part === "." ||
         part === ".." ||
         part.endsWith(".") ||
-        isWindowsReservedFileName(part),
+        RESERVED_SEGMENT.test(part),
     )
   )
     return {
@@ -94,8 +94,9 @@ const candidatePath = (script: CapturedWebScript): CandidatePath => {
   return {
     path: `origins/${hash(url.origin)}/${parts.join("/")}`,
     reason:
-      url.search !== "" ||
-      url.hash !== "" ||
+      // URL.search/hash collapse absent and explicitly empty components.
+      url.href.includes("?") ||
+      url.href.includes("#") ||
       url.username !== "" ||
       url.password !== ""
         ? "URL query, fragment, or credentials cannot select a canonical local module."

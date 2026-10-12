@@ -88,7 +88,7 @@ existing analysis families directly, for example
 | `list_adb_packages`     | read               | `pm list packages -f` with scope; base APK device paths                                                                                                                   |
 | `resolve_adb_packages`  | read               | Case-insensitive package-name substring search with exact-match flag                                                                                                      |
 | `inspect_adb_package`   | read               | `dumpsys package` projection: versions, install times, installer, flags, permission count                                                                                 |
-| `list_adb_directory`    | read               | `ls -la`: kinds, permissions, owner, group, sizes, symlink targets                                                                                                        |
+| `list_adb_directory`    | read               | NUL-framed immediate children, including hidden entries: kinds, permissions, owner, group, sizes, symlink targets                                                         |
 | `pull_adb_package`      | read               | Complete split APK set from `pm path`, each file digested                                                                                                                 |
 | `pull_adb_file`         | read               | One absolute device path pulled and digested                                                                                                                              |
 | `capture_adb_screen`    | read               | One `screencap -p` frame (exec-out, no device-side file) with dimensions                                                                                                  |
@@ -102,56 +102,37 @@ existing analysis families directly, for example
 
 ## Interpret the result
 
+- **Directory names retain whitespace and newlines.** Symlink targets do too,
+  including trailing newlines. Records containing invalid UTF-8 remain as
+  labelled hex in `unparsed_lines` and make directory coverage partial.
 - **Inferences carry their basis.** Device `kind` reports
   `kind_basis` (serial prefix or USB transport); APK `role` reports
   `role_basis: file_name`; `emulator_observed` is the build's own
   `ro.kernel.qemu` value, `null` when absent.
 - **Device paths are not host paths.** `base_apk_device_path` values live on
   the device filesystem. Only pulls and captures produce host-local paths,
-  each paired with byte size and SHA-256 digest.
+  each paired with byte size and SHA-256 digest. A pulled file's host name is
+  the device path's final POSIX segment. REA preserves the original device
+  path and filename; a missing final segment or `.`/`..` is refused before
+  output creation. Windows hosts follow [Windows filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file),
+  while POSIX hosts retain valid POSIX filenames such as names with spaces or
+  colons. A package pull checks reported names against the destination
+  filesystem before pulling, and refuses names that would share a local path.
+- **Package path refusals are diagnosable.** These `pull_adb_package`
+  refusals return `unreadable_output` with `retryable: false`, keep the
+  `pm path` output in `details.captured_output`, and name the refusal in
+  `details.reason`. `unsafe_device_path` lists every refused entry in
+  `details.diagnostics.rejected_paths` as `{device_path, reason}`;
+  `duplicate_local_destination` reports the shared `file_name` and both
+  `device_paths`; `local_destination_unavailable` reports the `device_path`,
+  `file_name`, and the filesystem `error_code` (`EEXIST` when the
+  destination volume folds the name onto an earlier entry). Diagnostics keep
+  raw device strings; the human-readable `message` escapes invisible,
+  bidirectional, and default-ignorable code points as `\u{...}` so rendered
+  text cannot be reordered or hide a character.
 - **Splits are part of the answer.** `pm path` enumerates the base APK and
   every installed split; pulls cover the whole set. System packages whose
   APKs keep other names report the `unknown` role rather than guessing.
-- **Device file names are untrusted.** A package pull writes each APK under
-  the last segment of its `pm path` device path only when that segment
-  matches `[A-Za-z0-9][A-Za-z0-9._-]*.apk`. REA runs `adb shell -T pm
-  path`, so the device never allocates a PTY and the listing is raw
-  LF-framed output; a device without the shell v2 protocol (Android 6 and
-  earlier) can only run commands under a PTY, which rewrites LF as CRLF, so
-  adb refuses the command and the pull reports `unsupported_target`. Only
-  the `\n` terminator is stripped from each entry; a `\r` is never treated
-  as framing, so `package:/data/app/x/base.apk\r\n` keeps the CR in its
-  device path and is refused rather than pulled as a different remote
-  file. Whitespace, control characters,
-  Unicode format controls (bidi overrides and isolates such as U+202E and
-  U+2066, zero-width characters such as U+200B, the U+FEFF byte-order mark,
-  tag characters such as U+E0001), surrogates, private-use code points,
-  default-ignorable code points that are not format controls (U+034F
-  COMBINING GRAPHEME JOINER, the Hangul fillers U+115F, U+3164, and U+FFA0,
-  variation selectors such as U+180B), or noncharacters (U+FDD0-U+FDEF,
-  U+xFFFE/U+xFFFF) anywhere in the path, including directory segments,
-  fail the whole pull before any host directory is created, even when the
-  unsafe entry is the only one. So do empty names, `.`/`..`, `\`
-  separators, and reserved Windows device names (`CON`, `PRN`, `AUX`,
-  `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, in any case and with any extension,
-  such as `NUL.apk`). Two entries whose file names differ only by ASCII
-  case (`base.apk` and `BASE.apk`) also fail the whole pull. Both checks
-  apply on every host, not only on Windows or case-insensitive volumes, so
-  the same listing is refused the same way wherever REA runs. Paths are
-  never trimmed or renamed.
-- **Unsafe listings are diagnosable.** Both refusals return
-  `unreadable_output` with `retryable: false`, keep the `pm path` output in
-  `details.captured_output`, and name the refusal in `details.reason`:
-  `unsafe_device_path` lists every refused entry in
-  `details.diagnostics.rejected_paths` as `{device_path, file_name, reason}`
-  with `reason` one of `whitespace_or_control`, `empty_file_name`,
-  `dot_segment`, `path_separator`, `not_portable_apk_name`, or
-  `reserved_name`; `aliased_device_paths` names both colliding entries in
-  `details.diagnostics.aliased_paths` with `alias_reason`
-  `case_fold_alias`. `device_path` is the raw device string; the
-  human-readable `message` escapes invisible and default-ignorable code
-  points as `\u{...}` so the rendered text cannot be reordered or hide a
-  character.
 - **Partial results keep facts.** Failed individual pulls return successful
   artifacts with `coverage: "partial"` and per-file `failures`. Listings
   that contain unrecognized lines report them as `unparsed_lines` and mark
