@@ -247,7 +247,7 @@ it("traces a standalone Mach-O file whose name ends in .app", async () => {
   });
 });
 
-it.skipIf(process.getuid?.() === 0)(
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "keeps a permission denied while canonicalizing the opened bundle",
   async () => {
     const parent = await createTestTempDirectory("rea-dylib-mcp-revoked-");
@@ -465,19 +465,26 @@ it("reports caller-selected roots that cannot be traced as invalid input", async
     join(app, "Contents/MacOS/App"),
     machoImage({ commands: [buildVersionCommand(1)] }),
   );
-  await symlink("/bin/ls", join(app, "Contents/MacOS/outside"));
+  const cases: (readonly [string, string])[] = [
+    ["Contents/MacOS/Missing", "is not a regular file"],
+    ["Contents/MacOS", "is not a regular file"],
+    ["Contents/Info.plist", "is not a Mach-O image"],
+  ];
+  // File symlinks on Windows need Developer Mode or an elevated token.
+  if (process.platform !== "win32") {
+    await symlink("/bin/ls", join(app, "Contents/MacOS/outside"));
+    cases.push([
+      "Contents/MacOS/outside",
+      "resolves outside the analyzed root",
+    ]);
+  }
   await withClient(async (client) => {
     const opened = await client.callTool({
       name: "open_binary",
       arguments: { path: app },
     });
     expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
-    for (const [root, message] of [
-      ["Contents/MacOS/Missing", "is not a regular file"],
-      ["Contents/MacOS", "is not a regular file"],
-      ["Contents/Info.plist", "is not a Mach-O image"],
-      ["Contents/MacOS/outside", "resolves outside the analyzed root"],
-    ] as const) {
+    for (const [root, message] of cases) {
       const called = await client.callTool({
         name: "trace_dylib_resolution",
         arguments: { roots: ["Contents/MacOS/App", root] },
