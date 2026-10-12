@@ -19,6 +19,10 @@ import {
   type ZipPackageFormat,
 } from "../../domain/zipPackageFormat.js";
 import { mzWindowsHeaderOffset, parseDosMzHeader } from "../../domain/dosMz.js";
+import {
+  readFatSliceDeclarations,
+  validateFatSlice,
+} from "../../domain/apple/machoContainer.js";
 
 /** Mutable internal occurrence used until root-bound IDs are known. */
 export interface MutableOccurrence {
@@ -437,7 +441,7 @@ export const classifyArtifactBytes = (
   if (prefix.length >= 4) {
     const magic = prefix.readUInt32BE(0);
     if ([0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic))
-      return "mach-o-universal";
+      return classifyFatMachO(prefix, fileSize, magic);
     if ([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(magic))
       return "mach-o";
     if (prefix.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])))
@@ -464,6 +468,37 @@ export const classifyArtifactBytes = (
     return "unknown";
   }
   return "file";
+};
+
+/** The FAT signature is shared with JVM classes; require valid slice declarations. */
+const classifyFatMachO = (
+  prefix: Buffer,
+  fileSize: number,
+  magic: number,
+): "mach-o-universal" | "unknown" => {
+  if (
+    prefix.length < 8 ||
+    !Number.isSafeInteger(fileSize) ||
+    fileSize < prefix.length
+  )
+    return "unknown";
+  const littleEndian = magic === 0xbebafeca || magic === 0xbfbafeca;
+  const wide = magic === 0xcafebabf || magic === 0xbfbafeca;
+  const count = littleEndian ? prefix.readUInt32LE(4) : prefix.readUInt32BE(4);
+  const tableEnd = 8 + count * (wide ? 32 : 20);
+  // Bound parsing by retained evidence before allocating slice declarations.
+  if (count === 0 || tableEnd > prefix.length) return "unknown";
+  const declarations = readFatSliceDeclarations(prefix.subarray(8, tableEnd), {
+    count,
+    wide,
+    littleEndian,
+  });
+  return declarations.status === "parsed" &&
+    declarations.slices.every(
+      (slice) => validateFatSlice(slice, fileSize, tableEnd) === null,
+    )
+    ? "mach-o-universal"
+    : "unknown";
 };
 
 const relationFor = (path: string): ArtifactEdge["relation"] => {
