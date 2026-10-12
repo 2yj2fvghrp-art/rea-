@@ -1,6 +1,6 @@
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 import { TOOL_CONTRACTS } from "../../dist/contracts/toolContracts.js";
 
@@ -62,25 +62,61 @@ const allowedTools = (approvedTools) => [
 const modelArguments = (model) =>
   model === undefined ? [] : ["--model", model];
 
-const apiKey = (name) =>
-  process.env[name] === undefined ? {} : { [name]: process.env[name] };
+const apiKeys = (...names) =>
+  Object.fromEntries(
+    names.flatMap((name) =>
+      process.env[name] === undefined ? [] : [[name, process.env[name]]],
+    ),
+  );
 
-/** Copy one credential file; a missing file leaves environment authentication. */
-const copyAuthentication = async (source, destination) => {
+/**
+ * Caller variables a client may inherit: host, locale, temporary-directory,
+ * network proxy, certificate, and session keyring access. Credentials and
+ * configuration for every other tool are omitted; each client adds back only
+ * its own API key.
+ */
+const INHERITED_ENVIRONMENT =
+  /^(?:LANG|LANGUAGE|LC_[A-Z]+|TZ|TERM|USER|LOGNAME|SHELL|TMPDIR|TEMP|TMP|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR|(?:HTTPS?|ALL|NO)_PROXY|SSL_CERT_(?:FILE|DIR)|NODE_EXTRA_CA_CERTS|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|PROGRAMDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|APPDATA|LOCALAPPDATA)$/iu;
+
+/** Build the disposable client environment from an allowlist. */
+export const agentEvalEnvironment = ({ account, runId, client }) => ({
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([name]) =>
+      INHERITED_ENVIRONMENT.test(name),
+    ),
+  ),
+  PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
+  HOME: account,
+  USERPROFILE: account,
+  XDG_CONFIG_HOME: join(account, ".config"),
+  XDG_DATA_HOME: join(account, ".local/share"),
+  XDG_CACHE_HOME: join(account, ".cache"),
+  REA_PROCESS_RUN_ID: runId,
+  ...client.environment,
+});
+
+/**
+ * Copy one credential file. Its destination is registered for cleanup before
+ * the copy starts; a missing source leaves environment authentication.
+ */
+const copyAuthentication = async (source, destination, authPaths) => {
+  authPaths.push(destination);
   try {
     await copyFile(source, destination);
     await chmod(destination, 0o600);
-    return [destination];
   } catch (cause) {
     if (cause?.code !== "ENOENT") throw cause;
-    return [];
   }
 };
 
-const prepareCodex = async (profile, { evaluationRoot, account, model }) => {
-  const authPaths = await copyAuthentication(
-    join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "auth.json"),
+const prepareCodex = async (
+  profile,
+  { evaluationRoot, account, model, authPaths },
+) => {
+  await copyAuthentication(
+    join(process.env.CODEX_HOME || join(homedir(), ".codex"), "auth.json"),
     join(profile, "auth.json"),
+    authPaths,
   );
   await writeFile(
     join(profile, "config.toml"),
@@ -88,8 +124,10 @@ const prepareCodex = async (profile, { evaluationRoot, account, model }) => {
     { mode: 0o600 },
   );
   return {
-    environment: { CODEX_HOME: profile },
-    authPaths,
+    environment: {
+      CODEX_HOME: profile,
+      ...apiKeys("OPENAI_API_KEY", "CODEX_API_KEY"),
+    },
     // Codex has no own skill path and reads the shared agent skill root.
     skillDirectory: join(account, ".agents/skills", SKILL),
     arguments: (prompt, approvedTools) => [
@@ -116,22 +154,27 @@ const prepareCodex = async (profile, { evaluationRoot, account, model }) => {
   };
 };
 
-const prepareClaudeCode = async (profile, { model }) => ({
+const prepareClaudeCode = async (profile, { model, authPaths }) => {
+  await copyAuthentication(
+    join(
+      process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"),
+      ".credentials.json",
+    ),
+    join(profile, ".credentials.json"),
+    authPaths,
+  );
+  return claudeCodeClient(profile, model);
+};
+
+const claudeCodeClient = (profile, model) => ({
   environment: {
     CLAUDE_CONFIG_DIR: profile,
     DISABLE_AUTOUPDATER: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     // Account-level claude.ai connectors are user configuration.
     ENABLE_CLAUDEAI_MCP_SERVERS: "false",
-    ...apiKey("ANTHROPIC_API_KEY"),
+    ...apiKeys("ANTHROPIC_API_KEY"),
   },
-  authPaths: await copyAuthentication(
-    join(
-      process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"),
-      ".credentials.json",
-    ),
-    join(profile, ".credentials.json"),
-  ),
   skillDirectory: join(profile, "skills", SKILL),
   arguments: (prompt, approvedTools) => [
     "--print",
@@ -186,21 +229,24 @@ const callerGeminiAuthType = async (geminiDirectory) => {
   }
 };
 
-const prepareGeminiCli = async (profile, { model }) => {
+const prepareGeminiCli = async (profile, { model, authPaths }) => {
   const gemini = join(profile, ".gemini");
   await mkdir(gemini, { mode: 0o700 });
   const callerGemini = join(
-    process.env.GEMINI_CLI_HOME ?? homedir(),
+    process.env.GEMINI_CLI_HOME || homedir(),
     ".gemini",
   );
-  const authPaths = await copyAuthentication(
-    join(callerGemini, "oauth_creds.json"),
-    join(gemini, "oauth_creds.json"),
-  );
-  let authType = "oauth-personal";
-  if (process.env.GEMINI_API_KEY !== undefined) authType = "gemini-api-key";
-  else if (authPaths.length === 0)
-    authType = (await callerGeminiAuthType(callerGemini)) ?? authType;
+  // An explicit API key wins; otherwise the caller's selected type is reused.
+  const authType =
+    process.env.GEMINI_API_KEY === undefined
+      ? ((await callerGeminiAuthType(callerGemini)) ?? "oauth-personal")
+      : "gemini-api-key";
+  if (authType === "oauth-personal")
+    await copyAuthentication(
+      join(callerGemini, "oauth_creds.json"),
+      join(gemini, "oauth_creds.json"),
+      authPaths,
+    );
   const empty = join(profile, "empty-settings.json");
   const policy = join(profile, "rea-evaluation-policy.toml");
   await writeFile(empty, "{}\n", { mode: 0o600 });
@@ -216,9 +262,8 @@ const prepareGeminiCli = async (profile, { model }) => {
       GEMINI_CLI_SYSTEM_DEFAULTS_PATH: empty,
       GEMINI_CLI_NO_RELAUNCH: "1",
       GEMINI_CLI_TRUST_WORKSPACE: "true",
-      ...apiKey("GEMINI_API_KEY"),
+      ...apiKeys("GEMINI_API_KEY"),
     },
-    authPaths,
     skillDirectory: join(profile, ".agents/skills", SKILL),
     arguments: async (prompt, approvedTools) => {
       await writeFile(
@@ -259,9 +304,10 @@ const PREPARERS = {
 };
 
 /**
- * Prepare one client's isolated profile below `evaluationRoot`. Returns the
- * environment additions, copied credential files to remove after the run,
- * the installed skill directory, and the client's spawn arguments.
+ * Prepare one client's isolated profile below `evaluationRoot`. Copied
+ * credential files are appended to the caller-owned `authPaths` before they
+ * are written. Returns the environment additions, the installed skill
+ * directory, and the client's spawn arguments.
  */
 export const prepareAgentEvalClient = async (client, options) => {
   const profile = join(options.evaluationRoot, client.id);

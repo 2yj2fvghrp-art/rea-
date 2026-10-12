@@ -1297,12 +1297,18 @@ rules, plugins or history is copied; shell snapshots and additional agents are
 disabled. Existing API-key environment authentication remains available.
 Authentication is the client's credential file (`auth.json`,
 `.credentials.json`, or `.gemini/oauth_creds.json`) or its API key
-(`ANTHROPIC_API_KEY` or `GEMINI_API_KEY`). Other client, provider and REA
-environment variables are removed. Claude Code also disables account-level
-claude.ai connectors. Gemini CLI can keep an API key in the OS keychain
-outside its settings directory. In that case only the caller's selected Gemini
-authentication type is carried into the disposable profile, and the keychain
-credential is used in place rather than copied.
+(`OPENAI_API_KEY`/`CODEX_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`).
+The client environment is built from an allowlist of host, locale,
+temporary-directory, proxy, certificate and session-keyring variables, plus the
+selected client's own API key; other credentials and configuration are not
+inherited. Copied credential files are registered for removal before they are
+written. Each scenario runs as an owned process tree with its own run token;
+completion or timeout ends with token-verified cleanup of the client and the
+REA MCP server it started, and the run fails if that cleanup is incomplete. Claude Code also disables account-level
+claude.ai connectors. Gemini CLI reuses the caller's selected
+authentication type unless `GEMINI_API_KEY` is set. Its OAuth file is copied
+only when OAuth is selected; an API key Gemini CLI keeps in the OS keychain is
+used in place rather than copied.
 
 Codex runs in its read-only sandbox with `approval_policy="never"`. Claude Code
 and Gemini CLI receive an explicit allow-list instead. It contains REA tools
@@ -1372,6 +1378,8 @@ and token-use gates. Configured factual scenarios additionally require a factual
 pass. Their answer-text heuristics are diagnostic and do not affect the gate.
 Validation counts include complete text-only REA `invalid_request` envelopes
 and failed SDK calls whose arguments violate the named current REA contract.
+A call whose result the client never reported, or reported inconsistently,
+is not counted as a completed workflow step.
 Client approval rejections and provider unavailability remain distinct failures;
 truncated JSON previews are not parsed into invented error codes.
 Repeated `binary_session` observations separated by a successful `open_binary`

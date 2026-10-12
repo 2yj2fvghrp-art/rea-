@@ -18,6 +18,8 @@ interface AgentMcpCall {
   readonly tool: string;
   readonly arguments: unknown;
   readonly evidenceIds: readonly string[];
+  /** The client reported a completed result; an unreported result is unknown, not success. */
+  readonly delivered: boolean;
   readonly error: boolean;
   readonly errorCode: string | null;
 }
@@ -89,6 +91,7 @@ const measuredCall = (call: AgentToolCall): AgentMcpCall => {
     tool: call.tool,
     arguments: call.arguments,
     evidenceIds: deliveredEvidence(call).map(({ evidence_id }) => evidence_id),
+    delivered: call.delivered,
     error:
       call.clientFailed ||
       call.clientError !== undefined ||
@@ -97,6 +100,30 @@ const measuredCall = (call: AgentToolCall): AgentMcpCall => {
       error !== undefined,
     errorCode: textValue(error?.code) ?? null,
   };
+};
+
+/** Identical calls beyond the first, with status reads keyed by target lifecycle. */
+const countRepeatedCalls = (calls: readonly AgentMcpCall[]): number => {
+  const signatures = new Map<string, number>();
+  let targetRevision = 0;
+  for (const call of calls) {
+    // A status read before and after a successful target lifecycle change is
+    // useful verification, not a duplicate analysis or unchanged failed retry.
+    const context =
+      call.tool === "binary_session" ? `${String(targetRevision)}:` : "";
+    const signature = `${context}${call.tool}:${JSON.stringify(canonicalValue(call.arguments))}`;
+    signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
+    if (
+      call.delivered &&
+      !call.error &&
+      (call.tool === "open_binary" || call.tool === "close_binary")
+    )
+      targetRevision += 1;
+  }
+  return [...signatures.values()].reduce(
+    (total, count) => total + Math.max(0, count - 1),
+    0,
+  );
 };
 
 /** Measure agent routing, repetition, model usage, and explicitly limited answer heuristics. */
@@ -114,25 +141,7 @@ export const evaluateAgentTranscript = (
   const reaCalls = transcript.calls
     .filter(({ server }) => server === null || server.toLowerCase() === "rea")
     .map(measuredCall);
-  const signatures = new Map<string, number>();
-  let targetRevision = 0;
-  for (const call of reaCalls) {
-    // A status read before and after a successful target lifecycle change is
-    // useful verification, not a duplicate analysis or unchanged failed retry.
-    const context =
-      call.tool === "binary_session" ? `${String(targetRevision)}:` : "";
-    const signature = `${context}${call.tool}:${JSON.stringify(canonicalValue(call.arguments))}`;
-    signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
-    if (
-      !call.error &&
-      (call.tool === "open_binary" || call.tool === "close_binary")
-    )
-      targetRevision += 1;
-  }
-  const repeatedCallCount = [...signatures.values()].reduce(
-    (total, count) => total + Math.max(0, count - 1),
-    0,
-  );
+  const repeatedCallCount = countRepeatedCalls(reaCalls);
   const inputValidationFailureCount = reaCalls.filter(
     (call) =>
       call.errorCode === "invalid_request" ||
@@ -142,7 +151,7 @@ export const evaluateAgentTranscript = (
         )?.inputSchema.safeParse(call.arguments).success === false),
   ).length;
   const requiredToolSubsequenceMet = containsOrderedSubsequence(
-    reaCalls.filter(({ error }) => !error).map(({ tool }) => tool),
+    completedTools(reaCalls),
     options.requiredToolSubsequence ?? [],
   );
   const { finalMessage } = transcript;
@@ -194,6 +203,12 @@ export const evaluateAgentTranscript = (
     factualAssessment,
   };
 };
+
+/** Tools whose results were delivered without error, in call order. */
+const completedTools = (calls: readonly AgentMcpCall[]): string[] =>
+  calls
+    .filter(({ delivered, error }) => delivered && !error)
+    .map(({ tool }) => tool);
 
 const containsOrderedSubsequence = (
   values: readonly string[],

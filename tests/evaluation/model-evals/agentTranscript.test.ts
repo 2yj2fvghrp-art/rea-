@@ -126,6 +126,23 @@ describe("Claude Code transcripts", () => {
     expect(metrics.evidenceIds).toEqual([]);
   });
 
+  it("does not count a call without a reported result as a workflow step", () => {
+    const transcript = parseClaudeCodeEvents([
+      claudeToolUse("toolu_1", "mcp__rea__open_binary"),
+      claudeToolResult("toolu_1", { structuredContent: { opened: true } }),
+      claudeToolUse("toolu_2", "mcp__rea__close_binary"),
+      claudeResult,
+    ]);
+    const metrics = evaluateAgentTranscript(transcript, "open_binary", {
+      requiredToolSubsequence: ["open_binary", "close_binary"],
+    });
+    expect(metrics.reaCalls).toEqual([
+      expect.objectContaining({ tool: "open_binary", delivered: true }),
+      expect.objectContaining({ tool: "close_binary", delivered: false }),
+    ]);
+    expect(metrics.requiredToolSubsequenceMet).toBe(false);
+  });
+
   it("ignores other MCP servers and subagent text", () => {
     const transcript = parseClaudeCodeEvents([
       claudeToolUse("toolu_1", "mcp__other__analyze"),

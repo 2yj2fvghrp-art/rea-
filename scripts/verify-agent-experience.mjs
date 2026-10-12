@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -18,7 +18,14 @@ import {
   summarizeFactualCorrectness,
 } from "../dist/evaluation/AgentEvaluationReport.js";
 import { PRODUCT_IDENTITY } from "../dist/identity.js";
+import { cleanupOwnedProcessGroup } from "../dist/process/ProcessOwnership.js";
+import { systemProcessOwnershipHost } from "../dist/process/ProcessOwnershipObservation.js";
 import {
+  ProviderProcessSupervisor,
+  spawnOwnedProviderProcess,
+} from "../dist/process/ProviderProcess.js";
+import {
+  agentEvalEnvironment,
   prepareAgentEvalClient,
   selectAgentEvalClient,
 } from "./lib/agent-eval-clients.mjs";
@@ -42,7 +49,8 @@ await mkdir(evaluationParent, { recursive: true, mode: 0o700 });
 const evaluationRoot = await mkdtemp(join(evaluationParent, "run-"));
 const fixtureRoot = join(evaluationRoot, "targets");
 const account = join(evaluationRoot, "account");
-let authPaths = [];
+// Copied credentials are registered here before they are written.
+const authPaths = [];
 
 try {
   const clientVersion = await readCommandVersion(client.command);
@@ -53,26 +61,13 @@ try {
     evaluationRoot,
     account,
     model: optionalModel,
+    authPaths,
   });
-  authPaths = prepared.authPaths;
-  const evaluationEnvironment = {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) =>
-          !/^(?:REA_|CODEX_|CLAUDE_|ANTHROPIC_|GEMINI_|GOOGLE_|GHIDRA_|HOPPER_|IDA_)/u.test(
-            name,
-          ),
-      ),
-    ),
-    HOME: account,
-    USERPROFILE: account,
-    XDG_CONFIG_HOME: join(account, ".config"),
-    XDG_DATA_HOME: join(account, ".local/share"),
-    XDG_CACHE_HOME: join(account, ".cache"),
-    REA_PROCESS_RUN_ID: verifierRun.run_id,
-    PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
-    ...prepared.environment,
-  };
+  const evaluationEnvironment = agentEvalEnvironment({
+    account,
+    runId: verifierRun.run_id,
+    client: prepared,
+  });
   for (const approval of ["--dry-run", "--yes"]) {
     await runProcess(
       process.execPath,
@@ -248,6 +243,7 @@ try {
           : `${scenario.prompt}\n\nThis closed factual rubric needs complete producer Evidence in the transcript. Request complete detail on each initial application analysis when supported; summary or view records alone are not accepted by this rubric.\n\n${answerInstructions}`,
         scenario.approvedTools ?? [],
       ),
+      scenario.id,
     );
     const transcriptDirectory = process.env.REA_AGENT_EVAL_TRANSCRIPT_DIR;
     if (transcriptDirectory !== undefined) {
@@ -449,48 +445,80 @@ function validTargetClarification(message) {
   }
 }
 
-async function runClient(env, arguments_) {
-  const child = spawn(client.command, arguments_, {
+/**
+ * Run one client scenario as an owned process tree. The client and the REA MCP
+ * server it starts inherit a scenario run token; timeout or completion ends
+ * with token-verified cleanup of every owned process before the run continues.
+ */
+async function runClient(env, arguments_, scenarioId) {
+  // Processes alive before launch cannot belong to this scenario. The baseline
+  // lets a token sweep find reparented MCP servers without failing on
+  // unrelated processes whose environment is unreadable.
+  const captureBaseline = await systemProcessOwnershipHost.captureBaseline?.();
+  const launch = await spawnOwnedProviderProcess({
+    command: client.command,
+    arguments: arguments_,
+    runId: `${verifierRun.run_id}-${client.id}-${scenarioId}`,
+    expectedCommand: null,
     cwd: evaluationRoot,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    // The allowlisted environment is complete; nothing else is inherited.
+    hostEnvironment: {},
   });
-  const events = [];
-  const stderr = [];
-  const lines = createInterface({ input: child.stdout });
-  const linesClosed = new Promise((resolveClose) =>
-    lines.once("close", resolveClose),
+  const ownership =
+    captureBaseline === undefined
+      ? launch.ownership
+      : {
+          ...launch.ownership,
+          sweepTokenOwnedProcesses: true,
+          captureBaseline,
+        };
+  const supervisor = new ProviderProcessSupervisor(
+    {
+      ...launch,
+      ownsProcessLifetime: true,
+      cleanup: () => launch.cleanup?.() ?? cleanupOwnedProcessGroup(ownership),
+    },
+    { captureStdout: false, maxDiagnosticBytes: 32_768 },
   );
+  const events = [];
+  const nonJson = [];
+  const lines = createInterface({ input: launch.process.stdout });
   lines.on("line", (line) => {
     try {
       events.push(JSON.parse(line));
     } catch {
-      stderr.push(`non-json stdout: ${line}`);
+      if (nonJson.join("").length < 32_768)
+        nonJson.push(`non-json stdout: ${line}\n`);
     }
   });
-  child.stderr.on("data", (chunk) => {
-    if (stderr.join("").length < 32_768) stderr.push(chunk.toString("utf8"));
-  });
-  const exitCode = await new Promise((resolveExit, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(
-        new Error(
-          `${client.id} evaluation timed out after ${String(timeoutMs)}ms`,
-        ),
-      );
-    }, timeoutMs);
-    child.once("error", (cause) => {
-      clearTimeout(timeout);
-      reject(cause);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      resolveExit(code ?? 1);
-    });
-  });
-  await linesClosed;
-  return { events, exitCode, stderr: stderr.join("").slice(0, 32_768) };
+  let exited = false;
+  let stopped;
+  try {
+    exited = await supervisor.waitForExit(timeoutMs);
+    if (exited) await supervisor.waitForOutputClose(5_000);
+  } finally {
+    // Owned descendants are stopped even when waiting failed.
+    stopped = await supervisor.stop();
+    lines.close();
+  }
+  if (
+    stopped.status !== "verified-cleanup" &&
+    stopped.status !== "already-exited"
+  )
+    throw new Error(
+      `${client.id} process cleanup incomplete: ${JSON.stringify(stopped)}`,
+    );
+  if (!exited)
+    throw new Error(
+      `${client.id} evaluation timed out after ${String(timeoutMs)}ms`,
+    );
+  const snapshot = supervisor.snapshot();
+  return {
+    events,
+    exitCode: snapshot.exitCode ?? 1,
+    stderr: `${nonJson.join("")}${snapshot.stderr.text}`.slice(0, 32_768),
+  };
 }
 
 async function runProcess(
