@@ -91,18 +91,23 @@ export class AnalysisOutputError extends AnalysisError {
 export class AnalysisCapabilityUnavailableError extends AnalysisError {
   readonly _tag = "AnalysisCapabilityUnavailableError";
   override readonly userMessage: string | undefined;
+  readonly retryable: boolean;
 
   constructor(
     readonly providerId: string,
     readonly operation: string,
     readonly reason: string,
-    options?: AnalysisErrorOptions & { readonly userMessage?: string },
+    options?: AnalysisErrorOptions & {
+      readonly userMessage?: string;
+      readonly retryable?: boolean;
+    },
   ) {
     super(
       `Provider ${providerId} cannot execute ${operation}: ${reason}`,
       options,
     );
     this.userMessage = options?.userMessage;
+    this.retryable = options?.retryable ?? false;
   }
 }
 
