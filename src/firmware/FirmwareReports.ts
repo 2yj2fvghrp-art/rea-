@@ -85,7 +85,9 @@ const dependencyFailure = z.object({
 
 /** Collect the named extractors from any dependency report nested in one value. */
 const missingDependencies = (value: unknown): string[] => {
-  const found: string[] = [];
+  // Producer-controlled name volume must not make deduplication quadratic;
+  // a Set keeps collection linear and uniqueSorted restores canonical order.
+  const found = new Set<string>();
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) {
       for (const item of node) visit(item);
@@ -94,14 +96,13 @@ const missingDependencies = (value: unknown): string[] => {
     if (typeof node !== "object" || node === null) return;
     const failure = dependencyFailure.safeParse(node);
     if (failure.success) {
-      for (const dependency of failure.data.dependencies)
-        if (!found.includes(dependency)) found.push(dependency);
+      for (const dependency of failure.data.dependencies) found.add(dependency);
       return;
     }
     for (const child of Object.values(node)) visit(child);
   };
   visit(value);
-  return found;
+  return [...found];
 };
 
 /**

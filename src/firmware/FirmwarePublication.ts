@@ -268,7 +268,11 @@ const extractionGaps = (
       range: chunk.range,
       root_file_range: chunk.root_file_range,
       dependencies: [],
-      continuation: GAP_CONTINUATIONS[kind],
+      continuation:
+        kind === "unknown-chunk-handler" &&
+        chunk.input_path.startsWith("$output/")
+          ? `This unknown chunk was carved from a nested extraction, so its range is relative to the published child at ${chunk.input_path.slice("$output/".length)} under the output directory, not to the original input. Rerun extract_firmware with that published file as the input to evaluate the region.`
+          : GAP_CONTINUATIONS[kind],
     }));
   // Chunks whose failure a dependency row already covers stay out of the
   // generic extractor-failure emission.
@@ -281,18 +285,24 @@ const extractionGaps = (
     normalized.missing_dependencies.map(({ input_path }) => input_path),
   );
   // A depth ceiling can only be re-rooted through a published child that a
-  // fresh firmware input could actually accept.
+  // fresh firmware input could actually accept; the index is only needed
+  // when a depth row will actually consult it.
+  const ceilingReached =
+    maxDepth >= MAX_EXTRACTION_DEPTH &&
+    normalized.depth_limited_paths.length > 0;
   const reRootablePaths = new Set<string>();
-  for (const [filePath] of normalized.files) {
-    const size = normalized.sizes.get(filePath) ?? 0;
-    if (size <= 0 || size > FIRMWARE_LIMITS.inputBytes) continue;
-    const segments = filePath.split("/");
-    segments.pop();
-    while (segments.length > 1) {
-      reRootablePaths.add(segments.join("/"));
-      segments.pop();
+  if (ceilingReached)
+    for (const [filePath] of normalized.files) {
+      const size = normalized.sizes.get(filePath) ?? 0;
+      if (size <= 0 || size > FIRMWARE_LIMITS.inputBytes) continue;
+      // The published file itself can re-root a fresh run; so can every
+      // directory containing it.
+      const segments = filePath.split("/");
+      while (segments.length > 1) {
+        reRootablePaths.add(segments.join("/"));
+        segments.pop();
+      }
     }
-  }
   const gaps: ExtractionGap[] = [
     ...dependencyGaps,
     ...normalized.failed_extraction_stages
@@ -313,11 +323,11 @@ const extractionGaps = (
         chunk.extraction_failed === true &&
         chunk.handler !== null &&
         chunk.encrypted !== true &&
-        // A missing-dependency row already carries this chunk's recovery.
+        // The chunk's own dependency row already carries its recovery; a
+        // task-wide dependency names no region and replaces nothing.
         !dependencyChunkKeys.has(
           JSON.stringify([chunk.input_path, chunk.provider_id]),
-        ) &&
-        !taskDependencyPaths.has(chunk.input_path),
+        ),
     ),
     ...normalized.depth_limited_paths.map((input_path): ExtractionGap => ({
       kind: "depth-limited",

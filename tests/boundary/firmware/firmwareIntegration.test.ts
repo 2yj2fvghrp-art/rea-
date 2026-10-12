@@ -270,6 +270,30 @@ it("retains the complete firmware result when published output cleanup stays unc
   );
 });
 
+it("routes a nested unknown chunk through its published child", async () => {
+  const fixture = await firmwareFixture("nested-unknown");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  expect(normalized.extraction_gaps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "unknown-chunk-handler",
+        input_path: "$output/rootfs/config",
+        provider_id: "unknown-id",
+        range: { offset: 0, length: 12 },
+        root_file_range: null,
+        continuation: expect.stringContaining("published child at"),
+      }),
+    ]),
+  );
+});
+
 it.each([
   ["depth", 10, "cannot be restarted"],
   ["depth-reentry", 10, "rerun extract_firmware"],
