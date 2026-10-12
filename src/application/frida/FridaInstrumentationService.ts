@@ -178,6 +178,13 @@ export class FridaInstrumentationService {
     // A caller-selected file must exist before REA touches any device or
     // target; a paused spawn is resumed on cleanup, so a missing file would
     // otherwise run the target without instrumentation.
+    if (signal?.aborted)
+      return err(
+        new AnalysisCancelledError(
+          "instrument_with_frida",
+          signal.reason === undefined ? {} : { cause: signal.reason },
+        ),
+      );
     const source = await this.#readScriptSource(
       "instrument_with_frida",
       input.source,
@@ -281,8 +288,9 @@ export class FridaInstrumentationService {
       "instrument_with_frida",
       {
         ...sessionStatusOutput(observation),
-        source_kind: loaded.value.sourceKind,
-        source_path: loaded.value.sourcePath,
+        source_kind: input.source.sourceKind,
+        source_path:
+          input.source.sourceKind === "file" ? input.source.path : null,
         source_sha256: loaded.value.sourceSha256,
         cleanup_error: cleanupError,
       },

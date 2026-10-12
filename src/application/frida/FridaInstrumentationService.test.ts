@@ -159,6 +159,41 @@ it("does not resume a spawned target when cancellation arrives during script loa
   expect(closes).toBe(1);
 });
 
+it("returns cancellation before reading a file source with an aborted signal", async () => {
+  let reads = 0;
+  let starts = 0;
+  const service = new FridaInstrumentationService(
+    createProvider({
+      async startSession() {
+        starts += 1;
+        return { ok: true, value: createSession() };
+      },
+    }),
+    () => {
+      reads += 1;
+      return Promise.resolve("send('late');");
+    },
+  );
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled before call"));
+
+  const result = await service.instrument(
+    {
+      mode: "spawn",
+      deviceId: "local",
+      program: "/tmp/fixture",
+      source: { sourceKind: "file", path: "/tmp/late.js" },
+      durationMs: 1,
+    },
+    controller.signal,
+  );
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error._tag).toBe("AnalysisCancelledError");
+  expect(reads).toBe(0);
+  expect(starts).toBe(0);
+});
+
 it("rejects a missing script file before any device or target effect", async () => {
   const root = await mkdtemp(join(tmpdir(), "rea-frida-preflight-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));

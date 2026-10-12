@@ -250,6 +250,11 @@ it("rejects a missing --script-file before any Frida device or target effect", a
     calls.push("cleanup");
   };
   let stdout = "";
+  const previousExitCode = process.exitCode;
+  process.exitCode = undefined;
+  onTestFinished(() => {
+    process.exitCode = previousExitCode;
+  });
   await createCli({}, undefined, provider).serve(
     [
       "instrument-with-frida",
