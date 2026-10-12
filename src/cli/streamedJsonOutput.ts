@@ -34,6 +34,14 @@ type CommandDefinition = Extract<
 >;
 const registeredCommands: WeakMap<object, CommandMap> = Cli.toCommands;
 
+/** Detect an analysis error projection without requiring strict schema conformance. */
+const isCliErrorProjection = (value: unknown): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  "error" in value &&
+  "code" in value &&
+  typeof (value as { code?: unknown }).code === "string";
+
 /** Install formatting once, after registration, for every ordinary CLI result. */
 export const streamCliCommandResults = (
   cli: CliInstance,
@@ -168,7 +176,9 @@ export const createStreamedCliJsonOutput = (
       const document = options.fullOutput
         ? filtered === undefined
           ? { ok: true, meta }
-          : { ok: true, data: filtered, meta }
+          : isCliErrorProjection(filtered)
+            ? { ok: false, error: filtered, meta }
+            : { ok: true, data: filtered, meta }
         : filtered === undefined ||
             filtered === null ||
             typeof filtered === "function" ||
