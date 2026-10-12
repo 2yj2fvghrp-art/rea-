@@ -359,8 +359,9 @@ const parseFields = (block: string): Record<string, string | number | null> => {
 
 const parseField = (rawLine: string): readonly [string, string] | undefined => {
   const line = rawLine.trim();
-  // A dylib-use command with no flags still has an empty options row.
-  if (line === "options") return ["options", ""];
+  // A dylib-use command with no flags still has an empty options row, and
+  // MH_OBJECT files put their sections in a segment with an empty segname.
+  if (line === "options" || line === "segname") return [line, ""];
   // Match time stamp as a whole without swallowing `name stamp plugin.dylib`.
   const match = /^((?:time stamp)|\S+(?:\s+version)?)\s+(.+)$/u.exec(line);
   return match?.[1] === undefined || match[2] === undefined
@@ -384,7 +385,7 @@ const parseSegment = (
   block: string,
   fields: Readonly<Record<string, string | number | null>>,
 ): ParsedSegment => ({
-  name: stringField(fields, "segname") ?? "unknown",
+  name: nonEmptyName(stringField(fields, "segname")),
   vm_address: hexField(fields, "vmaddr"),
   vm_size: numberField(fields, "vmsize"),
   file_offset: numberField(fields, "fileoff"),
@@ -411,7 +412,7 @@ const parseSections = (block: string): ParsedSection[] =>
       ])
         requireUniqueField(sectionBlock, key);
       return {
-        segment: stringField(fields, "segname") ?? "unknown",
+        segment: nonEmptyName(stringField(fields, "segname")),
         name: stringField(fields, "sectname") ?? "unknown",
         address: hexField(fields, "addr"),
         size: numberField(fields, "size"),
@@ -466,6 +467,10 @@ const numeric = (value: string): number | null => {
   const parsed = Number.parseInt(value, value.startsWith("0x") ? 16 : 10);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 };
+
+/** Project an absent or empty Mach-O name as before: the "unknown" label. */
+const nonEmptyName = (name: string | null): string =>
+  name === null || name.length === 0 ? "unknown" : name;
 
 const stringField = (
   fields: Readonly<Record<string, string | number | null>>,
