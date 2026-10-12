@@ -148,6 +148,14 @@ summary refusal probe. It does not select summary delivery from `analyze_functio
 The helper fingerprint participates in comparison, and missing native helper
 fingerprints are not treated as a comparable current driver.
 
+The reviewed `entry-views` answer separates selected facet facts from run-specific
+references: `evidence_ids.retained_views` retains each facet's original view and
+parent ID, while `retained_views` holds its item, coverage, limitations and unknowns.
+The comparator preserves both runs' reference maps and compares the facts. Existing
+`entry`/`entry-and-main` answers keep their ID arrays. Historical SDK receipts above
+retain their original pre-review representation; no replies or measurements were
+rewritten, and no provider/model runs were repeated for this representation fix.
+
 Relevant validation includes the real workflows above, recorded-reply regression,
 grader negative probes, JavaScript/Python syntax, formatting/diff checks and
 `npm run check:fast`. The cold type/lint gate passed in 112.602 seconds with

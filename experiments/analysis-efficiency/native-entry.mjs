@@ -7,7 +7,8 @@ const normalized = (value) => value.normalized_result;
 const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
   const n = normalized(info);
   const retainedViews = [];
-  let nativeSummaryOutcome;
+  const retainedViewEvidence = [];
+  let nativeSummaryOutcome, summaryEvidenceId;
   for (const facet of ["procedure", "pseudocode", "callers", "callees"]) {
     const selected = await call("inspect_analysis_view", {
       source: { kind: "retained-evidence", evidence_id: info.evidence_id },
@@ -36,12 +37,15 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
       );
     retainedViews.push({
       facet,
-      evidence_id: selected.evidence_id,
-      parent_evidence_id: view.parent_evidence_id,
       item: view.item,
       coverage: view.coverage,
       limitations: view.limitations,
       unknowns: view.unknowns,
+    });
+    retainedViewEvidence.push({
+      facet,
+      evidence_id: selected.evidence_id,
+      parent_evidence_id: view.parent_evidence_id,
     });
   }
   // Exercise the advertised summary recipe separately. A known refusal
@@ -51,10 +55,8 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
       source: { kind: "retained-evidence", evidence_id: info.evidence_id },
       view: { kind: "summary" },
     });
-    nativeSummaryOutcome = {
-      status: "supported",
-      evidence_id: summary.evidence_id,
-    };
+    nativeSummaryOutcome = { status: "supported" };
+    summaryEvidenceId = summary.evidence_id;
   } catch (error) {
     if (
       !(error instanceof ToolFailure) ||
@@ -66,7 +68,12 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
       error: error.value.error,
     };
   }
-  return { retainedViews, nativeSummaryOutcome };
+  return {
+    retainedViews,
+    retainedViewEvidence,
+    nativeSummaryOutcome,
+    summaryEvidenceId,
+  };
 };
 
 const retainedJqMain = async (call, ToolFailure) => {
@@ -183,11 +190,17 @@ export const measureNativeEntry = async ({
             retained_views: selected.retainedViews,
             native_summary_outcome: selected.nativeSummaryOutcome,
           }),
-      evidence_ids: [
-        containing.evidence_id,
-        info.evidence_id,
-        ...mainEvidenceIds,
-      ],
+      evidence_ids:
+        selected.retainedViews === undefined
+          ? [containing.evidence_id, info.evidence_id, ...mainEvidenceIds]
+          : {
+              containing_procedure: containing.evidence_id,
+              function_dossier: info.evidence_id,
+              retained_views: selected.retainedViewEvidence,
+              ...(selected.summaryEvidenceId === undefined
+                ? {}
+                : { native_summary: selected.summaryEvidenceId }),
+            },
     };
   } finally {
     await call("close_binary", {});

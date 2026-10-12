@@ -57,6 +57,17 @@ const facts = (answer) =>
 const a = facts(leftAnswer);
 const b = facts(rightAnswer);
 const runSpecific = [];
+for (const [side, answer] of [
+  ["left", leftAnswer],
+  ["right", rightAnswer],
+]) {
+  if (Object.hasOwn(answer, "evidence_ids"))
+    runSpecific.push({
+      side,
+      path: ["evidence_ids"],
+      value: answer.evidence_ids,
+    });
+}
 // Binwalk assigns a new opaque region UUID in each invocation. Preserve both
 // original lookup values in this report; compare the observed region facts
 // separately. The product and original replies retain those IDs unchanged.
