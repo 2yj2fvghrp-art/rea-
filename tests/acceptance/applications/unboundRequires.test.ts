@@ -31,6 +31,21 @@ const aliasSource = [
   "const alias = raw;",
   "export { alias };",
 ].join("\n");
+const mixedSource = [
+  'import { value as imported } from "mixed-package";',
+  'import required = require("mixed-package");',
+  "const mixed = Date.now() > 0 ? imported : required.value;",
+  "export { imported as staticChoice, mixed };",
+  "export const requireChoice = required.value;",
+].join("\n");
+const typescriptSourceFiles = {
+  "typed.cts": typedSource,
+  "typed.mts": typedSource,
+  "alias.cts": aliasSource,
+  "alias.mts": aliasSource,
+  "mixed.cts": mixedSource,
+  "mixed.mts": mixedSource,
+};
 const typedPackageFiles = {
   "node_modules/typed-package/package.json": JSON.stringify({
     exports: { require: "./actual.cjs", import: "./decoy.mjs" },
@@ -41,6 +56,15 @@ const typedPackageFiles = {
   "node_modules/typed-package/decoy.mjs": "export default 99;",
   "node_modules/typed-package/decoy.d.mts":
     "declare const value: number; export default value;",
+  "node_modules/mixed-package/package.json": JSON.stringify({
+    exports: { require: "./actual.cjs", import: "./decoy.mjs" },
+  }),
+  "node_modules/mixed-package/actual.cjs": "exports.value = 42;",
+  "node_modules/mixed-package/actual.d.cts":
+    "export declare const value: number;",
+  "node_modules/mixed-package/decoy.mjs": "export const value = 99;",
+  "node_modules/mixed-package/decoy.d.mts":
+    "export declare const value: number;",
 };
 
 const expectNativeModuleControls = async (root: string): Promise<void> => {
@@ -64,6 +88,8 @@ const expectNativeModuleControls = async (root: string): Promise<void> => {
       join(root, "typed.mts"),
       join(root, "alias.cts"),
       join(root, "alias.mts"),
+      join(root, "mixed.cts"),
+      join(root, "mixed.mts"),
     ],
     { cwd: root, timeout: 10_000 },
   );
@@ -85,6 +111,20 @@ const expectNativeModuleControls = async (root: string): Promise<void> => {
     expect(await readFile(join(emitted, filename), "utf8")).not.toContain(
       "./type-only.cjs",
     );
+  }
+  for (const [filename, expected] of [
+    ["mixed.cjs", "42 42 42"],
+    ["mixed.mjs", "99 42 99"],
+  ] as const) {
+    const control = await execute(
+      process.execPath,
+      [
+        "-e",
+        `import("./${filename}").then(({staticChoice, requireChoice, mixed}) => console.log(staticChoice, requireChoice, mixed));`,
+      ],
+      { cwd: emitted, timeout: 5_000 },
+    );
+    expect(control.stdout.trim()).toBe(expected);
   }
   const nativeRequire = createRequire(join(root, "main.cjs"));
   for (const name of ["dependency", "nested"])
@@ -109,6 +149,7 @@ const expectAliasRelationships = (
           module_link_kind: "export",
           local_name: "alias",
           exported_name: "alias",
+          resolution_mode: "require",
           resolved_path: "node_modules/typed-package/actual.cjs",
           resolution_status: "resolved",
         }),
@@ -123,6 +164,56 @@ const expectAliasRelationships = (
       }),
     );
   }
+};
+
+const expectMixedRelationships = (
+  graph: ReturnType<
+    typeof javascriptApplicationAnalysisResultSchema.parse
+  >["graph"],
+): void => {
+  const exported = (source: string, name: string) =>
+    graph.edges.filter(
+      ({ relation, properties, evidence }) =>
+        relation === "imports" &&
+        properties.module_link_kind === "export" &&
+        properties.exported_name === name &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === source,
+    );
+  for (const source of ["mixed.cts", "mixed.mts"]) {
+    for (const [name, target] of [
+      ["staticChoice", source.endsWith(".cts") ? "actual.cjs" : "decoy.mjs"],
+      ["requireChoice", "actual.cjs"],
+    ] as const)
+      expect(exported(source, name)).toMatchObject([
+        {
+          properties: {
+            resolved_path: `node_modules/mixed-package/${target}`,
+            resolution_status: "resolved",
+          },
+          evidence: {
+            artifact: {
+              sha256: createHash("sha256").update(mixedSource).digest("hex"),
+            },
+          },
+        },
+      ]);
+  }
+  expect(exported("mixed.cts", "mixed")).toMatchObject([
+    {
+      properties: {
+        resolved_path: "node_modules/mixed-package/actual.cjs",
+        resolution_status: "resolved",
+      },
+      evidence: {
+        artifact: {
+          sha256: createHash("sha256").update(mixedSource).digest("hex"),
+        },
+      },
+    },
+  ]);
+  expect(exported("mixed.mts", "mixed")).toEqual([]);
 };
 
 const expectImportEqualsRelationships = (
@@ -172,6 +263,7 @@ const expectImportEqualsRelationships = (
         properties: expect.objectContaining({
           module_link_kind: "export",
           local_name: "typed",
+          resolution_mode: "require",
           resolved_path: "node_modules/typed-package/actual.cjs",
         }),
         evidence: expect.objectContaining({
@@ -256,10 +348,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "imports.mjs": 'import "./dependency.cjs";',
       "dependency.cjs": 'throw new Error("fixture must not execute");',
       "nested.cjs": 'throw new Error("fixture must not execute");',
-      "typed.cts": typedSource,
-      "typed.mts": typedSource,
-      "alias.cts": aliasSource,
-      "alias.mts": aliasSource,
+      ...typescriptSourceFiles,
       "type-only.d.cts": "declare const value: unknown; export = value;",
     };
     await Promise.all(
@@ -293,6 +382,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     );
     expectImportEqualsRelationships(graph);
     expectAliasRelationships(graph);
+    expectMixedRelationships(graph);
     const links = graph.edges.filter(
       ({ relation, properties, evidence: edgeEvidence }) =>
         relation === "imports" &&

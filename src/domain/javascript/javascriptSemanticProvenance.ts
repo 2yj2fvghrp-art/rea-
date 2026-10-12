@@ -51,7 +51,7 @@ const semanticOriginKey = (origin: JavaScriptModuleOrigin): string =>
   JSON.stringify([
     origin.specifier,
     origin.importedPath,
-    origin.resolutionMode ?? null,
+    origin.resolutionMode ?? "import",
   ]);
 
 /** Canonically distinguish primitive values across type boundaries. */

@@ -31,6 +31,7 @@ import {
 } from "./JavaScriptArtifactGraphEvidence.js";
 import {
   moduleKindForJavaScriptReference,
+  moduleResolutionModeProperties,
   resolveArtifactPathByContext,
   type ArtifactPathResolution,
 } from "./JavaScriptArtifactPathResolution.js";
@@ -374,6 +375,7 @@ const relationshipProperties = (
   origin?: JavaScriptModuleOrigin,
 ) => ({
   module_link_kind: link.kind,
+  ...moduleResolutionModeProperties(link.resolutionMode),
   specifier: origin?.specifier ?? link.specifier,
   imported_name: origin?.importedPath.at(-1) ?? link.importedName,
   imported_path: origin?.importedPath ?? [],

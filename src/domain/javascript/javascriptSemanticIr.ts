@@ -396,6 +396,7 @@ export interface JavaScriptSemanticModuleLink {
   readonly resolutionMode?: "import" | "require";
   readonly kind:
     | "import"
+    | "type-import"
     | "require"
     | "export"
     | "re-export"

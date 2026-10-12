@@ -533,6 +533,7 @@ const moduleLink = z
     resolutionMode: z.enum(["import", "require"]).optional(),
     kind: z.enum([
       "import",
+      "type-import",
       "require",
       "export",
       "re-export",

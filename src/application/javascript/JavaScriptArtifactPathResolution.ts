@@ -77,6 +77,12 @@ export const moduleKindForJavaScriptReference = (
     ? "require"
     : "import");
 
+/** Preserve an explicitly retained loader mode on graph relationships. */
+export const moduleResolutionModeProperties = (
+  mode: "import" | "require" | undefined,
+): Readonly<Record<string, "import" | "require">> =>
+  mode === undefined ? {} : { resolution_mode: mode };
+
 const EXTENSIONS = [
   ".js",
   ".cjs",
