@@ -1,11 +1,15 @@
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
 import { jsonObjectSchema, jsonValueSchema } from "../../domain/jsonValue.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
+  AnalysisAccessDeniedError,
   AnalysisCancelledError,
   AnalysisCapabilityUnavailableError,
+  AnalysisInputError,
 } from "../../domain/analysisErrorCore.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import type {
@@ -18,6 +22,46 @@ import type {
   FridaSessionStatus,
   StartFridaSessionInput,
 } from "./FridaInstrumentationPort.js";
+
+const unreadableScriptFile = async (
+  source: FridaScriptSource,
+): Promise<AnalysisError | undefined> => {
+  if (source.sourceKind !== "file") return undefined;
+  let reason: string;
+  let cause: unknown;
+  try {
+    if (!(await stat(source.path)).isFile())
+      reason = "it is not a regular file";
+    else {
+      await access(source.path, constants.R_OK);
+      return undefined;
+    }
+  } catch (failure: unknown) {
+    cause = failure;
+    const code =
+      failure instanceof Error && "code" in failure ? failure.code : undefined;
+    if (code === "EACCES" || code === "EPERM")
+      return new AnalysisAccessDeniedError(
+        "instrument_with_frida",
+        source.path,
+        code,
+        { cause },
+      );
+    reason =
+      code === "ENOENT" ? "no file exists there" : String(code ?? failure);
+  }
+  return new AnalysisInputError(
+    "instrument_with_frida",
+    cause === undefined ? undefined : { cause },
+    [
+      {
+        path: ["path"],
+        reason: "invalid_value",
+        message: `Cannot read Frida script file ${source.path}: ${reason}.`,
+      },
+    ],
+  );
+};
 
 /** Shared CLI/MCP workflows for Frida's device and instrumentation operations. */
 export class FridaInstrumentationService {
@@ -163,6 +207,9 @@ export class FridaInstrumentationService {
       AnalysisError
     >
   > {
+    // Reject an unreadable script file before any attach or spawn effect.
+    const unreadable = await unreadableScriptFile(input.source);
+    if (unreadable !== undefined) return err(unreadable);
     const started = await this.#startSession(
       input,
       signal,
