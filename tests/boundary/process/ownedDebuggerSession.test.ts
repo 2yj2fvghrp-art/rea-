@@ -16,6 +16,30 @@ const triggerDescendantOutput = (port: number): void => {
   socket.on("connect", () => socket.end());
 };
 
+const startDebuggerWithInferior = (inferiorSource: string) => {
+  const debuggerSource = [
+    'const { spawn } = require("node:child_process");',
+    `spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
+    "process.exit(0);",
+  ].join("\n");
+  const child = spawn(process.execPath, ["-e", debuggerSource], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const supervisor = new ProviderProcessSupervisor({
+    process: child,
+    ownsProcessLifetime: true,
+  });
+  let readyOutput = "";
+  const inferiorPort = new Promise<number>((resolvePort) => {
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      readyOutput += chunk.toString();
+      const match = /^ready:(\d+)$/mu.exec(readyOutput);
+      if (match !== null) resolvePort(Number(match[1]));
+    });
+  });
+  return { child, supervisor, inferiorPort };
+};
+
 it("preserves the session receiver when invoking the provider detach callback", async () => {
   const session = {
     id: "receiver-bound-detach",
@@ -664,27 +688,9 @@ it.skipIf(process.platform === "win32")(
       "});",
       'server.listen(0, "127.0.0.1", () => process.stdout.write(`ready:${server.address().port}\\n`));',
     ].join("\n");
-    const debuggerSource = [
-      'const { spawn } = require("node:child_process");',
-      `spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
-      "process.exit(0);",
-    ].join("\n");
-    const child = spawn(process.execPath, ["-e", debuggerSource], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const supervisor = new ProviderProcessSupervisor({
-      process: child,
-      ownsProcessLifetime: true,
-    });
+    const { child, supervisor, inferiorPort } =
+      startDebuggerWithInferior(inferiorSource);
     let port: number | undefined;
-    let readyOutput = "";
-    const inferiorPort = new Promise<number>((resolvePort) => {
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        readyOutput += chunk.toString();
-        const match = /^ready:(\d+)$/mu.exec(readyOutput);
-        if (match !== null) resolvePort(Number(match[1]));
-      });
-    });
 
     try {
       await once(child, "exit");
@@ -741,27 +747,9 @@ it.skipIf(process.platform === "win32")(
       "});",
       'server.listen(0, "127.0.0.1", () => process.stdout.write(`ready:${server.address().port}\\n`));',
     ].join("\n");
-    const debuggerSource = [
-      'const { spawn } = require("node:child_process");',
-      `spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
-      "process.exit(0);",
-    ].join("\n");
-    const child = spawn(process.execPath, ["-e", debuggerSource], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const supervisor = new ProviderProcessSupervisor({
-      process: child,
-      ownsProcessLifetime: true,
-    });
+    const { child, supervisor, inferiorPort } =
+      startDebuggerWithInferior(inferiorSource);
     let port: number | undefined;
-    let readyOutput = "";
-    const inferiorPort = new Promise<number>((resolvePort) => {
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        readyOutput += chunk.toString();
-        const match = /^ready:(\d+)$/mu.exec(readyOutput);
-        if (match !== null) resolvePort(Number(match[1]));
-      });
-    });
     const session = {
       id: "leader-exited-retrying-inferior",
       exited: true,
