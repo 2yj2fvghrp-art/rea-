@@ -1400,4 +1400,183 @@ describe("DeepSeek Harness root aliases", () => {
   });
 });
 
+const loadedInserts = (
+  text: string,
+): { id?: string; config?: { command?: string } }[] => {
+  const patches = parseYaml(text) as {
+    insert?: { id?: string; config?: { command?: string } }[];
+  }[];
+  return patches.flatMap((patch) => patch.insert ?? []);
+};
+
+describe("DeepSeek Harness inert anchors", () => {
+  it("keeps unrelated rows when the only active insertion is a root alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- holder: &op
+    insert:
+      - id: other-tool
+        name: other
+        config:
+          command: keep-me
+      - id: rea-mcp
+        name: "@deepseek-ai/dsh-mcp-client"
+        config:
+          serverName: rea
+          transport: stdio
+          command: stale-launcher
+          args: [mcp]
+- *op
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const inserted = loadedInserts(await readFile(client.configPath, "utf8"));
+    expect(inserted.filter((entry) => entry.id === "other-tool")).toHaveLength(
+      1,
+    );
+    expect(inserted.filter((entry) => entry.id === "rea-mcp")).toEqual([
+      expect.objectContaining({
+        config: expect.objectContaining({ command: command[0] }),
+      }),
+    ]);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("keeps unrelated rows when uninstall removes that root alias", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- holder: &op
+    insert:
+      - id: other-tool
+        name: other
+        config:
+          command: keep-me
+      - id: rea-mcp
+        name: "@deepseek-ai/dsh-mcp-client"
+        config:
+          serverName: rea
+          transport: stdio
+          command: ${command[0]}
+          args: [${command.slice(1).join(", ")}]
+- *op
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const text = await readFile(client.configPath, "utf8");
+    expect(parseYaml(text)).toBeTruthy();
+    const inserted = loadedInserts(text);
+    expect(inserted.filter((entry) => entry.id === "other-tool")).toHaveLength(
+      1,
+    );
+    expect(inserted.filter((entry) => entry.id === "rea-mcp")).toHaveLength(0);
+  });
+});
+
+describe("DeepSeek Harness alias anchors", () => {
+  it("rewrites an entry id alias before removing its anchor", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- id: &entryId rea-mcp
+  config:
+    serverName: rea
+    transport: stdio
+    command: stale-launcher
+    args: [mcp]
+- insert:
+    - id: *entryId
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: stale-launcher
+        args: [mcp]
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("*entryId");
+    expect(
+      loadedInserts(text).filter((entry) => entry.id === "rea-mcp"),
+    ).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("edits a root alias whose insert list is itself an alias", async () => {
+    const { client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &rows
+  - id: other-tool
+    name: other
+    config:
+      command: keep-me
+  - id: rea-mcp
+    name: "@deepseek-ai/dsh-mcp-client"
+    config:
+      serverName: rea
+      transport: stdio
+      command: stale-launcher
+      args: [mcp]
+- holder: &op
+    insert: *rows
+- *op
+`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const inserted = loadedInserts(await readFile(client.configPath, "utf8"));
+    expect(inserted.filter((entry) => entry.id === "other-tool")).toHaveLength(
+      1,
+    );
+    expect(inserted.filter((entry) => entry.id === "rea-mcp")).toHaveLength(1);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("drops a replayed root alias after its insert alias is emptied", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      `- &rows
+  - id: rea-mcp
+    name: "@deepseek-ai/dsh-mcp-client"
+    config:
+      serverName: rea
+      transport: stdio
+      command: ${command[0]}
+      args: [${command.slice(1).join(", ")}]
+- &op
+  insert: *rows
+- *op
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).not.toContain("*op");
+    expect(() => parseYaml(text)).not.toThrow();
+  });
+});
+
 const textOf = (value: unknown): string => String(value);
