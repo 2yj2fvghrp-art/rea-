@@ -13,6 +13,7 @@ import {
   isUnshadowedGlobal,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
+import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
 
 const GLOBAL_OBJECT_NAMES = ["globalThis", "global", "window", "self"];
 
@@ -23,12 +24,12 @@ const globalObjectName = (
   GLOBAL_OBJECT_NAMES.find((name) => isUnshadowedGlobal(node, state, name));
 
 /**
- * Index direct source-local global writes after lexical declarations are known.
+ * Index direct writes to globals and import.meta after declarations are known.
  * This shares the identity-write owner's assignment, destructuring, loop and
  * intrinsic-mutator rules. Runtime reachability, indirect aliases and arbitrary
  * call side effects are not evaluated; a visible possible write is sufficient.
  */
-export function* indexJavaScriptGlobalWritesSteps(
+export function* indexJavaScriptAmbientWritesSteps(
   program: t.Program,
   state: JavaScriptSemanticAnalysisState,
 ): Generator<void> {
@@ -48,11 +49,18 @@ export function* indexJavaScriptGlobalWritesSteps(
   yield* collectJavaScriptIdentityWritesSteps(
     program,
     (root, kind) => {
-      if (kind === "opaque-call" || !t.isIdentifier(root)) return undefined;
+      if (kind === "opaque-call") return undefined;
+      if (
+        t.isMetaProperty(root) &&
+        root.meta.name === "import" &&
+        root.property.name === "meta"
+      )
+        return ["import-meta"];
+      if (!t.isIdentifier(root)) return undefined;
       if (kind === "member" && globalObjectName(root, state) !== undefined)
-        return [];
+        return ["global"];
       return isUnshadowedGlobal(root, state, root.name)
-        ? [root.name]
+        ? ["global", root.name]
         : undefined;
     },
     (node) =>
@@ -68,7 +76,7 @@ export function* indexJavaScriptGlobalWritesSteps(
     },
     (node) => t.isObjectExpression(node) || t.isArrayExpression(node),
     (_node, path) => {
-      state.globalWrites.retain(path);
+      state.ambientWrites.retain(path);
     },
   );
 }
@@ -84,7 +92,7 @@ export const isUnmodifiedGlobalReference = (
   name: string,
 ): boolean => {
   const node = unwrapJavaScriptExpression(callee).node;
-  if (state.globalWrites.covers([name])) return false;
+  if (state.ambientWrites.covers(["global", name])) return false;
   if (isUnshadowedGlobal(node, state, name)) return true;
   if (
     !t.isMemberExpression(node) ||
@@ -93,5 +101,15 @@ export const isUnmodifiedGlobalReference = (
     return false;
   const root = unwrapJavaScriptExpression(node.object).node;
   const namespace = globalObjectName(root, state);
-  return namespace !== undefined && !state.globalWrites.covers([namespace]);
+  return (
+    namespace !== undefined &&
+    !state.ambientWrites.covers(["global", namespace])
+  );
 };
+
+/** A module URL base is known only while its property has no visible write. */
+export const isUnmodifiedImportMetaUrl = (
+  node: t.Node | undefined,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  isImportMetaUrl(node) && !state.ambientWrites.covers(["import-meta", "url"]);

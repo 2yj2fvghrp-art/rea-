@@ -184,6 +184,15 @@ cliTest(
         specifier: "./worker.js",
         resolved: "nested/worker.js",
       },
+      ...[
+        'import.meta.unrelated = "metadata";',
+        'globalThis["import.meta"] = { url: "file:///other/entry.mjs" };',
+      ].map((mutation, index) => ({
+        source: `nested/unrelated-meta-${index}.mjs`,
+        expression: `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
+        specifier: "./worker.js",
+        resolved: "nested/worker.js",
+      })),
       {
         source: "nested/parent.mjs",
         expression:
@@ -317,6 +326,17 @@ cliTest(
           'Reflect.set(globalThis, "URL", replacement);',
         ].map((mutation, index) => [
           `mutated-url-${index}.mjs`,
+          `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
+        ]),
+      ),
+      ...Object.fromEntries(
+        [
+          'import.meta.url = "file:///other/entry.mjs";',
+          "delete import.meta.url;",
+          'Object.defineProperty(import.meta, "url", { value: "file:///other/entry.mjs" });',
+          "import.meta[key] = replacement;",
+        ].map((mutation, index) => [
+          `mutated-import-meta-${index}.mjs`,
           `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
         ]),
       ),

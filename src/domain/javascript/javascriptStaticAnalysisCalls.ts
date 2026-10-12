@@ -12,7 +12,6 @@ import {
   argumentValue,
   calleeName,
   endpointArgument as endpointArgumentHelper,
-  isImportMetaUrl,
   prefixedArgument,
   range,
   rangeForOffsets,
@@ -36,7 +35,10 @@ import {
   resolveSemanticBindingState,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
-import { isUnmodifiedGlobalReference } from "./javascriptSemanticGlobalWrites.js";
+import {
+  isUnmodifiedGlobalReference,
+  isUnmodifiedImportMetaUrl,
+} from "./javascriptSemanticAmbientWrites.js";
 
 type JavaScriptCallLike =
   | t.CallExpression
@@ -133,7 +135,7 @@ const workerUrlSpecifier = (
   if (
     !t.isIdentifier(callee, { name: "URL" }) ||
     !isUnmodifiedGlobalReference(callee, bindings, "URL") ||
-    !isImportMetaUrl(argumentNode(node.arguments[1]))
+    !isUnmodifiedImportMetaUrl(argumentNode(node.arguments[1]), bindings)
   )
     return undefined;
   const specifier = stringValue(node.arguments[0]);
