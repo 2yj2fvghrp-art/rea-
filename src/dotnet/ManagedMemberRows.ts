@@ -9,7 +9,6 @@ import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
   signature,
-  specSignature,
   type ManagedCallEdge,
   type ManagedExportedType,
   type ManagedField,
@@ -330,75 +329,6 @@ export const parseMethods = ({
     }, issues);
   }
   return { methods, core, issues };
-};
-
-/**
- * Index fields, member references, and methods by token, then name each
- * MethodSpec an inspected body calls after the generic method it instantiates,
- * so every edge target resolves through one lookup.
- */
-export const edgeTargets = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  methods: readonly ManagedMethod[],
-  cores: readonly ReadonlyMap<string, MemberCore>[],
-): {
-  readonly members: ReadonlyMap<string, MemberCore>;
-  readonly issues: readonly ManagedParseIssue[];
-} => {
-  const members = new Map(cores.flatMap((core) => [...core]));
-  const issues: ManagedParseIssue[] = [];
-  const seen = new Set<string>();
-  for (const method of methods)
-    for (const { operand } of method.body.anchors) {
-      if (operand?.startsWith("0x2b") !== true || seen.has(operand)) continue;
-      seen.add(operand);
-      readManagedValue(() => {
-        const scope = `metadata.MethodSpec:${operand}`;
-        const cursor = metadataRowCursor(
-          bytes,
-          layout,
-          0x2b,
-          Number.parseInt(operand.slice(4), 16),
-        );
-        const methodRaw = cursor.readIndex(
-          layout.codedIndexSize("MethodDefOrRef"),
-        );
-        const instantiation = cursor.readIndex(layout.blobIndexSize);
-        const methodReason = metadataCodedTokenInvalidReason(
-          methodRaw,
-          1,
-          [6, 10],
-          layout.rowCounts,
-        );
-        if (methodReason !== null || methodRaw === 0)
-          issues.push({
-            code: "invalid-row",
-            scope,
-            offset: cursor.start,
-            detail:
-              methodReason === null
-                ? "MethodSpec method coded index 0x0 is null, but the Method column must reference a row"
-                : `MethodSpec method coded index 0x${methodRaw.toString(16)} is invalid: ${methodReason}`,
-          });
-        const generic = metadataCodedToken(
-          methodRaw,
-          1,
-          [6, 10],
-          layout.rowCounts,
-        );
-        const target = generic === null ? undefined : members.get(generic);
-        // A readable Method column stays a fact even if the instantiation is not.
-        if (target !== undefined)
-          members.set(operand, { ...target, token: operand });
-        specSignature(
-          layout,
-          readMetadataBlob(bytes, layout, instantiation, layout.blob.size),
-          { form: "instantiation", scope, offset: cursor.start },
-        );
-      }, issues);
-    }
-  return { members, issues };
 };
 
 /**

@@ -103,9 +103,11 @@ Other well-formed TypeSpec forms and ModuleRef or MethodDef parents stay
 `null`. A `method-spec` call edge reports the name and declaring type of the
 generic method it instantiates. A field access is named only by a field or a
 field-signature MemberRef. TypeSpec and MethodSpec blobs are decoded with the
-member-signature grammar; malformed rows and blobs stay `null` and make
-coverage partial, while a readable MethodSpec method column keeps its name.
-Older member Evidence without these fields reads them as `null`: unknown.
+member-signature grammar, and a MethodSpec must instantiate a generic method
+with as many type arguments as it declares. Malformed or unsupported rows and
+blobs, and arity mismatches, make coverage partial; a readable MethodSpec
+method column keeps its name. Older member Evidence without these fields reads
+them as `null`: unknown.
 
 ## Analysis objective
 

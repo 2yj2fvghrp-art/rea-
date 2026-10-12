@@ -162,42 +162,25 @@ const tokenBody = (
   return Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]);
 };
 
-describe("managed edge target declaring types", () => {
-  const attribute = "System.Runtime.Versioning.TargetFrameworkAttribute";
-  const inspect = (options: Parameters<typeof buildManagedPeFixture>[0]) => {
-    const bytes = buildManagedPeFixture(options);
-    return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes));
-  };
-  const call = 0x28;
-  const ldsfld = 0x7e;
-  const memberRefOnTypeSpec = (signature: Buffer) =>
-    inspect({
-      typeSpecSignatures: [signature],
-      memberRefParentRaw: (1 << 3) | 4,
-    });
-
-  it("names generic method calls after the method they instantiate", () => {
-    const result = inspect({
-      methodSpecMethods: [(1 << 1) | 1, (1 << 1) | 0],
-      ilBody: tokenBody([
-        [call, 0x2b00_0001],
-        [call, 0x2b00_0002],
-      ]),
-    });
-
-    expect(
-      result.call_edges.map((edge) => [
-        edge.target_kind,
-        edge.target_name,
-        edge.target_declaring_type,
-      ]),
-    ).toEqual([
-      ["method-spec", ".ctor", attribute],
-      ["method-spec", "Main", "Fixture.Program"],
-    ]);
-    expect(result.coverage).toEqual({ state: "complete", issues: [] });
+const attribute = "System.Runtime.Versioning.TargetFrameworkAttribute";
+const inspect = (options: Parameters<typeof buildManagedPeFixture>[0]) => {
+  const bytes = buildManagedPeFixture(options);
+  return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes));
+};
+const call = 0x28;
+const ldsfld = 0x7e;
+const memberRefOnTypeSpec = (signature: Buffer) =>
+  inspect({
+    typeSpecSignatures: [signature],
+    memberRefParentRaw: (1 << 3) | 4,
   });
 
+// HASTHIS | GENERIC, one generic parameter, no parameters, void.
+const genericRef = Buffer.from([0x30, 0x01, 0x00, 0x01]);
+// GENERIC, one generic parameter, no parameters, void.
+const genericDef = Buffer.from([0x10, 0x01, 0x00, 0x01]);
+
+describe("managed edge target declaring types", () => {
   it("names a generic TypeSpec parent by its generic type and leaves other TypeSpecs unknown", () => {
     // GENERICINST CLASS TypeRef(1) <string>
     const generic = memberRefOnTypeSpec(
@@ -250,33 +233,34 @@ describe("managed edge target declaring types", () => {
     },
   );
 
-  it("keeps a readable MethodSpec method beside a malformed instantiation", () => {
-    const result = inspect({
-      methodSpecMethods: [(1 << 1) | 1, (9 << 1) | 1],
-      methodSpecInstantiation: Buffer.from([0x0a, 0x00]),
-      ilBody: tokenBody([
-        [call, 0x2b00_0001],
-        [call, 0x2b00_0002],
-      ]),
+  it("reports unsupported TypeSpec and MethodSpec forms instead of treating them as unknown", () => {
+    const typeSpec = memberRefOnTypeSpec(Buffer.from([0xff]));
+    const methodSpec = inspect({
+      memberRefSignature: genericRef,
+      methodSpecMethods: [(1 << 1) | 1],
+      methodSpecInstantiation: Buffer.from([0x0a, 0x01, 0xff]),
+      ilBody: tokenBody([[call, 0x2b00_0001]]),
     });
 
-    expect(
-      result.call_edges.map(({ target_name, target_declaring_type }) => [
-        target_name,
-        target_declaring_type,
-      ]),
-    ).toEqual([
-      [".ctor", attribute],
-      [null, null],
-    ]);
-    expect(result.coverage.state).toBe("partial");
-    expect(
-      result.coverage.issues.map(({ code, scope }) => [code, scope]),
-    ).toEqual([
-      ["invalid-blob", "metadata.MethodSpec:0x2b000001"],
-      ["invalid-row", "metadata.MethodSpec:0x2b000002"],
-      ["invalid-blob", "metadata.MethodSpec:0x2b000002"],
-    ]);
+    expect(typeSpec.member_refs[0]?.parent_name).toBeNull();
+    expect(typeSpec.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        {
+          code: "unsupported-signature",
+          scope: "metadata.TypeSpec:0x1b000001",
+        },
+      ],
+    });
+    expect(methodSpec.coverage).toMatchObject({
+      state: "partial",
+      issues: [
+        {
+          code: "unsupported-signature",
+          scope: "metadata.MethodSpec:0x2b000001",
+        },
+      ],
+    });
   });
 
   it("names field MemberRefs as fields and leaves mismatched member kinds unnamed", () => {
@@ -324,6 +308,103 @@ describe("managed edge target declaring types", () => {
     expect(parsed.member_refs[0]?.parent_name).toBeNull();
     expect(parsed.call_edges[0]?.target_declaring_type).toBeNull();
     expect(parsed.field_accesses[0]?.field_declaring_type).toBeNull();
+  });
+});
+
+describe("managed MethodSpec call targets", () => {
+  it("names generic method calls after the method they instantiate", () => {
+    const result = inspect({
+      memberRefSignature: genericRef,
+      methodSignature: genericDef,
+      methodSpecMethods: [(1 << 1) | 1, (1 << 1) | 0],
+      ilBody: tokenBody([
+        [call, 0x2b00_0001],
+        [call, 0x2b00_0002],
+      ]),
+    });
+
+    expect(
+      result.call_edges.map((edge) => [
+        edge.target_kind,
+        edge.target_name,
+        edge.target_declaring_type,
+      ]),
+    ).toEqual([
+      ["method-spec", ".ctor", attribute],
+      ["method-spec", "Main", "Fixture.Program"],
+    ]);
+    expect(result.coverage).toEqual({ state: "complete", issues: [] });
+  });
+
+  it.each([
+    [
+      "a non-generic method",
+      {},
+      Buffer.from([0x0a, 0x01, 0x0e]),
+      "but its method declares 0 generic parameter(s)",
+    ],
+    [
+      "the wrong number of type arguments",
+      { memberRefSignature: genericRef },
+      Buffer.from([0x0a, 0x02, 0x0e, 0x08]),
+      "supplies 2 type argument(s), but its method declares 1",
+    ],
+    [
+      "a field reference",
+      { memberRefSignature: Buffer.from([0x06, 0x0e]) },
+      Buffer.from([0x0a, 0x01, 0x0e]),
+      "does not have a decodable method signature",
+    ],
+  ])(
+    "reports a MethodSpec that instantiates %s",
+    (_case, options, methodSpecInstantiation, detail) => {
+      const result = inspect({
+        ...options,
+        methodSpecMethods: [(1 << 1) | 1],
+        methodSpecInstantiation,
+        ilBody: tokenBody([[call, 0x2b00_0001]]),
+      });
+
+      expect(result.coverage).toMatchObject({
+        state: "partial",
+        issues: [
+          {
+            code: "invalid-row",
+            scope: "metadata.MethodSpec:0x2b000001",
+            detail: expect.stringContaining(detail),
+          },
+        ],
+      });
+    },
+  );
+
+  it("keeps a readable MethodSpec method beside a malformed instantiation", () => {
+    const result = inspect({
+      methodSpecMethods: [(1 << 1) | 1, (9 << 1) | 1],
+      methodSpecInstantiation: Buffer.from([0x0a, 0x00]),
+      ilBody: tokenBody([
+        [call, 0x2b00_0001],
+        [call, 0x2b00_0002],
+      ]),
+    });
+
+    expect(
+      result.call_edges.map(({ target_name, target_declaring_type }) => [
+        target_name,
+        target_declaring_type,
+      ]),
+    ).toEqual([
+      [".ctor", attribute],
+      [null, null],
+    ]);
+    expect(result.coverage.state).toBe("partial");
+    expect(
+      result.coverage.issues.map(({ code, scope }) => [code, scope]),
+    ).toEqual([
+      ["invalid-blob", "metadata.MethodSpec:0x2b000001"],
+      ["invalid-row", "metadata.MethodSpec:0x2b000002"],
+      ["invalid-blob", "metadata.MethodSpec:0x2b000002"],
+    ]);
   });
 });
 

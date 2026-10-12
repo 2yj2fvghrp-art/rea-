@@ -601,9 +601,9 @@ const callingConvention = (value: number): string => {
 
 /**
  * Decode a whole TypeSpec blob, or a MethodSpec instantiation (GENERICINST,
- * argument count, Types), with the member-signature grammar. Returns the
- * rendered types, or null for a well-formed form the grammar does not
- * support. A malformed blob throws invalid-blob under the owning row.
+ * argument count, Types), with the member-signature grammar and return the
+ * rendered types. A malformed or unsupported blob throws invalid-blob or
+ * unsupported-signature under the owning row, so coverage records it.
  */
 export const specSignature = (
   layout: ManagedMetadataLayout,
@@ -613,7 +613,7 @@ export const specSignature = (
     readonly scope: string;
     readonly offset: number;
   },
-): readonly string[] | null => {
+): readonly string[] => {
   const budget = managedDecodeBudget(layout);
   // Rendering is transient, so charge it as member signatures are charged.
   budget.admitTransient(blob.length * 256, owner.offset);
@@ -640,17 +640,34 @@ export const specSignature = (
       malformedSignature("Trailing signature data", cursor);
     return types;
   } catch (cause: unknown) {
-    if (!(cause instanceof ManagedReaderFailure)) throw cause;
-    if (cause.issue.code === "unsupported-signature") return null;
-    if (cause.issue.code !== "invalid-blob") throw cause;
+    if (
+      !(cause instanceof ManagedReaderFailure) ||
+      (cause.issue.code !== "invalid-blob" &&
+        cause.issue.code !== "unsupported-signature")
+    )
+      throw cause;
     throw managedFailure(
-      "invalid-blob",
+      cause.issue.code,
       owner.scope,
       cause.issue.detail,
       owner.offset,
     );
   } finally {
     budget.releaseTransient();
+  }
+};
+
+/**
+ * Generic parameter count a method signature declares, 0 when it is not
+ * generic, or null when the blob is a field signature or does not decode.
+ */
+export const methodGenericArity = (blob: Buffer): number | null => {
+  if (((blob[0] ?? 0) & 0x0f) === 6) return null;
+  try {
+    return readMethodSignatureHeader(blob, 0).genericParameterCount ?? 0;
+  } catch (cause: unknown) {
+    if (cause instanceof ManagedReaderFailure) return null;
+    throw cause;
   }
 };
 

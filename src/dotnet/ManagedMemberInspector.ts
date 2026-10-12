@@ -27,9 +27,9 @@ import {
   typeRanges,
   type TypeRange,
 } from "./ManagedMemberInspectorCore.js";
+import { edgeTargets } from "./ManagedMethodSpecs.js";
 import { typeNameLookup } from "./ManagedTypeNames.js";
 import {
-  edgeTargets,
   edges,
   parseExportedTypes,
   parseFields,

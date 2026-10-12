@@ -20,8 +20,8 @@ import { managedFailure, readManagedValue } from "./ManagedReaderFailure.js";
 /**
  * Name the type a TypeDef, TypeRef, or generic-instantiation TypeSpec token
  * denotes, in the namespace-qualified form TypeDef `full_name` uses, once per
- * token. Other well-formed TypeSpecs stay null: the type is unknown. Malformed
- * rows and blobs are reported to `issues` and also stay null.
+ * token. Other decoded TypeSpecs stay null: the type is unknown. Malformed or
+ * unsupported rows and blobs are reported to `issues` and also stay null.
  */
 export const typeNameLookup = (
   bytes: Buffer,
@@ -57,8 +57,8 @@ export const typeNameLookup = (
       scope: `metadata.TypeSpec:${metadataToken(27, row)}`,
       offset: cursor.start,
     } as const;
-    if (specSignature(layout, spec, owner) === null || spec[0] !== 0x15)
-      return null;
+    specSignature(layout, spec, owner);
+    if (spec[0] !== 0x15) return null;
     // GENERICINST (CLASS | VALUETYPE) TypeDefOrRefEncoded: never a TypeSpec,
     // so naming never recurses.
     const encoded = readCompressed(spec, 2).value;
