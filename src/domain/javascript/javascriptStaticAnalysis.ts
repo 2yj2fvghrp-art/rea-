@@ -238,6 +238,10 @@ const finalizeStaticAnalysis = (
         accumulator.webviewAttachments,
         accumulator.moduleRangeIndex,
       ),
+      content_security_policies: finalizeLocatedFindings(
+        accumulator.contentSecurityPolicies,
+        accumulator.moduleRangeIndex,
+      ),
     },
     constant_folding: constantFolding,
     limitations,

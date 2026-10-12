@@ -41,6 +41,7 @@ export const failedJavaScriptStaticAnalysis = (): JavaScriptStaticAnalysis => ({
     utility_processes: [],
     native_addon_bindings: [],
     webview_attachments: [],
+    content_security_policies: [],
   },
   constant_folding: {
     status: "unavailable",
