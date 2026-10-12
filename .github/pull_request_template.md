@@ -24,10 +24,12 @@ Unresolved scope, authority, side effects, or required verification block
 integration. Link the required maintainer scope decision for new providers or
 capabilities involving target execution, injection, mutation, or protection
 recovery; ordinary fixes within existing boundaries may state "not applicable".
+Draft PRs may leave the scope decision pending and the final review checklist
+unchecked. Maintainers can help resolve open questions.
 
 ## Contract and boundary impact
 
-<!-- Complete the applicable lines; mark unresolved facts as "unknown".
+<!-- Short answers are welcome. Complete applicable lines; mark unresolved facts as "unknown".
 Use "none" or "not applicable" only when established. -->
 
 - Semantic owner and earliest changed stage:
@@ -35,8 +37,20 @@ Use "none" or "not applicable" only when established. -->
 - CLI and MCP/tool-catalog contract:
 - Provider, bridge, target-format, or platform compatibility:
 - Evidence, artifact, provenance, or reconstruction contract:
-- Target selection, execution, injection, scripts, mutation, network, persistence, authorization, cleanup, or containment impact:
+- Target selection, authority, upstream behavior, and cleanup details (if applicable):
 - Generated metadata (`docs/public/product-catalog.json`), package, or installation impact (CI generates and validates ignored catalogs and `skills/`; edit authored instructions in `.agents/skills/reverse-engineer-anything/` and never commit build outputs):
+
+Expected effects (check known effects; use documentation-only on its own).
+Unchecked items do not establish absence; leave uncertainties visible.
+
+- [ ] Read existing files or captured data.
+- [ ] Launch or attach to a process.
+- [ ] Inject instrumentation or run scripts/code.
+- [ ] Change process memory, registers, files, or configuration.
+- [ ] Contact network services.
+- [ ] Recover protected code or work around protections.
+- [ ] Documentation or usability only; no target interaction.
+- [ ] Not sure yet; investigation or maintainer guidance needed.
 
 ## Evidence and regression coverage
 
@@ -76,7 +90,10 @@ limits, security/privacy/containment implications, and meaningful proof gaps. --
 - Package or release metadata impact:
 - Security, privacy, process, or containment review:
 
-## Review checklist
+## Before merge
+
+<!-- Draft PRs may leave pending items unchecked. Resolve material scope and
+authority questions before integration. -->
 
 - [ ] This PR addresses a concrete problem or an agreed enhancement.
 - [ ] Material scope and authority questions are resolved, and any required maintainer scope decision covers the final diff.

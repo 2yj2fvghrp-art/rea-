@@ -74,14 +74,27 @@ the proposal pending, narrow it, or decline it. Record unknowns explicitly; do n
 turn them into "none" or assumed safety. Passing CI, completed implementation,
 upstream popularity, or silence from maintainers is not scope approval.
 
-Before implementing a new provider or a capability involving target execution,
-injection, mutation, or protection recovery for integration, obtain an explicit
-maintainer scope decision in the linked issue or design discussion. The decision
-must cover the final proposed behavior; a scope expansion needs a new decision.
-Routine fixes and documentation changes within existing boundaries do not need
-a separate advance decision, but must not silently expand those boundaries.
+For a new provider or a capability involving target execution, injection,
+mutation, or protection recovery, seek an explicit maintainer scope decision in
+the linked issue or design discussion before substantial implementation intended
+for integration. Small exploratory prototypes and draft PRs may help inform that
+decision; they do not authorize integration. The decision must cover the final
+proposed behavior; a scope expansion needs a new decision. Routine fixes and
+documentation changes within existing boundaries do not need a separate advance
+decision, but must not silently expand those boundaries.
 
-Feature requests and design discussions should state:
+### Starting a proposal
+
+To open a feature request or design discussion, describe the problem and desired
+outcome or decision. Short answers and the forms' "Not sure yet" options are
+welcome. You do not need code, a complete design or test plan, legal analysis, or
+private proof-of-authorization documents to start a discussion. Share what you
+know and leave optional details blank when you need help.
+
+Form selections guide triage; they are not proof of authorization or scope
+approval. Unselected effects must not be treated as established absence.
+Maintainers and implementers work together to resolve the following before
+integration:
 
 - The concrete analyst question, requested inputs and outputs, and why existing
   REA operations are insufficient.
