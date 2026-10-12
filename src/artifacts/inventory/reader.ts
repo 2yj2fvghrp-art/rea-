@@ -4,7 +4,10 @@ import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
 import { MachOSliceArtifactReader } from "../MachOSliceArtifactReader.js";
 import { NativeDmgArtifactReader } from "../NativeDmgArtifactReader.js";
 import { ZipArtifactReader } from "../ZipArtifactReader.js";
-import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
+import {
+  ARTIFACT_NO_CHILD_ENTRIES_LIMITATION,
+  type ArtifactOccurrence,
+} from "../../domain/artifactGraph.js";
 import {
   isZipPackageFormat,
   ZIP_NON_ENTRY_TAIL_LIMITATION,
@@ -51,5 +54,5 @@ export const inventoryLimitations = (
     ];
   if (format === "mach-o-universal" && process.platform !== "darwin")
     return ["Universal Mach-O slices require the native macOS lipo adapter."];
-  return ["Artifact has no child container entries."];
+  return [ARTIFACT_NO_CHILD_ENTRIES_LIMITATION];
 };

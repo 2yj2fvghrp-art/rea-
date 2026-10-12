@@ -1,10 +1,11 @@
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
 import { z } from "zod";
 
-import type {
-  ArtifactInventoryResult,
-  ArtifactNode,
-  ArtifactOccurrence,
+import {
+  ARTIFACT_NO_CHILD_ENTRIES_LIMITATION,
+  type ArtifactInventoryResult,
+  type ArtifactNode,
+  type ArtifactOccurrence,
 } from "./artifactGraph.js";
 import { evidenceSchema } from "./evidence.js";
 import {
@@ -436,6 +437,8 @@ const summarize = (
 const hasCoverageLimitation = (limitations: readonly string[]): boolean =>
   limitations.some(
     (limitation) =>
+      // Scope notices remain in Evidence but do not imply missing graph members.
+      limitation !== ARTIFACT_NO_CHILD_ENTRIES_LIMITATION &&
       limitation !== ZIP_NON_ENTRY_TAIL_LIMITATION &&
       !/integrity contradiction\(s\) were recorded/u.test(limitation),
   );

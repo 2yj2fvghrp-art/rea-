@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 
+/** A fully observed root has no child occurrences in the inventory's modeled scope. */
+export const ARTIFACT_NO_CHILD_ENTRIES_LIMITATION =
+  "Artifact has no child container entries.";
+
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 const artifactIdSchema = prefixedDigestSchema("art");
 const occurrenceIdSchema = prefixedDigestSchema("occ");

@@ -21,6 +21,13 @@ directly to `compare_functions`, and `inspect_artifact` Evidence to
 `compare_artifacts`. Use `get_evidence_bundle` when the task needs broader
 retained session history or an explicit bundle for transfer.
 
+Artifact comparison measures the recorded inventory graph. A fully observed
+root with no child container entries can be `unchanged`; its scope notice stays
+in `limitations` without creating a coverage gap. Content and executable metadata
+changes still produce root deltas. Missing graph members yield `truncated`, and
+unavailable child observations yield `unknown`. Static artifact equality does
+not establish unchanged runtime behavior.
+
 Tool execution failures return `isError: true` and the complete canonical
 `{ "error": ... }` diagnostic as JSON in text `content`. Read that diagnostic
 for the error code, target details, partial observations, and remediation.
