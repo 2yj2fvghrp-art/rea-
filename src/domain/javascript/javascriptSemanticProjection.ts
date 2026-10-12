@@ -1,5 +1,4 @@
 import * as t from "@babel/types";
-import { typescriptRequireImport } from "./typescriptRequireImport.js";
 
 import type {
   JavaScriptSemanticBinding,
@@ -70,20 +69,7 @@ export const collectSemanticModuleLink = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const imported = typescriptRequireImport(node);
-  if (imported !== null)
-    addModuleLink(
-      state,
-      {
-        kind: "require",
-        specifier: imported.specifier,
-        importedName: "*",
-        localName: imported.name.name,
-        exportedName: null,
-        location: range(node),
-      },
-      node,
-    );
+  if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
   else if (t.isImportDeclaration(node)) collectImports(node, state);
   else if (t.isExportAllDeclaration(node))
     addModuleLink(
@@ -117,6 +103,36 @@ export const collectSemanticModuleLink = (
   else if (t.isAssignmentExpression(node)) collectCommonJsExport(node, state);
   else if (t.isCallExpression(node)) collectUnboundRequireLink(node, state);
 };
+
+const collectImportEquals = (
+  node: t.TSImportEqualsDeclaration,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  const specifier = semanticImportEqualsSpecifier(node);
+  if (specifier === null) return;
+  addModuleLink(
+    state,
+    {
+      kind: "require",
+      specifier,
+      importedName: null,
+      localName: node.id.name,
+      exportedName: null,
+      location: range(node),
+    },
+    node,
+  );
+};
+
+/** Runtime external-module target for a value import-equals declaration. */
+export const semanticImportEqualsSpecifier = (
+  node: t.TSImportEqualsDeclaration,
+): string | null =>
+  node.importKind !== "type" &&
+  t.isTSExternalModuleReference(node.moduleReference) &&
+  t.isStringLiteral(node.moduleReference.expression)
+    ? node.moduleReference.expression.value
+    : null;
 
 /** Collect lexical references after definitions exist, optionally for one name. */
 export const collectSemanticReferences = (
@@ -653,19 +669,26 @@ export const semanticReferenceRole = (
   return "read";
 };
 
-const isDeclarationIdentifier = (node: t.Identifier, parent: t.Node): boolean =>
-  (t.isVariableDeclarator(parent) && patternContains(parent.id, node)) ||
-  ((t.isFunctionDeclaration(parent) || t.isFunctionExpression(parent)) &&
-    parent.id === node) ||
-  (t.isFunction(parent) &&
-    parent.params.some((value) => patternContains(value, node))) ||
-  ((t.isClassDeclaration(parent) || t.isClassExpression(parent)) &&
-    parent.id === node) ||
-  (t.isImportSpecifier(parent) &&
-    (parent.local === node || parent.imported === node)) ||
-  (t.isImportDefaultSpecifier(parent) && parent.local === node) ||
-  (t.isImportNamespaceSpecifier(parent) && parent.local === node) ||
-  (t.isCatchClause(parent) && parent.param === node);
+const isDeclarationIdentifier = (
+  node: t.Identifier,
+  parent: t.Node,
+): boolean => {
+  if (t.isTSImportEqualsDeclaration(parent)) return parent.id === node;
+  return (
+    (t.isVariableDeclarator(parent) && patternContains(parent.id, node)) ||
+    ((t.isFunctionDeclaration(parent) || t.isFunctionExpression(parent)) &&
+      parent.id === node) ||
+    (t.isFunction(parent) &&
+      parent.params.some((value) => patternContains(value, node))) ||
+    ((t.isClassDeclaration(parent) || t.isClassExpression(parent)) &&
+      parent.id === node) ||
+    (t.isImportSpecifier(parent) &&
+      (parent.local === node || parent.imported === node)) ||
+    (t.isImportDefaultSpecifier(parent) && parent.local === node) ||
+    (t.isImportNamespaceSpecifier(parent) && parent.local === node) ||
+    (t.isCatchClause(parent) && parent.param === node)
+  );
+};
 
 const isNonReferenceKey = (node: t.Identifier, parent: t.Node): boolean =>
   ((t.isMemberExpression(parent) || t.isOptionalMemberExpression(parent)) &&
@@ -720,6 +743,11 @@ const declarationNames = (declaration: t.Declaration): string[] => {
     (t.isFunctionDeclaration(declaration) ||
       t.isClassDeclaration(declaration)) &&
     t.isIdentifier(declaration.id)
+  )
+    return [declaration.id.name];
+  if (
+    t.isTSImportEqualsDeclaration(declaration) &&
+    semanticImportEqualsSpecifier(declaration) !== null
   )
     return [declaration.id.name];
   return [];

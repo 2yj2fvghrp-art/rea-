@@ -1,5 +1,4 @@
 import * as t from "@babel/types";
-import { typescriptRequireImport } from "./typescriptRequireImport.js";
 import { collectElectronWrappedCallPaths } from "./electronWrappedCallPaths.js";
 import {
   ELECTRON_IDENTITY_LIMITATION,
@@ -53,6 +52,7 @@ import {
 } from "./javascriptSourceParser.js";
 
 import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
+import { semanticImportEqualsSpecifier } from "./javascriptSemanticProjection.js";
 
 /** Parse one JavaScript artifact and recover static structure only. */
 export const analyzeJavaScriptStaticSource = (
@@ -239,14 +239,11 @@ const inspectNode = (
   } else if (t.isOptionalCallExpression(node)) {
     inspectCall(source, node, findings);
   } else if (t.isNewExpression(node)) inspectCall(source, node, findings);
-  const imported = typescriptRequireImport(node);
-  if (imported !== null)
-    addReference(findings, {
-      node,
-      kind: "require",
-      specifier: imported.specifier,
-    });
-  else if (
+  if (t.isTSImportEqualsDeclaration(node)) {
+    const specifier = semanticImportEqualsSpecifier(node);
+    if (specifier !== null)
+      addReference(findings, { node, kind: "require", specifier });
+  } else if (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined
   )

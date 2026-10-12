@@ -12,6 +12,7 @@ import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/j
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js";
 
 const execute = promisify(execFile);
 const compiler = join(
@@ -21,14 +22,25 @@ const compiler = join(
 );
 
 const typedLines = [
-  'import typed = require("./typed-dependency.cjs");',
+  'export import typed = require("typed-package");',
   'import type TypeOnly = require("./type-only.cjs");',
-  "console.log(typed);",
 ] as const;
 const typedSource = typedLines.join("\n");
+const typedPackageFiles = {
+  "node_modules/typed-package/package.json": JSON.stringify({
+    exports: { require: "./actual.cjs", import: "./decoy.mjs" },
+  }),
+  "node_modules/typed-package/actual.cjs": "module.exports = 42;",
+  "node_modules/typed-package/actual.d.cts":
+    "declare const value: number; export = value;",
+  "node_modules/typed-package/decoy.mjs": "export default 99;",
+  "node_modules/typed-package/decoy.d.mts":
+    "declare const value: number; export default value;",
+};
 
 const expectNativeModuleControls = async (root: string): Promise<void> => {
   const emitted = await createTestTempDirectory("rea-import-equals-output-");
+  await writeFixtureFiles(emitted, typedPackageFiles);
   await execute(
     process.execPath,
     [
@@ -45,12 +57,17 @@ const expectNativeModuleControls = async (root: string): Promise<void> => {
       emitted,
       join(root, "typed.cts"),
       join(root, "typed.mts"),
-      join(root, "typed-dependency.cjs"),
     ],
     { cwd: root, timeout: 10_000 },
   );
-  for (const filename of ["typed.cjs", "typed.mjs"]) {
-    const typedControl = await execute(process.execPath, [filename], {
+  for (const [filename, script] of [
+    ["typed.cjs", 'console.log(require("./typed.cjs").typed);'],
+    [
+      "typed.mjs",
+      'import("./typed.mjs").then(({ typed }) => console.log(typed));',
+    ],
+  ] as const) {
+    const typedControl = await execute(process.execPath, ["-e", script], {
       cwd: emitted,
       timeout: 5_000,
     });
@@ -89,10 +106,10 @@ const expectImportEqualsRelationships = (
     expect(typedLinks).toHaveLength(1);
     expect(typedLinks[0]).toMatchObject({
       properties: {
-        specifier: "./typed-dependency.cjs",
-        imported_name: "*",
+        specifier: "typed-package",
+        imported_name: null,
         local_name: "typed",
-        resolved_path: "typed-dependency.cjs",
+        resolved_path: "node_modules/typed-package/actual.cjs",
         resolution_status: "resolved",
       },
       evidence: {
@@ -104,7 +121,7 @@ const expectImportEqualsRelationships = (
           available: true,
           value: {
             source: sourcePath,
-            start: { line: 1, column: 0 },
+            start: { line: 1, column: 7 },
             end: { line: 1, column: typedLines[0].length },
           },
         },
@@ -114,9 +131,45 @@ const expectImportEqualsRelationships = (
       expect.objectContaining({
         relation: "imports",
         properties: expect.objectContaining({
+          module_link_kind: "export",
+          local_name: "typed",
+          resolved_path: "node_modules/typed-package/actual.cjs",
+        }),
+        evidence: expect.objectContaining({
+          location: expect.objectContaining({
+            value: expect.objectContaining({ source: sourcePath }),
+          }),
+        }),
+      }),
+    );
+    expect(
+      graph.nodes.flatMap(({ observations }) => observations),
+    ).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          semantic_role: "source-module",
+          path: sourcePath,
+          export_names: ["typed"],
+          export_relationships: 1,
+        }),
+      }),
+    );
+    expect(
+      graph.edges.filter(
+        ({ relation, evidence: edgeEvidence }) =>
+          relation === "exposes" &&
+          edgeEvidence.location.available &&
+          edgeEvidence.location.value.kind === "source-range" &&
+          edgeEvidence.location.value.source === sourcePath,
+      ),
+    ).toHaveLength(1);
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({
+        relation: "imports",
+        properties: expect.objectContaining({
           kind: "require",
-          specifier: "./typed-dependency.cjs",
-          resolved_path: "typed-dependency.cjs",
+          specifier: "typed-package",
+          resolved_path: "node_modules/typed-package/actual.cjs",
         }),
       }),
     );
@@ -166,7 +219,6 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "nested.cjs": 'throw new Error("fixture must not execute");',
       "typed.cts": typedSource,
       "typed.mts": typedSource,
-      "typed-dependency.cjs": "module.exports = 42;",
       "type-only.d.cts": "declare const value: unknown; export = value;",
     };
     await Promise.all(
@@ -174,6 +226,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         writeFile(join(root, path), text),
       ),
     );
+    await writeFixtureFiles(root, typedPackageFiles);
     await expectNativeModuleControls(root);
 
     let document: unknown;

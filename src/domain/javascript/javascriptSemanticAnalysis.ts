@@ -1,5 +1,4 @@
 import * as t from "@babel/types";
-import { typescriptRequireImport } from "./typescriptRequireImport.js";
 
 import {
   failedJavaScriptSemanticIr,
@@ -11,6 +10,7 @@ import {
 import {
   collectSemanticModuleLink,
   collectSemanticCallable,
+  semanticImportEqualsSpecifier,
   collectSemanticReferences,
   collectSemanticReferencesSteps,
   immutableSemanticBindings,
@@ -752,19 +752,9 @@ const bindInnerDeclaration = (
   scope: JavaScriptSemanticScopeState,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const imported = typescriptRequireImport(node);
-  if (imported !== null)
-    addBinding({
-      state,
-      scope,
-      name: imported.name.name,
-      kind: "import",
-      mutable: false,
-      definitionNode: imported.name,
-      initializer: null,
-      directOrigin: { specifier: imported.specifier, importedPath: [] },
-    });
-  else if (t.isImportDeclaration(node)) bindImports(node, scope, state);
+  if (t.isImportDeclaration(node)) bindImports(node, scope, state);
+  else if (t.isTSImportEqualsDeclaration(node))
+    bindImportEquals(node, scope, state);
   else if (t.isVariableDeclarator(node))
     bindPattern({
       pattern: node.id,
@@ -796,6 +786,25 @@ const bindInnerDeclaration = (
       mutable: true,
       kind: "catch",
     });
+};
+
+const bindImportEquals = (
+  node: t.TSImportEqualsDeclaration,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  const specifier = semanticImportEqualsSpecifier(node);
+  if (specifier === null) return;
+  addBinding({
+    state,
+    scope,
+    name: node.id.name,
+    kind: "import",
+    mutable: false,
+    definitionNode: node.id,
+    initializer: null,
+    directOrigin: { specifier, importedPath: [] },
+  });
 };
 
 const bindAssignment = (
