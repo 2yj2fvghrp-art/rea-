@@ -853,6 +853,149 @@ describe("Electron container assignment completion order", () => {
   });
 });
 
+describe("Electron mutation receiver execution order", () => {
+  it.each([
+    [
+      "Reflect.set replacement",
+      "{ipc:e.ipcMain}",
+      "Reflect.set(box,'ipc',{}); delete box.ipc.on;",
+      false,
+    ],
+    [
+      "Reflect.set insertion",
+      "{ipc:{}}",
+      "Reflect.set(box,'ipc',e.ipcMain); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "Object.assign replacement",
+      "{ipc:e.ipcMain}",
+      "Object.assign(box,{ipc:{}}); delete box.ipc.on;",
+      false,
+    ],
+    [
+      "Reflect.defineProperty replacement",
+      "{ipc:e.ipcMain}",
+      "Reflect.defineProperty(box,'ipc',{value:{}}); delete box.ipc.on;",
+      false,
+    ],
+    [
+      "Object.defineProperties replacement",
+      "{ipc:e.ipcMain}",
+      "Object.defineProperties(box,{ipc:{value:{}}}); delete box.ipc.on;",
+      false,
+    ],
+    [
+      "aliased intrinsic",
+      "{ipc:e.ipcMain}",
+      "const set=Reflect.set; set(box,'ipc',{}); delete box.ipc.on;",
+      false,
+    ],
+    [
+      "explicit receiver",
+      "{ipc:e.ipcMain}",
+      "const other={}; Reflect.set(box,'ipc',{},other); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "conditional replacement",
+      "{ipc:e.ipcMain}",
+      "if(flag) Reflect.set(box,'ipc',{}); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "mutator target captured before later arguments",
+      "{inner:{ipc:{}}}",
+      "Reflect.set(box.inner,'ipc',(box.inner={ipc:{}},e.ipcMain)); delete box.inner.ipc.on;",
+      false,
+    ],
+    [
+      "replacement in a key",
+      "{ipc:e.ipcMain}",
+      "delete box[(box.ipc={},'ipc')].on;",
+      false,
+    ],
+    [
+      "insertion in a key",
+      "{ipc:{}}",
+      "delete box[(box.ipc=e.ipcMain,'ipc')].on;",
+      true,
+    ],
+    [
+      "nested key replacement",
+      "{inner:{ipc:e.ipcMain}}",
+      "delete box.inner[(box.inner.ipc={},'ipc')].on;",
+      false,
+    ],
+    [
+      "retained receiver object",
+      "{inner:{ipc:e.ipcMain}}",
+      "delete box.inner[(box.inner={ipc:{}},'ipc')].on;",
+      true,
+    ],
+    [
+      "intrinsic key effect",
+      "{ipc:e.ipcMain}",
+      "delete box[(Reflect.set(box,'ipc',{}),'ipc')].on;",
+      false,
+    ],
+    [
+      "unknown selected populated child",
+      "{slot:{}}",
+      "box.slot.ipc=e.ipcMain; delete box[process.platform].ipc.on;",
+      true,
+    ],
+    [
+      "assign source alias",
+      "{ipc:{}}",
+      "const source={ipc:e.ipcMain}; Object.assign(box,source); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "assign spread source",
+      "{ipc:{}}",
+      "Object.assign(box,{...{ipc:e.ipcMain}}); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "bound assign source at invocation",
+      "{ipc:{}}",
+      "const source={}; const assign=Object.assign.bind(null,box,source); source.ipc=e.ipcMain; assign(); delete box.ipc.on;",
+      true,
+    ],
+    [
+      "captured computed member",
+      "{ipc:{}}",
+      "const selected=box[(box.ipc=e.ipcMain,'ipc')]; delete selected.on;",
+      true,
+    ],
+  ] as const)(
+    "follows the selected object's state for %s",
+    (_name, initial, mutation, mutated) => {
+      const { electron } = analyzeJavaScriptStaticSource(`
+        const e=require("electron"); const box=${initial};
+        ${mutation}
+        e.ipcMain.on("direct:selected",event=>event.sender.copy());
+        function register(channel,handler){e.ipcMain.on(channel,handler);}
+        register("wrapped:selected",event=>event.sender.copy());
+        e.ipcMain.handle("untouched",event=>event.sender.copy());
+      `);
+      const selected = mutated
+        ? ["untouched"]
+        : ["direct:selected", "wrapped:selected", "untouched"];
+      expect(
+        electron.ipc
+          .filter(({ channel }) => channel !== null)
+          .map(({ channel }) => channel)
+          .sort(),
+      ).toEqual([...selected].sort());
+      expect(
+        (electron.call_paths ?? []).map(({ channel }) => channel).sort(),
+      ).toEqual([...selected].sort());
+    },
+  );
+});
+
 describe("Electron mutations through captured nested objects", () => {
   it.each([
     [

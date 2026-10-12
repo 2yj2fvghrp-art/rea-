@@ -38,19 +38,24 @@ describe("JavaScript static analysis findings", () => {
     );
   });
 
-  it.each([false, true])(
-    "retains Electron findings after many ordinary container writes (selected slot: %s)",
-    (mutateElectron) => {
+  it.each([
+    ["box", false],
+    ["box", true],
+    ["box.slot", false],
+    ["box.slot", true],
+  ])(
+    "retains Electron findings after many writes to %s (selected slot: %s)",
+    (receiver, mutateElectron) => {
       const writes = Array.from(
         { length: 1_001 },
-        (_, index) => `box.key${index}=${index};`,
+        (_, index) => `${receiver}.key${index}=${index};`,
       );
       const analysis = analyzeJavaScriptStaticSource(
         [
-          'const e=require("electron"); const box={};',
-          ...(mutateElectron ? ["box.ipc=e.ipcMain;"] : []),
+          'const e=require("electron"); const box={slot:{}};',
+          ...(mutateElectron ? [`${receiver}.ipc=e.ipcMain;`] : []),
           ...writes,
-          ...(mutateElectron ? ["delete box.ipc.on;"] : []),
+          ...(mutateElectron ? [`delete ${receiver}.ipc.on;`] : []),
           'e.ipcMain.handle("direct:retained",event=>event.sender.copy());',
           "function handle(channel,handler){e.ipcMain.handle(channel,handler);}",
           'handle("wrapped:retained",event=>event.sender.copy());',

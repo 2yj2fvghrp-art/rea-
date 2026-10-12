@@ -49,6 +49,7 @@ import { collectJavaScriptDerivedSemanticsSteps } from "./javascriptSemanticDeri
 import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
 import {
   collectJavaScriptIdentityWritesSteps,
+  type JavaScriptIntrinsicMutation,
   electronExportPath,
   electronMemberPath,
   ELECTRON_MODULE,
@@ -386,6 +387,7 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 
 /** Shared lexical identity and visible-write proof for direct and wrapped calls. */
 export interface JavaScriptElectronIdentity {
+  readonly mutations: readonly JavaScriptIntrinsicMutation[];
   readonly bindings: ReadonlyMap<number, readonly string[]>;
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
   readonly exportPath: (root: t.Node) => readonly string[] | undefined;
@@ -400,6 +402,7 @@ export function* indexJavaScriptElectronIdentitySteps(
   state: JavaScriptSemanticAnalysisState,
 ): Generator<void, JavaScriptElectronIdentity> {
   const facts = new Map<number, readonly string[]>();
+  const mutations: JavaScriptIntrinsicMutation[] = [];
   const interop = createSemanticModuleInterop(state);
   const writes = new SemanticPropertyPathCoverage();
   let collectedWrites = false;
@@ -463,6 +466,7 @@ export function* indexJavaScriptElectronIdentitySteps(
         if (path[0] === "electron") writes.retain(path);
         else interop.retainWrite(node, path);
       },
+      collectedWrites ? undefined : (mutation) => mutations.push(mutation),
     );
   }
   yield* collectWritesSteps();
@@ -497,6 +501,7 @@ export function* indexJavaScriptElectronIdentitySteps(
   };
   refreshBindings();
   return {
+    mutations,
     bindings: facts,
     intactExport,
     exportPath: rootExport,

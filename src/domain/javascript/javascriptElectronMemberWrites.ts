@@ -52,6 +52,67 @@ export interface JavaScriptIntrinsicInvocation {
     | undefined;
 }
 
+/** Ordered property effects of an already-proven intrinsic invocation. */
+export interface JavaScriptIntrinsicMutation {
+  readonly site: t.CallExpression | t.OptionalCallExpression;
+  readonly target: t.Node;
+  readonly path: readonly (string | null)[];
+  readonly value?: t.Node;
+  readonly operation:
+    | "value"
+    | "delete"
+    | "descriptor"
+    | "copy"
+    | "descriptors";
+  readonly readAt: t.Node;
+  readonly definite: boolean;
+}
+
+const intrinsicMutationEffects = (
+  site: t.CallExpression | t.OptionalCallExpression,
+  invocation: JavaScriptIntrinsicInvocation,
+  staticString: (node: t.Node | undefined) => string | undefined,
+): readonly JavaScriptIntrinsicMutation[] => {
+  const args = invocation.arguments;
+  if (!args || args.some(t.isSpreadElement)) return [];
+  const method = invocation.path.at(-1);
+  const owner = invocation.path[1];
+  const target =
+    owner === "Reflect" && method === "set" && args.length >= 4
+      ? args[3]
+      : args[0];
+  if (!t.isNode(target)) return [];
+  const effects: JavaScriptIntrinsicMutation[] = [];
+  const readAt = site.arguments.at(-1) ?? site.callee;
+  const retain = (
+    operation: JavaScriptIntrinsicMutation["operation"],
+    key: string | null,
+    value: t.Node | undefined,
+  ): void => {
+    effects.push({
+      site,
+      target,
+      path: [key],
+      ...(value === undefined ? {} : { value }),
+      operation,
+      readAt,
+      definite:
+        key !== null || operation === "copy" || operation === "descriptors",
+    });
+  };
+  const key = staticString(args[1]) ?? null;
+  if (method === "set") retain("value", key, args[2]);
+  else if (method === "deleteProperty") retain("delete", key, undefined);
+  else if (method === "defineProperty") retain("descriptor", key, args[2]);
+  else if (method === "assign") {
+    for (const source of args.slice(1)) retain("copy", null, source);
+  } else if (method === "defineProperties")
+    retain("descriptors", null, args[1]);
+  // Prototype changes do not replace known own properties. Source objects and
+  // descriptors retain their syntax for the shared symbolic property owner.
+  return effects;
+};
+
 /** Index writes through caller-proven identities of bindings and receiver values. */
 export function* collectJavaScriptIdentityWritesSteps(
   program: t.Program,
@@ -65,6 +126,7 @@ export function* collectJavaScriptIdentityWritesSteps(
   staticString: (node: t.Node | undefined) => string | undefined,
   freshObject: (node: t.Node) => boolean,
   retain: (node: t.Node, path: readonly (string | null)[]) => void,
+  retainMutation?: (mutation: JavaScriptIntrinsicMutation) => void,
 ): Generator<void> {
   const objectMutators = new Set([
     "defineProperty",
@@ -95,6 +157,13 @@ export function* collectJavaScriptIdentityWritesSteps(
           (owner === "Object" && objectMutators.has(method ?? "")) ||
           (owner === "Reflect" && reflectMutators.has(method ?? ""))
         ) {
+          if (invocation && retainMutation)
+            for (const effect of intrinsicMutationEffects(
+              node,
+              invocation,
+              staticString,
+            ))
+              retainMutation(effect);
           // Reflect.set can write through its explicit receiver as well as
           // dispatching through its target. Both identities need examination.
           const targets =
