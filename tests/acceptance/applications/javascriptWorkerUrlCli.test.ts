@@ -29,6 +29,112 @@ const workerReferences = (graph: JavaScriptApplicationGraph) =>
     );
 
 cliTest(
+  "promotes Worker URLs only for known constructor bindings through the CLI",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-worker-identity-");
+    const identityCases = [
+      ...["globalThis", "window", "self"].map((namespace) => ({
+        prefix: "",
+        constructor: `new ${namespace}.Worker`,
+        suffix: "",
+        resolves: true,
+      })),
+      ...["worker_threads", "node:worker_threads"].flatMap((specifier) => [
+        {
+          prefix: `import { Worker } from "${specifier}";`,
+          constructor: "new Worker",
+          suffix: "",
+          resolves: true,
+        },
+        {
+          prefix: `import * as threads from "${specifier}";`,
+          constructor: "new threads.Worker",
+          suffix: "",
+          resolves: true,
+        },
+      ]),
+      ...[
+        ["class Worker {}", "new Worker", ""],
+        ["function start(Worker) {", "new Worker", "}"],
+        ['import { Worker } from "./custom.js";', "new Worker", ""],
+        ["const custom = { Worker: class {} };", "new custom.Worker", ""],
+        ["function start(window) {", "new window.Worker", "}"],
+        ["function start(globalThis) {", "new globalThis.Worker", "}"],
+        [
+          'import type { Worker } from "node:worker_threads";',
+          "new Worker",
+          "",
+        ],
+        [
+          'import { type Worker } from "node:worker_threads";',
+          "new Worker",
+          "",
+        ],
+        [
+          'import type * as threads from "node:worker_threads";',
+          "new threads.Worker",
+          "",
+        ],
+        [
+          'import threads from "node:worker_threads"; threads.Worker = Fake;',
+          "new threads.Worker",
+          "",
+        ],
+        [
+          'const threads = require("node:worker_threads"); threads.Worker = Fake;',
+          "new threads.Worker",
+          "",
+        ],
+        [
+          'import threads = require("node:worker_threads"); threads.Worker = Fake;',
+          "new threads.Worker",
+          "",
+        ],
+        [
+          'import { Worker } from "node:worker_threads"; Worker = Fake;',
+          "new Worker",
+          "",
+        ],
+        ["", "Worker", ""],
+      ].map(([prefix, constructor, suffix]) => ({
+        prefix,
+        constructor,
+        suffix,
+        resolves: false,
+      })),
+    ].map(({ prefix, constructor, suffix, resolves }, index) => ({
+      source: `identity-${index}.ts`,
+      prefix,
+      expression: `${constructor}(new URL("./worker.js", import.meta.url))`,
+      suffix,
+      resolves,
+    }));
+    await writeFixtureFiles(root, {
+      ...Object.fromEntries(
+        identityCases.map(({ source, prefix, expression, suffix }) => [
+          source,
+          `${prefix}\n${expression};${suffix}`,
+        ]),
+      ),
+      "worker.js": "self.postMessage('existing worker file');",
+      "custom.js": "export class Worker {}",
+    });
+    const result = await analyzeJavaScriptDirectory("CLI", cli, root);
+    expect(result.statistics.parse_failures).toBe(0);
+    const references = workerReferences(result.graph);
+    expect(references).toHaveLength(identityCases.length);
+    for (const { source, expression, resolves } of identityCases)
+      expect(references).toContainEqual({
+        source,
+        declared_specifier: resolves ? "./worker.js" : null,
+        expression: resolves ? null : expression,
+        resolved_path: resolves ? "worker.js" : null,
+        mapped_paths: resolves ? ["worker.js"] : [],
+      });
+  },
+);
+
+cliTest(
   "resolves module-relative Worker URL constructors through the compiled CLI",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-worker-module-url-");

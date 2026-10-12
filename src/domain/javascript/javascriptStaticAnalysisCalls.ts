@@ -34,6 +34,7 @@ import type {
 } from "./javascriptStaticAnalysisState.js";
 import {
   isUnshadowedGlobal,
+  resolveSemanticBindingState,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 
@@ -74,7 +75,7 @@ export const inspectCall = (
     addReference(context, {
       node,
       kind: "worker",
-      specifier: first ?? workerUrlSpecifier(node.arguments[0], bindings),
+      specifier: first ?? workerUrlSpecifier(node, bindings),
     });
   if (name.endsWith("serviceWorker.register"))
     addReference(context, { node, kind: "service-worker", specifier: first });
@@ -113,10 +114,15 @@ export const inspectCall = (
 };
 
 const workerUrlSpecifier = (
-  argument: JavaScriptCallLike["arguments"][number] | undefined,
+  worker: JavaScriptCallLike,
   bindings: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
-  const argumentExpression = argumentNode(argument);
+  if (
+    !t.isNewExpression(worker) ||
+    !isWorkerConstructor(worker.callee, bindings)
+  )
+    return undefined;
+  const argumentExpression = argumentNode(worker.arguments[0]);
   if (argumentExpression === undefined) return undefined;
   const node = unwrapJavaScriptExpression(argumentExpression).node;
   if (
@@ -138,6 +144,41 @@ const workerUrlSpecifier = (
     stripQueryAndFragment(htmlUrlText(specifier)) === pathname
     ? specifier
     : undefined;
+};
+
+const isWorkerConstructor = (
+  callee: t.Node,
+  bindings: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const node = unwrapJavaScriptExpression(callee).node;
+  const member =
+    t.isMemberExpression(node) &&
+    semanticStaticPropertyName(node.property, node.computed) === "Worker";
+  const root = unwrapJavaScriptExpression(member ? node.object : node).node;
+  if (!t.isIdentifier(root)) return false;
+  if (
+    member
+      ? ["globalThis", "window", "self"].some((name) =>
+          isUnshadowedGlobal(root, bindings, name),
+        )
+      : isUnshadowedGlobal(root, bindings, "Worker")
+  )
+    return true;
+  const binding = resolveSemanticBindingState(bindings, root, root.name);
+  const [origin] = binding?.directOrigins ?? [];
+  // Named ESM exports and module namespace exports are read-only. Default
+  // imports and CommonJS objects can replace Worker, so their identity is unknown.
+  return (
+    binding?.runtimeImport === true &&
+    binding.definitions.length === 1 &&
+    binding.directOrigins.length === 1 &&
+    origin !== undefined &&
+    (origin.specifier === "worker_threads" ||
+      origin.specifier === "node:worker_threads") &&
+    (member
+      ? origin.importedPath.length === 0
+      : origin.importedPath.length === 1 && origin.importedPath[0] === "Worker")
+  );
 };
 
 // Element factories such as jsx("audio", props) and createElement("video",
