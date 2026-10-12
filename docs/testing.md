@@ -74,7 +74,9 @@ CI uploads them as `static-check-reports`, including after a failed static gate.
 Use `npm run lint:details` or `npm run jscpd:details` for all console diagnostics.
 Both duplicate commands scan production and test code with the same 3% limit;
 the summary commands preserve checker failures and restore reports from cached
-static tasks.
+static tasks. Both lint caches include the website, documentation configuration,
+and experiment code scanned by the checker; a regression compares the actual
+lint inventory with Turbo's resolved inputs.
 
 Routine iterations and rebases need focused regressions and relevant checks.
 Before handing off a PR, run `npm run check` and generated-document checks when

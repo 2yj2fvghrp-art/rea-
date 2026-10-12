@@ -48,6 +48,7 @@
     "lint": {
       "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
+        ".gitignore",
         ".nvmrc",
         ".oxlintrc.json",
         "package.json",
@@ -55,6 +56,13 @@
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "src/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "tests/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "docs/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "website/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "experiments/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "!docs/.vitepress/cache/**",
+        "!docs/.vitepress/dist/**",
+        "!website/_site/**",
+        "!experiments/analysis-efficiency/results/**",
         "vitest.config.ts"
       ]
     },
@@ -62,6 +70,7 @@
       "dependsOn": ["compile"],
       "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
+        ".gitignore",
         ".nvmrc",
         ".oxlintrc.json",
         "package.json",
@@ -69,6 +78,13 @@
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "src/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "tests/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "docs/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "website/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "experiments/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
+        "!docs/.vitepress/cache/**",
+        "!docs/.vitepress/dist/**",
+        "!website/_site/**",
+        "!experiments/analysis-efficiency/results/**",
         "vitest.config.ts"
       ]
     },

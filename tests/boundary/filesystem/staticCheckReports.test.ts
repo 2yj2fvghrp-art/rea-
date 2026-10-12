@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { z } from "zod";
@@ -10,6 +10,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 const script = fileURLToPath(
   new URL("../../../scripts/ci/static-check-report.mjs", import.meta.url),
 );
+const repository = fileURLToPath(new URL("../../../", import.meta.url));
 const fixture = async () => {
   const root = await createTestTempDirectory("rea-static-report-");
   await Promise.all([mkdir(join(root, "src")), mkdir(join(root, "tests"))]);
@@ -47,6 +48,58 @@ const lintDiagnostics = async (root: string) =>
         await readFile(join(root, ".cache/static-checks/oxlint.json"), "utf8"),
       ),
     ).diagnostics;
+
+it("includes every actually linted file in both cached lint task inputs", () => {
+  const scan = spawnSync(
+    process.execPath,
+    [join(repository, "node_modules/oxlint/bin/oxlint"), "--debug=files"],
+    { cwd: repository, encoding: "utf8", timeout: 15_000 },
+  );
+  expect(scan.error).toBeUndefined();
+  expect(scan.status, scan.stderr).toBe(0);
+  const files = scan.stdout
+    .trim()
+    .split(/\r?\n/u)
+    .map((path) => path.split(sep).join("/"));
+  expect(files.length).toBeGreaterThan(0);
+  const dry = spawnSync(
+    process.execPath,
+    [
+      join(repository, "node_modules/turbo/bin/turbo"),
+      "run",
+      "lint",
+      "lint:built",
+      "--dry=json",
+    ],
+    {
+      cwd: repository,
+      encoding: "utf8",
+      timeout: 15_000,
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
+  expect(dry.error).toBeUndefined();
+  expect(dry.status, dry.stderr).toBe(0);
+  const { tasks } = z
+    .object({
+      tasks: z.array(
+        z.object({
+          task: z.string(),
+          inputs: z.record(z.string(), z.string()),
+        }),
+      ),
+    })
+    .parse(JSON.parse(dry.stdout));
+  const lintTasks = tasks.filter(({ task }) =>
+    ["lint", "lint:built"].includes(task),
+  );
+  expect(lintTasks).toHaveLength(2);
+  for (const task of lintTasks)
+    expect(
+      files.filter((file) => !Object.hasOwn(task.inputs, file)),
+      `${task.task} omits actual checker inputs`,
+    ).toEqual([]);
+});
 
 it("summarizes warnings without losing their complete diagnostic records", async () => {
   const root = await fixture();
