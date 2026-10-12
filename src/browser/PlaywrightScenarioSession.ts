@@ -50,7 +50,11 @@ const installCookies = async (
   );
 };
 
-const blockAttachedServiceWorkers = async (page: Page): Promise<void> => {
+const blockAttachedServiceWorkers = async (
+  page: Page,
+  scenario: BrowserScenario,
+): Promise<void> => {
+  if (scenario.environment.service_workers === "allow") return;
   const controller = await page.evaluate(
     "Boolean(navigator.serviceWorker?.controller)",
   );
@@ -78,7 +82,7 @@ const initializePage = async (
   context.setDefaultTimeout(0);
   context.setDefaultNavigationTimeout(0);
   if (scenario.browser.mode === "connect")
-    await blockAttachedServiceWorkers(page);
+    await blockAttachedServiceWorkers(page, scenario);
   await installCookies(context, scenario, secrets);
 };
 
