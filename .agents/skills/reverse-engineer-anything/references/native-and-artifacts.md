@@ -36,6 +36,20 @@ retained, call `inspect_analysis_view` for a summary, mitigations or linkage
 facet, one section or symbol, or a stable page. Do not re-run the decoder to
 read a single object.
 
+## Offline WASM
+
+Use `inspect_wasm_artifact` with caller-supplied WABT for selected local bytes.
+For counts, validation and WAT identity, select `detail: "summary"` on the first
+MCP call. The complete original Evidence stays retained; use
+`normalized_result.parent_evidence_id` for exact exports or text pages. Omitted
+or complete detail keeps the existing complete result.
+For a completed result, use `inspect_analysis_view` with its reported retained
+reference for a summary or `view: {kind: "wasm", facet: "exports", offset: 0, limit: 32}`.
+Facets also include sections, imports, candidates, glue, WAT, headers, details
+and tool profile. Text offsets count UTF-16 code units; follow `next_offset`.
+The complete source remains retained after an oversized MCP reply. No target
+execution or network acquisition is implied, and WAT is decoded representation.
+
 ## Native targets
 
 After `open_binary`, use focused search, procedure, or function tools directly.
