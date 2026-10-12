@@ -22,8 +22,11 @@ additional permission flag or degraded mode is required.
 - the 25 read-only Ghidra inventory, memory, and function-analysis operations.
 
 Loaded memory reads and file offsets preserve Ghidra's observed source mappings.
-PE load-image inspection returns an explicit unsupported attestation status;
-independent load-image verification supports the admitted raw 6502 mapping. For x64 PE
+PE load-image inspection returns an explicit unsupported attestation status.
+Independent verification covers admitted DOS MZ, explicit COM, and explicit
+[raw-binary imports](raw-binary.md) on their supported hosts, including the
+admitted raw NMOS 6502 mapping on Windows. Windows P0 admission remains limited
+to native PE and raw NMOS 6502 images. For x64 PE
 NativeAOT RTR 9.1, the read-only snapshot parser can report metadata through
 `inspect_native_load_image` and `inspect_native_data_type` without a JAR or
 database mutation. A real Windows-host NativeAOT Ghidra run is still required
