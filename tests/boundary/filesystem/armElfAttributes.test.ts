@@ -52,6 +52,17 @@ const DUPLICATE_FILE_SCOPES_ATTRIBUTES = Buffer.from([
   0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x41, 0x08, 0x01, 0x09, 0x02, 0x0a, 0x04,
   0x22, 0x01, 0x01, 0x07, 0x00, 0x00, 0x00, 0x06, 0x0e,
 ]);
+/** A File block opening with Tag_NULL before the declarations. */
+const TAG_ZERO_ATTRIBUTES = Buffer.from([
+  0x41, 0x18, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x0e,
+  0x00, 0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x41, 0x08, 0x01, 0x09, 0x02,
+]);
+/** A v7 File scope declaring the Not Applicable profile (value zero). */
+const NOT_APPLICABLE_PROFILE_ATTRIBUTES = Buffer.from([
+  0x41, 0x1b, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x11,
+  0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x00, 0x08, 0x01, 0x09, 0x02, 0x0a, 0x04,
+  0x22, 0x01,
+]);
 // Same shape with an impossible subsection length spanning past the section.
 const MALFORMED_ATTRIBUTES = Buffer.from([
   0x41, 0xff, 0xff, 0xff, 0x0f, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x11,
@@ -176,6 +187,22 @@ it("records a limitation when the section table extends beyond the file", async 
   expect(target.arm.limitations?.join(" ")).toContain(
     "extends beyond the captured file",
   );
+});
+
+it("rejects a File block whose declarations follow Tag_NULL", async () => {
+  const target = await resolveArm(armFixture(TAG_ZERO_ATTRIBUTES));
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBeNull();
+  expect(target.arm.cpuArchProfile).toBeNull();
+});
+
+it("preserves the declared Not Applicable profile with the arch enum", async () => {
+  const target = await resolveArm(
+    armFixture(NOT_APPLICABLE_PROFILE_ATTRIBUTES),
+  );
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBe(10);
+  expect(target.arm.cpuArchProfile).toBe(" ");
 });
 
 it("refuses a padded section-table entry size instead of allocating it", async () => {

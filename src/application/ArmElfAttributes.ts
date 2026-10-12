@@ -82,11 +82,14 @@ const scanAeabiFileScope = (
       if (value === null) return null;
       cursor = value.next;
       if (tag.value === TAG_CPU_ARCH) cpuArch = value.value;
-      else if (value.value < 1 || value.value > 127) return null;
+      else if (value.value > 127) return null;
+      // Zero is the declared Not Applicable profile, not an absent one.
       else cpuArchProfile = String.fromCharCode(value.value);
       continue;
     }
-    if (tag.value === 0) continue;
+    // Tag_NULL is not a valid File-scope attribute boundary; standard readers
+    // reject the block instead of exposing declarations that follow it.
+    if (tag.value === 0) return null;
     if (tag.value >= 1 && tag.value <= 3) return null;
     if (tag.value === 4 || tag.value === 5) {
       const next = skipAttributesString(section, cursor, end);

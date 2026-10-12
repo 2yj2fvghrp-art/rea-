@@ -17,6 +17,7 @@ const ARM_CPU_ARCH_PROFILE_A = "A";
 const ARM_CPU_ARCH_PROFILE_NAMES: Readonly<Record<string, string>> = {
   R: "the Realtime profile",
   M: "the Microcontroller profile",
+  [String.fromCharCode(0)]: "the Not Applicable profile",
 };
 
 const armCpuArchProfileName = (profile: string | null | undefined): string =>
@@ -51,14 +52,13 @@ const armCpuArchName = (value: number): string =>
 
 /**
  * Verified 32-bit ARM admission: little-endian ELF32 ET_EXEC with EABI5 whose
- * .ARM.attributes declare Tag_CPU_arch v7 with the Application profile.
- * Hard-float (armhf) and unspecified float conventions are admitted; the
- * import language is pinned because Ghidra header auto-selection has several
- * plausible wrong answers for ARM/Thumb-2 interworked images, and neither
- * the EABI version nor the arch enum alone identifies the CPU variant.
+ * .ARM.attributes declare Tag_CPU_arch v7 with the Application profile, and
+ * the refusal reasons name what the image declares instead. Hard-float
+ * (armhf) and unspecified float conventions are admitted; the import language
+ * is pinned because Ghidra header auto-selection has several plausible wrong
+ * answers for ARM/Thumb-2 interworked images, and neither the EABI version
+ * nor the arch enum alone identifies the CPU variant.
  */
-export const isVerifiedArmAdmission = (target: BinaryTarget): boolean =>
-  ghidraArmUnsupportedReason(target) === null;
 
 /** Keep family recognition separate from the deliberately bounded Ghidra lane. */
 export const ghidraArmUnsupportedReason = (

@@ -83,9 +83,12 @@ try {
     },
     "REA ELF interpretation disagrees with GNU readelf or the declared ISA",
   );
-  const readelfAttributes = await execute("readelf", ["-A", fixture.path], {
-    timeout: 30000,
-  });
+  const readelfCommand = process.env.REA_ARM_READELF ?? "readelf";
+  const readelfAttributes = await execute(
+    readelfCommand,
+    ["-A", fixture.path],
+    { timeout: 30000 },
+  );
   assert.match(
     readelfAttributes.stdout,
     /Tag_CPU_arch:\s*v7\b/u,
@@ -328,7 +331,7 @@ try {
     ],
     { timeout: 60000 },
   );
-  const r5Attributes = await execute("readelf", ["-A", r5Path], {
+  const r5Attributes = await execute(readelfCommand, ["-A", r5Path], {
     timeout: 30000,
   });
   assert.match(
