@@ -345,6 +345,65 @@ describe("Unblob multi-file extraction diagnostics", () => {
         report: multiFileReport,
       },
     ]);
+    expect(normalized.failed_extraction_stages).toEqual([
+      { input_path: "$output/multi", handler: "multipart-firmware" },
+    ]);
+  });
+});
+
+describe("failed multi-file extraction stages", () => {
+  it("records a failed multi-file stage for a recovery row without chunks", () => {
+    const outputPath = `${context.outputRoot}/multi`;
+    const childTask = {
+      path: outputPath,
+      depth: 1,
+      blob_id: "multi-id",
+      is_multi_file: true,
+    };
+    const stageFailure = {
+      __typename__: "ExtractorExecutionErrorReport",
+      severity: "ERROR",
+      handler: "multipart-firmware",
+    };
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...root(),
+          reports: root().reports.filter(
+            (item) => item.__typename__ !== "UnknownChunkReport",
+          ),
+          subtasks: [childTask],
+        },
+        {
+          task: childTask,
+          reports: [
+            {
+              __typename__: "StatReport",
+              path: outputPath,
+              size: 0,
+              is_dir: true,
+              is_file: false,
+              is_link: false,
+              link_target: null,
+            },
+            {
+              __typename__: "MultiFileReport",
+              id: "multi-id",
+              handler_name: "multipart-firmware",
+              name: "rootfs",
+              paths: [`${outputPath}/part-a`],
+              extraction_reports: [stageFailure],
+            },
+          ],
+          subtasks: [],
+        },
+      ],
+      context,
+    );
+    expect(normalized.failed_extraction_stages).toEqual([
+      { input_path: "$output/multi", handler: "multipart-firmware" },
+    ]);
+    expect(normalized.missing_dependencies).toEqual([]);
   });
 });
 

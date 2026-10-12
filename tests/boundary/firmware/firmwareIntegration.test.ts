@@ -270,6 +270,60 @@ it("retains the complete firmware result when published output cleanup stays unc
   );
 });
 
+it.each([
+  ["depth", 10, "cannot be restarted"],
+  ["depth-reentry", 10, "rerun extract_firmware"],
+] as const)(
+  "bounds the maximum-depth continuation by a usable published child (%s)",
+  async (mode, maxDepth, expected) => {
+    const fixture = await firmwareFixture(mode);
+    const result = await fixture.service.execute("extract_firmware", {
+      path: fixture.path,
+      output_directory: fixture.output,
+      max_depth: maxDepth,
+    });
+    if (!result.ok) throw result.error;
+    const normalized = firmwareResultSchemas.extract_firmware.parse(
+      result.value.normalized_result,
+    );
+    expect(normalized.depth_limited_paths.length).toBeGreaterThan(0);
+    expect(
+      normalized.extraction_gaps.filter((gap) => gap.kind === "depth-limited"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "depth-limited",
+          continuation: expect.stringContaining(expected),
+        }),
+      ]),
+    );
+  },
+);
+
+it("reports a failed multi-file stage as an extractor-failure gap", async () => {
+  const fixture = await firmwareFixture("multi-file-failure");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  expect(normalized.extraction_gaps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "extractor-failure",
+        input_path: "$input",
+        handler: "tar",
+        provider_id: null,
+        range: null,
+        root_file_range: null,
+      }),
+    ]),
+  );
+});
+
 const injectPublishedDirectoryCloseFailure = (persistent: boolean) => {
   directoryCloseFailure.attempts = 0;
   const commit = SafeOutputTree.prototype.commit;

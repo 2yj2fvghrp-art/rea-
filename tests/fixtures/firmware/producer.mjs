@@ -67,12 +67,12 @@ if (args.includes("--version")) {
     const childHash = createHash("sha256").update(content).digest("hex");
     const depth =
       mode === "depth" ? Number(args[args.indexOf("--depth") + 1]) : 1;
-    const stat = (path, size) => ({
+    const stat = (path, size, isDir = false) => ({
       __typename__: "StatReport",
       path,
       size,
-      is_file: true,
-      is_dir: false,
+      is_file: !isDir,
+      is_dir: isDir,
       is_link: false,
       link_target: null,
     });
@@ -84,6 +84,61 @@ if (args.includes("--version")) {
     });
     const hash = (value) => ({ __typename__: "HashReport", sha256: value });
     const childTask = task(child, depth, "gzip-id");
+    if (mode === "depth-reentry") {
+      // A depth-limited directory whose published child can re-root a fresh
+      // run, beside a leaf that cannot: one run exercises both continuations.
+      const mid = join(output, "rootfs", "config");
+      const innerPath = join(mid, "inner.gz");
+      await mkdir(mid, { recursive: true });
+      await writeFile(innerPath, content);
+      const innerTask = task(innerPath, depth + 1, "inner-id");
+      const midTask = {
+        ...task(mid, depth, "gzip-id"),
+        is_multi_file: true,
+      };
+      const depthReentryRecords = [
+        {
+          task: innerTask,
+          reports: [stat(innerPath, content.length), hash(childHash)],
+          subtasks: [],
+        },
+        {
+          task: midTask,
+          reports: [
+            stat(mid, 0, false),
+            {
+              __typename__: "MultiFileReport",
+              id: "gzip-id",
+              handler_name: "gzip",
+              name: "config",
+              paths: [innerPath],
+              extraction_reports: [],
+            },
+          ],
+          subtasks: [innerTask],
+        },
+        {
+          task: task(input, 0, ""),
+          reports: [
+            stat(input, bytes.length),
+            hash(sha256),
+            {
+              __typename__: "ChunkReport",
+              id: "gzip-id",
+              start_offset: 0,
+              end_offset: bytes.length,
+              size: bytes.length,
+              handler_name: "gzip",
+              is_encrypted: false,
+              extraction_reports: [],
+            },
+          ],
+          subtasks: [midTask],
+        },
+      ];
+      await writeFile(reportPath, JSON.stringify(depthReentryRecords));
+      process.exitCode = 0;
+    }
     const records = [
       {
         task: childTask,
@@ -100,6 +155,24 @@ if (args.includes("--version")) {
         reports: [
           stat(input, bytes.length),
           hash(sha256),
+          ...(mode === "multi-file-failure"
+            ? [
+                {
+                  __typename__: "MultiFileReport",
+                  id: "mf-id",
+                  handler_name: "tar",
+                  name: "rootfs.tar",
+                  paths: [join(output, "rootfs.tar")],
+                  extraction_reports: [
+                    {
+                      __typename__: "ExtractorExecutionErrorReport",
+                      severity: "ERROR",
+                      handler: "tar",
+                    },
+                  ],
+                },
+              ]
+            : []),
           {
             __typename__: "ChunkReport",
             id: "gzip-id",
@@ -123,12 +196,13 @@ if (args.includes("--version")) {
         subtasks: [childTask],
       },
     ];
-    await writeFile(
-      reportPath,
-      mode === "malformed" || mode === "workspace-cleanup-failure-malformed"
-        ? "["
-        : JSON.stringify(records),
-    );
+    if (mode !== "depth-reentry")
+      await writeFile(
+        reportPath,
+        mode === "malformed" || mode === "workspace-cleanup-failure-malformed"
+          ? "["
+          : JSON.stringify(records),
+      );
     if (mode === "dependency") process.exitCode = 1;
     if (
       mode === "workspace-cleanup-failure" ||

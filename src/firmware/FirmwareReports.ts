@@ -200,6 +200,7 @@ export const normalizeUnblobReport = (
   >();
   const sizes = new Map<string, number>();
   const depths: string[] = [];
+  const failedExtractionStages = new Map<string, string>();
   const diagnostics: JsonValue[] = [];
   const chunks: {
     input_path: string;
@@ -367,6 +368,9 @@ export const normalizeUnblobReport = (
             ),
           );
           noteMissingDependencies(path, parsed.extraction_reports);
+          // The stage identity is kept so a failed multi-file extraction can
+          // surface as a recovery row even when no chunk carries the failure.
+          failedExtractionStages.set(path, parsed.handler_name);
         }
       }
     }
@@ -442,6 +446,15 @@ export const normalizeUnblobReport = (
     chunks,
     derivations,
     depth_limited_paths: depths.sort(),
+    failed_extraction_stages: [...failedExtractionStages.entries()]
+      .map(([input_path, handler]) => ({ input_path, handler }))
+      .sort((left, right) =>
+        left.input_path < right.input_path
+          ? -1
+          : left.input_path > right.input_path
+            ? 1
+            : 0,
+      ),
     diagnostics,
     missing_dependencies: [...missingDependencies.entries()]
       .map(([input_path, names]) => ({
