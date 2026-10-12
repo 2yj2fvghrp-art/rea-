@@ -211,6 +211,19 @@ it("frames custom section names at their NUL-terminated objdump display", async 
     /custom-section header/u,
   );
 });
+it("preserves leading U+FEFF as custom-name data, not a debug-name marker", () => {
+  const parsed = parseWabtWat(
+    '(module (@custom "\\ef\\bb\\bfsection" "payload") (@custom "\\ef\\bb\\bfname" "payload") (@custom "\\ef\\bb\\bf" "payload") (@custom "" "payload"))',
+  );
+  expect(parsed.customSectionNames).toEqual([
+    "\uFEFFsection",
+    "\uFEFFname",
+    "\uFEFF",
+    "",
+  ]);
+  expect(parsed.debugModuleNames).toEqual([]);
+  expect(() => parseWabtWat('(module (@custom "\\ff" "payload"))')).toThrow();
+});
 it("extracts escaped WAT import/export forms while retaining multiline producer text", async () => {
   const text = await readFile(
     new URL("../../tests/fixtures/wasm/decoded.wat", import.meta.url),

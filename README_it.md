@@ -278,9 +278,11 @@ Grazie a tutti coloro che usano REA, segnalano bug, propongono funzionalità, te
 
 Consulta [DISCLAIMER.md](DISCLAIMER.md) per le indicazioni sull'uso responsabile.
 
-REA fornisce strumenti per la ricerca, l'analisi e la ricostruzione di ingegneria inversa lecita. Sei responsabile di ottenere le eventuali autorizzazioni richieste e di rispettare le leggi applicabili. Il progetto non approva l'uso illegale o non autorizzato.
+REA è destinato alla ricerca, alla formazione, all’interoperabilità, alla conservazione del software e all’analisi di software di tua proprietà o che sei autorizzato a esaminare, nel rispetto della legge.
 
-REA è un progetto software open-source. Non abbiamo emesso né approvato alcuna criptovaluta o token. I token che usano il nome REA non sono affiliati al progetto.
+The project's position on illegal or unauthorized use covers all REA
+versions, distribution channels, and platforms; each copy retains its
+applicable licenses.
 
 ## Contributing
 
@@ -291,3 +293,15 @@ Vedi [CONTRIBUTING.md](CONTRIBUTING.md) per la configurazione di sviluppo e i co
 ## License
 
 [MIT](LICENSE)
+
+REA-authored code is licensed under MIT. Third-party material retains its own
+licenses and copyright notices; see [Third-party notices](THIRD_PARTY_NOTICES.md)
+for the dependency inventory, preserved license texts, and external-tool terms.
+
+**You must legally obtain and be authorized to use commercial tools**, including
+IDA Pro / Hex-Rays decompilers, Hopper, and JEB, under their applicable licenses.
+REA grants no tool license, key, or activation entitlement. Trials and demos
+remain subject to vendor terms, including user, feature, automation, and output
+sharing restrictions. Cracked copies, stolen keys, unauthorized key sharing,
+and bypassing license restrictions are not authorized. This guidance does not
+amend MIT or third-party licenses.
