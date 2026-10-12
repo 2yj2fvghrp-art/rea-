@@ -74,7 +74,9 @@ const sourceFiles = [
 export const SWIFTC_INTERRUPT = "SIGINT";
 
 /** Deadline for the one-shot helper compilation. */
-const COMPILER_TIMEOUT_MS = 60_000;
+// A fresh Swift SDK cache took 88 seconds on the supported Intel macOS VM.
+// Keep compilation bounded independently of short provider version probes.
+const COMPILER_TIMEOUT_MS = 120_000;
 
 /** Bound on compiler diagnostics embedded in the inspection failure text. */
 const STDERR_EXCERPT_LIMIT = 512;
@@ -239,7 +241,7 @@ const waitForCompilation = async (
 export const createDarwinProcessRunTokenReader = (
   options: {
     readonly xcrun?: string;
-    /** Deadline for the helper compilation; the default keeps verification fast. */
+    /** Deadline for helper compilation, independent of provider execution. */
     readonly compileTimeoutMs?: number;
   } = {},
 ) => {

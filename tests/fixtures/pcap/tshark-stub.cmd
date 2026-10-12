@@ -2,7 +2,7 @@
 rem Pcap tool stub for Windows: emulates tshark --version and field output.
 rem %1 is the first argument; the capture path arrives as %2 for -r/-c.
 
-if "%1"=="--version" (
+if "%~1"=="--version" (
     echo TShark ^(Wireshark^) 4.6.6-windows-stub
     exit /b 0
 )

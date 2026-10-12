@@ -1,7 +1,7 @@
 @echo off
 rem capinfos stub for Windows: emulates capinfos --version and metadata output.
 
-if "%1"=="--version" (
+if "%~1"=="--version" (
     echo Capinfos ^(Wireshark^) 4.6.6-windows-stub
     exit /b 0
 )

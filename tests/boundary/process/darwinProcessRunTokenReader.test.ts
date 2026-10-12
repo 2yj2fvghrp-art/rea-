@@ -25,6 +25,7 @@ import {
 import {
   createDarwinProcessRunTokenReader,
   DarwinProcessOwnershipInspectionError,
+  SWIFTC_INTERRUPT,
 } from "../../../src/process/DarwinProcessRunTokenReader.js";
 import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
 import {
@@ -858,16 +859,8 @@ it.skipIf(!onDarwin)(
     try {
       await execFileOutput(
         "/usr/bin/xcrun",
-        [
-          "swiftc",
-          "-module-cache-path",
-          join(root, "modules"),
-          core,
-          fixture,
-          "-o",
-          executable,
-        ],
-        { timeout: 60_000 },
+        ["swiftc", core, fixture, "-o", executable],
+        { timeout: 120_000, stopSignal: SWIFTC_INTERRUPT },
       );
       const { stdout } = await execFileAsync(executable, [], {
         encoding: "utf8",
@@ -927,6 +920,7 @@ it.skipIf(!onDarwin)(
       await rm(root, { recursive: true, force: true });
     }
   },
+  150_000,
 );
 
 it.skipIf(!onDarwin)(
@@ -951,16 +945,8 @@ it.skipIf(!onDarwin)(
     try {
       await execFileOutput(
         "/usr/bin/xcrun",
-        [
-          "swiftc",
-          "-module-cache-path",
-          join(root, "modules"),
-          core,
-          fixture,
-          "-o",
-          executable,
-        ],
-        { timeout: 60_000 },
+        ["swiftc", core, fixture, "-o", executable],
+        { timeout: 120_000, stopSignal: SWIFTC_INTERRUPT },
       );
       const { stdout } = await execFileAsync(executable, [], {
         encoding: "utf8",
@@ -974,6 +960,7 @@ it.skipIf(!onDarwin)(
       await rm(root, { recursive: true, force: true });
     }
   },
+  150_000,
 );
 
 it.skipIf(!onDarwin)(

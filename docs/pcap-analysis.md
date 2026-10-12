@@ -98,12 +98,21 @@ Cross-platform fixtures exercise the provider contract through `.cmd`
 (Windows) and `.sh` (POSIX) scripts. Windows batch files use the shared
 explicit cmd.exe invocation boundary and require REA's native ownership controls.
 
-**Real-engine verification is Linux-only** (Docker `rea-tshark` image and
-Android emulator). Windows and macOS have not been verified against real
-tshark/capinfos binaries; the stub tests confirm the provider's contract
-surface, but the tools' output format, path resolution, and process
-behavior on those platforms are untested. Report real-tool verification
-results as they become available.
+Real-engine verification covers Linux with Wireshark 4.6.6 and a macOS Sonoma
+14.8.9 x86-64 guest with Wireshark 4.6.9 and Node 24.18.0. The macOS runs check
+real CLI/MCP capture results, DNS attribution, IPv6, projection bounds, exact
+packet counts, pcapng and owned cleanup; 47 focused pcap tests and 22 native
+process-reader tests also pass there. Windows 11 x64 build 26300.9457 is verified
+with Node 24.18.0 and Wireshark 4.6.9 under a non-administrator account: real
+CLI/MCP capture checks, all six semantic captures, 32 focused tests and the
+native-control conformance lane pass. The 15 POSIX process-fixture tests remain
+skipped on Windows; they are covered by the Linux/macOS runs.
+
+macOS process ownership requires the Apple command-line tools. Initial Swift
+SDK-cache preparation is separate from the tool's execution timeout and has a
+120-second compiler budget; subsequent preparations reuse the SDK cache. The
+fresh VM's cold compiler took 88 seconds, versus about two seconds when warm.
+An isolated empty SDK-cache check also completed within the revised budget.
 
 ## Real verification
 
@@ -121,3 +130,8 @@ interleaved DNS replies, IPv6, SNI truncation and large packet counts. A pcapng
 conversion of the 50-packet capture also passes the same CLI/MCP verifier.
 Synthetic process fixtures verify failure and cancellation behavior; they
 do not establish real-engine behavior on untested hosts.
+
+Verifier workspaces are shared temporary parents, not leased provider runtimes;
+each child owns its own snapshots. Cleanup must finish and leave that parent
+empty before verification succeeds. Unreleased resources are retained for
+inspection instead of being recursively removed by the verifier.

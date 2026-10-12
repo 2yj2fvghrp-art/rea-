@@ -13,6 +13,7 @@ import {
   runOwnedCommand,
 } from "../process/OwnedCommand.js";
 import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
+import { prepareProcessOwnershipInspection } from "../process/ProcessOwnershipObservation.js";
 import {
   isWindowsBatchFile,
   windowsBatchCommand,
@@ -56,6 +57,9 @@ export const runPcapCommand = async (options: {
           arguments: options.arguments,
         })
       : { command, arguments: options.arguments };
+    // Native ownership preparation has its own bounded compiler lifecycle;
+    // do not spend the tool's execution deadline rebuilding a cold SDK cache.
+    await prepareProcessOwnershipInspection(signal);
     const output = await runOwnedCommand(
       {
         ...invocation,

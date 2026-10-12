@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdtemp, readdir, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { toolContract } from "../dist/contracts/toolContracts.js";
 import { hashStableFile } from "../dist/filesystem/StableFileHash.js";
-import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
 import { mcpTextValue } from "./lib/mcp-verifier-results.mjs";
 
 const args = process.argv.slice(2);
@@ -20,14 +20,16 @@ if (args.includes("--help") || args.includes("-h")) {
 if (!(args.length === 0 || (args.length === 2 && args[0] === "--pcap")))
   throw new Error("Expected --pcap PATH");
 const path = args[1] === undefined ? null : resolve(args[1]);
-const root = await PrivateRuntimeRoot.create({ prefix: "rea-pcap-verifier-" });
+// This parent is shared by independent CLI/MCP owners. A leased Windows
+// runtime root would prevent their native admission of its directory handle.
+const root = await mkdtemp(join(tmpdir(), "rea-pcap-verifier-"));
 const environment = Object.fromEntries(
   Object.entries(process.env).filter(([, value]) => typeof value === "string"),
 );
 Object.assign(environment, {
-  TMPDIR: root.path,
-  TMP: root.path,
-  TEMP: root.path,
+  TMPDIR: root,
+  TMP: root,
+  TEMP: root,
 });
 const entrypoint = resolve("scripts/rea.mjs");
 const execute = promisify(execFile);
@@ -84,15 +86,15 @@ try {
 } finally {
   try {
     await client.close();
-    await transport.close();
-    assert.deepEqual(
-      await readdir(root.path),
-      [],
-      "Owned capture snapshots must be released",
-    );
   } finally {
-    await root.close();
+    await transport.close();
   }
+  assert.deepEqual(
+    await readdir(root),
+    [],
+    `Owned capture resources remain under ${root}`,
+  );
+  await rmdir(root);
 }
 console.log("All asserted pcap CLI/MCP checks passed");
 
