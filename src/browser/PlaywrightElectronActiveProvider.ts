@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { open, realpath, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -360,11 +360,46 @@ const canonicalPaths = async (
     realpath(input.executable_path),
     realpath(input.application_path),
   ]);
+  const executableStat = await stat(executable).catch(() => undefined);
+  if (executableStat === undefined || !executableStat.isFile())
+    throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+      detail: `Electron executable path is not a regular file: ${executable}`,
+    });
+  await assertExecutableFile(executable);
   const root =
     input.application_root === undefined
       ? dirname(application)
       : await realpath(input.application_root);
   return { executable, application, root };
+};
+
+/** Reject a non-executable file before Playwright's launch can exit the process. */
+const assertExecutableFile = async (path: string): Promise<void> => {
+  if (process.platform !== "win32") return;
+  const handle = await open(path, "r");
+  try {
+    const header = Buffer.alloc(64);
+    await handle.read(header, 0, 64, 0);
+    if (header.toString("ascii", 0, 2) !== "MZ")
+      throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+        detail: `Electron executable path is not a valid Windows executable: ${path}`,
+      });
+    const peOffset = header.readUInt32LE(0x3c);
+    if (peOffset > header.length - 26) {
+      const extended = Buffer.alloc(peOffset + 26);
+      await handle.read(extended, 0, extended.length, 0);
+      if (extended.toString("ascii", peOffset, peOffset + 4) !== "PE\0\0")
+        throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+          detail: `Electron executable path is not a valid Windows executable: ${path}`,
+        });
+    } else if (header.toString("ascii", peOffset, peOffset + 4) !== "PE\0\0") {
+      throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+        detail: `Electron executable path is not a valid Windows executable: ${path}`,
+      });
+    }
+  } finally {
+    await handle.close();
+  }
 };
 
 const safeElectronEnvironment = (
