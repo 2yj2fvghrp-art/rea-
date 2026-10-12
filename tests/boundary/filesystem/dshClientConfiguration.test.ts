@@ -2,7 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import {
+  isNode,
+  isSeq,
+  parseDocument,
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "yaml";
 
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { npxRegistrationCommand } from "../../../src/application/ClientRegistrationIdentity.js";
@@ -1917,6 +1923,137 @@ describe("DeepSeek Harness aliased mapping keys", () => {
           (await configureClientConfiguration(client, {}, command)).status,
         ).toBe("unchanged");
       }
+      expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
+        initial,
+      );
+    },
+  );
+});
+
+describe("DeepSeek Harness ordered selector applicability", () => {
+  it.each(["before insertion", "before replacement"])(
+    "discards selector uncertainty %s",
+    async (position) => {
+      const { home, client } = await harnessClient();
+      const selector = `- id: rea-mcp
+  name: !!js '"@deepseek-ai/dsh-mcp-client"'
+  config: {command: ignored-launcher, env: {IGNORED: discarded}}
+`;
+      const insertion = stringifyYaml([{ insert: [canonicalEntry()] }]);
+      const initial =
+        position === "before insertion"
+          ? selector + insertion
+          : insertion + selector + insertion;
+      await writeFile(client.configPath, initial);
+      expect((await dshStatus(home))?.state).toBe(
+        position === "before insertion" ? "aligned" : "stale",
+      );
+      expect(
+        (await configureClientConfiguration(client, {}, command)).status,
+      ).toBe(position === "before insertion" ? "unchanged" : "configured");
+      expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+      const text = await readFile(client.configPath, "utf8");
+      expect(
+        cordisPatches(text)
+          .flatMap((patch) => patch.insert ?? [])
+          .filter(({ id }) => id === "rea-mcp"),
+      ).toEqual([canonicalEntry()]);
+      if (position === "before insertion") expect(text).toBe(initial);
+      expect(
+        (await systemUninstallHost(home).removeClient(client)).status,
+      ).toBe("removed");
+      expect(loadedInserts(await readFile(client.configPath, "utf8"))).toEqual(
+        [],
+      );
+    },
+  );
+});
+
+describe("DeepSeek Harness caller node metadata", () => {
+  it.each(["environment", "launcher"])(
+    "preserves scalar and argument comments during %s repairs",
+    async (repair) => {
+      const { home, client } = await harnessClient();
+      const entry = canonicalEntry();
+      const yaml = parseDocument(
+        stringifyYaml([
+          {
+            insert: [
+              {
+                ...entry,
+                config: {
+                  ...entry.config,
+                  ...(repair === "launcher" ? { command: "stale" } : {}),
+                  env: { TOKEN: "original" },
+                },
+              },
+            ],
+          },
+        ]),
+      );
+      for (const path of [
+        [0, "insert", 0, "id"],
+        [0, "insert", 0, "name"],
+        ...["serverName", "transport", "command", "args"].map((key) => [
+          0,
+          "insert",
+          0,
+          "config",
+          key,
+        ]),
+        [0, "insert", 0, "config", "env", "TOKEN"],
+      ]) {
+        const node = yaml.getIn(path, true);
+        if (!isNode(node)) throw new Error("missing caller node");
+        node.comment = ` caller ${path.at(-1)}`;
+        node.commentBefore = ` before ${path.at(-1)}`;
+      }
+      const args = yaml.getIn([0, "insert", 0, "config", "args"], true);
+      if (!isSeq(args) || !isNode(args.items[0]))
+        throw new Error("missing launcher arguments");
+      args.items[0].comment = " caller argument";
+      const initial = yaml.toString();
+      await writeFile(client.configPath, initial);
+      expect(
+        (
+          await configureClientConfiguration(
+            client,
+            { TOKEN: "updated" },
+            command,
+          )
+        ).status,
+      ).toBe("configured");
+      const text = await readFile(client.configPath, "utf8");
+      for (const key of [
+        "id",
+        "name",
+        "serverName",
+        "transport",
+        "command",
+        "args",
+        "TOKEN",
+      ]) {
+        expect(text).toContain(`# caller ${key}`);
+        expect(text).toContain(`# before ${key}`);
+      }
+      expect(text).toContain("# caller argument");
+      expect(loadedInserts(text)).toEqual([
+        {
+          ...entry,
+          config: { ...entry.config, env: { TOKEN: "updated" } },
+        },
+      ]);
+      expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+      expect(
+        (
+          await configureClientConfiguration(
+            client,
+            { TOKEN: "updated" },
+            command,
+          )
+        ).status,
+      ).toBe("unchanged");
+      expect(await readFile(client.configPath, "utf8")).toBe(text);
       expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
         initial,
       );

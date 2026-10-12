@@ -1,4 +1,4 @@
-import { isMap, isNode, isSeq, type Node, type YAMLMap } from "yaml";
+import { isMap, isSeq, type Node, type YAMLMap } from "yaml";
 import { parseEnvironment } from "../config/environment.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -61,9 +61,11 @@ export class DshCordisDocument {
           insertions += 1;
           this.#entryNode = entry;
           this.#fields.clear();
+          this.#unknownSelector = false;
           this.#readFields(entry);
         }
       } else if (direct) {
+        if (insertions === 0) continue;
         // Cordis uses name as a selector, not a rename operation.
         const selector = this.#yaml.value(this.#yaml.field(map, "name"));
         if (
@@ -73,7 +75,6 @@ export class DshCordisDocument {
           this.#unknownSelector = true;
           continue;
         }
-        if (insertions === 0) continue;
         if (selector && selector !== this.#field("name")) continue;
         this.#readFields(map, new Set(["id", "name"]));
       }
@@ -281,8 +282,8 @@ export class DshCordisDocument {
     const entry = this.#yaml.detach(this.#entryNode, invalidated);
     if (!isMap(entry))
       throw new ConfigurationError("Cordis entry is not a mapping");
-    entry.set("id", this.#yaml.document.createNode(DSH_ENTRY_ID));
-    entry.set("name", this.#yaml.document.createNode(DSH_CLIENT_PACKAGE));
+    this.#yaml.setValue(entry, "id", DSH_ENTRY_ID);
+    this.#yaml.setValue(entry, "name", DSH_CLIENT_PACKAGE);
     entry.delete("disabled");
     for (const [key, value] of this.#fields) {
       if (["id", "name", "config", "disabled"].includes(key)) continue;
@@ -299,7 +300,7 @@ export class DshCordisDocument {
       );
     // Caller nodes keep their tags and spelling; only literal launcher values change.
     for (const key of LAUNCHER_KEYS)
-      config.set(key, this.#yaml.document.createNode(desired[key]));
+      this.#yaml.setValue(config, key, desired[key]);
     const env = this.#map(this.#yaml.field(sourceConfig, "env"));
     const desiredEnv = desired.env;
     if (isRecord(desiredEnv)) {
@@ -310,16 +311,7 @@ export class DshCordisDocument {
       if (!isMap(nextEnv))
         throw new ConfigurationError("Cordis environment is not a mapping");
       for (const [key, value] of Object.entries(desiredEnv)) {
-        const original = this.#yaml.field(env, key);
-        if (this.#yaml.value(original) === value) continue;
-        const replacement = this.#yaml.document.createNode(value);
-        if (isNode(original) && isNode(replacement)) {
-          if (original.comment !== undefined)
-            replacement.comment = original.comment;
-          if (original.commentBefore !== undefined)
-            replacement.commentBefore = original.commentBefore;
-        }
-        nextEnv.set(key, replacement);
+        this.#yaml.setValue(nextEnv, key, value);
       }
       config.set("env", nextEnv);
     } else config.delete("env");

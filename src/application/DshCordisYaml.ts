@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   isAlias,
   isMap,
@@ -102,6 +103,20 @@ export class DshCordisYaml {
 
   field(map: YAMLMap | undefined, key: string): unknown {
     return map?.items.findLast((pair) => this.#key(pair.key) === key)?.value;
+  }
+
+  /** Preserve unchanged nodes and carry their comments when replacing values. */
+  setValue(map: YAMLMap, key: string, value: unknown): void {
+    const original = this.field(map, key);
+    if (isDeepStrictEqual(this.value(original), value)) return;
+    const replacement = this.document.createNode(value);
+    if (isNode(original) && isNode(replacement)) {
+      if (original.comment !== undefined)
+        replacement.comment = original.comment;
+      if (original.commentBefore !== undefined)
+        replacement.commentBefore = original.commentBefore;
+    }
+    map.set(key, replacement);
   }
 
   /** Copy from the source before edits; materialized nodes own no anchors. */
