@@ -76,7 +76,13 @@ without this lane reports Windows native controls as unavailable.
   group's default when the caller asked for no bound of its own. A caller
   deliberately pinned to fewer processors than its group holds is a constraint
   such a child cannot express, and is refused rather than widened to that
-  group's default. Environment names are sorted and deduplicated using Windows
+  group's default. A mask covering its group's whole active set does not
+  distinguish a caller Windows placed in that group from one that selected the
+  group deliberately, so such a child can still be placed elsewhere: its
+  processor count stays bounded, its group placement is not preserved, and
+  neither that case nor the refusal above has a verification lane, because both
+  need a host whose processors span more than one group.
+  Environment names are sorted and deduplicated using Windows
   ordinal comparison, preserving their native Unicode semantics and
   caller-selected values.
 - Cleanup walks locked directory objects, removes files by handle, and unlinks
