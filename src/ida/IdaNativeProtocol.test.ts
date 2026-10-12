@@ -277,6 +277,42 @@ describe("native IDA Free provider observations", () => {
 });
 
 describe("native IDA Free malformed observations", () => {
+  it.each([
+    "procedure_address",
+    "procedure_assembly",
+    "procedure_pseudo_code",
+    "analyze_function",
+  ] as const)(
+    "rejects a successful lookup for another query before %s can accept the wrong function",
+    async (operation) => {
+      const { client, producer } = await fixture();
+      producer.overrideCall = (name) =>
+        name === "lookup_funcs"
+          ? [
+              {
+                query: "helper",
+                fn: { addr: "0x2000", name: "helper", size: "0x20" },
+                error: null,
+              },
+            ]
+          : undefined;
+      try {
+        const result = await client.execute(operation, { procedure: "main" });
+        if (result.ok)
+          throw new Error("Expected a mismatched lookup rejection");
+        expect(result.error._tag).toBe("AnalysisProtocolError");
+        expect(result.error.message).toContain("different query");
+        expect(
+          producer.calls.some(
+            ({ name }) => name === "disasm" || name === "decompile",
+          ),
+        ).toBe(false);
+      } finally {
+        expect((await client.close()).ok).toBe(true);
+      }
+    },
+  );
+
   it("rejects wrong-function pseudocode, upstream cloud failures, and malformed assembly", async () => {
     const { client, producer } = await fixture();
     for (const value of [

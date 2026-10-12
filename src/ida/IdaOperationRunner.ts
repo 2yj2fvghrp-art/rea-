@@ -141,9 +141,12 @@ export class IdaOperationRunner {
       const item = modernLookupSchema.parse(
         await this.call("lookup_funcs", { queries: [query] }),
       )[0];
+      if (item === undefined || item.query !== query)
+        throw new AnalysisProtocolError(
+          `IDA function lookup answered for a different query than ${JSON.stringify(query)}.`,
+        );
       if (
         requestedBy !== undefined &&
-        item?.query === query &&
         item.fn === null &&
         item.error !== null &&
         MISSING_PROCEDURE_ANSWERS.has(item.error)
@@ -163,9 +166,9 @@ export class IdaOperationRunner {
             },
           ],
         );
-      if (item?.fn == null || item.error !== null)
+      if (item.fn === null || item.error !== null)
         throw new AnalysisProtocolError(
-          `IDA function lookup failed for ${query}: ${item?.error ?? "missing function"}`,
+          `IDA function lookup failed for ${query}: ${item.error ?? "missing function"}`,
         );
       return item.fn;
     }
