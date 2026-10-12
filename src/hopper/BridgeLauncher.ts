@@ -206,6 +206,7 @@ export class HopperApplicationLauncher implements BridgeLauncher {
       action,
       input.loadedPath,
     ];
+    let launched = false;
     try {
       if (signal?.aborted === true) return err(new HopperCancelledError());
       const display = await this.#privateDisplay(signal);
@@ -232,6 +233,7 @@ export class HopperApplicationLauncher implements BridgeLauncher {
         signal,
       });
       if (started === null) return err(new HopperCancelledError());
+      launched = true;
       const cleanup = () => cleanupOwnedProcessGroup(started.ownership);
       const ownedLauncher = {
         ...(this.options.preparedImage === undefined
@@ -256,10 +258,13 @@ export class HopperApplicationLauncher implements BridgeLauncher {
             shutdownMode: "bridge-request",
           });
     } catch (cause: unknown) {
-      // Ensure the bootstrap file containing the cleartext auth token is cleaned
-      // up even when the launch itself fails after writing credentials to disk.
-      await rm(bootstrapPath, { force: true }).catch(() => undefined);
       return err(hopperLaunchFailure(cause, signal));
+    } finally {
+      // Remove the token-bearing bootstrap file on every non-success path.
+      // Only the launched process needs the file; all error returns, early
+      // cancellations, and thrown exceptions must not leave it on disk.
+      if (!launched)
+        await rm(bootstrapPath, { force: true }).catch(() => undefined);
     }
   }
 

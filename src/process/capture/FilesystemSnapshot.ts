@@ -99,11 +99,21 @@ export const hashFile = async (
     // On Windows, O_NOFOLLOW is unavailable (undefined → 0), so symlinks,
     // junctions, and mount points are silently followed. Verify the canonical
     // path matches the requested path to detect symlink/junction substitution.
-    // Windows inode values are unreliable (often 0), making the hasSameFileState
-    // identity check alone insufficient to detect file replacement.
+    // Compare with platform-aware normalization: Windows paths are
+    // case-insensitive and may differ in separator style, so resolve both
+    // and compare case-insensitively to avoid false omissions on legitimate
+    // files while still detecting junction/symlink traversal.
     if (!noFollowAvailable) {
       const canonicalPath = await realpath(path);
-      if (canonicalPath !== path)
+      const resolvedRequest = resolve(path);
+      const resolvedCanonical = resolve(canonicalPath);
+      const diverged =
+        process.platform === "win32"
+          ? resolvedCanonical.localeCompare(resolvedRequest, undefined, {
+              sensitivity: "accent",
+            }) !== 0
+          : resolvedCanonical !== resolvedRequest;
+      if (diverged)
         return {
           state: "omitted",
           reason: "file_changed_or_short_read",
