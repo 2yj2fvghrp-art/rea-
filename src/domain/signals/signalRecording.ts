@@ -56,9 +56,9 @@ export const signalRecordingSchema = z.strictObject({
     input_bytes: z.number().int().positive(),
     output_bytes: z.number().int().positive(),
     command_timeout_ms: z.number().int().positive(),
-    address_space_bytes: z.number().int().positive(),
-    file_bytes: z.number().int().positive(),
-    cpu_seconds: z.number().int().positive(),
+    address_space_bytes: z.number().int().nonnegative(),
+    file_bytes: z.number().int().nonnegative(),
+    cpu_seconds: z.number().int().nonnegative(),
   }),
   hardware_acquisition: z.literal("not-performed"),
 });

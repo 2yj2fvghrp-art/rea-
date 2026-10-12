@@ -58,7 +58,8 @@ deadline, and combined stdout/stderr is bounded at 4 MiB during collection.
 Oversized output fails rather than becoming truncated success. These limits do
 not form an OS sandbox. Before execution, `prlimit` enforces **1 GiB address
 space per process**, **64 MiB per file**, **30 CPU seconds** and no core dumps.
-Both soft and hard limits are inherited, so decoder allocations and compressed
+Stricter inherited soft/hard limits are preserved; Evidence records the effective
+ceilings. Both limits are set before execution, so decoder allocations and compressed
 recording expansion cannot exceed the per-process address-space cap. These are
 not aggregate process-memory or filesystem quotas. The selected limiter is
 trusted and its path, digest and arguments are retained in Evidence.

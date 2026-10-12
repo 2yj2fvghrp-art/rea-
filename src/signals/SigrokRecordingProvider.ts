@@ -1,3 +1,4 @@
+import { readLinuxResourceLimits } from "../process/LinuxResourceLimits.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, realpath, writeFile } from "node:fs/promises";
@@ -66,6 +67,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
       PrivateRuntimeRoot.create({ prefix: "rea-sigrok-" }),
     readonly platform: NodeJS.Platform = process.platform,
     readonly readArtifact: typeof readStableArtifact = readStableArtifact,
+    readonly readLimits: typeof readLinuxResourceLimits = readLinuxResourceLimits,
   ) {}
   decode(
     input: DecodeSignalRecordingInput,
@@ -141,10 +143,11 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
         64 * 1024 * 1024,
         options?.signal,
       );
+      const effectiveLimits = await this.readLimits(LIMITS);
       const limitArguments = [
-        `--as=${LIMITS.address_space_bytes}:${LIMITS.address_space_bytes}`,
-        `--fsize=${LIMITS.file_bytes}:${LIMITS.file_bytes}`,
-        `--cpu=${LIMITS.cpu_seconds}:${LIMITS.cpu_seconds}`,
+        `--as=${effectiveLimits.address_space_bytes}:${effectiveLimits.address_space_bytes}`,
+        `--fsize=${effectiveLimits.file_bytes}:${effectiveLimits.file_bytes}`,
+        `--cpu=${effectiveLimits.cpu_seconds}:${effectiveLimits.cpu_seconds}`,
         "--core=0:0",
         "--",
         command,
@@ -270,7 +273,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           sha256: limiterIdentity.sha256,
           arguments: limitArguments,
         },
-        limits: LIMITS,
+        limits: { ...LIMITS, ...effectiveLimits },
         hardware_acquisition: "not-performed",
       });
       result = ok(
@@ -285,7 +288,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
             "Annotations are the selected decoder's interpretation of the recorded samples and caller-selected settings, not independently verified protocol semantics. Empty output does not establish absence of traffic.",
             "Sample-number ranges and display text are preserved verbatim, not converted to timestamps or parsed as a lossless byte stream. All producer stderr is retained, including warnings on exit zero.",
             "Only a private copy of the selected file is decoded. Hardware discovery/acquisition and target execution are not requested. Caller-supplied tools, plugins and decoder modules are trusted; this is not an OS sandbox.",
-            "Linux prlimit enforces inherited soft and hard limits before execution: 1 GiB address space per process, 64 MiB per file, 30 CPU seconds and no core dumps. Resident input is capped at 32 MiB, each command at 30 wall-clock seconds and combined output at 4 MiB. Output overflow fails. These are per-process/per-file limits, not aggregate memory or filesystem quotas; caller-supplied tools and the limiter are trusted.",
+            "Linux prlimit enforces soft and hard ceilings before execution, preserving stricter inherited limits: at most 1 GiB address space per process, 64 MiB per file, 30 CPU seconds and no core dumps. Effective limits are reported. Resident input is capped at 32 MiB, each command at 30 wall-clock seconds and combined output at 4 MiB. Output overflow fails. These are per-process/per-file limits, not aggregate memory or filesystem quotas; caller-supplied tools and the limiter are trusted.",
           ],
         }),
       );

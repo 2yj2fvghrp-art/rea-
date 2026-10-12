@@ -73,6 +73,7 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
       if (mode === "post-run-abort" && calls === 2) controller.abort();
       return readStableArtifact(...args);
     },
+    async (limits) => limits,
   );
   onTestFinished(async () => {
     mayClean = true;
