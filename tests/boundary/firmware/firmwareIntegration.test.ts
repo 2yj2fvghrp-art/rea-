@@ -286,7 +286,7 @@ it("routes a nested unknown chunk through its published child", async () => {
         kind: "unknown-chunk-handler",
         input_path: "$output/rootfs/config",
         provider_id: "unknown-id",
-        range: { offset: 0, length: 12 },
+        range: { offset: 0, length: 13 },
         root_file_range: null,
         continuation: expect.stringContaining("published child at"),
       }),
@@ -295,7 +295,8 @@ it("routes a nested unknown chunk through its published child", async () => {
 });
 
 it.each([
-  ["depth", 10, "cannot be restarted"],
+  ["depth", 10, "rerun extract_firmware"],
+  ["depth-orphan", 10, "cannot be restarted"],
   ["depth-reentry", 10, "rerun extract_firmware"],
 ] as const)(
   "bounds the maximum-depth continuation by a usable published child (%s)",

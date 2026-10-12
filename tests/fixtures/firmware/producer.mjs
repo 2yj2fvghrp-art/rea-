@@ -66,7 +66,7 @@ if (args.includes("--version")) {
     if (mode === "link") await symlink("/etc/passwd", join(output, "escape"));
     const childHash = createHash("sha256").update(content).digest("hex");
     const depth =
-      mode === "depth" || mode === "depth-reentry"
+      mode === "depth" || mode === "depth-reentry" || mode === "depth-orphan"
         ? Number(args[args.indexOf("--depth") + 1])
         : 1;
     const stat = (path, size, isDir = false) => ({
@@ -123,6 +123,39 @@ if (args.includes("--version")) {
         },
       ];
       await writeFile(reportPath, JSON.stringify(nestedUnknownRecords));
+    }
+    if (mode === "depth-orphan") {
+      // A depth-limited directory with nothing published under it cannot
+      // re-root a fresh run.
+      const mid = join(output, "rootfs", "config");
+      await mkdir(mid, { recursive: true });
+      const midTask = task(mid, depth, "gzip-id");
+      const orphanRecords = [
+        {
+          task: midTask,
+          reports: [stat(mid, 0, true)],
+          subtasks: [],
+        },
+        {
+          task: task(input, 0, ""),
+          reports: [
+            stat(input, bytes.length),
+            hash(sha256),
+            {
+              __typename__: "ChunkReport",
+              id: "gzip-id",
+              start_offset: 0,
+              end_offset: bytes.length,
+              size: bytes.length,
+              handler_name: "gzip",
+              is_encrypted: false,
+              extraction_reports: [],
+            },
+          ],
+          subtasks: [midTask],
+        },
+      ];
+      await writeFile(reportPath, JSON.stringify(orphanRecords));
     }
     if (mode === "depth-reentry") {
       // A depth-limited directory whose published child can re-root a fresh
@@ -236,7 +269,11 @@ if (args.includes("--version")) {
         subtasks: [childTask],
       },
     ];
-    if (mode !== "depth-reentry" && mode !== "nested-unknown")
+    if (
+      mode !== "depth-reentry" &&
+      mode !== "depth-orphan" &&
+      mode !== "nested-unknown"
+    )
       await writeFile(
         reportPath,
         mode === "malformed" || mode === "workspace-cleanup-failure-malformed"
