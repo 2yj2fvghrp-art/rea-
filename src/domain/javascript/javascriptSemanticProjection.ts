@@ -362,7 +362,7 @@ const collectNamedExports = (
   for (const specifier of node.specifiers)
     if (
       t.isExportSpecifier(specifier) ||
-      (t.isExportNamespaceSpecifier(specifier) && node.exportKind !== "type")
+      t.isExportNamespaceSpecifier(specifier)
     )
       addModuleLink(
         state,

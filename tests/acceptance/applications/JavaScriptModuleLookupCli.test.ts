@@ -42,6 +42,7 @@ const ctsResolutionSource = [
 const ctsReexportSource = [
   'export type { ImportOnly as DirectImportOnly } from "cts-package" with { "resolution-mode": "import" };',
   'export type * from "cts-package" with { "resolution-mode": "import" };',
+  'export type * as Types from "cts-package" with { "resolution-mode": "import" };',
 ].join("\n");
 const ctsSourceFiles = {
   "cts/package.json": JSON.stringify({ type: "commonjs" }),
@@ -209,7 +210,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
   });
   expect(JSON.parse(resolution.stdout)).toEqual(["import", "require"]);
   for (const [file, expected] of [
-    ["inline.cjs", ["import", "require", "nested-import"]],
+    ["inline.cjs", ["import", "require", "nested-import", "import"]],
     ["native.mjs", ["require", "import"]],
   ] as const) {
     const result = await execute(process.execPath, [file], {
@@ -460,7 +461,7 @@ const expectCtsResolutionModes = (
   const directDigest = createHash("sha256")
     .update(ctsReexportSource)
     .digest("hex");
-  expect(direct).toHaveLength(4);
+  expect(direct).toHaveLength(6);
   for (const edge of direct) {
     expect(edge.properties.resolved_path).toBe(
       "node_modules/cts-package/decoy.mjs",
@@ -472,6 +473,25 @@ const expectCtsResolutionModes = (
   }
   expect(direct.map(({ properties }) => properties.exported_name)).toContain(
     "DirectImportOnly",
+  );
+  expect(direct).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        module_link_kind: "re-export",
+        exported_name: "Types",
+        imported_name: "*",
+        imported_path: ["*"],
+        resolution_mode: "import",
+      }),
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({
+            source: "cts/reexport.cts",
+            start: expect.objectContaining({ line: 3 }),
+          }),
+        }),
+      }),
+    }),
   );
 };
 

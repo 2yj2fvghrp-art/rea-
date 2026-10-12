@@ -7,9 +7,11 @@ const inlineSource = [
   'type Required = import("cts-package", { with: { "resolution-mode": "require" } }).RequireOnly;',
   'type Nested = import("cts-package", { with: { "resolution-mode": "import" } }).Shapes.ImportOnly;',
   'const nested: Nested = { source: "nested-import" };',
+  'type ExportedNamespace = import("./reexport.cjs").Types.ImportOnly;',
+  'const namespace: ExportedNamespace = { source: "import" };',
   'const first: Imported = { source: "import" };',
   'const second: Required = { source: "require" };',
-  "console.log(JSON.stringify([first.source, second.source, nested.source]));",
+  "console.log(JSON.stringify([first.source, second.source, nested.source, namespace.source]));",
 ].join("\n");
 const recoveredSource = [
   'type Valid = import("cts-package", { with: { "resolution-mode": "import" } }).ImportOnly;',
