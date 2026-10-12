@@ -65,8 +65,8 @@ rejects socket connections; this is not an OS-level network sandbox. Optional
 external providers and a live agent connection remain separate checks.
 
 For a Windows path regression check, extract the same archive into a directory
-containing spaces, Unicode, `&`, and literal `%PATH%`, then run from PowerShell:
+containing spaces, Unicode, `&`, and literal `%PATH%` / `!NAME!`, then run from PowerShell:
 
 ```powershell
-node scripts/verify-portable-windows.mjs --directory 'C:\relocated\rea %PATH% & 测试'
+node scripts/verify-portable-windows.mjs --directory 'C:\relocated\rea %PATH% & !NAME! 测试'
 ```

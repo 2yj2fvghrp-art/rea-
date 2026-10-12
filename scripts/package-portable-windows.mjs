@@ -14,6 +14,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
+import { portableDependencies } from "./lib/portable-dependencies.mjs";
 
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,28 +93,7 @@ for (const path of [
 const lock = JSON.parse(
   await readFile(join(root, "package-lock.json"), "utf8"),
 );
-const dependencies = [];
-for (const [path, entry] of Object.entries(lock.packages)) {
-  if (!path || entry.dev) continue;
-  const source = join(root, path);
-  try {
-    await lstat(source);
-  } catch (cause) {
-    // npm omits optional dependencies for other host platforms. Required
-    // dependency gaps remain failures instead of producing a partial archive.
-    const platformMismatch =
-      (entry.os !== undefined && !entry.os.includes("win32")) ||
-      (entry.cpu !== undefined && !entry.cpu.includes("x64"));
-    if (cause.code === "ENOENT" && entry.optional && platformMismatch) continue;
-    throw cause;
-  }
-  const installed = JSON.parse(
-    await readFile(join(source, "package.json"), "utf8"),
-  );
-  if (installed.version !== entry.version)
-    throw new Error(`Installed dependency differs from the lockfile: ${path}`);
-  dependencies.push({ path, version: installed.version });
-}
+const dependencies = await portableDependencies(root, lock, "win32", "x64");
 
 // An existing destination is never overwritten. On failure retain the partial
 // directory for inspection; only a completed package receives portable.json.
@@ -145,7 +125,7 @@ for (const name of ["node.exe", "LICENSE"])
   await cp(join(runtime, name), join(output, "runtime", name));
 await writeFile(
   join(output, "rea.cmd"),
-  '@echo off\r\nsetlocal\r\nset "npm_command="\r\n"%~dp0runtime\\node.exe" "%~dp0app\\scripts\\rea.mjs" %*\r\nexit /b %errorlevel%\r\n',
+  '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "npm_command="\r\n"%~dp0runtime\\node.exe" "%~dp0app\\scripts\\rea.mjs" %*\r\nexit /b %errorlevel%\r\n',
   "utf8",
 );
 await cp(join(root, "docs/portable-windows.md"), join(output, "README.md"));

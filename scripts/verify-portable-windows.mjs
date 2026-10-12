@@ -76,12 +76,13 @@ try {
       timeout: 120_000,
       maxBuffer: 8 * 1024 * 1024,
     });
-  // Pass the portable path via cwd so cmd cannot expand literal %NAME% components.
+  // Keep %NAME% paths out of cmd text and exercise a caller with delayed expansion.
   const launcher = async (args) =>
     execute(
       join(process.env.SystemRoot, "System32/cmd.exe"),
       [
         "/d",
+        "/v:on",
         "/s",
         "/c",
         `""rea.cmd" ${args.map((arg) => `"${arg}"`).join(" ")}"`,
