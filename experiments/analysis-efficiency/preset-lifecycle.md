@@ -131,7 +131,7 @@ The complete jq verification takes 624.537 seconds, samples 1,218,355,200 peak
 family bytes and observes 567.198 CPU seconds before teardown. The final resource
 counters remain unknown. The source verifier SHA-256 is
 `42060686f9633da06bb5f257fa5c70f588e66569cf0befebe6a1a13f43bf0e88`;
-the final lifecycle verifier hash is
+the initial lifecycle verifier hash is
 `b1680f4f506ef9328d1beabb4b1fbe97c911b3f06986857f0a59a4b97a3b61d3`.
 Both hashes also match completed small-input source runs, including the final
 cleanup/error-preservation implementation. Runtime production remains the pinned
@@ -197,3 +197,12 @@ Runtime revision is caller-supplied; keep the built/frozen runtime receipt along
 the verifier source fingerprint. Target bytes, provider projects, raw JSON, traces
 and profiles are not committed. The scripts acquire no dependencies or change
 the user's installed configuration.
+
+## Final cleanup review
+
+The final review adds an independent filesystem check that the recovered
+bridge socket directory is absent after permission restoration and close retry,
+and preserves its ownership manifest in the receipt. Both default and disabled
+profiles pass this related real workflow again. Its source SHA-256 is
+`f5d29efdb056032072b99ac1e6fe1d6d2099bbe84c324c75032bd0178bb747c5`. The previous observations and source hashes stay archived;
+the jq/model/provider matrices were not repeated for this observer change.

@@ -333,6 +333,9 @@ for (const profile of ["default", "disabled"]) {
     );
     await call("close_binary");
     assert.deepEqual(await roots(work), []);
+    await assert.rejects(access(dirname(active.endpoint_path)), {
+      code: "ENOENT",
+    });
     const retried = await verifyNoTokenOwnedProcesses(
       active.run_id,
       undefined,
@@ -352,6 +355,7 @@ for (const profile of ["default", "disabled"]) {
       post_cancellation_activity: afterCancel.analysis_activity,
       recovery_preserves_selected_target: true,
       logical_run_id_after_recovery: active.run_id,
+      recovered_ownership: active,
       new_verified_process_generation_after_recovery: activeIdentity,
       real_permission_cleanup_failure: refusal,
       retry_cleanup: retried,
