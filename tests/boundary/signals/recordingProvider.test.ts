@@ -1,5 +1,5 @@
 import { it, expect, onTestFinished } from "vitest";
-import { writeFile, readdir } from "node:fs/promises";
+import { writeFile, readdir, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { SigrokRecordingProvider } from "../../../src/signals/SigrokRecordingProvider.js";
 import { SignalRecordingService } from "../../../src/application/signals/SignalRecordingService.js";
@@ -25,14 +25,15 @@ else if (${JSON.stringify(mode)} === 'wait') { console.log('ready'); setInterval
 else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('wrong copy'); console.log('10-20 uart-1: 42'); console.error('producer warning'); }
 `,
   );
+  await chmod(script, 0o700);
   const controller = new AbortController();
   let calls = 0;
   let mayClean = !failCleanup;
   const provider = new SigrokRecordingProvider(
     {
       ...process.env,
-      REA_SIGROK_COMMAND: process.execPath,
-      REA_SIGROK_PRLIMIT_COMMAND: process.execPath,
+      REA_SIGROK_COMMAND: script,
+      REA_SIGROK_PRLIMIT_COMMAND: script,
     },
     async (input) => {
       calls++;

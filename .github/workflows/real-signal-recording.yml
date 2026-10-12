@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "tests/boundary/signals/**"
+      - "tests/boundary/mcp/signalRecordingMcp.test.ts"
       - "src/signals/**"
       - "src/domain/signals/**"
       - "src/application/signals/**"
