@@ -48,6 +48,7 @@ import {
   type JavaScriptOpenReceiverFact,
 } from "./javascriptSemanticAnalysis.js";
 import { createJavaScriptStaticConstantReader } from "./javascriptStaticConstants.js";
+import { inspectDataEndpointNode } from "./javascriptStaticDataEndpoints.js";
 import {
   parseJavaScriptSource,
   type ParsedJavaScriptSource,
@@ -133,9 +134,10 @@ function* traverseStaticSourceSteps(
   bindings: JavaScriptSemanticAnalysisState,
 ): Generator<void, void> {
   yield* traverseJavaScriptAstSteps(file, {
-    enter: (node) => {
+    enter: (node, parent, readAncestors) => {
       findings.accumulator.visitedNodes += 1;
       inspectNode(node, findings, bindings);
+      inspectDataEndpointNode(node, parent, readAncestors, findings);
       return undefined;
     },
   });
