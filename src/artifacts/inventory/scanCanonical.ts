@@ -10,6 +10,7 @@ import type { RootInventorySource } from "./classify.js";
 import {
   ArtifactReaderFailure,
   type ArtifactReader,
+  type ArtifactReaderTraversal,
 } from "../ArtifactReader.js";
 import type { ArtifactResourceOwner } from "../ArtifactResourceScope.js";
 import {
@@ -99,6 +100,7 @@ export const scanCanonicalArtifactInventoryInScope = async (
       occurrences,
       pendingContradictions,
       caseCollisionLimitation,
+      traversal,
     } = await scanReader(reader, ownedReaders, options.signal, integrity);
     outcome = {
       kind: "completed",
@@ -115,6 +117,7 @@ export const scanCanonicalArtifactInventoryInScope = async (
         occurrences,
         pendingContradictions,
         caseCollisionLimitation,
+        traversal,
       }),
     };
   } catch (cause: unknown) {
@@ -196,6 +199,7 @@ interface SnapshotBuildInput {
   readonly occurrences: MutableOccurrence[];
   readonly pendingContradictions: PendingIntegrityContradiction[];
   readonly caseCollisionLimitation: string | undefined;
+  readonly traversal: ArtifactReaderTraversal;
 }
 
 const buildInventorySnapshot = async (
@@ -268,7 +272,7 @@ const buildInventorySnapshot = async (
     orderedOccurrences,
     orderedEdges,
   });
-  const traversal = inventoryCoverage(rootFormat, reader);
+  const traversal = inventoryCoverage(rootFormat, reader, input.traversal);
   return {
     manifest,
     nodes: orderedNodes,
@@ -276,13 +280,7 @@ const buildInventorySnapshot = async (
     edges: orderedEdges,
     provenance: reader?.provenance() ?? [],
     integrity_contradictions: integrityContradictions,
-    coverage: {
-      ...traversal.coverage,
-      status:
-        input.caseCollisionLimitation === undefined
-          ? traversal.coverage.status
-          : "unknown",
-    },
+    coverage: traversal.coverage,
     limitations: buildLimitations(
       traversal.limitations,
       integrityContradictions,

@@ -1,4 +1,5 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect } from "vitest";
@@ -16,7 +17,7 @@ import {
 import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
-import { cliTest } from "../../support/cli/cliFixture.js";
+import { cliTest, type TestCli } from "../../support/cli/cliFixture.js";
 
 const plist = (message: string) =>
   `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>message</key><string>${message}</string></dict></plist>\n`;
@@ -30,6 +31,24 @@ const inventoryEvidence = (input: unknown): Evidence => {
     )?.evidence;
   if (inventory === undefined) throw new Error("Expected inventory Evidence");
   return parseEvidence(inventory);
+};
+
+const inspectPair = async (
+  cli: TestCli,
+  leftPath: string,
+  rightPath: string,
+) => {
+  const result = await cli.run({
+    arguments: ["inspect-artifact", leftPath, "--json"],
+  });
+  expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+  const left = inventoryEvidence(result.json);
+  const { call } = await connectLocalToolsMcp();
+  const opened = await call("open_binary", { path: rightPath });
+  expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
+  const inspected = await call("inspect_artifact", {});
+  expect(inspected.isError, JSON.stringify(inspected)).not.toBe(true);
+  return { left, right: inventoryEvidence(inspected.structuredContent), call };
 };
 
 const assertCoverageControls = async ({
@@ -267,6 +286,105 @@ cliTest.skipIf(process.platform === "win32")(
           dimensions: ["executable"],
         }),
       ],
+    });
+  },
+  30_000,
+);
+
+cliTest.skipIf(process.platform === "win32")(
+  "retains traversal uncertainty when a directory omits special filesystem entries",
+  async ({ cli, processes }) => {
+    const root = await createTestTempDirectory("rea-gap-");
+    const leftPath = join(root, "l.app"),
+      rightPath = join(root, "r.app");
+    await Promise.all([mkdir(leftPath), mkdir(rightPath)]);
+    await Promise.all([
+      writeFile(join(leftPath, "same.txt"), "same"),
+      writeFile(join(rightPath, "same.txt"), "same"),
+    ]);
+    await Promise.all(
+      [leftPath, rightPath].flatMap((path) => [
+        writeFile(
+          join(path, "Info.plist"),
+          "<plist><dict><key>CFBundleExecutable</key><string>main.js</string></dict></plist>",
+        ),
+        writeFile(join(path, "main.js"), "export const value = 1;"),
+      ]),
+    );
+    const fifo = await processes.run("mkfifo", [join(leftPath, "p")]);
+    expect(fifo.exitCode, fifo.stderr).toBe(0);
+    const socket = createServer();
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.listen(join(leftPath, "s"), resolve);
+    });
+    try {
+      const { left, right, call } = await inspectPair(cli, leftPath, rightPath);
+      const inventory = artifactInventoryResultSchema.parse(
+        left.normalized_result,
+      );
+      expect(inventory.coverage).toEqual({
+        scope: "container-entries",
+        status: "unknown",
+      });
+      expect(inventory.limitations).toEqual(
+        expect.arrayContaining([
+          'Artifact traversal omitted fifo at "p".',
+          'Artifact traversal omitted socket at "s".',
+        ]),
+      );
+      const compared = await call("compare_artifacts", { left, right });
+      expect(compared.isError, JSON.stringify(compared)).not.toBe(true);
+      expect(
+        parseEvidence(compared.structuredContent).normalized_result,
+      ).toMatchObject({ status: "unknown", summary: { unchanged: 0 } });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        socket.close((cause) =>
+          cause === undefined ? resolve() : reject(cause),
+        ),
+      );
+    }
+  },
+  30_000,
+);
+
+cliTest(
+  "compares fully traversed case-distinct ZIP entries while retaining materialization limits",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-case-coverage-");
+    const leftPath = join(root, "left.zip"),
+      rightPath = join(root, "right.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add("A", new TextReader("upper"));
+    await writer.add("a", new TextReader("lower"));
+    const bytes = await writer.close();
+    await Promise.all([
+      writeFile(leftPath, bytes),
+      writeFile(rightPath, bytes),
+    ]);
+    const { left, right, call } = await inspectPair(cli, leftPath, rightPath);
+    const inventory = artifactInventoryResultSchema.parse(
+      left.normalized_result,
+    );
+    expect(inventory.coverage).toEqual({
+      scope: "container-entries",
+      status: "complete",
+    });
+    expect(
+      inventory.occurrences.map(({ logical_path }) => logical_path).sort(),
+    ).toEqual([".", "A", "a"]);
+    const compared = await call("compare_artifacts", { left, right });
+    expect(compared.isError, JSON.stringify(compared)).not.toBe(true);
+    expect(
+      parseEvidence(compared.structuredContent).normalized_result,
+    ).toMatchObject({
+      status: "unchanged",
+      summary: { unchanged: 3, unknown: 0 },
+      changes: [],
+      limitations: expect.arrayContaining([
+        expect.stringContaining("case-insensitive destination"),
+      ]),
     });
   },
   30_000,

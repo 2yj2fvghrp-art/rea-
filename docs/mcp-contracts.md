@@ -32,6 +32,12 @@ or unavailable occurrence hashes retain uncertainty. Integrity mismatches remain
 contradictions. Static artifact equality does not establish unchanged runtime
 behavior.
 
+Exhausted traversals with deliberately omitted filesystem entries retain
+`unknown` coverage and identify each omitted path/type in `limitations`; FIFO,
+socket and device entries are not opened. Case-distinct archive members remain
+separate observations. Their case-insensitive materialization diagnostic does
+not reduce traversal coverage when both spellings were read.
+
 The coverage field is optional when reading older retained Evidence. The owning
 inventory parser recognizes historical REA scope notices for compatibility;
 unfamiliar legacy limitations remain conservative. Typed records do not derive

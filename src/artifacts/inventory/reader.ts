@@ -1,5 +1,8 @@
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
-import type { ArtifactReader } from "../ArtifactReader.js";
+import type {
+  ArtifactReader,
+  ArtifactReaderTraversal,
+} from "../ArtifactReader.js";
 import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
 import { MachOSliceArtifactReader } from "../MachOSliceArtifactReader.js";
 import { NativeDmgArtifactReader } from "../NativeDmgArtifactReader.js";
@@ -43,16 +46,20 @@ export const createReader = (
 export const inventoryCoverage = (
   format: ArtifactOccurrence["artifact_format"],
   reader: ArtifactReader | undefined,
+  traversal: ArtifactReaderTraversal,
 ): {
   readonly coverage: ArtifactInventoryCoverage;
   readonly limitations: string[];
 } => {
   if (reader !== undefined)
     return {
-      coverage: { scope: "container-entries", status: "complete" },
-      limitations: isZipPackageFormat(reader.format)
-        ? [ZIP_NON_ENTRY_TAIL_LIMITATION]
-        : [],
+      coverage: { scope: "container-entries", status: traversal.status },
+      limitations: [
+        ...(isZipPackageFormat(reader.format)
+          ? [ZIP_NON_ENTRY_TAIL_LIMITATION]
+          : []),
+        ...traversal.limitations,
+      ],
     };
   // dmg and pkg reach here only after classifyRootFormat matched their bytes.
   if (format === "dmg" || format === "pkg")
