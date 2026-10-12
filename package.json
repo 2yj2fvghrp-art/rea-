@@ -204,7 +204,7 @@
     "build:ghidra-windows-fixture": "node scripts/create-ghidra-windows-fixture.mjs",
     "verify:fixtures": "npm run build:fixtures && node scripts/verify-conformance-fixtures.mjs",
     "verify:readiness": "npm run build:cached && npm run verify:fixtures && node scripts/verify-reconstruction-readiness.mjs",
-    "verify:package": "npm run build:cached && node scripts/verify-package.mjs",
+    "verify:package": "npm run build:cached && node scripts/verify-package-host.mjs",
     "verify:package:windows": "npm run build:cached && node scripts/verify-windows-package.mjs",
     "package:portable:windows": "node scripts/run-exclusive.mjs artifacts node scripts/package-portable-windows.mjs",
     "verify:portable:windows": "node scripts/verify-portable-windows.mjs",
