@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
@@ -193,16 +193,27 @@ const mcp = async (cliDossier) => {
     if (config.mode === "headless") {
       const documents = observe(await call("list_documents", {}));
       assert.equal(documents.length, 1);
+      assert.equal(basename(documents[0]), basename(target));
+      assert.ok(
+        !workspaces.has(dirname(documents[0])),
+        "list_documents reported the private workspace copy.",
+      );
       const resolveAt = async (address) =>
         observe(await call("resolve_containing_procedure", { address }));
-      const interior = `0x${(BigInt(dossier.procedure.address) + 1n).toString(16)}`;
-      for (const queried of [dossier.procedure.address, interior]) {
+      const instructionAddresses = dossier.assembly
+        .map((line) => /^(0x[0-9a-f]+)/iu.exec(line)?.[1])
+        .filter((address) => address !== undefined);
+      const queries = [
+        dossier.procedure.address,
+        ...instructionAddresses.slice(1, 2),
+      ];
+      for (const queried of queries) {
         const containing = await resolveAt(queried);
         assert.equal(containing.found, true);
         assert.equal(containing.procedure.address, dossier.procedure.address);
         assert.equal(containing.procedure.name, dossier.procedure.name);
       }
-      const unmapped = await resolveAt("0x1");
+      const unmapped = await resolveAt("0xffffffffffffff00");
       assert.equal(unmapped.found, false);
       assert.equal(unmapped.reason, "outside_segments");
       const strings = observe(await call("list_strings", {}));
@@ -223,20 +234,25 @@ const mcp = async (cliDossier) => {
         contextResult.procedure.value.procedure.address,
         dossier.procedure.address,
       );
-      if (strings.length > 0) {
-        const traced = await client.callTool({
-          name: "trace_feature",
-          arguments: { query: strings[0].value },
-        });
-        assert.notEqual(traced.isError, true);
-        const trace = traced.structuredContent.normalized_result;
-        assert.ok(
-          trace.matches.some(({ address }) => address === strings[0].address),
-        );
-        assert.equal(typeof trace.truncated, "boolean");
+      const traced = await client.callTool({
+        name: "trace_feature",
+        arguments: { query: dossier.procedure.name },
+      });
+      assert.notEqual(traced.isError, true);
+      const trace = traced.structuredContent.normalized_result;
+      assert.ok(
+        trace.matches.some(
+          ({ type, address }) =>
+            type === "procedure" && address === dossier.procedure.address,
+        ),
+      );
+      assert.equal(typeof trace.truncated, "boolean");
+      for (const reference of trace.references) {
+        assert.equal(reference.target_address, dossier.procedure.address);
+        assert.equal(reference.containing_procedure.found, true);
       }
       report.checks.push(
-        "headless containing procedures, the admitted program as the document, address context, and feature tracing",
+        "headless containing procedures, the admitted program as the document, address context, and the procedure match and references of feature tracing",
       );
     }
     if (values["second-procedure"] !== undefined) {
