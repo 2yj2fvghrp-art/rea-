@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
@@ -13,6 +13,15 @@ import {
 import { bindGhidraSessionFailure } from "../../../../src/ghidra/GhidraSessionError.js";
 import { spawnOwnedProviderProcess } from "../../../../src/process/ProviderProcess.js";
 import { cleanupOwnedProcessGroup } from "../../../../src/process/ProcessOwnership.js";
+import { waitForAbortableDelay } from "../../../../src/process/ProviderDeadline.js";
+import { GhidraProvider } from "../../../../src/ghidra/GhidraProvider.js";
+import { GhidraClient } from "../../../../src/ghidra/GhidraClient.js";
+import { parseConfig } from "../../../../src/config/parseConfig.js";
+import { projectAnalysisError } from "../../../../src/domain/analysisErrorProjection.js";
+import { analysisErrorProjectionSchema } from "../../../../src/contracts/errorSchemas.js";
+import type { BinaryTarget } from "../../../../src/domain/binaryTargetTypes.js";
+import { elf } from "../../../../src/domain/binaryTarget.fixture.js";
+import { silentLogger } from "../../../../src/logger.js";
 
 const warning =
   "[0.004s][warning][os,container] Cgroup limits may be inaccurate: /tmp/password-fixture?token=public-value";
@@ -84,6 +93,8 @@ if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
         expect(cleanup.cleaned).toBe(true);
       });
       if (mode === "cancel-after-spawn") controller.abort();
+      if (mode === "timeout-after-spawn")
+        await waitForAbortableDelay(10_000, options.signal);
       return spawned;
     },
   });
@@ -241,34 +252,94 @@ describe.skipIf(process.platform === "win32")(
         expect(output.stderr_truncated).toBe(false);
       }
     });
+  },
+);
 
-    it("preserves completed helper warnings when startup is cancelled after process creation", async () => {
-      const { session, launcher, controller } =
-        await fixture("cancel-after-spawn");
-      const launched = await launcher.launch(session, {
-        signal: controller.signal,
-      });
-      expect(launched.ok).toBe(false);
-      if (launched.ok) throw new Error("Expected cancellation");
-      const failure = bindGhidraSessionFailure(() => ({}))(
-        "cancelled",
-        launched.error.message,
-        launched.error,
-      );
-      expect(failure.diagnostics.failure_cause).toMatchObject({
-        cause: {
-          launch_support: expect.arrayContaining([
-            expect.objectContaining({
-              mode: "-envvars",
-              stderr: `-envvars: ${warning}\n`,
+describe.skipIf(process.platform === "win32")(
+  "Ghidra startup interruption diagnostics",
+  () => {
+    it.each(["cancelled", "timeout"] as const)(
+      "preserves helper warnings through the provider-neutral %s projection",
+      async (kind) => {
+        const { session, launcher, controller } = await fixture(
+          kind === "cancelled" ? "cancel-after-spawn" : "timeout-after-spawn",
+        );
+        const bytes = elf(2, 1, 62);
+        await writeFile(session.targetPath, bytes);
+        const target: BinaryTarget = {
+          path: session.targetPath,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          kind: "executable",
+          format: "elf",
+          architecture: "x86_64",
+          availableArchitectures: ["x86_64"],
+        };
+        const config = parseConfig({
+          GHIDRA_INSTALL_DIR: "/fixture/ghidra",
+          REA_GHIDRA_STARTUP_TIMEOUT_MS: "3000",
+        });
+        if (!config.ok) throw config.error;
+        const provider = new GhidraProvider(
+          config.value,
+          silentLogger,
+          {},
+          {
+            platform: process.platform,
+            architecture: process.arch,
+            readText: () => "application.version=12.1.4\n",
+            executable: () => true,
+            probeJava: () => ({
+              version: "21.0.12",
+              major: 21,
+              home: "/fixture/jdk",
+              bits: 64,
+              runtime: "jdk",
             }),
-            expect.objectContaining({
-              mode: "-vmargs",
-              stderr: `-vmargs: ${warning}\n`,
-            }),
-          ]),
-        },
-      });
-    });
+          },
+          (options) => new GhidraClient({ ...options, launcher }),
+        );
+        const profile = await provider.resolveAnalysisProfile(target);
+        if (!profile.ok) throw profile.error;
+        if (profile.value.profile === null)
+          throw new Error("Expected Ghidra profile");
+        const client = provider.createClient(target, profile.value.profile);
+        onTestFinished(async () => {
+          expect((await client.close()).ok).toBe(true);
+        });
+        const result = await client.execute(
+          "health",
+          {},
+          { signal: controller.signal },
+        );
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error("Expected interrupted startup");
+        const projected = analysisErrorProjectionSchema.parse(
+          JSON.parse(JSON.stringify(projectAnalysisError(result.error))),
+        );
+        expect(projected.code).toBe(
+          kind === "cancelled" ? "cancelled" : "provider_timeout",
+        );
+        expect(projected).toMatchObject({
+          details: {
+            diagnostics: {
+              failure_cause: {
+                cause: {
+                  launch_support: expect.arrayContaining([
+                    expect.objectContaining({
+                      mode: "-envvars",
+                      stderr: `-envvars: ${warning}\n`,
+                    }),
+                    expect.objectContaining({
+                      mode: "-vmargs",
+                      stderr: `-vmargs: ${warning}\n`,
+                    }),
+                  ]),
+                },
+              },
+            },
+          },
+        });
+      },
+    );
   },
 );
