@@ -954,9 +954,9 @@ describe("native macOS provider failures and parsing", () => {
 });
 
 describe("native signature inspection target scope", () => {
-  // codesign evaluates Mach-O code signatures only; on another container its
-  // "not signed" verdict cannot see a format-level signature such as a xar
-  // pkg signature.
+  // This provider's inspect_signature path is scoped to Mach-O targets; on
+  // another container a codesign verdict cannot see a format-level signature
+  // such as a xar pkg signature.
   it.each([
     {
       path: "/fixture.pkg",
