@@ -60,7 +60,7 @@ export class ElectronFuseProvider implements ElectronFusePort {
         located.resolvedPath,
         options?.signal === undefined ? undefined : { signal: options.signal },
       );
-      const findings = describeElectronFuseFindings(image.slices);
+      const findings = describeElectronFuseFindings(image.slices, image.format);
       const parsed = electronFuseReportSchema.safeParse({
         artifact: {
           selected_path: input.path,

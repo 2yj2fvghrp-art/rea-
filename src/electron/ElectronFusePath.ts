@@ -85,25 +85,26 @@ const resolveBundleBinary = async (
   if (name === FRAMEWORK_NAME)
     return resolveKnownBinary(selectedPath, selectedPath, signal);
   if (name.endsWith(".app"))
-    return resolveKnownBinary(selectedPath, selectedPath, signal);
+    return resolveKnownBinary(
+      join(selectedPath, "Contents", "Frameworks", FRAMEWORK_NAME),
+      selectedPath,
+      signal,
+    );
   throw new ElectronFusePathFailure(
     "invalid_format",
     `Expected an Electron .app bundle, ${FRAMEWORK_NAME} directory, or executable file: ${selectedPath}`,
   );
 };
 
+/** `root` is the framework directory for both an `.app` and a framework selection. */
 const resolveKnownBinary = async (
   root: string,
   bundle: string,
   signal: AbortSignal | undefined,
 ): Promise<string> => {
-  const prefix =
-    basename(bundle) === FRAMEWORK_NAME
-      ? ""
-      : `Contents/Frameworks/${FRAMEWORK_NAME}/`;
   const versioned = await resolveInside(
     root,
-    `${prefix}Versions/A/${BINARY_NAME}`,
+    `Versions/A/${BINARY_NAME}`,
     signal,
   );
   if (versioned.kind === "file") return versioned.path;
@@ -111,7 +112,7 @@ const resolveKnownBinary = async (
     throw pathWalkFailure(versioned.kind, bundle);
   const current = await resolveInside(
     root,
-    `${prefix}Versions/Current/${BINARY_NAME}`,
+    `Versions/Current/${BINARY_NAME}`,
     signal,
   );
   if (current.kind === "file") return current.path;

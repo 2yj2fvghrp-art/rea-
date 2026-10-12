@@ -159,6 +159,41 @@ describe("Electron fuse wire reading", () => {
   });
 });
 
+describe("ELF embedded ASAR integrity applicability", () => {
+  it("preserves an enabled ASAR integrity fuse without claiming enforcement on ELF", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-elf-asar-");
+    const fuses = [
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.enabled,
+    ];
+    const image = elfFuseImage(fuses);
+    const path = join(root, "electron");
+    await writeFile(path, image.bytes);
+    const report = await inspect(path);
+    expect(report.artifact.format).toBe("elf");
+    expect(report.slices[0]?.sentinels[0]?.fuses[4]).toMatchObject({
+      index: 4,
+      name: "EnableEmbeddedAsarIntegrityValidation",
+      state: "enabled",
+      raw_byte: ELECTRON_FUSE_STATE_BYTES.enabled,
+    });
+    expect(
+      report.runtime_implications.find(
+        (item) => item.subject === "embedded_asar_integrity_validation",
+      ),
+    ).toMatchObject({
+      relationship: "derivation",
+      fuse_index: 4,
+      outcome: "unknown",
+      sentinel_offset: image.sentinelOffset,
+    });
+    expect(report.limitations.join(" ")).toContain("only on macOS and Windows");
+  });
+});
+
 describe("Electron fuse path and container admission", () => {
   it("finds a sentinel that crosses a read window", async () => {
     const root = await createTestTempDirectory("rea-electron-fuses-window-");
@@ -201,6 +236,41 @@ describe("Electron fuse path and container admission", () => {
     const fromLink = await inspect(link);
     expect(fromLink.artifact.resolved_path).toBe(binary);
     expect(fromLink.artifact.sha256).toBe(fromApp.artifact.sha256);
+  });
+
+  it("rejects an app bundle whose Versions/Current symlink leaves the framework", async () => {
+    const root = await createTestTempDirectory(
+      "rea-electron-fuses-framework-root-",
+    );
+    const app = join(root, "Fixture.app");
+    const framework = join(
+      app,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+    );
+    await mkdir(join(framework, "Versions"), { recursive: true });
+    await mkdir(join(app, "Contents", "Other"), { recursive: true });
+    await writeFile(
+      join(app, "Contents", "Other", "Electron Framework"),
+      elfFuseImage([ELECTRON_FUSE_STATE_BYTES.enabled]).bytes,
+    );
+    await symlink("../../../Other", join(framework, "Versions", "Current"));
+
+    for (const path of [app, framework]) {
+      const result = await provider.inspect({ path });
+      expect(result.ok, path).toBe(false);
+      if (result.ok) continue;
+      expect(result.error).toMatchObject({
+        _tag: "AnalysisInputError",
+        issues: [
+          expect.objectContaining({
+            path: ["path"],
+            message: expect.stringContaining("escapes"),
+          }),
+        ],
+      });
+    }
   });
 
   it("refuses a framework symlink that leaves the bundle", async () => {

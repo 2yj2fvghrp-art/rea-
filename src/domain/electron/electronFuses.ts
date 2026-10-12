@@ -190,9 +190,14 @@ export const electronFuseName = (
 ): string | null =>
   wireVersion === 1 ? (ELECTRON_FUSE_V1_NAMES[index] ?? null) : null;
 
-/** Attach derivations and reading limitations without choosing among multiple sentinels. */
+/**
+ * Attach derivations and reading limitations without choosing among multiple
+ * sentinels. Embedded ASAR integrity is compiled only for Mach-O and PE, so an
+ * ELF byte stays observed and its enforcement outcome stays unknown.
+ */
 export const describeElectronFuseFindings = (
   slices: readonly ElectronFuseSlice[],
+  container: ElectronFuseReport["artifact"]["format"],
 ): {
   readonly runtime_implications: ElectronFuseImplication[];
   readonly limitations: string[];
@@ -212,6 +217,7 @@ export const describeElectronFuseFindings = (
       describeSentinel(
         slice.index,
         sentinel,
+        container,
         runtime_implications,
         limitations,
       );
@@ -219,9 +225,18 @@ export const describeElectronFuseFindings = (
   return { runtime_implications, limitations };
 };
 
+/** Electron compiles this validation for macOS (Mach-O) and Windows (PE) only. */
+const embeddedAsarIntegrityApplies = (
+  container: ElectronFuseReport["artifact"]["format"],
+): boolean =>
+  container === "mach-o" ||
+  container === "mach-o-universal" ||
+  container === "pe";
+
 const describeSentinel = (
   sliceIndex: number,
   sentinel: ElectronFuseSentinel,
+  container: ElectronFuseReport["artifact"]["format"],
   implications: ElectronFuseImplication[],
   limitations: string[],
 ): void => {
@@ -244,8 +259,15 @@ const describeSentinel = (
       );
       continue;
     }
+    const applicabilityUnknown =
+      spec.subject === "embedded_asar_integrity_validation" &&
+      !embeddedAsarIntegrityApplies(container);
+    if (applicabilityUnknown)
+      limitations.push(
+        `Electron compiles embedded ASAR integrity validation only on macOS and Windows; the observed fuse byte at file offset ${sentinel.sentinel_offset} does not establish enforcement.`,
+      );
     implications.push(
-      implicationFor(spec, fuse.state, {
+      implicationFor(spec, applicabilityUnknown ? "unknown" : fuse.state, {
         slice_index: sliceIndex,
         sentinel_offset: sentinel.sentinel_offset,
       }),

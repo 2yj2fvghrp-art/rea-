@@ -90,7 +90,7 @@ describe("Electron fuse wire decoding", () => {
     const report = electronFuseReportSchema.parse({
       artifact,
       slices: [slice([sentinel(8, fuses)])],
-      ...describeElectronFuseFindings([slice([sentinel(8, fuses)])]),
+      ...describeElectronFuseFindings([slice([sentinel(8, fuses)])], "mach-o"),
     });
     expect(report.runtime_implications).toEqual([
       expect.objectContaining({
@@ -127,7 +127,7 @@ describe("Electron fuse wire decoding", () => {
   });
 
   it("does not treat a missing sentinel or a short wire as disabled fuses", () => {
-    const missing = describeElectronFuseFindings([slice([])]);
+    const missing = describeElectronFuseFindings([slice([])], "mach-o");
     expect(missing.runtime_implications).toEqual([]);
     expect(missing.limitations.join(" ")).toContain(
       "unknown, not that every fuse is disabled",
@@ -135,14 +135,17 @@ describe("Electron fuse wire decoding", () => {
     expect(missing.limitations.join(" ")).toContain(
       "fuse state for that slice is unknown, not disabled",
     );
-    const truncated = describeElectronFuseFindings([
-      slice([
-        sentinel(8, [ELECTRON_FUSE_STATE_BYTES.enabled], {
-          declared: 4,
-          complete: false,
-        }),
-      ]),
-    ]);
+    const truncated = describeElectronFuseFindings(
+      [
+        slice([
+          sentinel(8, [ELECTRON_FUSE_STATE_BYTES.enabled], {
+            declared: 4,
+            complete: false,
+          }),
+        ]),
+      ],
+      "mach-o",
+    );
     expect(truncated.runtime_implications).toEqual([
       expect.objectContaining({
         subject: "electron_run_as_node",
@@ -154,15 +157,18 @@ describe("Electron fuse wire decoding", () => {
   });
 
   it("reports every sentinel and skips implications for an unpinned wire version", () => {
-    const findings = describeElectronFuseFindings([
-      slice([
-        sentinel(8, [ELECTRON_FUSE_STATE_BYTES.enabled], { version: 2 }),
-        sentinel(
-          40,
-          Array.from({ length: 6 }, () => ELECTRON_FUSE_STATE_BYTES.disabled),
-        ),
-      ]),
-    ]);
+    const findings = describeElectronFuseFindings(
+      [
+        slice([
+          sentinel(8, [ELECTRON_FUSE_STATE_BYTES.enabled], { version: 2 }),
+          sentinel(
+            40,
+            Array.from({ length: 6 }, () => ELECTRON_FUSE_STATE_BYTES.disabled),
+          ),
+        ]),
+      ],
+      "mach-o",
+    );
     expect(findings.runtime_implications).toHaveLength(4);
     expect(findings.limitations.join(" ")).toContain("none is selected");
     expect(findings.limitations.join(" ")).toContain("wire version 2");
@@ -171,5 +177,53 @@ describe("Electron fuse wire decoding", () => {
         (item) => item.sentinel_offset === 40,
       ),
     ).toBe(true);
+  });
+});
+
+describe("ELF embedded ASAR integrity applicability", () => {
+  it("does not claim ASAR integrity enforcement for an enabled fuse on ELF", () => {
+    const fuses = [
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.disabled,
+      ELECTRON_FUSE_STATE_BYTES.enabled,
+    ];
+    const slices = [slice([sentinel(4, fuses)])];
+    const elf = describeElectronFuseFindings(slices, "elf");
+    expect(slices[0]?.sentinels[0]?.fuses[4]).toMatchObject({
+      index: 4,
+      name: "EnableEmbeddedAsarIntegrityValidation",
+      state: "enabled",
+      raw_byte: ELECTRON_FUSE_STATE_BYTES.enabled,
+    });
+    expect(
+      elf.runtime_implications.find(
+        (item) => item.subject === "embedded_asar_integrity_validation",
+      ),
+    ).toMatchObject({
+      relationship: "derivation",
+      fuse_index: 4,
+      outcome: "unknown",
+    });
+    expect(elf.limitations.join(" ")).toContain("only on macOS and Windows");
+    expect(
+      describeElectronFuseFindings(slices, "mach-o").runtime_implications.find(
+        (item) => item.subject === "embedded_asar_integrity_validation",
+      ),
+    ).toMatchObject({ outcome: "enforced" });
+    expect(
+      describeElectronFuseFindings(slices, "pe").runtime_implications.find(
+        (item) => item.subject === "embedded_asar_integrity_validation",
+      ),
+    ).toMatchObject({ outcome: "enforced" });
+    expect(
+      describeElectronFuseFindings(
+        slices,
+        "mach-o-universal",
+      ).runtime_implications.find(
+        (item) => item.subject === "embedded_asar_integrity_validation",
+      ),
+    ).toMatchObject({ outcome: "enforced" });
   });
 });

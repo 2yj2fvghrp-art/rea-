@@ -53,8 +53,12 @@ version, keeps `name: null` and the raw byte.
 
 Wire bytes are `0x30` disabled, `0x31` enabled, and `0x72` removed. Any other
 byte is `unknown`. A removed fuse is not enabled: Inspector flags and
-`ELECTRON_RUN_AS_NODE` are not honored, embedded ASAR integrity is not
-enforced, and application code is not restricted to `app.asar`.
+`ELECTRON_RUN_AS_NODE` are not honored, and application code is not restricted
+to `app.asar`. On macOS and Windows, a removed or disabled
+`EnableEmbeddedAsarIntegrityValidation` byte means embedded ASAR integrity is
+not enforced, and an enabled byte means it is enforced. Electron compiles that
+validation only on macOS and Windows. On a Linux ELF executable the observed
+byte is preserved and the enforcement outcome is `unknown`.
 
 ## Unknown and multiple sentinels
 
