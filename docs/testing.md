@@ -1066,7 +1066,9 @@ The verifier creates and validates real modules with custom sections, multiple
 import/export kinds, escaped names, an empty module, and a bulk-memory
 DataCount section. Debug-name fixtures cover compiler-generated module names
 and preserved name-section payloads with empty, multiline, Unicode, long and
-NUL-containing names. It compares exact WAT,
+NUL-containing names. A generated module below the 8 MiB input limit whose WAT
+exceeds 32 MiB must decode completely through the CLI and, over MCP, return a
+transport `resource_constraint` with retained Evidence. It compares exact WAT,
 section output and selected/tool digests through the compiled CLI and real MCP
 SDK, validates advertised schemas, checks identical CLI/MCP Evidence IDs and
 session bundle readback, retains invalid/truncated module diagnostics, preserves
