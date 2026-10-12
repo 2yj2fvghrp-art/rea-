@@ -32,6 +32,8 @@ export const toolFamilyCatalog = (sources) => {
         ...sources.goContracts.GO_TOOL_CONTRACTS,
         ...sources.wasmContracts.WASM_TOOL_CONTRACTS,
         ...sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
+        ...sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
+        ...sources.signalContracts.SIGNAL_TOOL_CONTRACTS,
       ],
     },
     {
@@ -211,6 +213,14 @@ export const providerCatalog = (sources) => {
         sources.binaryDiagnosticsContracts.BINARY_DIAGNOSTICS_TOOL_CONTRACTS.filter(
           ({ name }) => name === "inspect_pe_resources",
         ),
+    },
+    {
+      identity: sources.captureProvider.TSHARK_PROVIDER_IDENTITY,
+      contracts: sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.signalProvider.SIGROK_PROVIDER_IDENTITY,
+      contracts: sources.signalContracts.SIGNAL_TOOL_CONTRACTS,
     },
     {
       identity: sources.wasmProvider.WABT_PROVIDER_IDENTITY,

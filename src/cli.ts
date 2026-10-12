@@ -1,3 +1,5 @@
+import { registerCaptureCommands } from "./cli/captureCommands.js";
+import { registerSignalCommands } from "./cli/signalCommands.js";
 import { registerWasmCommands } from "./cli/wasmCommands.js";
 import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
 import { createDirectAnalysis } from "./composition/directAnalysis.js";
@@ -96,6 +98,8 @@ export const createCli = (
   registerCoreAnalysisCommands(cli, logger, analysis.runDirectAnalysis);
   registerUtilityCommands(cli, logger, environment, analysis);
   registerWasmCommands(cli, logger, environment);
+  registerCaptureCommands(cli, logger, environment);
+  registerSignalCommands(cli, logger, environment);
   registerEvmCommands(cli, logger, environment);
   registerGoCommands(cli, logger);
   registerSqliteCommands(cli, logger, environment);
