@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { DarwinProcessOwnershipInspectionError } from "../process/DarwinProcessRunTokenReader.js";
 import { bindGhidraSessionFailure } from "./GhidraSessionError.js";
 import { GhidraLaunchError } from "./GhidraLauncher.js";
+import { GhidraLaunchSupportError } from "./GhidraJavaLaunch.js";
 
 it("reports truncated cyclic causes in serializable diagnostics", () => {
   const cause = new Error("cyclic launcher failure");
@@ -22,7 +23,13 @@ it("keeps bounded compiler and nested launcher outcomes in diagnostics", () => {
   const compiler = new DarwinProcessOwnershipInspectionError(
     "macOS process ownership helper compilation failed via xcrun (compiler result: 7)",
     {
-      cause: Object.assign(new Error("compiler exited"), { code: 7 }),
+      cause: Object.assign(new Error("compiler exited"), {
+        code: 7,
+        signal: null,
+        killed: false,
+        stdout: "",
+        stderr: "SDK mismatch",
+      }),
       compilerOutcome: {
         outcome: "exited",
         code: 7,
@@ -40,9 +47,12 @@ it("keeps bounded compiler and nested launcher outcomes in diagnostics", () => {
   });
   const projectFailure = bindGhidraSessionFailure(() => ({}));
 
-  expect(
-    projectFailure("start", "Ghidra launcher failed", launch).diagnostics,
-  ).toMatchObject({
+  const diagnostics = projectFailure(
+    "start",
+    "Ghidra launcher failed",
+    launch,
+  ).diagnostics;
+  expect(diagnostics).toMatchObject({
     failure_cause: {
       name: "GhidraLaunchError",
       cause: {
@@ -56,6 +66,7 @@ it("keeps bounded compiler and nested launcher outcomes in diagnostics", () => {
       },
     },
   });
+  expect(JSON.stringify(diagnostics)).not.toContain("command_outcome");
 
   const spawnFailure = Object.assign(
     new Error("spawn analyzeHeadless ENOENT"),
@@ -119,7 +130,7 @@ it("bounds compiler stderr after explicit redaction at UTF-8 boundaries", () => 
 it("redacts command output before bounding each UTF-8 stream", () => {
   const token = "transport-token";
   const replacement = "é".repeat(600);
-  const stdout = `${"é".repeat(3900)}${token}`;
+  const stdout = `${"é".repeat(4090)}${token}`;
   const stderr = `${token}${"€".repeat(3000)}`;
   const cause = Object.assign(new Error("LaunchSupport failed"), {
     code: null,
@@ -135,12 +146,12 @@ it("redacts command output before bounding each UTF-8 stream", () => {
   const diagnostics = projectFailure(
     "start",
     "Ghidra launcher failed",
-    cause,
+    new GhidraLaunchSupportError("-envvars", cause),
   ).diagnostics;
 
   expect(diagnostics).toMatchObject({
     failure_cause: {
-      signal: "SIGTERM",
+      cause: { signal: "SIGTERM" },
       command_outcome: {
         stdout: "é".repeat(4096),
         stderr: `${replacement}${"€".repeat(2330)}`,
@@ -168,11 +179,14 @@ it("retains capture truncation separately from diagnostic output bounds", () => 
   const projectFailure = bindGhidraSessionFailure(() => ({}));
 
   expect(
-    projectFailure("start", "Ghidra launcher failed", cause).diagnostics,
+    projectFailure(
+      "start",
+      "Ghidra launcher failed",
+      new GhidraLaunchSupportError("-vmargs", cause),
+    ).diagnostics,
   ).toMatchObject({
     failure_cause: {
-      code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
-      signal: null,
+      cause: { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", signal: null },
       command_outcome: {
         stdout: "partial stdout",
         stderr: "",

@@ -2,7 +2,7 @@ import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 import { DarwinProcessOwnershipInspectionError } from "../process/DarwinProcessRunTokenReader.js";
 import { boundedUtf8Text } from "../process/boundedUtf8Text.js";
-import { execFileOutputFailure } from "../process/ExecFileOutput.js";
+import { GhidraLaunchSupportError } from "./GhidraJavaLaunch.js";
 
 const MAX_CAUSE_DEPTH = 3;
 const MAX_CAUSE_MESSAGE_BYTES = 2 * 1024;
@@ -192,7 +192,8 @@ const causeCommandOutcome = (
   cause: Error,
   redact: (value: string) => string,
 ): Record<string, JsonValue> => {
-  const outcome = execFileOutputFailure(cause);
+  if (!(cause instanceof GhidraLaunchSupportError)) return {};
+  const outcome = cause.outcome;
   if (outcome === undefined) return {};
   const stdout = boundedUtf8Text(
     redact(outcome.stdout),
