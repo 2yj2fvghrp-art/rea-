@@ -81,6 +81,39 @@ const invalidInputs = [
   },
 ] as const;
 
+describe("inspection branch diagnostics", () => {
+  cliTest.for([[], ["--include-script-sources"]])(
+    "reports only the selected inspection branch's endpoint error (%j)",
+    async (flags, { cli, workspace }) => {
+      const result = await cli.run({
+        arguments: [
+          "inspect-web-page",
+          malformedEndpoint,
+          "target",
+          ...flags,
+          "--json",
+        ],
+        cwd: workspace.root,
+        environment: { ...workspace.environment, REA_LOG_LEVEL: "silent" },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.json).toMatchObject({
+        code: "invalid_request",
+        details: {
+          operation: "inspect_web_page",
+          issues: [
+            {
+              path: ["cdp_endpoint"],
+              reason: "invalid_value",
+              message: "Invalid CDP endpoint URL",
+            },
+          ],
+        },
+      });
+    },
+  );
+});
+
 describe("browser and Inspector CLI input diagnostics", () => {
   cliTest.for(invalidInputs)(
     "$command retains the named contract's correction details",

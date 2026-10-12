@@ -14,7 +14,8 @@ import {
   AnalysisInputError,
   type AnalysisInputIssue,
 } from "../domain/analysisErrorCore.js";
-import { browserCaptureComparisonInputSchema } from "../domain/browserCaptureComparison.js";
+import { compareBrowserScenariosInputSchema } from "../domain/browserScenarioDiffValues.js";
+import { compareWebCapturesInputSchema } from "../domain/webCaptureDiffSchemas.js";
 import { projectInputIssues } from "../domain/inputIssueProjection.js";
 import { discoverWebMcpToolsInputSchema } from "../domain/webMcpDiscovery.js";
 import {
@@ -109,19 +110,25 @@ const registerCaptureDiff = (
         });
         if (!inputs.ok) return inputs.error;
         const { before, after, normalization } = inputs.value;
-        const scenarioComparison =
-          browserCaptureComparisonInputSchema.safeParse({
-            before_scenario: before,
-            after_scenario: after,
-            normalization,
-          });
-        const parsed = scenarioComparison.success
-          ? scenarioComparison
-          : browserCaptureComparisonInputSchema.safeParse({ before, after });
+        // Passive snapshots wrap their inspection; scenarios carry it directly.
+        // Extra snapshot metadata must not change the selected format.
+        const scenarioInput = [before, after].some(
+          (capture) =>
+            typeof capture === "object" &&
+            capture !== null &&
+            "scenario" in capture &&
+            !("inspection" in capture),
+        );
+        const input = scenarioInput
+          ? { before_scenario: before, after_scenario: after, normalization }
+          : { before, after };
+        const parsed = scenarioInput
+          ? compareBrowserScenariosInputSchema.safeParse(input)
+          : compareWebCapturesInputSchema.safeParse(input);
         if (!parsed.success)
           return inputError(
             "compare_web_captures",
-            projectInputIssues(parsed.error.issues, { before, after }),
+            projectInputIssues(parsed.error.issues, input),
           );
         const result = await compareWebCaptureEvidence(
           new CdpBrowserProvider(),
