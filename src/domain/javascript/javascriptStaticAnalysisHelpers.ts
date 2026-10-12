@@ -150,6 +150,14 @@ export const factoryRequireName = (
   return t.isIdentifier(parameter) ? parameter.name : null;
 };
 
+/** The second factory parameter names the module's exports object. */
+export const factoryExportsName = (
+  factory: t.FunctionExpression | t.ArrowFunctionExpression | t.ObjectMethod,
+): string | undefined => {
+  const parameter = factory.params[1];
+  return t.isIdentifier(parameter) ? parameter.name : undefined;
+};
+
 /** Collect all unique static literal values from an array. */
 export const staticArrayValues = (
   array: t.ArrayExpression,

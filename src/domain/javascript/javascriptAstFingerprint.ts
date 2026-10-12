@@ -29,13 +29,22 @@ export const fingerprintJavaScriptAst = (node: t.Node): string => {
 };
 
 /** Collect statically declared CommonJS/bundler export names from one factory. */
-export const collectJavaScriptExports = (node: t.Node): StaticExports => {
+export const collectJavaScriptExports = (
+  node: t.Node,
+  exportsName?: string,
+): StaticExports => {
   const exports = new Set<string>();
   traverseJavaScriptAst(node, {
     enter: (current) => {
       if (t.isAssignmentExpression(current))
-        collectAssignmentExports(current.left, current.right, exports);
-      if (t.isCallExpression(current)) collectCallExports(current, exports);
+        collectAssignmentExports(
+          current.left,
+          current.right,
+          exports,
+          exportsName,
+        );
+      if (t.isCallExpression(current))
+        collectCallExports(current, exports, exportsName);
       return undefined;
     },
   });
@@ -72,6 +81,7 @@ const collectAssignmentExports = (
   left: t.LVal | t.OptionalMemberExpression,
   right: t.Expression,
   output: Set<string>,
+  exportsName?: string,
 ): void => {
   const path = memberPath(left);
   if (path === null) return;
@@ -82,7 +92,9 @@ const collectAssignmentExports = (
       ? 1
       : path[0] === "module" && path[1] === "exports"
         ? 2
-        : null;
+        : exportsName !== undefined && path[0] === exportsName
+          ? 1
+          : null;
   if (exportOffset === null) return;
   if (path.length === exportOffset) {
     if (t.isObjectExpression(right)) collectObjectKeys(right, output);
@@ -98,6 +110,7 @@ const collectAssignmentExports = (
 const collectCallExports = (
   call: t.CallExpression,
   output: Set<string>,
+  exportsName?: string,
 ): void => {
   const callee = memberPath(call.callee);
   if (callee === null) return;
@@ -113,7 +126,10 @@ const collectCallExports = (
     ((target.length === 1 && target[0] === "exports") ||
       (target.length === 2 &&
         target[0] === "module" &&
-        target[1] === "exports"));
+        target[1] === "exports") ||
+      (exportsName !== undefined &&
+        target.length === 1 &&
+        target[0] === exportsName));
   if (!exportTarget) return;
   if (definePropertyCall) {
     const name = stringValue(call.arguments[1]);
