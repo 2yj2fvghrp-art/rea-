@@ -121,10 +121,8 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     file,
     accumulator,
     evaluation.status === "available"
-      ? []
-      : [
-          `Constant folding was unavailable (${evaluation.reason}); only literal syntax supplied static values.`,
-        ],
+      ? { status: "available" }
+      : { status: "unavailable", reason: evaluation.reason },
   );
 }
 
@@ -147,7 +145,7 @@ const finalizeStaticAnalysis = (
   source: string,
   file: ParsedJavaScriptSource,
   accumulator: AnalysisAccumulator,
-  evaluationLimitations: readonly string[],
+  constantFolding: JavaScriptStaticAnalysis["constant_folding"],
 ): JavaScriptStaticAnalysis => {
   const parserErrors = file.errors.length;
   const limitations = [
@@ -161,7 +159,6 @@ const finalizeStaticAnalysis = (
           "Electron wrapper expansion reached its resource budget (1000000 visits/substitutions or depth 128); additional paths remain unknown.",
         ]
       : []),
-    ...evaluationLimitations,
     ...(parserErrors === 0
       ? []
       : [
@@ -238,6 +235,7 @@ const finalizeStaticAnalysis = (
         accumulator.moduleRangeIndex,
       ),
     },
+    constant_folding: constantFolding,
     limitations,
   };
 };
