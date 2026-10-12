@@ -26,6 +26,11 @@ const typedLines = [
   'import type TypeOnly = require("./type-only.cjs");',
 ] as const;
 const typedSource = typedLines.join("\n");
+const aliasSource = [
+  'import raw = require("typed-package");',
+  "const alias = raw;",
+  "export { alias };",
+].join("\n");
 const typedPackageFiles = {
   "node_modules/typed-package/package.json": JSON.stringify({
     exports: { require: "./actual.cjs", import: "./decoy.mjs" },
@@ -57,21 +62,26 @@ const expectNativeModuleControls = async (root: string): Promise<void> => {
       emitted,
       join(root, "typed.cts"),
       join(root, "typed.mts"),
+      join(root, "alias.cts"),
+      join(root, "alias.mts"),
     ],
     { cwd: root, timeout: 10_000 },
   );
   for (const [filename, script] of [
-    ["typed.cjs", 'console.log(require("./typed.cjs").typed);'],
+    [
+      "typed.cjs",
+      'console.log(require("./typed.cjs").typed, require("./alias.cjs").alias);',
+    ],
     [
       "typed.mjs",
-      'import("./typed.mjs").then(({ typed }) => console.log(typed));',
+      'Promise.all([import("./typed.mjs"), import("./alias.mjs")]).then(([first, second]) => console.log(first.typed, second.alias));',
     ],
   ] as const) {
     const typedControl = await execute(process.execPath, ["-e", script], {
       cwd: emitted,
       timeout: 5_000,
     });
-    expect(typedControl.stdout.trim()).toBe("42");
+    expect(typedControl.stdout.trim()).toBe("42 42");
     expect(await readFile(join(emitted, filename), "utf8")).not.toContain(
       "./type-only.cjs",
     );
@@ -84,6 +94,35 @@ const expectNativeModuleControls = async (root: string): Promise<void> => {
         "/",
       ),
     ).toBe(`${name}.cjs`);
+};
+
+const expectAliasRelationships = (
+  graph: ReturnType<
+    typeof javascriptApplicationAnalysisResultSchema.parse
+  >["graph"],
+): void => {
+  for (const source of ["alias.cts", "alias.mts"]) {
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({
+        relation: "imports",
+        properties: expect.objectContaining({
+          module_link_kind: "export",
+          local_name: "alias",
+          exported_name: "alias",
+          resolved_path: "node_modules/typed-package/actual.cjs",
+          resolution_status: "resolved",
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            sha256: createHash("sha256").update(aliasSource).digest("hex"),
+          }),
+          location: expect.objectContaining({
+            value: expect.objectContaining({ source }),
+          }),
+        }),
+      }),
+    );
+  }
 };
 
 const expectImportEqualsRelationships = (
@@ -219,6 +258,8 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "nested.cjs": 'throw new Error("fixture must not execute");',
       "typed.cts": typedSource,
       "typed.mts": typedSource,
+      "alias.cts": aliasSource,
+      "alias.mts": aliasSource,
       "type-only.d.cts": "declare const value: unknown; export = value;",
     };
     await Promise.all(
@@ -251,6 +292,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       evidence.normalized_result,
     );
     expectImportEqualsRelationships(graph);
+    expectAliasRelationships(graph);
     const links = graph.edges.filter(
       ({ relation, properties, evidence: edgeEvidence }) =>
         relation === "imports" &&

@@ -159,7 +159,11 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
   yield;
   const callables = collectSemanticReturns(state, parserPartial);
   yield;
-  const moduleLinks = resolveSemanticModuleCallables(state, callables);
+  const moduleLinks = resolveSemanticModuleCallables(
+    state,
+    callables,
+    bindings,
+  );
   const derived = yield* collectJavaScriptDerivedSemanticsSteps(
     file.program,
     state,
@@ -803,7 +807,7 @@ const bindImportEquals = (
     mutable: false,
     definitionNode: node.id,
     initializer: null,
-    directOrigin: { specifier, importedPath: [] },
+    directOrigin: { specifier, importedPath: [], resolutionMode: "require" },
   });
 };
 

@@ -178,7 +178,9 @@ describe("CommonJS dependency links", () => {
     ]);
     expect(
       ir.bindings.find(({ name }) => name === "bound")?.provenance.origins,
-    ).toEqual([{ specifier: "bound", importedPath: [] }]);
+    ).toEqual([
+      { specifier: "bound", importedPath: [], resolutionMode: "require" },
+    ]);
   });
 
   it.each([
@@ -209,6 +211,7 @@ it("preserves unshadowed require origins through aliases and assignments", () =>
     expect(origin(topLevelBinding(ir, name))).toEqual({
       specifier: "electron",
       importedPath: ["ipcMain"],
+      resolutionMode: "require",
     });
   expect(topLevelBinding(ir, "assigned").provenance).toMatchObject({
     status: "ambiguous",

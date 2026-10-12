@@ -7,6 +7,7 @@ import type {
 
 /** One exact module origin followed through imports, requires, or aliases. */
 export interface JavaScriptModuleOrigin {
+  readonly resolutionMode?: "import" | "require";
   readonly specifier: string;
   readonly importedPath: readonly string[];
 }
