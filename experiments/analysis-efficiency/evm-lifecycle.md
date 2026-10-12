@@ -72,7 +72,7 @@ descriptor checkpoint; they are not silently rerun or attributed to this script.
 
 ## Measurements and compatibility scope
 
-Exact verifier source SHA-256 is
+Initial three-carrier verifier source SHA-256 is
 `2fec069b53324ef82070d323b26dd613b6da0caa7f18100adbeb39b045cf98dc`.
 All three carriers pass all three scenarios and CLI parity with this same source.
 
@@ -118,6 +118,22 @@ violations are detected when the producer returns a result; they cannot be
 validated in advance without that result. A dynamic third-party module ABI
 preflight is not implemented or claimed. The corresponding broader acceptance
 item remains open rather than creating the deferred generic plugin registry.
+
+## Final launcher review
+
+A missing gate marker while gating is disabled cannot establish absence of a
+new launch. The fixture now appends a launch record before starting the actual
+worker; both permission-failure retries must leave that log byte-identical.
+This independently verifies that retained cleanup failure stops a new EVM
+launch, while preserving the original resource and healthy WASM peer.
+
+Final verifier source SHA-256 is
+`fc9a50e2e54e4c8eede4b8a19283e11ddaa1faadea52eebc390b55b5a1902668`.
+All three related real Factory scenarios, CLI parity and final cleanup pass
+again on the corrected-main runtime: 23.579 seconds, 1,163,685,888 peak sampled
+family bytes and 23.110 last-observed CPU seconds. The earlier three-carrier
+receipts remain pinned to their earlier source; wider artifacts/models are
+not repeated for this review fix.
 
 ## Reproduction
 

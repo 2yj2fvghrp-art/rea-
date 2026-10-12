@@ -113,10 +113,11 @@ await writeFile(
   wrapper,
   `#!${process.execPath}
 import { spawn } from "node:child_process";
-import { access, readFile, rename, writeFile } from "node:fs/promises";
+import { access, appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 const gate = process.env.REA_VERIFY_EVM_GATE;
+await appendFile(join(gate, "launches.log"), process.cwd() + "\\n", { mode: 0o600 });
 const child = spawn("/usr/bin/prlimit", process.argv.slice(2), { stdio: "inherit" });
 const code = await new Promise((resolve, reject) => {
   child.once("error", reject);
@@ -215,7 +216,6 @@ const observeGate = async (expectedSuccess) => {
   assert.equal(marker.root.startsWith(work + "/rea-evm-interface-"), true);
   const rootStat = await lstat(marker.root);
   assert.equal(rootStat.isDirectory(), true);
-  assert.equal(rootStat.isSymbolicLink(), false);
   assert.equal(rootStat.uid, process.getuid());
   const processRow = (await host.listProcesses()).find(
     (x) => x.pid === marker.pid,
@@ -417,12 +417,16 @@ await verifyWithCleanup(async () => {
         launch.marker.root.slice(work.length + 1),
       ]);
       await gateMode("off");
+      const launchLogBefore = await readFile(join(lab, "launches.log"));
       const retryBeforeRepair = errorValue(await request());
       assert.equal(retryBeforeRepair.code, "cleanup_incomplete");
       assert.deepEqual(retryBeforeRepair.details.resources, [
         launch.marker.root,
       ]);
-      await assert.rejects(access(join(lab, "ready.json")), { code: "ENOENT" });
+      assert.deepEqual(
+        await readFile(join(lab, "launches.log")),
+        launchLogBefore,
+      );
       const peerEvidence = await peer();
       assert.equal(peerEvidence.subject.digest.sha256, peerBefore);
       await restore();
@@ -436,6 +440,7 @@ await verifyWithCleanup(async () => {
         failed,
         cleanup,
         retry_before_permission_repair: retryBeforeRepair,
+        launch_log_sha256_before_retry: sha(launchLogBefore),
         peer_evidence_id: peerEvidence.evidence_id,
         recovery_evidence_id: recovered.evidence_id,
       });
