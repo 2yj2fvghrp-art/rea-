@@ -15,6 +15,7 @@ const generate = `
 import {measureNativeEntry} from './experiments/analysis-efficiency/native-entry.mjs';
 const sha='0'.repeat(64);
 const duplicate=process.argv[1]==='duplicate';
+const dos=process.argv[1]==='dos';
 const dossier={procedure:{address:'0x1000'},pseudocode:'return;',callers:[],callees:[]};
 class ToolFailure extends Error {}
 const build=async digit=>{
@@ -22,6 +23,7 @@ const build=async digit=>{
   let ordinal=0;
   const call=async(name,args)=>{
     if(name==='open_binary'||name==='close_binary')return {};
+    if(name==='inspect_native_load_image')return {evidence_id:'ev_'+digit.repeat(63)+'6',normalized_result:{status:'verified',entry:{linear_address:'0x1000'}}};
     if(name==='resolve_containing_procedure')return {evidence_id:parent,normalized_result:{found:true}};
     if(name==='analyze_function')return {evidence_id:parent,subject:{digest:{sha256:sha}},normalized_result:dossier};
     const id='ev_'+digit.repeat(63)+(duplicate?1:++ordinal);
@@ -30,10 +32,25 @@ const build=async digit=>{
     const item=facet==='pseudocode'?{text:dossier.pseudocode,unit:'utf16-code-units'}:dossier[facet];
     return {evidence_id:id,normalized_result:{parent_evidence_id:parent,artifact:{sha256:sha},item,coverage:{exhausted:true},limitations:[],unknowns:[]}};
   };
-  return measureNativeEntry({seed:'0x1000',values:{path:'/selected/input','native-question':'entry-views'},call,inputSha:sha,ToolFailure});
+  return measureNativeEntry({seed:dos?undefined:'0x1000',values:{path:'/selected/input','native-question':'entry-views'},call,inputSha:sha,ToolFailure});
 };
 process.stdout.write(JSON.stringify([await build('1'),await build('2')]));
 `;
+
+it("retains the DOS load-image source for its facts and derived entry seed", async () => {
+  const { stdout } = await execute(process.execPath, [
+    "--input-type=module",
+    "-e",
+    generate,
+    "dos",
+  ]);
+  const [answer] = JSON.parse(stdout);
+  expect(answer).toMatchObject({
+    entry_address: "0x1000",
+    load_image: { status: "verified", entry: { linear_address: "0x1000" } },
+    evidence_ids: { native_load_image: "ev_" + "1".repeat(63) + "6" },
+  });
+});
 
 it("rejects a producer that reuses a view identity across facets", async () => {
   await expect(

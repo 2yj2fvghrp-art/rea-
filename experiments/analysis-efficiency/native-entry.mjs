@@ -154,7 +154,7 @@ export const measureNativeEntry = async ({
   try {
     // DOS addresses follow the actual admitted load image. A file header
     // offset is not a provider address or proof of runtime execution.
-    let loadImage;
+    let loadImage, loadImageEvidenceId;
     if (seed === undefined) {
       const imageEvidence = await call("inspect_native_load_image", {});
       loadImage = normalized(imageEvidence);
@@ -162,6 +162,7 @@ export const measureNativeEntry = async ({
         throw new Error(
           "The shipped DOS load image was not independently verified",
         );
+      loadImageEvidenceId = imageEvidence.evidence_id;
       seed = loadImage.entry.linear_address;
     }
     const address = seed;
@@ -197,10 +198,20 @@ export const measureNativeEntry = async ({
           }),
       evidence_ids:
         selected.retainedViews === undefined
-          ? [containing.evidence_id, info.evidence_id, ...mainEvidenceIds]
+          ? [
+              containing.evidence_id,
+              info.evidence_id,
+              ...mainEvidenceIds,
+              ...(loadImageEvidenceId === undefined
+                ? []
+                : [loadImageEvidenceId]),
+            ]
           : {
               containing_procedure: containing.evidence_id,
               function_dossier: info.evidence_id,
+              ...(loadImageEvidenceId === undefined
+                ? {}
+                : { native_load_image: loadImageEvidenceId }),
               retained_views: selected.retainedViewEvidence,
               ...(selected.summaryEvidenceId === undefined
                 ? {}
