@@ -101,6 +101,8 @@ export const collectSemanticModuleLink = (
   else if (t.isVariableDeclarator(node)) collectRequireLink(node, state);
   else if (t.isAssignmentExpression(node)) collectCommonJsExport(node, state);
   else if (t.isCallExpression(node)) collectUnboundRequireLink(node, state);
+  else if (t.isTSImportEqualsDeclaration(node))
+    collectImportEqualsLink(node, state);
 };
 
 /** Collect lexical references after definitions exist, optionally for one name. */
@@ -371,6 +373,35 @@ const collectUnboundRequireLink = (
     node,
   );
   state.linkedRequireCalls.add(node);
+};
+
+/**
+ * An `import alias = require("...")` declaration is a real CommonJS load in
+ * TypeScript's emitted program, so it keeps require semantics. Type-only
+ * declarations and internal namespace aliases emit no load and never become a
+ * dependency.
+ */
+const collectImportEqualsLink = (
+  node: t.TSImportEqualsDeclaration,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  if (
+    node.importKind === "type" ||
+    !t.isTSExternalModuleReference(node.moduleReference)
+  )
+    return;
+  addModuleLink(
+    state,
+    {
+      kind: "require",
+      specifier: node.moduleReference.expression.value,
+      importedName: "*",
+      localName: node.id.name,
+      exportedName: null,
+      location: range(node),
+    },
+    node,
+  );
 };
 
 const requirePatternBindings = (

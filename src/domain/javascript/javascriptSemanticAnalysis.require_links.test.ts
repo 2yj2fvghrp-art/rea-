@@ -152,3 +152,60 @@ it("preserves unshadowed require origins through aliases and assignments", () =>
     }),
   ]);
 });
+
+it("retains import-equals value dependencies without inventing erased ones", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    import value = require("dependency");
+    import type erased = require("type-only-dependency");
+    import alias = Internal.Namespace;
+    void value; void erased; void alias;
+  `);
+
+  expect(
+    ir.moduleLinks.map(({ kind, specifier, importedName, localName }) => ({
+      kind,
+      specifier,
+      importedName,
+      localName,
+    })),
+  ).toEqual([
+    {
+      kind: "require",
+      specifier: "dependency",
+      importedName: "*",
+      localName: "value",
+    },
+  ]);
+
+  const programScope = ir.scopes.find(
+    ({ kind }) => kind === "program",
+  )?.scopeId;
+  expect(
+    ir.bindings
+      .filter(({ scopeId }) => scopeId === programScope)
+      .map(({ name, kind, mutable }) => ({ name, kind, mutable })),
+  ).toEqual([
+    { name: "alias", kind: "import", mutable: false },
+    { name: "erased", kind: "import", mutable: false },
+    { name: "value", kind: "import", mutable: false },
+  ]);
+
+  expect(
+    ir.bindings.find(({ name }) => name === "value")?.provenance,
+  ).toMatchObject({
+    status: "module",
+    origins: [{ specifier: "dependency", importedPath: [] }],
+  });
+  for (const name of ["erased", "alias"])
+    expect(
+      ir.bindings.find((binding) => binding.name === name)?.provenance,
+    ).toMatchObject({ status: "local", origins: [] });
+
+  const aliases = ir.references.filter(({ name }) =>
+    ["alias", "erased", "value"].includes(name),
+  );
+  expect(aliases.length).toBeGreaterThan(0);
+  expect(aliases.every(({ resolution }) => resolution === "resolved")).toBe(
+    true,
+  );
+});

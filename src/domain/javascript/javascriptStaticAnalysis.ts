@@ -225,6 +225,16 @@ const inspectNode = (
       kind: "dynamic-import",
       specifier: stringValue(node.source),
     });
+  else if (
+    t.isTSImportEqualsDeclaration(node) &&
+    node.importKind !== "type" &&
+    t.isTSExternalModuleReference(node.moduleReference)
+  )
+    addReference(findings, {
+      node,
+      kind: "require",
+      specifier: node.moduleReference.expression.value,
+    });
   if (t.isObjectProperty(node)) {
     inspectRouteProperty(node, findings);
     inspectRoleProperty(node, findings);

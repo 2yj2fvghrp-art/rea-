@@ -750,6 +750,8 @@ const bindInnerDeclaration = (
   state: JavaScriptSemanticAnalysisState,
 ): void => {
   if (t.isImportDeclaration(node)) bindImports(node, scope, state);
+  else if (t.isTSImportEqualsDeclaration(node))
+    bindImportEquals(node, scope, state);
   else if (t.isVariableDeclarator(node))
     bindPattern({
       pattern: node.id,
@@ -992,6 +994,33 @@ const bindImports = (
       directOrigin: { specifier: node.source.value, importedPath },
     });
   }
+};
+
+const bindImportEquals = (
+  node: t.TSImportEqualsDeclaration,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  // Type-only declarations and internal namespace aliases still name a local
+  // alias, but TypeScript emits no module load for either form, so neither
+  // may carry a module origin.
+  const external =
+    node.importKind === "type" ||
+    !t.isTSExternalModuleReference(node.moduleReference)
+      ? null
+      : node.moduleReference.expression;
+  addBinding({
+    state,
+    scope,
+    name: node.id.name,
+    kind: "import",
+    mutable: false,
+    definitionNode: node.id,
+    initializer: null,
+    ...(external === null
+      ? {}
+      : { directOrigin: { specifier: external.value, importedPath: [] } }),
+  });
 };
 
 const bindFunctionLocals = (
