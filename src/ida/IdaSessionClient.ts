@@ -21,6 +21,7 @@ import { err, ok, type Result } from "../domain/result.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import { readSettledHealth } from "./IdaBusyHealth.js";
+import { isX86OnlyTarget } from "./IdaCallGraph.js";
 import { IdaOperationRunner } from "./IdaOperationRunner.js";
 import {
   IDA_LIMITATIONS,
@@ -29,6 +30,7 @@ import {
   type IdaOperation,
 } from "./IdaProviderCapabilities.js";
 import {
+  absentDatabaseCloseSchema,
   closeDatabaseSchema,
   databaseListSchema,
   legacyMetadataSchema,
@@ -100,9 +102,10 @@ export class IdaSessionClient implements AnalysisClient {
   #closePromise: Promise<Result<null, AnalysisError>> | undefined;
   #workspace: IdaWorkspace | undefined;
   #database: string | undefined;
-  #databaseCloseAcknowledged = false;
+  #databaseCloseCompleted = false;
   #openAttempted = false;
   #openCompleted = false;
+  #callGraphAdvertised = false;
   #initialIdentity: string | undefined;
   #metadata: JsonValue = null;
   #lifecycle: JsonValue[] = [];
@@ -192,12 +195,7 @@ export class IdaSessionClient implements AnalysisClient {
         throw new AnalysisProtocolError(
           "IDA operation changed after validation.",
         );
-      const runner = new IdaOperationRunner(
-        this.connection,
-        this.config.mode === "attached" ? "legacy" : "modern",
-        this.#database,
-        options?.signal,
-      );
+      const runner = this.#runner(options);
       const result = await runner.run(operation, parameters);
       if (wasCancelled(options))
         return err(new AnalysisCancelledError(operation));
@@ -213,6 +211,9 @@ export class IdaSessionClient implements AnalysisClient {
             observations: jsonValueSchema.parse(runner.raw),
           },
           limitations: [...IDA_LIMITATIONS, ...runner.limitations],
+          ...(runner.relationshipCoverage === undefined
+            ? {}
+            : { relationshipCoverage: runner.relationshipCoverage }),
           locations: [
             { kind: "artifact-path", path: this.target.path },
             ...runner.locations,
@@ -225,6 +226,20 @@ export class IdaSessionClient implements AnalysisClient {
     } catch (cause: unknown) {
       return this.#failure(operation, cause, options);
     }
+  }
+
+  #runner(options: ExecutionOptions | undefined): IdaOperationRunner {
+    return new IdaOperationRunner(
+      this.connection,
+      this.config.mode === "attached" ? "legacy" : "modern",
+      this.#database,
+      {
+        signal: options?.signal,
+        selectorOrigin: options?.selectorOrigin,
+        x86Only: isX86OnlyTarget(this.target),
+        callGraphAvailable: this.#callGraphAdvertised,
+      },
+    );
   }
 
   #health(metadata: JsonValue) {
@@ -285,6 +300,7 @@ export class IdaSessionClient implements AnalysisClient {
 
   async #initialize(): Promise<void> {
     const tools = new Set(await this.connection.connect());
+    this.#callGraphAdvertised = tools.has("callgraph");
     const expected =
       this.config.mode === "attached" ? legacyTools : modernTools;
     const missing = expected.filter((name) => !tools.has(name));
@@ -406,6 +422,28 @@ export class IdaSessionClient implements AnalysisClient {
     return shared;
   }
 
+  async #closeDatabase(database: string): Promise<void> {
+    const response = await this.connection.call("idb_close", {
+      database,
+      save: false,
+    });
+    const closed = closeDatabaseSchema.safeParse(response);
+    if (!closed.success) {
+      if (!absentDatabaseCloseSchema(database).safeParse(response).success)
+        throw closed.error;
+      return;
+    }
+    if (
+      closed.data.session_id !== database ||
+      closed.data.saved === true ||
+      closed.data.owned !== true ||
+      closed.data.backend !== "worker"
+    )
+      throw new AnalysisProtocolError(
+        "IDA database close did not confirm the requested owned, unsaved session release.",
+      );
+  }
+
   async #closeOnce(): Promise<Result<null, AnalysisError>> {
     this.#closing = true;
     await this.#tail;
@@ -435,23 +473,9 @@ export class IdaSessionClient implements AnalysisClient {
             );
         }
         if (this.#database !== undefined) {
-          if (!this.#databaseCloseAcknowledged) {
-            const closed = closeDatabaseSchema.parse(
-              await this.connection.call("idb_close", {
-                database: this.#database,
-                save: false,
-              }),
-            );
-            if (
-              closed.session_id !== this.#database ||
-              closed.saved === true ||
-              closed.owned !== true ||
-              closed.backend !== "worker"
-            )
-              throw new AnalysisProtocolError(
-                "IDA database close did not confirm the requested owned, unsaved session release.",
-              );
-            this.#databaseCloseAcknowledged = true;
+          if (!this.#databaseCloseCompleted) {
+            await this.#closeDatabase(this.#database);
+            this.#databaseCloseCompleted = true;
           }
           const inventory = databaseListSchema.parse(
             await this.connection.call("idb_list", {}),

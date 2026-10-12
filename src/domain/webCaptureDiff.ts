@@ -265,8 +265,6 @@ const sharedNetworkResponseFields = (
     for (const request of inspection.network.requests) {
       const identity = networkIdentity(request);
       const fields = shared.get(identity) ?? new Set(networkResponseFields);
-      // Same-identity requests have no stable pairing across captures. Keep
-      // a field only when every observation on both sides has its evidence.
       for (const field of networkResponseFields)
         if (request[field] === null) fields.delete(field);
       shared.set(identity, fields);
@@ -365,8 +363,6 @@ const networkDimension = (
       webSocketShapesComplete,
     "Network capture or selected HTTP/WebSocket payload-shape coverage is attach-window limited, unavailable, or incomplete.",
   );
-  // Missing response values prevent equality, not independently observed
-  // additions or removals in a complete request inventory.
   return compared.status === "unchanged" && !responseFieldsComplete
     ? {
         ...compared,
