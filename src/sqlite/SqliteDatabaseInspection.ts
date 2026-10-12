@@ -56,6 +56,7 @@ const arrayRow = z.array(
   ]),
 );
 const encodingSchema = z.enum(["UTF-8", "UTF-16le", "UTF-16be"]);
+const cellByteLengths = z.array(z.bigint().nonnegative());
 type DatabaseEncoding = z.output<typeof encodingSchema>;
 type Inspection = Pick<
   SqliteDatabase,
@@ -413,7 +414,7 @@ const readRows = (
   );
   lengths.setReturnArrays(true);
   for (const raw of lengths.iterate(limit))
-    budget.beforeProjection(z.array(z.bigint().nonnegative()).parse(raw));
+    budget.beforeProjection(cellByteLengths.parse(raw));
   const statement = db.prepare(`SELECT ${projection} FROM ${source} LIMIT ?`);
   statement.setReturnArrays(true);
   const rows: NonNullable<SqliteDatabase["rows"]> = {

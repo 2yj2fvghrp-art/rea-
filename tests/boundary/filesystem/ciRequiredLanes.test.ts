@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import { z } from "zod";
 import { executeWorkflowFixture } from "../../support/workflowGit.js";
 
-const workflow = async () =>
+const workflow = async (filename = "ci.yml") =>
   z
     .object({
       jobs: z.record(
@@ -20,11 +20,37 @@ const workflow = async () =>
     .parse(
       parse(
         await readFile(
-          new URL("../../../.github/workflows/ci.yml", import.meta.url),
+          new URL(`../../../.github/workflows/${filename}`, import.meta.url),
           "utf8",
         ),
       ),
     );
+
+it("binds SQLite compatibility jobs to the build's prepared runtime artifact and root layout", async () => {
+  const steps = z.array(
+    z.object({
+      uses: z.string().optional(),
+      with: z
+        .object({ name: z.string().optional(), path: z.string().optional() })
+        .optional(),
+    }),
+  );
+  const uploads = steps.parse((await workflow()).jobs.build?.steps).filter(
+    (step) =>
+      step.uses?.startsWith("actions/upload-artifact@") &&
+      step.with?.path
+        ?.split(/\r?\n/u)
+        .map((path) => path.trim())
+        .includes("dist/"),
+  );
+  expect(uploads).toHaveLength(1);
+  const name = z.string().min(1).parse(uploads[0]?.with?.name);
+  const downloads = steps
+    .parse((await workflow("sqlite-runtime.yml")).jobs.sqlite?.steps)
+    .filter((step) => step.uses?.startsWith("actions/download-artifact@"));
+  expect(downloads).toHaveLength(1);
+  expect(downloads[0]?.with).toEqual({ name, path: "." });
+});
 
 const requiredNeeds = async () => {
   const { jobs } = await workflow();
