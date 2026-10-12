@@ -286,6 +286,12 @@ describe("managed edge target declaring types", () => {
       ]),
     });
     const methodRef = inspect({ ilBody: tokenBody([[ldsfld, 0x0a00_0001]]) });
+    const flaggedField = inspect({
+      memberRefName: "Empty",
+      // GENERIC | FIELD string: FieldSig allows no flags.
+      memberRefSignature: Buffer.from([0x16, 0x0e]),
+      ilBody: tokenBody([[ldsfld, 0x0a00_0001]]),
+    });
 
     expect(result.field_accesses).toMatchObject([
       { field_name: "Empty", field_declaring_type: attribute },
@@ -293,6 +299,10 @@ describe("managed edge target declaring types", () => {
     expect(methodRef.field_accesses).toMatchObject([
       { field_name: null, field_declaring_type: null },
     ]);
+    expect(flaggedField.field_accesses).toMatchObject([
+      { field_name: null, field_declaring_type: null },
+    ]);
+    expect(flaggedField.coverage.state).toBe("partial");
     expect(result.call_edges).toMatchObject([
       {
         target_kind: "unknown",
@@ -371,6 +381,13 @@ describe("managed MethodSpec call targets", () => {
       "a property signature",
       // PROPERTY | GENERIC, one generic parameter, no parameters, void.
       { memberRefSignature: Buffer.from([0x18, 0x01, 0x00, 0x01]) },
+      Buffer.from([0x0a, 0x01, 0x0e]),
+      "does not have a decodable method signature",
+    ],
+    [
+      "an unmanaged-convention signature",
+      // C | GENERIC: a function pointer convention, not a MethodRefSig one.
+      { memberRefSignature: Buffer.from([0x11, 0x01, 0x00, 0x01]) },
       Buffer.from([0x0a, 0x01, 0x0e]),
       "does not have a decodable method signature",
     ],
@@ -948,6 +965,8 @@ it.each([
 it.each([
   ["a property header", [0x08, 0x00, 0x08]],
   ["an explicit-this header without has-this", [0x40, 0x00, 0x01]],
+  ["a C calling convention header", [0x01, 0x00, 0x01]],
+  ["a generic vararg header", [0x15, 0x01, 0x00, 0x01]],
 ])("reports %s as a malformed member signature", (_name, blob) => {
   expect(signature(Buffer.from(blob))).toMatchObject({
     kind: "unknown",

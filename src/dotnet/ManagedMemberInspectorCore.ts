@@ -338,32 +338,36 @@ interface MethodSignatureHeader {
   readonly next: number;
 }
 
-// A method signature, whether a member's or one FNPTR carries, uses managed
-// DEFAULT/VARARG or the unmanaged C, STDCALL, THISCALL, FASTCALL, and
+// MethodDefSig and MethodRefSig headers (ECMA-335 II.23.2.1-2) without
+// HASTHIS and EXPLICITTHIS: DEFAULT, VARARG, or GENERIC, which implies DEFAULT.
+const MEMBER_METHOD_HEADERS = new Set([0x00, 0x05, 0x10]);
+
+// FNPTR also carries the unmanaged C, STDCALL, THISCALL, FASTCALL, and
 // UNMANAGED conventions that compilers emit for unmanaged function pointers.
-// FIELD, LOCAL_SIG, PROPERTY, and GENERICINST headers are not method
-// signatures.
-const METHOD_CALLING_CONVENTIONS = new Set([0, 1, 2, 3, 4, 5, 9]);
+const FUNCTION_POINTER_CONVENTIONS = new Set([0, 1, 2, 3, 4, 5, 9]);
 
 /**
  * Read a method signature's calling convention and counts. A header that is
- * not a method signature, sets the reserved bit, or sets EXPLICITTHIS without
- * HASTHIS is malformed, so no caller consumes its counts.
+ * not a method signature in its context (a MethodDef or MemberRef row, or an
+ * FNPTR type), sets the reserved bit, or sets EXPLICITTHIS without HASTHIS is
+ * malformed, so no caller consumes its counts. FIELD, LOCAL_SIG, PROPERTY,
+ * and GENERICINST headers are never method signatures.
  */
 const readMethodSignatureHeader = (
   blob: Buffer,
   offset: number,
+  context: "member" | "function-pointer",
 ): MethodSignatureHeader => {
   const first = blob[offset];
   if (first === undefined)
     return malformedSignature("truncated method signature", offset);
-  if (
-    !METHOD_CALLING_CONVENTIONS.has(first & 0x0f) ||
-    (first & 0x80) !== 0 ||
-    ((first & 0x40) !== 0 && (first & 0x20) === 0)
-  )
+  const allowed =
+    context === "member"
+      ? MEMBER_METHOD_HEADERS.has(first & 0x9f)
+      : (first & 0x80) === 0 && FUNCTION_POINTER_CONVENTIONS.has(first & 0x0f);
+  if (!allowed || ((first & 0x40) !== 0 && (first & 0x20) === 0))
     return malformedSignature(
-      `calling convention 0x${first.toString(16)} does not head a method signature`,
+      `calling convention 0x${first.toString(16)} does not head a ${context} method signature`,
       offset,
     );
   let next = offset + 1;
@@ -537,7 +541,11 @@ const readTypeSignature = (
       });
       cursor = argumentCount.next;
     } else if (kind === 0x1b) {
-      const header = readMethodSignatureHeader(blob, cursor + 1);
+      const header = readMethodSignatureHeader(
+        blob,
+        cursor + 1,
+        "function-pointer",
+      );
       const convention = callingConvention(header.first);
       const head =
         header.genericParameterCount === null
@@ -669,7 +677,9 @@ export const specSignature = (
  */
 export const methodGenericArity = (blob: Buffer): number | null => {
   try {
-    return readMethodSignatureHeader(blob, 0).genericParameterCount ?? 0;
+    return (
+      readMethodSignatureHeader(blob, 0, "member").genericParameterCount ?? 0
+    );
   } catch (cause: unknown) {
     if (cause instanceof ManagedReaderFailure) return null;
     throw cause;
@@ -688,7 +698,9 @@ export const signature = (
     if (blob.length === 0)
       throw managedFailure("invalid-blob", "signature", "empty signature", 0);
     const first = blob[0] ?? 0;
-    if ((first & 0x0f) === 6) {
+    // FieldSig (II.23.2.4) is exactly FIELD; a flagged FIELD header is not a
+    // method header either, so it is malformed below.
+    if (first === 0x06) {
       const fieldType = readTypeSignature(blob, 1, "field");
       return {
         ...raw,
@@ -704,7 +716,7 @@ export const signature = (
           fieldType.next === blob.length ? null : "Trailing signature data",
       };
     }
-    const header = readMethodSignatureHeader(blob, 0);
+    const header = readMethodSignatureHeader(blob, 0, "member");
     const returnType = readTypeSignature(blob, header.next, "return");
     let offset = returnType.next;
     const parameters: string[] = [];
