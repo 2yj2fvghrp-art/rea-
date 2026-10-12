@@ -63,3 +63,10 @@ command must point to the included Node and REA entry point. Children use an
 isolated user directory, with no npm or system Node on PATH. A Node preload
 rejects socket connections; this is not an OS-level network sandbox. Optional
 external providers and a live agent connection remain separate checks.
+
+For a Windows path regression check, extract the same archive into a directory
+containing spaces, Unicode, `&`, and literal `%PATH%`, then run from PowerShell:
+
+```powershell
+node scripts/verify-portable-windows.mjs --directory 'C:\relocated\rea %PATH% & 测试'
+```
