@@ -5,6 +5,7 @@ import {
   artifactEvidenceState,
   captured,
   eventEvidenceState,
+  eventFamilyCoverageReason,
   eventsFor,
   networkContentCoverageReason,
   screenshotProjection,
@@ -332,26 +333,24 @@ const compareStepArtifacts = (
       ),
       beforeState: eventEvidenceState(input.beforeCapture, input.beforeStep),
       afterState: eventEvidenceState(input.afterCapture, input.afterStep),
-      incomparableReason:
-        eventSelectionMismatch(input.beforeCapture, input.afterCapture) ??
-        networkContentCoverageReason(input.beforeCapture, input.afterCapture),
+      incomparableReason: eventCoverageReason(
+        input.beforeCapture,
+        input.afterCapture,
+      ),
     }),
   ];
 };
 
-/** Event evidence is incomparable when the two captures selected different families. */
-const eventSelectionMismatch = (
+const eventCoverageReason = (
   before: BrowserScenarioCapture,
   after: BrowserScenarioCapture,
-): string | undefined =>
-  JSON.stringify(before.events.selected) ===
-  JSON.stringify(after.events.selected)
-    ? undefined
-    : "Event family selection differs (" +
-      before.events.selected.join(",") +
-      " before, " +
-      after.events.selected.join(",") +
-      " after).";
+): string | undefined => {
+  const reasons = [
+    eventFamilyCoverageReason(before, after),
+    networkContentCoverageReason(before, after),
+  ].filter((reason) => reason !== undefined);
+  return reasons.length === 0 ? undefined : reasons.join(" ");
+};
 
 interface CompareCapturedValuesInput<Value> {
   readonly artifact: BrowserScenarioArtifactKind;

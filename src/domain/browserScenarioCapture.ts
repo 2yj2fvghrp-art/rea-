@@ -3,6 +3,7 @@ import { browserNetworkContentSelectionValuesSchema } from "./browserNetworkEvid
 
 import {
   browserScenarioCompletenessSchema,
+  browserScenarioEventFamilySchema,
   browserScenarioEventSchema,
   browserScenarioStepSchema,
 } from "./browserScenarioCaptureValues.js";
@@ -22,13 +23,13 @@ export const browserScenarioCaptureSchema = z
       action_count: z.number().int().min(1),
       secret_references: z.array(z.string().min(1)),
       network_content: browserNetworkContentSelectionValuesSchema,
+      event_families: z.array(browserScenarioEventFamilySchema).optional(),
     }),
     duration_ms: z.number().int().min(0),
     steps: z.array(browserScenarioStepSchema).min(1),
     events: z.strictObject({
       retained: z.number().int().min(0),
       dropped: z.number().int().min(0),
-      selected: z.array(z.string().min(1)).default([]),
       items: z.array(browserScenarioEventSchema),
     }),
     completeness: browserScenarioCompletenessSchema,
