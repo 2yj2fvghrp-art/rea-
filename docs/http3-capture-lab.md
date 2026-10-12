@@ -84,7 +84,7 @@ clients and proxy receive explicit paths to freshly generated test CAs.
 ```sh
 REA_MITMDUMP_COMMAND=/absolute/lab/tools/mitmdump \
 REA_HTTP3_PYTHON_COMMAND=/absolute/lab/venv/bin/python \
-node scripts/verify-http3-network-captures.mjs /absolute/evidence/run-1
+npm run verify:web:http3 -- /absolute/evidence/run-1
 ```
 
 The producer sends three concurrent binary POSTs on one HTTP/3 connection to the
@@ -112,7 +112,7 @@ Capture inputs live in `captures/`. To inspect them again without new traffic:
 
 ```sh
 REA_MITMDUMP_COMMAND=/absolute/lab/tools/mitmdump \
-node scripts/verify-http3-network-captures.mjs /absolute/evidence/run-1 --inspect-existing
+npm run verify:web:http3 -- /absolute/evidence/run-1 --inspect-existing
 ```
 
 Acceptance for the current run:
