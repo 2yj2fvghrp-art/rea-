@@ -4,6 +4,7 @@ import {
   type GhidraSeedCommitment,
 } from "./GhidraAnalysisSeeds.js";
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
+import type { GhidraExistingProject } from "../config/ghidraExistingProject.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { cp, mkdir, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, posix, win32 } from "node:path";
@@ -141,25 +142,6 @@ const ghidraLaunchCommandOutput = (
     signal: failure.signal,
   };
 };
-
-/**
- * A pre-imported Ghidra project opened with -process so import and
- * auto-analysis costs paid outside this session are reused. The headless
- * open selects the fixed project name `rea-project`, so `projectPath` must
- * hold `rea-project.grez` or `rea-project.rep`; the owned copy keeps that
- * name and any other project layout is rejected with its reason before
- * Ghidra starts.
- */
-export interface GhidraExistingProject {
-  /**
-   * Directory holding the pre-imported project as `rea-project.grez` or
-   * `rea-project.rep`. The copy opens under the fixed project name, so a
-   * directory without that naming fails the launch.
-   */
-  readonly projectPath: string;
-  /** Imported program name selected with -process. */
-  readonly programName: string;
-}
 
 /** Static coordinates for an extracted Ghidra release and packaged script. */
 export interface GhidraHeadlessLauncherOptions {
