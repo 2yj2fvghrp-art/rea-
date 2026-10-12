@@ -1,8 +1,10 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
+  isScalar,
   parse as parseYaml,
   parseDocument as parseYamlDocument,
   stringify as stringifyYaml,
+  type Document as YamlDocument,
 } from "yaml";
 import { isDeepStrictEqual } from "node:util";
 
@@ -116,9 +118,10 @@ const parseDocument = (
   // An empty file, which some clients create before any server is added,
   // holds no settings to preserve.
   if (isEmptyClientConfigurationText(text)) return {};
-  // Hermes stores MCP servers in `mcp_servers` inside a YAML document.
+  // Hermes stores MCP servers in `mcp_servers` inside a YAML document. A
+  // document of only comments or a `---` marker is null and holds no settings.
   if (format === "hermes")
-    return requireObject(parseYaml(text), "The configuration root");
+    return requireObject(parseYaml(text) ?? {}, "The configuration root");
   // ZCode loads nonempty native files with strict JSON.parse.
   if (format === "zcode")
     return requireObject(JSON.parse(text), "The configuration root");
@@ -1419,7 +1422,17 @@ const serializeHermesConfiguration = (
     typeof servers === "object" && servers !== null
       ? (servers as Record<string, unknown>)[PRODUCT_IDENTITY.mcpServerKey]
       : undefined;
-  const yamlDocument = parseYamlDocument(originalText);
+  const yamlDocument: YamlDocument = parseYamlDocument(originalText);
+  // A bare `---` document holds a null scalar, which takes no keys. Replace it
+  // with a map that keeps the comments written after the marker.
+  const root = yamlDocument.contents;
+  if (isScalar(root) && root.value === null) {
+    const map = yamlDocument.createNode({});
+    map.commentBefore = [root.commentBefore, root.comment]
+      .filter((comment) => comment !== undefined)
+      .join("\n");
+    yamlDocument.contents = map;
+  }
   if (entry === undefined)
     yamlDocument.deleteIn([serversKey, PRODUCT_IDENTITY.mcpServerKey]);
   else yamlDocument.setIn([serversKey, PRODUCT_IDENTITY.mcpServerKey], entry);
