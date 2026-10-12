@@ -259,6 +259,41 @@ describe("scenario comparison CLI diagnostics", () => {
       },
     });
   });
+
+  it.each(["omitted", "misspelled"])(
+    "reports the missing scenario manifest when it is %s on both captures",
+    async (kind) => {
+      const { scenario, ...capture } = completeScenarioCapture();
+      const input = JSON.stringify(
+        kind === "omitted" ? capture : { ...capture, scneario: scenario },
+      );
+      const result = await runCli([
+        "compare-web-captures",
+        input,
+        input,
+        "--json",
+      ]);
+      expect(result).toMatchObject({
+        code: "invalid_request",
+        details: {
+          operation: "compare_web_captures",
+          issues: expect.arrayContaining([
+            {
+              path: ["before_scenario", "scenario"],
+              reason: "missing_argument",
+              expected: "object",
+            },
+            {
+              path: ["after_scenario", "scenario"],
+              reason: "missing_argument",
+              expected: "object",
+            },
+          ]),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('"inspection"');
+    },
+  );
 });
 
 describe("browser CLI capture parity", () => {

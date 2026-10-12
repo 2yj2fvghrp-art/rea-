@@ -15,6 +15,7 @@ import {
   type AnalysisInputIssue,
 } from "../domain/analysisErrorCore.js";
 import { compareBrowserScenariosInputSchema } from "../domain/browserScenarioDiffValues.js";
+import { browserScenarioCaptureSchema } from "../domain/browserScenarioCapture.js";
 import { compareWebCapturesInputSchema } from "../domain/webCaptureDiffSchemas.js";
 import { projectInputIssues } from "../domain/inputIssueProjection.js";
 import { discoverWebMcpToolsInputSchema } from "../domain/webMcpDiscovery.js";
@@ -110,14 +111,16 @@ const registerCaptureDiff = (
         });
         if (!inputs.ok) return inputs.error;
         const { before, after, normalization } = inputs.value;
-        // Passive snapshots wrap their inspection; scenarios carry it directly.
-        // Extra snapshot metadata must not change the selected format.
+        // Passive snapshots own the inspection wrapper. Otherwise recognize
+        // scenario-owned fields even when the scenario manifest is missing.
         const scenarioInput = [before, after].some(
           (capture) =>
             typeof capture === "object" &&
             capture !== null &&
-            "scenario" in capture &&
-            !("inspection" in capture),
+            !("inspection" in capture) &&
+            Object.keys(browserScenarioCaptureSchema.shape).some(
+              (field) => field in capture,
+            ),
         );
         const input = scenarioInput
           ? { before_scenario: before, after_scenario: after, normalization }
