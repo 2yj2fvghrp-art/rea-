@@ -184,3 +184,25 @@ seconds with 1,345,052,672 sampled peak bytes and 95.130 last-observed CPU secon
 This is regression evidence, not an interpreter speedup comparison; final
 resource counters remain unverified. Fresh fast static and generated-document
 checks also pass after adding the migration verifier and this report.
+
+## Latest-main integration
+
+The branch rebases without conflict onto main
+`0043d9b134c0a353e8bf85c0bde4492275f1f720`. Production integration commit
+`3766749316c345ccb594b1b748747b1af9582b34` preserves the same EVM projection,
+provider and delivery semantics; intervening main adds unrelated capabilities.
+The above performance cohort stays pinned to its original frozen runtimes and
+is not relabeled as a measurement of the larger integrated catalog.
+
+At `cda794fb9d4a5ca2bd661853a899d579fb8a47b2`, all 30 affected EVM/WASM/generic-view
+MCP tests pass again, as do full `npm run check` and `npm run docs:check`. A fresh
+real Factory SDK selected-summary/retained-parent/page workflow and the original
+Pool bundle's SDK/CLI migration verifier also pass against the rebuilt integrated
+runtime. The latter still has an explicitly unavailable analysis limiter.
+
+The initial integrated static-check scope stops at 3,221,446,656 sampled bytes,
+just above the unchanged 3 GiB early-stop. Running the same typecheck through
+its single Turbo task with less launcher overhead passes at 3,219,353,600 sampled
+bytes; the subsequent full gate uses that valid cached typecheck and passes.
+No memory threshold or check requirement is relaxed. Preserve both receipts;
+these near-limit validation jobs are excluded from efficiency conclusions.
