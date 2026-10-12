@@ -19,15 +19,23 @@ describe the use case and observable outcome. -->
 <!-- Explain the chosen approach, why it fits REA's architecture, and what is
 intentionally not included. -->
 
+Follow the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+Unresolved scope, authority, side effects, or required verification block
+integration. Link the required maintainer scope decision for new providers or
+capabilities involving target execution, injection, mutation, or protection
+recovery; ordinary fixes within existing boundaries may state "not applicable".
+
 ## Contract and boundary impact
 
-<!-- Complete the applicable lines; use "none" or "not applicable" explicitly. -->
+<!-- Complete the applicable lines; mark unresolved facts as "unknown".
+Use "none" or "not applicable" only when established. -->
 
 - Semantic owner and earliest changed stage:
+- Contribution scope fit and linked maintainer decision:
 - CLI and MCP/tool-catalog contract:
 - Provider, bridge, target-format, or platform compatibility:
 - Evidence, artifact, provenance, or reconstruction contract:
-- Process execution, authorization, cleanup, or containment impact:
+- Target selection, execution, injection, scripts, mutation, network, persistence, authorization, cleanup, or containment impact:
 - Generated metadata (`docs/public/product-catalog.json`), package, or installation impact (CI generates and validates ignored catalogs and `skills/`; edit authored instructions in `.agents/skills/reverse-engineer-anything/` and never commit build outputs):
 
 ## Evidence and regression coverage
@@ -71,6 +79,7 @@ limits, security/privacy/containment implications, and meaningful proof gaps. --
 ## Review checklist
 
 - [ ] This PR addresses a concrete problem or an agreed enhancement.
+- [ ] Material scope and authority questions are resolved, and any required maintainer scope decision covers the final diff.
 - [ ] The PR has one focused outcome and the title follows `type(scope): outcome`.
 - [ ] Related issue is linked, or the reason for not linking one is stated above.
 - [ ] Tests cover changed observable behavior and meaningful failure paths.

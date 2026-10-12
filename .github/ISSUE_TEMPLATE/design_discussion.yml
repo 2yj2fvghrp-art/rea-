@@ -11,12 +11,19 @@ body:
         Use this for a substantial provider, public/persisted contract, or
         authority-boundary decision. Keep one decision per discussion.
 
+        Read the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+        Scope and authority decisions must precede integration. Unresolved scope,
+        side effects, or required verification block integration; record unknowns
+        and split mixed proposals into independently assessable capabilities.
+
   - type: checkboxes
     id: before-submitting
     attributes:
       label: Before submitting
       options:
         - label: I searched the open and closed issues and pull requests for a related discussion.
+          required: true
+        - label: I read the contribution scope and understand that unresolved boundary questions block integration.
           required: true
         - label: I removed credentials, tokens, private paths, and sensitive target data.
           required: true
@@ -42,7 +49,12 @@ body:
     id: boundary-invariants
     attributes:
       label: Boundary and invariants
-      description: Identify the owning layer, provider/bridge boundary, artifact or evidence invariants, and any process or authorization constraints.
+      description: >-
+        Explain scope fit, the owning layer, provider/bridge boundary, target
+        selection, and evidence invariants. Identify execution, injection, scripts,
+        mutation, network contact, persistence, and any protection recovery, bypass,
+        or attack automation, including upstream behavior. State authorization
+        constraints and non-goals; mark unknowns explicitly.
     validations:
       required: true
 
@@ -58,7 +70,11 @@ body:
     id: success-criteria
     attributes:
       label: Success criteria and open questions
-      description: State what outcome would settle the decision and list only unresolved questions that could change the choice.
+      description: >-
+        State what evidence would settle scope and authority questions, using
+        self-owned or appropriately licensed samples. Identify relevant real
+        CLI/MCP or provider verification, resource and cleanup checks, unavailable
+        coverage, and unresolved questions that could change the choice.
     validations:
       required: true
 

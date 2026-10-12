@@ -12,12 +12,19 @@ body:
         substantial provider, public contract, or architecture change, explain
         the decision maintainers need to make before implementation.
 
+        Read the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+        REA excludes dedicated commercial-protection bypass and attack workflows.
+        Unresolved scope, authority, side effects, or required verification block
+        integration. You may open a request to resolve those questions first.
+
   - type: checkboxes
     id: before-submitting
     attributes:
       label: Before submitting
       options:
         - label: I searched the open and closed issues and pull requests for a related proposal.
+          required: true
+        - label: I read the contribution scope and understand that unresolved boundary questions block integration.
           required: true
         - label: I removed credentials, tokens, private paths, and sensitive target data.
           required: true
@@ -66,8 +73,27 @@ body:
   - type: textarea
     id: boundaries
     attributes:
-      label: Authority boundaries and non-goals
-      description: Call out process execution, target mutation, provider licensing, evidence provenance, supported platforms, and work that should remain out of scope.
+      label: Scope, authority boundaries, and non-goals
+      description: >-
+        Explain why this fits REA's contribution scope. Identify target selection,
+        process execution or injection, script execution, target or file mutation,
+        network contact, persistence, and any protection recovery, bypass, or attack
+        automation, including upstream behavior. State non-goals, provider licensing,
+        provenance, and platforms. Mark unknowns explicitly; use none only when known.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan and unknowns
+      description: >-
+        How would you verify the outcome and authority boundaries using self-owned
+        or appropriately licensed samples? Include relevant CLI/MCP or real-provider
+        workflows and resource, cancellation, and cleanup checks. State unavailable
+        coverage and open questions; do not attach private or sensitive samples.
+    validations:
+      required: true
 
   - type: textarea
     id: alternatives
