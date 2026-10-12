@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "pr": "https://github.com/morluto/rea/pull/2122",
+  "reviewed_pr_revision": "8d6f7eb1cc3c5d604745b1455edf7bef3d3d04b6",
+  "main_revision": "c22111eca2c4bc84a084f12711f405b3e7422a40",
+  "main_run": "https://github.com/morluto/rea/actions/runs/38224038323",
+  "pr_run": "https://github.com/morluto/rea/actions/runs/38228724531",
+  "pr_introduced_test_mismatches": [
+    {
+      "test": "tests/boundary/mcp/sessionMcp.test.ts",
+      "failure": "Case-sensitive description assertion expects Returns; new accurate wording says By default returns.",
+      "classification": "Test text expectation; not evidence of changed default output.",
+      "resolution": "Check the same complete-graph wording case-insensitively; retain every lifecycle assertion."
+    },
+    {
+      "test": "src/contracts/toolEffects.test.ts",
+      "failure": "Execution-word heuristic flags returned execution/network metadata as foreign execution.",
+      "classification": "Test heuristic false positive; actual effects and pure view implementation remain unchanged.",
+      "resolution": "Use the existing documented exception mechanism for this precise passive metadata description; do not grant execution authority."
+    }
+  ],
+  "preexisting_main_failures": {
+    "unit_test": {
+      "test": "tests/boundary/mcp/promptCompletion.test.ts",
+      "failure": "Expected App/AppTests immediately after open, received an empty completion list.",
+      "main_job": "https://github.com/morluto/rea/actions/runs/38224038323/job/114727940506",
+      "pr_job": "https://github.com/morluto/rea/actions/runs/38228724531/job/114742955092"
+    },
+    "packaged_mac_completion": {
+      "failure": "packaged MCP prompt completion lifecycle failed",
+      "main_jobs": [
+        "https://github.com/morluto/rea/actions/runs/38224038323/job/114728030045",
+        "https://github.com/morluto/rea/actions/runs/38224038323/job/114728029923"
+      ],
+      "pr_jobs": [
+        "https://github.com/morluto/rea/actions/runs/38228724531/job/114743092314",
+        "https://github.com/morluto/rea/actions/runs/38228724531/job/114743092079"
+      ]
+    },
+    "related_change": "07b36c148946f46b99a4ce04e55726e97d0ee03a adds ready-provider-only completion; cold/unsupported lookup can return no result. Existing fixtures still expect immediate populated completion. Runtime defect versus stale fixture intent remains a team review question.",
+    "affected_files": [
+      {
+        "path": "src/server/promptCompletion.ts",
+        "identical_to_main": true,
+        "sha256": "3ee8a3b69a3f9a9371ffd2adef2931542d5b38813a183463b4e690e704f4253c"
+      },
+      {
+        "path": "src/application/binary/BinarySession.ts",
+        "identical_to_main": true,
+        "sha256": "8f57e2f9f5aa2032521261452ce79145f405b953f51b7fd7b3ef7f41b92a5a04"
+      },
+      {
+        "path": "tests/boundary/mcp/promptCompletion.test.ts",
+        "identical_to_main": true,
+        "sha256": "9772fe18ab85f734651b2dba9b3a5a1a80271589ff102b82487c784c76b5ef6f"
+      },
+      {
+        "path": "scripts/verify-package-prompts.mjs",
+        "identical_to_main": true,
+        "sha256": "1683a74c0ce27d0722e53f221299477be3ecf0a8869ba9d75e9b2a132c038841"
+      }
+    ],
+    "action": "Document locally and leave unchanged per maintainer instruction; do not label all CI failures infrastructure faults."
+  },
+  "local_test_sync_verification": {
+    "status": "passed",
+    "files": 2,
+    "tests": 11,
+    "resource": {
+      "resource_scope": "rea-efficiency-4a0033496683481a8b78029bdcd2467f.scope",
+      "peak_cgroup_bytes_sampled": 969371648,
+      "elapsed_seconds": 20.083,
+      "abort": null,
+      "hard_memory_bytes": 4294967296,
+      "early_stop_bytes": 3221225472,
+      "cpu_quota_percent": 100,
+      "cpu_affinity": [15],
+      "task_ceiling": 192,
+      "peak_tasks_sampled": 46,
+      "resource_events_last_observed": {
+        "memory.events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "pids.events": {
+          "max": 0
+        }
+      },
+      "cpu_stat_last_observed": {
+        "usage_usec": 19009276,
+        "user_usec": 16573875,
+        "system_usec": 2435400,
+        "nr_periods": 200,
+        "nr_throttled": 0,
+        "throttled_usec": 0,
+        "nr_bursts": 0,
+        "burst_usec": 0
+      }
+    }
+  },
+  "scope": "Attribution uses actual main/PR job logs and exact source/test equality. Two PR-related stale text checks are synchronized without production changes. Existing main completion failures are not repaired; full raw CI logs remain outside Git."
+}

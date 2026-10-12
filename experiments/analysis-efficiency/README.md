@@ -377,3 +377,14 @@ source-check scope reports three `memory.high` events near its 3 GiB soft
 threshold; these observations remain in the receipt. Heavy lanes stay serial
 with the existing CPU, memory and no-swap controls. No further REA bug repairs
 are included; separate local findings remain for team follow-up.
+
+[CI attribution](results/ci-attribution-20261012.json) separates two PR-related
+description/test mismatches from pre-existing main failures. The complete-graph
+wording check now accepts capitalization changes; the existing effects audit
+records why returning WASM execution/network metadata is not foreign execution.
+Those two files pass 11 focused assertions without production changes. Main's
+own CI already fails the same live prompt-completion assertion and Darwin
+packaged-completion checks; the affected implementation and fixture files are
+byte-identical here. Those failures remain unchanged for team review at the
+maintainer's request. CI failures are not all infrastructure faults, and the
+failed CI gate is not presented as passed.
