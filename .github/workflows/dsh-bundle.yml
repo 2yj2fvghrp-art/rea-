@@ -13,6 +13,10 @@ on:
       - '.github/workflows/dsh-bundle.yml'
   workflow_dispatch:
 
+concurrency:
+  group: dsh-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -78,3 +82,57 @@ jobs:
         run: |
           echo 'Validated: build-free bundle, prebuilt REA MCP handshake, current upstream Harness composition.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Not validated: live DeepSeek API calls, paid providers, native Desktop installation, optional Ghidra/IDA.' >> "$GITHUB_STEP_SUMMARY"
+
+  release-plugin:
+    name: Publish standalone dsh-v plugin GitHub release
+    needs: [contract, native-harness]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+      - name: Check whether this plugin version is already published
+        id: release-version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version="$(node -p 'require("./integrations/deepseek-harness/package.json").version')"
+          tag="dsh-v${version}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if gh release view "${tag}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Plugin release ${tag} already exists; increment the bundle version to publish again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package audited plugin sources without build hooks
+        if: steps.release-version.outputs.exists == 'false'
+        working-directory: integrations/deepseek-harness
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/release-artifacts"
+          npm pack --ignore-scripts --pack-destination "$GITHUB_WORKSPACE/release-artifacts"
+          sha256sum "$GITHUB_WORKSPACE"/release-artifacts/*.tgz
+      - name: Create versioned plugin GitHub release
+        if: steps.release-version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-version.outputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" release-artifacts/*.tgz \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "REA for DeepSeek Harness ${RELEASE_TAG}" \
+            --notes-file integrations/deepseek-harness/RELEASE_NOTES.md
+      - name: Summarize plugin distribution
+        env:
+          RELEASE_TAG: ${{ steps.release-version.outputs.tag }}
+        run: |
+          echo "Standalone Harness plugin: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "The root REA npm/MCP Registry publication remains governed by release.yml." >> "$GITHUB_STEP_SUMMARY"

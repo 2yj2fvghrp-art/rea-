@@ -111,6 +111,14 @@ If it says the launcher is missing, check the npm dependency or local
 `REA_DSH_ENTRYPOINT`. If REA says `dist/mcp/main.js` is missing, build
 the fork checkout. Check target-engine prerequisites separately.
 
+## Versioned GitHub release
+
+An independent `dsh-v*` release is published after contract tests and the
+latest Harness integration job succeed. The release attaches a build-free
+`dsh-rea-bundle-<version>.tgz` package. Download it and install with
+`dsh plugin --profile web add /absolute/path/to/bundle.tgz`. The root REA
+npm/MCP Registry release process remains separate and unchanged.
+
 ## Tests and verification scope
 
 ```sh
