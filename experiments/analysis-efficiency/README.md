@@ -451,6 +451,19 @@ The source/static scope records 98 `memory.high` events, no hard limit/OOM event
 and a sampled peak of 3,221,209,088 bytes. The real migration/Obsidian scope peaks
 at 677,367,808 bytes with no limit/OOM events. All raw receipts remain outside Git.
 
+A later WASM finding was also reproduced: portable sources with absent subject
+or a different subject path could report another artifact path. The producer and
+view now share an exact path/digest identity rule. Actual WABT inspection of the
+published VS Code Tree-sitter INI grammar (0.3.1, 4,716 bytes, SHA-256
+`1e8cdf3027209100fa54a43d0faed69721ae1116428164c8ad6dcc496a9aa6af`)
+supplied the unchanged report for public SDK before/after checks. The old runtime
+accepts both inconsistencies; the corrected runtime rejects both with
+`invalid_request` and WABT unavailable. Its 26 focused assertions and type/lint
+checks pass, and genuine old records still round-trip unchanged. The verification
+scope peaks at 3,204,509,696 bytes with no observed limit/OOM event. The initial
+CSS producer exceeded the MCP reply budget as expected; that failed probe is
+preserved separately and is not credited as a completed identity reproduction.
+
 These revisions identify different experiment stages; model measurements were
 not rerun or relabeled as post-integration measurements.
 

@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { err, ok, type Result } from "../result.js";
-import { wasmArtifactSchema } from "../wasm/wasmArtifact.js";
+import {
+  wasmArtifactSchema,
+  wasmArtifactMatchesSubject,
+} from "../wasm/wasmArtifact.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import {
   analysisViewInputError,
@@ -92,6 +95,27 @@ export const projectWasmArtifactView = (
       ),
     );
   const report = parsed.data;
+  if (
+    !wasmArtifactMatchesSubject(
+      report.artifact,
+      parent.subject == null
+        ? null
+        : {
+            path: parent.subject.local_path,
+            sha256: parent.subject.digest.sha256,
+          },
+    )
+  )
+    return err(
+      analysisViewInputError([
+        {
+          path: ["source", "subject"],
+          reason: "invalid_value",
+          message:
+            "WASM parent Evidence subject must identify the report's exact path and SHA-256.",
+        },
+      ]),
+    );
   const limitations = uniqueSorted([
     ...parent.limitations,
     ...report.limitations,

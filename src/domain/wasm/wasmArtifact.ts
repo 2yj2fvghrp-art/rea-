@@ -136,3 +136,12 @@ export type InspectWasmArtifactInput = z.infer<
   typeof inspectWasmArtifactInputSchema
 >;
 export type WasmArtifact = z.infer<typeof wasmArtifactSchema>;
+
+/** A WASM observation must identify the exact selected path and byte digest. */
+export const wasmArtifactMatchesSubject = (
+  artifact: WasmArtifact["artifact"],
+  subject: Pick<WasmArtifact["artifact"], "path" | "sha256"> | null | undefined,
+): subject is Pick<WasmArtifact["artifact"], "path" | "sha256"> =>
+  subject != null &&
+  subject.path === artifact.path &&
+  subject.sha256 === artifact.sha256;

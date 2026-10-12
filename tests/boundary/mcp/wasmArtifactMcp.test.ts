@@ -280,6 +280,51 @@ it("reads an oversized completed WASM result through its reported retained refer
   await harness.client.ping();
 });
 
+it("rejects absent or inconsistent WASM source identity before deriving portable views", async () => {
+  const value = wasmArtifactFixture();
+  const harness = await createApplicationMcpHarness({
+    serverOptions: { environment: {} },
+  });
+  onTestFinished(harness.close);
+  for (const target of [
+    undefined,
+    {
+      path: `${value.artifact.path}.other`,
+      sha256: value.artifact.sha256,
+      format: "file" as const,
+    },
+    {
+      path: value.artifact.path,
+      sha256: "f".repeat(64),
+      format: "file" as const,
+    },
+  ]) {
+    const source = createEvidence(
+      target,
+      { id: "historical-wabt", name: "Historical WABT", version: "1" },
+      { operation: "inspect_wasm_artifact", parameters: {}, result: value },
+    );
+    for (const view of [
+      { kind: "summary" },
+      { kind: "wasm", facet: "exports", offset: 0, limit: 1 },
+    ]) {
+      const reply = await harness.client.callTool({
+        name: "inspect_analysis_view",
+        arguments: { source: { kind: "inline", evidence: source }, view },
+      });
+      expect(parseMcpToolError(reply)).toMatchObject({
+        error: {
+          code: "invalid_request",
+          details: {
+            issues: [{ path: ["source", "subject"], reason: "invalid_value" }],
+          },
+        },
+      });
+    }
+  }
+  await harness.client.ping();
+});
+
 it("retries cleanup of the injected WASM module after server shutdown fails", async () => {
   const close = vi
     .fn()
