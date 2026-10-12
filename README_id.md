@@ -9,7 +9,6 @@
 **Melihat fitur yang Anda sukai. Pahami cara kerjanya hingga ke tingkat biner.**
 
 [![npm version](https://img.shields.io/npm/v/rea-agents?style=flat-square&color=cb3837)](https://www.npmjs.com/package/rea-agents)
-[![CI](https://img.shields.io/github/actions/workflow/status/morluto/rea/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/morluto/rea/actions/workflows/ci.yml)
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](docs/mcp-contracts.md#generated-catalog)
 [![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
@@ -101,11 +100,13 @@ Untuk analisis native, konfigurasikan penyedia terlebih dahulu. Lihat [Panduan C
 
 REA berkembang dengan cepat, dan rilis baru sering menyertakan perbaikan bug. Pastikan instalasi Anda selalu diperbarui.
 
-Untuk CLI yang dipasang melalui npm:
+Untuk CLI yang dipasang melalui `npm install --global` atau `bun add --global`:
 
 ```bash
 rea update
 ```
+
+Pembaruan global dengan Bun memerlukan Bun 1.2.17 atau yang lebih baru. Pada rilis Bun yang lebih lama, perbarui Bun secara manual sebelum menjalankan `rea update`.
 
 Untuk memperbarui pendaftaran agen dan skill Anda, jalankan perintah penyiapan yang ditampilkan oleh proses pembaruan.
 
@@ -115,7 +116,7 @@ Jika Anda menggunakan `npx`, perbarui penyiapan agen dengan:
 npx rea-agents@latest setup
 ```
 
-Tinjau perubahan penyiapan dan mulai ulang agen Anda. Untuk menjalankan perintah CLI sekali pakai, gunakan `npx rea-agents@latest` diikuti dengan perintah yang diinginkan.
+Tinjau perubahan penyiapan dan mulai ulang agen Anda. Untuk menjalankan perintah CLI sekali pakai, gunakan `npx rea-agents@latest` diikuti dengan perintah yang diinginkan. Dengan Bun, gunakan `bunx rea-agents@latest` sebagai pengganti `npx rea-agents@latest`.
 
 ## Cara Kerja REA
 
@@ -139,6 +140,7 @@ Alat tambahan dan dukungan sistem host bergantung pada target yang dianalisis:
 | -------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Biner native               | Pseudocode, assembly, string, simbol, pemanggilan, dan referensi                                      | Hopper, Ghidra, atau IDA; [analisis native](https://rea.tools/id/guides/native/)                                                   |
 | Tata letak ELF offline     | Bagian, segmen, simbol/relokasi asli, dan kandidat mitigasi statis                                    | pwntools yang disediakan pemanggil pada Linux x64; [diagnostik biner](docs/binary-diagnostics.md)                                  |
+| Artefak WASM               | Validasi, bagian, bentuk WAT import/ekspor yang tepat, dan WAT yang didekode                          | WABT 1.0.42 yang disediakan pemanggil; `inspect_wasm_artifact`                                                                     |
 | Bytecode EVM               | Selector dispatch, offset byte, argumen yang disimpulkan, dan sifat mutabilitas                       | Pembawa data raw/hex lokal; [panduan EVM offline](docs/evm-bytecode.md)                                                            |
 | Crash Linux yang direkam   | Catatan mentah, register/sinyal setiap thread yang direkam, dan kandidat pemetaan opsional            | pwntools yang disediakan pemanggil; GDB/pwndbg opsional; [crash yang direkam](docs/recorded-crashes.md)                            |
 | JavaScript / Electron      | Modul, impor, source map, rute, IPC, dan hubungan add-on native                                       | Node.js dan npm; [analisis aplikasi](https://rea.tools/id/guides/javascript/)                                                      |
@@ -246,7 +248,7 @@ REA menganalisis target secara lokal. Agen Anda menerima hasil alat, sedangkan p
 
 Perbarui terlebih dahulu. Rilis terbaru mungkin sudah memperbaiki masalah tersebut.
 
-Untuk CLI yang dipasang melalui npm:
+Untuk CLI yang dipasang melalui `npm install --global` atau `bun add --global`:
 
 ```bash
 rea update
@@ -281,7 +283,7 @@ Laporkan kerentanan melalui [SECURITY.md](SECURITY.md).
 
 ## Riwayat Bintang
 
-🎉 **80.000 bintang GitHub, terima kasih!**
+🎉 **110.000 bintang GitHub, terima kasih!**
 
 Terima kasih kepada semua orang yang menggunakan REA, melaporkan bug, meminta fitur, menguji build, dan berkontribusi dalam perbaikan.
 
@@ -295,9 +297,13 @@ Terima kasih kepada semua orang yang menggunakan REA, melaporkan bug, meminta fi
 
 ## Penafian
 
-REA menyediakan alat untuk penelitian, analisis, dan rekonstruksi rekayasa balik yang sah. Anda bertanggung jawab untuk memperoleh otorisasi yang diperlukan dan mematuhi hukum yang berlaku. Proyek ini tidak mendukung penggunaan ilegal atau tanpa izin.
+Lihat [DISCLAIMER.md](DISCLAIMER.md) untuk panduan penggunaan yang bertanggung jawab.
 
-REA adalah proyek perangkat lunak sumber terbuka. Kami tidak menerbitkan atau mendukung mata uang kripto maupun token apa pun. Token yang menggunakan nama REA tidak berafiliasi dengan proyek ini.
+REA ditujukan untuk penelitian, pendidikan, interoperabilitas, pelestarian perangkat lunak, dan analisis perangkat lunak yang Anda miliki atau diizinkan untuk Anda periksa, sesuai hukum.
+
+The project's position on illegal or unauthorized use covers all REA
+versions, distribution channels, and platforms; each copy retains its
+applicable licenses.
 
 ## Kontribusi
 
@@ -308,3 +314,15 @@ Lihat [CONTRIBUTING.md](CONTRIBUTING.md) untuk penyiapan pengembangan dan pemeri
 ## Lisensi
 
 [MIT](LICENSE)
+
+REA-authored code is licensed under MIT. Third-party material retains its own
+licenses and copyright notices; see [Third-party notices](THIRD_PARTY_NOTICES.md)
+for the dependency inventory, preserved license texts, and external-tool terms.
+
+**You must legally obtain and be authorized to use commercial tools**, including
+IDA Pro / Hex-Rays decompilers, Hopper, and JEB, under their applicable licenses.
+REA grants no tool license, key, or activation entitlement. Trials and demos
+remain subject to vendor terms, including user, feature, automation, and output
+sharing restrictions. Cracked copies, stolen keys, unauthorized key sharing,
+and bypassing license restrictions are not authorized. This guidance does not
+amend MIT or third-party licenses.
