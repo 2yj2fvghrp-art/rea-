@@ -22,6 +22,7 @@ import { PRODUCT_IDENTITY } from "../identity.js";
 import { npxRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
+import { readRegularFile } from "./RegularFileRead.js";
 import type {
   ClientConfigurationInspection,
   ClientConfigurationResult,
@@ -323,14 +324,14 @@ const isMissing = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 
 const ZCODE_FALLBACK_REMEDIATION =
-  "The ZCode fallback configuration ~/.agents/mcp.json is malformed. Repair or remove it before rerunning setup: writing the first native ZCode server would suppress that fallback entirely.";
+  "The ZCode fallback configuration ~/.agents/mcp.json is malformed or cannot be read as a regular file. Repair or remove it before rerunning setup: writing the first native ZCode server would suppress that fallback entirely.";
 
 /**
  * ZCode reads the industry-standard `mcpServers` table of the user-scope
  * `~/.agents/mcp.json` only while the native `.zcode` config defines no
  * servers at all, with no merging. Returns the fallback servers to preserve,
  * `undefined` when there is nothing to preserve, or `null` when the fallback
- * exists but cannot be parsed safely.
+ * exists but cannot be read or parsed safely.
  */
 const readZcodeFallbackServers = async (
   configPath: string,
@@ -342,9 +343,15 @@ const readZcodeFallbackServers = async (
     ".agents",
     "mcp.json",
   );
+  // The fallback is admitted like a client configuration source: the
+  // transaction path applies the symlink policy and the regular-file read
+  // rejects FIFOs and other non-regular files without blocking on them.
+  const transactionPath =
+    await resolveClientConfigTransactionPath(fallbackPath);
+  if (transactionPath === undefined) return null;
   let text: string;
   try {
-    text = await readFile(fallbackPath, "utf8");
+    text = (await readRegularFile(transactionPath)).toString("utf8");
   } catch (cause: unknown) {
     return isMissing(cause) ? undefined : null;
   }

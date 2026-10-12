@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -240,6 +242,38 @@ describe("ZCode .agents fallback preservation", () => {
       { status: "invalid" },
     );
   });
+
+  it("fails closed when the fallback path is not a regular file", async () => {
+    const { home, client } = await zcodeClient();
+    await mkdir(fallbackPath(home), { recursive: true });
+
+    expect(await configureClientConfiguration(client, {}, command)).toEqual({
+      status: "failed",
+      reason: "readback",
+    });
+    await expect(readFile(client.configPath, "utf8")).rejects.toThrow();
+    expect(await inspectClientConfiguration(client, {}, command)).toMatchObject(
+      { status: "invalid" },
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a FIFO fallback without blocking on it",
+    async () => {
+      const { home, client } = await zcodeClient();
+      await mkdir(join(home, ".agents"), { recursive: true });
+      await promisify(execFile)("mkfifo", [fallbackPath(home)]);
+
+      expect(await configureClientConfiguration(client, {}, command)).toEqual({
+        status: "failed",
+        reason: "readback",
+      });
+      await expect(readFile(client.configPath, "utf8")).rejects.toThrow();
+      expect(
+        await inspectClientConfiguration(client, {}, command),
+      ).toMatchObject({ status: "invalid" });
+    },
+  );
 });
 
 describe("ZCode disabled registrations", () => {
