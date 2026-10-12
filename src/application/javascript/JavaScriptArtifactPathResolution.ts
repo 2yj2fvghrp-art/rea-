@@ -74,7 +74,6 @@ const EXTENSIONS = [
   ".html",
   ".node",
 ];
-const COMMONJS_EXTENSIONS = [".js", ".json", ".node"];
 
 // A private URL namespace for logical artifact paths, including root packages.
 // Encode inventory segments so filename punctuation remains literal in the base.
@@ -101,6 +100,8 @@ type CandidateResolution =
       readonly resolvedPath: null;
       readonly status: UnresolvedArtifactPathStatus;
       readonly limitations: readonly string[];
+      /** A truthy package main failed, so Node must not try ancestor packages. */
+      readonly stopsAncestorLookup?: true;
     };
 
 /** Resolve one declaration while preserving its original input identity. */
@@ -146,16 +147,21 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
         `The exact HTML resource ${confined} was not found among the selected application files.`,
       ])
     );
-  return resolveCandidate(
-    input,
-    confined,
-    new Set(),
+  const isModuleUrlPath =
     input.context === "module-specifier" &&
-      input.moduleKind !== undefined &&
-      (input.declaredPath.startsWith(".") || input.declaredPath.startsWith("/"))
+    (input.declaredPath.startsWith(".") ||
+      input.declaredPath.startsWith("/") ||
+      fileUrlPath(input.declaredPath) !== undefined);
+  const emittedSourceCandidates =
+    isModuleUrlPath && input.moduleKind !== undefined
       ? typescriptEmittedSourceCandidates(input.sourcePath, confined)
-      : [],
-  );
+      : [];
+  if (isModuleUrlPath && input.moduleKind === "import")
+    return (
+      resolveFileCandidates(input, [confined, ...emittedSourceCandidates]) ??
+      notFoundCandidate()
+    );
+  return resolveCandidate(input, confined, new Set(), emittedSourceCandidates);
 };
 
 const rejectDeclaration = (declared: string): CandidateResolution | null => {
@@ -270,23 +276,39 @@ const bareModuleCandidate = (
   }
   const source = input.files.get(input.sourcePath);
   let directory = posix.dirname(input.sourcePath);
+  let nearestNotFound: CandidateResolution | null = null;
   while (true) {
     const candidate = posix.join(directory, dependencyDirectory);
     const metadata = readPackageMetadata(input, candidate);
-    if (request.dependencyExportsEligible && metadata.kind !== "absent")
-      return resolvePackageDependency(input, candidate, request, metadata);
-    if (request.packageSubpath === ".") {
-      const direct = resolveFileCandidates(
-        input,
-        fileCandidates(candidate, input.moduleKind),
-      );
-      if (direct !== null) return direct;
+    const continueCommonJsLookup =
+      input.moduleKind === "require" &&
+      (metadata.kind === "absent" ||
+        (metadata.kind === "available" &&
+          (!request.dependencyExportsEligible ||
+            metadata.exports === undefined)));
+    const packageResolution =
+      metadata.kind !== "absent" ||
+      hasContainerDirectory(input.files, candidate, source?.container_sha256)
+        ? resolvePackageDependency(input, candidate, request, metadata)
+        : request.packageSubpath === "." && input.moduleKind !== "import"
+          ? resolveFileCandidates(
+              input,
+              fileCandidates(candidate, input.moduleKind),
+            )
+          : null;
+    if (packageResolution !== null) {
+      if (
+        continueCommonJsLookup &&
+        packageResolution.status === "not-found" &&
+        packageResolution.stopsAncestorLookup !== true
+      ) {
+        nearestNotFound ??= packageResolution;
+      } else return packageResolution;
     }
-    if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
-      return resolvePackageDependency(input, candidate, request, metadata);
     if (directory === "." || directory === "") break;
     directory = posix.dirname(directory);
   }
+  if (nearestNotFound !== null) return nearestNotFound;
   return unresolvedCandidate("external", [
     "No matching bare package was inventoried in an enclosing node_modules directory.",
   ]);
@@ -421,10 +443,12 @@ const resolvePackageDependency = (
   if (rawExports === undefined) {
     if (subpath === ".")
       return (
-        resolveFileCandidates(
-          input,
-          fileCandidates(directory, input.moduleKind),
-        ) ?? resolveDirectory(input, directory, metadata, new Set())
+        (input.moduleKind === "import"
+          ? null
+          : resolveFileCandidates(
+              input,
+              fileCandidates(directory, input.moduleKind),
+            )) ?? resolveDirectory(input, directory, metadata, new Set())
       );
     // Resolve legacy ESM subpaths as URLs: suffixes identify the loaded module
     // but do not belong to its filesystem path. Keep the declared specifier on
@@ -788,11 +812,14 @@ const resolveDirectory = (
     return unresolvedCandidate("unavailable", [
       `Directory package entrypoint cycle includes ${metadata.path}.`,
     ]);
-  const preferred = [
-    metadata.main,
-    ...(input.moduleKind === undefined ? [metadata.module] : []),
-  ];
-  const entry = preferred.find((value) => value !== undefined);
+  const entry =
+    metadata.main === ""
+      ? undefined
+      : metadata.main !== undefined
+        ? metadata.main
+        : input.moduleKind === undefined
+          ? metadata.module
+          : undefined;
   if (entry === undefined)
     return (
       resolveFileCandidates(
@@ -819,11 +846,14 @@ const resolveDirectory = (
   if (typeof confined !== "string") return confined;
   const selected =
     resolveFileCandidates(entryInput, [
-      ...fileCandidates(confined, input.moduleKind),
-      ...indexCandidates(confined, input.moduleKind),
+      ...fileCandidates(confined, entryInput.moduleKind),
+      ...indexCandidates(confined, entryInput.moduleKind),
     ]) ??
     resolveFileCandidates(input, indexCandidates(directory, input.moduleKind));
   if (selected !== null) return selected;
+  if (input.moduleKind === "require")
+    return { ...notFoundCandidate(), stopsAncestorLookup: true };
+  if (input.moduleKind !== undefined) return notFoundCandidate();
   return resolveCandidate(
     entryInput,
     confined,
@@ -848,18 +878,14 @@ const resolveFileCandidates = (
   return null;
 };
 
-/** Default Node require probes only these suffixes; artifact inference is broader. */
-const candidateExtensions = (
-  moduleKind: ResolveArtifactPathInput["moduleKind"],
-): readonly string[] =>
-  moduleKind === "require" ? COMMONJS_EXTENSIONS : EXTENSIONS;
+const NODE_MODULE_EXTENSIONS = [".js", ".json", ".node"] as const;
 
 const fileCandidates = (
   candidate: string,
   moduleKind?: ResolveArtifactPathInput["moduleKind"],
 ): readonly string[] => [
   candidate,
-  ...candidateExtensions(moduleKind).map(
+  ...(moduleKind === undefined ? EXTENSIONS : NODE_MODULE_EXTENSIONS).map(
     (extension) => `${candidate}${extension}`,
   ),
 ];
@@ -868,8 +894,8 @@ const indexCandidates = (
   candidate: string,
   moduleKind?: ResolveArtifactPathInput["moduleKind"],
 ): readonly string[] =>
-  candidateExtensions(moduleKind).map((extension) =>
-    posix.join(candidate, `index${extension}`),
+  (moduleKind === undefined ? EXTENSIONS : NODE_MODULE_EXTENSIONS).map(
+    (extension) => posix.join(candidate, `index${extension}`),
   );
 
 type PackageTargetBlockCause = "null" | "empty-array";
@@ -1098,7 +1124,10 @@ const packageExportConditions = (
     "default",
   ]);
 
-const notFoundCandidate = (): CandidateResolution => ({
+const notFoundCandidate = (): Extract<
+  CandidateResolution,
+  { readonly resolvedPath: null }
+> => ({
   resolvedPath: null,
   status: "not-found",
   limitations: [
