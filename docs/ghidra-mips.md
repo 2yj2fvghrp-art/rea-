@@ -61,12 +61,14 @@ absent or supply a default ABI.
 The field layout follows
 [`Elf_MIPS_ABIFlags_v0`](https://github.com/bminor/glibc/blob/master/elf/elf.h).
 
-Provider admission requires record version 0, MIPS32r2, 32-bit GPRs, no CPR2,
-no ISA extension, ASE or unknown general flags, and one of two floating-point
-declarations: 32-bit CPR1 with a double-precision or FPXX ABI, or no CPR1 with
-the soft-float ABI. Other combinations, including single-float, FP64 and
-unspecified ABIs, are refused. Missing records remain unknown rather than
-defaulting to a compatible ABI, and this lane refuses them. Unknown record
+Provider admission on the declared-ABI lane above requires record version 0,
+MIPS32r2, 32-bit GPRs, no CPR2, no ISA extension, ASE or unknown general
+flags, and one of two floating-point declarations: 32-bit CPR1 with a
+double-precision or FPXX ABI, or no CPR1 with the soft-float ABI. Other
+combinations, including single-float, FP64 and unspecified ABIs, are refused.
+Missing records remain unknown rather than defaulting to a compatible ABI, and
+the declared-ABI lane refuses them; the recordless legacy admission above is
+the only path that admits a recordless image. Unknown record
 values are retained for diagnosis but do not gain provider support. These checks
 bind the declared interpretation; the fixtures do not establish full
 floating-point behavioral conformance.

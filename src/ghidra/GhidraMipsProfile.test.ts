@@ -165,6 +165,20 @@ describe("bounded Ghidra MIPS admission", () => {
 });
 
 describe("recordless legacy MIPS32 admission", () => {
+  it("keeps recordless relocatable objects off the inferred-o32 lane", async () => {
+    const ghidra = new GhidraProvider(config, silentLogger, {}, host);
+    const object = target({
+      flags: 0x50000001,
+      abiFlags: null,
+      type: 1,
+    });
+    expect(ghidra.inspectTargetSupport(object)).toMatchObject({
+      status: "unsupported",
+    });
+    const resolved = await ghidra.resolveAnalysisProfile(object);
+    expect(resolved.ok).toBe(false);
+  });
+
   it.each([
     [{ flags: 0x50000001 }, "EF_MIPS_ARCH_32"],
     [{ flags: 0x70000001 }, "EF_MIPS_ARCH_32R2"],

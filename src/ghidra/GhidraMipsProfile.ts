@@ -24,6 +24,9 @@ export const isLegacyMipsAdmission = (target: BinaryTarget): boolean => {
   const { flags, abiFlags, limitations } = target.mips;
   const arch = flags & 0xf0000000;
   return (
+    // The lane and its verification cover executable firmware images only;
+    // recordless relocatable objects stay outside the inferred-o32 assumption.
+    target.mips.type === MIPS_ET_EXEC &&
     (arch === 0x50000000 || arch === 0x70000000) &&
     (flags & 0x0000f000) === 0 &&
     (flags & 0x20) === 0 &&
