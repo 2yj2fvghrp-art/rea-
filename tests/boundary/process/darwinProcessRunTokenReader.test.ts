@@ -215,17 +215,42 @@ it.skipIf(process.platform === "win32")(
     const executable = join(directory, "hanging-xcrun");
     await writeFile(
       executable,
-      '#!/usr/bin/env node\nprocess.stderr.write("error: PCH was compiled with module cache path that differs\\n");\nsetInterval(() => {}, 1000);\n',
+      '#!/usr/bin/env node\nprocess.stderr.write("error: PCH was compiled with module cache path that differs\\n", () => { setInterval(() => {}, 1000); });\n',
     );
     await chmod(executable, 0o755);
     const reader = createDarwinProcessRunTokenReader({
       xcrun: executable,
-      compileTimeoutMs: 500,
+      // Headroom for the child interpreter's cold start under suite load.
+      compileTimeoutMs: 3_000,
     });
     try {
       await expect(preparationFailure(reader)).resolves.toMatchObject({
         message:
-          "macOS process ownership helper compilation failed via xcrun (compiler result: timed out after 500 ms): error: PCH was compiled with module cache path that differs",
+          "macOS process ownership helper compilation failed via xcrun (compiler result: timed out after 3000 ms): error: PCH was compiled with module cache path that differs",
+      });
+    } finally {
+      await reader.close();
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "reports the stop signal when the compiler dies without an exit code",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-compiler-signal-test-",
+    );
+    const executable = join(directory, "segv-xcrun");
+    await writeFile(
+      executable,
+      '#!/usr/bin/env node\nprocess.stderr.write("fatal: segmentation fault during type checking\\n");\nprocess.kill(process.pid, "SIGSEGV");\n',
+    );
+    await chmod(executable, 0o755);
+    const reader = createDarwinProcessRunTokenReader({ xcrun: executable });
+    try {
+      await expect(preparationFailure(reader)).resolves.toMatchObject({
+        message:
+          "macOS process ownership helper compilation failed via xcrun (compiler result: stopped by signal SIGSEGV): fatal: segmentation fault during type checking",
       });
     } finally {
       await reader.close();

@@ -224,11 +224,14 @@ export const createDarwinProcessRunTokenReader = (
       } catch (cause: unknown) {
         if (isExpectedAbort(cause, signal)) throw cause;
         const failure = execFileOutputFailure(cause);
+        // A parsed failure carries its own null code (a signaled compiler);
+        // only an unparsed cause falls back to the raw error property.
         const code =
-          failure?.code ??
-          (cause instanceof Error && "code" in cause
-            ? String(cause.code)
-            : "unknown");
+          failure !== undefined
+            ? failure.code
+            : cause instanceof Error && "code" in cause
+              ? String(cause.code)
+              : "unknown";
         throw new DarwinProcessOwnershipInspectionError(
           code === "ENOENT"
             ? `macOS process ownership inspection requires the Apple Swift compiler via xcrun (compiler result: ${String(code)})`
