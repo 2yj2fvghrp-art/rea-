@@ -5,7 +5,7 @@ import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
-import { createEvmInterfaceService } from "../composition/evm.js";
+import { evmInterfaceModule } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
 import { registerRecordedCrashTools } from "./registerRecordedCrashTools.js";
 import { createRecordedCrashService } from "../composition/binaryDiagnostics.js";
@@ -242,7 +242,11 @@ export const createServer = (
   const environment = snapshotEnvironment(options.environment ?? process.env);
   const delivery = selectToolResultDelivery(environment, options.delivery);
   const evmInterface =
-    options.evmInterface ?? createEvmInterfaceService(environment);
+    options.evmInterface ?? evmInterfaceModule.create(environment);
+  const binaryLayout =
+    options.binaryLayout ?? createBinaryLayoutService(environment);
+  const recordedCrash =
+    options.recordedCrash ?? createRecordedCrashService(environment);
   const webSourceLocation =
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const webModuleTrace =
@@ -258,6 +262,8 @@ export const createServer = (
     environment,
     delivery,
     evmInterface,
+    binaryLayout,
+    recordedCrash,
     webSourceLocation,
     webModuleTrace,
     javascriptRecovery,
@@ -296,6 +302,8 @@ export const createServer = (
       adbDevice.close(),
       flutter.close(),
       evmInterface.close(),
+      binaryLayout.close(),
+      recordedCrash.close(),
       webSourceLocation.close(),
       webModuleTrace.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
@@ -372,6 +380,7 @@ export const createServer = (
     toolContext,
     android,
     wasmArtifact,
+    evmInterface,
     jeb,
     firmwareAnalysis,
   );
@@ -449,6 +458,7 @@ const registerConfiguredAnalysisTools = (
   }: ServerToolContext,
   android: AndroidAnalysisPort,
   wasmArtifact: Pick<WasmArtifactService, "inspect" | "close">,
+  evmInterface: EvmInterfaceService,
   jeb: JebAnalysisPort,
   firmwareAnalysis: FirmwareAnalysisService,
 ): void => {
@@ -505,7 +515,7 @@ const registerConfiguredAnalysisTools = (
   );
   registerEvmTools(
     server,
-    options.evmInterface ?? createEvmInterfaceService(environment),
+    evmInterface,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
