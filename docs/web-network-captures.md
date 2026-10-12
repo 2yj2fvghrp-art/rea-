@@ -100,6 +100,11 @@ resources follow the same explicit declarations without changing error types;
 sensitive issue pointers identify a real ancestor instead of a fabricated
 coordinate. Header/cookie authentication values and known
 transport URL userinfo are excluded structurally, including native backups.
+HAR redaction and API-surface projection share the same recorded-URL parser.
+Canonical userinfo spans are removed without rewriting the remaining source
+text. Credential-bearing spellings without a safe raw span, such as slashless
+or extra-slash HTTP URLs, are excluded as a whole transport field. Ordinary
+extension text and noncredential path/query values remain unchanged.
 
 Generated free-text limitations follow the same literal declarations, including
 global, per-record and Evidence explanations added during projection. Contract
@@ -155,17 +160,23 @@ Parents inspected with `sensitive_values`, or whose Evidence does not record
 `sensitive_value_count`, return a typed unsupported error whose reason is the
 canonical token `sensitive_values_unretained`. The view would write path
 templates and limitation text that it cannot check against declarations the
-parent does not retain, so the refusal does not repeat declaration text. Each
-path is bounded before it is split. Four retained copies of its text, and two
-copies of the request method and origin, are charged against bytes already
-retained before the group key is serialized. A new group is retained only when
-those path, method, origin, and segment charges fit together. The content-type
-set is created and charged when the first type is retained; each later distinct
-type is charged before it is kept. Newly retained templated segments, distinct
-observed values, and deduplication sets created on the first merge are charged
-against the 96 MiB reply budget before those sets are allocated; exceeding the
-budget returns `resource_constraint`. Limitations on the examined records are
-deduplicated onto the view.
+parent does not retain, so the refusal does not repeat declaration text.
+
+One accumulator owns group identity, observed-value/status/MIME sets, ordinals,
+exclusions and deduplicated limitations. It scans path spans without splitting
+literal paths into arrays. Temporary URL/path/MIME work and retained state must
+fit together within a 96 MiB projection representation budget. A whole group or
+merge is admitted before allocating its retained sets, map entries or array
+values. Fixed group storage, distinct text, exclusions and limitations count as
+well as matched segments. Per-record reservations are released after each
+record; repeated values do not accumulate another retained charge. Only the
+requested page is materialized as output groups.
+
+The representation budget uses conservative storage and worst-case JSON-escaping
+allowances; it is not an enforced V8 heap or process-memory limit. It is separate
+from the decoder's actual reply-byte limit and MCP transport admission. Exceeding
+it returns `resource_constraint` without a partial view. Limitations on the
+examined records are deduplicated onto the view.
 
 ## Resource and lifecycle boundaries
 
