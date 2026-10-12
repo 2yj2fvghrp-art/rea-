@@ -100,7 +100,7 @@ describe("IDA workspace ownership before input preparation", () => {
           ]);
           // No open was attempted, so there is no worker to report.
           expect(closed.error).not.toHaveProperty(
-            "diagnostics.upstream_worker",
+            "diagnostics.upstream_sessions",
           );
         }
         expect(producer.detaches).toBe(1);

@@ -71,9 +71,14 @@ describe("headless IDA timeout through the one-shot CLI", () => {
           cleanup_error: {
             details: {
               diagnostics: {
-                upstream_worker: {
-                  session_ids: [expect.stringMatching(/^rea-/)],
+                upstream_sessions: {
                   state: "unverified",
+                  sessions: [
+                    {
+                      session_id: expect.stringMatching(/^rea-/),
+                      backend: "worker",
+                    },
+                  ],
                 },
               },
             },

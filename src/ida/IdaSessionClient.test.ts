@@ -800,7 +800,10 @@ describe("headless IDA session ownership and cleanup", () => {
     expect(result).toMatchObject({
       error: {
         diagnostics: {
-          upstream_worker: { session_ids: [sessionId], state: "unverified" },
+          upstream_sessions: {
+            state: "unverified",
+            sessions: [{ session_id: sessionId, backend: "worker" }],
+          },
         },
       },
     });
@@ -855,7 +858,11 @@ describe("headless IDA reaped worker cleanup", () => {
     expect(result).toMatchObject({
       error: {
         diagnostics: {
-          upstream_worker: { session_ids: ["unrelated-live-peer"] },
+          upstream_sessions: {
+            sessions: [
+              { session_id: "unrelated-live-peer", backend: "worker" },
+            ],
+          },
         },
       },
     });
@@ -863,6 +870,59 @@ describe("headless IDA reaped worker cleanup", () => {
     expect(
       (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
     ).toBe(true);
+
+    // A retry whose inventory is unavailable keeps the observed blocker.
+    producer.beforeCall = async (name) => {
+      if (name === "idb_list") throw new Error("inventory unavailable");
+    };
+    const retried = await client.close();
+    expect(retried.ok).toBe(false);
+    expect(retried).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_sessions: {
+            sessions: [
+              { session_id: "unrelated-live-peer", backend: "worker" },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("reports a blocking GUI session by its backend", async () => {
+    const { producer, client } = await fixture("headless");
+    expect((await client.execute("health", {})).ok).toBe(true);
+    const sessionId = producer.database;
+    producer.overrideCall = (name) => {
+      if (name === "idb_close")
+        return { error: `Session not found: ${sessionId}` };
+      if (name === "idb_list")
+        return {
+          sessions: [
+            {
+              session_id: "",
+              input_path: producer.inputPath,
+              owned: false,
+              backend: "gui",
+              is_active: true,
+            },
+          ],
+        };
+      return undefined;
+    };
+
+    const result = await client.close();
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_sessions: {
+            sessions: [{ session_id: "", backend: "gui" }],
+          },
+        },
+      },
+    });
   });
 
   it("retries independent inventory verification after an absent-session response", async () => {
