@@ -137,13 +137,6 @@ export class ZipArtifactReader implements ArtifactReader {
     string,
     { readonly source: Entry; readonly metadata: ArtifactEntry }
   >();
-  /**
-   * Cumulative uncompressed bytes declared by enumerated regular entries.
-   * zip.js verifies streamed output against each declaration, so this total
-   * bounds the decompression work any later `open()` can actually drive.
-   */
-  #declaredFileBytes = 0;
-
   /** Optionally bound each metadata read before allocating its backing buffer. */
   constructor(
     path: string,
@@ -164,9 +157,8 @@ export class ZipArtifactReader implements ArtifactReader {
 
   async *entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry> {
     let index = 0;
-    // Charge each enumeration once; a repeated pass over the same reader must
-    // not accumulate the previous pass's declared bytes.
-    this.#declaredFileBytes = 0;
+    // A traversal owns its accounting, including overlapping or repeated passes.
+    let declaredFileBytes = 0;
     for await (const entry of this.#reader.getEntriesGenerator({
       decodeText: decodeZipEntryText,
     })) {
@@ -174,7 +166,21 @@ export class ZipArtifactReader implements ArtifactReader {
       // ZIP member identity is its directory occurrence, not its filename.
       // Logical path uniqueness belongs to the artifact inventory boundary.
       const metadata = projectZipEntry(entry, index++);
-      this.#chargeDeclaredBytes(metadata);
+      if (
+        metadata.kind === "file" &&
+        !metadata.encrypted &&
+        metadata.declaredSize !== null &&
+        Number.isSafeInteger(metadata.declaredSize) &&
+        metadata.declaredSize >= 0
+      ) {
+        declaredFileBytes += metadata.declaredSize;
+        const budget = artifactDecompressionBudgetBytes(this.#source.size);
+        if (declaredFileBytes > budget)
+          throw new ArtifactReaderFailure(
+            "limit",
+            `ZIP entries declare ${String(declaredFileBytes)} uncompressed bytes, exceeding this archive's ${String(budget)}-byte decompression budget (${String(MINIMUM_ARTIFACT_DECOMPRESSION_BYTES)}-byte minimum, ${String(ARTIFACT_DECOMPRESSION_RATIO)}x archive size); a small archive cannot expand this far`,
+          );
+      }
       const stored = this.#entries.get(metadata.adapterKey);
       if (stored !== undefined && !sameArtifactEntry(metadata, stored.metadata))
         throw new ArtifactReaderFailure(
@@ -188,28 +194,6 @@ export class ZipArtifactReader implements ArtifactReader {
         });
       yield metadata;
     }
-  }
-
-  /**
-   * Refuse an archive whose entries collectively declare more decompressed
-   * bytes than this archive's size can justify. The total is checked from the
-   * central directory before any entry is decompressed, so a small bomb cannot
-   * drive unbounded CPU time or disk writes during hashing or extraction.
-   */
-  #chargeDeclaredBytes(metadata: ArtifactEntry): void {
-    if (metadata.kind !== "file" || metadata.encrypted) return;
-    const declared = metadata.declaredSize;
-    if (declared === null || !Number.isSafeInteger(declared) || declared < 0)
-      return;
-    this.#declaredFileBytes += declared;
-    const budget = artifactDecompressionBudgetBytes(this.#source.size);
-    if (this.#declaredFileBytes > budget)
-      throw new ArtifactReaderFailure(
-        "limit",
-        `ZIP entries declare ${String(this.#declaredFileBytes)} uncompressed bytes, exceeding this archive's ${String(budget)}-byte decompression budget (${String(MINIMUM_ARTIFACT_DECOMPRESSION_BYTES)}-byte minimum, ${String(
-          ARTIFACT_DECOMPRESSION_RATIO,
-        )}x archive size); a small archive cannot expand this far`,
-      );
   }
 
   open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {

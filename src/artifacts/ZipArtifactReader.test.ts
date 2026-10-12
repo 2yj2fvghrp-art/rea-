@@ -13,20 +13,32 @@ import {
   MINIMUM_ARTIFACT_DECOMPRESSION_BYTES,
 } from "../domain/artifactDecompressionBudget.js";
 
-/** Write one real ZIP entry, then forge its central-directory uncompressed size. */
+/** Small real ZIP carriers with forged sizes; metadata-only controls, never decompressed. */
 const writeZipWithDeclaredSize = async (
   directory: string,
-  declaredBytes: number,
+  declaredBytes: readonly number[],
 ): Promise<string> => {
   const path = join(directory, "fixture.zip");
   const writer = new ZipWriter(new Uint8ArrayWriter());
-  await writer.add("member.bin", new TextReader("real member bytes"));
+  for (const [index] of declaredBytes.entries())
+    await writer.add(
+      `member-${index}.bin`,
+      new TextReader("real member bytes"),
+    );
   await writeFile(path, await writer.close());
   const bytes = await readFile(path);
-  const centralDirectory = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
-  if (centralDirectory < 0) throw new Error("Expected a ZIP central directory");
-  // The uncompressed size is the u32 at offset 24 of the central-directory record.
-  bytes.writeUInt32LE(declaredBytes, centralDirectory + 24);
+  let offset = 0;
+  for (const declared of declaredBytes) {
+    const centralDirectory = bytes.indexOf(
+      Buffer.from([0x50, 0x4b, 0x01, 0x02]),
+      offset,
+    );
+    if (centralDirectory < 0)
+      throw new Error("Expected a ZIP central directory");
+    // Metadata-only controls: these declarations do not describe valid member streams.
+    bytes.writeUInt32LE(declared, centralDirectory + 24);
+    offset = centralDirectory + 46;
+  }
   await writeFile(path, bytes);
   return path;
 };
@@ -42,7 +54,7 @@ describe("ZipArtifactReader decompression budget", () => {
   it("refuses an archive whose entries declare more than its size can justify", async () => {
     const directory = await createTestTempDirectory("rea-zip-budget-bomb-");
     // A ~160-byte archive cannot declare 2 GiB of members without being a bomb.
-    const path = await writeZipWithDeclaredSize(directory, 2_147_483_647);
+    const path = await writeZipWithDeclaredSize(directory, [2_147_483_647]);
     const reader = new ZipArtifactReader(path, "zip");
     try {
       await expect(enumerate(reader)).rejects.toMatchObject({
@@ -54,24 +66,62 @@ describe("ZipArtifactReader decompression budget", () => {
     }
   });
 
-  it("still enumerates an archive within its decompression budget", async () => {
-    const directory = await createTestTempDirectory("rea-zip-budget-ok-");
-    const path = await writeZipWithDeclaredSize(directory, 64 * 1024 * 1024);
+  it("charges all declarations in one traversal before yielding an over-budget member", async () => {
+    const directory = await createTestTempDirectory("rea-zip-budget-total-");
+    const half = MINIMUM_ARTIFACT_DECOMPRESSION_BYTES / 2;
+    const path = await writeZipWithDeclaredSize(directory, [half, half + 1]);
     const reader = new ZipArtifactReader(path, "zip");
+    const iterator = reader.entries()[Symbol.asyncIterator]();
     try {
-      expect(await enumerate(reader)).toBe(1);
+      expect((await iterator.next()).value?.declaredSize).toBe(half);
+      await expect(iterator.next()).rejects.toMatchObject({ reason: "limit" });
     } finally {
+      await iterator.return?.();
       await reader.close();
     }
   });
 
-  it("scales the budget with the archive so large packages stay usable", async () => {
-    const directory = await createTestTempDirectory("rea-zip-budget-scale-");
-    const path = await writeZipWithDeclaredSize(directory, 1024);
+  it("keeps repeated and interleaved metadata traversals independently charged", async () => {
+    const directory = await createTestTempDirectory(
+      "rea-zip-budget-iterators-",
+    );
+    const path = await writeZipWithDeclaredSize(directory, [
+      MINIMUM_ARTIFACT_DECOMPRESSION_BYTES / 2,
+      MINIMUM_ARTIFACT_DECOMPRESSION_BYTES / 2,
+    ]);
+    const reader = new ZipArtifactReader(path, "zip");
+    const first = reader.entries()[Symbol.asyncIterator]();
+    const second = reader.entries()[Symbol.asyncIterator]();
+    try {
+      expect((await first.next()).done).toBe(false);
+      expect((await second.next()).done).toBe(false);
+      expect((await first.next()).done).toBe(false);
+      expect((await second.next()).done).toBe(false);
+      expect((await first.next()).done).toBe(true);
+      expect((await second.next()).done).toBe(true);
+      expect(await enumerate(reader)).toBe(2);
+    } finally {
+      await Promise.all([first.return?.(), second.return?.()]);
+      await reader.close();
+    }
+  });
+
+  it("streams valid member bytes within the budget instead of only trusting declarations", async () => {
+    const directory = await createTestTempDirectory("rea-zip-budget-valid-");
+    const path = join(directory, "valid.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add("member.bin", new TextReader("valid member bytes"));
+    await writeFile(path, await writer.close());
     const reader = new ZipArtifactReader(path, "zip");
     try {
-      // A 1 KiB archive is granted the floor, not the floor divided by its size.
-      expect(await enumerate(reader)).toBe(1);
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      const entry = entries[0];
+      if (entry === undefined) throw new Error("Expected a ZIP member");
+      const chunks: Buffer[] = [];
+      for await (const chunk of await reader.open(entry))
+        chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks).toString()).toBe("valid member bytes");
     } finally {
       await reader.close();
     }
