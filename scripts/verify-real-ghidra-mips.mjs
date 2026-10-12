@@ -189,9 +189,15 @@ try {
         const probe = await call("inspect_native_instruction", {
           address: legacy.symbols.rea_mips_probe,
         });
-        assert.equal(probe.status, "decoded");
-        assert.equal(probe.architecture, image.observations.language_id);
-        assert.equal(probe.length, 4);
+        const probeBranch = await call("inspect_native_instruction", {
+          address: `0x${(BigInt(legacy.symbols.rea_mips_probe) + 4n).toString(16)}`,
+        });
+        assertMipsProbe(
+          probe,
+          probeBranch,
+          byteOrder,
+          legacy.symbols.rea_mips_probe,
+        );
         const dossier = functionDossierSchema.parse(
           await call("analyze_function", { procedure: entry.address }),
         );
@@ -244,6 +250,7 @@ try {
       }
       reports.push({
         ...fixture,
+        independent_reader: legacy,
         variant: "recordless-legacy-pinned",
         effective_language: `MIPS:${
           byteOrder === "little" ? "LE" : "BE"

@@ -73,6 +73,10 @@ export const ghidraMipsUnsupportedReason = (
     if ((metadata.flags & 0x00000400) !== 0)
       return "EF_MIPS_NAN2008 requires separate verification of NaN encoding semantics in this Ghidra lane.";
     if (isLegacyMipsAdmission(target)) return null;
+    // A recordless relocatable object is not an incomplete inspection; the
+    // lane is scoped to executable firmware images by design.
+    if (metadata.type !== MIPS_ET_EXEC)
+      return "The recordless legacy admission covers ET_EXEC firmware images only; recordless relocatable objects need their own verified build, and the declared-ABI lane requires an ABI flags record.";
     // The inspection could not examine every ABI declaration source, so the
     // recordless admission is not established for this header.
     return [
