@@ -60,6 +60,10 @@ The mapped start is independent of Ghidra's program image base, which remains
 `0x0` for BinaryLoader. Ghidra may report additional language-defined entry
 points, including unmapped ARM vectors. Load-image verification requires the
 caller-supplied entry and preserves those other entries as observations.
+For 6502, BinaryLoader maps the file before adding its language-defined zero-page
+and stack blocks. Conflicting default blocks are skipped; low-address files stay
+in the default address space rather than an overlay. Non-conflicting uninitialized
+blocks remain observations, not file-backed bytes.
 Independent raw verification streams the complete private snapshot digest and
 extent with bounded memory and supports cancellation during the read.
 
@@ -90,8 +94,11 @@ the CPU from the file suffix, guess the reset vector, or emulate the target.
 `ca65` and `ld65` (tested from cc65 tag `V2.19`, whose tools report `V2.18`).
 Set `REA_CA65` and `REA_LD65` to explicit executable paths if needed. The lane
 checks real CLI/MCP load-image parity, mapped bytes, decoded calls, decompilation,
-invalid mappings, unchanged source bytes and runtime cleanup. Windows requires
-the matching native addon; the POSIX provider path has not been exercised by
+invalid mappings, unchanged source bytes and runtime cleanup.
+Low-memory checks include a file spanning the zero-page/stack boundary at `0xff`
+and a complete 64-KiB image at `0x0`, with verified default-space mappings through
+both CLI and MCP. Windows requires the matching native addon; the POSIX provider
+path has not been exercised by
 the Windows run.
 
 ## Limitations

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -156,6 +163,122 @@ try {
   assert.equal(cli.subject.digest.sha256, sha256);
   assert.deepEqual(await readFile(path), bytes);
   assert.deepEqual(await readdir(runtime), []);
+  const lowMemory = [];
+  // BinaryLoader maps file bytes before trying processor-defined blocks. Prove
+  // that overlapping zero-page/stack definitions never overlay the selected image.
+  for (const [entry, fullAddressSpace] of [
+    [0xff, false],
+    [0, true],
+  ]) {
+    const lowPath = join(workspace, `low-${entry}.bin`);
+    await exec(
+      ld65,
+      [
+        "-C",
+        join(root, "tests/conformance/ghidra/6502.cfg"),
+        "--start-addr",
+        String(entry),
+        "-o",
+        lowPath,
+        object,
+      ],
+      { timeout: 10000 },
+    );
+    const linked = await readFile(lowPath);
+    const expectedCode = Buffer.from(
+      "a907200000c90ad003a92a60a9006018690360",
+      "hex",
+    );
+    expectedCode.writeUInt16LE(entry + 15, 3);
+    assert.deepEqual(linked, expectedCode);
+    const lowBytes = fullAddressSpace
+      ? Buffer.concat([linked, Buffer.alloc(65536 - linked.length)])
+      : linked;
+    await writeFile(lowPath, lowBytes);
+    const lowSha256 = createHash("sha256").update(lowBytes).digest("hex");
+    const lowEntry = `0x${entry.toString(16)}`;
+    const lowOpened = await call("open_binary", {
+      path: lowPath,
+      format: "raw-binary",
+      architecture: "6502",
+      entry_point: lowEntry,
+      provider_id: "ghidra",
+    });
+    assert.equal(lowOpened.entry_point, lowEntry);
+    const lowImage = evidence(
+      await call("inspect_native_load_image"),
+      lowSha256,
+    );
+    assert.equal(lowImage.normalized_result.status, "verified");
+    assert.equal(lowImage.normalized_result.base_address, lowEntry);
+    assert.equal(lowImage.normalized_result.file_bytes, lowBytes.length);
+    const fileMappings =
+      lowImage.normalized_result.observations.mappings.filter(
+        (mapping) => mapping.source_file_index !== null,
+      );
+    assert.equal(fileMappings.length, 1);
+    assert.equal(
+      fileMappings[0].address_space,
+      lowImage.normalized_result.observations.default_address_space,
+    );
+    assert.equal(fileMappings[0].overlay, false);
+    assert.equal(fileMappings[0].start, lowEntry);
+    assert.equal(fileMappings[0].length, lowBytes.length);
+    const lowRead = evidence(
+      await call("read_bytes", { address: lowEntry, length: linked.length }),
+      lowSha256,
+    );
+    assert.equal(lowRead.normalized_result.bytes_hex, linked.toString("hex"));
+    const lowCall = evidence(
+      await call("inspect_native_instruction", {
+        address: `0x${(entry + 2).toString(16)}`,
+      }),
+      lowSha256,
+    );
+    assert.equal(lowCall.normalized_result.mnemonic.toUpperCase(), "JSR");
+    assert.ok(
+      lowCall.normalized_result.references.some(
+        (reference) =>
+          reference.call &&
+          reference.target_address === `0x${(entry + 15).toString(16)}`,
+      ),
+    );
+    await call("close_binary");
+    const lowCli = await exec(
+      process.execPath,
+      [
+        entrypoint,
+        "inspect-native-load-image",
+        lowPath,
+        "--target-format",
+        "raw-binary",
+        "--architecture",
+        "6502",
+        "--entry-point",
+        lowEntry,
+        "--provider",
+        "ghidra",
+        "--json",
+      ],
+      { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
+    );
+    const lowCliEvidence = evidence(JSON.parse(lowCli.stdout), lowSha256);
+    assert.deepEqual(
+      lowCliEvidence.normalized_result,
+      lowImage.normalized_result,
+    );
+    assert.equal(
+      lowCliEvidence.analysis_profile.digest,
+      lowImage.analysis_profile.digest,
+    );
+    assert.deepEqual(await readFile(lowPath), lowBytes);
+    assert.deepEqual(await readdir(runtime), []);
+    lowMemory.push({
+      entry: lowEntry,
+      bytes: lowBytes.length,
+      sha256: lowSha256,
+    });
+  }
   report = {
     ok: true,
     mocked: false,
@@ -173,6 +296,7 @@ try {
     instructions_and_call_reference: true,
     decompilation: true,
     invalid_mapping_preserves_session: true,
+    low_memory_cli_mcp_parity: lowMemory,
     source_unchanged: true,
     runtime_cleanup: "complete",
   };
