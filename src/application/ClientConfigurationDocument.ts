@@ -56,15 +56,16 @@ export interface ClientConfigurationDocument {
 const objectSchema = z.record(z.string(), z.unknown());
 
 /**
- * Require a plain object for a configuration root or server table. Zod's
- * issue dump does not name the offending key for callers.
+ * Validate and copy own configuration properties, rejecting non-record YAML
+ * values and excluding parser-injected prototypes. Name the structural error
+ * without exposing Zod's issue dump.
  */
 const asConfigurationObject = (
   value: unknown,
-  label: "root" | string,
+  label: string,
 ): Record<string, unknown> => {
-  if (typeof value === "object" && value !== null && !Array.isArray(value))
-    return value as Record<string, unknown>;
+  const parsed = objectSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
   throw new TypeError(
     label === "root"
       ? "The configuration root must be an object"

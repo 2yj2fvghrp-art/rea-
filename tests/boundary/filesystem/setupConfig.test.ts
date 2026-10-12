@@ -337,6 +337,57 @@ describe("JSON client configuration migration and provider paths", () => {
 
 describe("JSON client configuration shape diagnostics", () => {
   it.each([
+    {
+      format: "json" as const,
+      original:
+        '{"__proto__":{"mcpServers":{"rea":{"command":"rea","args":["mcp"]}}}}',
+      serversKey: "mcpServers",
+    },
+    {
+      format: "opencode" as const,
+      original:
+        '{"mcp":{"__proto__":{"servers":{"rea":{"type":"local","command":["rea","mcp"]}}}}}',
+      serversKey: "mcp",
+    },
+  ])(
+    "registers an own server instead of trusting inherited $format settings",
+    async ({ format, original, serversKey }) => {
+      const directory = await createTestTempDirectory("rea-setup-prototype-");
+      const configPath = join(directory, "mcp.json");
+      const client = {
+        name: format === "json" ? "cursor" : "opencode",
+        configPath,
+        format,
+      };
+      await writeFile(configPath, original);
+      expect(
+        await inspectClientConfiguration(client, {}, ["rea", "mcp"]),
+      ).toMatchObject({ status: "update" });
+      expect(
+        await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+      ).toMatchObject({ status: "configured" });
+      const document = JSON.parse(await readFile(configPath, "utf8"));
+      expect(Object.hasOwn(document, serversKey)).toBe(true);
+      expect(Object.hasOwn(document[serversKey], "rea")).toBe(true);
+      expect(document[serversKey].rea.command).toEqual(
+        format === "json" ? "rea" : ["rea", "mcp"],
+      );
+      const originalDocument = JSON.parse(original);
+      expect(
+        format === "json" ? document.__proto__ : document[serversKey].__proto__,
+      ).toEqual(
+        format === "json"
+          ? originalDocument.__proto__
+          : originalDocument[serversKey].__proto__,
+      );
+      expect(await readFile(`${configPath}.rea.backup`, "utf8")).toBe(original);
+      expect(
+        await inspectClientConfiguration(client, {}, ["rea", "mcp"]),
+      ).toMatchObject({ status: "already_current" });
+    },
+  );
+
+  it.each([
     ['{"mcpServers":null,"keep":1}', '"mcpServers" must be an object'],
     ["[]", "The configuration root must be an object"],
     ['{"mcpServers":"x"}', '"mcpServers" must be an object'],
