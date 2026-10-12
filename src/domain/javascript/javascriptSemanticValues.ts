@@ -65,7 +65,8 @@ interface EvaluationContext {
  * How far up the active stack the value being evaluated depends on its
  * caller. An alias cycle depends on the position of its head; the expression
  * depth budget depends on every caller. A binding whose value depends only on
- * positions pushed after its own evaluates to that value from any caller.
+ * positions pushed after its own evaluates to that value from any caller
+ * with at least as much of the depth budget left.
  */
 interface EvaluationDependence {
   lowest: number;
@@ -73,6 +74,17 @@ interface EvaluationDependence {
 
 const CALLER_INDEPENDENT = Number.POSITIVE_INFINITY;
 const EVERY_CALLER = -1;
+
+/** A value no caller changes, and the deepest evaluation known to yield it. */
+interface CallerIndependentBindingValue {
+  readonly value: JavaScriptSemanticValue;
+  readonly expressionDepth: number;
+}
+
+const callerIndependentBindingValuesByState = new WeakMap<
+  JavaScriptSemanticAnalysisState,
+  Map<string, CallerIndependentBindingValue>
+>();
 
 const primitiveBindingValuesByState = new WeakMap<
   JavaScriptSemanticAnalysisState,
@@ -96,6 +108,17 @@ export const clearSemanticPrimitiveBindingValues = (
   primitiveBindingValuesByState.delete(state);
   capturedBindingValuesByState.delete(state);
   primitiveExpressionValuesByState.delete(state);
+  callerIndependentBindingValuesByState.delete(state);
+};
+
+const callerIndependentBindingValuesFor = (
+  state: JavaScriptSemanticAnalysisState,
+): Map<string, CallerIndependentBindingValue> => {
+  const existing = callerIndependentBindingValuesByState.get(state);
+  if (existing !== undefined) return existing;
+  const values = new Map<string, CallerIndependentBindingValue>();
+  callerIndependentBindingValuesByState.set(state, values);
+  return values;
 };
 
 const primitiveBindingValuesFor = (
@@ -189,6 +212,20 @@ const evaluateBinding = (
   }
   const cached = context.primitiveBindingValues.get(binding.bindingId);
   if (cached !== undefined) return cached;
+  // Each closure that aliases an outer binding evaluates it both live and at
+  // its capture point, so re-deriving it doubles the work at every level of
+  // nesting. A deeper reader derives it again: the retained value would carry
+  // more nesting than the remaining depth budget allows it to observe.
+  const independent =
+    context.capturePoint === undefined
+      ? callerIndependentBindingValuesFor(context.state)
+      : undefined;
+  const retained = independent?.get(binding.bindingId);
+  if (
+    retained !== undefined &&
+    context.expressionDepth <= retained.expressionDepth
+  )
+    return retained.value;
   if (binding.initializers.length === 0)
     return {
       status: "unknown",
@@ -264,14 +301,20 @@ const evaluateBinding = (
       continue;
     projected = invalidateSemanticEscapedPath(projected, escape.path);
   }
+  if (
+    callerIndependent &&
+    independent !== undefined &&
+    (retained === undefined ||
+      retained.expressionDepth < context.expressionDepth)
+  )
+    independent.set(binding.bindingId, {
+      value: projected,
+      expressionDepth: context.expressionDepth,
+    });
   // Point-local memoization also bounds failed speculative captures. Only a
-  // primitive result is allowed back into ordinary value evaluation. A value
-  // no caller could change is kept too: each closure that aliases an outer
-  // binding evaluates it both live and at its capture point, so re-deriving
-  // it doubles the work at every level of nesting.
+  // primitive result is allowed back into ordinary value evaluation.
   if (
     context.capturePoint !== undefined ||
-    callerIndependent ||
     projected.status === "literal" ||
     projected.status === "union" ||
     (isSemanticResourceLimit(projected) &&

@@ -53,6 +53,49 @@ it("bounds ancestry reads for repeated deep lexical references", () => {
 });
 
 it.each([
+  [
+    "object",
+    (index: number) => `var s${String(index + 1)}={x:s${String(index)}};`,
+  ],
+  [
+    "array",
+    (index: number) => `var s${String(index + 1)}=[s${String(index)}];`,
+  ],
+  [
+    "sequence-assigned object",
+    (index: number) =>
+      `var s${String(index + 1)}; 0, s${String(index + 1)}={x:s${String(index)}};`,
+  ],
+])(
+  "keeps the expression depth budget across a chain of %s wrappers",
+  (_, wrap) => {
+    // Reusing each wrapper's value for the next would nest without limit.
+    const nesting = (length: number): number => {
+      const ir = analyzeJavaScriptSemantics(
+        `var s0={};${Array.from({ length: length - 1 }, (unused, index) => wrap(index)).join("")}`,
+      );
+      let value = onlyBinding(ir, `s${String(length - 1)}`).value;
+      let depth = 0;
+      while (value.status === "object" || value.status === "array") {
+        const [slot] =
+          value.status === "object" ? value.properties : value.items;
+        if (slot === undefined) return depth;
+        value = slot.value;
+        depth++;
+      }
+      expect(value).toMatchObject({ resourceLimit: "expression-depth" });
+      expect(ir.coverage.status).toBe("partial");
+      return depth;
+    };
+
+    expect(nesting(40)).toBe(39);
+    const bounded = nesting(300);
+    expect(bounded).toBeLessThan(256);
+    expect(nesting(600)).toBe(bounded);
+  },
+);
+
+it.each([
   ["an object", "{ value: 1 }", "object"],
   ["a self-referential namespace", "s0 || {}", "ambiguous"],
   ["an unknown parameter", "seed", "unknown"],
