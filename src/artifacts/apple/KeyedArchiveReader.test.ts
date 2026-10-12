@@ -102,7 +102,7 @@ describe("inert keyed archive decoding", () => {
   });
   it("does not treat a high-bit fold as NIBArchive or bplist00 magic", () => {
     const nib = Buffer.from("NIBArchive");
-    nib[0] |= 0x80;
+    nib[0] = (nib[0] ?? 0) | 0x80;
     let nibCause: unknown;
     try {
       decodeKeyedArchiveBytes(nib, { offset: 0, limit: 1 });
@@ -113,7 +113,7 @@ describe("inert keyed archive decoding", () => {
     expect(nibCause).not.toBeInstanceOf(KeyedArchiveKindError);
 
     const plist = Buffer.from("bplist00");
-    plist[0] |= 0x80;
+    plist[0] = (plist[0] ?? 0) | 0x80;
     let plistCause: unknown;
     try {
       decodeKeyedArchiveBytes(plist, { offset: 0, limit: 1 });
