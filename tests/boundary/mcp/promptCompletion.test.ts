@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe("guided prompt completion from live analysis", () => {
-  it("reads live documents and complete procedures without ambiguous names", async () => {
+  it("reads warmed documents and complete procedures without ambiguous names", async () => {
     const requests: Array<Readonly<Record<string, unknown>>> = [];
     const session = createTestBinarySession(() => client(requests), {
       resolveAnalysisProfile: () =>
@@ -49,6 +49,8 @@ describe("guided prompt completion from live analysis", () => {
     await writeFile(target, "fixture");
     expect((await session.open(target)).ok).toBe(true);
     const completion = createPromptCompletionSource(session, session);
+    expect(await completion.complete("document", "app")).toEqual([]);
+    expect((await session.execute("list_documents", {})).ok).toBe(true);
 
     expect(await completion.complete("document", "app")).toEqual([
       "App",
@@ -270,6 +272,9 @@ const fixtureEnvironment = {
 const client = (
   requests: Array<Readonly<Record<string, unknown>>>,
 ): AnalysisClient => ({
+  executeIfReady(operation, parameters) {
+    return this.execute(operation, parameters);
+  },
   execute(operation, parameters) {
     if (operation === "list_documents")
       return Promise.resolve(observed(["AppTests", "App", "App"]));
