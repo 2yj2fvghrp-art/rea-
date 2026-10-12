@@ -452,6 +452,19 @@ const verifyManagedTypeSelection = async (
   path: string,
   otherPath: string,
 ): Promise<void> => {
+  const advertised = (await client.listTools()).tools.find(
+    (tool) => tool.name === "inspect_managed_members",
+  );
+  if (advertised === undefined) throw new Error("missing managed member tool");
+  const ajv = new Ajv2020({ strict: false, validateFormats: false });
+  expect(ajv.validateSchema(advertised.inputSchema)).toBe(true);
+  const validate = ajv.compile(advertised.inputSchema);
+  expect(
+    validate({ path, type_names: ["Fixture.Program", "Missing.Type"] }),
+  ).toBe(true);
+  expect(
+    validate({ path, type_names: ["Fixture.Program", "Fixture.Program"] }),
+  ).toBe(false);
   const selected = structured(
     await client.callTool({
       name: "inspect_managed_members",

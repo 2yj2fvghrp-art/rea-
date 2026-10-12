@@ -184,7 +184,22 @@ describe("managed artifact coded indexes", () => {
       managedPeFixtureTarget(bytes),
     );
 
-    expect(result.attributes).toEqual([]);
+    const text = Buffer.from(".NETCoreApp,Version=v8.0", "utf8");
+    const attributeValue = Buffer.concat([
+      Buffer.from([1, 0, text.length]),
+      text,
+      Buffer.alloc(2),
+    ]);
+    expect(result.attributes).toMatchObject([
+      {
+        token: "0x0c000001",
+        parent_token: "0x20000001",
+        constructor_token: null,
+        type_name: null,
+        value_length: attributeValue.length,
+        value_sha256: createHash("sha256").update(attributeValue).digest("hex"),
+      },
+    ]);
     expect(result.coverage).toMatchObject({
       state: "partial",
       issues: [

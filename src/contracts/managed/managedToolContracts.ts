@@ -35,6 +35,7 @@ export const managedMembersInputSchema = managedTargetInputSchema.extend({
     .refine((names) => new Set(names).size === names.length, {
       message: "type_names must not repeat a name",
     })
+    .meta({ uniqueItems: true })
     .describe(
       "Inspect only the fields, methods, call edges, and field accesses declared by these exact type full names; omit to inspect every type. Unmatched names are reported in selection.unmatched_type_names.",
     )
