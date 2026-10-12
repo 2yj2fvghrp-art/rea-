@@ -1,3 +1,4 @@
+import { readLinuxResourceLimits } from "../process/LinuxResourceLimits.js";
 import { parsePacketOutput } from "./parsePacketOutput.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -67,6 +68,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
       PrivateRuntimeRoot.create({ prefix: "rea-tshark-" }),
     readonly platform: NodeJS.Platform = process.platform,
     readonly readArtifact: typeof readStableArtifact = readStableArtifact,
+    readonly readLimits: typeof readLinuxResourceLimits = readLinuxResourceLimits,
   ) {}
   inspect(
     input: InspectPacketCaptureInput,
@@ -140,10 +142,11 @@ export class TsharkCaptureProvider implements PacketCapturePort {
         64 * 1024 * 1024,
         options?.signal,
       );
+      const effectiveLimits = await this.readLimits(LIMITS);
       const limitArguments = [
-        `--as=${LIMITS.address_space_bytes}:${LIMITS.address_space_bytes}`,
-        `--fsize=${LIMITS.file_bytes}:${LIMITS.file_bytes}`,
-        `--cpu=${LIMITS.cpu_seconds}:${LIMITS.cpu_seconds}`,
+        `--as=${effectiveLimits.address_space_bytes}:${effectiveLimits.address_space_bytes}`,
+        `--fsize=${effectiveLimits.file_bytes}:${effectiveLimits.file_bytes}`,
+        `--cpu=${effectiveLimits.cpu_seconds}:${effectiveLimits.cpu_seconds}`,
         "--core=0:0",
         "--",
         command,
@@ -285,7 +288,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
           sha256: limiterIdentity.sha256,
           arguments: limitArguments,
         },
-        limits: LIMITS,
+        limits: { ...LIMITS, ...effectiveLimits },
         hardware_acquisition: "not-performed",
       });
       result = ok(
@@ -301,7 +304,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
             "Packet limits count input packets before display filtering. Filtered results do not establish whole-capture or device traffic absence. Two-pass reassembly cannot recover bytes missing from the recording or beyond the read limit.",
             "Repeated field values remain ordered string arrays; raw packet bytes are included only when explicitly selected as a supported field. Export index/score metadata are omitted. All stderr, including warnings on exit zero, is retained.",
             "A private empty personal configuration is used. Installed libraries, global configuration and dissector plugins are trusted and not fully fingerprinted. File-only analysis and disabled name resolution do not constitute an OS sandbox.",
-            "Linux prlimit enforces inherited soft and hard limits before execution: 1 GiB address space per process, 64 MiB per file, 30 CPU seconds and no core dumps. Resident input is capped at 32 MiB, each command at 30 wall-clock seconds and combined output at 4 MiB. Output overflow fails. These are per-process/per-file limits, not aggregate memory or filesystem quotas; caller-supplied tools and the limiter are trusted.",
+            "Linux prlimit enforces soft and hard ceilings before execution, preserving stricter inherited limits: at most 1 GiB address space per process, 64 MiB per file, 30 CPU seconds and no core dumps. Effective limits are reported. Resident input is capped at 32 MiB, each command at 30 wall-clock seconds and combined output at 4 MiB. Output overflow fails. These are per-process/per-file limits, not aggregate memory or filesystem quotas; caller-supplied tools and the limiter are trusted.",
           ],
         }),
       );

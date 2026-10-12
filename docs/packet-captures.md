@@ -77,7 +77,8 @@ Input is limited to 32 MiB before reading, each command to 30 seconds, and
 combined stdout/stderr to 4 MiB during collection. Output overflow fails instead
 of returning truncated success. Before execution, `prlimit` enforces **1 GiB
 address space per process**, **64 MiB per file**, **30 CPU seconds** and no core
-dumps. Both soft and hard limits are inherited, so dissector allocations and
+dumps. Stricter inherited soft/hard limits are preserved; Evidence records the effective
+ceilings. Both limits are set before execution, so dissector allocations and
 compressed-capture expansion cannot exceed the per-process address-space cap.
 These are not aggregate process-memory or filesystem quotas. The selected
 limiter is trusted; its path, digest and arguments are retained in Evidence.
