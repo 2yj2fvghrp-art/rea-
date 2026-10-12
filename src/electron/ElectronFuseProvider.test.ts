@@ -406,4 +406,39 @@ describe("direct Electron Framework binary selection", () => {
       ],
     });
   });
+
+  it("rejects a framework directory that is a symlink outside the bundle", async () => {
+    const root = await createTestTempDirectory(
+      "rea-electron-fuses-framework-link-",
+    );
+    const outside = join(root, "outside");
+    await mkdir(join(outside, "Versions", "A"), { recursive: true });
+    await writeFile(
+      join(outside, "Versions", "A", "Electron Framework"),
+      thinFuseImage(OBSIDIAN_FUSE_BYTES).bytes,
+    );
+    const app = join(root, "Example.app");
+    const frameworks = join(app, "Contents", "Frameworks");
+    await mkdir(frameworks, { recursive: true });
+    const framework = join(frameworks, "Electron Framework.framework");
+    await symlink(outside, framework);
+
+    for (const path of [
+      app,
+      join(framework, "Versions", "A", "Electron Framework"),
+    ]) {
+      const result = await provider.inspect({ path });
+      expect(result.ok, path).toBe(false);
+      if (result.ok) continue;
+      expect(result.error).toMatchObject({
+        _tag: "AnalysisInputError",
+        issues: [
+          expect.objectContaining({
+            path: ["path"],
+            message: expect.stringContaining("escapes"),
+          }),
+        ],
+      });
+    }
+  });
 });

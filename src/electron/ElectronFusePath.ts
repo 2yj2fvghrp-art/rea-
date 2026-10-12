@@ -74,6 +74,7 @@ const resolveFrameworkSymlink = async (
       "invalid_format",
       `Expected a regular file without a symlink: ${selectedPath}`,
     );
+  await requireRealDirectories(dirname(root), [basename(root)], selectedPath);
   const relativePath = relativeInside(root, selectedPath);
   if (relativePath === null)
     throw new ElectronFusePathFailure(
@@ -93,12 +94,18 @@ const resolveBundleBinary = async (
   const name = basename(selectedPath);
   if (name === FRAMEWORK_NAME)
     return resolveKnownBinary(selectedPath, selectedPath, signal);
-  if (name.endsWith(".app"))
+  if (name.endsWith(".app")) {
+    await requireRealDirectories(
+      selectedPath,
+      ["Contents", "Frameworks", FRAMEWORK_NAME],
+      selectedPath,
+    );
     return resolveKnownBinary(
       join(selectedPath, "Contents", "Frameworks", FRAMEWORK_NAME),
       selectedPath,
       signal,
     );
+  }
   throw new ElectronFusePathFailure(
     "invalid_format",
     `Expected an Electron .app bundle, ${FRAMEWORK_NAME} directory, or executable file: ${selectedPath}`,
@@ -183,6 +190,36 @@ const resolveInside = async (
   return isPathWithinRoot(root, path)
     ? { kind: "file", path }
     : { kind: "escapes" };
+};
+
+/**
+ * Each named directory below `anchor` must be a real directory, so the
+ * framework root cannot redirect the walk outside the selected bundle.
+ */
+const requireRealDirectories = async (
+  anchor: string,
+  segments: readonly string[],
+  selectedPath: string,
+): Promise<void> => {
+  let current = anchor;
+  for (const segment of segments) {
+    current = join(current, segment);
+    let metadata;
+    try {
+      metadata = await lstat(current);
+    } catch (cause: unknown) {
+      if (isMissing(cause))
+        throw new ElectronFusePathFailure(
+          "invalid_value",
+          `Electron Framework binary was not found inside ${selectedPath}.`,
+        );
+      throw cause;
+    }
+    if (metadata.isSymbolicLink())
+      throw pathWalkFailure("escapes", selectedPath);
+    if (!metadata.isDirectory())
+      throw pathWalkFailure("not-file", selectedPath);
+  }
 };
 
 const requireFile = (walk: WalkResult, selectedPath: string): string => {
