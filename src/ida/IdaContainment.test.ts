@@ -31,8 +31,8 @@ const SEGMENTS = [
   segment(".huge", "0x20000000000001", "0x20000000000002"),
 ];
 
-/** The same segments in an order a scan may not rely on. */
-const UNSORTED = [SEGMENTS[3], SEGMENTS[1], SEGMENTS[2], SEGMENTS[0]];
+/** The same segments in descending order, which a scan may not rely on. */
+const UNSORTED = [...SEGMENTS].reverse();
 
 const survey = (segments: JsonValue = SEGMENTS) => ({
   metadata: { path: "/db/target.i64", module: "target", arch: "metapc" },
