@@ -281,6 +281,8 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
 | Qoder              | `qoder`          |
+| Trae               | `trae`           |
+| ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
 
 `dsh` is main-only until a release after 6.4.0. The registry check above does
