@@ -483,9 +483,9 @@ export class GhidraClient {
 
   /** Observed failures that prevent a retained session from being reused. */
   operationHealthSnapshot(): ProviderOperationHealth | undefined {
-    const process = this.#process?.snapshot();
+    const exit = this.#process?.observedExit();
     const state =
-      process?.exitCode !== undefined
+      exit !== undefined
         ? "exited"
         : this.#socket?.destroyed === true
           ? "unreachable"
@@ -502,7 +502,7 @@ export class GhidraClient {
       state,
       stage: null,
       retryAction: providerRetryAction(state),
-      exitCode: process?.exitCode ?? null,
+      exitCode: exit?.code ?? null,
       requests: [],
     };
   }
@@ -663,7 +663,7 @@ export class GhidraClient {
       deadline,
       failure: this.#failure,
       isClosed: () => this.#closing,
-      processExited: () => this.#process?.snapshot().exitCode !== undefined,
+      processExited: () => this.#process?.observedExit() !== undefined,
       startupTimeoutMs: this.#options.startupTimeoutMs,
       handlers: {
         data: this.#onSocketData,
