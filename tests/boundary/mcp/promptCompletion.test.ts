@@ -48,6 +48,7 @@ describe("guided prompt completion from live analysis", () => {
     const target = join(directory, "fixture.hop");
     await writeFile(target, "fixture");
     expect((await session.open(target)).ok).toBe(true);
+    expect((await session.execute("list_documents", {})).ok).toBe(true);
     const completion = createPromptCompletionSource(session, session);
 
     expect(await completion.complete("document", "app")).toEqual([
