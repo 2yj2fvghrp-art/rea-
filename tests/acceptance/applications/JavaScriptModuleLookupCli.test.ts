@@ -3,9 +3,15 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { expect } from "vitest";
 
+import {
+  modeSourceFiles,
+  modePackageFiles,
+  expectReviewModeEvidence,
+} from "../../fixtures/javascriptModuleResolutionModes.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
@@ -37,6 +43,14 @@ const ctsReexportSource = [
   'export type { ImportOnly as DirectImportOnly } from "cts-package" with { "resolution-mode": "import" };',
   'export type * from "cts-package" with { "resolution-mode": "import" };',
 ].join("\n");
+const ctsSourceFiles = {
+  "cts/package.json": JSON.stringify({ type: "commonjs" }),
+  "cts/entry.cts": ctsSource,
+  "cts/resolution.cts": ctsResolutionSource,
+  "cts/reexport.cts": ctsReexportSource,
+  "cts/runtime-dep.js": "module.exports = 42;",
+  ...modeSourceFiles,
+};
 const ctsPackageFiles = {
   "node_modules/cts-package/package.json": JSON.stringify({
     exports: { require: "./actual.cjs", import: "./decoy.mjs" },
@@ -46,7 +60,8 @@ const ctsPackageFiles = {
     'export const marker: number; export interface RequireOnly { source: "require"; }',
   "node_modules/cts-package/decoy.mjs": "export const marker = 99;",
   "node_modules/cts-package/decoy.d.mts":
-    'export const marker: number; export interface ImportOnly { source: "import"; }',
+    'export const marker: number; export interface ImportOnly { source: "import"; } export namespace Shapes { interface ImportOnly { source: "nested-import"; } }',
+  ...modePackageFiles,
 };
 
 const createModuleLookupFixture = async () => {
@@ -57,11 +72,7 @@ const createModuleLookupFixture = async () => {
       type: "commonjs",
     }),
     ...ctsPackageFiles,
-    "cts/package.json": JSON.stringify({ type: "commonjs" }),
-    "cts/entry.cts": ctsSource,
-    "cts/resolution.cts": ctsResolutionSource,
-    "cts/reexport.cts": ctsReexportSource,
-    "cts/runtime-dep.js": "module.exports = 42;",
+    ...ctsSourceFiles,
     "esm/entry.mjs": [
       'import "./extensionless";',
       'import "./directory";',
@@ -179,6 +190,10 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/entry.cts"),
       join(root, "cts/resolution.cts"),
       join(root, "cts/reexport.cts"),
+      join(root, "cts/inline.cts"),
+      join(root, "cts/script.ts"),
+      join(root, "cts/same.cts"),
+      join(root, "cts/native.mts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
@@ -193,6 +208,52 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     timeout: 5_000,
   });
   expect(JSON.parse(resolution.stdout)).toEqual(["import", "require"]);
+  for (const [file, expected] of [
+    ["inline.cjs", ["import", "require", "nested-import"]],
+    ["native.mjs", ["require", "import"]],
+  ] as const) {
+    const result = await execute(process.execPath, [file], {
+      cwd: emitted,
+      timeout: 5_000,
+    });
+    expect(JSON.parse(result.stdout)).toEqual(expected);
+  }
+  expect(
+    createRequire(join(emitted, "native.mjs")).resolve(
+      "native-mode/addon.node",
+    ),
+  ).toBe(join(emitted, "node_modules/native-mode/require.node"));
+  const nativeImport = await execute(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      'console.log(import.meta.resolve("native-mode/addon.node"))',
+    ],
+    { cwd: emitted, timeout: 5_000 },
+  );
+  expect(fileURLToPath(nativeImport.stdout.trim())).toBe(
+    join(emitted, "node_modules/native-mode/import.node"),
+  );
+  await expect(
+    execute(
+      process.execPath,
+      [
+        compiler,
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--skipLibCheck",
+        "--noEmit",
+        join(root, "cts/unresolved.cts"),
+      ],
+      { cwd: root, timeout: 10_000 },
+    ),
+  ).rejects.toMatchObject({
+    code: 1,
+    stdout: expect.stringContaining("TS2307"),
+  });
 };
 
 const expectCtsModuleLookup = (
@@ -482,5 +543,6 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       );
     expectCtsModuleLookup(graph);
     expectCtsResolutionModes(graph);
+    expectReviewModeEvidence(graph);
   },
 );

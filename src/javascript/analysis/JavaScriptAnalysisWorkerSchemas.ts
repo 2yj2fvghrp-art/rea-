@@ -285,6 +285,7 @@ const referenceShape = {
   resolution_mode: z.enum(["import", "require"]).optional(),
   kind: z.enum([
     "static-import",
+    "type-import",
     "dynamic-import",
     "require",
     "worker",
@@ -536,6 +537,7 @@ const moduleLink = z
     resolutionMode: z.enum(["import", "require"]).optional(),
     kind: z.enum([
       "import",
+      "type-import",
       "require",
       "export",
       "re-export",

@@ -1,5 +1,8 @@
 import * as t from "@babel/types";
-import { typescriptImportResolutionMode } from "./typescriptImportResolutionMode.js";
+import {
+  typescriptImportResolutionMode,
+  typescriptImportTypeName,
+} from "./typescriptImportResolutionMode.js";
 
 import type {
   JavaScriptSemanticBinding,
@@ -72,7 +75,22 @@ export const collectSemanticModuleLink = (
 ): void => {
   if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
   else if (t.isImportDeclaration(node)) collectImports(node, state);
-  else if (t.isExportAllDeclaration(node)) {
+  else if (t.isTSImportType(node) && t.isStringLiteral(node.source)) {
+    const resolutionMode = typescriptImportResolutionMode(node);
+    addModuleLink(
+      state,
+      {
+        kind: "type-import",
+        specifier: node.source.value,
+        importedName: typescriptImportTypeName(node),
+        localName: null,
+        exportedName: null,
+        ...(resolutionMode === undefined ? {} : { resolutionMode }),
+        location: range(node),
+      },
+      node,
+    );
+  } else if (t.isExportAllDeclaration(node)) {
     const resolutionMode = typescriptImportResolutionMode(node);
     addModuleLink(
       state,

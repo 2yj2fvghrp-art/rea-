@@ -230,7 +230,14 @@ const inspectNode = (
   bindings: JavaScriptSemanticAnalysisState,
 ): void => {
   const { source, accumulator } = findings;
-  inspectElectronStaticNode(node, findings);
+  const resolutionMode =
+    t.isImportDeclaration(node) ||
+    t.isExportAllDeclaration(node) ||
+    t.isExportNamedDeclaration(node) ||
+    t.isTSImportType(node)
+      ? typescriptImportResolutionMode(node)
+      : undefined;
+  inspectElectronStaticNode(node, findings, resolutionMode);
   if (t.isCallExpression(node)) {
     inspectBundlerBootstrap(source, node, accumulator, bindings);
     inspectBundlerRegistration(source, node, accumulator);
@@ -243,7 +250,6 @@ const inspectNode = (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined
   ) {
-    const resolutionMode = typescriptImportResolutionMode(node);
     addReference(findings, {
       node,
       kind: "static-import",
@@ -251,11 +257,17 @@ const inspectNode = (
       ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
   } else if (t.isExportNamedDeclaration(node) && node.source != null) {
-    const resolutionMode = typescriptImportResolutionMode(node);
     addReference(findings, {
       node,
       kind: "static-import",
       specifier: node.source.value,
+      ...(resolutionMode === undefined ? {} : { resolutionMode }),
+    });
+  } else if (t.isTSImportType(node)) {
+    addReference(findings, {
+      node,
+      kind: "type-import",
+      specifier: stringValue(node.source),
       ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
   } else if (t.isImportExpression(node))
