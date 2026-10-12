@@ -114,8 +114,15 @@ existing analysis families directly, for example
   APKs keep other names report the `unknown` role rather than guessing.
 - **Device file names are untrusted.** A package pull writes each APK under
   the last segment of its `pm path` device path only when that segment
-  matches `[A-Za-z0-9][A-Za-z0-9._-]*.apk`. Only the `\n`/`\r\n` line
-  terminator is stripped from each entry. Whitespace, control characters,
+  matches `[A-Za-z0-9][A-Za-z0-9._-]*.apk`. REA runs `adb shell -T pm
+  path`, so the device never allocates a PTY and the listing is raw
+  LF-framed output; a device without the shell v2 protocol (Android 6 and
+  earlier) can only run commands under a PTY, which rewrites LF as CRLF, so
+  adb refuses the command and the pull reports `unsupported_target`. Only
+  the `\n` terminator is stripped from each entry; a `\r` is never treated
+  as framing, so `package:/data/app/x/base.apk\r\n` keeps the CR in its
+  device path and is refused rather than pulled as a different remote
+  file. Whitespace, control characters,
   Unicode format controls (bidi overrides and isolates such as U+202E and
   U+2066, zero-width characters such as U+200B, the U+FEFF byte-order mark,
   tag characters such as U+E0001), surrogates, private-use code points,

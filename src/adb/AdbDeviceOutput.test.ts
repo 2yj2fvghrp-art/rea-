@@ -354,10 +354,12 @@ describe("parsePmPathOutput unsafe device paths", () => {
       ]);
     },
   );
+});
 
-  it("strips only the protocol line terminator from each entry", () => {
+describe("parsePmPathOutput record framing", () => {
+  it("splits LF-framed records without altering any entry", () => {
     const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\n",
+      "package:/data/app/x/base.apk\npackage:/data/app/x/split_a.apk\n",
     );
     expect(unparsedLines).toEqual([]);
     expect(rejectedPaths).toEqual([]);
@@ -367,11 +369,48 @@ describe("parsePmPathOutput unsafe device paths", () => {
     ]);
   });
 
-  it("rejects a carriage return left over after the line terminator", () => {
-    const { paths, rejectedPaths } = parsePmPathOutput(
+  it.each([
+    [
+      "a CR before the LF terminator",
+      "package:/data/app/x/base.apk\r\n",
+      ["/data/app/x/base.apk\r"],
+    ],
+    [
+      "two CRs before the LF terminator",
       "package:/data/app/x/base.apk\r\r\n",
-    );
+      ["/data/app/x/base.apk\r\r"],
+    ],
+    [
+      "uniform CRLF framing",
+      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\r\n",
+      ["/data/app/x/base.apk\r", "/data/app/x/split_a.apk\r"],
+    ],
+    [
+      "a final CR with no LF",
+      "package:/data/app/x/base.apk\r",
+      ["/data/app/x/base.apk\r"],
+    ],
+  ])("keeps %s in the device path and refuses it", (_, stdout, devicePaths) => {
+    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(stdout);
     expect(paths).toEqual([]);
+    expect(unparsedLines).toEqual([]);
+    expect(rejectedPaths).toEqual(
+      devicePaths.map((devicePath) => ({
+        device_path: devicePath,
+        file_name: devicePath.slice(devicePath.lastIndexOf("/") + 1),
+        reason: "whitespace_or_control",
+      })),
+    );
+  });
+
+  it("refuses only the CR-bearing record in mixed framing", () => {
+    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
+      "package:/data/app/x/base.apk\r\npackage:/data/app/x/split_a.apk\n",
+    );
+    expect(unparsedLines).toEqual([]);
+    expect(paths.map((entry) => entry.device_path)).toEqual([
+      "/data/app/x/split_a.apk",
+    ]);
     expect(rejectedPaths).toEqual([
       {
         device_path: "/data/app/x/base.apk\r",
@@ -379,6 +418,17 @@ describe("parsePmPathOutput unsafe device paths", () => {
         reason: "whitespace_or_control",
       },
     ]);
+  });
+
+  it("does not skip a record that holds only a CR", () => {
+    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
+      "package:/data/app/x/base.apk\n\r\n",
+    );
+    expect(paths.map((entry) => entry.device_path)).toEqual([
+      "/data/app/x/base.apk",
+    ]);
+    expect(rejectedPaths).toEqual([]);
+    expect(unparsedLines).toEqual(["\r"]);
   });
 
   it("does not trim whitespace before the package: prefix", () => {

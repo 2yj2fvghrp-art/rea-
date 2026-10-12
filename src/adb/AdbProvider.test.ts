@@ -155,7 +155,7 @@ const pullStub = (
   paths: string,
   pullBody: string,
 ): string => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then
   printf '%s\\n' ${paths}
   exit 0
 fi
@@ -427,6 +427,114 @@ it("refuses case-folded file name aliases before any filesystem effect", async (
   await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
 });
 
+it("runs pm path without a remote PTY", async () => {
+  const { binary, root } = await writeAdbStub(
+    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+printf '%s\\n' "$@" >> ${join(root, "argv.log")}
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ]; then exit 0; fi
+exit 1`,
+  );
+  await refusedBy(providerOver(binary), {
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.example",
+      output_directory: join(root, "pulls"),
+    },
+  });
+  const logged = (await readFile(join(root, "argv.log"), "utf8"))
+    .trim()
+    .split("\n");
+  expect(logged).toEqual([
+    "-s",
+    "emulator-5554",
+    "shell",
+    "-T",
+    "pm",
+    "path",
+    "com.example",
+  ]);
+});
+
+it.each([
+  [
+    "a CR before the LF terminator",
+    `"$(printf 'package:/data/app/x/base.apk\\r')"`,
+    "/data/app/x/base.apk\r",
+  ],
+  [
+    "mixed CRLF and LF framing",
+    `"$(printf 'package:/data/app/x/base.apk\\r')" 'package:/data/app/x/split_a.apk'`,
+    "/data/app/x/base.apk\r",
+  ],
+])(
+  "refuses a pm path record with %s instead of pulling a different path",
+  async (_, paths, devicePath) => {
+    const { binary, root } = await writeAdbStub((root) =>
+      pullStub(
+        paths,
+        `  printf 'pulled\\n' >> ${join(root, "pull.log")}
+  printf 'x' > "$5"`,
+      ),
+    );
+    const output = join(root, "pulls");
+    const result = await providerOver(binary).execute({
+      operation: "pull_adb_package",
+      input: {
+        serial: "emulator-5554",
+        package: "com.hostile",
+        output_directory: output,
+      },
+    });
+    if (result.ok) throw new Error("expected a refusal");
+    const projected = projectAnalysisError(result.error);
+    expect(projected).toMatchObject({
+      code: "unreadable_output",
+      retryable: false,
+      details: {
+        reason: "unsafe_device_path",
+        diagnostics: {
+          rejected_paths: [
+            {
+              device_path: devicePath,
+              file_name: "base.apk\r",
+              reason: "whitespace_or_control",
+            },
+          ],
+        },
+      },
+    });
+    expect(projected.message).toContain('"/data/app/x/base.apk\\r"');
+    expect(result.error.capturedOutput?.stdout).toContain(
+      "package:/data/app/x/base.apk\r\n",
+    );
+    await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+    await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+  },
+);
+
+it("reports a device that only offers a PTY shell as a target refusal", async () => {
+  const { binary, root } = await writeAdbStub(
+    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then printf 'pulled\\n' >> ${join(root, "pull.log")}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ]; then printf 'error: device only supports allocating a pty\\n' >&2; exit 1; fi
+exit 1`,
+  );
+  const output = join(root, "pulls");
+  const projected = await refusedBy(providerOver(binary), {
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.example",
+      output_directory: output,
+    },
+  });
+  expect(projected).toMatchObject({ code: "unsupported_target" });
+  expect(projected.message).toContain("only supports allocating a pty");
+  await expect(lstat(join(root, "pull.log"))).rejects.toThrow(/ENOENT/u);
+  await expect(lstat(output)).rejects.toThrow(/ENOENT/u);
+});
+
 it("pulls a lone mixed-case file name unchanged", async () => {
   const { binary, root } = await writeAdbStub(() =>
     pullStub(
@@ -557,7 +665,7 @@ it.each([
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then exit 0; fi`,
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then exit 0; fi`,
   );
   const projected = await refusedBy(providerOver(binary), {
     operation: "pull_adb_package",

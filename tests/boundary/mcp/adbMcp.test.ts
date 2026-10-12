@@ -467,6 +467,28 @@ posixIt(
 );
 
 posixIt(
+  "refuses a CR before the LF record terminator for MCP callers",
+  async () => {
+    const projected = await pullThroughMcp(["/data/app/x/base.apk\r"]);
+    expect(projected).toMatchObject({
+      code: "unreadable_output",
+      details: {
+        reason: "unsafe_device_path",
+        diagnostics: {
+          rejected_paths: [
+            {
+              device_path: "/data/app/x/base.apk\r",
+              file_name: "base.apk\r",
+              reason: "whitespace_or_control",
+            },
+          ],
+        },
+      },
+    });
+  },
+);
+
+posixIt(
   "projects both case-folded pm path entries to MCP callers",
   async () => {
     const projected = await pullThroughMcp([

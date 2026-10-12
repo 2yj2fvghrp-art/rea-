@@ -338,9 +338,13 @@ export interface AdbRejectedPackagePath {
 /**
  * Parse `pm path PACKAGE` lines. The base/split role is derived from the file
  * name (`base.apk`, `split_*.apk`), which is the only signal the output
- * carries; any other name reports an unknown role. Only the protocol line
- * terminator (`\n` or `\r\n`) is stripped, so each retained device path is
- * byte-for-byte what the device reported. Paths with whitespace, control,
+ * carries; any other name reports an unknown role. REA runs `pm path` through
+ * `adb shell -T`, which never allocates a remote PTY, so the output is raw and
+ * LF is the only record terminator. Records are split on `\n` alone: a `\r`
+ * is never framing, so a CRLF-looking record keeps its CR and is refused as
+ * `whitespace_or_control` rather than silently normalized to a different
+ * remote path. Each retained device path is byte-for-byte what the device
+ * reported. Paths with whitespace, control,
  * format, surrogate, or private-use code points, and file names that are not safe host file names, are reported
  * in `rejectedPaths` with that raw device path, never trimmed or renamed.
  */
@@ -354,8 +358,8 @@ export const parsePmPathOutput = (
   const paths: AdbPackagePathEntry[] = [];
   const rejectedPaths: AdbRejectedPackagePath[] = [];
   const unparsedLines: string[] = [];
-  for (const line of stdout.split(/\r?\n/u)) {
-    if (line.trim() === "") continue;
+  for (const line of stdout.split("\n")) {
+    if (line === "") continue;
     const match = /^package:(.+)$/su.exec(line);
     if (match === null) {
       unparsedLines.push(line);

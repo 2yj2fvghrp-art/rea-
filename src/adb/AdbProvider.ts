@@ -189,7 +189,7 @@ const runAdb = async (
         }),
       );
     if (
-      /device[^\n]*not found|device offline|still authorizing|more than one device/iu.test(
+      /device[^\n]*not found|device offline|still authorizing|more than one device|only supports allocating a pty/iu.test(
         excerpt,
       )
     )
@@ -1206,7 +1206,13 @@ export class AdbProvider {
       operation,
       serial,
       selection.binary,
-      adbArguments(serial, ["shell", "pm", "path", packageName]),
+      // `-T` refuses a remote PTY. Without it, a device that lacks the shell
+      // v2 protocol (Android 6 and earlier) always runs the command under a
+      // PTY whose output translation turns each LF into CRLF, so a CR that
+      // belongs to a device path would be indistinguishable from framing.
+      // With `-T` such a device makes adb refuse the command instead, and every
+      // accepted listing is LF-framed raw output.
+      adbArguments(serial, ["shell", "-T", "pm", "path", packageName]),
       {
         timeoutMs: PM_PATH_TIMEOUT_MS,
         maxOutputBytes: PM_PATH_MAX_OUTPUT_BYTES,
