@@ -8,6 +8,7 @@ import {
   visit,
   type Document,
   type Node,
+  type YAMLMap,
 } from "yaml";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 
@@ -80,19 +81,27 @@ export class DshCordisYaml {
     else if (isMap(resolved)) {
       const entries: [string, unknown][] = [];
       for (const pair of resolved.items) {
-        const key = this.value(pair.key);
-        if (typeof key === "object" && key !== null)
-          throw new ConfigurationError(
-            "Cordis YAML mapping keys must be literal scalars",
-          );
-        // Match YAML's JS object projection while retaining the original key node.
-        entries.push([key === null ? "" : String(key), this.value(pair.value)]);
+        entries.push([this.#key(pair.key), this.value(pair.value)]);
       }
       value = Object.fromEntries(entries);
     }
     this.#visiting.delete(resolved);
     this.#values.set(resolved, value);
     return value;
+  }
+
+  #key(node: unknown): string {
+    const key = this.value(node);
+    if (typeof key === "object" && key !== null)
+      throw new ConfigurationError(
+        "Cordis YAML mapping keys must be literal scalars",
+      );
+    // Match YAML's JS object projection while retaining the original key node.
+    return key === null ? "" : String(key);
+  }
+
+  field(map: YAMLMap | undefined, key: string): unknown {
+    return map?.items.findLast((pair) => this.#key(pair.key) === key)?.value;
   }
 
   /** Copy from the source before edits; materialized nodes own no anchors. */
@@ -128,6 +137,9 @@ export class DshCordisYaml {
     const copied = this.copy(node, invalidated);
     if (isNode(copied))
       visit(copied, {
+        Pair: (_key, pair) => {
+          if (isAlias(pair.key)) pair.key = this.copy(this.resolve(pair.key));
+        },
         Value: (_key, value) => {
           delete value.anchor;
         },

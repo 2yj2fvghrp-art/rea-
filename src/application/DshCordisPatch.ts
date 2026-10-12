@@ -28,6 +28,7 @@ export class DshCordisDocument {
   readonly #fields = new Map<string, unknown>();
   #entryNode: YAMLMap<unknown, unknown> | undefined;
   readonly #insertions: number;
+  #unknownSelector = false;
   readonly config: Record<string, unknown> | undefined;
 
   constructor(text: string) {
@@ -40,14 +41,15 @@ export class DshCordisDocument {
     for (const source of root.items) {
       const map = this.#map(source);
       if (map === undefined) continue;
-      const inserted = this.#yaml.resolve(map.get("insert", true));
+      const inserted = this.#yaml.resolve(this.#yaml.field(map, "insert"));
+      const targetId = this.#id(map);
       const ownedRows = isSeq(inserted)
         ? inserted.items.flatMap((entry, index) =>
             this.#id(entry) === DSH_ENTRY_ID ? [index] : [],
           )
         : [];
-      const direct = !isSeq(inserted) && this.#id(map) === DSH_ENTRY_ID;
-      if (ownedRows.length > 0 && this.#id(map))
+      const direct = !isSeq(inserted) && targetId === DSH_ENTRY_ID;
+      if (ownedRows.length > 0 && targetId)
         throw new ConfigurationError(
           "Cannot establish the target group for a Cordis REA insertion from the home patch alone",
         );
@@ -61,9 +63,17 @@ export class DshCordisDocument {
           this.#fields.clear();
           this.#readFields(entry);
         }
-      } else if (direct && insertions > 0) {
+      } else if (direct) {
         // Cordis uses name as a selector, not a rename operation.
-        const selector = this.#yaml.value(map.get("name", true));
+        const selector = this.#yaml.value(this.#yaml.field(map, "name"));
+        if (
+          selector instanceof CordisExpression ||
+          (selector && this.#field("name") instanceof CordisExpression)
+        ) {
+          this.#unknownSelector = true;
+          continue;
+        }
+        if (insertions === 0) continue;
         if (selector && selector !== this.#field("name")) continue;
         this.#readFields(map, new Set(["id", "name"]));
       }
@@ -71,12 +81,7 @@ export class DshCordisDocument {
     this.#operations = operations;
     this.#insertions = insertions;
     const config = this.#field("config");
-    if (
-      config !== undefined &&
-      !(config instanceof CordisExpression) &&
-      !isRecord(config)
-    )
-      throw new ConfigurationError("Cordis REA config must be a mapping");
+    // Ownership survives malformed config so uninstall can remove the source row.
     this.config = insertions === 0 ? undefined : isRecord(config) ? config : {};
   }
 
@@ -85,7 +90,12 @@ export class DshCordisDocument {
     return isMap(map) ? map : undefined;
   }
   #id(node: unknown): unknown {
-    return this.#yaml.value(this.#map(node)?.get("id", true));
+    const id = this.#yaml.value(this.#yaml.field(this.#map(node), "id"));
+    if (id instanceof CordisExpression)
+      throw new ConfigurationError(
+        "Expression-backed Cordis IDs have unknown ownership; use literal IDs before changing registrations",
+      );
+    return id;
   }
   #field(key: string): unknown {
     return this.#yaml.value(this.#fields.get(key));
@@ -107,6 +117,7 @@ export class DshCordisDocument {
     const disabled = this.#field("disabled");
     return (
       this.#insertions === 1 &&
+      !this.#unknownSelector &&
       this.#field("name") === DSH_CLIENT_PACKAGE &&
       (disabled === undefined || disabled === false)
     );
@@ -116,7 +127,22 @@ export class DshCordisDocument {
   environment(
     overrides: Readonly<Record<string, string>> = {},
   ): Result<Readonly<Record<string, string>>, ConfigurationError> {
-    if (this.#field("config") instanceof CordisExpression)
+    if (this.#unknownSelector)
+      return err(
+        new ConfigurationError(
+          "Expression-backed Cordis name selectors have unknown applicability; use literal selectors before setup",
+          {
+            settings: [
+              {
+                setting: "name",
+                constraint: "Use literal selectors before setup",
+              },
+            ],
+          },
+        ),
+      );
+    const config = this.#field("config");
+    if (config instanceof CordisExpression)
       return err(
         new ConfigurationError(
           "Expression-backed Cordis config cannot be safely edited",
@@ -130,6 +156,17 @@ export class DshCordisDocument {
             ],
           },
         ),
+      );
+    if (config !== undefined && !isRecord(config))
+      return err(
+        new ConfigurationError("Cordis REA config must be a mapping", {
+          settings: [
+            {
+              setting: "config",
+              constraint: "Use a literal mapping before setup",
+            },
+          ],
+        }),
       );
     const raw = this.config?.env;
     if (raw !== undefined && !isRecord(raw))
@@ -198,7 +235,7 @@ export class DshCordisDocument {
       if (!isMap(copy))
         throw new ConfigurationError("Cordis operation is not a mapping");
       const inserted = this.#yaml.detach(
-        this.#yaml.resolve(op.map.get("insert", true)),
+        this.#yaml.resolve(this.#yaml.field(op.map, "insert")),
         invalidated,
       );
       if (!isSeq(inserted))
@@ -263,7 +300,7 @@ export class DshCordisDocument {
     // Caller nodes keep their tags and spelling; only literal launcher values change.
     for (const key of LAUNCHER_KEYS)
       config.set(key, this.#yaml.document.createNode(desired[key]));
-    const env = this.#map(sourceConfig?.get("env", true));
+    const env = this.#map(this.#yaml.field(sourceConfig, "env"));
     const desiredEnv = desired.env;
     if (isRecord(desiredEnv)) {
       const nextEnv =
@@ -273,7 +310,7 @@ export class DshCordisDocument {
       if (!isMap(nextEnv))
         throw new ConfigurationError("Cordis environment is not a mapping");
       for (const [key, value] of Object.entries(desiredEnv)) {
-        const original = env?.get(key, true);
+        const original = this.#yaml.field(env, key);
         if (this.#yaml.value(original) === value) continue;
         const replacement = this.#yaml.document.createNode(value);
         if (isNode(original) && isNode(replacement)) {

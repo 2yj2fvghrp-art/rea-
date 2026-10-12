@@ -1788,9 +1788,6 @@ describe("DeepSeek Harness registration applicability", () => {
     "- &cycle {holder: *cycle}\n",
     "- insert: [\n",
     "- insert: *missing\n",
-    "- insert: [{id: rea-mcp, config: caller-value}]\n",
-    "- insert: [{id: rea-mcp, config: [caller-value]}]\n",
-    "- insert: [{id: rea-mcp, config: null}]\n",
     [
       "- holder: &a [value, value]",
       "- holder: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a, *a]",
@@ -1811,4 +1808,118 @@ describe("DeepSeek Harness registration applicability", () => {
       code: "ENOENT",
     });
   });
+});
+
+describe("DeepSeek Harness ownership and editability", () => {
+  it.each([
+    `- insert: [{id: !!js '"rea-mcp"', name: caller-plugin}]\n`,
+    `- id: !!js '"rea-mcp"'\n  config: {command: caller-launcher}\n`,
+    `- holder: &id !!js '"rea-mcp"'\n- insert: [{id: *id}]\n`,
+  ])("retains registrations with unknown ID ownership: %s", async (initial) => {
+    const { home, client } = await harnessClient();
+    await writeFile(client.configPath, initial);
+    expect(await dshStatus(home)).toMatchObject({ state: "invalid" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("failed");
+    const host = systemUninstallHost(home);
+    expect(await host.inspectClient(client)).toMatchObject({
+      status: "failed",
+    });
+    expect((await host.removeClient(client)).status).toBe("failed");
+    expect(await readFile(client.configPath, "utf8")).toBe(initial);
+    await expect(
+      readFile(`${client.configPath}.rea.backup`),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it.each(["selector", "insertion"] as const)(
+    "preserves unknown %s name applicability while allowing owned removal",
+    async (expressionPosition) => {
+      const { home, client } = await harnessClient();
+      const { parseDocument } = await import("yaml");
+      const yaml = parseDocument(
+        stringifyYaml([
+          { insert: [canonicalEntry()] },
+          {
+            id: "rea-mcp",
+            name: "@deepseek-ai/dsh-mcp-client",
+            config: { command: "patched-launcher" },
+          },
+        ]),
+      );
+      const expression = yaml.createNode('"@deepseek-ai/dsh-mcp-client"');
+      expression.tag = "tag:yaml.org,2002:js";
+      yaml.setIn(
+        expressionPosition === "selector"
+          ? [1, "name"]
+          : [0, "insert", 0, "name"],
+        expression,
+      );
+      const initial = yaml.toString();
+      await writeFile(client.configPath, initial);
+      expect(await dshStatus(home)).toMatchObject({ state: "invalid" });
+      expect(
+        (await configureClientConfiguration(client, {}, command)).status,
+      ).toBe("failed");
+      expect(await readFile(client.configPath, "utf8")).toBe(initial);
+      const host = systemUninstallHost(home);
+      expect(await host.inspectClient(client)).toBeUndefined();
+      expect((await host.removeClient(client)).status).toBe("removed");
+      expect(parseYaml(await readFile(client.configPath, "utf8"))).toEqual([]);
+      expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
+        initial,
+      );
+    },
+  );
+});
+
+describe("DeepSeek Harness aliased mapping keys", () => {
+  it.each(["setup", "uninstall"])(
+    "resolves owned fields and preserves caller config during %s",
+    async (operation) => {
+      const { home, client } = await harnessClient();
+      const initial = `- holder: &insertKey insert
+- holder: &idKey id
+- holder: &configKey config
+- holder: &envKey env
+- ? *insertKey
+  : - ? *idKey
+      : rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      ? *configKey
+      : command: stale
+        ? *envKey
+        : TOKEN: keep-me
+    - id: other
+      name: caller-plugin
+`;
+      await writeFile(client.configPath, initial);
+      const result =
+        operation === "setup"
+          ? await configureClientConfiguration(client, {}, command)
+          : await systemUninstallHost(home).removeClient(client);
+      expect(result.status).toBe(
+        operation === "setup" ? "configured" : "removed",
+      );
+      const entries = loadedInserts(await readFile(client.configPath, "utf8"));
+      expect(entries.filter(({ id }) => id === "other")).toEqual([
+        { id: "other", name: "caller-plugin" },
+      ]);
+      const owned = entries.filter(({ id }) => id === "rea-mcp");
+      expect(owned).toHaveLength(operation === "setup" ? 1 : 0);
+      if (operation === "setup") {
+        expect(owned[0]?.config).toMatchObject({ env: { TOKEN: "keep-me" } });
+        expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+        expect(
+          (await configureClientConfiguration(client, {}, command)).status,
+        ).toBe("unchanged");
+      }
+      expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
+        initial,
+      );
+    },
+  );
 });

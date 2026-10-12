@@ -180,3 +180,53 @@ async function verifyGeneratedLauncher(
     await transport.close();
   }
 }
+
+cliTest.for(["null", "caller-value", "[caller-value]"])(
+  "DSH CLI refuses to edit config %s and plain uninstall removes its owned row",
+  async (configValue, { cli }) => {
+    const home = await createTestTempDirectory("rea-dsh-malformed-config-");
+    const profile = join(home, ".dsh");
+    const config = join(profile, "cordis.patch.yml");
+    await mkdir(profile);
+    const initial = `# caller patch
+- insert:
+    - id: other
+      name: caller-plugin
+    - id: rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config: ${configValue}
+`;
+    await writeFile(config, initial);
+    const run = (args: readonly string[]) =>
+      cli.run({
+        arguments: [...args, "--json"],
+        cwd: home,
+        environment: { HOME: home, USERPROFILE: home, DSH_HOME: profile },
+      });
+    const configured = await run(["setup", "--client", "dsh", "--yes"]);
+    expect(configured.exitCode).not.toBe(0);
+    expect(configured.json).toMatchObject({
+      status: "needs_human",
+      appliedActions: [],
+      remediation: expect.stringContaining("config: Use a literal mapping"),
+    });
+    expect(await readFile(config, "utf8")).toBe(initial);
+    await expect(readFile(`${config}.rea.backup`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const removed = await run(["uninstall"]);
+    expect(removed.exitCode).toBe(0);
+    expect(removed.json).toMatchObject({
+      status: "complete",
+      items: expect.arrayContaining([
+        expect.objectContaining({ name: "dsh", status: "removed" }),
+      ]),
+    });
+    const remaining = await readFile(config, "utf8");
+    expect(remaining).toContain("# caller patch");
+    expect(parse(remaining)).toEqual([
+      { insert: [{ id: "other", name: "caller-plugin" }] },
+    ]);
+    expect(await readFile(`${config}.rea.backup`, "utf8")).toBe(initial);
+  },
+);
