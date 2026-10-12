@@ -58,7 +58,11 @@ import {
   isContextBridgeExposure,
   resolveElectronApiObjects,
 } from "./javascriptElectronApiObjects.js";
-import type { JavaScriptElectronSemanticFacts } from "./javascriptStaticAnalysisState.js";
+import type {
+  JavaScriptElectronSemanticFacts,
+  JavaScriptNativeLoaderCall,
+} from "./javascriptStaticAnalysisState.js";
+import { createNativeLoaderClassifier } from "./javascriptNativeLoaders.js";
 import {
   collectJavaScriptIdentityWritesSteps,
   electronExportPath,
@@ -426,17 +430,15 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 ): Generator<void, JavaScriptElectronSemanticFacts> {
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
-  const { callees, apiObjects } = yield* indexJavaScriptElectronIdentitySteps(
-    file.program,
-    state,
-  );
-  return { callees, apiObjects };
+  const { callees, apiObjects, loaders } =
+    yield* indexJavaScriptElectronIdentitySteps(file.program, state);
+  return { callees, apiObjects, loaders };
 }
 
 /**
  * Shared lexical identity and visible-write proof for direct and wrapped
- * calls, with the classified callee identities and bound bridge API objects
- * of one source.
+ * calls, with the classified callee identities, bound bridge API objects and
+ * native loader calls of one source.
  */
 export interface JavaScriptElectronIdentity extends JavaScriptElectronSemanticFacts {
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
@@ -449,6 +451,7 @@ export function* indexJavaScriptElectronIdentitySteps(
 ): Generator<void, JavaScriptElectronIdentity> {
   const facts = new Map<number, ElectronCalleeBinding>();
   const exposures: (t.CallExpression | t.OptionalCallExpression)[] = [];
+  const loaders = new WeakMap<t.Node, JavaScriptNativeLoaderCall>();
   const memberWritten = new Set<string>();
   const interop = createSemanticModuleInterop(state);
   const writes = new SemanticPropertyPathCoverage();
@@ -505,6 +508,25 @@ export function* indexJavaScriptElectronIdentitySteps(
   );
   collectedWrites = true;
   const wrappers = createElectronWrapperParameters(state, rootExport);
+  const moduleOrigin = (node: t.Node): JavaScriptModuleOrigin | undefined => {
+    const { root, members } = electronMemberPath(node);
+    if (!members.every((member): member is string => member !== null))
+      return undefined;
+    let origin: JavaScriptModuleOrigin | undefined;
+    if (t.isIdentifier(root)) {
+      if (semanticResolutionBlocked(state, root, root.name)) return undefined;
+      const binding = resolveSemanticBindingState(state, root, root.name);
+      if (binding === undefined) return undefined;
+      origin = interop.origin(binding)?.origin ?? bindingOrigin(binding, state);
+    } else
+      origin =
+        interop.callOrigin(root)?.origin ??
+        semanticRequireOrigin(root, state)?.origin;
+    return origin === undefined
+      ? undefined
+      : { ...origin, importedPath: [...origin.importedPath, ...members] };
+  };
+  const nativeLoader = createNativeLoaderClassifier(state, moduleOrigin);
   const intactExport = (path: readonly (string | null)[]): boolean =>
     ELECTRON_MODULE.test(path[0] ?? "") &&
     !writes.covers(["electron", ...path.slice(1)]);
@@ -517,8 +539,11 @@ export function* indexJavaScriptElectronIdentitySteps(
       )
         return;
       const { root, members } = electronMemberPath(node.callee);
-      if (!t.isNewExpression(node) && isContextBridgeExposure(members.at(-1)))
-        exposures.push(node);
+      if (!t.isNewExpression(node)) {
+        if (isContextBridgeExposure(members.at(-1))) exposures.push(node);
+        const loader = nativeLoader(node);
+        if (loader !== undefined) loaders.set(node, loader);
+      }
       const exported = rootExport(root);
       if (exported === undefined) {
         wrappers.defer(root, members);
@@ -544,6 +569,7 @@ export function* indexJavaScriptElectronIdentitySteps(
       facts,
       memberWritten,
     ),
+    loaders,
     intactExport,
     exportPath: rootExport,
   };
