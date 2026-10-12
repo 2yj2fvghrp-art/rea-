@@ -65,7 +65,13 @@ const registerWebMcp = (
           target_id: args.targetId,
           observation_ms: options.observationMs,
         });
-        if (!parsed.success) return inputError("discover_webmcp_tools");
+        if (!parsed.success)
+          return inputError(
+            "discover_webmcp_tools",
+            projectInputIssues(parsed.error.issues, {
+              cdp_endpoint: args.endpoint,
+            }),
+          );
         const result = await discoverWebMcpTools(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
       }),
@@ -113,7 +119,11 @@ const registerCaptureDiff = (
         const parsed = scenarioComparison.success
           ? scenarioComparison
           : browserCaptureComparisonInputSchema.safeParse({ before, after });
-        if (!parsed.success) return inputError("compare_web_captures");
+        if (!parsed.success)
+          return inputError(
+            "compare_web_captures",
+            projectInputIssues(parsed.error.issues, { before, after }),
+          );
         const result = await compareWebCaptureEvidence(
           new CdpBrowserProvider(),
           parsed.data,
@@ -145,7 +155,13 @@ const registerScreenshot = (
           allowed_origins: options.allowedOrigins,
           target_id: args.targetId,
         });
-        if (!parsed.success) return inputError("capture_web_screenshot");
+        if (!parsed.success)
+          return inputError(
+            "capture_web_screenshot",
+            projectInputIssues(parsed.error.issues, {
+              cdp_endpoint: args.endpoint,
+            }),
+          );
         const result = await captureWebScreenshot(
           context.provider,
           parsed.data,
