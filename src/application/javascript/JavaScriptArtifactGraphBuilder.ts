@@ -157,12 +157,11 @@ function* buildJavaScriptArtifactGraphInputSteps(
 const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
   const resourceLimits = semanticResourceLimits(context);
   const sourceMapPolicyGap = context.analysis.source_maps.some(
-    ({ status }) => status === "invalid",
+    ({ limitation }) => limitation !== null,
   );
   const malformedStructuredData =
     context.analysis.packages.some(({ status }) => status !== "included") ||
-    context.analysis.json_modules.some(({ status }) => status !== "included") ||
-    context.analysis.source_maps.some(({ status }) => status === "invalid");
+    context.analysis.json_modules.some(({ status }) => status !== "included");
   const partialJavaScript = context.analysis.files.some(
     ({ javascript }) =>
       javascript !== null && javascript.parse_status === "partial",

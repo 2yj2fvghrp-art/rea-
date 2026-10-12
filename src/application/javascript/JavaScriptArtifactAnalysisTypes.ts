@@ -58,7 +58,7 @@ export type JavaScriptSourceMapObservation = JavaScriptStructuredObservation &
     | {
         readonly status: "included";
         readonly sources: readonly JavaScriptSourceMapOriginal[];
-        readonly limitation: null;
+        readonly limitation: string | null;
       }
     | {
         readonly status: "invalid";

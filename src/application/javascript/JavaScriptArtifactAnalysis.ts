@@ -539,6 +539,7 @@ const collectSourceMapOriginals = (
   maps: readonly Readonly<Record<string, unknown>>[],
 ): JavaScriptSourceMapObservation => {
   const sources: JavaScriptSourceMapOriginal[] = [];
+  let unnamedSources = 0;
   for (const map of maps) {
     const names = map.sources;
     if (!Array.isArray(names))
@@ -556,6 +557,10 @@ const collectSourceMapOriginals = (
       );
     const root = typeof map.sourceRoot === "string" ? map.sourceRoot : null;
     for (const [index, raw] of names.entries()) {
+      if (raw === null) {
+        unnamedSources += 1;
+        continue;
+      }
       if (typeof raw !== "string")
         return invalidSourceMap(
           file,
@@ -575,7 +580,10 @@ const collectSourceMapOriginals = (
     sha256: file.sha256,
     status: "included",
     sources,
-    limitation: null,
+    limitation:
+      unnamedSources === 0
+        ? null
+        : `Source map contains ${unnamedSources} unnamed source declaration(s); named originals are retained, but unnamed sources cannot be reconstructed by filename.`,
   };
 };
 
