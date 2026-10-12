@@ -63,6 +63,24 @@ const unreadableScriptFile = async (
   );
 };
 
+/**
+ * Reject an unreadable script file before any attach or spawn effect;
+ * cancellation before or during the check still wins.
+ */
+const rejectBeforeStart = async (
+  source: FridaScriptSource,
+  signal: AbortSignal | undefined,
+): Promise<AnalysisError | undefined> => {
+  const cancelled = () =>
+    new AnalysisCancelledError(
+      "instrument_with_frida",
+      signal?.reason === undefined ? {} : { cause: signal.reason },
+    );
+  if (signal?.aborted) return cancelled();
+  const unreadable = await unreadableScriptFile(source);
+  return signal?.aborted ? cancelled() : unreadable;
+};
+
 /** Shared CLI/MCP workflows for Frida's device and instrumentation operations. */
 export class FridaInstrumentationService {
   readonly #provider: FridaInstrumentationPort;
@@ -207,19 +225,8 @@ export class FridaInstrumentationService {
       AnalysisError
     >
   > {
-    const cancelled = () =>
-      err(
-        new AnalysisCancelledError(
-          "instrument_with_frida",
-          signal?.reason === undefined ? {} : { cause: signal.reason },
-        ),
-      );
-    if (signal?.aborted) return cancelled();
-    // Reject an unreadable script file before any attach or spawn effect;
-    // cancellation that arrives during the check still wins.
-    const unreadable = await unreadableScriptFile(input.source);
-    if (signal?.aborted) return cancelled();
-    if (unreadable !== undefined) return err(unreadable);
+    const rejected = await rejectBeforeStart(input.source, signal);
+    if (rejected !== undefined) return err(rejected);
     const started = await this.#startSession(
       input,
       signal,
