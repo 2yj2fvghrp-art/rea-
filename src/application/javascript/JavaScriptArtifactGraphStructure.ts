@@ -258,7 +258,7 @@ export const addJavaScriptArtifactFiles = (
         limitation: jsonValue.limitation,
       });
     const sourceMap = sourceMapsByPath.get(file.path);
-    if (sourceMap !== undefined && sourceMap.limitation !== null)
+    if (sourceMap !== undefined && sourceMap.status === "invalid")
       addUnavailableStaticParseScope(context, {
         file,
         asset: target,

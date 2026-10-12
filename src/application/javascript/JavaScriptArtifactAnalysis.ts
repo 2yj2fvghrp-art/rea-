@@ -539,7 +539,7 @@ const collectSourceMapOriginals = (
   maps: readonly Readonly<Record<string, unknown>>[],
 ): JavaScriptSourceMapObservation => {
   const sources: JavaScriptSourceMapOriginal[] = [];
-  let unnamedSources = 0;
+  let declarationIndex = 0;
   for (const map of maps) {
     const names = map.sources;
     if (!Array.isArray(names))
@@ -557,11 +557,7 @@ const collectSourceMapOriginals = (
       );
     const root = typeof map.sourceRoot === "string" ? map.sourceRoot : null;
     for (const [index, raw] of names.entries()) {
-      if (raw === null) {
-        unnamedSources += 1;
-        continue;
-      }
-      if (typeof raw !== "string")
+      if (raw !== null && typeof raw !== "string")
         return invalidSourceMap(
           file,
           "Source map contains a non-string source name.",
@@ -569,7 +565,12 @@ const collectSourceMapOriginals = (
       const rawContent = Array.isArray(contents) ? contents[index] : undefined;
       const content = typeof rawContent === "string" ? rawContent : null;
       sources.push({
-        reference: resolveJavaScriptSourceMapReference(raw, root, file.path),
+        source_index: index,
+        declaration_index: declarationIndex++,
+        reference:
+          typeof raw === "string"
+            ? resolveJavaScriptSourceMapReference(raw, root, file.path)
+            : null,
         content,
         content_sha256: content === null ? null : sha256(content),
       });
@@ -580,10 +581,7 @@ const collectSourceMapOriginals = (
     sha256: file.sha256,
     status: "included",
     sources,
-    limitation:
-      unnamedSources === 0
-        ? null
-        : `Source map contains ${unnamedSources} unnamed source declaration(s); named originals are retained, but unnamed sources cannot be reconstructed by filename.`,
+    limitation: null,
   };
 };
 

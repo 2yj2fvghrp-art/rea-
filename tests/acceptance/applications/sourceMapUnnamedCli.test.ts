@@ -44,22 +44,47 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       source_map_sha256: createHash("sha256").update(mapText).digest("hex"),
       source_sha256: createHash("sha256").update(original).digest("hex"),
     });
-    expect(graph.coverage.status).toBe("partial");
+    expect(originals[0]?.observations).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          source_index: 1,
+          declaration_index: 1,
+          source_name_available: true,
+          content_available: true,
+        }),
+      }),
+    );
+    expect(graph.coverage.status).toBe("complete");
     expect(graph.nodes).toContainEqual(
       expect.objectContaining({
+        kind: "unknown",
         observations: expect.arrayContaining([
           expect.objectContaining({
+            source_map_reference: null,
+            properties: expect.objectContaining({
+              source_index: 0,
+              declaration_index: 0,
+              source_name_available: false,
+              content_available: false,
+              content_sha256: null,
+            }),
             evidence: expect.objectContaining({
-              limitations: expect.arrayContaining([
-                expect.stringContaining("unnamed source"),
-              ]),
+              artifact: expect.objectContaining({
+                sha256: createHash("sha256").update(mapText).digest("hex"),
+              }),
             }),
           }),
         ]),
       }),
     );
     expect(await readFile(mapPath, "utf8")).toBe(mapText);
+  },
+);
 
+cliTest.for(["CLI", "stdio MCP"] as const)(
+  "rejects non-string source-map names without inventing originals through %s",
+  async (surface, { cli }) => {
+    const original = "export const answer: number = 42;";
     const malformedRoot = await createTestTempDirectory(
       "rea-invalid-map-source-",
     );
