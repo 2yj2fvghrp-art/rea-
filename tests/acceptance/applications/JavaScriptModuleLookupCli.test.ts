@@ -25,14 +25,24 @@ const ctsSource = [
   "console.log(JSON.stringify([value, marker]));",
   'void import("cts-package").then(({ marker }) => console.log(marker));',
 ].join("\n");
+const ctsResolutionSource = [
+  'import type { ImportOnly } from "cts-package" with { "resolution-mode": "import" };',
+  'import type { RequireOnly } from "cts-package" with { "resolution-mode": "require" };',
+  "export type { ImportOnly, RequireOnly };",
+  'const first: ImportOnly = { source: "import" };',
+  'const second: RequireOnly = { source: "require" };',
+  "console.log(JSON.stringify([first.source, second.source]));",
+].join("\n");
 const ctsPackageFiles = {
   "node_modules/cts-package/package.json": JSON.stringify({
     exports: { require: "./actual.cjs", import: "./decoy.mjs" },
   }),
   "node_modules/cts-package/actual.cjs": "exports.marker = 43;",
-  "node_modules/cts-package/actual.d.cts": "export const marker: number;",
+  "node_modules/cts-package/actual.d.cts":
+    'export const marker: number; export interface RequireOnly { source: "require"; }',
   "node_modules/cts-package/decoy.mjs": "export const marker = 99;",
-  "node_modules/cts-package/decoy.d.mts": "export const marker: number;",
+  "node_modules/cts-package/decoy.d.mts":
+    'export const marker: number; export interface ImportOnly { source: "import"; }',
 };
 
 const createModuleLookupFixture = async () => {
@@ -45,6 +55,7 @@ const createModuleLookupFixture = async () => {
     ...ctsPackageFiles,
     "cts/package.json": JSON.stringify({ type: "commonjs" }),
     "cts/entry.cts": ctsSource,
+    "cts/resolution.cts": ctsResolutionSource,
     "cts/runtime-dep.js": "module.exports = 42;",
     "esm/entry.mjs": [
       'import "./extensionless";',
@@ -161,6 +172,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       "--outDir",
       emitted,
       join(root, "cts/entry.cts"),
+      join(root, "cts/resolution.cts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
@@ -170,6 +182,11 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     timeout: 5_000,
   });
   expect(ctsControl.stdout.trim().split("\n")).toEqual(["[42,43]", "99"]);
+  const resolution = await execute(process.execPath, ["resolution.cjs"], {
+    cwd: emitted,
+    timeout: 5_000,
+  });
+  expect(JSON.parse(resolution.stdout)).toEqual(["import", "require"]);
 };
 
 const expectCtsModuleLookup = (
@@ -325,6 +342,49 @@ const expectJavaScriptRuntime = async (root: string): Promise<void> => {
   ]);
 };
 
+const expectCtsResolutionModes = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  const references = graph.edges.filter(
+    ({ relation, evidence: edgeEvidence }) =>
+      relation === "imports" &&
+      edgeEvidence.location.available &&
+      edgeEvidence.location.value.kind === "source-range" &&
+      edgeEvidence.location.value.source === "cts/resolution.cts",
+  );
+  const digest = createHash("sha256").update(ctsResolutionSource).digest("hex");
+  for (const [name, target] of [
+    ["ImportOnly", "node_modules/cts-package/decoy.mjs"],
+    ["RequireOnly", "node_modules/cts-package/actual.cjs"],
+  ] as const)
+    for (const kind of ["import", "export"] as const)
+      expect(references).toContainEqual(
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            module_link_kind: kind,
+            imported_name: name,
+            resolved_path: target,
+            resolution_status: "resolved",
+          }),
+          evidence: expect.objectContaining({
+            artifact: expect.objectContaining({
+              available: true,
+              sha256: digest,
+            }),
+          }),
+        }),
+      );
+  const legacy = references.filter(
+    ({ properties }) => properties.kind === "static-import",
+  );
+  expect(
+    legacy.map(({ properties }) => properties.resolved_path).sort(),
+  ).toEqual([
+    "node_modules/cts-package/actual.cjs",
+    "node_modules/cts-package/decoy.mjs",
+  ]);
+};
+
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "matches Node module lookup for ESM and CommonJS through %s",
   async (surface, { cli }) => {
@@ -392,5 +452,6 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         }),
       );
     expectCtsModuleLookup(graph);
+    expectCtsResolutionModes(graph);
   },
 );

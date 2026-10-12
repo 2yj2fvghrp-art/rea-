@@ -22,7 +22,10 @@ import {
   astObservationEvidence,
   staticInferenceEvidence,
 } from "./JavaScriptArtifactGraphEvidence.js";
-import { resolveArtifactPathByContext } from "./JavaScriptArtifactPathResolution.js";
+import {
+  moduleKindForJavaScriptReference,
+  resolveArtifactPathByContext,
+} from "./JavaScriptArtifactPathResolution.js";
 
 type StaticReference = JavaScriptStaticAnalysis["references"][number];
 type StaticEndpoint = JavaScriptStaticAnalysis["endpoints"][number];
@@ -400,13 +403,15 @@ const resolveReference = (
           specifier,
           sourcePath,
           context.filesByPath,
-          reference.kind === "require"
-            ? "require"
-            : reference.kind === "dynamic-import"
-              ? "dynamic-import"
-              : reference.kind === "static-import"
-                ? "import"
-                : undefined,
+          reference.kind === "require" ||
+            reference.kind === "static-import" ||
+            reference.kind === "dynamic-import"
+            ? moduleKindForJavaScriptReference(
+                sourcePath,
+                reference.kind,
+                reference.resolution_mode,
+              )
+            : undefined,
         );
   if (path === null) return null;
   const file = context.filesByPath.get(path);

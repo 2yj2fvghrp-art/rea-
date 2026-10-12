@@ -1,5 +1,4 @@
 import { posix } from "node:path";
-import { typescriptSourceModuleKind } from "../TypeScriptSourceModuleKind.js";
 
 import {
   compareUnicodeCodePoints,
@@ -31,6 +30,7 @@ import {
   staticInferenceEvidence,
 } from "./JavaScriptArtifactGraphEvidence.js";
 import {
+  moduleKindForJavaScriptReference,
   resolveArtifactPathByContext,
   type ArtifactPathResolution,
 } from "./JavaScriptArtifactPathResolution.js";
@@ -276,10 +276,13 @@ const resolveModuleTarget = (
     sourcePath: input.file.path,
     context: "module-specifier",
     files: input.context.filesByPath,
-    moduleKind:
+    moduleKind: moduleKindForJavaScriptReference(
+      input.file.path,
       input.link.kind === "require" || input.link.kind === "commonjs-export"
         ? "require"
-        : "import",
+        : "static-import",
+      input.link.resolutionMode,
+    ),
   });
   if (resolution.resolution_status !== "resolved")
     return {
@@ -424,9 +427,8 @@ const moduleFormat = (
   ir: JavaScriptModuleSemanticIr,
 ): "commonjs" | "esm" | "mixed" | "unknown" => {
   const extension = posix.extname(path).toLowerCase();
-  if (extension === ".mjs") return "esm";
-  if (extension === ".cjs" || typescriptSourceModuleKind(path) === "require")
-    return "commonjs";
+  if (extension === ".mjs" || extension === ".mts") return "esm";
+  if (extension === ".cjs" || extension === ".cts") return "commonjs";
   const esm = ir.moduleLinks.some(({ kind }) =>
     ["import", "export", "re-export"].includes(kind),
   );

@@ -20,7 +20,6 @@ import {
   lookupExactPackageImport,
 } from "../../domain/javascript/javascriptPackageImportAliases.js";
 import { typescriptEmittedSourceCandidates } from "../TypeScriptEmittedSourceCandidates.js";
-import { typescriptSourceModuleKind } from "../TypeScriptSourceModuleKind.js";
 
 type ArtifactPathResolutionContext =
   | "package-entrypoint"
@@ -61,9 +60,22 @@ export interface ResolveArtifactPathInput {
   readonly context: ArtifactPathResolutionContext;
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
   readonly htmlBaseHref?: string | null;
-  /** Declared loader syntax; dynamic imports retain ESM lookup in CTS files. */
-  readonly moduleKind?: "import" | "require" | "dynamic-import";
+  /** Import/require semantics; runtime resource paths omit this provenance. */
+  readonly moduleKind?: "import" | "require";
 }
+
+/** Loader selected by a source-level JavaScript module reference. */
+export const moduleKindForJavaScriptReference = (
+  sourcePath: string,
+  referenceKind: "static-import" | "dynamic-import" | "require",
+  resolutionMode?: "import" | "require",
+): "import" | "require" =>
+  resolutionMode ??
+  (referenceKind === "require" ||
+  (referenceKind === "static-import" &&
+    posix.extname(sourcePath).toLowerCase() === ".cts")
+    ? "require"
+    : "import");
 
 const EXTENSIONS = [
   ".js",
@@ -109,15 +121,7 @@ type CandidateResolution =
 export const resolveArtifactPathByContext = (
   input: ResolveArtifactPathInput,
 ): ArtifactPathResolution => {
-  const resolution = resolvePath(
-    input.moduleKind === "dynamic-import"
-      ? { ...input, moduleKind: "import" }
-      : input.context === "module-specifier" &&
-          input.moduleKind === "import" &&
-          typescriptSourceModuleKind(input.sourcePath) === "require"
-        ? { ...input, moduleKind: "require" }
-        : input,
-  );
+  const resolution = resolvePath(input);
   return resolution.status === "resolved"
     ? {
         declared_path: input.declaredPath,
@@ -198,7 +202,12 @@ const contextualCandidate = (
   if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
     const fileUrl = fileUrlPath(declared);
-    if (fileUrl !== undefined) return fileUrl;
+    if (fileUrl !== undefined)
+      return input.moduleKind === "require"
+        ? unresolvedCandidate("external", [
+            "Node CommonJS require specifiers do not resolve file URLs as local artifacts.",
+          ])
+        : fileUrl;
     if (hasScheme(declared))
       return unresolvedCandidate("external", [
         "URL and Node builtin schemes are outside static artifact module resolution.",

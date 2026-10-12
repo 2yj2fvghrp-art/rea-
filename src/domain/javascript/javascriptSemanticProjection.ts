@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { typescriptImportResolutionMode } from "./typescriptImportResolutionMode.js";
 
 import type {
   JavaScriptSemanticBinding,
@@ -69,7 +70,8 @@ export const collectSemanticModuleLink = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  if (t.isImportDeclaration(node)) collectImports(node, state);
+  if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
+  else if (t.isImportDeclaration(node)) collectImports(node, state);
   else if (t.isExportAllDeclaration(node))
     addModuleLink(
       state,
@@ -102,6 +104,36 @@ export const collectSemanticModuleLink = (
   else if (t.isAssignmentExpression(node)) collectCommonJsExport(node, state);
   else if (t.isCallExpression(node)) collectUnboundRequireLink(node, state);
 };
+
+const collectImportEquals = (
+  node: t.TSImportEqualsDeclaration,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  const specifier = semanticImportEqualsSpecifier(node);
+  if (specifier === null) return;
+  addModuleLink(
+    state,
+    {
+      kind: "require",
+      specifier,
+      importedName: null,
+      localName: node.id.name,
+      exportedName: null,
+      location: range(node),
+    },
+    node,
+  );
+};
+
+/** Runtime external-module target for a value import-equals declaration. */
+export const semanticImportEqualsSpecifier = (
+  node: t.TSImportEqualsDeclaration,
+): string | null =>
+  node.importKind !== "type" &&
+  t.isTSExternalModuleReference(node.moduleReference) &&
+  t.isStringLiteral(node.moduleReference.expression)
+    ? node.moduleReference.expression.value
+    : null;
 
 /** Collect lexical references after definitions exist, optionally for one name. */
 export const collectSemanticReferences = (
@@ -252,11 +284,13 @@ const collectImports = (
   node: t.ImportDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
+  const resolutionMode = typescriptImportResolutionMode(node);
   if (node.specifiers.length === 0)
     addModuleLink(
       state,
       {
         kind: "import",
+        ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: null,
         localName: null,
@@ -270,6 +304,7 @@ const collectImports = (
       state,
       {
         kind: "import",
+        ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: t.isImportDefaultSpecifier(specifier)
           ? "default"
@@ -705,6 +740,11 @@ const declarationNames = (declaration: t.Declaration): string[] => {
     (t.isFunctionDeclaration(declaration) ||
       t.isClassDeclaration(declaration)) &&
     t.isIdentifier(declaration.id)
+  )
+    return [declaration.id.name];
+  if (
+    t.isTSImportEqualsDeclaration(declaration) &&
+    semanticImportEqualsSpecifier(declaration) !== null
   )
     return [declaration.id.name];
   return [];
