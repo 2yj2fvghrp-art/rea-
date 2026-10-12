@@ -63,6 +63,33 @@ const NOT_APPLICABLE_PROFILE_ATTRIBUTES = Buffer.from([
   0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x00, 0x08, 0x01, 0x09, 0x02, 0x0a, 0x04,
   0x22, 0x01,
 ]);
+/** A valid v7/A block ending with the no-value Tag_nodefaults marker (64). */
+const NODEFAULTS_ATTRIBUTES = Buffer.from([
+  0x41, 0x1a, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x10,
+  0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x41, 0x40, 0x08, 0x01, 0x09, 0x02, 0x0a,
+  0x04,
+]);
+/** A v7/A block followed by Tag_also_compatible_with (65), a string tag. */
+const STRING_TAG_ATTRIBUTES = Buffer.concat([
+  Buffer.from([
+    0x41, 0x1f, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01,
+    0x15, 0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x41, 0x08, 0x01, 0x09, 0x02,
+    0x41,
+  ]),
+  Buffer.from("v6\u0000", "ascii"),
+  Buffer.from([0x0a, 0x04, 0x22, 0x01]),
+]);
+/** One File scope declaring v7 twice with conflicting values. */
+const CONFLICTING_FILE_ATTRIBUTES = Buffer.from([
+  0x41, 0x1d, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x13,
+  0x00, 0x00, 0x00, 0x06, 0x0a, 0x06, 0x0e, 0x07, 0x41, 0x08, 0x01, 0x09, 0x02,
+]);
+/** A v7/A File scope beside a Symbol scope declaring v8. */
+const SCOPED_CONFLICT_ATTRIBUTES = Buffer.from([
+  0x41, 0x25, 0x00, 0x00, 0x00, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x11,
+  0x00, 0x00, 0x00, 0x06, 0x0a, 0x07, 0x41, 0x08, 0x01, 0x09, 0x02, 0x0a, 0x04,
+  0x22, 0x01, 0x03, 0x07, 0x00, 0x00, 0x00, 0x06, 0x0e,
+]);
 // Same shape with an impossible subsection length spanning past the section.
 const MALFORMED_ATTRIBUTES = Buffer.from([
   0x41, 0xff, 0xff, 0xff, 0x0f, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x11,
@@ -172,10 +199,11 @@ it("reads the File scope declaration with a Symbol scope following it", async ()
   expect(target.arm.cpuArchProfile).toBe("A");
 });
 
-it("lets a later File scope supersede an earlier one", async () => {
+it("reads conflicting File-scope declarations as no declaration", async () => {
   const target = await resolveArm(armFixture(DUPLICATE_FILE_SCOPES_ATTRIBUTES));
   if (target.format !== "elf") throw new Error("Expected an ELF target");
-  expect(target.arm.cpuArch).toBe(14);
+  expect(target.arm.cpuArch).toBeNull();
+  expect(target.arm.cpuArchProfile).toBeNull();
 });
 
 it("records a limitation when the section table extends beyond the file", async () => {
@@ -202,7 +230,33 @@ it("preserves the declared Not Applicable profile with the arch enum", async () 
   );
   if (target.format !== "elf") throw new Error("Expected an ELF target");
   expect(target.arm.cpuArch).toBe(10);
-  expect(target.arm.cpuArchProfile).toBe(" ");
+  expect(target.arm.cpuArchProfile).toBe("\u0000");
+});
+
+it("accepts a File block ending with Tag_nodefaults", async () => {
+  const target = await resolveArm(armFixture(NODEFAULTS_ATTRIBUTES));
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBe(10);
+  expect(target.arm.cpuArchProfile).toBe("A");
+});
+
+it("skips string-valued odd tags without consuming the declarations", async () => {
+  const target = await resolveArm(armFixture(STRING_TAG_ATTRIBUTES));
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBe(10);
+  expect(target.arm.cpuArchProfile).toBe("A");
+});
+
+it("reads conflicting ISA tags inside one File scope as no declaration", async () => {
+  const target = await resolveArm(armFixture(CONFLICTING_FILE_ATTRIBUTES));
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBeNull();
+});
+
+it("reads a scoped declaration disagreeing with the File scope as no declaration", async () => {
+  const target = await resolveArm(armFixture(SCOPED_CONFLICT_ATTRIBUTES));
+  if (target.format !== "elf") throw new Error("Expected an ELF target");
+  expect(target.arm.cpuArch).toBeNull();
 });
 
 it("refuses a padded section-table entry size instead of allocating it", async () => {

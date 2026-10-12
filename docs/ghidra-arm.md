@@ -26,9 +26,9 @@ profile (for example the Realtime profile a cortex-r5 build declares), an
 unknown profile, or no readable declaration at all, because the EABI version
 and the arch enum alone do not identify the CPU variant: provider selection
 returns the specific unsupported constraint rather than guessing a compatible
-profile. When the section table extends beyond the captured file, the profile
-records the unexamined declarations as an inspection limitation instead of
-treating the partial scan as complete coverage.
+profile. When the section table extends beyond the captured file, admission is
+refused: an unexamined header could carry another .ARM.attributes
+declaration, so a partial scan never establishes the ISA.
 
 ## Pinned import language
 

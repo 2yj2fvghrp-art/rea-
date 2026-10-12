@@ -85,6 +85,8 @@ export const ghidraArmUnsupportedReason = (
     return "EF_ARM_BE8 mixed-endian images need separate verification in this Ghidra lane.";
   if ((metadata.flags & EF_ARM_ABI_FLOAT_SOFT) !== 0)
     return "EF_ARM_ABI_FLOAT_SOFT is outside this Ghidra lane; the verified lane covers hard-float and unspecified float conventions.";
+  if ((metadata.limitations?.length ?? 0) > 0)
+    return "This Ghidra ARM lane requires a completely examined section table: unexamined headers could carry another .ARM.attributes declaration, so the declared ISA is not established for this image.";
   if (metadata.cpuArch === undefined || metadata.cpuArch === null)
     return "This Ghidra ARM lane requires .ARM.attributes declaring Tag_CPU_arch v7; an image without a readable declaration cannot establish the verified ISA, and the ELF header alone does not identify the CPU architecture.";
   if (metadata.cpuArch !== ARM_CPU_ARCH_V7)
@@ -118,9 +120,6 @@ export const ghidraArmProfileParameters = (
       cpu_arch_name:
         target.arm.cpuArch == null ? null : armCpuArchName(target.arm.cpuArch),
       cpu_arch_profile: target.arm.cpuArchProfile ?? null,
-      ...(target.arm.limitations === undefined
-        ? {}
-        : { attributes_limitations: [...target.arm.limitations] }),
       float_abi:
         (target.arm.flags & EF_ARM_ABI_FLOAT_HARD) !== 0
           ? "hard"

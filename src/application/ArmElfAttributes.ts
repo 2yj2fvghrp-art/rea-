@@ -9,17 +9,6 @@ export interface ArmElfAttributesInspection {
   readonly limitations: readonly string[];
 }
 
-/** File-scope AEABI declarations; other scopes do not declare the ISA. */
-interface AeabiFileDeclarations {
-  readonly cpuArch: number | null;
-  readonly cpuArchProfile: string | null;
-}
-
-const NO_AEABI_DECLARATIONS: AeabiFileDeclarations = {
-  cpuArch: null,
-  cpuArchProfile: null,
-};
-
 /** SHT_ARM_ATTRIBUTES carries the AEABI declarations for an ELF32 ARM image. */
 const SHT_ARM_ATTRIBUTES = 0x70000003;
 const ARM_ATTRIBUTES_MAX_BYTES = 65536;
@@ -57,20 +46,44 @@ const skipAttributesString = (
   return terminator < 0 || terminator >= end ? null : terminator + 1;
 };
 
+/** AEABI declarations read from one attributes payload. */
+interface AeabiDeclarations {
+  readonly cpuArch: number | null;
+  readonly cpuArchProfile: string | null;
+  /**
+   * A Section or Symbol scope, or a repeated File scope, declared an ISA or
+   * profile that disagrees with the File-scope declaration; the payload then
+   * reads as no declaration instead of proof of the last writer.
+   */
+  readonly declarationConflict: boolean;
+}
+
+const NO_AEABI_DECLARATIONS: AeabiDeclarations = {
+  cpuArch: null,
+  cpuArchProfile: null,
+  declarationConflict: false,
+};
+
 /**
- * Scan one File scope's tag/value pairs for Tag_CPU_arch (6) and
- * Tag_CPU_arch_profile (7). Scope tags cannot nest, Tag_NULL carries no
- * value, tags 4, 5, and 32 carry strings, and every other declared tag
- * carries one ULEB value; malformed shapes read back as no declaration.
+ * Walk one scope block's tag/value pairs. Scope tags cannot nest, Tag_NULL is
+ * not a valid attribute boundary, Tag_nodefaults (64) carries no value, tags
+ * 4, 5, and 32 carry strings, odd tags above 32 carry NUL-terminated strings
+ * such as Tag_also_compatible_with, and every other declared tag carries one
+ * ULEB value. Repeated ISA or profile tags must agree.
  */
-const scanAeabiFileScope = (
+const scanAeabiScope = (
   section: Buffer,
   start: number,
   end: number,
-): AeabiFileDeclarations | null => {
+):
+  | (Omit<AeabiDeclarations, "declarationConflict"> & {
+      readonly repeatedDeclarationConflicts: boolean;
+    })
+  | null => {
   let cursor = start;
   let cpuArch: number | null = null;
   let cpuArchProfile: string | null = null;
+  let conflict = false;
   let tags = 0;
   while (cursor < end) {
     if ((tags += 1) > ARM_ATTRIBUTES_MAX_TAGS) return null;
@@ -81,22 +94,19 @@ const scanAeabiFileScope = (
       const value = readUleb128(section, cursor, end);
       if (value === null) return null;
       cursor = value.next;
-      if (tag.value === TAG_CPU_ARCH) cpuArch = value.value;
-      else if (value.value > 127) return null;
-      // Zero is the declared Not Applicable profile, not an absent one.
-      else cpuArchProfile = String.fromCharCode(value.value);
+      if (tag.value === TAG_CPU_ARCH) {
+        if (cpuArch !== null && cpuArch !== value.value) conflict = true;
+        cpuArch = value.value;
+      } else if (value.value > 127) return null;
+      else {
+        const profile = String.fromCharCode(value.value);
+        if (cpuArchProfile !== null && cpuArchProfile !== profile)
+          conflict = true;
+        cpuArchProfile = profile;
+      }
       continue;
     }
-    // Tag_NULL is not a valid File-scope attribute boundary; standard readers
-    // reject the block instead of exposing declarations that follow it.
-    if (tag.value === 0) return null;
-    if (tag.value >= 1 && tag.value <= 3) return null;
-    if (tag.value === 4 || tag.value === 5) {
-      const next = skipAttributesString(section, cursor, end);
-      if (next === null) return null;
-      cursor = next;
-      continue;
-    }
+    if (tag.value === 0 || (tag.value >= 1 && tag.value <= 3)) return null;
     if (tag.value === 32) {
       const compatibility = readUleb128(section, cursor, end);
       if (compatibility === null) return null;
@@ -105,49 +115,77 @@ const scanAeabiFileScope = (
       cursor = next;
       continue;
     }
+    if (tag.value === 4 || tag.value === 5) {
+      const next = skipAttributesString(section, cursor, end);
+      if (next === null) return null;
+      cursor = next;
+      continue;
+    }
+    if (tag.value === 64) continue;
+    if (tag.value > 32 && tag.value % 2 === 1) {
+      const next = skipAttributesString(section, cursor, end);
+      if (next === null) return null;
+      cursor = next;
+      continue;
+    }
     const value = readUleb128(section, cursor, end);
     if (value === null) return null;
     cursor = value.next;
   }
-  return { cpuArch, cpuArchProfile };
+  return { cpuArch, cpuArchProfile, repeatedDeclarationConflicts: conflict };
 };
 
 /**
- * Walk one aeabi subsection's length-delimited scope blocks. Only File
- * scopes declare the architecture; Section and Symbol scopes are skipped
- * whole, so their bytes can never read as a CPU_arch declaration, and a
- * later File scope supersedes an earlier one as sequential consumers do.
+ * Walk one aeabi subsection's length-delimited scope blocks. File scopes carry
+ * the primary declaration and must agree when repeated; Section and Symbol
+ * scopes can refine declarations per region or symbol, so a disagreement with
+ * the File scope is a conflict rather than an override.
  */
 const aeabiDeclarations = (
   section: Buffer,
   start: number,
   end: number,
-): AeabiFileDeclarations | null => {
+): AeabiDeclarations | null => {
   let cursor = start;
-  let declarations: AeabiFileDeclarations = NO_AEABI_DECLARATIONS;
+  let declarations = NO_AEABI_DECLARATIONS;
+  let conflict = false;
+  const disagrees = (
+    scanned: Omit<AeabiDeclarations, "declarationConflict">,
+  ): boolean =>
+    (scanned.cpuArch !== null &&
+      declarations.cpuArch !== null &&
+      scanned.cpuArch !== declarations.cpuArch) ||
+    (scanned.cpuArchProfile !== null &&
+      declarations.cpuArchProfile !== null &&
+      scanned.cpuArchProfile !== declarations.cpuArchProfile);
   while (cursor < end) {
     const scope = readUleb128(section, cursor, end);
     if (scope === null || scope.value < 1 || scope.value > 3) return null;
     if (scope.next + 4 > end) return null;
     const blockEnd = cursor + section.readUInt32LE(scope.next);
     if (blockEnd < scope.next + 4 || blockEnd > end) return null;
-    if (scope.value === 1) {
-      const scanned = scanAeabiFileScope(section, scope.next + 4, blockEnd);
-      if (scanned === null) return null;
-      declarations = scanned;
-    }
+    const scanned = scanAeabiScope(section, scope.next + 4, blockEnd);
+    if (scanned === null) return null;
+    if (scanned.repeatedDeclarationConflicts || disagrees(scanned))
+      conflict = true;
+    if (scope.value === 1)
+      declarations = {
+        cpuArch: scanned.cpuArch ?? declarations.cpuArch,
+        cpuArchProfile: scanned.cpuArchProfile ?? declarations.cpuArchProfile,
+        declarationConflict: conflict,
+      };
     cursor = blockEnd;
   }
-  return declarations;
+  return { ...declarations, declarationConflict: conflict };
 };
 
 /**
  * Parse an AEABI attributes payload: 'A', then subsections of a 4-byte
  * length, a NUL-terminated owner, and length-delimited scope blocks. Only
  * the public aeabi subsection declares the architecture; other owners and
- * every malformed shape read back as no declaration.
+ * every malformed or conflicting shape read back as no declaration.
  */
-const armAttributesDeclarations = (section: Buffer): AeabiFileDeclarations => {
+const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
   if (section.length < 2 || section[0] !== 0x41) return NO_AEABI_DECLARATIONS;
   let cursor = 1;
   while (cursor + 4 <= section.length) {
@@ -163,7 +201,9 @@ const armAttributesDeclarations = (section: Buffer): AeabiFileDeclarations => {
     const owner = section.toString("ascii", cursor + 4, ownerEnd - 1);
     if (owner === "aeabi") {
       const declarations = aeabiDeclarations(section, ownerEnd, subsectionEnd);
-      return declarations === null ? NO_AEABI_DECLARATIONS : declarations;
+      return declarations === null || declarations.declarationConflict
+        ? NO_AEABI_DECLARATIONS
+        : declarations;
     }
     cursor = subsectionEnd;
   }
