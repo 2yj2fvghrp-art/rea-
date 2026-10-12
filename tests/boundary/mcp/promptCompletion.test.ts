@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe("guided prompt completion from live analysis", () => {
-  it("reads warmed documents and complete procedures without ambiguous names", async () => {
+  it("reads live documents and complete procedures without ambiguous names", async () => {
     const requests: Array<Readonly<Record<string, unknown>>> = [];
     const session = createTestBinarySession(() => client(requests), {
       resolveAnalysisProfile: () =>
@@ -49,9 +49,10 @@ describe("guided prompt completion from live analysis", () => {
     await writeFile(target, "fixture");
     expect((await session.open(target)).ok).toBe(true);
     const completion = createPromptCompletionSource(session, session);
+
+    // Completion never starts a provider; an ordinary operation readies it.
     expect(await completion.complete("document", "app")).toEqual([]);
     expect((await session.execute("list_documents", {})).ok).toBe(true);
-
     expect(await completion.complete("document", "app")).toEqual([
       "App",
       "AppTests",
@@ -271,11 +272,8 @@ const fixtureEnvironment = {
 
 const client = (
   requests: Array<Readonly<Record<string, unknown>>>,
-): AnalysisClient => ({
-  executeIfReady(operation, parameters) {
-    return this.execute(operation, parameters);
-  },
-  execute(operation, parameters) {
+): AnalysisClient => {
+  const execute: AnalysisClient["execute"] = (operation, parameters) => {
     if (operation === "list_documents")
       return Promise.resolve(observed(["AppTests", "App", "App"]));
     if (operation === "list_procedures") {
@@ -290,6 +288,11 @@ const client = (
       );
     }
     return Promise.resolve(observed(null));
-  },
-  close: () => Promise.resolve(resultOk(null)),
-});
+  };
+  // An in-process fixture client is ready as soon as the session opens.
+  return {
+    execute,
+    executeIfReady: execute,
+    close: () => Promise.resolve(resultOk(null)),
+  };
+};

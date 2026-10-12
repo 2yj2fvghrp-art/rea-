@@ -121,6 +121,7 @@ const verifyMcpNonLinuxCurrentDocument = async (
 
 const verifyMcpBinaryLifecycle = async (client, mcpOptions) => {
   await verifyMcpOpenAndBind(client, mcpOptions);
+  // Completion never starts a provider; only an ordinary operation readies it.
   await prompts.verifyPromptCompletion(client, mcpOptions, false);
   if (process.platform === "linux") {
     await verifyMcpLinuxToolAvailability(client, mcpOptions);
@@ -129,8 +130,8 @@ const verifyMcpBinaryLifecycle = async (client, mcpOptions) => {
       { name: "current_document", arguments: {} },
       mcpOptions,
     );
-    await verifyMcpNonLinuxCurrentDocument(client, mcpOptions, current);
     await prompts.verifyPromptCompletion(client, mcpOptions, true);
+    await verifyMcpNonLinuxCurrentDocument(client, mcpOptions, current);
   }
   const closed = await client.callTool(
     { name: "close_binary", arguments: {} },
