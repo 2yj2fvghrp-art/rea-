@@ -92,6 +92,8 @@ interface IdaOperationFailureContext {
 interface UpstreamSession {
   readonly session_id: string;
   readonly backend: "worker" | "gui";
+  /** Upstream ownership; null when no inventory has reported it. */
+  readonly owned: boolean | null;
 }
 
 /** A failed cleanup retains its private workspace and reports the remaining resource. */
@@ -115,12 +117,13 @@ class IdaCleanupError extends ProviderAdapterError {
           : {
               upstream_sessions: {
                 state: "unverified",
-                sessions: sessions.map(({ session_id, backend }) => ({
+                sessions: sessions.map(({ session_id, backend, owned }) => ({
                   session_id,
                   backend,
+                  owned,
                 })),
                 reason:
-                  "Release of the upstream sessions using the private input was not confirmed. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
+                  "Release of the upstream sessions using the private input was not confirmed. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; owned is null when no inventory has reported ownership; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
               },
             }),
       },
@@ -578,14 +581,26 @@ export class IdaSessionClient implements AnalysisClient {
     if (!this.#openAttempted || this.#workspace === undefined) return undefined;
     return this.#databaseCloseCompleted
       ? []
-      : [{ session_id: this.#workspace.sessionId, backend: "worker" }];
+      : [
+          {
+            session_id: this.#workspace.sessionId,
+            backend: "worker",
+            owned: null,
+          },
+        ];
   }
 
   /** Replace blocker evidence from a successful inventory; true when blocked. */
-  #recordBlockingSessions(entries: readonly UpstreamSession[]): boolean {
+  #recordBlockingSessions(
+    entries: readonly (UpstreamSession & { readonly owned: boolean })[],
+  ): boolean {
     this.#blockingSessions =
       entries.length > 0
-        ? entries.map(({ session_id, backend }) => ({ session_id, backend }))
+        ? entries.map(({ session_id, backend, owned }) => ({
+            session_id,
+            backend,
+            owned,
+          }))
         : undefined;
     return entries.length > 0;
   }
@@ -630,13 +645,14 @@ export class IdaSessionClient implements AnalysisClient {
               entry.session_id === workspace.sessionId &&
               sameIdaHostPath(entry.input_path, workspace.inputPath),
           )?.session_id;
-          const peers =
-            this.#database === undefined
-              ? inventory.sessions.filter((entry) =>
-                  sameIdaHostPath(entry.input_path, workspace.inputPath),
-                )
-              : [];
-          if (this.#recordBlockingSessions(peers))
+          // Every same-input session, including the requested worker, stays
+          // reported until a later successful inventory confirms release.
+          const blocked = this.#recordBlockingSessions(
+            inventory.sessions.filter((entry) =>
+              sameIdaHostPath(entry.input_path, workspace.inputPath),
+            ),
+          );
+          if (this.#database === undefined && blocked)
             throw new AnalysisProtocolError(
               "An unowned worker still uses the private workspace; it was retained.",
             );

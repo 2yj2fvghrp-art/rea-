@@ -802,7 +802,9 @@ describe("headless IDA session ownership and cleanup", () => {
         diagnostics: {
           upstream_sessions: {
             state: "unverified",
-            sessions: [{ session_id: sessionId, backend: "worker" }],
+            sessions: [
+              { session_id: sessionId, backend: "worker", owned: null },
+            ],
           },
         },
       },
@@ -860,7 +862,11 @@ describe("headless IDA reaped worker cleanup", () => {
         diagnostics: {
           upstream_sessions: {
             sessions: [
-              { session_id: "unrelated-live-peer", backend: "worker" },
+              {
+                session_id: "unrelated-live-peer",
+                backend: "worker",
+                owned: false,
+              },
             ],
           },
         },
@@ -882,7 +888,11 @@ describe("headless IDA reaped worker cleanup", () => {
         diagnostics: {
           upstream_sessions: {
             sessions: [
-              { session_id: "unrelated-live-peer", backend: "worker" },
+              {
+                session_id: "unrelated-live-peer",
+                backend: "worker",
+                owned: false,
+              },
             ],
           },
         },
@@ -960,6 +970,52 @@ describe("headless IDA cleanup diagnostics", () => {
     });
   });
 
+  it("keeps peers seen beside the requested worker when its close fails", async () => {
+    const { producer, client } = await fixture("headless");
+    producer.overrideCall = (name) =>
+      name === "idb_open" ? { error: "open did not complete" } : undefined;
+    expect((await client.execute("health", {})).ok).toBe(false);
+    const open = producer.calls.find(({ name }) => name === "idb_open")?.args;
+    const requested = String(open?.preferred_session_id);
+    const entry = (session_id: string, owned: boolean) => ({
+      session_id,
+      input_path: String(open?.input_path),
+      owned,
+      backend: "worker",
+      is_active: true,
+    });
+    producer.overrideCall = (name) => {
+      if (name === "idb_list")
+        return {
+          sessions: [
+            entry(requested, true),
+            entry("unrelated-live-peer", false),
+          ],
+        };
+      if (name === "idb_close") return { error: "close rejected" };
+      return undefined;
+    };
+
+    const result = await client.close();
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_sessions: {
+            sessions: [
+              { session_id: requested, backend: "worker", owned: true },
+              {
+                session_id: "unrelated-live-peer",
+                backend: "worker",
+                owned: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
   it("reports a blocking GUI session by its backend", async () => {
     const { producer, client } = await fixture("headless");
     expect((await client.execute("health", {})).ok).toBe(true);
@@ -988,7 +1044,7 @@ describe("headless IDA cleanup diagnostics", () => {
       error: {
         diagnostics: {
           upstream_sessions: {
-            sessions: [{ session_id: "", backend: "gui" }],
+            sessions: [{ session_id: "", backend: "gui", owned: false }],
           },
         },
       },
