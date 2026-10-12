@@ -146,7 +146,12 @@ const contextualCandidate = (
   if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
     const fileUrl = fileUrlPath(declared);
-    if (fileUrl !== undefined) return fileUrl;
+    if (fileUrl !== undefined) {
+      if (input.moduleKind !== "require") return fileUrl;
+      return unresolvedCandidate("external", [
+        "CommonJS require does not decode file URLs; Node rejects the declared string with MODULE_NOT_FOUND.",
+      ]);
+    }
     if (hasScheme(declared))
       return unresolvedCandidate("external", [
         "URL and Node builtin schemes are outside static artifact module resolution.",

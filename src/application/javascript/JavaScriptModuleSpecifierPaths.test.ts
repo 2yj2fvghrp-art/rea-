@@ -245,6 +245,146 @@ describe("ESM module URL decoding", () => {
   );
 });
 
+describe("CommonJS file URL module specifiers", () => {
+  it("keeps file URLs out of require resolution while ESM keeps its lookup", () => {
+    const files = filesFor(["dep.cjs", "app/dep.cjs"]);
+    expect(
+      resolveArtifactPathByContext({
+        declaredPath: "file:///dep.cjs",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        moduleKind: "require",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "external",
+      resolved_path: null,
+    });
+    expect(
+      resolveArtifactPathByContext({
+        declaredPath: "file:///dep.cjs",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        moduleKind: "require",
+        files,
+      }).limitations.length,
+    ).toBeGreaterThan(0);
+
+    expect(
+      resolveArtifactPathByContext({
+        declaredPath: "file:///dep.cjs",
+        sourcePath: "app/main.mjs",
+        context: "module-specifier",
+        moduleKind: "import",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "dep.cjs",
+    });
+
+    expect(
+      resolveArtifactPathByContext({
+        declaredPath: "./dep.cjs",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        moduleKind: "require",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/dep.cjs",
+    });
+  });
+
+  it("does not invent a local dependency for require file URLs Node rejects", async () => {
+    const root = await createTestTempDirectory("rea-commonjs-file-url-");
+    await writeFile(join(root, "package.json"), '{"type":"commonjs"}\n');
+    await writeFile(join(root, "dep.cjs"), "module.exports = 42;\n");
+    await writeFile(
+      join(root, "main.cjs"),
+      'const value = require("file:///dep.cjs"); console.log(value);\n',
+    );
+    await writeFile(
+      join(root, "control.cjs"),
+      'const value = require("./dep.cjs"); console.log(value);\n',
+    );
+    await writeFile(
+      join(root, "esm.mjs"),
+      'import value from "file:///dep.cjs"; console.log(value);\n',
+    );
+
+    const rejected = await new Promise<{ code: number; stderr: string }>(
+      (resolve) => {
+        execFile(
+          process.execPath,
+          [join(root, "main.cjs")],
+          { timeout: 5_000 },
+          (error, _stdout, stderr) =>
+            resolve({
+              code:
+                error === null
+                  ? 0
+                  : typeof error.code === "number"
+                    ? error.code
+                    : 1,
+              stderr,
+            }),
+        );
+      },
+    );
+    expect(rejected.code).toBe(1);
+    expect(rejected.stderr).toContain("MODULE_NOT_FOUND");
+
+    const control = await promisify(execFile)(
+      process.execPath,
+      [join(root, "control.cjs")],
+      { timeout: 5_000 },
+    );
+    expect(control.stdout.trim()).toBe("42");
+
+    const result = await analyzeJavaScriptApplication({
+      input_path: root,
+      format: "directory",
+    });
+    if (!result.ok) throw result.error;
+    const { graph } = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    expect(graph.coverage.status).toBe("complete");
+
+    const imports = graph.edges.filter((edge) => edge.relation === "imports");
+    const fileUrl = imports.filter(
+      (edge) => edge.properties.specifier === "file:///dep.cjs",
+    );
+    const requireEdges = fileUrl.filter(
+      (edge) =>
+        edge.properties.module_link_kind === "require" ||
+        edge.properties.kind === "require",
+    );
+    expect(requireEdges).toHaveLength(2);
+    for (const edge of requireEdges)
+      expect(edge.properties.resolved_path).toBeNull();
+    const semantics = requireEdges.filter(
+      (edge) => edge.properties.module_link_kind === "require",
+    );
+    expect(semantics).toHaveLength(1);
+    expect(semantics[0]?.properties.resolution_status).toBe("external");
+
+    const esmEdges = fileUrl.filter((edge) => !requireEdges.includes(edge));
+    expect(esmEdges).toHaveLength(2);
+    for (const edge of esmEdges)
+      expect(edge.properties.resolved_path).toBe("dep.cjs");
+
+    const controlEdges = imports.filter(
+      (edge) => edge.properties.specifier === "./dep.cjs",
+    );
+    expect(controlEdges.length).toBeGreaterThan(0);
+    for (const edge of controlEdges)
+      expect(edge.properties.resolved_path).toBe("dep.cjs");
+  });
+});
+
 const packageEntryUrlCases = [
   ["exports", "./actual%20file.cjs", "actual file.cjs"],
   ["exports", "./actual.cjs?variant", "actual.cjs"],
