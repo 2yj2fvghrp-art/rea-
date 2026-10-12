@@ -168,6 +168,49 @@ it("does not count markup inside comments, CDATA, or the doctype as nesting", ()
   });
 });
 
+it.each(['"', "'"])(
+  "counts containers with quoted XML delimiters using %s attributes",
+  (quote) => {
+    const opening = `<dict note=${quote}/>${quote}><key>k</key>`;
+    const text = plist(
+      opening.repeat(3000) + "<string>x</string>" + "</dict>".repeat(3000),
+    );
+    expect(() => parseXmlPropertyList(text)).toThrow(
+      new RangeError("Plist exceeds 128 nesting levels"),
+    );
+    expect(
+      parseXmlPropertyList(
+        plist(
+          "<array>" + `<dict note=${quote}>${quote}/>`.repeat(130) + "</array>",
+        ),
+      ).value,
+    ).toEqual(Array.from({ length: 130 }, () => ({})));
+  },
+);
+
+it("ignores complete DOCTYPE internal subsets when checking value depth", () => {
+  const text = `<!DOCTYPE plist [
+<!ENTITY first "unused">
+<!-- <dict><array> -->
+<!ENTITY second "${"<dict>".repeat(130)}">
+]><plist><string>x</string></plist>`;
+  expect(parseXmlPropertyList(text)).toEqual({
+    value: "x",
+    omittedPrototypeKeys: 0,
+  });
+});
+
+it("bounds nested plist wrappers before recursive decoding", () => {
+  const text =
+    "<plist>".repeat(3000) + "<string>x</string>" + "</plist>".repeat(3000);
+  expect(() => parseXmlPropertyList(text)).toThrow(
+    new RangeError("Plist exceeds 128 nesting levels"),
+  );
+  expect(
+    parseXmlPropertyList(plist("<plist><string>x</string></plist>")).value,
+  ).toEqual(["x"]);
+});
+
 it.each(["\n", "\r\n", "\r", "\u0085", "\u2028", "\u2029"])(
   "preserves unrelated source values around %j line endings",
   (newline) => {
