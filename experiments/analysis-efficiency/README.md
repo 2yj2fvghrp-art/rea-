@@ -5,6 +5,44 @@ The production CLI/MCP contracts and defaults remain the compatibility baseline.
 Downloaded artifacts, runtime copies, exported Evidence, transcripts and raw
 measurements belong outside the checkout.
 
+## Optimization priorities and gradual migration
+
+Agent token consumption and end-to-end task time are the primary objectives.
+Memory and CPU consumption are also measured and controlled. Correctness,
+Evidence provenance, caller choices and existing-user compatibility are
+acceptance conditions for every optimization.
+
+- Tokens: minimize unnecessary model-visible data while returning the requested
+  facts and useful provenance inline. Count discovery, repeated calls, errors,
+  retries and follow-up turns; report total/cached/uncached input and output
+  separately. Compact JSON bytes are a delivery measurement, not a token count.
+- Time: measure completion of the same analyst question, including startup,
+  provider work, transport, client processing and model corrections. Separate
+  measured stages and cold/warm state; use repeated comparable trials before
+  generalizing an observed latency improvement.
+- Memory: record aggregate process-tree peaks and limit/cleanup events, account
+  for retained Evidence and representation expansion, and keep host safeguards.
+- CPU: record aggregate CPU time for the completed task. A one-CPU quota is an
+  experiment control; it does not itself establish reduced CPU consumption.
+
+Migrate domain by domain with focused real-artifact checks and relevant shared
+contract checks. The domain matrix is a growing roadmap; native PE and DOS, for
+example, remain unverified in this study. A passed lane does not imply all
+advertised platforms/providers have passed. Newly discovered REA bugs remain
+in the separate local handoff document for later team repair.
+
+Old clients using existing CLI/MCP requests against the candidate retain the
+complete default path. New summary/view options require explicit selection.
+Actual old Evidence import/view/export checks preserve original authenticated
+records and identities. These checks establish the recorded baseline/workflow
+scope, not every historical release or third-party client. A new client targeting
+an older server must discover the actual schema and use a supported equivalent
+where available; this study does not implement a universal automatic fallback.
+The catalog intentionally gains more precise/additive schemas, so its bytes and
+digest are not frozen: final complete catalog JSON is about 2.6% larger. Optional
+views can reduce model-visible result data; old complete requests do not silently
+switch delivery or acquire that reduction automatically.
+
 ## Reproduce a measurement
 
 Use the repository's pinned Node/npm and locked dependencies. Build each selected
