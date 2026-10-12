@@ -44,6 +44,7 @@ import {
   modernStringsSchema,
   modernXrefsSchema,
   nextOffset,
+  surveySegmentsSchema,
   type IdaDisassembly,
   type IdaFunction,
 } from "./IdaProtocolValues.js";
@@ -125,6 +126,10 @@ export class IdaOperationRunner {
       readonly x86Only?: boolean;
       /** False when the upstream server does not advertise `callgraph`. */
       readonly callGraphAvailable?: boolean;
+      /** False when the upstream server does not advertise `survey_binary`. */
+      readonly surveyAvailable?: boolean;
+      /** The program identity REA admitted, reported by `list_documents`. */
+      readonly admittedDocument?: string;
     } = {},
   ) {}
 
@@ -205,41 +210,89 @@ export class IdaOperationRunner {
     return entry;
   }
 
-  private lookupFunction(
+  /** Parse one lookup row: a function, an expected "missing" answer, or a producer failure. */
+  private lookupOutcome(
     query: string,
     item: z.infer<typeof modernLookupBatchSchema>[number] | undefined,
-    requestedBy?: string,
-  ): IdaFunction {
+  ): { readonly fn: IdaFunction } | { readonly missing: string } {
     if (item?.query !== query)
       throw new AnalysisProtocolError(
         `IDA function lookup answered for a different query than ${JSON.stringify(query)}.`,
       );
     if (
-      requestedBy !== undefined &&
       item.fn === null &&
       item.error !== null &&
       MISSING_PROCEDURE_ANSWERS.has(item.error)
     )
-      throw new AnalysisInputError(
-        requestedBy,
-        {
-          cause: new AnalysisProtocolError(
-            `IDA function lookup failed for ${query}: ${item.error}`,
-          ),
-        },
-        [
-          {
-            path: [],
-            reason: "invalid_value",
-            message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${item.error}.`,
-          },
-        ],
-      );
+      return { missing: item.error };
     if (item.fn === null || item.error !== null)
       throw new AnalysisProtocolError(
         `IDA function lookup failed for ${query}: ${item.error ?? "missing function"}`,
       );
-    return item.fn;
+    return { fn: item.fn };
+  }
+
+  private lookupFunction(
+    query: string,
+    item: z.infer<typeof modernLookupBatchSchema>[number] | undefined,
+    requestedBy?: string,
+  ): IdaFunction {
+    const outcome = this.lookupOutcome(query, item);
+    if ("fn" in outcome) return outcome.fn;
+    if (requestedBy === undefined)
+      throw new AnalysisProtocolError(
+        `IDA function lookup failed for ${query}: ${outcome.missing}`,
+      );
+    throw new AnalysisInputError(
+      requestedBy,
+      {
+        cause: new AnalysisProtocolError(
+          `IDA function lookup failed for ${query}: ${outcome.missing}`,
+        ),
+      },
+      [
+        {
+          path: [],
+          reason: "invalid_value",
+          message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${outcome.missing}.`,
+        },
+      ],
+    );
+  }
+
+  /** The containing function of an address, or why none contains it. */
+  private async containingProcedure(address: string): Promise<JsonValue> {
+    const item = modernLookupSchema.parse(
+      await this.call("lookup_funcs", { queries: [address] }),
+    )[0];
+    const outcome = this.lookupOutcome(address, item);
+    if ("fn" in outcome)
+      return {
+        query_address: address,
+        found: true,
+        procedure: identity(outcome.fn),
+      };
+    return {
+      query_address: address,
+      found: false,
+      procedure: null,
+      reason: (await this.addressInSegment(address))
+        ? "not_in_procedure"
+        : "outside_segments",
+    };
+  }
+
+  /** Segment membership from the database-scoped minimal survey; a missing fact is a failure. */
+  private async addressInSegment(address: string): Promise<boolean> {
+    if (this.options.surveyAvailable === false)
+      throw new AnalysisProtocolError(
+        "The upstream server does not advertise survey_binary, so segment membership cannot be established.",
+      );
+    const { segments } = surveySegmentsSchema.parse(
+      await this.call("survey_binary", { detail_level: "minimal" }),
+    );
+    const value = BigInt(address);
+    return segments.some(({ start, end }) => start <= value && value < end);
   }
 
   /** True only for modern callee reads on targets not proven x86-only; x86 reads never reach the graph code. */
@@ -564,6 +617,16 @@ export class IdaOperationRunner {
               ({ address }) =>
                 address === idaAddressSchema.parse(parameters.address),
             );
+    }
+    if (operation === "list_documents") {
+      if (this.options.admittedDocument === undefined)
+        throw new AnalysisProtocolError("The admitted IDA program is unknown.");
+      return [this.options.admittedDocument];
+    }
+    if (operation === "resolve_containing_procedure") {
+      const queried = idaAddressSchema.parse(parameters.address);
+      this.locations.push({ kind: "address", address: queried });
+      return this.containingProcedure(queried);
     }
     if (operation === "xrefs") {
       const inspectedAddress = idaAddressSchema.parse(parameters.address);

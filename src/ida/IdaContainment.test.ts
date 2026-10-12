@@ -284,7 +284,7 @@ describe("headless IDA containment failures", () => {
         const result = await containing(client, "0x4000");
 
         expect(result.ok).toBe(false);
-        if (!result.ok) expect(result.error._tag).toBe("AnalysisProtocolError");
+        if (!result.ok) expect(result.error._tag).toBe("AnalysisOutputError");
       } finally {
         expect((await client.close()).ok).toBe(true);
       }
