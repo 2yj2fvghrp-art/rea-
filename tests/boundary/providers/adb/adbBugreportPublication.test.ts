@@ -7,10 +7,11 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AdbProvider } from "../../../../src/adb/AdbProvider.js";
+import { projectAnalysisError } from "../../../../src/domain/analysisErrorProjection.js";
 import {
   execFileBytes,
   execFileOutput,
@@ -107,6 +108,57 @@ test.each(["before", "during"] as const)(
     await f.provider.close();
   },
 );
+
+test("retains a completed archive after failed publication and later provider work", async () => {
+  const f = await fixture();
+  const existing = join(f.root, "bugreport test.zip");
+  await writeFile(existing, "existing evidence");
+  const publicationFailure = Object.assign(new Error("no space left"), {
+    code: "ENOSPC",
+  });
+  vi.mocked(copyFile).mockRejectedValueOnce(publicationFailure);
+  const failed = await f.provider.execute(f.request);
+  if (failed.ok) throw new Error("expected publication failure");
+  const retainedPath = f.reportedPath();
+  expect(failed.error._tag).toBe("AnalysisOutputError");
+  expect(failed.error.cause).toBe(publicationFailure);
+  expect(
+    projectAnalysisError(failed.error).details?.partial_observation,
+  ).toMatchObject({
+    provider_id: "adb",
+    operation: f.request.operation,
+    result: {
+      serial: "device",
+      local_path: retainedPath,
+      adb_reported_path: retainedPath,
+      digest_status: "unknown",
+    },
+  });
+  expect(await readFile(retainedPath, "utf8")).toBe("bugreport-bytes");
+  expect(await readFile(existing, "utf8")).toBe("existing evidence");
+
+  // New work and terminal cleanup must not reclaim the retained acquisition.
+  const next = await f.provider.execute(f.request);
+  if (!next.ok) throw next.error;
+  expect(next.value.result).toMatchObject({
+    local_path: join(f.root, "bugreport test (1).zip"),
+    bytes: 15,
+    sha256: createHash("sha256").update("bugreport-bytes").digest("hex"),
+  });
+  await f.provider.close();
+  expect(await readFile(retainedPath, "utf8")).toBe("bugreport-bytes");
+  expect(await readFile(existing, "utf8")).toBe("existing evidence");
+  expect(await readFile(join(f.root, "bugreport test (1).zip"), "utf8")).toBe(
+    "bugreport-bytes",
+  );
+  expect((await readdir(f.root)).sort()).toEqual(
+    [
+      basename(dirname(retainedPath)),
+      "bugreport test.zip",
+      "bugreport test (1).zip",
+    ].sort(),
+  );
+});
 
 test("retains final and producer paths when digest verification is cancelled", async () => {
   const f = await fixture();

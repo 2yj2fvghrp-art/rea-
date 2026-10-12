@@ -709,7 +709,7 @@ export type AdbPackagePullPartialObservation = {
   readonly result: z.infer<typeof adbResultSchemas.pull_adb_package>;
 };
 
-/** Acquired file facts retained when digest verification or later cleanup fails. */
+/** Acquired file facts retained when publication, digest verification or cleanup fails. */
 export type AdbAcquiredFilePartialObservation =
   | {
       readonly provider_id: "adb";

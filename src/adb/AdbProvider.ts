@@ -2122,6 +2122,7 @@ export class AdbProvider {
     let stagingDirectory: string;
     let stagingIdentity: OutputDirectoryIdentity | undefined;
     let retainedObservation: AdbAcquiredFilePartialObservation | undefined;
+    let publishedPath: string | undefined;
     try {
       stagingDirectory = await mkdtemp(
         join(directory.value, ".rea-bugreport-"),
@@ -2139,7 +2140,6 @@ export class AdbProvider {
       Result<AnalysisExecution, AnalysisError>
     > => {
       let reportedPath: string | null = null;
-      let localPath: string | undefined;
       try {
         const created = await lstat(stagingDirectory);
         if (!created.isDirectory() || created.isSymbolicLink())
@@ -2183,22 +2183,37 @@ export class AdbProvider {
               `adb bugreport did not report a regular archive file: ${reportedPath}`,
             ),
           );
+        retainedObservation = {
+          provider_id: "adb",
+          operation,
+          result: {
+            client,
+            serial: input.serial,
+            local_path: reportedPath,
+            adb_reported_path: reportedPath,
+            digest_status: "unknown",
+          },
+        };
         try {
-          localPath = await publishBugreport(reportedPath, directory.value);
+          publishedPath = await publishBugreport(reportedPath, directory.value);
         } catch (cause) {
           return err(
             new AnalysisOutputError(
               operation,
               `The reported bugreport archive could not be published: ${reportedPath}`,
-              { cause },
+              { cause, partialObservation: retainedObservation },
             ),
           );
         }
-        const digest = await hashAdbFile(localPath, operation, signal);
+        retainedObservation = {
+          ...retainedObservation,
+          result: { ...retainedObservation.result, local_path: publishedPath },
+        };
+        const digest = await hashAdbFile(publishedPath, operation, signal);
         const report = {
           client,
           serial: input.serial,
-          local_path: localPath,
+          local_path: publishedPath,
           bytes: digest.bytes,
           sha256: digest.sha256,
           adb_reported_path: reportedPath,
@@ -2216,19 +2231,6 @@ export class AdbProvider {
           }),
         );
       } catch (cause) {
-        if (localPath !== undefined && reportedPath !== null) {
-          retainedObservation = {
-            provider_id: "adb",
-            operation,
-            result: {
-              client,
-              serial: input.serial,
-              local_path: localPath,
-              adb_reported_path: reportedPath,
-              digest_status: "unknown",
-            },
-          };
-        }
         if (cause instanceof AnalysisCancelledError) {
           if (retainedObservation !== undefined)
             cause.retainPartialObservation(retainedObservation);
@@ -2243,6 +2245,10 @@ export class AdbProvider {
         );
       }
     })();
+    // A completed acquisition becomes caller evidence even if publication fails.
+    // Its staging directory must not enter automatic cleanup or cleanup retries.
+    if (retainedObservation !== undefined && publishedPath === undefined)
+      return collectedResult;
     try {
       await removeOwnedOutputDirectory(stagingDirectory, stagingIdentity);
     } catch (cause) {
