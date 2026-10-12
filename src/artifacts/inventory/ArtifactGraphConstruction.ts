@@ -427,6 +427,16 @@ const artifactRoleForFormat = (
   };
 };
 
+/**
+ * JVM class files share the 0xcafebabe magic with FAT Mach-O headers, but
+ * bytes 4-7 are the class-file minor/major version, not the FAT nfat_arch.
+ * Released compilers emit major versions from 45 (Java 1.1) upward, while a
+ * FAT header with that many architectures does not exist. Only the
+ * big-endian magic is ambiguous: class-file bytes are always big-endian.
+ */
+const isJvmClassFile = (prefix: Buffer): boolean =>
+  prefix.length >= 8 && prefix.readUInt16BE(6) >= 45;
+
 /** Classify storage bytes independently of path names, roles, and permissions. */
 export const classifyArtifactBytes = (
   prefix: Buffer,
@@ -436,8 +446,10 @@ export const classifyArtifactBytes = (
   if (prefix.subarray(0, 8).equals(Buffer.from("bplist00"))) return "plist";
   if (prefix.length >= 4) {
     const magic = prefix.readUInt32BE(0);
-    if ([0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic))
+    if ([0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic)) {
+      if (magic === 0xcafebabe && isJvmClassFile(prefix)) return "file";
       return "mach-o-universal";
+    }
     if ([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(magic))
       return "mach-o";
     if (prefix.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])))
