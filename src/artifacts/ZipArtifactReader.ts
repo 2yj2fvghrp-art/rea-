@@ -166,6 +166,7 @@ export class ZipArtifactReader implements ArtifactReader {
       // ZIP member identity is its directory occurrence, not its filename.
       // Logical path uniqueness belongs to the artifact inventory boundary.
       const metadata = projectZipEntry(entry, index++);
+      // zip.js enforces each member's declared output size, so this sum bounds streamed work.
       if (
         metadata.kind === "file" &&
         !metadata.encrypted &&
