@@ -35,7 +35,6 @@ export const compareFunctions = (
       ...new Set([
         ...left.limitations.map((item) => `Left: ${item}`),
         ...right.limitations.map((item) => `Right: ${item}`),
-        ...dimensions.flatMap(({ limitations }) => limitations),
         ...(providersDiffer
           ? [
               "Provider-specific pseudocode and assembly representations were not equated.",
