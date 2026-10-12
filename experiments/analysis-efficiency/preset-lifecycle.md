@@ -107,6 +107,67 @@ paired completed-question performance trials, and contain no model token counts.
 Explicit snapshot reuse is existing REA behavior, not a new speedup introduced by
 these verifiers. Broader native inputs and failure scenarios remain follow-ups.
 
+## Shipped jq continuation
+
+The same source snapshot verifier additionally passes on the pinned public jq
+binary, SHA-256
+`b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f`.
+Procedure `0x403a50` comes from the earlier actual REA entry observation, rather
+than a newly guessed file offset. Default and disabled profiles each perform a
+fresh headless analysis. Both profile mismatch directions reject before a
+headless launch, both valid default reuses return exact task facts with zero
+headless launches, and CLI reuse retains the original Evidence ID and snapshot
+bytes. The selected entry agrees across profiles; the earlier differing callee
+still prevents a general equivalence or fast-preset recommendation.
+
+Default/disabled fresh `analyze_function` calls take 294.525/298.621 seconds in
+this verification; default snapshot calls take 0.222 and 0.168 seconds. The CLI
+reuse takes 2.899 seconds. These are calls within different verification sequences,
+not repeated completed-question performance cohorts. They demonstrate the existing
+explicit snapshot mechanism without an engine database cache; they do not measure
+model tokens or introduce a new optimization.
+
+The complete jq verification takes 624.537 seconds, samples 1,218,355,200 peak
+family bytes and observes 567.198 CPU seconds before teardown. The final resource
+counters remain unknown. The source verifier SHA-256 is
+`42060686f9633da06bb5f257fa5c70f588e66569cf0befebe6a1a13f43bf0e88`;
+the final lifecycle verifier hash is
+`b1680f4f506ef9328d1beabb4b1fbe97c911b3f06986857f0a59a4b97a3b61d3`.
+Both hashes also match completed small-input source runs, including the final
+cleanup/error-preservation implementation. Runtime production remains the pinned
+main baseline; the follow-up changes only experiment sources and documentation.
+
+## Invalid analyzer failure and healthy peers
+
+Real MCP and CLI requests with `REA_GHIDRA_DISABLED_ANALYZERS` set to
+`REA Nonexistent Analyzer 2016` both report `execution_failure`. Their diagnostics
+preserve the exact unavailable analyzer name, selected provider, operation,
+target identity and Ghidra pre-script failure. MCP still answers a bundled EVM
+peer request and closes the selected native target; original target bytes stay
+unchanged and the owned Ghidra runtime directory is removed.
+
+The first healthy-peer probe assumed ELF layout support was built in. This main
+requires an explicitly supplied pwntools interpreter for that format and correctly
+reports `provider_unavailable`; none was configured. The corrected probe uses
+the already verified bundled EVM peer. No installer or provider fallback is added.
+
+The first CLI observer also looked inside `error` as if it had MCP's shape. The
+actual CLI envelope has an error string and sibling `code`, `message`, `details`
+and other fields. Regrading its saved complete reply proves the named diagnostics
+are preserved. The original incorrect assertion/report remains archived; no
+provider rerun or production repair is needed for that correction.
+
+The invalid-name behavior is reproducible with the existing CLI:
+
+```sh
+REA_GHIDRA_DISABLED_ANALYZERS='REA Nonexistent Analyzer 2016' \
+  node ABS_RUNTIME/scripts/rea.mjs function ABS_TRUE_BINARY 0x102000 \
+  --provider ghidra --json
+```
+
+Use the address actually observed by REA for a different target. The deliberately
+invalid name is expected to fail; fixing the setting is required before retrying.
+
 ## Reproduction
 
 Build the pinned runtime and supply an explicit string-valued provider settings
