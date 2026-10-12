@@ -20,6 +20,94 @@ const bundle = (entry: string) => `(() => {
  load(9);
 })();`;
 
+describe("wrapped Electron control-flow alternatives", () => {
+  it.each(["flag ? copy : cut", "flag ? copy : unknownHandler", "choose()"])(
+    "does not select one IPC handler from %s",
+    (handler) => {
+      const result = analyzeJavaScriptStaticSource(`
+        const e = require("electron");
+        const copy = event => event.sender.copy();
+        const cut = event => event.sender.cut();
+        function choose() { if (flag) return copy; }
+        function register(channel, handler) { e.ipcMain.on(channel, handler); }
+        register("test:copy", ${handler});
+      `);
+      expect(result.electron.ipc).toContainEqual(
+        expect.objectContaining({
+          channel: "test:copy",
+          side: "main",
+          handler_kind: "dynamic-expression",
+          resolution_basis: "wrapper-substitution",
+        }),
+      );
+      expect(result.electron.call_paths ?? []).toEqual([]);
+      expect(result.parse_status).toBe("partial");
+    },
+  );
+  it.each(["'ready'", "false", "0", "''", "({})", "(()=>{})"])(
+    "short-circuits nullish fallback for %s in callbacks and seed calls",
+    (left) => {
+      for (const source of [
+        `e.ipcMain.on("test:copy", event => { ${left} ?? event.sender.copy(); });`,
+        `${left} ?? e.ipcMain.on("test:copy", event => event.sender.copy());`,
+        `e.ipcMain.on("test:copy", event => { const selected = ${left} ?? (()=>event.sender.copy()); selected(); });`,
+      ])
+        expect(
+          analyzeJavaScriptStaticSource(`const e=require("electron");${source}`)
+            .electron.call_paths ?? [],
+        ).toEqual([]);
+    },
+  );
+  it.each(["null", "undefined", "void 0"])(
+    "follows nullish fallback for %s",
+    (left) => {
+      const result = analyzeJavaScriptStaticSource(`const e=require("electron");
+        ${left} ?? e.ipcMain.on("test:copy", event => { ${left} ?? event.sender.copy(); });`);
+      expect(result.electron.call_paths).toContainEqual(
+        expect.objectContaining({
+          terminal: "ipc-event.sender.copy",
+          conditions: [],
+        }),
+      );
+    },
+  );
+  it("retains a nullish guard for unknown fallback rather than a falsy guard", () => {
+    for (const source of [
+      `e.ipcMain.on("test:copy", event => { value ?? event.sender.copy(); });`,
+      `value ?? e.ipcMain.on("test:copy", event => event.sender.copy());`,
+    ]) {
+      const result = analyzeJavaScriptStaticSource(
+        `const e=require("electron");${source}`,
+      );
+      expect(result.electron.call_paths).toContainEqual(
+        expect.objectContaining({
+          terminal: "ipc-event.sender.copy",
+          conditions: [
+            expect.objectContaining({
+              expression: "(value) === null || (value) === undefined",
+            }),
+          ],
+        }),
+      );
+    }
+  });
+  it.each([
+    "if (flag) return copy; else return cut; return dead;",
+    "if (flag) { return copy; } return cut;",
+    "if (flag) { if (other) return copy; else return cut; } else return cut; return dead;",
+  ])("retains every possible factory return: %s", (body) => {
+    const result = analyzeJavaScriptStaticSource(`const e=require("electron");
+      const copy=()=>e.ipcRenderer.send("test:copy"), cut=()=>e.ipcRenderer.send("test:cut"), dead=()=>e.ipcRenderer.send("test:dead");
+      function choose(){${body}}
+      e.contextBridge.exposeInMainWorld("desktop", {copy:choose()});`);
+    expect(
+      [
+        ...new Set(result.electron.call_paths?.map((path) => path.channel)),
+      ].sort(),
+    ).toEqual(["test:copy", "test:cut"]);
+  });
+});
+
 describe("wrapped Electron call paths", () => {
   it("connects exposed closures to IPC sends and text clipboard calls", () => {
     const result = analyzeJavaScriptStaticSource(

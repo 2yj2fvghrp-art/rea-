@@ -1,5 +1,6 @@
 import { z } from "incur";
 import { javaScriptAnalysisResourceControlsSchema } from "./domain/javascript/javascriptAnalysisResourceControls.js";
+import { javaScriptSourcePathsSchema } from "./domain/javascript/javascriptSourceSelection.js";
 
 /** Accept an agent-selected browser observation duration without an artificial ceiling. */
 export const observationDuration = (fallback: number, minimum = 0) =>
@@ -64,6 +65,11 @@ export const javascriptApplicationOptions = z.object({
     javaScriptAnalysisResourceControlsSchema.shape.max_semantic_nodes,
   maxSemanticNodesPerFile:
     javaScriptAnalysisResourceControlsSchema.shape.max_semantic_nodes_per_file,
+  sourcePath: javaScriptSourcePathsSchema
+    .optional()
+    .describe(
+      "Exact inventoried file path relative to the application root; repeat to select several. No implicit dependencies.",
+    ),
   maxHeapMb: javaScriptAnalysisResourceControlsSchema.shape.max_heap_mb,
   analysisTimeoutMs:
     javaScriptAnalysisResourceControlsSchema.shape.analysis_timeout_ms,

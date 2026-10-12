@@ -7,6 +7,7 @@ import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js
 import { cliTest, type TestCli } from "../../support/cli/cliFixture.js";
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { applicationFeatureTraceResultSchema } from "../../../src/domain/javascript/javascriptFeatureTraceSchemas.js";
+import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 
 const analyze = async (cli: TestCli, extra = "") => {
   const root = await createTestTempDirectory("rea-electron-wrapped-paths-");
@@ -120,6 +121,69 @@ cliTest(
     ).toBe(true);
   },
 );
+
+for (const surface of ["CLI", "stdio MCP"] as const) {
+  cliTest(
+    `preserves handler ambiguity and short-circuit factory paths through ${surface}`,
+    async ({ cli }) => {
+      const root = await createTestTempDirectory("rea-electron-branch-paths-");
+      await writeFixtureFiles(root, {
+        "preload.js": `const e=require("electron");
+        function choose(){
+          if(flag)return ()=>e.ipcRenderer.send("test:copy");
+          else return ()=>e.ipcRenderer.send("test:cut");
+          return ()=>e.ipcRenderer.send("test:dead");
+        }
+        e.contextBridge.exposeInMainWorld("desktop", {
+          choose:choose(),
+          ambiguous:()=>e.ipcRenderer.send("test:ambiguous"),
+          competing:()=>e.ipcRenderer.send("test:competing"),
+          fallback:()=>e.ipcRenderer.send("test:fallback"),
+        });`,
+        "main.js": `const e=require("electron");
+        const copy=event=>event.sender.copy(), cut=event=>event.sender.cut();
+        function register(channel,handler){e.ipcMain.on(channel,handler)}
+        register("test:copy",copy);register("test:cut",cut);
+        register("test:ambiguous",flag?copy:cut);
+        register("test:competing",copy);
+        register("test:competing",flag?copy:unknownHandler);
+        register("test:fallback",event=>{false ?? event.sender.copy()});`,
+      });
+      const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
+      const joins = graph.edges.filter(
+        (edge) =>
+          edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+      );
+      expect(joins.map((edge) => edge.properties.channel).sort()).toEqual([
+        "test:copy",
+        "test:cut",
+      ]);
+      const steps = graph.nodes
+        .flatMap((node) => node.observations)
+        .filter(
+          (observation) => observation.properties.step_kind === "terminal",
+        );
+      expect(
+        [
+          ...new Set(
+            steps
+              .filter((step) => step.properties.entry === "desktop.choose")
+              .map((step) => step.properties.channel),
+          ),
+        ].sort(),
+      ).toEqual(["test:copy", "test:cut"]);
+      expect(
+        steps.some(
+          (step) =>
+            step.properties.entry_kind === "ipc-handler" &&
+            ["test:ambiguous", "test:fallback"].includes(
+              String(step.properties.channel),
+            ),
+        ),
+      ).toBe(false);
+    },
+  );
+}
 
 cliTest(
   "does not join a channel with another untraced compatible handler",

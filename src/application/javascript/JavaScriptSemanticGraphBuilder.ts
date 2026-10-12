@@ -141,6 +141,16 @@ export const buildJavaScriptSemanticGraph = ({
         analyzed.semantic.ir,
         analyzed.javascript?.electron.call_paths,
       );
+    else if (
+      !analyzed.file.text.included &&
+      analyzed.file.text.reason === "outside-analysis-scope"
+    )
+      projection.recordUnavailableFile(
+        analyzed.file,
+        "Source was not analyzed because it is outside the caller-selected source_paths.",
+        null,
+        "incomplete-module",
+      );
   }
   return projection.finish(rootArtifactSha256, applicationGraph);
 };

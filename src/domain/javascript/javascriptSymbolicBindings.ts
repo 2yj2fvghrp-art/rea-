@@ -4,7 +4,7 @@ import {
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import { javascriptBootstrapAt } from "./javascriptBootstrap.js";
-import { symbolicDefiniteExit } from "./javascriptSymbolicControlFlow.js";
+import { symbolicLogicalRight } from "./javascriptSymbolicControlFlow.js";
 import {
   moduleFactory,
   modulePropertyName,
@@ -29,6 +29,10 @@ interface PropertyWrite {
   readonly path: readonly string[];
   readonly value: t.Node;
   readonly site: t.Node;
+}
+interface SymbolicReturnFlow {
+  readonly values: readonly SymbolicValue[];
+  readonly fallsThrough: boolean;
 }
 const emptyEnvironment: SymbolicEnvironment = { values: new Map() };
 
@@ -349,12 +353,9 @@ export class JavaScriptSymbolicBindings {
     }
     if (t.isLogicalExpression(node)) {
       const left = this.evaluate(node.left, env);
-      const truth = symbolicTruth(left);
-      if (truth !== undefined && node.operator !== "??")
-        return this.evaluate(
-          (node.operator === "&&" ? truth : !truth) ? node.right : node.left,
-          env,
-        );
+      const right = symbolicLogicalRight(node.operator, left);
+      if (right !== undefined)
+        return right ? this.evaluate(node.right, env) : left;
       return symbolicUnion([left, this.evaluate(node.right, env)]);
     }
     if (t.isCallExpression(node) || t.isOptionalCallExpression(node))
@@ -364,6 +365,12 @@ export class JavaScriptSymbolicBindings {
 
   #identifier(node: t.Identifier, env: SymbolicEnvironment): SymbolicValue {
     const binding = resolveSemanticBindingState(this.state, node, node.name);
+    if (
+      !binding &&
+      node.name === "undefined" &&
+      !semanticResolutionBlocked(this.state, node, node.name)
+    )
+      return { kind: "literal", value: undefined };
     if (!binding)
       return !semanticResolutionBlocked(this.state, node, node.name) &&
         ["require", "navigator", "String", "Boolean"].includes(node.name)
@@ -440,39 +447,60 @@ export class JavaScriptSymbolicBindings {
     statements: readonly t.Statement[],
     env: SymbolicEnvironment,
   ): SymbolicValue {
+    const flow = this.#returnFlow(statements, env);
+    return symbolicUnion([
+      ...flow.values,
+      ...(flow.fallsThrough
+        ? [{ kind: "literal" as const, value: undefined }]
+        : []),
+    ]);
+  }
+
+  #returnFlow(
+    statements: readonly t.Statement[],
+    env: SymbolicEnvironment,
+    depth = 0,
+  ): SymbolicReturnFlow {
     const possible: SymbolicValue[] = [];
     for (const statement of statements) {
+      if (--this.#remainingEvaluations < 0 || depth >= 128) {
+        this.truncated = true;
+        return {
+          values: [...possible, symbolicUnknown("symbolic resource limit")],
+          fallsThrough: false,
+        };
+      }
       if (t.isThrowStatement(statement))
-        return symbolicUnion([
-          ...possible,
-          symbolicUnknown("wrapper exits by throwing"),
-        ]);
+        return {
+          values: [...possible, symbolicUnknown("wrapper exits by throwing")],
+          fallsThrough: false,
+        };
       if (t.isReturnStatement(statement))
-        return symbolicUnion([
-          ...possible,
-          this.evaluate(statement.argument, env),
-        ]);
+        return {
+          values: [...possible, this.evaluate(statement.argument, env)],
+          fallsThrough: false,
+        };
+      if (t.isBlockStatement(statement)) {
+        const flow = this.#returnFlow(statement.body, env, depth + 1);
+        possible.push(...flow.values);
+        if (!flow.fallsThrough)
+          return { values: possible, fallsThrough: false };
+      }
       if (t.isIfStatement(statement)) {
         const truth = symbolicTruth(this.evaluate(statement.test, env));
-        const branch =
-          truth === false ? statement.alternate : statement.consequent;
-        if (
-          branch &&
-          (t.isReturnStatement(branch) || t.isBlockStatement(branch))
-        ) {
-          const value = this.#returns(
-            t.isBlockStatement(branch) ? branch.body : [branch],
-            env,
-          );
-          if (truth !== undefined && symbolicDefiniteExit(branch))
-            return symbolicUnion([...possible, value]);
-          possible.push(value);
-        }
+        const branches =
+          truth === undefined
+            ? [statement.consequent, statement.alternate]
+            : [truth ? statement.consequent : statement.alternate];
+        const flows = branches.map((branch) =>
+          this.#returnFlow(branch ? [branch] : [], env, depth + 1),
+        );
+        possible.push(...flows.flatMap((flow) => flow.values));
+        if (flows.every((flow) => !flow.fallsThrough))
+          return { values: possible, fallsThrough: false };
       }
     }
-    return possible.length
-      ? symbolicUnion(possible)
-      : symbolicUnknown("no statically selected return");
+    return { values: possible, fallsThrough: true };
   }
 
   #indexBootstrap(call: t.CallExpression): void {

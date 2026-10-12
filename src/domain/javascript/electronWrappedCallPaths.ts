@@ -22,7 +22,10 @@ import {
 } from "./javascriptSemanticTraversal.js";
 import { range, calleeName } from "./javascriptStaticAnalysisHelpers.js";
 import { ipcDescriptor } from "./electronStaticAnalysisIpc.js";
-import { symbolicDefiniteExit } from "./javascriptSymbolicControlFlow.js";
+import {
+  symbolicDefiniteExit,
+  symbolicLogicalRight,
+} from "./javascriptSymbolicControlFlow.js";
 
 const callLabel = (node: t.Node): string =>
   t.isSequenceExpression(node)
@@ -69,17 +72,27 @@ export const collectElectronWrappedCallPaths = (
   const condition = (
     context: PathContext,
     node: t.Node,
-    positive = true,
-  ): PathContext => ({
-    ...context,
-    conditions: [
-      ...context.conditions,
-      {
-        expression: `${positive ? "" : "!("}${source.slice(node.start ?? 0, node.end ?? 0).slice(0, 512)}${positive ? "" : ")"}`,
-        location: range(node),
-      },
-    ],
-  });
+    positive: boolean | "nullish" = true,
+  ): PathContext => {
+    const expression = source
+      .slice(node.start ?? 0, node.end ?? 0)
+      .slice(0, 512);
+    return {
+      ...context,
+      conditions: [
+        ...context.conditions,
+        {
+          expression:
+            positive === "nullish"
+              ? `(${expression}) === null || (${expression}) === undefined`
+              : positive
+                ? expression
+                : `!(${expression})`,
+          location: range(node),
+        },
+      ],
+    };
+  };
   const emit = (
     context: PathContext,
     node: t.Node,
@@ -139,9 +152,16 @@ export const collectElectronWrappedCallPaths = (
     if (first?.kind !== "literal" || typeof first.value !== "string") return;
     const channel = first.value;
     const location = range(context.entryNode);
-    const fn = symbolicVariants(
+    const handlers = symbolicVariants(
       args[1] ?? symbolicUnknown("missing handler"),
-    ).find((v): v is SymbolicFunction => v.kind === "function");
+    );
+    // A channel registration must not acquire one arbitrary handler from a union.
+    // Keep the unresolved registration so it still competes with other handlers.
+    const fn =
+      handlers.length === 1 && handlers[0]?.kind === "function"
+        ? handlers[0]
+        : undefined;
+    const handlerNode = node.arguments[1];
     const finding: ElectronIpcFinding =
       descriptor.mode === "send" || descriptor.mode === "invoke"
         ? {
@@ -163,15 +183,25 @@ export const collectElectronWrappedCallPaths = (
               module_key: null,
               location,
             }
-          : {
-              ...descriptor,
-              channel,
-              channel_expression: null,
-              handler_kind: "missing",
-              handler_location: null,
-              module_key: null,
-              location,
-            };
+          : handlerNode
+            ? {
+                ...descriptor,
+                channel,
+                channel_expression: null,
+                handler_kind: "dynamic-expression",
+                handler_location: range(handlerNode),
+                module_key: null,
+                location,
+              }
+            : {
+                ...descriptor,
+                channel,
+                channel_expression: null,
+                handler_kind: "missing",
+                handler_location: null,
+                module_key: null,
+                location,
+              };
     const duplicate = accumulator.ipc.some(
       ({ value }) =>
         value.side === finding.side &&
@@ -181,11 +211,14 @@ export const collectElectronWrappedCallPaths = (
           JSON.stringify(value.location),
         ),
     );
-    if (!duplicate)
+    if (!duplicate) {
       accumulator.ipc.push({
         offset: context.entryNode.start ?? -1,
         value: { ...finding, resolution_basis: "wrapper-substitution" },
       });
+      if (descriptor.mode !== "send" && descriptor.mode !== "invoke" && !fn)
+        accumulator.unknownFindings += 1;
+    }
     if (descriptor.mode === "send" || descriptor.mode === "invoke") {
       emit(context, node, endpoint, channel);
       return;
@@ -343,17 +376,20 @@ export const collectElectronWrappedCallPaths = (
     }
     if (t.isLogicalExpression(node)) {
       walk(node.left, env, context);
-      const truth = symbolicTruth(resolver.evaluate(node.left, env));
-      if (
-        (node.operator === "&&" && truth === false) ||
-        (node.operator === "||" && truth === true)
-      )
-        return;
+      const right = symbolicLogicalRight(
+        node.operator,
+        resolver.evaluate(node.left, env),
+      );
+      if (right === false) return;
       walk(
         node.right,
         env,
-        truth === undefined
-          ? condition(context, node.left, node.operator === "&&")
+        right === undefined
+          ? condition(
+              context,
+              node.left,
+              node.operator === "??" ? "nullish" : node.operator === "&&",
+            )
           : context,
       );
       return;
@@ -390,14 +426,17 @@ export const collectElectronWrappedCallPaths = (
           if (truth === undefined)
             context = condition(context, parent.test, positive);
         } else if (t.isLogicalExpression(parent) && child === parent.right) {
-          const truth = symbolicTruth(resolver.evaluate(parent.left, env));
-          if (
-            (parent.operator === "&&" && truth === false) ||
-            (parent.operator === "||" && truth === true)
-          )
-            return;
-          if (truth === undefined && parent.operator !== "??")
-            context = condition(context, parent.left, parent.operator === "&&");
+          const right = symbolicLogicalRight(
+            parent.operator,
+            resolver.evaluate(parent.left, env),
+          );
+          if (right === false) return;
+          if (right === undefined)
+            context = condition(
+              context,
+              parent.left,
+              parent.operator === "??" ? "nullish" : parent.operator === "&&",
+            );
         } else if (t.isBlockStatement(parent)) {
           const index = parent.body.findIndex(
             (statement) => statement === child,

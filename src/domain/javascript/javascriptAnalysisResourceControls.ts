@@ -13,25 +13,6 @@ export const JAVASCRIPT_ANALYSIS_RESOURCE_DEFAULTS = {
 /** Maximum caller-selected node capacity; heap and transfer admission still apply. */
 export const JAVASCRIPT_SEMANTIC_NODE_MAXIMUM = 1_000_000;
 
-/** Reserve future compact checkpoints without withholding unreachable capacity. */
-export const javaScriptStaticCheckpointReserveBytes = (
-  resultBudgetBytes: number,
-  retainedStaticBytes: number,
-  remainingSources: number | undefined,
-  maxCheckpointBytes: number,
-): number =>
-  remainingSources === undefined || remainingSources === 0
-    ? 0
-    : Math.min(
-        Math.max(
-          0,
-          Math.floor((resultBudgetBytes * 4) / 5) - retainedStaticBytes,
-        ),
-        // Each admitted checkpoint retains at most this many bytes. The 6x
-        // expansion matches static-checkpoint admission in the worker consumer.
-        remainingSources * maxCheckpointBytes * 6,
-      );
-
 /** Project observed execution limits without inventing unmeasured values. */
 export const javaScriptAnalysisCoverageLimits = (
   limits: Readonly<Record<string, JsonValue>> | null,
@@ -42,6 +23,7 @@ export const javaScriptAnalysisCoverageLimits = (
     "worker_process_memory_limit_bytes",
     "worker_timeout_ms",
     "parent_result_budget_bytes",
+    "parent_available_result_budget_bytes",
     "semantic_result_budget_bytes",
     "transfer_record_bytes",
     "transfer_file_bytes",

@@ -1,4 +1,40 @@
 import * as t from "@babel/types";
+import {
+  symbolicTruth,
+  type SymbolicValue,
+} from "./javascriptSymbolicValues.js";
+
+/** Whether short-circuit evaluation reaches the right operand; unknown stays unknown. */
+export const symbolicLogicalRight = (
+  operator: t.LogicalExpression["operator"],
+  left: SymbolicValue,
+): boolean | undefined => {
+  if (left.kind === "union") {
+    const choices = left.values.map((value) =>
+      symbolicLogicalRight(operator, value),
+    );
+    return choices.length > 0 &&
+      choices.every((choice) => choice === choices[0])
+      ? choices[0]
+      : undefined;
+  }
+  if (operator === "??") {
+    if (left.kind === "literal")
+      return left.value === null || left.value === undefined;
+    return [
+      "function",
+      "object",
+      "namespace",
+      "array",
+      "record",
+      "loader",
+    ].includes(left.kind)
+      ? false
+      : undefined;
+  }
+  const truth = symbolicTruth(left);
+  return truth === undefined ? undefined : operator === "&&" ? truth : !truth;
+};
 
 /** Only definite synchronous exits; unsupported control flow stays unknown. */
 export const symbolicDefiniteExit = (

@@ -46,7 +46,6 @@ import {
   CAPABILITIES,
   windowsP0Capabilities,
   GHIDRA_PROVIDER_IDENTITY,
-  GHIDRA_OPERATIONS,
 } from "./GhidraProviderCapabilities.js";
 import {
   createGhidraProviderClient,
@@ -200,6 +199,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       installation,
       options?.signal,
       this.config.ghidraLanguageOverride,
+      this.config.ghidraDisabledAnalyzers,
     );
     if (!resolved.ok || resolved.value.profile === null) return resolved;
     const override = this.config.ghidraLanguageOverride;

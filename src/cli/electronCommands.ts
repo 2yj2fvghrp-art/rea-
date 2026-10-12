@@ -209,6 +209,9 @@ const registerJavaScriptApplicationCommand = (
                     max_semantic_nodes_per_file:
                       options.maxSemanticNodesPerFile,
                   }),
+              ...(options.sourcePath === undefined
+                ? {}
+                : { source_paths: options.sourcePath }),
               ...(options.maxHeapMb === undefined
                 ? {}
                 : { max_heap_mb: options.maxHeapMb }),
