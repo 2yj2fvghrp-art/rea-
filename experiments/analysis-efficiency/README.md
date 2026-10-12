@@ -44,8 +44,9 @@ acceptance conditions for every optimization.
   experiment control; it does not itself establish reduced CPU consumption.
 
 Migrate domain by domain with focused real-artifact checks and relevant shared
-contract checks. The domain matrix is a growing roadmap; native PE and DOS, for
-example, remain unverified in this study. A passed lane does not imply all
+contract checks. The native follow-up verifies selected PE and DOS MZ entry facts;
+DOS COM and complete native application behavior remain unverified. The domain
+matrix is a growing roadmap. A passed lane does not imply all
 advertised platforms/providers have passed. Newly discovered REA bugs remain
 in the separate local handoff document for later team repair.
 
