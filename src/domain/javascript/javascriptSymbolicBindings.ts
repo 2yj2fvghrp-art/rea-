@@ -54,10 +54,19 @@ interface OriginPropertyWrite {
   readonly path: readonly (string | null)[];
   readonly value: SymbolicValue;
   readonly definite: boolean;
+  readonly dispatchTarget?: SymbolicValue | undefined;
+}
+interface OriginAttributes {
+  readonly configurable?: boolean | undefined;
+  readonly writable?: boolean | undefined;
+  readonly data?: boolean | undefined;
+  readonly setter?: boolean | undefined;
 }
 interface OriginProperties {
   readonly values: readonly SymbolicValue[];
   readonly definiteKeys: ReadonlySet<string>;
+  readonly attributes?: ReadonlyMap<string, OriginAttributes> | undefined;
+  readonly complete?: boolean;
 }
 const originSnapshot = Symbol("mutation origin snapshot");
 type OriginValue = SymbolicValue & {
@@ -90,6 +99,10 @@ const emptyEnvironment: SymbolicEnvironment = { values: new Map() };
 /** Demand-driven substitutions for local bindings, closures and literal module tables. */
 export class JavaScriptSymbolicBindings {
   readonly #writes = new Map<string, PropertyWrite[]>();
+  readonly #intrinsicCalls = new WeakMap<
+    t.Node,
+    JavaScriptIntrinsicMutation[]
+  >();
   readonly #writeIndex = new Map<
     string,
     Map<number, Map<string | null, PropertyWrite[]>>
@@ -161,6 +174,10 @@ export class JavaScriptSymbolicBindings {
       },
     });
     for (const mutation of electronIdentity.mutations) {
+      const calls = this.#intrinsicCalls.get(mutation.site) ?? [];
+      calls.push(mutation);
+      this.#intrinsicCalls.set(mutation.site, calls);
+      if (mutation.operation === "identity") continue;
       const { root, members } = electronMemberPath(mutation.target);
       if (t.isIdentifier(root))
         this.#addWrite(
@@ -500,7 +517,28 @@ export class JavaScriptSymbolicBindings {
     }
     if (t.isSequenceExpression(node))
       return this.evaluate(node.expressions.at(-1), env);
-    if (t.isAssignmentExpression(node)) return this.evaluate(node.right, env);
+    if (t.isAssignmentExpression(node)) {
+      if (
+        this.#originCache !== undefined &&
+        ["&&=", "||=", "??="].includes(node.operator)
+      ) {
+        const prior = this.#atOriginPoint(
+          node.left,
+          () => this.evaluate(node.left, env),
+          true,
+        );
+        const take = symbolicLogicalRight(
+          node.operator.slice(0, -1) as "&&" | "||" | "??",
+          prior,
+        );
+        return take === false
+          ? prior
+          : take === true
+            ? this.evaluate(node.right, env)
+            : symbolicUnion([prior, this.evaluate(node.right, env)]);
+      }
+      return this.evaluate(node.right, env);
+    }
     if (t.isAwaitExpression(node)) return this.evaluate(node.argument, env);
     if (t.isUnaryExpression(node)) {
       const value = this.evaluate(node.argument, env);
@@ -731,6 +769,33 @@ export class JavaScriptSymbolicBindings {
     node: t.CallExpression | t.OptionalCallExpression,
     env: SymbolicEnvironment,
   ): SymbolicValue {
+    const mutations = this.#intrinsicCalls.get(node);
+    if (this.#originCache !== undefined && mutations?.[0]?.returnsTarget) {
+      const target = mutations[0].target;
+      const value = this.#atOriginPoint(
+        target,
+        () => this.evaluate(target, env),
+        true,
+      );
+      if (t.isIdentifier(electronMemberPath(target).root)) return value;
+      const writes = mutations
+        .filter((mutation) => mutation.operation !== "identity")
+        .map((mutation) =>
+          this.#originWrite(
+            {
+              path: mutation.path,
+              value: mutation.value ?? mutation.site,
+              site: mutation.site,
+              mutation,
+            },
+            env,
+          ),
+        );
+      return {
+        ...value,
+        [originSnapshot]: { base: value, writes },
+      } as OriginValue;
+    }
     const callee = this.evaluate(node.callee, env);
     const args = this.arguments(node, env);
     return symbolicUnion(
@@ -1256,49 +1321,68 @@ export class JavaScriptSymbolicBindings {
           this.truncated = true;
           break;
         }
-        let definite = write.mutation?.definite ?? true;
-        for (
-          let parent = this.state.parentsByNode.get(write.site);
-          parent && parent !== owner;
-          parent = this.state.parentsByNode.get(parent)
-        ) {
-          if (
-            t.isIfStatement(parent) ||
-            t.isConditionalExpression(parent) ||
-            t.isLogicalExpression(parent) ||
-            t.isLoop(parent) ||
-            t.isSwitchCase(parent) ||
-            t.isTryStatement(parent)
-          )
-            definite = false;
-        }
-        const assignment = t.isAssignmentExpression(write.site);
-        const logical =
-          assignment && ["&&=", "||=", "??="].includes(write.site.operator);
-        const plain = assignment
-          ? write.site.operator === "=" || logical
-          : t.isCallExpression(write.site);
-        if (logical) definite = false;
-        let retainedValue: SymbolicValue | undefined;
-        const readValue = (): SymbolicValue =>
-          write.mutation && write.mutation.value === undefined
-            ? symbolicUnknown("intrinsic property effect")
-            : plain
-              ? this.#atOriginPoint(write.site, () =>
-                  this.evaluate(write.value, environment),
-                )
-              : symbolicUnknown("non-value property write");
-        writes.push({
-          source: write,
-          path: write.path,
-          definite,
-          get value(): SymbolicValue {
-            return (retainedValue ??= readValue());
-          },
-        });
+        writes.push(this.#originWrite(write, environment));
       }
     }
     return writes;
+  }
+
+  #originWrite(
+    write: PropertyWrite,
+    environment: SymbolicEnvironment,
+  ): OriginPropertyWrite {
+    let definite = write.mutation?.definite ?? true;
+    for (
+      let parent = this.state.parentsByNode.get(write.site);
+      parent && parent !== this.#functionOwner(write.site);
+      parent = this.state.parentsByNode.get(parent)
+    ) {
+      if (
+        t.isIfStatement(parent) ||
+        t.isConditionalExpression(parent) ||
+        t.isLogicalExpression(parent) ||
+        t.isLoop(parent) ||
+        t.isSwitchCase(parent) ||
+        t.isTryStatement(parent)
+      )
+        definite = false;
+    }
+    const assignment = t.isAssignmentExpression(write.site);
+    const logical =
+      assignment && ["&&=", "||=", "??="].includes(write.site.operator);
+    const plain = assignment
+      ? write.site.operator === "=" || logical
+      : t.isCallExpression(write.site);
+    let retainedValue: SymbolicValue | undefined;
+    const readValue = (): SymbolicValue =>
+      write.mutation && write.mutation.value === undefined
+        ? symbolicUnknown("intrinsic property effect")
+        : plain
+          ? this.#atOriginPoint(write.site, () =>
+              this.evaluate(write.value, environment),
+            )
+          : symbolicUnknown("non-value property write");
+    const readDispatch = (): SymbolicValue | undefined => {
+      const target = write.mutation?.dispatchTarget;
+      return target === undefined
+        ? undefined
+        : this.#atOriginPoint(
+            target,
+            () => this.evaluate(target, environment),
+            true,
+          );
+    };
+    return {
+      source: write,
+      path: write.path,
+      definite,
+      get dispatchTarget(): SymbolicValue | undefined {
+        return readDispatch();
+      },
+      get value(): SymbolicValue {
+        return (retainedValue ??= readValue());
+      },
+    };
   }
 
   /** Possible selected values for mutation provenance, never exact read proof. */
@@ -1368,9 +1452,19 @@ export class JavaScriptSymbolicBindings {
       return this.#originSnapshotProperties(snapshot, key, excluded, visiting);
     if (value.kind === "union") {
       let common: Set<string> | undefined;
+      let attributes: ReadonlyMap<string, OriginAttributes> | undefined;
+      let complete = true;
       for (const variant of value.values) {
         const result = this.#originProperties(variant, key, excluded, visiting);
         for (const member of result.values) values.push(member);
+        attributes =
+          attributes === undefined
+            ? (result.attributes ?? new Map())
+            : this.#commonOriginAttributes(
+                attributes,
+                result.attributes ?? new Map(),
+              );
+        complete &&= result.complete === true;
         common =
           common === undefined
             ? new Set(result.definiteKeys)
@@ -1378,53 +1472,15 @@ export class JavaScriptSymbolicBindings {
                 [...common].filter((name) => result.definiteKeys.has(name)),
               );
       }
-      return { values, definiteKeys: common ?? definiteKeys };
+      return {
+        values,
+        definiteKeys: common ?? definiteKeys,
+        attributes,
+        complete,
+      };
     }
-    if (value.kind === "object") {
-      const covered = new Set(excluded);
-      for (
-        let index = value.node.properties.length - 1;
-        index >= 0;
-        index -= 1
-      ) {
-        if (--this.#remainingEvaluations < 0) {
-          this.truncated = true;
-          break;
-        }
-        if (key !== null && covered.has(key)) break;
-        const property = value.node.properties[index]!;
-        if (t.isSpreadElement(property)) {
-          const result = this.#atOriginPoint(property, () => {
-            const spread = this.evaluate(property.argument, value.environment);
-            return this.#originProperties(spread, key, covered, visiting);
-          });
-          for (const member of result.values) values.push(member);
-          for (const name of result.definiteKeys) {
-            covered.add(name);
-            definiteKeys.add(name);
-          }
-          continue;
-        }
-        const name = semanticStaticPropertyKey(property.key, property.computed);
-        if (name === null) {
-          // An unknown key can replace a known property or introduce another
-          // one; it cannot prove that an earlier possible value was removed.
-          values.push(this.#objectPropertyValue(property, value.environment));
-        } else {
-          if (!covered.has(name) && (key === null || key === name))
-            values.push(
-              this.#originSelectedValue(
-                value,
-                this.#objectPropertyValue(property, value.environment),
-                name,
-              ),
-            );
-          covered.add(name);
-          definiteKeys.add(name);
-        }
-      }
-      return { values, definiteKeys };
-    }
+    if (value.kind === "object")
+      return this.#originLiteralProperties(value, key, excluded, visiting);
     if (value.kind === "namespace") {
       if (this.#mutated.has(value.bindingId)) return empty;
       const replacement = this.#replacements.get(value.bindingId);
@@ -1448,6 +1504,7 @@ export class JavaScriptSymbolicBindings {
       return { values, definiteKeys };
     }
     if (value.kind === "record" || value.kind === "array") {
+      const attributes = new Map<string, OriginAttributes>();
       const entries = value.values.entries();
       for (const [rawName, member] of entries) {
         const name = String(rawName);
@@ -1456,10 +1513,15 @@ export class JavaScriptSymbolicBindings {
           break;
         }
         definiteKeys.add(name);
+        attributes.set(name, {
+          configurable: true,
+          writable: true,
+          data: true,
+        });
         if (!excluded.has(name) && (key === null || key === name))
           values.push(this.#originSelectedValue(value, member, name));
       }
-      return { values, definiteKeys };
+      return { values, definiteKeys, attributes, complete: true };
     }
     // A known external key is a possible member, but not proof of an own
     // enumerable key when the value is copied by an object spread.
@@ -1467,10 +1529,175 @@ export class JavaScriptSymbolicBindings {
     return { values, definiteKeys };
   }
 
+  #originLiteralProperties(
+    value: Extract<SymbolicValue, { kind: "object" }>,
+    key: string | null,
+    excluded: ReadonlySet<string>,
+    visiting: Set<SymbolicValue>,
+  ): OriginProperties {
+    const values: SymbolicValue[] = [];
+    const definiteKeys = new Set<string>();
+    const covered = new Set(excluded);
+    const attributes = new Map<string, OriginAttributes>();
+    let complete = true;
+    for (let index = value.node.properties.length - 1; index >= 0; index -= 1) {
+      if (--this.#remainingEvaluations < 0) {
+        this.truncated = true;
+        break;
+      }
+      if (key !== null && covered.has(key)) break;
+      const property = value.node.properties[index]!;
+      if (t.isSpreadElement(property)) {
+        const result = this.#atOriginPoint(property, () => {
+          const spread = this.evaluate(property.argument, value.environment);
+          return this.#originProperties(spread, key, covered, visiting);
+        });
+        for (const member of result.values) values.push(member);
+        complete &&= result.complete === true;
+        for (const name of result.definiteKeys) {
+          attributes.set(name, {
+            configurable: true,
+            writable: true,
+            data: true,
+          });
+          covered.add(name);
+          definiteKeys.add(name);
+        }
+        continue;
+      }
+      const name = semanticStaticPropertyKey(property.key, property.computed);
+      if (name === null) {
+        complete = false;
+        // An unknown key can replace a known property or introduce another
+        // one; it cannot prove that an earlier possible value was removed.
+        values.push(this.#objectPropertyValue(property, value.environment));
+      } else {
+        if (!covered.has(name)) {
+          const accessor =
+            t.isObjectMethod(property) && property.kind !== "method";
+          attributes.set(name, {
+            configurable: true,
+            ...(accessor
+              ? { data: false, setter: property.kind === "set" }
+              : { data: true, writable: true }),
+          });
+        }
+        if (!covered.has(name) && (key === null || key === name))
+          values.push(
+            this.#originSelectedValue(
+              value,
+              this.#objectPropertyValue(property, value.environment),
+              name,
+            ),
+          );
+        covered.add(name);
+        definiteKeys.add(name);
+      }
+    }
+    return {
+      values,
+      definiteKeys,
+      attributes: complete ? attributes : new Map(),
+      complete,
+    };
+  }
+
+  #originPropertyAbsent(
+    properties: OriginProperties | undefined,
+    key: string | null,
+  ): boolean {
+    return (
+      key !== null &&
+      properties?.complete === true &&
+      !properties.definiteKeys.has(key) &&
+      properties.values.length === 0 &&
+      !properties.attributes?.has(key)
+    );
+  }
+
+  #commonOriginAttributes(
+    left: ReadonlyMap<string, OriginAttributes>,
+    right: ReadonlyMap<string, OriginAttributes>,
+  ): ReadonlyMap<string, OriginAttributes> {
+    const attributes = new Map<string, OriginAttributes>();
+    for (const [key, value] of left) {
+      const other = right.get(key);
+      if (!other) continue;
+      attributes.set(key, {
+        configurable:
+          value.configurable === other.configurable
+            ? value.configurable
+            : undefined,
+        writable:
+          value.writable === other.writable ? value.writable : undefined,
+        data: value.data === other.data ? value.data : undefined,
+        setter: value.setter === other.setter ? value.setter : undefined,
+      });
+    }
+    return attributes;
+  }
+
+  #originWriteSuccess(
+    write: OriginPropertyWrite,
+    prior: OriginProperties,
+    key: string | null,
+    active: Set<SymbolicValue>,
+  ): boolean | undefined {
+    const mutation = write.source.mutation;
+    const deleted =
+      mutation?.operation === "delete" ||
+      t.isUnaryExpression(write.source.site, { operator: "delete" });
+    const assignment = t.isAssignmentExpression(write.source.site);
+    if (!deleted && !assignment && !mutation?.mayFail) return true;
+    const attributes = key === null ? undefined : prior.attributes?.get(key);
+    const absent = this.#originPropertyAbsent(prior, key);
+    if (deleted) return absent ? true : attributes?.configurable;
+    if (mutation?.operation === "descriptor") {
+      if (attributes?.configurable === true || absent) return true;
+      if (attributes?.configurable === false) {
+        const configurable = this.#originProperties(
+          write.value,
+          "configurable",
+          new Set(),
+          active,
+        );
+        if (
+          symbolicTruth(symbolicUnion(configurable.values)) === true ||
+          attributes.writable === false
+        )
+          return false;
+      }
+      return undefined;
+    }
+    if (mutation?.dispatchTarget) {
+      const dispatch = write.dispatchTarget;
+      const selected =
+        dispatch &&
+        this.#atOriginPoint(
+          mutation.readAt,
+          () => this.#originProperties(dispatch, key, new Set(), active),
+          true,
+        );
+      const inherited =
+        key === null ? undefined : selected?.attributes?.get(key);
+      if (inherited?.data === false)
+        return inherited.setter === false ? false : undefined;
+      if (
+        inherited?.writable !== true &&
+        !this.#originPropertyAbsent(selected, key)
+      )
+        return inherited?.writable;
+    }
+    if (attributes?.data === false)
+      return attributes.setter === false ? false : undefined;
+    return absent ? true : attributes?.writable;
+  }
+
   #originDescriptor(
     descriptor: SymbolicValue,
     key: string | null,
     active: Set<SymbolicValue>,
+    prior?: OriginProperties,
   ): OriginProperties {
     const data = this.#originProperties(descriptor, "value", new Set(), active);
     const getter = this.#originProperties(descriptor, "get", new Set(), active);
@@ -1480,13 +1707,124 @@ export class JavaScriptSymbolicBindings {
       data.definiteKeys.has("value") ||
       getter.definiteKeys.has("get") ||
       setter.definiteKeys.has("set");
+    const priorAttributes =
+      key === null ? undefined : prior?.attributes?.get(key);
+    const fresh = this.#originPropertyAbsent(prior, key);
+    const attribute = (
+      name: "configurable" | "writable",
+    ): boolean | undefined => {
+      const selected = this.#originProperties(
+        descriptor,
+        name,
+        new Set(),
+        active,
+      );
+      const previous = priorAttributes?.[name] ?? (fresh ? false : undefined);
+      if (selected.values.length === 0) return previous;
+      const next = symbolicTruth(symbolicUnion(selected.values));
+      return selected.definiteKeys.has(name) || next === previous
+        ? next
+        : undefined;
+    };
+    const knownAccessor =
+      getter.definiteKeys.has("get") || setter.definiteKeys.has("set");
+    const oldSetter =
+      priorAttributes?.data === true || fresh ? false : priorAttributes?.setter;
+    const nextSetter =
+      setter.values.length > 0
+        ? symbolicTruth(symbolicUnion(setter.values))
+        : oldSetter;
+    const attributes = new Map<string, OriginAttributes>();
+    if (key !== null)
+      attributes.set(key, {
+        configurable: attribute("configurable"),
+        writable: attribute("writable"),
+        data: knownAccessor
+          ? false
+          : accessor
+            ? undefined
+            : data.definiteKeys.has("value") || fresh
+              ? true
+              : priorAttributes?.data,
+        setter:
+          setter.definiteKeys.has("set") || nextSetter === oldSetter
+            ? nextSetter
+            : undefined,
+      });
     return {
+      attributes,
       values: [
         ...data.values,
+        ...(fresh && data.values.length === 0 && !accessor
+          ? [{ kind: "literal" as const, value: undefined }]
+          : []),
         ...(accessor ? [symbolicUnknown("accessor descriptor")] : []),
       ],
-      definiteKeys: new Set(key !== null && replaced ? [key] : []),
+      definiteKeys: new Set(key !== null && (replaced || fresh) ? [key] : []),
     };
+  }
+
+  #originIntrinsicReplacement(
+    write: OriginPropertyWrite,
+    key: string | null,
+    excluded: ReadonlySet<string>,
+    active: Set<SymbolicValue>,
+    previous: OriginProperties,
+  ): OriginProperties {
+    const mutation = write.source.mutation!;
+    return this.#atOriginPoint(
+      mutation.readAt,
+      () => {
+        if (mutation.operation === "copy")
+          return this.#originProperties(write.value, key, excluded, active);
+        if (mutation.operation === "descriptor")
+          return this.#originDescriptor(
+            write.value,
+            write.path[0] ?? key,
+            active,
+            previous,
+          );
+        const descriptors = this.#originProperties(
+          write.value,
+          key,
+          excluded,
+          active,
+        );
+        const values: SymbolicValue[] = [];
+        const attributes = new Map<string, OriginAttributes>();
+        const definiteKeys = new Set<string>();
+        for (const descriptor of descriptors.values)
+          for (const value of this.#originDescriptor(descriptor, key, active)
+            .values)
+            values.push(value);
+        // Select descriptors by their own proven names; a dynamic selection
+        // preserves possible values without turning possible presence into proof.
+        const names = key === null ? [...descriptors.definiteKeys] : [key];
+        for (const name of names) {
+          const selected = this.#originProperties(
+            write.value,
+            name,
+            excluded,
+            active,
+          );
+          const property = this.#originDescriptor(
+            symbolicUnion(selected.values),
+            name,
+            active,
+            previous,
+          );
+          const selectedAttributes = property.attributes?.get(name);
+          if (selectedAttributes) attributes.set(name, selectedAttributes);
+          if (
+            descriptors.definiteKeys.has(name) &&
+            property.definiteKeys.has(name)
+          )
+            definiteKeys.add(name);
+        }
+        return { values, definiteKeys, attributes };
+      },
+      true,
+    );
   }
 
   #originSnapshotProperties(
@@ -1519,69 +1857,93 @@ export class JavaScriptSymbolicBindings {
       [originSnapshot]: { base: snapshot.base, writes, end: end - 1 },
     };
     const head = write.path[0];
+    let definite = write.definite;
+    if (
+      t.isAssignmentExpression(write.source.site) &&
+      ["&&=", "||=", "??="].includes(write.source.site.operator)
+    ) {
+      const previous = this.#originProperties(
+        prior,
+        head ?? key,
+        excluded,
+        active,
+      );
+      const value =
+        previous.values.length > 0
+          ? symbolicUnion(previous.values)
+          : symbolicUnknown("unknown prior property");
+      const take = symbolicLogicalRight(
+        write.source.site.operator.slice(0, -1) as "&&" | "||" | "??",
+        value,
+      );
+      if (take === false)
+        return this.#originProperties(prior, key, excluded, active);
+      if (take === undefined) definite = false;
+    }
     const mutation = write.source.mutation;
+    const previous = this.#originProperties(
+      prior,
+      head ?? key,
+      excluded,
+      active,
+    );
+    const success = this.#originWriteSuccess(
+      write,
+      previous,
+      head ?? key,
+      active,
+    );
+    if (success === false)
+      return this.#originProperties(prior, key, excluded, active);
+    if (success === undefined) definite = false;
     if (
       mutation &&
       ["copy", "descriptor", "descriptors"].includes(mutation.operation)
     ) {
-      const replacement = this.#atOriginPoint(
-        mutation.readAt,
-        () => {
-          if (mutation.operation === "copy")
-            return this.#originProperties(write.value, key, excluded, active);
-          if (mutation.operation === "descriptor")
-            return this.#originDescriptor(write.value, head ?? key, active);
-          const descriptors = this.#originProperties(
-            write.value,
-            key,
-            excluded,
-            active,
-          );
-          const values: SymbolicValue[] = [];
-          const definiteKeys = new Set<string>();
-          for (const descriptor of descriptors.values)
-            for (const value of this.#originDescriptor(descriptor, key, active)
-              .values)
-              values.push(value);
-          // Select descriptors by their own proven names; a dynamic selection
-          // preserves possible values without turning possible presence into proof.
-          const names = key === null ? [...descriptors.definiteKeys] : [key];
-          for (const name of names) {
-            const selected = this.#originProperties(
-              write.value,
-              name,
-              excluded,
-              active,
-            );
-            const property = this.#originDescriptor(
-              symbolicUnion(selected.values),
-              name,
-              active,
-            );
-            if (
-              descriptors.definiteKeys.has(name) &&
-              property.definiteKeys.has(name)
-            )
-              definiteKeys.add(name);
-          }
-          return { values, definiteKeys };
-        },
-        true,
+      const replacement = this.#originIntrinsicReplacement(
+        write,
+        key,
+        excluded,
+        active,
+        previous,
       );
       const blocked = new Set(excluded);
-      if (write.definite)
+      if (definite)
         for (const name of replacement.definiteKeys) blocked.add(name);
       const earlier = this.#originProperties(prior, key, blocked, active);
+      const attributes = new Map(previous.attributes);
+      for (const name of replacement.definiteKeys) {
+        const priorAttributes = previous.attributes?.get(name);
+        attributes.set(
+          name,
+          mutation.operation === "copy"
+            ? (priorAttributes ?? {
+                configurable: true,
+                writable: true,
+                data: true,
+              })
+            : (replacement.attributes?.get(name) ?? {}),
+        );
+      }
+      for (const [name, descriptor] of replacement.attributes ?? [])
+        if (mutation.operation !== "copy") attributes.set(name, descriptor);
       return {
+        attributes: definite
+          ? attributes
+          : this.#commonOriginAttributes(
+              previous.attributes ?? new Map(),
+              attributes,
+            ),
+        complete: previous.complete === true && head !== null,
         values: [...earlier.values, ...replacement.values],
         definiteKeys: new Set([
           ...earlier.definiteKeys,
-          ...(write.definite ? replacement.definiteKeys : []),
+          ...(definite ? replacement.definiteKeys : []),
         ]),
       };
     }
     const blocked = new Set(excluded);
-    if (head !== null && write.definite) blocked.add(head!);
+    if (head !== null && definite) blocked.add(head!);
     const earlier = this.#originProperties(prior, key, blocked, active);
     const removed =
       write.source.mutation?.operation === "delete" ||
@@ -1591,9 +1953,29 @@ export class JavaScriptSymbolicBindings {
     const definiteKeys = new Set(earlier.definiteKeys);
     if (head !== null) {
       if (removed) definiteKeys.delete(head!);
-      else if (write.definite) definiteKeys.add(head!);
+      else if (definite) definiteKeys.add(head!);
     } else if (removed) definiteKeys.clear();
+    const attributes = new Map(previous.attributes);
+    if (head !== null) {
+      if (removed) attributes.delete(head!);
+      else
+        attributes.set(
+          head!,
+          previous.attributes?.get(head!) ?? {
+            configurable: true,
+            writable: true,
+            data: true,
+          },
+        );
+    } else attributes.clear();
     return {
+      attributes: definite
+        ? attributes
+        : this.#commonOriginAttributes(
+            previous.attributes ?? new Map(),
+            attributes,
+          ),
+      complete: previous.complete === true && head !== null,
       values: removed
         ? earlier.values
         : [

@@ -63,8 +63,12 @@ export interface JavaScriptIntrinsicMutation {
     | "delete"
     | "descriptor"
     | "copy"
-    | "descriptors";
+    | "descriptors"
+    | "identity";
   readonly readAt: t.Node;
+  readonly returnsTarget: boolean;
+  readonly mayFail: boolean;
+  readonly dispatchTarget?: t.Node;
   readonly definite: boolean;
 }
 
@@ -96,6 +100,14 @@ const intrinsicMutationEffects = (
       ...(value === undefined ? {} : { value }),
       operation,
       readAt,
+      returnsTarget: owner === "Object",
+      mayFail: owner === "Reflect",
+      ...(owner === "Reflect" &&
+      method === "set" &&
+      args.length >= 4 &&
+      t.isNode(args[0])
+        ? { dispatchTarget: args[0] }
+        : {}),
       definite:
         key !== null || operation === "copy" || operation === "descriptors",
     });
@@ -108,6 +120,7 @@ const intrinsicMutationEffects = (
     for (const source of args.slice(1)) retain("copy", null, source);
   } else if (method === "defineProperties")
     retain("descriptors", null, args[1]);
+  if (effects.length === 0) retain("identity", null, undefined);
   // Prototype changes do not replace known own properties. Source objects and
   // descriptors retain their syntax for the shared symbolic property owner.
   return effects;
