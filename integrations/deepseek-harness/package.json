@@ -13,7 +13,12 @@
     ".": "./launcher.mjs",
     "./launcher": "./launcher.mjs"
   },
-  "files": ["launcher.mjs", "cordis.patch.yml", "README.md"],
+  "files": [
+    "launcher.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
   },

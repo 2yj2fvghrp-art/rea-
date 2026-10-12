@@ -9,7 +9,7 @@ assert.equal(pkg.name, 'dsh-rea-bundle')
 assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.equal(pkg.type, 'module')
 assert.equal(pkg.dependencies['rea-agents'], '6.4.0')
-for (const file of ['launcher.mjs', 'cordis.patch.yml', 'README.md']) {
+for (const file of ['launcher.mjs', 'cordis.patch.yml', 'README.md', 'LICENSE']) {
   assert(existsSync(join(root, file)), `missing bundled file ${file}`)
   assert(pkg.files.includes(file), `missing packlist file ${file}`)
 }

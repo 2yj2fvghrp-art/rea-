@@ -35,7 +35,7 @@ jobs:
         working-directory: integrations/deepseek-harness
         run: |
           npm pack --dry-run --json > /tmp/rea-dsh-pack.json
-          node -e 'const a=require("/tmp/rea-dsh-pack.json")[0].files.map(x=>x.path);for(const f of ["package.json","launcher.mjs","cordis.patch.yml","README.md"])if(!a.includes(f))throw Error("missing packed file: "+f)'
+          node -e 'const a=require("/tmp/rea-dsh-pack.json")[0].files.map(x=>x.path);for(const f of ["package.json","launcher.mjs","cordis.patch.yml","README.md","LICENSE"])if(!a.includes(f))throw Error("missing packed file: "+f)'
 
   native-harness:
     name: Latest upstream Harness + packaged REA MCP
