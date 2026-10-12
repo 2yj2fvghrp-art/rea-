@@ -19,7 +19,7 @@ const requests = [
   {
     specifier: "./directory",
     target: null,
-    status: "rejected",
+    status: "not-found",
     error: "ERR_UNSUPPORTED_DIR_IMPORT",
   },
   {
