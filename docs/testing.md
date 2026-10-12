@@ -823,7 +823,8 @@ known return value. AArch64 remains covered by deterministic tests rather than
 this real-provider lane. See [raw binary analysis](raw-binary.md).
 
 `npm run verify:ghidra:address-context` runs on Linux with a caller-installed
-Ghidra, full JDK, and GCC (`CC` selects another compatible compiler). It builds
+Ghidra, full JDK, and an x86-64 ELF GCC toolchain (`CC` selects another compatible
+compiler). It builds
 `tests/conformance/c/pie-address-context.c` as a PIE ELF without executing it.
 The compiled CLI and real stdio MCP workflow must expose the measured image
 base, retain segment address spaces, agree on the overview, reject the original

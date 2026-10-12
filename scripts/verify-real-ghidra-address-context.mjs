@@ -42,6 +42,9 @@ transport.stderr?.on("data", (chunk) => {
   stderr = (stderr + chunk.toString()).slice(-65536);
 });
 let report;
+let connected = false;
+let primaryFailure;
+let verifierRun;
 try {
   const compiler = process.env.CC ?? "gcc";
   const version = await exec(compiler, ["--version"], { timeout: 10000 });
@@ -68,6 +71,7 @@ try {
   const declaredEntry = `0x${bytes.readBigUInt64LE(24).toString(16)}`;
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   await client.connect(transport);
+  connected = true;
   await call("open_binary", { path, provider_id: "ghidra" });
   const overview = parseEvidence(await call("binary_overview"));
   assert.equal(overview.subject.digest.sha256, sha256);
@@ -77,6 +81,7 @@ try {
   const active = await call("binary_session");
   const image = parseEvidence(await call("inspect_native_load_image"));
   assert.equal(base, image.normalized_result.observations.image_base);
+  assert.ok(overview.normalized_result.segments.length > 0);
   assert.ok(
     overview.normalized_result.segments.every(
       (segment) =>
@@ -122,6 +127,10 @@ try {
   assert.ok(
     JSON.stringify(rejected.content).includes(`Ghidra image base: ${base}`),
   );
+  assert.ok(JSON.stringify(rejected.content).includes("list_procedures"));
+  assert.ok(
+    JSON.stringify(rejected.content).includes("inspect_native_load_image"),
+  );
   const pseudo = parseEvidence(
     await call("procedure_pseudo_code", { procedure: addition.address }),
   );
@@ -149,6 +158,8 @@ try {
   const error = JSON.parse(cliFailure.stdout);
   assert.equal(error.code, "invalid_request");
   assert.ok(JSON.stringify(error).includes(`Ghidra image base: ${base}`));
+  assert.ok(JSON.stringify(error).includes("list_procedures"));
+  assert.ok(JSON.stringify(error).includes("inspect_native_load_image"));
   const cliPseudo = parseEvidence(
     JSON.parse((await cli(["decompile", path, entry.address])).stdout),
   );
@@ -171,20 +182,56 @@ try {
     runtime_cleanup: "complete",
   };
 } catch (cause) {
+  primaryFailure = { cause };
   if (stderr) process.stderr.write(stderr);
-  throw cause;
-} finally {
-  try {
-    await client.close();
-  } finally {
-    await transport.close();
-  }
-  // Failed connection cleanup retains the owned workspace for a later retry.
-  await rm(workspace, { recursive: true, force: true });
 }
-const verifierRun = await completeVerifierRun(run);
-assert.equal(verifierRun.process_lineage.status, "verified");
-assert.deepEqual(verifierRun.process_lineage.descendants, []);
+
+const cleanupFailures = [];
+// Await provider-owned cleanup before the SDK can terminate its MCP parent.
+if (connected) {
+  try {
+    await call("close_binary");
+  } catch (cause) {
+    cleanupFailures.push(cause);
+  }
+}
+try {
+  await client.close();
+} catch (cause) {
+  cleanupFailures.push(cause);
+}
+try {
+  await transport.close();
+} catch (cause) {
+  cleanupFailures.push(cause);
+}
+try {
+  assert.deepEqual(await readdir(runtime), []);
+  verifierRun = await completeVerifierRun(run);
+  assert.equal(verifierRun.process_lineage.status, "verified");
+  assert.deepEqual(verifierRun.process_lineage.descendants, []);
+} catch (cause) {
+  cleanupFailures.push(cause);
+}
+if (cleanupFailures.length === 0) {
+  try {
+    await rm(workspace, { recursive: true, force: true });
+  } catch (cause) {
+    cleanupFailures.push(cause);
+  }
+}
+if (cleanupFailures.length > 0) {
+  process.stderr.write(
+    `Retained verifier workspace after cleanup failure: ${workspace}\n`,
+  );
+  throw new AggregateError(
+    primaryFailure === undefined
+      ? cleanupFailures
+      : [primaryFailure.cause, ...cleanupFailures],
+    "Ghidra address-context verifier cleanup failed",
+  );
+}
+if (primaryFailure !== undefined) throw primaryFailure.cause;
 process.stdout.write(
   JSON.stringify({ verifier_run: verifierRun, ...report }) + "\n",
 );
