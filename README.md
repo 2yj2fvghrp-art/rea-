@@ -74,20 +74,6 @@ Setup supports Claude Code, Codex, Cursor, Gemini CLI, Grok Build and
 [installation and setup](docs/installation.md) for provider configuration and
 manual MCP registration.
 
-### DeepSeek Harness installable plugin
-
-To install this repository's native Harness bundle into the `web` profile:
-
-```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#path:integrations/deepseek-harness'
-dsh --profile web --dump-config
-```
-
-See [the Harness bundle installation, fork override, migration and
-compatibility guide](integrations/deepseek-harness/README.md). It wraps the
-existing REA MCP engine without changing tool semantics; installing the bundle
-does not install optional reverse-engineering engines.
-
 ### Ask your agent
 
 ```text

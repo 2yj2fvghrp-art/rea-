@@ -1,0 +1,42 @@
+name: Temporary DSH formatting snapshot
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dsh-format-snapshot.yml'
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - name: Format plugin sources exactly with repository oxfmt
+        run: |
+          node_modules/.bin/oxfmt --write \
+            .github/workflows/dsh-bundle.yml \
+            integrations/deepseek-harness/cordis.patch.yml \
+            integrations/deepseek-harness/launcher.mjs \
+            integrations/deepseek-harness/scripts/smoke-mcp.mjs \
+            integrations/deepseek-harness/scripts/verify-package.mjs \
+            integrations/deepseek-harness/tests/launcher.test.mjs
+      - name: Output exact formatted file contents to workflow logs
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          paths=[
+              '.github/workflows/dsh-bundle.yml',
+              'integrations/deepseek-harness/cordis.patch.yml',
+              'integrations/deepseek-harness/launcher.mjs',
+              'integrations/deepseek-harness/scripts/smoke-mcp.mjs',
+              'integrations/deepseek-harness/scripts/verify-package.mjs',
+              'integrations/deepseek-harness/tests/launcher.test.mjs',
+          ]
+          for path in paths:
+              print('DSH_FORMAT_JSON:'+json.dumps({'path':path,'content':Path(path).read_text()},ensure_ascii=True,separators=(',',':')))
+          PY

@@ -86,7 +86,7 @@ jobs:
   release-plugin:
     name: Publish standalone dsh-v plugin GitHub release
     needs: [contract, native-harness]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ false }} # held for root formatting and documentation checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
