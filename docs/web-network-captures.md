@@ -165,8 +165,11 @@ parent does not retain, so the refusal does not repeat declaration text.
 One accumulator owns group identity, observed-value/status/MIME sets, ordinals,
 exclusions and deduplicated limitations. It scans path spans without splitting
 literal paths into arrays. Before schema parsing, it reserves the capture clone
-and validation scratch by walking the parent without cloning it. That reservation
-stays charged during grouping. Temporary URL/path/MIME work and retained state must
+and validation scratch by walking the parent without cloning it. Inline requests
+borrow the Evidence value through CLI/MCP envelope validation; the application
+admits the entire portable envelope before authenticated parsing or hashing.
+The envelope clone, hash scratch and capture clone stay charged during grouping.
+Temporary URL/path/MIME work and retained state must
 fit together within a 96 MiB projection representation budget. A whole group or
 merge is admitted before allocating its retained sets, map entries or array
 values. Fixed group storage, distinct text, exclusions and limitations count as
@@ -178,7 +181,9 @@ The representation budget uses conservative storage and worst-case JSON-escaping
 allowances; it is not an enforced V8 heap or process-memory limit. It is separate
 from the decoder's actual reply-byte limit and MCP transport admission. Exceeding
 it returns `resource_constraint` without a partial view. Limitations on the
-examined records are deduplicated onto the view.
+parent envelope, capture and examined records are deduplicated onto the view.
+Portable captures must retain unique ordinals within their declared total;
+caller-selected subsets can preserve any requested ordinal order.
 
 ## Resource and lifecycle boundaries
 

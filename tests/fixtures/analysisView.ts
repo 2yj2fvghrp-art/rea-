@@ -249,3 +249,21 @@ export const analysisViewCaptureEvidence = (
       confidence: "observed",
     },
   );
+
+/** A small encoded capture whose many short objects expand during validation. */
+export const analysisViewObjectDenseCapture = (headerCount = 100_000) => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.total_records = 1;
+  capture.records[0]!.reported = {
+    request: {
+      method: "GET",
+      url: "https://api.test/items/1",
+      headers: Array.from({ length: headerCount }, () => ({
+        name: "x",
+        value: "y",
+      })),
+    },
+  };
+  return capture;
+};

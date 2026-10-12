@@ -55,7 +55,25 @@ const responseSchema = z.object({
 });
 const contentSchema = z.object({ mimeType: z.unknown().optional() });
 const MEDIA_TYPE_ESSENCE =
-  /^[a-z0-9!#$%&'*+.^_`|~-]+\/[a-z0-9!#$%&'*+.^_`|~-]+$/u;
+  /^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u;
+
+const mediaTypeEssence = (reported: string): string | null => {
+  const separator = reported.indexOf(";");
+  let start = 0;
+  let end = separator < 0 ? reported.length : separator;
+  // HTTP OWS is SP/HTAB. Scan from both ends so malformed internal runs of
+  // whitespace cannot cause repeated trailing-regex searches.
+  while (start < end && (reported[start] === " " || reported[start] === "\t"))
+    start += 1;
+  while (
+    end > start &&
+    (reported[end - 1] === " " || reported[end - 1] === "\t")
+  )
+    end -= 1;
+  const essence = reported.slice(start, end);
+  // Validate ASCII tokens before case folding can turn Unicode into ASCII.
+  return MEDIA_TYPE_ESSENCE.test(essence) ? essence.toLowerCase() : null;
+};
 
 // Conservative representation allowances, not an enforced V8 heap limit.
 // Fixed charges include the accumulator, bucket/set entries, array growth and
@@ -131,21 +149,35 @@ export class WebNetworkApiSurfaceAccumulator {
 
   /** Reserve schema output and validation scratch while the borrowed parent stays live. */
   admitCaptureClone(value: unknown): Result<void, AnalysisError> {
-    return this.#admitCaptureValue(value, new Set(), 0);
+    return this.#admitCaptureValue(value, new Set(), 0, false);
+  }
+
+  /** Admit the complete portable envelope before cloning or authenticating it. */
+  admitInlineEvidence(value: unknown): Result<void, AnalysisError> {
+    return this.#admitCaptureValue(value, new Set(), 0, true);
   }
 
   #admitCaptureValue(
     value: unknown,
     ancestors: Set<object>,
     depth: number,
+    inline: boolean,
   ): Result<void, AnalysisError> {
-    // The capture envelope adds three levels before records[].reported.
+    // Capture records add three levels before reported; inline Evidence adds one.
     if (
-      depth > MAX_JSON_DEPTH + 3 ||
+      depth > MAX_JSON_DEPTH + (inline ? 4 : 3) ||
       (typeof value === "object" && value !== null && ancestors.has(value))
     )
       return this.#invalidCapture();
     if (!this.#retain(CAPTURE_MEMBER_BYTES)) return this.#overBudget();
+    // Evidence authentication encodes strings and object keys for hashing.
+    // Keep that allowance live alongside the envelope clone and projection.
+    if (
+      inline &&
+      typeof value === "string" &&
+      !this.#retain(textBytes(value.length))
+    )
+      return this.#overBudget();
     if (typeof value !== "object" || value === null) return ok(undefined);
     if (!this.#retain(CAPTURE_CONTAINER_BYTES)) return this.#overBudget();
     ancestors.add(value);
@@ -160,6 +192,7 @@ export class WebNetworkApiSurfaceAccumulator {
           descriptor.value,
           ancestors,
           depth + 1,
+          inline,
         );
         if (!admitted.ok) return admitted;
       }
@@ -169,6 +202,8 @@ export class WebNetworkApiSurfaceAccumulator {
         return this.#invalidCapture();
       // Zod reads named fields even when they are non-enumerable.
       for (const key of Object.getOwnPropertyNames(value)) {
+        if (inline && !this.#retain(textBytes(key.length)))
+          return this.#overBudget();
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor === undefined || !Object.hasOwn(descriptor, "value"))
           return this.#invalidCapture();
@@ -176,6 +211,7 @@ export class WebNetworkApiSurfaceAccumulator {
           descriptor.value,
           ancestors,
           depth + 1,
+          inline,
         );
         if (!admitted.ok) return admitted;
       }
@@ -289,18 +325,13 @@ export class WebNetworkApiSurfaceAccumulator {
         return this.#overBudget();
       const route = this.#route(parsed.path);
       if (!route.ok) return route;
-      const separator = rawMime.indexOf(";");
-      const essence = rawMime
-        .slice(0, separator < 0 ? rawMime.length : separator)
-        .trim()
-        .toLowerCase();
       return this.#append(
         record.ordinal,
         method,
         parsed.origin,
         route.value,
         typeof status === "number" && status !== 0 ? status : null,
-        MEDIA_TYPE_ESSENCE.test(essence) ? essence : null,
+        mediaTypeEssence(rawMime),
       );
     } finally {
       // Per-record strings and descriptors never become cumulative scratch.

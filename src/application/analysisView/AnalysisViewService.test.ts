@@ -1,6 +1,7 @@
 import {
   analysisViewCaptureFixture,
   analysisViewCaptureEvidence,
+  analysisViewObjectDenseCapture,
 } from "../../../tests/fixtures/analysisView.js";
 import { describe, expect, it } from "vitest";
 
@@ -23,6 +24,7 @@ import { EvidenceIntegrityError } from "../../domain/evidenceErrors.js";
 import { err, ok } from "../../domain/result.js";
 import { EvidenceLedger } from "../investigation/EvidenceLedger.js";
 import { WEB_NETWORK_CAPTURE_LIMITS } from "../../domain/webNetworkCapture.js";
+import { inspectAnalysisViewInputSchema } from "../../domain/analysisView/analysisView.js";
 
 it.each(["/fixtures/unknown.exe", ""])(
   "preserves recorded empty native identity fields: path=%j",
@@ -404,19 +406,7 @@ it("rejects a null projected digest under a present parent subject", () => {
 });
 
 it("refuses an object-dense borrowed capture before making a full schema clone", () => {
-  const capture = analysisViewCaptureFixture();
-  capture.records = capture.records.slice(0, 1);
-  capture.total_records = 1;
-  capture.records[0]!.reported = {
-    request: {
-      method: "GET",
-      url: "https://api.test/items/1",
-      headers: Array.from({ length: 100_000 }, () => ({
-        name: "x",
-        value: "y",
-      })),
-    },
-  };
+  const capture = analysisViewObjectDenseCapture();
   expect(Buffer.byteLength(JSON.stringify(capture))).toBeLessThan(
     WEB_NETWORK_CAPTURE_LIMITS.inputBytes,
   );
@@ -441,4 +431,65 @@ it("refuses an object-dense borrowed capture before making a full schema clone",
     },
   });
   expect(ledger.forAnalysis(parent.evidence_id)).toBe(borrowed);
+});
+
+it("borrows inline Evidence until admission without invoking nested accessors", () => {
+  let accessed = false;
+  const evidence = {
+    get normalized_result() {
+      accessed = true;
+      throw new Error("Evidence must be admitted before parsing");
+    },
+  };
+  const input = {
+    source: { kind: "inline", evidence },
+    view: { kind: "api-surface" },
+  };
+  const parsed = inspectAnalysisViewInputSchema.parse(input);
+  if (parsed.source.kind !== "inline") throw new Error("Expected inline input");
+  expect(parsed.source.evidence).toBe(evidence);
+  expect(inspectAnalysisView(input)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisInputError" },
+  });
+  expect(accessed).toBe(false);
+});
+
+it("keeps inline-envelope admission live alongside capture validation and grouping", () => {
+  // Each clone alone fits; both graphs coexist while the view is projected.
+  const capture = analysisViewObjectDenseCapture(40_000);
+  const parent = analysisViewCaptureEvidence(capture);
+  const retained = inspectAnalysisView(
+    {
+      source: { kind: "retained-evidence", evidence_id: parent.evidence_id },
+      view: { kind: "api-surface" },
+    },
+    () => parent,
+  );
+  if (!retained.ok) throw retained.error;
+  expect(
+    inspectAnalysisView({
+      source: { kind: "inline", evidence: parent },
+      view: { kind: "api-surface" },
+    }),
+  ).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError", resource: "memory" },
+  });
+});
+
+it("admits raw_result and parameters before authenticating a portable capture", () => {
+  const dense = analysisViewObjectDenseCapture();
+  const parent = analysisViewCaptureEvidence();
+  for (const field of ["raw_result", "parameters"] as const) {
+    const result = inspectAnalysisView({
+      source: { kind: "inline", evidence: { ...parent, [field]: dense } },
+      view: { kind: "api-surface" },
+    });
+    // Refuse expansion before hashing can report the deliberately stale ID.
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisResourceConstraintError", resource: "memory" },
+    });
+  }
 });

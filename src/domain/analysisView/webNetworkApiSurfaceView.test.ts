@@ -389,18 +389,32 @@ it("keeps a recorded literal placeholder apart from a templated segment", () => 
   ).toEqual([0, 1]);
 });
 
-it("treats malformed media types as unknown and keeps examined record limitations", () => {
+it("treats malformed media types as unknown and keeps source limitations", () => {
   const capture = analysisViewCaptureFixture();
-  capture.records = capture.records.slice(0, 2);
   const caveat =
     "HAR text is producer-decoded Unicode. Original body bytes remain unknown.";
+  const captureCaveat = "Producer omitted exchanges before capture startup.";
+  capture.limitations = [captureCaveat, caveat];
+  const malformed = [
+    "text /plain",
+    "unknown",
+    "\u00a0text/plain\u00a0",
+    "\u000btext/plain\u000b",
+    "\u000ctext/plain\u000c",
+    "text/K",
+  ];
+  capture.records = malformed.map((_, ordinal) => ({
+    ...capture.records[0]!,
+    ordinal,
+  }));
+  capture.total_records = capture.records.length;
   capture.records.forEach((record, index) => {
     record.limitations = [caveat];
     record.reported = {
       request: { method: "GET", url: "https://api.example.test/a" },
       response: {
         status: 200,
-        content: { mimeType: index === 0 ? "text /plain" : "unknown" },
+        content: { mimeType: malformed[index]! },
       },
     };
   });
@@ -413,6 +427,7 @@ it("treats malformed media types as unknown and keeps examined record limitation
   });
   expect(result.value.unknowns).not.toEqual([]);
   expect(result.value.limitations).toContain(caveat);
+  expect(result.value.limitations).toContain(captureCaveat);
   expect(result.value.limitations.filter((item) => item === caveat)).toEqual([
     caveat,
   ]);
@@ -423,7 +438,7 @@ it("compares media types case-insensitively and counts templated groups across p
   capture.records = capture.records.slice(0, 3);
   const reported = [
     ["https://api.example.test/a", "Application/JSON"],
-    ["https://api.example.test/a", "application/json; charset=utf-8"],
+    ["https://api.example.test/a", " \tapplication/json\t ; charset=utf-8"],
     ["https://api.example.test/users/7", "application/json"],
   ];
   capture.records.forEach((record, index) => {

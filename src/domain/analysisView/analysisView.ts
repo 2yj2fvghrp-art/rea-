@@ -27,6 +27,7 @@ import {
   apiSurfaceViewSchema,
 } from "./webNetworkApiSurfaceView.js";
 import { projectNativeFunctionView } from "./nativeFunctionView.js";
+import type { WebNetworkApiSurfaceAccumulator } from "./WebNetworkApiSurfaceAccumulator.js";
 
 /** Public name of the selected-view workflow. */
 export const INSPECT_ANALYSIS_VIEW_OPERATION = "inspect_analysis_view" as const;
@@ -117,7 +118,14 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   apiSurfaceViewSchema,
 ]);
 
-/** Inline Evidence or an exact same-session retained reference. */
+// The application owns admission and authenticated Evidence parsing. SDK and
+// CLI envelope parsing must borrow this unknown value rather than clone it
+// before admission. Advertise the owning Evidence contract in both dialects.
+const inlineEvidenceInputSchema = z.unknown().nonoptional();
+inlineEvidenceInputSchema._zod.processJSONSchema =
+  evidenceSchema._zod.processJSONSchema;
+
+/** Unauthenticated inline input or an exact same-session retained reference. */
 export const analysisViewSourceSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("retained-evidence"),
@@ -125,7 +133,7 @@ export const analysisViewSourceSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("inline"),
-    evidence: evidenceSchema,
+    evidence: inlineEvidenceInputSchema,
   }),
 ]);
 
@@ -384,6 +392,7 @@ const parentArtifactPath = (parent: AnalysisViewParent): string => {
 export const projectAnalysisView = (
   parent: AnalysisViewParent,
   view: AnalysisViewRequest,
+  apiSurfaceAccumulator?: WebNetworkApiSurfaceAccumulator,
 ): Result<AnalysisViewResult, AnalysisError> => {
   const digest = parentDigest(parent.evidenceId);
   if (!digestSchema.safeParse(digest).success)
@@ -400,7 +409,11 @@ export const projectAnalysisView = (
     view.kind === "api-surface" ||
     parent.operation === "inspect_web_network_capture"
   ) {
-    const projected = projectWebNetworkApiSurfaceView(parent, view);
+    const projected = projectWebNetworkApiSurfaceView(
+      parent,
+      view,
+      apiSurfaceAccumulator,
+    );
     return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
   }
   if (parent.operation === "inspect_binary_layout") {

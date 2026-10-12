@@ -66,6 +66,7 @@ export const apiSurfaceFields = {
 export const projectWebNetworkApiSurfaceView = (
   parent: AnalysisViewParent,
   view: AnalysisViewRequest,
+  accumulator = new WebNetworkApiSurfaceAccumulator(),
 ): Result<UnsignedAnalysisView, AnalysisError> => {
   const unsupported = (reason: string) =>
     err(
@@ -82,7 +83,6 @@ export const projectWebNetworkApiSurfaceView = (
     return unsupported(
       `View ${view.kind} is unsupported for parent operation ${parent.operation}; api-surface requires inspect_web_network_capture.`,
     );
-  const accumulator = new WebNetworkApiSurfaceAccumulator();
   const admitted = accumulator.admitCaptureClone(parent.normalizedResult);
   if (!admitted.ok) return admitted;
   const parsed = webNetworkCaptureSchema.safeParse(parent.normalizedResult);
@@ -109,6 +109,7 @@ export const projectWebNetworkApiSurfaceView = (
     return unsupported("sensitive_values_unretained");
   const limitations = accumulator.addLimitations([
     ...parent.limitations,
+    ...capture.limitations,
     "Grouping does not establish handler identity, URL-space schemas or causality.",
     ...(capture.records.length < capture.total_records
       ? [

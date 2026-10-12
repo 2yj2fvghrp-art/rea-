@@ -9,11 +9,88 @@ import { expect } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
-import { analysisViewLayoutEvidence } from "../../fixtures/analysisView.js";
+import {
+  analysisViewLayoutEvidence,
+  analysisViewCaptureFixture,
+  analysisViewCaptureEvidence,
+  analysisViewObjectDenseCapture,
+} from "../../fixtures/analysisView.js";
 import { createEvidence } from "../../../src/domain/evidence.js";
 import { ghidraFunctionDossier } from "../../../src/domain/ghidraValues.fixture.js";
 import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
 import { inspectEvidenceBundle } from "../../../src/application/investigation/InspectEvidenceBundle.js";
+
+cliTest(
+  "admits portable captures before parsing and preserves capture caveats",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-inline-capture-cli-");
+    const path = join(root, "view.json");
+    const environment = {
+      HOME: root,
+      XDG_CONFIG_HOME: root,
+      XDG_CACHE_HOME: root,
+    };
+    await writeFile(
+      path,
+      JSON.stringify({
+        source: {
+          kind: "inline",
+          evidence: analysisViewCaptureEvidence(
+            analysisViewObjectDenseCapture(),
+          ),
+        },
+        view: { kind: "api-surface" },
+      }),
+    );
+    const refused = await cli.run({
+      arguments: ["inspect-analysis-view", path, "--json"],
+      environment,
+    });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.json).toMatchObject({
+      code: "resource_constraint",
+      details: { resource: "memory" },
+    });
+
+    const capture = analysisViewCaptureFixture();
+    capture.records = capture.records.slice(0, 1);
+    capture.total_records = 1;
+    const caveat = "Producer omitted exchanges before capture startup.";
+    capture.limitations = [caveat, caveat];
+    capture.records[0]!.reported = {
+      request: { method: "GET", url: "https://api.test/a" },
+      response: {
+        status: 200,
+        content: { mimeType: "\u000btext/plain\u000b" },
+      },
+    };
+    const parent = analysisViewCaptureEvidence(capture);
+    expect(parent.limitations).not.toContain(caveat);
+    await writeFile(
+      path,
+      JSON.stringify({
+        source: { kind: "inline", evidence: parent },
+        view: { kind: "api-surface" },
+      }),
+    );
+    const response = await cli.run({
+      arguments: ["inspect-analysis-view", path, "--json"],
+      environment,
+    });
+    expect(response.exitCode, response.stdout).toBe(0);
+    const result = parseEvidence(response.json);
+    expect(result.limitations.filter((value) => value === caveat)).toEqual([
+      caveat,
+    ]);
+    expect(result.normalized_result).toMatchObject({
+      groups: [{ content_types: [], flags: ["single-sample"] }],
+      limitations: expect.arrayContaining([caveat]),
+      unknowns: [
+        "Some retained records have unavailable status or content type values.",
+      ],
+    });
+  },
+);
 
 cliTest(
   "discovers native records from a complete portable bundle using the shared workflow",

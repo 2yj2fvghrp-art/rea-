@@ -33,6 +33,9 @@ import {
   analysisViewBindJavaScriptGraphs,
   analysisViewLayoutEvidence,
   analysisViewLayoutFixture,
+  analysisViewCaptureFixture,
+  analysisViewCaptureEvidence,
+  analysisViewObjectDenseCapture,
 } from "../../fixtures/analysisView.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { BINARY_LAYOUT_TEST_PROVIDER } from "../../fixtures/binaryDiagnostics/layout.js";
@@ -192,6 +195,18 @@ it("advertises exact schemas and projects one layout section from retained Evide
   expect(ajv.validateSchema(outputSchema)).toBe(true);
   expect(
     ajv.validate(inputSchema, {
+      source: { kind: "inline", evidence: analysisViewLayoutEvidence() },
+      view: { kind: "summary" },
+    }),
+  ).toBe(true);
+  expect(
+    ajv.validate(inputSchema, {
+      source: { kind: "inline", evidence: {} },
+      view: { kind: "summary" },
+    }),
+  ).toBe(false);
+  expect(
+    ajv.validate(inputSchema, {
       source: {
         kind: "retained-evidence",
         evidence_id: `ev_${"a".repeat(64)}`,
@@ -265,6 +280,100 @@ it("reports a tampered inline Evidence ID at its full MCP source path", async ()
         },
       ],
     },
+  });
+});
+
+it("admits portable captures before SDK Evidence parsing and preserves capture caveats", async () => {
+  const { client } = await connect();
+  const dense = analysisViewCaptureEvidence(analysisViewObjectDenseCapture());
+  const refused = await client.callTool({
+    name: "inspect_analysis_view",
+    arguments: {
+      source: { kind: "inline", evidence: dense },
+      view: { kind: "api-surface" },
+    },
+  });
+  expect(parseMcpToolError(refused).error).toMatchObject({
+    code: "resource_constraint",
+    details: { resource: "memory" },
+  });
+  await client.ping();
+
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.total_records = 1;
+  const caveat = "Producer omitted exchanges before capture startup.";
+  capture.limitations = [caveat, caveat];
+  capture.records[0]!.reported = {
+    request: { method: "GET", url: "https://api.test/a" },
+    response: { status: 200, content: { mimeType: "\u00a0text/plain\u00a0" } },
+  };
+  const parent = analysisViewCaptureEvidence(capture);
+  expect(parent.limitations).not.toContain(caveat);
+  const response = await client.callTool({
+    name: "inspect_analysis_view",
+    arguments: {
+      source: { kind: "inline", evidence: parent },
+      view: { kind: "api-surface" },
+    },
+  });
+  const result = parseEvidence(response.structuredContent);
+  expect(result.limitations.filter((value) => value === caveat)).toEqual([
+    caveat,
+  ]);
+  expect(result.normalized_result).toMatchObject({
+    groups: [{ content_types: [], flags: ["single-sample"] }],
+    limitations: expect.arrayContaining([caveat]),
+    unknowns: [
+      "Some retained records have unavailable status or content type values.",
+    ],
+  });
+});
+
+it("rejects inconsistent portable coverage and accepts caller-ordered ordinal subsets", async () => {
+  const { client } = await connect();
+  for (const [total, ordinals] of [
+    [0, [0]],
+    [2, [0, 0]],
+    [2, [2]],
+  ] as const) {
+    const capture = analysisViewCaptureFixture();
+    capture.total_records = total;
+    capture.records = ordinals.map((ordinal) => ({
+      ...capture.records[0]!,
+      ordinal,
+    }));
+    const response = await client.callTool({
+      name: "inspect_analysis_view",
+      arguments: {
+        source: {
+          kind: "inline",
+          evidence: analysisViewCaptureEvidence(capture),
+        },
+        view: { kind: "api-surface" },
+      },
+    });
+    expect(parseMcpToolError(response).error.code).toBe("invalid_request");
+  }
+  const capture = analysisViewCaptureFixture();
+  capture.records = [capture.records[8]!, capture.records[1]!];
+  const response = await client.callTool({
+    name: "inspect_analysis_view",
+    arguments: {
+      source: {
+        kind: "inline",
+        evidence: analysisViewCaptureEvidence(capture),
+      },
+      view: { kind: "api-surface" },
+    },
+  });
+  expect(
+    parseEvidence(response.structuredContent).normalized_result,
+  ).toMatchObject({
+    records: { examined: 2, total: 15 },
+    limitations: expect.arrayContaining([
+      "Parent contains an ordinal subset; the surface covers only retained records.",
+    ]),
   });
 });
 
