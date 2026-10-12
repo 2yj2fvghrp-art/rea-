@@ -450,7 +450,13 @@ it.each([
     addLegacyMapping(
       fixture.bytes,
       "macho",
-      { address: 0x20000n, fileOffset: 3072, fileSize: 1024, memorySize: 0 },
+      {
+        address: 0x20000n,
+        fileOffset: 3072,
+        fileSize: 1024,
+        memorySize: 0,
+        protection: 0,
+      },
       { bits, little: byteOrder === "little" },
     );
     expect(readGoBinaryImage(fixture.bytes).build_info?.go_version).toBe(
@@ -472,9 +478,24 @@ it("does not map an unmapped Mach-O segment's file bytes at its address", () => 
     fileOffset: 2048,
     fileSize: 2048,
     memorySize: 0,
+    protection: 0,
   });
   expect(readGoBinaryImage(fixture.bytes).build_info?.go_version).toBe(
     "go1.17",
+  );
+});
+
+it("refuses a zero-vmsize Mach-O segment that keeps an initial protection", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  addLegacyMapping(fixture.bytes, "macho", {
+    address: 0x20000n,
+    fileOffset: 3072,
+    fileSize: 1024,
+    memorySize: 0,
+    protection: 3,
+  });
+  expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
+    /addresses or sizes are invalid/,
   );
 });
 
@@ -485,6 +506,7 @@ it("refuses an unmapped Mach-O segment whose file bytes run past the end", () =>
     fileOffset: 3072,
     fileSize: 2048,
     memorySize: 0,
+    protection: 0,
   });
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
     /outside the file/,
@@ -596,11 +618,13 @@ const addLegacyMapping = (
     fileOffset,
     fileSize,
     memorySize,
+    protection = 3,
   }: {
     address: bigint;
     fileOffset: number;
     fileSize: number;
     memorySize: number;
+    protection?: number;
   },
   { bits, little }: { bits: 32 | 64; little: boolean } = {
     bits: 64,
@@ -644,7 +668,7 @@ const addLegacyMapping = (
     word(entry + (wide ? 32 : 28), BigInt(memorySize));
     word(entry + (wide ? 40 : 32), BigInt(fileOffset));
     word(entry + (wide ? 48 : 36), BigInt(fileSize));
-    u32(entry + (wide ? 56 : 40), 3);
-    u32(entry + (wide ? 60 : 44), 3);
+    u32(entry + (wide ? 56 : 40), protection);
+    u32(entry + (wide ? 60 : 44), protection);
   }
 };

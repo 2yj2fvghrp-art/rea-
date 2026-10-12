@@ -64,8 +64,9 @@ export const readGoMachoImage = (bytes: Buffer): GoBinaryContainer => {
       const protection = reader.u32(offset + (wide ? 60 : 44));
       const sectionCount = reader.u32(offset + (wide ? 64 : 48));
       // cmd/link emits unstripped DWARF as an unmapped __DWARF segment whose
-      // vmsize is 0; it has file bytes but no virtual mapping.
-      const unmapped = memorySize === 0n;
+      // vmsize and initial protection are 0; it has file bytes but no virtual
+      // mapping. dyld accepts the size mismatch only without initial protection.
+      const unmapped = memorySize === 0n && protection === 0;
       if (
         (!unmapped && fileSize > memorySize) ||
         address + memorySize > 1n << BigInt(bits)
