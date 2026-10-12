@@ -785,7 +785,7 @@ const resolveDirectory = (
     ...(input.moduleKind === undefined ? [metadata.module] : []),
   ];
   const entry = preferred.find((value) => value !== undefined);
-  if (entry === undefined)
+  if (entry === undefined || entry === "")
     return (
       resolveFileCandidates(input, indexCandidates(directory)) ??
       notFoundCandidate()
