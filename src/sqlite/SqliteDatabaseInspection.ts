@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { jsonParts } from "../domain/jsonSerialization.js";
 import {
   SQLITE_ROW_LIMIT_DEFAULT,
   sqliteSchemaScope,
@@ -68,12 +69,17 @@ type SelectedTableFacts = Pick<
 class OutputBudget {
   #bytes = 1024;
   retain(value: unknown): void {
-    this.#bytes += Buffer.byteLength(JSON.stringify(value)) + 1;
-    if (this.#bytes > SQLITE_DATABASE_LIMITS.outputBytes)
-      throw new SqliteInspectionFailure(
-        "output-limit",
-        "Complete SQLite evidence exceeds the 16 MiB JSON reply budget; no partial success was returned.",
-      );
+    // Count bounded encoded parts, including escapes, without allocating a
+    // document-sized string just to decide whether it fits the reply.
+    this.#bytes += 1;
+    for (const part of jsonParts(value)) {
+      this.#bytes += Buffer.byteLength(part);
+      if (this.#bytes > SQLITE_DATABASE_LIMITS.outputBytes)
+        throw new SqliteInspectionFailure(
+          "output-limit",
+          "Complete SQLite evidence exceeds the 16 MiB JSON reply budget; no partial success was returned.",
+        );
+    }
   }
   beforeDecode(row: z.output<typeof arrayRow>): void {
     let minimumBytes = this.#bytes;

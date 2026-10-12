@@ -87,6 +87,8 @@ snapshot. Temporary copies and the owned worker are cleaned up on success,
 failure and cancellation. Extension loading and schema trust are disabled.
 Empty rollback journals and fully zeroed journal headers left by successful
 `TRUNCATE` and `PERSIST` commits are accepted after stable identity checks.
+Journal headers are checked both before and after acquisition; unchanged file
+metadata alone does not establish that a journal remains inactive.
 Other retained rollback journals are refused because recovery is outside this
 profile. Journal files are never modified or copied into the worker snapshot.
 

@@ -116,6 +116,20 @@ it("inspects a large schema identifier without expanding a native sort record", 
   );
 });
 
+it("accounts for JSON escape expansion of a stored declaration in the reply limit", async () => {
+  const path = await createDatabase(`
+    CREATE TABLE records(value TEXT);
+    CREATE TRIGGER expanded AFTER INSERT ON records BEGIN /*${"\u0001".repeat(3 * 1024 * 1024)}*/ SELECT 1; END;
+  `);
+  expect(() =>
+    inspectSqliteDatabaseSnapshot(path, { path, schema_scope: "database" }),
+  ).toThrowError(expect.objectContaining({ reason: "output-limit" }));
+  const inventory = inspectSqliteDatabaseSnapshot(path, { path });
+  expect(inventory.schema.triggers).toEqual([
+    { name: "expanded", table: "records" },
+  ]);
+});
+
 it.each(["UTF-8", "UTF-16le", "UTF-16be"])(
   "preserves exact %s schema text when decoding native bytes",
   async (encoding) => {

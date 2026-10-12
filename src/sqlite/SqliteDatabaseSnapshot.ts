@@ -95,6 +95,7 @@ const verifyInactiveJournal = async (
   before: BigIntStats,
   selectedFileSystem: StableArtifactFileSystem,
   resourceScope: ArtifactResourceScope,
+  phase: "initial" | "after-copy",
   signal?: AbortSignal,
 ): Promise<void> => {
   if (!before.isFile() || before.isSymbolicLink())
@@ -143,8 +144,10 @@ const verifyInactiveJournal = async (
       (bytesRead !== header.length || header.some((byte) => byte !== 0))
     )
       throw new ArtifactReaderFailure(
-        "format",
-        `Rollback journal may require recovery: ${path}. Supply a clean offline snapshot; only empty journals or a fully zeroed header are supported.`,
+        phase === "initial" ? "format" : "integrity",
+        phase === "initial"
+          ? `Rollback journal may require recovery: ${path}. Supply a clean offline snapshot; only empty journals or a fully zeroed header are supported.`
+          : `Rollback journal became active or malformed during database acquisition: ${path}`,
       );
   } catch (cause: unknown) {
     failure = cause;
@@ -191,6 +194,7 @@ export const captureSqliteDatabaseSnapshot = async (
       before[2],
       selectedFileSystem,
       resourceScope,
+      "initial",
       signal,
     );
   const selectedSize = database.size + (wal?.size ?? 0n);
@@ -239,6 +243,17 @@ export const captureSqliteDatabaseSnapshot = async (
       bytes: capturedWal.bytes.length,
     };
   }
+  // Identity alone does not establish an inactive journal when timestamps are
+  // coarse. Re-read the header after copying, using the same validity owner.
+  if (before[2] !== null)
+    await verifyInactiveJournal(
+      `${path}-journal`,
+      before[2],
+      selectedFileSystem,
+      resourceScope,
+      "after-copy",
+      signal,
+    );
   const after = await Promise.all(
     paths.map((path) =>
       duringAcquisition(path, () => optionalStat(path, selectedFileSystem)),

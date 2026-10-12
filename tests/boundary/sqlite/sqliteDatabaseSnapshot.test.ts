@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { ArtifactResourceScope } from "../../../src/artifacts/ArtifactResourceScope.js";
 import type { StableArtifactFileSystem } from "../../../src/artifacts/readStableArtifact.js";
 import { captureSqliteDatabaseSnapshot } from "../../../src/sqlite/SqliteDatabaseSnapshot.js";
@@ -187,6 +187,30 @@ it.each(["activate", "replace", "remove"])(
     });
   },
 );
+
+it("refuses an activated journal even when filesystem metadata cannot distinguish the write", async () => {
+  const { database, capture } = await fixture();
+  const journalPath = `${database.path}-journal`;
+  await writeFile(journalPath, Buffer.alloc(28));
+  const observed = await lstat(journalPath, { bigint: true });
+  const fileSystem: StableArtifactFileSystem = {
+    lstat: (path) =>
+      path === journalPath
+        ? Promise.resolve(observed)
+        : lstat(path, { bigint: true }),
+    open: async (path, flags) => {
+      if (path === database.path)
+        await writeFile(journalPath, Buffer.alloc(28, 1));
+      const handle = await open(path, flags);
+      if (path === journalPath)
+        vi.spyOn(handle, "stat").mockResolvedValue(observed);
+      return handle;
+    },
+  };
+  await expect(capture(fileSystem)).rejects.toMatchObject({
+    reason: "integrity",
+  });
+});
 
 it("rejects a database changed after its copy but before WAL acquisition", async () => {
   const { database, root, capture } = await fixture(true);
