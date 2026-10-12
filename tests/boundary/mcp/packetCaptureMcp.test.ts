@@ -1,3 +1,8 @@
+import { createEvidence } from "../../../src/domain/evidence.js";
+import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
+import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
+import { PacketCaptureService } from "../../../src/application/captures/PacketCaptureService.js";
+import { err } from "../../../src/domain/result.js";
 import { expect, it, onTestFinished } from "vitest";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { createApplicationMcpHarness } from "../../fixtures/applicationMcpHarness.js";
@@ -39,3 +44,72 @@ it("advertises valid target-free packet capture schemas and actionable missing-t
   });
   await harness.client.ping();
 });
+
+it.each(["cancelled", "cleanup"])(
+  "retains completed Evidence after %s failure",
+  async (kind) => {
+    const input = {
+      path:
+        process.platform === "win32" ? "C:\\recording.pcap" : "/recording.pcap",
+      fields: ["ip.addr"],
+    };
+    const evidence = createEvidence(
+      undefined,
+      { id: "fixture", name: "Completed capture fixture", version: "1" },
+      {
+        operation: "inspect_packet_capture",
+        parameters: input,
+        result: { packets: [{ "frame.number": ["1"] }] },
+        confidence: "observed",
+      },
+    );
+    const failure =
+      kind === "cancelled"
+        ? new AnalysisCancelledError("inspect_packet_capture", {
+            partialObservation: evidence,
+          })
+        : new ProviderCleanupError(
+            "tshark-capture",
+            ["private-workspace"],
+            {},
+            {
+              operation: "inspect_packet_capture",
+              partialObservation: evidence,
+            },
+          );
+    const packetCapture = new PacketCaptureService({
+      inspect: async () => err(failure),
+      close: async () => {},
+    });
+    const harness = await createApplicationMcpHarness({
+      serverOptions: { packetCapture },
+    });
+    onTestFinished(harness.close);
+    const response = await harness.client.callTool({
+      name: "inspect_packet_capture",
+      arguments: input,
+    });
+    expect(response.isError).toBe(true);
+    expect(parseMcpToolError(response)).toMatchObject({
+      error: {
+        details: {
+          partial_observation: {
+            kind: "retained-evidence",
+            evidence_id: evidence.evidence_id,
+          },
+        },
+      },
+    });
+    const bundle = await harness.client.callTool({
+      name: "get_evidence_bundle",
+      arguments: {},
+    });
+    expect(bundle.isError).not.toBe(true);
+    expect(JSON.stringify(bundle.structuredContent)).toContain(
+      evidence.evidence_id,
+    );
+    expect(harness.session.evidenceById(evidence.evidence_id)).toEqual(
+      evidence,
+    );
+  },
+);

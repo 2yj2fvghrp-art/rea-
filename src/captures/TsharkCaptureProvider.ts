@@ -66,6 +66,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
     readonly createRuntime: () => Promise<Runtime> = () =>
       PrivateRuntimeRoot.create({ prefix: "rea-tshark-" }),
     readonly platform: NodeJS.Platform = process.platform,
+    readonly readArtifact: typeof readStableArtifact = readStableArtifact,
   ) {}
   inspect(
     input: InspectPacketCaptureInput,
@@ -123,7 +124,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
         throw new Error("Supply absolute REA_TSHARK_COMMAND for TShark 4.x.");
       const command = await realpath(configured);
       await access(command, constants.X_OK);
-      const tool = await readStableArtifact(
+      const tool = await this.readArtifact(
         command,
         64 * 1024 * 1024,
         options?.signal,
@@ -134,7 +135,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
         throw new Error("REA_TSHARK_PRLIMIT_COMMAND must be absolute.");
       const limiter = await realpath(configuredLimiter);
       await access(limiter, constants.X_OK);
-      const limiterIdentity = await readStableArtifact(
+      const limiterIdentity = await this.readArtifact(
         limiter,
         64 * 1024 * 1024,
         options?.signal,
@@ -178,15 +179,11 @@ export class TsharkCaptureProvider implements PacketCapturePort {
             ...(this.launcher === undefined ? {} : { launcher: this.launcher }),
           },
         );
-        const current = await readStableArtifact(
-          command,
-          64 * 1024 * 1024,
-          options?.signal,
-        );
-        const currentLimiter = await readStableArtifact(
+        // Finish bounded integrity checks after output; service handles late cancellation with Evidence.
+        const current = await this.readArtifact(command, 64 * 1024 * 1024);
+        const currentLimiter = await this.readArtifact(
           limiter,
           64 * 1024 * 1024,
-          options?.signal,
         );
         if (currentLimiter.sha256 !== limiterIdentity.sha256)
           throw new AnalysisOutputError(
@@ -223,7 +220,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
           "Expected TShark 4.x; inspect the selected installation.",
         );
       phase = "artifact";
-      const selected = await readStableArtifact(
+      const selected = await this.readArtifact(
         input.path,
         LIMITS.input_bytes,
         options?.signal,
@@ -255,13 +252,8 @@ export class TsharkCaptureProvider implements PacketCapturePort {
       ];
       const output = await execute(args);
       if (
-        (
-          await readStableArtifact(
-            snapshotPath,
-            LIMITS.input_bytes,
-            options?.signal,
-          )
-        ).sha256 !== selected.sha256
+        (await this.readArtifact(snapshotPath, LIMITS.input_bytes)).sha256 !==
+        selected.sha256
       )
         throw new AnalysisArtifactChangedError(
           OPERATION,
@@ -281,12 +273,14 @@ export class TsharkCaptureProvider implements PacketCapturePort {
         configuration: "private-empty-personal-profile",
         diagnostics: output.stderr.text,
         tool: {
+          configured_path: configured,
           path: command,
           sha256: tool.sha256,
           version_banner: version.stdout.text,
           arguments: args,
         },
         resource_limiter: {
+          configured_path: configuredLimiter,
           path: limiter,
           sha256: limiterIdentity.sha256,
           arguments: limitArguments,

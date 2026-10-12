@@ -58,14 +58,18 @@ absence of traffic outside the selected recording, filter or read range.
 Dissector results are observations, not independently verified device behavior.
 
 Evidence includes source path/digest/size, exact selections, typed packet fields,
-executable path/digest/full version banner, arguments and stderr. Warnings remain
+configured and resolved executable paths/digests/full version banner, arguments and stderr. Warnings remain
 visible even on exit zero. Two-pass mode cannot recover missing capture bytes.
 
 Each call uses a private read-only capture copy and an empty personal
 configuration directory (`WIRESHARK_CONFIG_DIR`), with name resolution disabled.
 The executable, resource limiter and private input copy are rechecked after execution. Owned
 processes and private files are cleaned up; failed cleanup retains ownership and
-completed observations for retry. Source files are never passed to TShark.
+completed observations for retry. The one-shot CLI awaits a cleanup retry while
+preserving the original failure and completed Evidence. Completed observations
+remain in the MCP session after cancellation or cleanup failure; bounded
+post-run integrity checks finish before honoring a late abort. Source files
+are never passed to TShark.
 Installed libraries, global configuration and plugins remain trusted, are not
 fully fingerprinted, and can influence dissection. This is not an OS sandbox.
 

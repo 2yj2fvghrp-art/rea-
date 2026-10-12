@@ -61,6 +61,7 @@ export const packetCaptureSchema = z.strictObject({
   read_scope: z.enum(["to-eof", "up-to-input-packet-limit"]),
   diagnostics: z.string(),
   tool: z.strictObject({
+    configured_path: z.string(),
     path: z.string(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     version_banner: z.string(),
@@ -68,6 +69,7 @@ export const packetCaptureSchema = z.strictObject({
   }),
   configuration: z.literal("private-empty-personal-profile"),
   resource_limiter: z.strictObject({
+    configured_path: z.string(),
     path: z.string(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     arguments: z.array(z.string()),

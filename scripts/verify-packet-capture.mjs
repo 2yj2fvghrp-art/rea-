@@ -122,6 +122,11 @@ try {
     );
     assert.equal(report.hardware_acquisition, "not-performed");
     assert.equal(report.limits.address_space_bytes, 1073741824);
+    assert.equal(report.tool.configured_path, process.env.REA_TSHARK_COMMAND);
+    assert.equal(
+      report.resource_limiter.configured_path,
+      process.env.REA_TSHARK_PRLIMIT_COMMAND ?? "/usr/bin/prlimit",
+    );
     assert.ok(
       report.resource_limiter.arguments.includes("--as=1073741824:1073741824"),
     );

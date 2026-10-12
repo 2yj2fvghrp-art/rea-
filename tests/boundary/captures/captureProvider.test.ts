@@ -1,6 +1,7 @@
 import { it, expect, onTestFinished } from "vitest";
-import { writeFile, readdir, chmod } from "node:fs/promises";
+import { writeFile, readdir, chmod, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { readStableArtifact } from "../../../src/artifacts/readStableArtifact.js";
 import { TsharkCaptureProvider } from "../../../src/captures/TsharkCaptureProvider.js";
 import { PacketCaptureService } from "../../../src/application/captures/PacketCaptureService.js";
 import { packetCaptureSchema } from "../../../src/domain/captures/packetCapture.js";
@@ -27,14 +28,17 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
 `,
   );
   await chmod(script, 0o700);
+  const configuredCommand =
+    mode === "symlink" ? join(directory, "configured-tool") : script;
+  if (mode === "symlink") await symlink(script, configuredCommand);
   const controller = new AbortController();
   let calls = 0;
   let mayClean = !failCleanup;
   const provider = new TsharkCaptureProvider(
     {
       ...process.env,
-      REA_TSHARK_COMMAND: script,
-      REA_TSHARK_PRLIMIT_COMMAND: script,
+      REA_TSHARK_COMMAND: configuredCommand,
+      REA_TSHARK_PRLIMIT_COMMAND: configuredCommand,
     },
     async (input) => {
       calls++;
@@ -68,6 +72,10 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
       };
     },
     "linux",
+    async (...args) => {
+      if (mode === "post-run-abort" && calls === 2) controller.abort();
+      return readStableArtifact(...args);
+    },
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -275,5 +283,41 @@ it("refuses unsupported hosts before launching or allocating a workspace", async
   expect(result.error).toMatchObject({
     _tag: "AnalysisCapabilityUnavailableError",
     reason: expect.stringContaining("Linux"),
+  });
+});
+
+it("preserves complete Evidence when aborted during post-run integrity checks", async () => {
+  const f = await fixture("post-run-abort");
+  const result = await f.service.inspect(
+    { path: f.path, fields: ["ip.addr"] },
+    { signal: f.controller.signal },
+  );
+  if (result.ok) throw new Error("Expected late cancellation");
+  expect(result.error._tag).toBe("AnalysisCancelledError");
+  expect(result.error.partialObservation).toMatchObject({
+    normalized_result: {
+      packets: [
+        { "frame.number": ["1"], "ip.addr": ["192.0.2.1", "192.0.2.2"] },
+      ],
+      diagnostics: "producer warning\n",
+    },
+  });
+  expect(
+    (await readdir(f.directory)).filter((name) => name.startsWith("decoder-")),
+  ).toEqual([]);
+});
+it("preserves configured symlink paths separately from resolved tool identities", async () => {
+  const f = await fixture("symlink");
+  const result = await f.service.inspect({ path: f.path, fields: ["ip.addr"] });
+  if (!result.ok) throw result.error;
+  expect(result.value.normalized_result).toMatchObject({
+    tool: {
+      configured_path: join(f.directory, "configured-tool"),
+      path: join(f.directory, "producer.mjs"),
+    },
+    resource_limiter: {
+      configured_path: join(f.directory, "configured-tool"),
+      path: join(f.directory, "producer.mjs"),
+    },
   });
 });
