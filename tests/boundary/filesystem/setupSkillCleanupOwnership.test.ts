@@ -69,7 +69,7 @@ const failFirstCloses = (path: string) => {
 describe("skill regular-file cleanup ownership", () => {
   it("keeps setup skill reads owned until setup host disposal", async () => {
     const home = await createTestTempDirectory("rea-setup-skill-close-");
-    const [destination] = skillDestinations(home, []);
+    const [destination] = skillDestinations(home, [], {}, "linux");
     if (destination === undefined) throw new Error("Shared skill root missing");
     const manifest = join(destination.path, "SKILL.md");
     await mkdir(dirname(manifest), { recursive: true });
