@@ -147,6 +147,7 @@ export interface GhidraHeadlessLauncherOptions {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly analyzeHeadlessPath: string;
   readonly javaHome?: string;
+  readonly javaVmName?: string;
   readonly bridgeScriptPath: string;
   readonly platform?: NodeJS.Platform;
   readonly comSpec?: string;
@@ -303,6 +304,9 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
               platform,
               analyzeHeadlessPath: this.options.analyzeHeadlessPath,
               javaHome: this.options.javaHome,
+              ...(this.options.javaVmName === undefined
+                ? {}
+                : { javaVmName: this.options.javaVmName }),
               homeRoot: paths.homeRoot,
               tempRoot: paths.tempRoot,
               arguments: headlessArguments,

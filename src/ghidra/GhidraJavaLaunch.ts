@@ -7,6 +7,7 @@ export const ghidraJavaLaunch = async (options: {
   readonly platform: NodeJS.Platform;
   readonly analyzeHeadlessPath: string;
   readonly javaHome: string;
+  readonly javaVmName?: string;
   readonly homeRoot: string;
   readonly tempRoot: string;
   readonly arguments: readonly string[];
@@ -27,9 +28,13 @@ export const ghidraJavaLaunch = async (options: {
   ];
   const supportArguments = [
     ...isolatedProperties,
-    // HotSpot warnings default to stdout, where they corrupt LaunchSupport output.
-    "-Xlog:disable",
-    "-Xlog:all=warning:stderr",
+    // Only identified HotSpot VMs have these unified-logging semantics. OpenJ9
+    // uses different -Xlog behavior; missing VM identity must stay unknown.
+    ...(/^(?:OpenJDK|Java HotSpot\(TM\)) (?:64-Bit )?(?:Server|Client|Zero) VM$/u.test(
+      options.javaVmName ?? "",
+    )
+      ? ["-Xlog:disable", "-Xlog:all=warning:stderr"]
+      : []),
     "-cp",
     join(supportRoot, "LaunchSupport.jar"),
     "LaunchSupport",

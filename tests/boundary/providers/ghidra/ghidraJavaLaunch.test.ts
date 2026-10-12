@@ -17,7 +17,10 @@ import { cleanupOwnedProcessGroup } from "../../../../src/process/ProcessOwnersh
 const warning =
   "[0.004s][warning][os,container] Cgroup limits may be inaccurate: /tmp/password-fixture?token=public-value";
 
-const fixture = async (mode: string) => {
+const fixture = async (
+  mode: string,
+  javaVmName: string | null = "OpenJDK 64-Bit Server VM",
+) => {
   const root = await createTestTempDirectory("rea-ghidra-java-launch-");
   const javaHome = join(root, "jdk");
   await mkdir(join(javaHome, "bin"), { recursive: true });
@@ -28,9 +31,10 @@ const args = process.argv.slice(2);
 const probe = args.at(-1);
 if (probe !== "-envvars" && probe !== "-vmargs") process.exit(64);
 const mode = ${JSON.stringify(mode)};
+if (mode === "non-hotspot" && args.some(arg => arg.startsWith("-Xlog:"))) process.exit(65);
 const warning = ${JSON.stringify(warning)};
 const stream = args.includes("-Xlog:disable") && args.includes("-Xlog:all=warning:stderr") ? process.stderr : process.stdout;
-if (mode !== "quiet") stream.write(probe + ": " + warning + "\\n");
+if (mode !== "quiet" && mode !== "non-hotspot") stream.write(probe + ": " + warning + "\\n");
 if (mode === "credential") stream.write("explicit credential: private-transport-token\\n");
 if (mode === "large") stream.write("é".repeat(${GHIDRA_LAUNCH_COMMAND_OUTPUT_BYTES}) + "UNRETAINED-TAIL\\n");
 if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
@@ -61,6 +65,7 @@ if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
     environment: { PATH: process.env.PATH ?? "" },
     platform: process.platform,
     javaHome,
+    ...(javaVmName === null ? {} : { javaVmName }),
     analyzeHeadlessPath: join(root, "ghidra", "support", "analyzeHeadless"),
     bridgeScriptPath: join(root, "ReaGhidraBridge.java"),
     spawnProcess: async (options) => {
@@ -86,40 +91,69 @@ if (mode === "env-failure" || (probe === "-vmargs" && mode === "vm-failure")) {
 };
 
 describe.skipIf(process.platform === "win32")(
+  "Ghidra LaunchSupport JVM compatibility",
+  () => {
+    it.each(["Eclipse OpenJ9 VM", "unrecognized VM", ""])(
+      "keeps HotSpot-only flags off a VM identified as %s",
+      async (javaVmName) => {
+        const { session, launcher, analysisArguments } = await fixture(
+          "non-hotspot",
+          javaVmName === "" ? null : javaVmName,
+        );
+        const launched = await launcher.launch(session);
+        if (!launched.ok) throw launched.error;
+        expect(analysisArguments).toHaveLength(1);
+        expect(launched.value.launchSupport).toBeUndefined();
+      },
+    );
+
+    it.each([
+      "OpenJDK 64-Bit Server VM",
+      "Java HotSpot(TM) 64-Bit Server VM",
+      "OpenJDK 64-Bit Zero VM",
+    ])(
+      "preserves redirected warnings for %s while keeping the analysis JVM arguments clean",
+      async (javaVmName) => {
+        const { session, launcher, analysisArguments } = await fixture(
+          "success",
+          javaVmName,
+        );
+        const launched = await launcher.launch(session);
+        if (!launched.ok) throw launched.error;
+        expect(analysisArguments[0]).toContain("-Dfile.encoding=UTF8");
+        expect(analysisArguments[0]).toContain("-Xmx1G");
+        expect(
+          analysisArguments[0]?.some(
+            (argument) =>
+              argument.startsWith("-Xlog:") || argument.includes("[warning]"),
+          ),
+        ).toBe(false);
+        const diagnostics = createGhidraDiagnostics({
+          targetPath: session.targetPath,
+          targetSha256: session.targetSha256,
+          transport: session.transport,
+          providerVersion: session.providerVersion,
+          profileDigest: session.profileDigest,
+          launch: launched.value,
+          token: session.token,
+          previous: {},
+        });
+        expect(diagnostics.launch_support).toEqual(
+          ["-envvars", "-vmargs"].map((mode) => ({
+            mode,
+            stderr: `${mode}: ${warning}\n`,
+            stderr_bytes: Buffer.byteLength(`${mode}: ${warning}\n`),
+            stderr_truncated: false,
+          })),
+        );
+      },
+    );
+  },
+);
+
+describe.skipIf(process.platform === "win32")(
   "Ghidra LaunchSupport diagnostics",
   () => {
-    it("preserves both redirected warnings while keeping the analysis JVM arguments clean", async () => {
-      const { session, launcher, analysisArguments } = await fixture("success");
-      const launched = await launcher.launch(session);
-      if (!launched.ok) throw launched.error;
-      expect(analysisArguments[0]).toContain("-Dfile.encoding=UTF8");
-      expect(analysisArguments[0]).toContain("-Xmx1G");
-      expect(
-        analysisArguments[0]?.some(
-          (argument) =>
-            argument.startsWith("-Xlog:") || argument.includes("[warning]"),
-        ),
-      ).toBe(false);
-      const diagnostics = createGhidraDiagnostics({
-        targetPath: session.targetPath,
-        targetSha256: session.targetSha256,
-        transport: session.transport,
-        providerVersion: session.providerVersion,
-        profileDigest: session.profileDigest,
-        launch: launched.value,
-        token: session.token,
-        previous: {},
-      });
-      expect(diagnostics.launch_support).toEqual(
-        ["-envvars", "-vmargs"].map((mode) => ({
-          mode,
-          stderr: `${mode}: ${warning}\n`,
-          stderr_bytes: Buffer.byteLength(`${mode}: ${warning}\n`),
-          stderr_truncated: false,
-        })),
-      );
-    });
-
     it.each(["env-failure", "vm-failure", "env-malformed", "vm-malformed"])(
       "retains helper warnings through session failure diagnostics after %s",
       async (mode) => {

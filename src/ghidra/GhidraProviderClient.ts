@@ -541,6 +541,9 @@ export const createGhidraProviderClient = (input: {
       environment: input.environment,
       analyzeHeadlessPath: prerequisites.value.analyzeHeadlessPath,
       javaHome: prerequisites.value.javaHome,
+      ...(installation.javaVmName === undefined
+        ? {}
+        : { javaVmName: installation.javaVmName }),
       bridgeScriptPath: fileURLToPath(
         new URL("../../bridge/ghidra/ReaGhidraBridge.java", import.meta.url),
       ),

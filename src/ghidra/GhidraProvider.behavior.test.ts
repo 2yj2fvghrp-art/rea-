@@ -46,6 +46,7 @@ const installationHost = (): GhidraInstallationHost => ({
     home: "/usr/lib/jvm/jdk-21",
     bits: 64,
     runtime: "jdk",
+    vmName: "OpenJDK 64-Bit Server VM",
   }),
 });
 
@@ -599,6 +600,11 @@ describe("Ghidra client projection", () => {
       expect.objectContaining({
         runId: "11111111-1111-4111-8111-111111111111",
         platform: "linux",
+        launcher: expect.objectContaining({
+          options: expect.objectContaining({
+            javaVmName: "OpenJDK 64-Bit Server VM",
+          }),
+        }),
       }),
     ]);
     expect(toolCalls).toEqual([
