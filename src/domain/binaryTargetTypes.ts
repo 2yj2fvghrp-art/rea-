@@ -145,6 +145,8 @@ export type BinaryTarget =
       readonly universalSlice?: never;
       readonly executableRole?: never;
       readonly managed?: never;
+      /** Carried only when the detected format is mach-o. */
+      readonly debugCompanion?: MachODebugCompanion;
     })
   | (ExecutableTarget & {
       readonly format: "mach-o-universal";

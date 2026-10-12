@@ -59,6 +59,8 @@ const CPU_TYPES: Readonly<Record<BinaryArchitecture, readonly number[]>> = {
   arm: [0x0000000c],
   arm64: [0x0100000c],
   mips: [],
+  // RISCV has no Mach-O cputype in REA's header families; it is ELF-only.
+  riscv: [],
 };
 
 /** Admitted identity of a caller-selected dSYM companion. */
@@ -274,7 +276,7 @@ export const admitDebugCompanion = async (input: {
   const targetEntries = await readMachoFileUuidEntries(
     input.targetHandle,
     input.targetSize,
-    (signal === undefined ? {} : { signal }),
+    signal === undefined ? {} : { signal },
   );
   if (!targetEntries.ok) return err({ reason: targetEntries.error });
   // Mirror the target parser's FAT selection: the first slice of each CPU
@@ -310,7 +312,7 @@ export const admitDebugCompanion = async (input: {
       const memberEntries = await readMachoFileUuidEntries(
         memberHandle,
         initial.size,
-        (signal === undefined ? {} : { signal }),
+        signal === undefined ? {} : { signal },
       );
       if (!memberEntries.ok) continue;
       const matched = debugCompanionMatches({
