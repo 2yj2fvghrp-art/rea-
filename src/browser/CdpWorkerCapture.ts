@@ -432,9 +432,9 @@ export class CdpWorkerCapture {
     for (const version of recordsValue(params.versions)) {
       const id = cdpStringValue(version.targetId);
       if (id === undefined) continue;
-      const controls =
-        Array.isArray(version.controlledClients) &&
-        version.controlledClients.includes(this.context.target.id);
+      const controls = Array.isArray(version.controlledClients)
+        ? version.controlledClients.includes(this.context.target.id)
+        : null;
       if (controls) this.#controlled.add(id);
       else this.#controlled.delete(id);
       const lifecycle: Observation["lifecycle"][number] = {

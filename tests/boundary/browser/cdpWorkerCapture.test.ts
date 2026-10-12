@@ -271,7 +271,7 @@ it("does not request worker sources when source capture is disabled", async () =
   ).toBe(false);
 });
 
-it.each([false, true])(
+it.each([false, true, null])(
   "retains service worker client evidence before attachment (controls page: %s)",
   async (controls) => {
     const { provider, input, browser } = await fixture({
@@ -286,9 +286,13 @@ it.each([false, true])(
                 versions: [
                   {
                     targetId: "service",
-                    controlledClients: controls
-                      ? ["allowed-page"]
-                      : ["another-page"],
+                    ...(controls === null
+                      ? {}
+                      : {
+                          controlledClients: controls
+                            ? ["allowed-page"]
+                            : ["another-page"],
+                        }),
                     runningStatus: "running",
                     status: "activated",
                   },
