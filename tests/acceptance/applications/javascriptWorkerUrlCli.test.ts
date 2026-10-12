@@ -60,6 +60,21 @@ cliTest(
         specifier: "./template-worker.js",
         resolved: "nested/template-worker.js",
       },
+      ...[
+        'new URL("./worker.js", import.meta.url) as URL',
+        '<URL>new URL("./worker.js", import.meta.url)',
+        'new URL("./worker.js", import.meta.url)!',
+        'new URL("./worker.js", import.meta.url) satisfies URL',
+        '((new URL("./worker.js", import.meta.url) as URL)!) satisfies URL',
+        'new (URL as typeof URL)("./worker.js", import.meta.url)',
+        'new URL("./worker.js" as string, import.meta.url as string)',
+        'new URL("./worker.js", (import.meta as ImportMeta).url)',
+      ].map((urlExpression, index) => ({
+        source: `nested/typed-${index}.ts`,
+        expression: `new Worker(${urlExpression});`,
+        specifier: "./worker.js",
+        resolved: "nested/worker.js",
+      })),
       {
         source: "nested/space.mjs",
         expression:
@@ -143,6 +158,12 @@ cliTest(
       "dynamic-base.mjs": 'new Worker(new URL("./worker.js", base));',
       "shadowed.mjs":
         'function start(URL) { return new Worker(new URL("./worker.js", import.meta.url)); }',
+      "typed-shadowed.ts":
+        'function start(URL: typeof globalThis.URL) { return new Worker((new (URL as typeof globalThis.URL)("./worker.js", import.meta.url) as URL)!); }',
+      "typed-dynamic-path.ts":
+        "new Worker((new URL(path as string, import.meta.url) as URL)!);",
+      "typed-dynamic-base.ts":
+        'new Worker((new URL("./worker.js", base as string) as URL)!);',
       "call.mjs": 'new Worker(URL("./worker.js", import.meta.url));',
       "custom.mjs":
         'new Worker(new custom.URL("./worker.js", import.meta.url));',

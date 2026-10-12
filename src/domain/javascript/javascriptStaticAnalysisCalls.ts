@@ -22,7 +22,10 @@ import {
   storageKind,
   stringValue,
 } from "./javascriptStaticAnalysisHelpers.js";
-import { semanticStaticPropertyName } from "./javascriptAstValues.js";
+import {
+  semanticStaticPropertyName,
+  unwrapJavaScriptExpression,
+} from "./javascriptAstValues.js";
 import type {
   JavaScriptAnalysisAccumulator as AnalysisAccumulator,
   JavaScriptEndpointInput as EndpointInput,
@@ -113,10 +116,16 @@ const workerUrlSpecifier = (
   argument: JavaScriptCallLike["arguments"][number] | undefined,
   bindings: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
-  const node = argumentNode(argument);
+  const argumentExpression = argumentNode(argument);
+  if (argumentExpression === undefined) return undefined;
+  const node = unwrapJavaScriptExpression(argumentExpression).node;
   if (
     !t.isNewExpression(node) ||
-    !isUnshadowedGlobal(node.callee, bindings, "URL") ||
+    !isUnshadowedGlobal(
+      unwrapJavaScriptExpression(node.callee).node,
+      bindings,
+      "URL",
+    ) ||
     !isImportMetaUrl(argumentNode(node.arguments[1]))
   )
     return undefined;
