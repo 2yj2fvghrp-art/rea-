@@ -7,6 +7,8 @@ import { COMPACT_INPUT_SCHEMA_BUDGET_BYTES } from "../../../src/config/mcpInputS
 import { EvidenceMcpServer } from "../../../src/server/EvidenceMcpServer.js";
 import { ToolResultDelivery } from "../../../src/server/toolResult.js";
 import { toolRegistrationOptions } from "../../../src/server/toolRegistrationOptions.js";
+import { connectGhidraMcp, sessionEvidence } from "./ghidraMcpHarness.js";
+import { ok } from "../../../src/domain/result.js";
 
 interface Received {
   readonly tool: string;
@@ -112,6 +114,51 @@ describe("MCP input key aliases", () => {
       expect(properties("search_strings")).not.toContain("query");
     } finally {
       await close();
+    }
+  });
+
+  it("records canonical parameters in Evidence after an alias call", async () => {
+    const providerCalls: { operation: string; input: unknown }[] = [];
+    const harness = await connectGhidraMcp(
+      "input-key-aliases-evidence-parameters",
+      (operation, input) => {
+        providerCalls.push({ operation, input });
+        return Promise.resolve(
+          ok({ value: "fixture pseudocode", limitations: [] }),
+        );
+      },
+    );
+    try {
+      const call = async (args: Record<string, string>) => {
+        const reply = await harness.mcp.callTool({
+          name: "procedure_pseudo_code",
+          arguments: args,
+        });
+        expect(reply.isError, JSON.stringify(reply)).not.toBe(true);
+        return sessionEvidence(harness.session, reply.structuredContent);
+      };
+      const canonicalEvidence = await call({ procedure: "0x401000" });
+      const aliasEvidence = await call({ address: "0x401000" });
+
+      expect(providerCalls).toHaveLength(2);
+      expect(providerCalls[0]).toEqual(providerCalls[1]);
+      expect(providerCalls[0]).toMatchObject({
+        operation: "procedure_pseudo_code",
+        input: { procedure: "0x401000" },
+      });
+      expect(providerCalls[0]?.input).not.toHaveProperty("address");
+      expect(aliasEvidence.parameters).toEqual({ procedure: "0x401000" });
+      expect(aliasEvidence.parameters).not.toHaveProperty("address");
+      expect(aliasEvidence).toMatchObject({
+        operation: canonicalEvidence.operation,
+        subject: canonicalEvidence.subject,
+        provider: canonicalEvidence.provider,
+        analysis_profile: canonicalEvidence.analysis_profile,
+        raw_result: canonicalEvidence.raw_result,
+        normalized_result: canonicalEvidence.normalized_result,
+      });
+    } finally {
+      await harness.close();
     }
   });
 });
