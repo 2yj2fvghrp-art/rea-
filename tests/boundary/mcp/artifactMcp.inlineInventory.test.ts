@@ -31,6 +31,59 @@ import {
   type AnalysisViewResult,
 } from "../../../src/domain/analysisView/analysisView.js";
 
+const assertInventorySubjectValidation = async (
+  client: Client,
+  source: Evidence,
+): Promise<void> => {
+  const inventory = artifactInventoryResultSchema.parse(
+    source.normalized_result,
+  );
+  if (source.subject === null)
+    throw new Error("Fixture requires a known subject");
+  for (const target of [
+    undefined,
+    {
+      path: source.subject.local_path,
+      sha256: inventory.manifest.root_sha256,
+      format: "file" as const,
+    },
+    {
+      path: source.subject.local_path,
+      sha256: "f".repeat(64),
+      format: inventory.manifest.root_format,
+    },
+  ]) {
+    const inconsistent = createEvidence(target, source.provider, {
+      operation: source.operation,
+      parameters: source.parameters,
+      result: source.normalized_result,
+    });
+    for (const view of [
+      { kind: "summary" },
+      { kind: "inventory", collection: "nodes", offset: 0, limit: 1 },
+    ]) {
+      const reply = await client.callTool({
+        name: "inspect_analysis_view",
+        arguments: { source: { kind: "inline", evidence: inconsistent }, view },
+      });
+      expect(parseMcpToolError(reply)).toMatchObject({
+        error: {
+          code: "invalid_request",
+          details: {
+            issues: [
+              {
+                path: ["source"],
+                reason: "invalid_value",
+                message: expect.stringContaining("subject does not match"),
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+};
+
 it("inspects a standalone keyed archive through MCP with original object identities", async () => {
   const directory = await createTestTempDirectory("rea-keyed-mcp-");
   const path = join(directory, "archive.plist");
@@ -364,6 +417,7 @@ it("keeps complete ZIP output and reads retained inventory views after the sourc
     expect(graph.occurrences).toHaveLength(fileCount + 1);
     // Follow-ups must use retained source facts, not reopen this archive.
     await unlink(archive);
+    await assertInventorySubjectValidation(client, inventoryEvidence);
     const readView = await createInventoryViewReader(client, parent);
     const summary = await readView({ kind: "summary" });
     expect(summary.result).toMatchObject({

@@ -8,7 +8,7 @@ import {
 } from "../analysisErrorCore.js";
 import { digestCanonicalValue } from "../canonicalDigest.js";
 import { digestSchema, prefixedDigestSchema } from "../digests.js";
-import { evidenceSchema } from "../evidence.js";
+import { evidenceSchema, type Evidence } from "../evidence.js";
 import { jsonObjectSchema, jsonValueSchema } from "../jsonValue.js";
 import { err, ok, type Result } from "../result.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
@@ -385,6 +385,8 @@ export interface AnalysisViewParent {
   readonly evidenceId: string;
   readonly operation: string;
   readonly normalizedResult: unknown;
+  /** Preserve the authenticated source identity, including explicit absence. */
+  readonly subject?: Evidence["subject"];
   readonly limitations: readonly string[];
   readonly artifact?: { readonly path: string; readonly sha256: string } | null;
   /** Parent Evidence parameters, when the parent operation records them. */

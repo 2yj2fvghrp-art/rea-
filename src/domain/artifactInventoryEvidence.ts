@@ -54,15 +54,7 @@ export const parseArtifactInventoryEvidence = (
     const inventory = artifactInventoryResultSchema.parse(
       inventoryEvidence.normalized_result,
     );
-    if (
-      inventoryEvidence.subject === null ||
-      inventoryEvidence.subject.digest.sha256 !==
-        inventory.manifest.root_sha256 ||
-      inventoryEvidence.subject.format !== inventory.manifest.root_format
-    )
-      throw new TypeError(
-        "Artifact inventory Evidence subject does not match its root digest",
-      );
+    validateInventorySubject(inventoryEvidence.subject, inventory.manifest);
     validateInventoryPage(inventory);
     return { evidence, inventory };
   });
@@ -75,10 +67,29 @@ export const parseArtifactInventoryEvidence = (
 };
 
 /** Validate one already authenticated parent payload with the same graph proofs. */
-export const parseArtifactInventoryResult = (input: unknown): InventorySet => {
+export const parseArtifactInventoryResult = (
+  input: unknown,
+  subject: Evidence["subject"],
+): InventorySet => {
   const inventory = artifactInventoryResultSchema.parse(input);
+  validateInventorySubject(subject, inventory.manifest);
   validateInventoryPage(inventory);
   return assembleInventoryResults([inventory]);
+};
+
+/** Both inventory carriers require the same authenticated root identity. */
+const validateInventorySubject = (
+  subject: Evidence["subject"],
+  manifest: ArtifactInventoryResult["manifest"],
+): void => {
+  if (
+    subject === null ||
+    subject.digest.sha256 !== manifest.root_sha256 ||
+    subject.format !== manifest.root_format
+  )
+    throw new TypeError(
+      "Artifact inventory Evidence subject does not match its root digest",
+    );
 };
 
 const validateInventoryPage = (inventory: ArtifactInventoryResult): void => {

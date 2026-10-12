@@ -44,7 +44,10 @@ const parseSource = (
   try {
     if (parent.operation === "inventory_artifact")
       return ok({
-        inventory: parseArtifactInventoryResult(parent.normalizedResult),
+        inventory: parseArtifactInventoryResult(
+          parent.normalizedResult,
+          parent.subject ?? null,
+        ),
         evidenceIds: [parent.evidenceId],
         inspection: null,
       });
