@@ -743,6 +743,35 @@ describe("contextual JavaScript package path resolution", () => {
 });
 
 describe("package exports subpath resolution", () => {
+  it("resolves the most-specific wildcard export target", () => {
+    const files = fileMap([
+      file("app/src/consumer.js", "root"),
+      file(
+        "app/node_modules/fixture/package.json",
+        "root",
+        JSON.stringify({
+          exports: {
+            "./*": "./fallback/*.js",
+            "./utils/*": "./utils/*.js",
+          },
+        }),
+      ),
+      file("app/node_modules/fixture/utils/parse.js", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "fixture/utils/parse",
+        sourcePath: "app/src/consumer.js",
+        context: "module-specifier",
+        moduleKind: "import",
+        files,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/fixture/utils/parse.js",
+    });
+  });
+
   it("resolves exact subpath keys through import and require conditions", () => {
     const files = fileMap([
       file("app/src/consumer.js", "root"),
@@ -1511,7 +1540,7 @@ describe("package import alias refusals", () => {
     expect(outcome.limitations.join(" ")).toContain("explicit null");
   });
 
-  it("leaves wildcard import aliases unresolved", () => {
+  it("resolves wildcard import aliases", () => {
     const files = aliasFiles({
       "package.json": JSON.stringify({
         imports: { "#internal/*": "./src/*.js" },
@@ -1527,10 +1556,9 @@ describe("package import alias refusals", () => {
       files,
     });
     expect(outcome).toMatchObject({
-      resolution_status: "external",
-      resolved_path: null,
+      resolution_status: "resolved",
+      resolved_path: "src/util.js",
     });
-    expect(outcome.limitations.join(" ")).toMatch(/wildcard/i);
   });
 
   it("leaves recursive and external-package import targets unresolved", () => {

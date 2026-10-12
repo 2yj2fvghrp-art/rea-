@@ -18,6 +18,7 @@ import {
   classifyPackageImportSpecifier,
   classifyPackageImportTargetString,
   lookupExactPackageImport,
+  matchPackagePatternKey,
 } from "../../domain/javascript/javascriptPackageImportAliases.js";
 import { typescriptEmittedSourceCandidates } from "../TypeScriptEmittedSourceCandidates.js";
 
@@ -350,9 +351,9 @@ const enclosingPackageMetadata = (
 };
 
 /**
- * Resolve an exact `#alias` against the importer's enclosing `imports` map.
- * Selected relative targets are exact files; patterns, recursive aliases, and
- * external-package targets stay unresolved without falling through.
+ * Resolve a `#alias` against the importer's enclosing `imports` map.
+ * Selected relative targets are exact files; recursive aliases and external
+ * package targets stay unresolved without falling through.
  */
 const resolvePackageImportAlias = (
   input: ResolveArtifactPathInput,
@@ -362,10 +363,6 @@ const resolvePackageImportAlias = (
   if (classified.kind === "invalid")
     return unresolvedCandidate("rejected", [
       `The package import specifier ${JSON.stringify(specifier)} is invalid; "#" and specifiers that end with "/" are not valid import aliases.`,
-    ]);
-  if (classified.kind === "pattern")
-    return unresolvedCandidate("external", [
-      `Wildcard and directory package import aliases remain unresolved; ${JSON.stringify(specifier)} is not an exact imports key.`,
     ]);
   const metadata = enclosingPackageMetadata(input);
   if (metadata.kind === "none")
@@ -387,8 +384,9 @@ const resolvePackageImportAlias = (
     return unresolvedCandidate("external", [
       `Wildcard package import aliases remain unresolved; package metadata ${metadata.path} has no exact imports key ${specifier}.`,
     ]);
-  const selected = selectExportTarget(
+  const selected = selectExpandedPackageTarget(
     lookup.target,
+    lookup.capture,
     packageExportConditions(input.moduleKind),
     packageMetadataUrl(metadata.path),
     "imports",
@@ -922,7 +920,6 @@ type PackageExportOutcome =
   | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly status: "unmatched"; readonly declared: readonly string[] };
 
-/** Only exact non-directory keys participate; wildcard expansion is unsupported. */
 const selectPackageExport = (
   value: unknown,
   subpath: string,
@@ -942,13 +939,18 @@ const selectPackageExport = (
       };
     declared = keys;
     if (hasSubpaths) {
-      if (
-        subpath.endsWith("/") ||
-        subpath.includes("*") ||
-        !Object.hasOwn(value, subpath)
-      )
+      if (subpath.endsWith("/") || subpath.includes("*"))
         return { status: "unmatched", declared };
-      target = Reflect.get(value, subpath);
+      if (Object.hasOwn(value, subpath) && !subpath.includes("*"))
+        target = Reflect.get(value, subpath);
+      else {
+        const pattern = matchPackagePatternKey(declared, subpath);
+        if (pattern === undefined) return { status: "unmatched", declared };
+        target = expandPackagePatternTarget(
+          Reflect.get(value, pattern.key),
+          pattern.capture,
+        );
+      }
     } else if (subpath !== ".") return { status: "unmatched", declared };
   } else if (subpath !== ".") return { status: "unmatched", declared };
   const selected = selectExportTarget(
@@ -976,6 +978,37 @@ const selectPackageExport = (
     url: selected.url,
   };
 };
+
+const expandPackagePatternTarget = (
+  value: unknown,
+  capture: string,
+): unknown =>
+  typeof value === "string"
+    ? value.replaceAll("*", capture)
+    : Array.isArray(value)
+      ? value.map((entry) => expandPackagePatternTarget(entry, capture))
+      : value !== null && typeof value === "object"
+        ? Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [
+              key,
+              expandPackagePatternTarget(entry, capture),
+            ]),
+          )
+        : value;
+
+const selectExpandedPackageTarget = (
+  value: unknown,
+  capture: string | undefined,
+  conditions: ReadonlySet<string>,
+  packageUrl: URL,
+  mapKind: "exports" | "imports",
+): ExportTargetOutcome =>
+  selectExportTarget(
+    capture === undefined ? value : expandPackagePatternTarget(value, capture),
+    conditions,
+    packageUrl,
+    mapKind,
+  );
 
 type ExportTargetOutcome =
   | ({ readonly kind: "value" } & PackageFileTarget)

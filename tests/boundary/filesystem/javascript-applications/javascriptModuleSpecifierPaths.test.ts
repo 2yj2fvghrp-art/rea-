@@ -333,6 +333,54 @@ it.each(["import", "require"] as const)(
   },
 );
 
+it.each(["import", "require"] as const)(
+  "matches Node %s for package wildcard maps",
+  async (moduleKind) => {
+    const root = await createTestTempDirectory("rea-package-pattern-map-");
+    const packageRoot = join(root, "node_modules", "fixture");
+    await mkdir(join(packageRoot, "src"), { recursive: true });
+    await writeFile(
+      join(packageRoot, "package.json"),
+      JSON.stringify({
+        exports: { "./*": "./src/*.cjs" },
+        imports: { "#internal/*": "./src/*.cjs" },
+      }),
+    );
+    await writeFile(
+      join(packageRoot, "src", "public.cjs"),
+      "module.exports=1;",
+    );
+    await writeFile(
+      join(packageRoot, "src", "private.cjs"),
+      "module.exports=2;",
+    );
+    const main = join(root, moduleKind === "import" ? "main.mjs" : "main.cjs");
+    await writeFile(
+      main,
+      moduleKind === "import"
+        ? 'import value from "fixture/public"; console.log(value);'
+        : 'console.log(require("fixture/public"));',
+    );
+    await promisify(execFile)(process.execPath, [main], { timeout: 5_000 });
+    const result = await analyzeJavaScriptApplication({
+      input_path: root,
+      format: "directory",
+    });
+    if (!result.ok) throw result.error;
+    const { graph } = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    const publicEdge = graph.edges.find(
+      (edge) =>
+        edge.relation === "imports" &&
+        edge.properties.specifier === "fixture/public",
+    );
+    expect(publicEdge?.properties.resolved_path).toBe(
+      "node_modules/fixture/src/public.cjs",
+    );
+  },
+);
+
 describe("package exports URL path rejections", () => {
   it.each(
     (["import", "require"] as const).flatMap((moduleKind) =>

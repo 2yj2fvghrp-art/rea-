@@ -9,7 +9,6 @@
 /** How one `#` specifier participates in exact import-alias lookup. */
 export type PackageImportSpecifierClassification =
   | { readonly kind: "invalid" }
-  | { readonly kind: "pattern" }
   | { readonly kind: "exact"; readonly key: string };
 
 /** Outcome of looking up one exact `#` key in a package `imports` object. */
@@ -27,6 +26,7 @@ export type PackageImportExactLookup =
       readonly kind: "found";
       readonly target: unknown;
       readonly declared: readonly string[];
+      readonly capture?: string;
     };
 
 /** How a selected string target is interpreted for package-private imports. */
@@ -39,19 +39,53 @@ export type PackageImportTargetClassification =
 /**
  * Classify a `#` module specifier before any package-scope walk.
  * `#` and names ending in `/` are invalid. Other literal keys, including
- * `#/…`, participate in exact lookup; wildcard expansion remains unsupported.
+ * `#/…` participates in package-map lookup. Literal wildcard requests are
+ * invalid because they cannot select a package-map pattern.
  */
 export const classifyPackageImportSpecifier = (
   specifier: string,
 ): PackageImportSpecifierClassification => {
   if (specifier === "#" || specifier.endsWith("/")) return { kind: "invalid" };
-  if (specifier.includes("*")) return { kind: "pattern" };
+  if (specifier.includes("*")) return { kind: "invalid" };
   return { kind: "exact", key: specifier };
 };
 
 /** True when an `imports` key is a pattern rather than an exact alias. */
 export const isPackageImportPatternKey = (key: string): boolean =>
   key.includes("*") || key.endsWith("/");
+
+/** Select Node's most-specific single-wildcard package-map key. */
+export const matchPackagePatternKey = (
+  keys: readonly string[],
+  request: string,
+): { readonly key: string; readonly capture: string } | undefined => {
+  if (request.includes("*") || request.endsWith("/")) return undefined;
+  const matches = keys.flatMap((key) => {
+    if (key.endsWith("/") || key.split("*").length !== 2) return [];
+    const [prefix, suffix] = key.split("*");
+    if (
+      prefix === undefined ||
+      suffix === undefined ||
+      !request.startsWith(prefix) ||
+      !request.endsWith(suffix) ||
+      request.length < prefix.length + suffix.length
+    )
+      return [];
+    return [
+      {
+        key,
+        capture: request.slice(prefix.length, request.length - suffix.length),
+      },
+    ];
+  });
+  return matches.sort(
+    (left, right) =>
+      right.key.indexOf("*") - left.key.indexOf("*") ||
+      right.key.length -
+        right.key.indexOf("*") -
+        (left.key.length - left.key.indexOf("*")),
+  )[0];
+};
 
 /**
  * Look up one exact `#` key in a package `imports` value.
@@ -72,9 +106,17 @@ export const lookupExactPackageImport = (
       target: Reflect.get(imports, key),
       declared,
     };
-  return declared.some(isPackageImportPatternKey)
-    ? { kind: "pattern-unresolved", declared }
-    : { kind: "missing-key", declared };
+  const pattern = matchPackagePatternKey(declared, key);
+  return pattern === undefined
+    ? declared.some(isPackageImportPatternKey)
+      ? { kind: "pattern-unresolved", declared }
+      : { kind: "missing-key", declared }
+    : {
+        kind: "found",
+        target: Reflect.get(imports, pattern.key),
+        declared,
+        capture: pattern.capture,
+      };
 };
 
 /**

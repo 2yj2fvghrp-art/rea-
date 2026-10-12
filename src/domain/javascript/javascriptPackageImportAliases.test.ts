@@ -34,10 +34,10 @@ describe("package import specifier classification", () => {
   );
 
   it.each(["#internal/*", "#*"])(
-    "leaves pattern specifier %j unresolved",
+    "rejects literal pattern specifier %j",
     (specifier) => {
       expect(classifyPackageImportSpecifier(specifier)).toEqual({
-        kind: "pattern",
+        kind: "invalid",
       });
     },
   );
@@ -66,12 +66,14 @@ describe("exact package import lookup", () => {
     });
   });
 
-  it("does not claim a miss when the map only has pattern keys", () => {
+  it("selects a matching single-wildcard key", () => {
     expect(
       lookupExactPackageImport({ "#internal/*": "./src/*.js" }, "#internal/a"),
     ).toEqual({
-      kind: "pattern-unresolved",
+      kind: "found",
+      target: "./src/*.js",
       declared: ["#internal/*"],
+      capture: "a",
     });
   });
 
@@ -103,6 +105,23 @@ describe("exact package import lookup", () => {
     ).toEqual({
       kind: "pattern-unresolved",
       declared: ["#internal/*"],
+    });
+  });
+
+  it("prefers the longest pattern prefix, then suffix", () => {
+    expect(
+      lookupExactPackageImport(
+        {
+          "#internal/*": "./fallback/*.js",
+          "#internal/utils/*": "./utils/*.js",
+          "#internal/*/detail": "./details/*.js",
+        },
+        "#internal/utils/detail",
+      ),
+    ).toMatchObject({
+      kind: "found",
+      target: "./utils/*.js",
+      capture: "detail",
     });
   });
 });
