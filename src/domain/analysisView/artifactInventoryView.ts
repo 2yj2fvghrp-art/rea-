@@ -6,6 +6,7 @@ import { err, ok, type Result } from "../result.js";
 import {
   parseArtifactInventoryEvidence,
   parseArtifactInventoryResult,
+  validateArtifactInventorySubject,
   type InventorySet,
 } from "../artifactInventoryEvidence.js";
 import {
@@ -67,6 +68,7 @@ const parseSource = (
       inspection.substeps.map(({ evidence }) => evidence),
     );
     const manifest = parsed.inventory.manifest;
+    validateArtifactInventorySubject(parent.subject ?? null, manifest);
     if (
       inspection.subject.manifest_id !== manifest.manifest_id ||
       inspection.subject.root_artifact_id !== manifest.root_artifact_id ||

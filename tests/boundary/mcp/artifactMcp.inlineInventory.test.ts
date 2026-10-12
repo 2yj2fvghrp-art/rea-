@@ -35,9 +35,12 @@ const assertInventorySubjectValidation = async (
   client: Client,
   source: Evidence,
 ): Promise<void> => {
-  const inventory = artifactInventoryResultSchema.parse(
-    source.normalized_result,
-  );
+  const result =
+    source.operation === "inspect_artifact"
+      ? artifactInspectionResultSchema.parse(source.normalized_result)
+          .substeps[0]?.evidence.normalized_result
+      : source.normalized_result;
+  const inventory = artifactInventoryResultSchema.parse(result);
   if (source.subject === null)
     throw new Error("Fixture requires a known subject");
   for (const target of [
@@ -84,7 +87,7 @@ const assertInventorySubjectValidation = async (
   }
 };
 
-it("inspects a standalone keyed archive through MCP with original object identities", async () => {
+it("preserves keyed archive identities and rejects inconsistent inventory carrier subjects", async () => {
   const directory = await createTestTempDirectory("rea-keyed-mcp-");
   const path = join(directory, "archive.plist");
   await writeFile(
@@ -170,6 +173,19 @@ it("inspects a standalone keyed archive through MCP with original object identit
         },
       },
     });
+    const inspected = await client.callTool({
+      name: "inspect_artifact",
+      arguments: {},
+    });
+    expect(inspected.isError).not.toBe(true);
+    const parent = parseEvidence(inspected.structuredContent);
+    const inspection = artifactInspectionResultSchema.parse(
+      parent.normalized_result,
+    );
+    const inventory = inspection.substeps[0]?.evidence;
+    if (inventory === undefined) throw new Error("Missing inventory Evidence");
+    await assertInventorySubjectValidation(client, inventory);
+    await assertInventorySubjectValidation(client, parent);
   } finally {
     await client.close();
     await server.close();
@@ -417,7 +433,6 @@ it("keeps complete ZIP output and reads retained inventory views after the sourc
     expect(graph.occurrences).toHaveLength(fileCount + 1);
     // Follow-ups must use retained source facts, not reopen this archive.
     await unlink(archive);
-    await assertInventorySubjectValidation(client, inventoryEvidence);
     const readView = await createInventoryViewReader(client, parent);
     const summary = await readView({ kind: "summary" });
     expect(summary.result).toMatchObject({

@@ -54,7 +54,10 @@ export const parseArtifactInventoryEvidence = (
     const inventory = artifactInventoryResultSchema.parse(
       inventoryEvidence.normalized_result,
     );
-    validateInventorySubject(inventoryEvidence.subject, inventory.manifest);
+    validateArtifactInventorySubject(
+      inventoryEvidence.subject,
+      inventory.manifest,
+    );
     validateInventoryPage(inventory);
     return { evidence, inventory };
   });
@@ -72,13 +75,13 @@ export const parseArtifactInventoryResult = (
   subject: Evidence["subject"],
 ): InventorySet => {
   const inventory = artifactInventoryResultSchema.parse(input);
-  validateInventorySubject(subject, inventory.manifest);
+  validateArtifactInventorySubject(subject, inventory.manifest);
   validateInventoryPage(inventory);
   return assembleInventoryResults([inventory]);
 };
 
 /** Both inventory carriers require the same authenticated root identity. */
-const validateInventorySubject = (
+export const validateArtifactInventorySubject = (
   subject: Evidence["subject"],
   manifest: ArtifactInventoryResult["manifest"],
 ): void => {
