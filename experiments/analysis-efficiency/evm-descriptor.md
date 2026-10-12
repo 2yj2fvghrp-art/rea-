@@ -1,10 +1,27 @@
 # EVM descriptor and real-template checkpoint
 
 Continues [#2016](https://github.com/morluto/rea/issues/2016) after the native
-checkpoint merged. The next internal descriptor will bind the existing exact EVM
+checkpoint merged. The internal descriptor binds the existing exact EVM
 contract, CLI name and typed service lifetime. Existing complete inputs, output,
 provider selection and cleanup remain the baseline. Wiring alone does not establish
 token or latency savings.
+
+The descriptor contains only the named contract, existing CLI name and existing
+factory. The legacy `createEvmInterfaceService` export remains usable. The MCP
+host selects one complete service instance, preserves injection identity, passes
+that same instance to registration and retains it for cleanup/retry. No bound
+service wrapper, generic registry, automatic dependency acquisition or new pack
+selection is introduced.
+
+Five actual in-memory SDK boundary scenarios verify converted schemas, duplicate
+registration rejection before use, malformed inputs, explicit unavailable or
+incompatible-output failures with a healthy WASM peer, cleanup retry, and request
+cancellation followed by recovery. Their injected ports are recording seams, not
+real EVMole/WABT claims. Nine service and 26 provider-boundary cases also pass;
+two unsupported-host scenarios are skipped on this Linux host. The existing seven
+WASM MCP scenarios pass. Full `npm run check` passes; its approximately 3 GiB
+sampled peak and `memory.high` events are excluded from performance claims.
+Fresh candidate real-artifact/catalog and model comparisons are still pending.
 
 ## Public inputs and independent checks
 
