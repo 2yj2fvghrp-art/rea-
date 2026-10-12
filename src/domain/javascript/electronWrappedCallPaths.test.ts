@@ -140,6 +140,23 @@ it("preserves an observed empty contextBridge API object", () => {
   expect(result.parse_status).toBe("complete");
 });
 
+it("recovers a bundled exposeInIsolatedWorld bridge with a numeric world ID", () => {
+  const result = analyzeJavaScriptStaticSource(
+    bundle(`
+   electron.contextBridge.exposeInIsolatedWorld(1001,"isolatedApi",{ping:true});
+  `),
+  );
+  expect(result.electron.context_bridge_apis).toContainEqual(
+    expect.objectContaining({
+      world: "isolated",
+      world_id: { status: "literal", value: 1001, expression: null },
+      api_key: "isolatedApi",
+      resolution_basis: "wrapper-substitution",
+      members: ["ping"],
+    }),
+  );
+});
+
 it("connects exposed closures to IPC sends and text clipboard calls", () => {
   const result = analyzeJavaScriptStaticSource(
     bundle(`
