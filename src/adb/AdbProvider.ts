@@ -782,7 +782,7 @@ export class AdbProvider {
               buffer: request.input.buffer,
               pid: request.input.pid ?? null,
               lines: bounded,
-              total_bytes: ran.value.stdout.length,
+              total_bytes: Buffer.byteLength(ran.value.stdout, "utf8"),
               coverage:
                 bounded.length !== lines.length ||
                 bounded.length === request.input.count

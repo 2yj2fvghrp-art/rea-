@@ -508,6 +508,25 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
   ]);
 });
 
+it("reports UTF-8 byte counts in total_bytes for non-ASCII logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    shellStub({
+      logcat:
+        "08-10 13:00:00.000 I/Tag( 1): 中文\n08-10 13:00:00.000 I/Tag( 1): 😀\n",
+    }),
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  expect(result.lines).toEqual([
+    "08-10 13:00:00.000 I/Tag( 1): 中文",
+    "08-10 13:00:00.000 I/Tag( 1): 😀",
+  ]);
+  // 30-byte prefix + 6-byte CJK + LF = 37; 30-byte prefix + 4-byte emoji + LF = 35.
+  expect(result.total_bytes).toBe(72);
+});
+
 it("projects package details from dumpsys package output", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
