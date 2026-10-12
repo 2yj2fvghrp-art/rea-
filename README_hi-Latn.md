@@ -265,7 +265,7 @@ Vulnerabilities [SECURITY.md](SECURITY.md) ke zariye report kijiye.
 
 ## Star history
 
-🎉 **90,000 GitHub stars — bahut bahut shukriya!**
+🎉 **110,000 GitHub stars — bahut bahut shukriya!**
 
 REA use karne, bugs report karne, features request karne, builds test karne aur fixes contribute karne wale sabhi logon ka shukriya.
 
