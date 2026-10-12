@@ -75,13 +75,31 @@ tree ships no host decompiler binary, so `Decompiler/os/<platform>/decompile` an
 `sleigh` must come from your own build; see
 [installation](installation.md#ghidra).
 
-This increment has **no `verify:ghidra:riscv` lane script**. The admission and
-pinning contracts are covered by module tests
-(`src/ghidra/GhidraRiscvProfile.test.ts`,
-`src/domain/binaryTarget.riscv.test.ts`), and the engine behaviour above was
-measured manually against freestanding source-owned RV32 and RV64 `ET_EXEC`
-fixtures through `rea analyze --provider ghidra` and `rea decompile`. Function
-enumeration, one decompiled entry point per fixture, and the refusal readings are
-established there; call-graph completeness, string inventories, dynamic linkage,
-Andes or RVE/TSO images, and big-endian targets are **not** established by this
-lane.
+Run `npm run verify:ghidra:riscv` with an existing Ghidra 12.1.4 installation,
+JDK 21+, and a RISC-V-capable Clang, LLD and LLVM readelf. The verifier acquires
+no tools and never executes target code. Select installed tools explicitly when
+they are not on `PATH`:
+
+```sh
+GHIDRA_INSTALL_DIR=/path/to/ghidra_12.1.4_PUBLIC \
+JAVA_HOME=/path/to/jdk-21 \
+REA_RISCV_CLANG=/path/to/llvm/bin/clang \
+REA_RISCV_LLD=/path/to/lld/bin/ld.lld \
+REA_RISCV_READELF=/path/to/llvm/bin/llvm-readelf \
+npm run verify:ghidra:riscv
+```
+
+The lane builds the committed freestanding C and assembly sources into RV32 and
+RV64 `ET_EXEC` fixtures. Independent LLVM readelf observations establish ELF
+declarations and symbol addresses. Public CLI and stdio MCP workflows verify
+function enumeration, decompilation, pinned language/compiler identity, decoded
+probe bytes, global data, and direct calls. It validates advertised MCP output
+schemas and both JSON representations, saves and reopens snapshots, rejects
+header-mutated soft-float and unsupported high-bit declarations, and checks
+unchanged source bytes and owned cleanup. Failures retain the diagnostic
+workspace; successful runs remove it and report the observed process lineage.
+
+Module tests cover admission and malformed headers. Call-graph completeness,
+string inventories, dynamic linkage, Andes or RVE/TSO images, and big-endian
+targets are **not** established by this lane. `.riscv.attributes` ISA extensions
+are not inspected; the generic language pin remains an analysis convention.
