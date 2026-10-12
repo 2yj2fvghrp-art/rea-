@@ -9,7 +9,6 @@
 **Нашли интересную функцию? Разберитесь, как она работает, вплоть до двоичного кода.**
 
 [![npm version](https://img.shields.io/npm/v/rea-agents?style=flat-square&color=cb3837)](https://www.npmjs.com/package/rea-agents)
-[![CI](https://img.shields.io/github/actions/workflow/status/morluto/rea/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/morluto/rea/actions/workflows/ci.yml)
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](docs/mcp-contracts.md#generated-catalog)
 [![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
@@ -260,7 +259,7 @@ npx rea-agents@latest setup
 
 ## История звёзд
 
-🎉 **90 000 звёзд на GitHub — спасибо!**
+🎉 **110 000 звёзд на GitHub — спасибо!**
 
 Спасибо всем, кто использует REA, сообщает об ошибках, предлагает новые функции, тестирует сборки и помогает с исправлениями.
 
@@ -274,7 +273,13 @@ npx rea-agents@latest setup
 
 ## Отказ от ответственности
 
-REA предоставляет инструменты для законных исследований, анализа и реконструкции с помощью реверс-инжиниринга. Вы отвечаете за получение необходимых разрешений и соблюдение применимых законов. Проект не поддерживает незаконное или несанкционированное использование.
+Рекомендации по ответственному использованию приведены в [DISCLAIMER.md](DISCLAIMER.md).
+
+REA предназначен для законных исследований, обучения, обеспечения совместимости, сохранения программного обеспечения и анализа программ, которыми вы владеете или которые вам разрешено изучать.
+
+The project's position on illegal or unauthorized use covers all REA
+versions, distribution channels, and platforms; each copy retains its
+applicable licenses.
 
 ## Участие в проекте
 
@@ -285,3 +290,15 @@ REA предоставляет инструменты для законных и
 ## Лицензия
 
 [MIT](LICENSE)
+
+REA-authored code is licensed under MIT. Third-party material retains its own
+licenses and copyright notices; see [Third-party notices](THIRD_PARTY_NOTICES.md)
+for the dependency inventory, preserved license texts, and external-tool terms.
+
+**You must legally obtain and be authorized to use commercial tools**, including
+IDA Pro / Hex-Rays decompilers, Hopper, and JEB, under their applicable licenses.
+REA grants no tool license, key, or activation entitlement. Trials and demos
+remain subject to vendor terms, including user, feature, automation, and output
+sharing restrictions. Cracked copies, stolen keys, unauthorized key sharing,
+and bypassing license restrictions are not authorized. This guidance does not
+amend MIT or third-party licenses.

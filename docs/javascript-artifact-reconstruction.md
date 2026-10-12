@@ -66,6 +66,45 @@ code-point order. Dependency manifests remain package observations but do not
 declare Electron main or renderer entries. If only dependency manifests are
 present, the inventory artifact remains the graph root.
 
+## Select sources before analysis
+
+For a question about known entry sources, supply exact artifact-relative file
+paths in `source_paths`, or repeat `--source-path` on either CLI route:
+
+```bash
+rea analyze /absolute/path/to/app.asar \
+  --source-path package.json --source-path main.js --json
+```
+
+```json
+{
+  "input_path": "/absolute/path/to/app.asar",
+  "source_paths": ["package.json", "main.js"],
+  "detail": "summary"
+}
+```
+
+REA inventories and verifies the complete artifact, including unselected bytes,
+but allocates source text and performs static analysis only for selected files.
+Include supporting manifests, HTML or source maps explicitly when needed;
+imports do not expand the selection. Paths must match relevant inventoried
+files exactly, including nested ASAR prefixes. Unknown paths, aliases and globs
+return an `invalid_request` correction. Selected files are analyzed in request
+order before unselected scopes are projected. Repeated paths preserve the
+caller's request and first-occurrence priority, analyzing the file once.
+Omit the selection for the existing complete
+application workflow.
+
+The result and summary retain `source_selection.requested_paths` and
+`source_selection.unselected_files`. Every relevant file keeps its original
+inventory identity; unselected files report `text_status:
+"outside-analysis-scope"`. Their relationships remain unknown, and application
+coverage is partial while any file remains outside scope. Selection does not
+claim whole-application completeness or change integrity policy. Summary detail
+only reduces delivery; source selection reduces text acquisition and analysis.
+Explicit native provider or snapshot routing rejects `--source-path` rather
+than ignoring it.
+
 ## ASAR integrity
 
 ASAR inventory checks Electron integrity metadata for embedded archive entries
@@ -135,6 +174,24 @@ default). Reaching it fails the current source with the same memory resource
 failure and reports `worker_process_memory_limit_bytes`, also a coverage limit;
 the next source starts a new analyzer. Bun elsewhere enforces no analyzer limit.
 
+The default semantic capacities are 100000 nodes across the application and
+20000 per source. Large bundles may explicitly select `max_semantic_nodes` and
+`max_semantic_nodes_per_file` (CLI: `--max-semantic-nodes` and
+`--max-semantic-nodes-per-file`), each from 1 to 1000000. The per-file offer is
+also bounded by the remaining application capacity. Raising these controls does
+not bypass worker heap, execution deadline or parent result admission. Truncated
+coverage reports both effective node ceilings; omitted relationships remain
+unknown.
+
+While sources remain, the sequential worker reserves one next compact static
+checkpoint at its 8 MiB bound with the same 6x retention expansion used at
+admission. Earlier checkpoints are already charged to retained bytes; the
+remaining inventory does not multiply the reserve. Streamed file transfers keep the default 512 MiB
+allowance, and can grow with the parent's offered retention budget (8x byte
+expansion), up to 2 GiB. Individual records remain bounded to 8 MiB. The parent
+still independently checks actual bytes, record overhead, digests and source
+identities before adopting results.
+
 A source that exhausts the analyzer heap does not terminate the CLI/MCP
 process. Completed static facts are retained, other files can still be analyzed,
 and unexamined semantic relationships remain explicit unknowns. The parent
@@ -159,9 +216,11 @@ completed partial Evidence. MCP failure details return
 after recording succeeds, so `inspect_analysis_view` can open that analysis
 directly without serializing the entire partial graph into the error response.
 CLI failure output retains the complete partial Evidence.
-Cancellation after source analysis begins likewise
-retains completed facts; an SDK client may reject its cancelled request before
-receiving that reply. On the same MCP connection, inspect the Evidence bundle
+Cancellation after source analysis begins likewise retains completed facts,
+including cancellation during analyzer cleanup, graph construction, or Evidence
+sealing. REA finishes projecting those owned facts cooperatively to return partial
+Evidence. An SDK client may reject its cancelled request before receiving that
+reply. On the same MCP connection, inspect the Evidence bundle
 and use the retained analysis ID with `inspect_analysis_view`. Owned analyzer
 cleanup is verified before its private files are released. Cleanup uncertainty
 is reported separately and retains ownership for retry.
@@ -325,8 +384,29 @@ Source-map contents are parsed as local input. The graph stores original source 
 
 Only explicitly present BrowserWindow values are observations. REA does not
 substitute version-dependent Electron defaults for omitted `webPreferences`.
-Dynamic option objects, bridge keys, API objects, and IPC channel expressions
+Unresolved option objects, bridge keys, API objects, and IPC channel expressions
 remain unknown and make coverage partial.
+
+Recognized literal module-table bootstraps also support bounded lexical
+substitution through module exports, import helper bodies, local wrapper calls,
+returned closures, object spreads, and callback parameters. Recovered Electron
+paths retain source ranges, module identities, literal channels and branch
+conditions as static candidates. Unknown spreads, reassigned bindings, accessors,
+dynamic channels and unsupported syntax do not become exact implementations.
+This pass neither executes the bundle nor proves that runtime guards pass.
+An ambiguous or unresolved handler retains its channel registration but does
+not acquire a path to one arbitrarily selected callback. Unknown factory
+conditions retain both return branches, including fallthrough. Short-circuit
+selection distinguishes truthiness from nullishness; uncertain `??` paths
+retain a nullish guard rather than a falsy guard.
+
+These paths appear as contextual `javascript-expression` nodes. An exact `api`
+seed such as `desktop.copy` can trace an exposed member through a unique IPC
+pairing to an external API call. `addListener` is normalized to `on`. Semantic
+projection retains these boundary paths before bulk function definitions, within
+the existing per-file node budget; omitted general semantics remain explicitly
+partial. Wrapper expansion is bounded by one million visits/substitutions and
+128 nested substitutions, with exhaustion reported as unknown coverage.
 
 Electron API identity follows proven lexical module aliases. Namespace interop
 also preserves identity when the complete Rolldown helper operations, lexical
@@ -374,7 +454,7 @@ do not establish that an application has no Electron boundary usage.
 
 IPC pairing is an inference, not an observation. A renderer `invoke` pairs only
 with one unique `ipcMain.handle`/`handleOnce` candidate on the same exact literal
-channel; a renderer send pairs only with one unique `ipcMain.on`/`once`
+channel; a renderer send pairs only with one unique `ipcMain.on`/`once`/`addListener`
 candidate. Dynamic channels are never paired, and multiple compatible handlers
 are reported as ambiguous without adding a caller-to-handler edge. A matching
 channel still does not prove registration order, reachability, or runtime use.
@@ -467,6 +547,12 @@ from unmatched nested targets rather than reporting array indices.
 For imports and requires, the active Node conditions include `module-sync`;
 earlier active conditions retain precedence over later ones.
 
+Package self-references use the importer's enclosing package scope before
+installed dependencies. ESM requires the parsed package name to equal the
+metadata name; a scope-only name such as `@scope` cannot capture `@scope/pkg`.
+CommonJS retains Node's raw-request name/prefix matching. Both paths preserve
+the original specifier and select exports under their own loader conditions.
+
 Exact package-private `#alias` specifiers resolve against the importer's
 enclosing `package.json` `imports` map — the nearest same-container package
 scope, stopping at a `node_modules` directory so a nested package cannot inherit
@@ -482,8 +568,15 @@ URL targets before selecting a later package-local file; an unsupported bare
 package or recursive alias keeps its unresolved outcome rather than selecting
 a later fallback.
 
-ESM relative module paths and selected package exports targets use URL suffix handling
-and one percent-decoding pass. CommonJS relative paths and legacy package main
+ESM relative module paths, legacy package subpaths without exports, and selected
+package exports targets use URL suffix handling and one percent-decoding pass.
+Bare specifiers retain their complete query/fragment text for exports key matching.
+For dependency lookup, ESM constructs a package metadata URL instead of treating
+the parsed package name as a literal directory. A root request such as `legacy?x`
+does not load either `node_modules/legacy?x` or `node_modules/legacy`; an exact
+self-reference with that metadata name can still select its exports first.
+Without an exports map, ESM subpaths select exact files; directory imports and
+extension fallback are refused. CommonJS relative paths and legacy package main
 fields retain literal filename punctuation. Exports targets must start with
 `./` and exclude `.`, `..`, and `node_modules` path segments, including their
 encoded forms, before URL normalization. Arrays skip invalid exports targets
