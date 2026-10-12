@@ -30,6 +30,7 @@ const sameSettings = [
   "provider_search_path_sha256",
   "provider_environment_policy_sha256",
   "measure_source_sha256",
+  "native_workflow_source_sha256",
   "package_lock_sha256",
   "node_version",
   "sdk_client_version",
@@ -40,7 +41,9 @@ const sameSettings = [
 const settingDifferences = sameSettings.filter(
   (key) =>
     !isDeepStrictEqual(left[key], right[key]) ||
-    (key === "provider_search_path_sha256" &&
+    ((key === "provider_search_path_sha256" ||
+      (key === "native_workflow_source_sha256" &&
+        left.native_question !== null)) &&
       !/^[a-f0-9]{64}$/.test(left[key] ?? "")),
 );
 // Producer/view IDs identify different delivery observations; a named recovery
