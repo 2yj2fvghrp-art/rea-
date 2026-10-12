@@ -427,6 +427,21 @@ const artifactRoleForFormat = (
   };
 };
 
+/**
+ * JVM class files also start with 0xCAFEBABE. A class header stores the
+ * minor and major version (big-endian u2 each) at bytes 4-8: minor is 0 or
+ * 65535 (preview features) and major is 45+ for real Java releases. A FAT
+ * Mach-O stores nfat_arch (a small architecture count, typically 1-16) in
+ * the same four bytes, so version-plausible bytes select the JVM reading and
+ * everything else stays a universal binary.
+ */
+const looksLikeJvmClassFile = (prefix: Buffer): boolean => {
+  if (prefix.length < 8) return false;
+  const minor = prefix.readUInt16BE(4);
+  const major = prefix.readUInt16BE(6);
+  return (minor === 0 || minor === 0xffff) && major >= 45 && major <= 90;
+};
+
 /** Classify storage bytes independently of path names, roles, and permissions. */
 export const classifyArtifactBytes = (
   prefix: Buffer,
@@ -436,6 +451,7 @@ export const classifyArtifactBytes = (
   if (prefix.subarray(0, 8).equals(Buffer.from("bplist00"))) return "plist";
   if (prefix.length >= 4) {
     const magic = prefix.readUInt32BE(0);
+    if (magic === 0xcafebabe && looksLikeJvmClassFile(prefix)) return "file";
     if ([0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic))
       return "mach-o-universal";
     if ([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(magic))
