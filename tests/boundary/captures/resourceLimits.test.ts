@@ -110,3 +110,47 @@ try {
     });
   },
 );
+
+it.skipIf(process.platform !== "linux")(
+  "reports a real kernel file-limit termination with its effective ceiling",
+  async () => {
+    const directory = await createTestTempDirectory("rea-tshark-file-limit-");
+    const command = join(directory, "file-probe");
+    const path = join(directory, "recording.pcap");
+    await writeFile(path, "selected fixture");
+    await writeFile(
+      command,
+      `#!/usr/bin/python3
+import signal, sys
+if '--version' in sys.argv:
+    print('TShark (Wireshark) 4.6.9 (resource fixture)')
+else:
+    signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
+    print('before file limit', file=sys.stderr, flush=True)
+    with open('overflow', 'wb', buffering=0) as output:
+        output.write(b'x' * 4096)
+        output.write(b'x')
+`,
+      { mode: 0o700 },
+    );
+    const service = new PacketCaptureService(
+      new TsharkCaptureProvider(
+        { ...process.env, REA_TSHARK_COMMAND: command },
+        undefined,
+        undefined,
+        process.platform,
+        undefined,
+        async (limits) => ({ ...limits, file_bytes: 4096 }),
+      ),
+    );
+    onTestFinished(() => service.close());
+    const result = await service.inspect({ path, fields: ["frame.number"] });
+    if (result.ok) throw new Error("Expected file-limit failure");
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisResourceConstraintError",
+      resource: "file-size",
+      reportedLimits: { file_bytes: 4096 },
+      capturedOutput: { signal: "SIGXFSZ", stderr: "before file limit\n" },
+    });
+  },
+);

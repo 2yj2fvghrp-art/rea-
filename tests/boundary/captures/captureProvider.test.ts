@@ -1,3 +1,4 @@
+import { OwnedCommandFailure } from "../../../src/process/OwnedCommand.js";
 import { it, expect, onTestFinished } from "vitest";
 import { writeFile, readdir, chmod, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,10 +18,11 @@ const fixture = async (mode = "ok", failCleanup = false) => {
   const script = join(directory, "producer.mjs");
   await writeFile(
     script,
-    `import {readFileSync, writeFileSync, chmodSync} from 'node:fs';
-if (process.argv.includes('--version')) console.log('TShark (Wireshark) 4.6.9 (fixture)');
+    `import {readFileSync, writeFileSync, chmodSync, truncateSync} from 'node:fs';
+if (process.argv.includes('--version')) { console.log('TShark (Wireshark) 4.6.9 (fixture)'); console.error('version warning'); }
 else if (${JSON.stringify(mode)} === 'nonzero') { console.error('invalid decoder'); process.exitCode = 1; }
 else if (${JSON.stringify(mode)} === 'malformed-copy') { chmodSync('capture', 0o600); writeFileSync('capture', 'changed'); }
+else if (${JSON.stringify(mode)} === 'oversized-copy') { chmodSync('capture', 0o600); truncateSync('capture', 32 * 1024 * 1024 + 1); console.log('[]'); }
 else if (${JSON.stringify(mode)} === 'overflow') process.stdout.write('x'.repeat(5 * 1024 * 1024));
 else if (${JSON.stringify(mode)} === 'wait') { console.log('ready'); setInterval(() => {}, 1000); }
 else if (${JSON.stringify(mode)} === 'invalid-json') console.log('not json');
@@ -42,6 +44,20 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
     },
     async (input) => {
       calls++;
+      if (mode === "file-limit" && !input.arguments.includes("--version")) {
+        const stdout = { text: "", bytes: 0, observedBytes: 0 };
+        const stderr = {
+          text: "before file limit\n",
+          bytes: 18,
+          observedBytes: 18,
+        };
+        throw new OwnedCommandFailure("process", "Synthetic SIGXFSZ snapshot", {
+          stdout,
+          stderr,
+          exitCode: null,
+          signal: "SIGXFSZ",
+        });
+      }
       const spawned = await spawnOwnedProviderProcess({
         ...input,
         command: process.execPath,
@@ -73,10 +89,14 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
     },
     "linux",
     async (...args) => {
+      if (mode === "oversized-tool" && calls === 2 && args[0] === script) {
+        const { truncate } = await import("node:fs/promises");
+        await truncate(script, 64 * 1024 * 1024 + 1);
+      }
       if (mode === "post-run-abort" && calls === 2) controller.abort();
       return readStableArtifact(...args);
     },
-    async (limits) => limits,
+    async (limits) => ({ ...limits, file_bytes: 1048576 }),
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -110,6 +130,7 @@ it("inspects an immutable copy, preserves options and warnings, and releases its
     { "frame.number": ["1"], "ip.addr": ["192.0.2.1", "192.0.2.2"] },
   ]);
   expect(report.diagnostics).toBe("producer warning\n");
+  expect(report.tool.version_diagnostics).toBe("version warning\n");
   expect(report.read_scope).toBe("up-to-input-packet-limit");
   expect(report.tool.arguments).toEqual([
     "-n",
@@ -321,4 +342,57 @@ it("preserves configured symlink paths separately from resolved tool identities"
       path: join(f.directory, "producer.mjs"),
     },
   });
+});
+
+it.each(["oversized-copy", "oversized-tool"])(
+  "identifies the mutated %s without blaming the admitted source",
+  async (mode) => {
+    const f = await fixture(mode);
+    const result = await f.service.inspect({
+      path: f.path,
+      fields: ["ip.addr"],
+    });
+    if (result.ok) throw new Error("Expected changed artifact");
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisArtifactChangedError",
+      path:
+        mode === "oversized-tool"
+          ? join(f.directory, "producer.mjs")
+          : expect.stringMatching(/decoder-.*[/\\]capture$/u),
+    });
+    expect(
+      (await readdir(f.directory)).filter((name) =>
+        name.startsWith("decoder-"),
+      ),
+    ).toEqual([]);
+  },
+);
+it("preserves termination signal and effective file ceiling as a resource failure", async () => {
+  const f = await fixture("file-limit");
+  const result = await f.service.inspect({ path: f.path, fields: ["ip.addr"] });
+  if (result.ok) throw new Error("Expected resource failure");
+  expect(result.error).toMatchObject({
+    _tag: "AnalysisResourceConstraintError",
+    resource: "file-size",
+    reportedLimits: { file_bytes: 1048576 },
+    capturedOutput: { signal: "SIGXFSZ", stderr: "before file limit\n" },
+  });
+});
+
+it("rejects oversized selector lists and UTF-8 argv expansion before provider work", async () => {
+  const f = await fixture();
+  for (const selections of [
+    { fields: Array.from({ length: 1025 }, () => "ip.addr") },
+    { fields: ["x".repeat(8193)] },
+    { fields: ["x".repeat(8192)], display_filter: "界".repeat(8192) },
+    {
+      fields: ["ip.addr"],
+      decode_as: Array.from({ length: 1025 }, () => "udp.port==5555,dns"),
+    },
+  ]) {
+    const result = await f.service.inspect({ path: f.path, ...selections });
+    if (result.ok) throw new Error("Expected invalid selectors");
+    expect(result.error._tag).toBe("AnalysisInputError");
+  }
+  expect(f.calls()).toBe(0);
 });

@@ -113,3 +113,30 @@ it.each(["cancelled", "cleanup"])(
     );
   },
 );
+
+it("rejects oversized selector expansion through the MCP boundary before invoking the provider", async () => {
+  let calls = 0;
+  const packetCapture = new PacketCaptureService({
+    inspect: async () => {
+      calls++;
+      return err(new AnalysisCancelledError("inspect_packet_capture"));
+    },
+    close: async () => {},
+  });
+  const harness = await createApplicationMcpHarness({
+    serverOptions: { packetCapture },
+  });
+  onTestFinished(harness.close);
+  const response = await harness.client.callTool({
+    name: "inspect_packet_capture",
+    arguments: {
+      path:
+        process.platform === "win32" ? "C:\\recording.pcap" : "/recording.pcap",
+      fields: ["x".repeat(8192)],
+      display_filter: "界".repeat(8192),
+    },
+  });
+  expect(response.isError).toBe(true);
+  expect(JSON.stringify(response)).toContain("32 KiB");
+  expect(calls).toBe(0);
+});

@@ -5,7 +5,7 @@ import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { resolve } from "node:path";
 import { createPacketCaptureService } from "../composition/captures.js";
-import { inspectPacketCaptureInputSchema } from "../domain/captures/packetCapture.js";
+import { packetCaptureOptionsSchema } from "../domain/captures/packetCapture.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
@@ -25,7 +25,7 @@ export const registerCaptureCommands = (
     description:
       "Inspect an existing packet capture with caller-supplied TShark",
     args: z.object({ path: z.string().describe("Local packet capture") }),
-    options: inspectPacketCaptureInputSchema.omit({ path: true }),
+    options: packetCaptureOptionsSchema,
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.inspectPacketCapture, async () => {

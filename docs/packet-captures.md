@@ -38,6 +38,12 @@ absent; they are not converted to zero or empty arrays. Export-only index/score
 metadata is discarded. No payload bytes are automatically added; select a
 supported byte field such as `data.data` or `@data` when needed.
 
+Selectors are limited before argv expansion: at most 1,024 fields and 1,024
+`decode_as` rules, 8,192 UTF-16 code units per selector, and 32 KiB total encoded
+selector arguments (UTF-8 text, terminators, option names and argv pointers).
+This leaves headroom below Linux's [execve argument/environment limits](https://man7.org/linux/man-pages/man2/execve.2.html);
+an unusually large inherited environment can still prevent launching.
+
 Additional selections:
 
 - `display_filter`: Wireshark display-filter syntax; omitted means no filter.
@@ -59,7 +65,10 @@ Dissector results are observations, not independently verified device behavior.
 
 Evidence includes source path/digest/size, exact selections, typed packet fields,
 configured and resolved executable paths/digests/full version banner, arguments and stderr. Warnings remain
-visible even on exit zero. Two-pass mode cannot recover missing capture bytes.
+visible even on exit zero. `tool.version_diagnostics` also retains warnings from
+the separate version probe. Post-run identity failures identify the affected
+private copy, executable or limiter; resource-signal errors retain the signal
+and effective ceilings. Two-pass mode cannot recover missing capture bytes.
 
 Each call uses a private read-only capture copy and an empty personal
 configuration directory (`WIRESHARK_CONFIG_DIR`), with name resolution disabled.

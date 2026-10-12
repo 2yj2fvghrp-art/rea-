@@ -78,3 +78,41 @@ it.each([false, true])(
       });
   },
 );
+
+it("rejects an oversized selector budget before the CLI invokes its service", async () => {
+  const cli = Cli.create("capture-selector-test", { sync: false });
+  let called = false;
+  registerCaptureCommands(
+    cli,
+    silentLogger,
+    {},
+    {
+      inspect: async () => {
+        called = true;
+        throw new Error("Must not inspect");
+      },
+      close: async () => {},
+    },
+  );
+  let stdout = "";
+  await cli.serve(
+    [
+      "inspect-packet-capture",
+      "recording.pcap",
+      "--fields",
+      "x".repeat(8192),
+      "--display_filter",
+      "界".repeat(8192),
+      "--format",
+      "json",
+    ],
+    {
+      stdout: (text) => {
+        stdout += text;
+      },
+      exit: () => {},
+    },
+  );
+  expect(called).toBe(false);
+  expect(stdout).toContain("32 KiB");
+});
