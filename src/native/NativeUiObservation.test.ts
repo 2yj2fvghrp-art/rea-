@@ -94,7 +94,7 @@ describe("native UI screenshot validation", () => {
     const bytes = Buffer.from(validPng);
     const type = bytes.subarray(12, 16);
     expect(type.toString("ascii")).toBe("IHDR");
-    type[0] |= 0x80;
+    type[0] = (type[0] ?? 0) | 0x80;
     const screenshot = {
       mime_type: "image/png",
       base64: bytes.toString("base64"),
