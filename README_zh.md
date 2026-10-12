@@ -260,7 +260,7 @@ npx rea-agents@latest setup
 
 ## Star 历史
 
-🎉 **GitHub Star 达到 90,000 个，感谢大家！**
+🎉 **GitHub Star 达到 110,000 个，感谢大家！**
 
 感谢每一位使用 REA、报告错误、提出功能需求、测试构建和贡献修复的朋友。
 
@@ -273,6 +273,8 @@ npx rea-agents@latest setup
 </a>
 
 ## 免责声明
+
+负责任使用的相关指引请见 [DISCLAIMER.md](DISCLAIMER.md)。
 
 REA 为合法的逆向工程研究、分析和重建提供工具。你有责任取得所需授权并遵守适用法律。项目不支持非法或未经授权的使用。
 

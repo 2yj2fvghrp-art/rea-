@@ -258,7 +258,7 @@ Báo cáo lỗ hổng theo [SECURITY.md](SECURITY.md).
 
 ## Lịch sử sao
 
-🎉 **90.000 sao trên GitHub — xin cảm ơn!**
+🎉 **110.000 sao trên GitHub — xin cảm ơn!**
 
 Cảm ơn mọi người đã sử dụng REA, báo lỗi, đề xuất tính năng, kiểm thử bản dựng và đóng góp bản sửa lỗi.
 
@@ -271,6 +271,8 @@ Cảm ơn mọi người đã sử dụng REA, báo lỗi, đề xuất tính n�
 </a>
 
 ## Miễn trừ trách nhiệm
+
+Xem [DISCLAIMER.md](DISCLAIMER.md) để biết hướng dẫn sử dụng có trách nhiệm.
 
 REA cung cấp công cụ cho nghiên cứu dịch ngược, phân tích và tái tạo hợp pháp. Bạn có trách nhiệm có được các quyền cho phép cần thiết và tuân thủ luật áp dụng. Dự án không ủng hộ việc sử dụng trái pháp luật hoặc không được cho phép.
 

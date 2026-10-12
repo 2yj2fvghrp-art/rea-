@@ -243,13 +243,15 @@ npx rea-agents@latest setup
 
 ## تاریخچهٔ ستاره‌ها
 
-🎉 **۹۰٬۰۰۰ ستارهٔ GitHub — سپاسگزاریم!**
+🎉 **۱۱۰٬۰۰۰ ستارهٔ GitHub — سپاسگزاریم!**
 
 از همهٔ کسانی که از REA استفاده می‌کنند، خطاها را گزارش می‌دهند، قابلیت‌های جدید پیشنهاد می‌کنند، buildها را آزمایش می‌کنند و در بهبود پروژه مشارکت دارند سپاسگزاریم.
 
 <a href="https://www.star-history.com/?repos=morluto%2Frea&amp;type=date"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date&amp;theme=dark&amp;legend=top-left" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" /><img alt="تاریخچهٔ ستاره‌های GitHub پروژهٔ REA" src="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" /></picture></a>
 
 ## سلب مسئولیت
+
+برای راهنمای استفادهٔ مسئولانه، [DISCLAIMER.md](DISCLAIMER.md) را ببینید.
 
 REA ابزارهایی برای پژوهش، تحلیل و بازسازی قانونی در حوزهٔ مهندسی معکوس فراهم می‌کند. مسئولیت دریافت مجوزهای لازم و رعایت قوانین مربوط بر عهدهٔ شماست. این پروژه استفادهٔ غیرقانونی یا بدون مجوز را تأیید نمی‌کند.
 

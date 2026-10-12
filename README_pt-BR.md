@@ -258,7 +258,7 @@ Relate vulnerabilidades conforme [SECURITY.md](SECURITY.md).
 
 ## Histórico de estrelas
 
-🎉 **90.000 estrelas no GitHub — muito obrigado!**
+🎉 **110.000 estrelas no GitHub — muito obrigado!**
 
 Obrigado a todos que usam o REA, relatam bugs, sugerem funcionalidades, testam builds e contribuem com correções.
 
@@ -271,6 +271,8 @@ Obrigado a todos que usam o REA, relatam bugs, sugerem funcionalidades, testam b
 </a>
 
 ## Aviso legal
+
+Consulte [DISCLAIMER.md](DISCLAIMER.md) para orientações sobre o uso responsável.
 
 O REA fornece ferramentas para pesquisa, análise e reconstrução por engenharia reversa dentro da lei. Você é responsável por obter as autorizações necessárias e cumprir as leis aplicáveis. O projeto não apoia usos ilegais ou não autorizados.
 

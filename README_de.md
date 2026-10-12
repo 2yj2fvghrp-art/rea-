@@ -258,7 +258,7 @@ Melde Sicherheitslücken gemäß [SECURITY.md](SECURITY.md).
 
 ## Sternverlauf
 
-🎉 **90.000 GitHub-Sterne – vielen Dank!**
+🎉 **110.000 GitHub-Sterne – vielen Dank!**
 
 Danke an alle, die REA nutzen, Fehler melden, Funktionswünsche äußern, Builds testen und Fehlerbehebungen beitragen.
 
@@ -271,6 +271,8 @@ Danke an alle, die REA nutzen, Fehler melden, Funktionswünsche äußern, Builds
 </a>
 
 ## Haftungsausschluss
+
+Hinweise zur verantwortungsvollen Nutzung findest du in [DISCLAIMER.md](DISCLAIMER.md).
 
 REA stellt Werkzeuge für rechtmäßige Reverse-Engineering-Forschung, Analyse und Rekonstruktion bereit. Du bist dafür verantwortlich, erforderliche Genehmigungen einzuholen und geltendes Recht einzuhalten. Das Projekt unterstützt keine rechtswidrige oder unbefugte Nutzung.
 

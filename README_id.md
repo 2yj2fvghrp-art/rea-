@@ -283,7 +283,7 @@ Laporkan kerentanan melalui [SECURITY.md](SECURITY.md).
 
 ## Riwayat Bintang
 
-🎉 **90.000 bintang GitHub, terima kasih!**
+🎉 **110.000 bintang GitHub, terima kasih!**
 
 Terima kasih kepada semua orang yang menggunakan REA, melaporkan bug, meminta fitur, menguji build, dan berkontribusi dalam perbaikan.
 
@@ -296,6 +296,8 @@ Terima kasih kepada semua orang yang menggunakan REA, melaporkan bug, meminta fi
 </a>
 
 ## Penafian
+
+Lihat [DISCLAIMER.md](DISCLAIMER.md) untuk panduan penggunaan yang bertanggung jawab.
 
 REA menyediakan alat untuk penelitian, analisis, dan rekonstruksi rekayasa balik yang sah. Anda bertanggung jawab untuk memperoleh otorisasi yang diperlukan dan mematuhi hukum yang berlaku. Proyek ini tidak mendukung penggunaan ilegal atau tanpa izin.
 

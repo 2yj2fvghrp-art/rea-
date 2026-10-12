@@ -258,7 +258,7 @@ Güvenlik açıklarını [SECURITY.md](SECURITY.md) üzerinden bildirin.
 
 ## Yıldız geçmişi
 
-🎉 **GitHub'da 90.000 yıldız — teşekkürler!**
+🎉 **GitHub'da 110.000 yıldız — teşekkürler!**
 
 REA'yı kullanan, hata bildiren, özellik talep eden, derlemeleri test eden ve düzeltmelere katkıda bulunan herkese teşekkürler.
 
@@ -271,6 +271,8 @@ REA'yı kullanan, hata bildiren, özellik talep eden, derlemeleri test eden ve d
 </a>
 
 ## Sorumluluk reddi
+
+Sorumlu kullanım yönergeleri için [DISCLAIMER.md](DISCLAIMER.md) dosyasına bakın.
 
 REA, yasal tersine mühendislik araştırması, analizi ve yeniden oluşturma için araçlar sağlar. Gerekli izinleri almak ve geçerli yasalara uymak sizin sorumluluğunuzdadır. Proje yasa dışı veya yetkisiz kullanımı desteklemez.
 
