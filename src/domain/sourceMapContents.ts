@@ -3,7 +3,8 @@ export const hasValidSourceMapContents = (
   sourceCount: number,
   contents: unknown,
 ): boolean =>
-  contents == null ||
+  contents === undefined ||
+  contents === null ||
   (Array.isArray(contents) &&
     contents.length === sourceCount &&
     contents.every(

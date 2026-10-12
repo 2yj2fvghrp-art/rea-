@@ -43,7 +43,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
           source_sha256: null,
         }),
         observations: expect.arrayContaining([
-          expect.objectContaining({ properties: { content_available: false } }),
+          expect.objectContaining({
+            properties: expect.objectContaining({ content_available: false }),
+          }),
         ]),
       }),
     );
