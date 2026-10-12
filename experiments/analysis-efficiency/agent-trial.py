@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import time
 
+from codex_context import capture_tool_context
+
 
 def file_digest(path):
     digest = hashlib.sha256()
@@ -48,6 +50,8 @@ def main():
     parser.add_argument('--providers', type=Path)
     parser.add_argument('--enabled-tools', type=Path)
     parser.add_argument('--authority', choices=['static', 'browser'], default='static')
+    parser.add_argument('--capture-tool-context', action='store_true',
+                        help='Retain owned tool/usage items; excludes account/ambient state')
     args = parser.parse_args()
     def terminate(signum, _frame):
         # The outer resource scope terminates descendants together. Ensure the
@@ -183,6 +187,7 @@ def main():
         (args.output / 'prompt.txt').write_text(prompt)
         (args.output / 'trial-settings.json').write_text(json.dumps({
             'mode': args.mode, 'model': args.model, 'reasoning': args.reasoning,
+            'capture_tool_context': args.capture_tool_context,
             'driver_commit': subprocess.check_output(
                 ['git', 'rev-parse', 'HEAD'], cwd=driver_repository, text=True).strip(),
             'runtime_revision': args.revision,
@@ -196,7 +201,7 @@ def main():
             'package_lock_sha256': file_digest(repository / 'package-lock.json'),
             'experiment_sources_sha256': {
                 name: hashlib.sha256((experiment / name).read_bytes()).hexdigest()
-                for name in ['agent-trial.py', 'provider-environment.json']
+                for name in ['agent-trial.py', 'codex_context.py', 'provider-environment.json']
             },
             'developer_instructions': instruction,
             'developer_instructions_sha256': hashlib.sha256(instruction.encode()).hexdigest(),
@@ -212,7 +217,8 @@ def main():
                          'multi_agent': False, 'code_mode': args.mode == 'client-code',
                          'code_mode_only': args.mode == 'client-code'},
         }, indent=2) + '\n')
-        invocation = [args.codex, '--no-daemon', 'exec', '--strict-config', '--ephemeral',
+        invocation = [args.codex, '--no-daemon', 'exec', '--strict-config',
+                      *([] if args.capture_tool_context else ['--ephemeral']),
                       '--skip-git-repo-check', '--ignore-rules', '--json',
                       '--color', 'never', '-C', str(workspace),
                       '--output-last-message', str(args.output.resolve() / 'answer.txt'), '-']
@@ -234,26 +240,28 @@ def main():
         usage = []
         tools = []
         event_types = {}
-        for line in (args.output / 'events.jsonl').open():
-            if not line.strip():
-                continue
-            event = json.loads(line)
-            kind = event.get('type', 'unknown')
-            event_types[kind] = event_types.get(kind, 0) + 1
-            if 'usage' in event:
-                usage.append(event['usage'])
-            item = event.get('item', {})
-            if item.get('type') == 'mcp_tool_call' and kind == 'item.completed':
-                tools.append({
-                    **{k: item.get(k) for k in ['server', 'tool', 'arguments', 'status', 'error']},
-                    'codex_event_result_json_utf8_bytes': len(json.dumps(
-                        item.get('result'), separators=(',', ':'), ensure_ascii=False
-                    ).encode()),
-                })
+        with (args.output / 'events.jsonl').open() as event_file:
+            for line in event_file:
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                kind = event.get('type', 'unknown')
+                event_types[kind] = event_types.get(kind, 0) + 1
+                if 'usage' in event:
+                    usage.append(event['usage'])
+                item = event.get('item', {})
+                if item.get('type') == 'mcp_tool_call' and kind == 'item.completed':
+                    tools.append({
+                        **{k: item.get(k) for k in ['server', 'tool', 'arguments', 'status', 'error']},
+                        'codex_event_result_json_utf8_bytes': len(json.dumps(
+                            item.get('result'), separators=(',', ':'), ensure_ascii=False
+                        ).encode()),
+                    })
         final_target_digest = file_digest(Path(args.artifact_path)) if args.artifact_path else None
         summary = {
             'mode': args.mode, 'requested_model': args.model, 'reasoning': args.reasoning,
             'runtime_revision': args.revision,
+            'capture_tool_context_requested': args.capture_tool_context,
             'selected_artifact_sha256_before': target_digest,
             'selected_artifact_sha256_after': final_target_digest,
             'selected_artifact_bytes_unchanged': target_digest == final_target_digest if target_digest else None,
@@ -268,9 +276,13 @@ def main():
         (args.output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps(summary))
     finally:
-        # Always remove copied credentials, config, caches and profile state.
-        shutil.rmtree(profile)
-        (args.output / 'cleanup.json').write_text(json.dumps({'profile_removed': not profile.exists()}) + '\n')
+        try:
+            if args.capture_tool_context:
+                capture_tool_context(trial_codex_home, args.output)
+        finally:
+            # Capture failure must never prevent copied-credential cleanup.
+            shutil.rmtree(profile)
+            (args.output / 'cleanup.json').write_text(json.dumps({'profile_removed': not profile.exists()}) + '\n')
     raise SystemExit(124 if timeout else exit_code)
 
 
