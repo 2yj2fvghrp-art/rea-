@@ -5,8 +5,15 @@ import type { SignalRecordingService } from "../application/signals/SignalRecord
 import { createSignalRecordingService } from "../composition/signals.js";
 import { registerSignalTools } from "./registerSignalTools.js";
 import type { WasmArtifactService } from "../application/wasm/WasmArtifactService.js";
-import { wasmArtifactModule } from "../composition/wasm.js";
-import { registerWasmTools } from "./registerWasmTools.js";
+import type { WasmComponentService } from "../application/wasm/WasmComponentService.js";
+import {
+  createWasmComponentService,
+  wasmArtifactModule,
+} from "../composition/wasm.js";
+import {
+  registerWasmComponentTool,
+  registerWasmTools,
+} from "./registerWasmTools.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import type { PeResourcesService } from "../application/binaryDiagnostics/PeResourcesService.js";
@@ -136,6 +143,7 @@ export interface CreateServerOptions {
   readonly packetCapture?: PacketCaptureService;
   readonly signalRecording?: SignalRecordingService;
   readonly wasmArtifact?: WasmArtifactService;
+  readonly wasmComponent?: WasmComponentService;
   readonly evmInterface?: EvmInterfaceService;
   readonly sqliteDatabase?: SqliteDatabaseService;
   readonly logger?: Logger;
@@ -589,6 +597,13 @@ const registerConfiguredAnalysisTools = (
     recordEvidence,
     withAdmittedAnalysis,
     evidenceById,
+  );
+  registerWasmComponentTool(
+    server,
+    options.wasmComponent ?? createWasmComponentService(),
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
   );
   registerEvmTools(
     server,
