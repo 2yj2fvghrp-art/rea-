@@ -229,7 +229,17 @@ const contextualCandidate = (
       return unresolvedCandidate("rejected", [
         "The URL reference path percent-decodes to NUL or to bytes that are not UTF-8.",
       ]);
-    declared = decoded;
+    // Empty URL segments are significant; canonical filesystem paths cannot
+    // preserve them, including their interaction with following dot segments.
+    if (decoded.includes("//"))
+      return unresolvedCandidate("unavailable", [
+        "Repeated URL path separators cannot be mapped to an exact canonical artifact file.",
+      ]);
+    return exactUrlPathCandidate(
+      decoded,
+      relativeCandidate(input.sourcePath, decoded),
+      "URL",
+    );
   }
   return relativeCandidate(input.sourcePath, declared);
 };
@@ -683,37 +693,34 @@ const htmlCandidate = (
   const basePath = decodedBase.startsWith("/")
     ? decodedBase.slice(1)
     : posix.join(posix.dirname(input.sourcePath), decodedBase);
-  if (declaredPath === "") return emptyHtmlReference(decodedBase, basePath);
+  if (declaredPath === "")
+    return exactUrlPathCandidate(decodedBase, basePath, "HTML");
   return posix.join(htmlBaseDirectory(decodedBase, basePath), declaredPath);
 };
 
-const emptyHtmlReference = (
-  base: string,
-  basePath: string,
+const exactUrlPathCandidate = (
+  declared: string,
+  candidate: string,
+  kind: "HTML" | "URL",
 ): string | CandidateResolution => {
-  if (!htmlBaseIsDirectory(base)) return basePath;
-  const confined = confineCandidate(basePath);
+  if (!urlPathIsDirectory(declared)) return candidate;
+  const confined = confineCandidate(candidate);
   if (typeof confined !== "string") return confined;
   return unresolvedCandidate("not-found", [
-    `The HTML reference resolves to directory ${confined || "."}, not an exact selected application file.`,
+    `The ${kind} reference resolves to directory ${confined || "."}, not an exact selected application file.`,
   ]);
 };
 
-/**
- * The directory a relative HTML reference resolves against. A base path
- * ending in "/" or in a "." or ".." segment is already a directory, because a
- * relative reference resolves against the base URL's directory and those
- * segments are dropped rather than stepped through.
- */
-const htmlBaseIsDirectory = (base: string): boolean =>
-  base.endsWith("/") ||
-  base.endsWith("/.") ||
-  base.endsWith("/..") ||
-  base === "." ||
-  base === "..";
+/** Whether a URL path retains directory form after dot-segment normalization. */
+const urlPathIsDirectory = (path: string): boolean =>
+  path.endsWith("/") ||
+  path.endsWith("/.") ||
+  path.endsWith("/..") ||
+  path === "." ||
+  path === "..";
 
 const htmlBaseDirectory = (base: string, basePath: string): string =>
-  htmlBaseIsDirectory(base) ? basePath : posix.dirname(basePath);
+  urlPathIsDirectory(base) ? basePath : posix.dirname(basePath);
 
 const confineCandidate = (candidate: string): string | CandidateResolution => {
   const normalized = normalizeJoinedLogicalPath(candidate);

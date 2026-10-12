@@ -47,6 +47,13 @@ cliTest(
         resolved: "parent-worker.js",
       },
       {
+        source: "nested/dot-segments.mjs",
+        expression:
+          'new Worker(new URL("./child/.././worker.js", import.meta.url));',
+        specifier: "./child/.././worker.js",
+        resolved: "nested/worker.js",
+      },
+      {
         source: "nested/template.mjs",
         expression:
           "new Worker(new URL(`./template-worker.js`, import.meta.url));",
@@ -142,6 +149,12 @@ cliTest(
       "extension.mjs":
         'new Worker(new URL("./extensionless", import.meta.url));',
       "directory.mjs": 'new Worker(new URL("./directory", import.meta.url));',
+      "directory-dot.mjs":
+        'new Worker(new URL("./worker.js/.", import.meta.url));',
+      "directory-parent.mjs":
+        'new Worker(new URL("./worker.js/child/..", import.meta.url));',
+      "empty-segment.mjs":
+        'new Worker(new URL("./child//../worker.js", import.meta.url));',
       "package.mjs":
         'new Worker(new URL("./package-worker", import.meta.url));',
       "external.mjs":
@@ -157,6 +170,9 @@ cliTest(
     const knownSpecifiers: Readonly<Record<string, string>> = {
       "extension.mjs": "./extensionless",
       "directory.mjs": "./directory",
+      "directory-dot.mjs": "./worker.js/.",
+      "directory-parent.mjs": "./worker.js/child/..",
+      "empty-segment.mjs": "./child//../worker.js",
       "package.mjs": "./package-worker",
       "external.mjs": "https://example.test/worker.js",
     };
