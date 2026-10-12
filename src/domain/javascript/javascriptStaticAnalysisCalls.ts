@@ -144,8 +144,12 @@ const workerUrlSpecifier = (
   // The module URL's scheme and filesystem/origin root are unavailable. Only
   // relative pathnames can establish a location within the artifact; retain
   // rooted paths and paths requiring URL text normalization as expressions.
+  // Malformed percent escapes survive HTTP URL parsing but cannot be converted
+  // from a file URL to a Node Worker path. Without the base scheme, keep that
+  // ambiguity unknown; query and fragment bytes do not affect pathname lookup.
   return pathname.length > 0 &&
     !pathname.startsWith("/") &&
+    !/%(?![0-9a-f]{2})/iu.test(pathname) &&
     stripQueryAndFragment(htmlUrlText(specifier)) === pathname
     ? specifier
     : undefined;

@@ -431,15 +431,18 @@ export function* indexJavaScriptElectronIdentitySteps(
   };
   yield* collectJavaScriptIdentityWritesSteps(
     program,
-    (root, kind) => {
-      if (kind === "opaque-call") return interop.opaqueMutationPath(root);
+    (node, kind) => {
+      if (kind === "opaque-call") return [interop.opaqueMutationPath(node)];
+      const { root, members } = electronMemberPath(node);
       const exported = kind === "binding" ? undefined : rootExport(root);
-      return exported === undefined
-        ? (interop.intrinsicPath(root) ??
+      const path =
+        exported === undefined
+          ? (interop.intrinsicPath(root) ??
             (kind === "member"
               ? interop.boundIntrinsic(root)?.path
               : undefined))
-        : ["electron", ...exported];
+          : ["electron", ...exported];
+      return path === undefined ? [] : [[...path, ...members]];
     },
     interop.intrinsicInvocation,
     interop.staticString,

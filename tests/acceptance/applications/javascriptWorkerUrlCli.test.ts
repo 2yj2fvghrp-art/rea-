@@ -187,6 +187,14 @@ cliTest(
       ...[
         'import.meta.unrelated = "metadata";',
         'globalThis["import.meta"] = { url: "file:///other/entry.mjs" };',
+        'const meta = import.meta; meta.unrelated = "metadata";',
+        'const ambient = globalThis; ambient.unrelated = "metadata";',
+        'const copy = { ...import.meta }; Object.defineProperty(copy, "url", { value: "file:///other/entry.mjs" });',
+        "const copy = { ...globalThis }; copy.URL = replacement;",
+        "function update(globalThis) { const ambient = globalThis; ambient.URL = replacement; } update({});",
+        "const define = Object.defineProperty.bind(Object);",
+        'Object.defineProperty(...[import.meta, "unrelated", { value: "metadata" }]);',
+        'let meta = import.meta; meta = {}; let base = import.meta.url; base = "file:///other/entry.mjs";',
       ].map((mutation, index) => ({
         source: `nested/unrelated-meta-${index}.mjs`,
         expression: `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
@@ -243,8 +251,15 @@ cliTest(
         specifier: "./percent%2520worker.js",
         resolved: "nested/percent%20worker.js",
       },
+      {
+        source: "nested/literal-percent.mjs",
+        expression:
+          'new Worker(new URL("./percent%25worker.js", import.meta.url));',
+        specifier: "./percent%25worker.js",
+        resolved: "nested/percent%worker.js",
+      },
       ...["?value=", "#value="].map((suffix, index) => {
-        const specifier = `./worker.js${suffix}%2F%2E%5C%00%FF\\\0`;
+        const specifier = `./worker.js${suffix}%2F%2E%5C%00%FF%GG%2%\\\0`;
         return {
           source: `nested/suffix-${index}.mjs`,
           expression: `new Worker(new URL(${JSON.stringify(specifier)}, import.meta.url));`,
@@ -307,10 +322,18 @@ cliTest(
   "keeps unsupported Worker URL expressions and missing exact files unresolved through the CLI",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-worker-url-unknown-");
+    const malformedPercentPaths = [
+      ["./worker%.js", "worker%.js"],
+      ["./worker%2.js", "worker%2.js"],
+      ["./worker%GG.js", "worker%GG.js"],
+      ["./space%20worker%GG.js", "space worker%GG.js"],
+    ];
     const expressions = {
       "dynamic-path.mjs": "new Worker(new URL(path, import.meta.url));",
       "absolute.mjs":
         'import { Worker } from "node:worker_threads"; new Worker(new URL("/worker.js", import.meta.url));',
+      "typed-apply-meta.ts":
+        'import { Worker } from "node:worker_threads"; Object.defineProperty.apply(Object, ([import.meta, "url", { value: "file:///other.mjs" }] as const)); new Worker(new URL("./worker.js", import.meta.url));',
       ...Object.fromEntries(
         ["globalThis.URL", "URL", 'globalThis["URL"]'].map((target, index) => [
           `overwritten-url-${index}.mjs`,
@@ -324,6 +347,10 @@ cliTest(
           "globalThis[key] = replacement;",
           'Object.defineProperty(globalThis, "URL", { value: replacement });',
           'Reflect.set(globalThis, "URL", replacement);',
+          "globalThis.globalThis.URL = replacement;",
+          "globalThis.global.URL = replacement;",
+          "const ambient = globalThis; ambient.URL = replacement;",
+          "const { globalThis: ambient } = globalThis; ambient.URL = replacement;",
         ].map((mutation, index) => [
           `mutated-url-${index}.mjs`,
           `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
@@ -335,9 +362,22 @@ cliTest(
           "delete import.meta.url;",
           'Object.defineProperty(import.meta, "url", { value: "file:///other/entry.mjs" });',
           "import.meta[key] = replacement;",
+          'const meta = import.meta; const alias = meta; alias.url = "file:///other/entry.mjs";',
+          'let meta = import.meta; meta.url = "file:///other/entry.mjs"; meta = {};',
+          'const define = Object.defineProperty; define(import.meta, "url", { value: "file:///other/entry.mjs" });',
+          'const set = Reflect.set.bind(Reflect); set(import.meta, "url", "file:///other/entry.mjs");',
+          'Object.defineProperty.bind(Object, import.meta, "url")({ value: "file:///other/entry.mjs" });',
+          'Object.assign(...[import.meta, { url: "file:///other/entry.mjs" }]);',
+          'Object.defineProperty(...[import.meta, "url", { value: "file:///other/entry.mjs" }]);',
         ].map((mutation, index) => [
           `mutated-import-meta-${index}.mjs`,
           `import { Worker } from "node:worker_threads"; ${mutation} new Worker(new URL("./worker.js", import.meta.url));`,
+        ]),
+      ),
+      ...Object.fromEntries(
+        malformedPercentPaths.map(([specifier], index) => [
+          `malformed-percent-${index}.mjs`,
+          `import { Worker } from "node:worker_threads"; new Worker(new URL(${JSON.stringify(specifier)}, import.meta.url));`,
         ]),
       ),
       "dynamic-base.mjs": 'new Worker(new URL("./worker.js", base));',
@@ -384,6 +424,12 @@ cliTest(
     };
     await writeFixtureFiles(root, {
       ...expressions,
+      ...Object.fromEntries(
+        malformedPercentPaths.map(([, decoy]) => [
+          decoy,
+          "self.postMessage('malformed percent pathname decoy');",
+        ]),
+      ),
       "worker.js": "self.postMessage('existing decoy');",
       "other.js": "self.postMessage('custom URL result decoy');",
       "extensionless.js": "self.postMessage('extension decoy');",
