@@ -9,8 +9,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   parseDshCordisDocument,
   serializeDshDocument,
-  withDshServer,
-  removeDshServer,
+  editDshDocument,
   dshClientRegistrationEntry,
 } from "./DshCordisPatch.js";
 import {
@@ -52,11 +51,6 @@ export interface ClientConfigurationDocument {
    * still loads them, and a native entry with the same name takes precedence.
    */
   readonly legacyServers: Record<string, unknown>;
-  /**
-   * Harness environment keys whose values are Cordis `!!js` expressions. The
-   * server record stores the expression text, which is not a literal REA path.
-   */
-  readonly cordisEnvironmentExpressions?: ReadonlySet<string>;
 }
 
 const objectSchema = z.record(z.string(), z.unknown());
@@ -199,14 +193,15 @@ export const withClientServers = (
   servers: Record<string, unknown>,
   removeLegacy?: string,
 ): Record<string, unknown> => {
-  const [key = "", nested] = parsed.serversPath; // The Harness patch list upserts or removes by entry id, not by table.
+  // The Harness patch list upserts or removes by entry id, not by table.
   if (parsed.dialect === "dsh")
     return Object.hasOwn(servers, PRODUCT_IDENTITY.mcpServerKey)
-      ? withDshServer(
+      ? editDshDocument(
           parsed,
           objectSchema.parse(servers[PRODUCT_IDENTITY.mcpServerKey]),
         )
-      : removeDshServer(parsed);
+      : editDshDocument(parsed);
+  const [key = "", nested] = parsed.serversPath;
   if (nested === undefined) return { ...parsed.document, [key]: servers };
   const outer = { ...objectSchema.parse(parsed.document[key]) };
   if (removeLegacy !== undefined && !OPENCODE_V2_MCP_SETTINGS.has(removeLegacy))
@@ -1302,7 +1297,7 @@ export const serializeClientConfiguration = (
     return serializeGrokConfiguration(document, originalText);
   if (format === "hermes")
     return serializeHermesConfiguration(document, originalText);
-  if (format === "dsh") return serializeDshDocument(document, originalText);
+  if (format === "dsh") return serializeDshDocument(document);
   // An empty original holds no comments or settings to preserve. Writing a
   // fresh document also keeps a lone BOM from shifting past the closing brace.
   if (

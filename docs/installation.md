@@ -287,6 +287,11 @@ entry is:
         args: ["/absolute/path/to/rea/scripts/rea.mjs", mcp]
 ```
 
+Setup preserves caller-owned Cordis expressions and replaces launcher fields
+with literal values that doctor can verify. It refuses to edit an expression
+that produces the entire REA config, or a group-targeted REA insertion. Use a
+literal config and a root-level insertion as shown above.
+
 For a global npm installation, the launcher is under
 `$(npm root -g)/rea-agents/scripts/rea.mjs`. Restart Harness after setup; it
 exposes tools as `mcp__rea__<tool_name>`. Run `rea setup --skill --dry-run`,

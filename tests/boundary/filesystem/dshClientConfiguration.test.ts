@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { npxRegistrationCommand } from "../../../src/application/ClientRegistrationIdentity.js";
@@ -392,65 +392,17 @@ describe("DeepSeek Harness repair boundaries", () => {
     ]);
   });
 
-  it("updates a grouped entry in place and drops the superseding disable op", async () => {
-    const { client } = await harnessClient();
-    await writeFile(
-      client.configPath,
-      `# agent group carrying several tools
-- id: agent-group
-  insert:
-    - id: user-tool
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        serverName: other
-        transport: stdio
-        command: other-server
-    - id: rea-mcp
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        serverName: rea
-        transport: stdio
-        command: stale-launcher
-        args: [mcp]
-- id: rea-mcp
-  disabled: true
-`,
-    );
-
+  it("refuses a group-targeted insertion whose applicability is unknown", async () => {
+    const { home, client } = await harnessClient();
+    const initial = stringifyYaml([
+      { id: "missing-group", insert: [canonicalEntry()] },
+    ]);
+    await writeFile(client.configPath, initial);
     expect(
       (await configureClientConfiguration(client, {}, command)).status,
-    ).toBe("configured");
-    const text = await readFile(client.configPath, "utf8");
-    expect(text).toContain("# agent group carrying several tools");
-    expect(text).not.toMatch(/^- id: rea-mcp$/mu);
-    // The entry keeps its position inside the group; nothing moves to a new
-    // root-level insertion.
-    expect(parseYaml(text)).toEqual([
-      {
-        id: "agent-group",
-        insert: [
-          {
-            id: "user-tool",
-            name: "@deepseek-ai/dsh-mcp-client",
-            config: {
-              serverName: "other",
-              transport: "stdio",
-              command: "other-server",
-            },
-          },
-          {
-            id: "rea-mcp",
-            name: "@deepseek-ai/dsh-mcp-client",
-            config: {
-              serverName: "rea",
-              transport: "stdio",
-              command: command[0],
-              args: command.slice(1),
-            },
-          },
-        ],
-      },
-    ]);
+    ).toBe("failed");
+    expect(await dshStatus(home)).not.toMatchObject({ state: "aligned" });
+    expect(await readFile(client.configPath, "utf8")).toBe(initial);
   });
 });
 
@@ -1580,3 +1532,283 @@ describe("DeepSeek Harness alias anchors", () => {
 });
 
 const textOf = (value: unknown): string => String(value);
+
+/** Same tagged expression representation as Harness's entry-list schema. */
+const cordisPatches = (text: string) =>
+  parseYaml(text, {
+    customTags: [
+      {
+        tag: "tag:yaml.org,2002:js",
+        resolve: (source: string) => ({ __jsExpr: source }),
+      },
+    ],
+  }) as { insert?: { id?: string; config?: Record<string, unknown> }[] }[];
+
+const canonicalEntry = () => ({
+  id: "rea-mcp",
+  name: "@deepseek-ai/dsh-mcp-client",
+  config: {
+    serverName: "rea",
+    transport: "stdio",
+    command: command[0],
+    args: command.slice(1),
+  },
+});
+
+const dshStatus = async (home: string) =>
+  (
+    await readClientRegistrationStatuses(home, undefined, {
+      platform: process.platform,
+      environment: {},
+    })
+  ).find(({ client }) => client === "dsh");
+
+describe("DeepSeek Harness source ownership", () => {
+  it.each(["setup", "uninstall"])(
+    "preserves unrelated rows in a later externally anchored operation during %s",
+    async (operation) => {
+      const { home, client } = await harnessClient();
+      const initial = `${stringifyYaml([{ insert: [canonicalEntry()] }])}- holder: &op
+    insert:
+      - id: other-tool
+        name: other
+        config: {command: keep-me}
+      - id: rea-mcp
+        name: '@deepseek-ai/dsh-mcp-client'
+        config: {serverName: rea, transport: stdio, command: stale, args: [mcp]}
+- *op
+`;
+      await writeFile(client.configPath, initial);
+      const result =
+        operation === "setup"
+          ? await configureClientConfiguration(client, {}, command)
+          : await systemUninstallHost(home).removeClient(client);
+      expect(result.status).toBe(
+        operation === "setup" ? "configured" : "removed",
+      );
+      const entries = loadedInserts(await readFile(client.configPath, "utf8"));
+      expect(entries.filter(({ id }) => id === "other-tool")).toEqual([
+        { id: "other-tool", name: "other", config: { command: "keep-me" } },
+      ]);
+      expect(entries.filter(({ id }) => id === "rea-mcp")).toHaveLength(
+        operation === "setup" ? 1 : 0,
+      );
+      expect(await readFile(`${client.configPath}.rea.backup`, "utf8")).toBe(
+        initial,
+      );
+    },
+  );
+
+  it.each(["inline", "aliased config"])(
+    "snapshots environment aliases before replacing their anchor in %s",
+    async (shape) => {
+      const { client } = await harnessClient();
+      const config = `serverName: rea
+      transport: stdio
+      command: stale-launcher
+      args: [mcp]
+      env:
+        A: &expr !!js process.env.TOKEN # caller expression
+        B: *expr
+`;
+      const initial =
+        shape === "inline"
+          ? `- insert:\n    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        ${config.replaceAll("\n", "\n  ").trimEnd()}\n`
+          : `- holder: &cfg\n      ${config}- insert:\n    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n      config: *cfg\n`;
+      await writeFile(client.configPath, initial);
+      expect(
+        (
+          await configureClientConfiguration(
+            client,
+            { A: "literal-override" },
+            command,
+          )
+        ).status,
+      ).toBe("configured");
+      const text = await readFile(client.configPath, "utf8");
+      const row = cordisPatches(text)
+        .flatMap((op) => op.insert ?? [])
+        .find(({ id }) => id === "rea-mcp");
+      expect(row?.config?.env).toEqual({
+        A: "literal-override",
+        B: { __jsExpr: "process.env.TOKEN" },
+      });
+      expect(text).toContain("# caller expression");
+      expect(
+        (
+          await configureClientConfiguration(
+            client,
+            { A: "literal-override" },
+            command,
+          )
+        ).status,
+      ).toBe("unchanged");
+    },
+  );
+
+  it("keeps expression aliases used by unrelated rows when removing their source entry", async () => {
+    const { home, client } = await harnessClient();
+    const initial = `- insert:
+    - id: rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        command: stale
+        cwd: &cwd !!js process.cwd()
+    - id: other-tool
+      name: other
+      config:
+        cwd: *cwd
+`;
+    await writeFile(client.configPath, initial);
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    expect(cordisPatches(await readFile(client.configPath, "utf8"))).toEqual([
+      {
+        insert: [
+          {
+            id: "other-tool",
+            name: "other",
+            config: { cwd: { __jsExpr: "process.cwd()" } },
+          },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("DeepSeek Harness registration applicability", () => {
+  it("preserves literal scalar keys in unrelated and caller-owned config", async () => {
+    const { client } = await harnessClient();
+    const initial = `- insert:
+    - id: other
+      name: caller-plugin
+      config: {1: one, true: yes}
+    - id: rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config: {command: stale, extra: {2: two}}
+`;
+    await writeFile(client.configPath, initial);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const rows = cordisPatches(await readFile(client.configPath, "utf8"))[0]
+      ?.insert;
+    expect(rows?.[0]?.config).toEqual({ "1": "one", true: "yes" });
+    expect(rows?.[1]?.config?.extra).toEqual({ "2": "two" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
+  it("uses direct-patch names as selectors and preserves the actual effective config", async () => {
+    const { home, client } = await harnessClient();
+    const entry = canonicalEntry();
+    const initial = stringifyYaml([
+      {
+        insert: [
+          {
+            ...entry,
+            name: "other-package",
+            config: { ...entry.config, env: { FROM_INSERT: "keep-me" } },
+          },
+        ],
+      },
+      {
+        id: "rea-mcp",
+        name: entry.name,
+        config: { ...entry.config, env: { FROM_SKIPPED_PATCH: "discard-me" } },
+      },
+    ]);
+    await writeFile(client.configPath, initial);
+    expect(await dshStatus(home)).toMatchObject({ state: "stale" });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(
+      cordisPatches(await readFile(client.configPath, "utf8"))[0]?.insert?.[0]
+        ?.config?.env,
+    ).toEqual({ FROM_INSERT: "keep-me" });
+    expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+  });
+
+  it.each(["serverName", "transport", "command", "args"] as const)(
+    "distinguishes expression-backed %s from literal launcher values",
+    async (key) => {
+      const { home, client } = await harnessClient();
+      const entry = canonicalEntry();
+      const doc = stringifyYaml([{ insert: [entry] }]);
+      const { parseDocument } = await import("yaml");
+      const yaml = parseDocument(doc);
+      const expression = yaml.createNode(
+        key === "args" ? "[]" : String(entry.config[key]),
+      );
+      expression.tag = "tag:yaml.org,2002:js";
+      yaml.setIn([0, "insert", 0, "config", key], expression);
+      await writeFile(client.configPath, yaml.toString());
+      expect((await dshStatus(home))?.state).not.toBe("aligned");
+      expect(
+        (await configureClientConfiguration(client, {}, command)).status,
+      ).toBe("configured");
+      expect(cordisPatches(await readFile(client.configPath, "utf8"))).toEqual([
+        { insert: [entry] },
+      ]);
+      expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+    },
+  );
+
+  it("keeps caller config separate from package, duplicate and activation diagnostics", async () => {
+    const { home, client } = await harnessClient();
+    const entry = canonicalEntry();
+    const initial = stringifyYaml([
+      {
+        insert: [
+          {
+            ...entry,
+            config: {
+              ...entry.config,
+              package: "caller-package",
+              duplicate: "caller-state",
+              disabled: "caller-value",
+              enabled: false,
+            },
+          },
+        ],
+      },
+    ]);
+    await writeFile(client.configPath, initial);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+    expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+    expect(await readFile(client.configPath, "utf8")).toBe(initial);
+  });
+
+  it.each([
+    "- &cycle {holder: *cycle}\n",
+    "- insert: [\n",
+    "- insert: *missing\n",
+    "- insert: [{id: rea-mcp, config: caller-value}]\n",
+    "- insert: [{id: rea-mcp, config: [caller-value]}]\n",
+    "- insert: [{id: rea-mcp, config: null}]\n",
+    [
+      "- holder: &a [value, value]",
+      "- holder: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a, *a]",
+      "- holder: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b, *b]",
+      "- insert: [{id: rea-mcp, config: {extra: *c}}]",
+    ].join("\n"),
+    "- insert: [{id: rea-mcp, name: '@deepseek-ai/dsh-mcp-client', config: !!js process.env.CONFIG}]\n",
+  ])("refuses unsafe YAML without mutation: %s", async (initial) => {
+    const { client } = await harnessClient();
+    await writeFile(client.configPath, initial);
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("failed");
+    expect(await readFile(client.configPath, "utf8")).toBe(initial);
+    await expect(
+      readFile(`${client.configPath}.rea.backup`),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+});

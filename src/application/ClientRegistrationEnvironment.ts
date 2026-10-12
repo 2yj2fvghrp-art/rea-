@@ -9,12 +9,15 @@ import {
 } from "./ClientConfigurationDocument.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import { dshDocument } from "./DshCordisPatch.js";
 
 /** Read explicit REA overrides without dropping peers when one value is invalid. */
 export const clientRegistrationEnvironment = (
   parsed: ClientConfigurationDocument | undefined,
   overrides: Readonly<Record<string, string>> = {},
 ): Result<Readonly<Record<string, string>>, ConfigurationError> => {
+  if (parsed?.dialect === "dsh")
+    return dshDocument(parsed.document).environment(overrides);
   const key =
     parsed?.dialect === "opencode" || parsed?.dialect === "opencode_v2"
       ? "environment"
@@ -42,19 +45,8 @@ export const clientRegistrationEnvironment = (
     );
   // Validate known settings with the runtime's parser, but retain the original
   // string overrides, including unknown client-specific keys and no defaults.
-  // A Cordis expression is source text, not a literal path, unless an override
-  // replaced it.
   const environment = { ...existing.data, ...overrides };
-  const expressions = parsed?.cordisEnvironmentExpressions;
-  const validated = parseEnvironment(
-    expressions === undefined || expressions.size === 0
-      ? environment
-      : Object.fromEntries(
-          Object.entries(environment).filter(
-            ([key]) => !expressions.has(key) || Object.hasOwn(overrides, key),
-          ),
-        ),
-  );
+  const validated = parseEnvironment(environment);
   if (!validated.ok) return validated;
   return ok(
     Object.fromEntries(

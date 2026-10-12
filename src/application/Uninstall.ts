@@ -22,7 +22,7 @@ import {
   skillDestinations,
 } from "./SetupSkill.js";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
-import { dshDocumentCarriesEntry } from "./DshCordisPatch.js";
+import { dshDocument } from "./DshCordisPatch.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
 import { readRegularFileText } from "./RegularFileRead.js";
 import {
@@ -264,7 +264,7 @@ const removeClient = async (
   // Harness ownership is the stable entry id. A stale or malformed launcher
   // still belongs to that id, and so does a direct patch that projects no row.
   const carriesDshEntry =
-    parsed.dialect === "dsh" && dshDocumentCarriesEntry(parsed.document);
+    parsed.dialect === "dsh" && dshDocument(parsed.document).carriesEntry;
   if (!hasNative && legacyPath === undefined && !carriesDshEntry)
     return item(client.name, "skipped", "REA registration is absent.");
   const removeNative =
@@ -317,6 +317,8 @@ const removeClient = async (
     );
     if (
       (removeNative && Object.hasOwn(readback.servers, name)) ||
+      (readback.dialect === "dsh" &&
+        dshDocument(readback.document).carriesEntry) ||
       (removeLegacy && Object.hasOwn(readback.legacyServers, name))
     )
       throw new Error("registration readback mismatch");

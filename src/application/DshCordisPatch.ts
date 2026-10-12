@@ -1,727 +1,334 @@
-import { isAlias, isMap, isScalar, isSeq } from "yaml";
-import type { Document, YAMLMap } from "yaml";
-import {
-  parse as parseYaml,
-  parseDocument as parseYamlDocument,
-  stringify as stringifyYaml,
-} from "yaml";
-
+import { isMap, isNode, isSeq, type Node, type YAMLMap } from "yaml";
+import { parseEnvironment } from "../config/environment.js";
+import { ConfigurationError } from "../domain/configurationErrors.js";
+import { err, ok, type Result } from "../domain/result.js";
 import type { ClientConfigurationDocument } from "./ClientConfigurationDocument.js";
+import { CordisExpression, DshCordisYaml } from "./DshCordisYaml.js";
 
-/**
- * DeepSeek Harness registers MCP clients through a Cordis YAML patch sequence
- * rather than a server table: each file is a list of operations, and an
- * `insert` operation carries entries identified by `id`. REA owns exactly one
- * entry id and never touches unrelated patches.
- */
 export const DSH_ENTRY_ID = "rea-mcp";
-/** The Harness MCP client package every REA registration loads. */
 export const DSH_CLIENT_PACKAGE = "@deepseek-ai/dsh-mcp-client";
-/** Document key holding the patch list inside the generic client machinery. */
-const PATCHES_KEY = "dshPatches";
-/**
- * Keys REA owns inside a Harness registration config; the rest is caller
- * territory and keeps its YAML node, including Cordis `!!js` tags.
- * `duplicate` is a read-side projection, never a field Harness loads.
- */
-const DSH_OWNED_CONFIG_KEYS: ReadonlySet<string> = new Set([
-  "serverName",
-  "transport",
-  "command",
-  "args",
-  "env",
-  "disabled",
-  "package",
-  "duplicate",
-]);
-
-/**
- * Cordis evaluates `!!js` expressions. The value parser keeps the source text
- * so a refresh can compare it, and the document parser keeps the tag itself.
- */
-const CORDIS_JAVASCRIPT_TAG = {
-  tag: "tag:yaml.org,2002:js",
-  resolve: (value: string): string => value,
-};
-
-const isInsertEntry = (value: unknown): value is Record<string, unknown> =>
+const LAUNCHER_KEYS = new Set(["serverName", "transport", "command", "args"]);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
   value !== null &&
   !Array.isArray(value) &&
-  Reflect.get(value, "id") === DSH_ENTRY_ID;
+  !(value instanceof CordisExpression);
 
-const parsePatchList = (text: string): readonly unknown[] => {
-  if (text.replace(/^\uFEFF/, "").trim() === "") return [];
-  const value: unknown = parseYaml(text, {
-    customTags: [CORDIS_JAVASCRIPT_TAG],
-  });
-  // A comment-only file has no document value. Cordis loads that as no patches,
-  // the same as an empty file, instead of a malformed root.
-  if (value === null) return [];
-  if (!Array.isArray(value))
-    throw new SyntaxError(
-      "DeepSeek Harness cordis.patch.yml must be a YAML list of patch operations",
+interface PatchOperation {
+  readonly source: unknown;
+  readonly map: YAMLMap<unknown, unknown>;
+  readonly ownedRows: readonly number[];
+  readonly direct: boolean;
+}
+
+/** One interpretation of identity, ordered patch applicability and source nodes. */
+export class DshCordisDocument {
+  readonly #yaml: DshCordisYaml;
+  readonly #operations: readonly PatchOperation[];
+  readonly #fields = new Map<string, unknown>();
+  #entryNode: YAMLMap<unknown, unknown> | undefined;
+  readonly #insertions: number;
+  readonly config: Record<string, unknown> | undefined;
+
+  constructor(text: string) {
+    this.#yaml = new DshCordisYaml(text);
+    const root = this.#yaml.document.contents;
+    if (!isSeq(root))
+      throw new ConfigurationError("Cordis patches must be a list");
+    const operations: PatchOperation[] = [];
+    let insertions = 0;
+    for (const source of root.items) {
+      const map = this.#map(source);
+      if (map === undefined) continue;
+      const inserted = this.#yaml.resolve(map.get("insert", true));
+      const ownedRows = isSeq(inserted)
+        ? inserted.items.flatMap((entry, index) =>
+            this.#id(entry) === DSH_ENTRY_ID ? [index] : [],
+          )
+        : [];
+      const direct = !isSeq(inserted) && this.#id(map) === DSH_ENTRY_ID;
+      if (ownedRows.length > 0 && this.#id(map))
+        throw new ConfigurationError(
+          "Cannot establish the target group for a Cordis REA insertion from the home patch alone",
+        );
+      operations.push({ source, map, ownedRows, direct });
+      if (isSeq(inserted)) {
+        for (const index of ownedRows) {
+          const entry = this.#map(inserted.items[index]);
+          if (entry === undefined) continue;
+          insertions += 1;
+          this.#entryNode = entry;
+          this.#fields.clear();
+          this.#readFields(entry);
+        }
+      } else if (direct && insertions > 0) {
+        // Cordis uses name as a selector, not a rename operation.
+        const selector = this.#yaml.value(map.get("name", true));
+        if (selector && selector !== this.#field("name")) continue;
+        this.#readFields(map, new Set(["id", "name"]));
+      }
+    }
+    this.#operations = operations;
+    this.#insertions = insertions;
+    const config = this.#field("config");
+    if (
+      config !== undefined &&
+      !(config instanceof CordisExpression) &&
+      !isRecord(config)
+    )
+      throw new ConfigurationError("Cordis REA config must be a mapping");
+    this.config = insertions === 0 ? undefined : isRecord(config) ? config : {};
+  }
+
+  #map(node: unknown): YAMLMap<unknown, unknown> | undefined {
+    const map = this.#yaml.resolve(node);
+    return isMap(map) ? map : undefined;
+  }
+  #id(node: unknown): unknown {
+    return this.#yaml.value(this.#map(node)?.get("id", true));
+  }
+  #field(key: string): unknown {
+    return this.#yaml.value(this.#fields.get(key));
+  }
+  #readFields(
+    map: YAMLMap<unknown, unknown>,
+    omitted: ReadonlySet<string> = new Set(),
+  ): void {
+    for (const pair of map.items) {
+      const key = this.#yaml.value(pair.key);
+      if (typeof key === "string" && !omitted.has(key))
+        this.#fields.set(key, pair.value);
+    }
+  }
+  get carriesEntry(): boolean {
+    return this.#operations.some((op) => op.direct || op.ownedRows.length > 0);
+  }
+  get ready(): boolean {
+    const disabled = this.#field("disabled");
+    return (
+      this.#insertions === 1 &&
+      this.#field("name") === DSH_CLIENT_PACKAGE &&
+      (disabled === undefined || disabled === false)
     );
-  return value;
-};
+  }
 
-/**
- * Parse the home patch into the shared client-document shape: the patch list
- * is retained verbatim under `dshPatches`, and the REA entry's `config`
- * becomes the `rea` server record the setup and doctor machinery reads.
- */
+  /** Validate literals without treating expression source as an environment value. */
+  environment(
+    overrides: Readonly<Record<string, string>> = {},
+  ): Result<Readonly<Record<string, string>>, ConfigurationError> {
+    if (this.#field("config") instanceof CordisExpression)
+      return err(
+        new ConfigurationError(
+          "Expression-backed Cordis config cannot be safely edited",
+          {
+            settings: [
+              {
+                setting: "config",
+                constraint:
+                  "Use a literal mapping to preserve caller fields during setup",
+              },
+            ],
+          },
+        ),
+      );
+    const raw = this.config?.env;
+    if (raw !== undefined && !isRecord(raw))
+      return err(
+        new ConfigurationError("Cordis server environment must be a mapping"),
+      );
+    const literals: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      if (value instanceof CordisExpression) continue;
+      if (typeof value !== "string")
+        return err(
+          new ConfigurationError("Invalid Cordis server environment", {
+            settings: [
+              {
+                setting: `env.${key}`,
+                constraint:
+                  "Environment values must be strings or Cordis expressions",
+              },
+            ],
+          }),
+        );
+      literals[key] = value;
+    }
+    const environment = { ...literals, ...overrides };
+    const validated = parseEnvironment(environment);
+    return validated.ok ? ok(environment) : validated;
+  }
+
+  desired(
+    command: readonly string[],
+    overrides: Readonly<Record<string, string>>,
+  ): Result<Record<string, unknown>, ConfigurationError> {
+    const environment = this.environment(overrides);
+    if (!environment.ok) return environment;
+    const env = {
+      ...(isRecord(this.config?.env) ? this.config.env : {}),
+      ...overrides,
+    };
+    const desired = { ...this.config, ...dshClientRegistrationEntry(command) };
+    delete desired.env;
+    if (Object.keys(env).length > 0) desired.env = env;
+    return ok(desired);
+  }
+
+  /** Plan every replacement from source snapshots before changing an output tree. */
+  serialize(desired?: Record<string, unknown>): string {
+    const root = this.#yaml.document.contents;
+    if (!isSeq(root))
+      throw new ConfigurationError("Cordis patches must be a list");
+    const replacements = new Map<unknown, unknown>();
+    const invalidated = new Set(
+      this.#operations.flatMap((op) =>
+        op.direct || op.ownedRows.length > 0
+          ? this.#yaml.anchors(op.source)
+          : [],
+      ),
+    );
+    let carried = false;
+    for (const op of this.#operations) {
+      if (op.direct) {
+        replacements.set(op.source, undefined);
+        continue;
+      }
+      if (op.ownedRows.length === 0) continue;
+      const copy = this.#yaml.detach(op.map, invalidated);
+      if (!isMap(copy))
+        throw new ConfigurationError("Cordis operation is not a mapping");
+      const inserted = this.#yaml.detach(
+        this.#yaml.resolve(op.map.get("insert", true)),
+        invalidated,
+      );
+      if (!isSeq(inserted))
+        throw new ConfigurationError("Cordis insertion is not a list");
+      copy.set("insert", inserted);
+      const owned = new Set(op.ownedRows);
+      inserted.items = inserted.items.flatMap((entry, index) => {
+        if (!owned.has(index)) return [entry];
+        if (carried || desired === undefined) return [];
+        carried = true;
+        return [this.#entry(desired, invalidated)] as typeof inserted.items;
+      });
+      replacements.set(
+        op.source,
+        inserted.items.length === 0 ? undefined : copy,
+      );
+    }
+    const output = this.#yaml.document.clone();
+    const outputRoot = output.contents;
+    if (!isSeq(outputRoot))
+      throw new ConfigurationError("Cordis patches must be a list");
+    outputRoot.items = root.items.flatMap((source) => {
+      const copy = replacements.has(source)
+        ? replacements.get(source)
+        : this.#yaml.copy(source, invalidated);
+      return copy === undefined ? [] : [copy];
+    }) as typeof outputRoot.items;
+    if (!carried && desired !== undefined)
+      outputRoot.items.push(
+        output.createNode({
+          insert: [
+            { id: DSH_ENTRY_ID, name: DSH_CLIENT_PACKAGE, config: desired },
+          ],
+        }) as never,
+      );
+    return output.toString({ lineWidth: 0 });
+  }
+
+  #entry(
+    desired: Record<string, unknown>,
+    invalidated: ReadonlySet<Node>,
+  ): YAMLMap<unknown, unknown> {
+    const entry = this.#yaml.detach(this.#entryNode, invalidated);
+    if (!isMap(entry))
+      throw new ConfigurationError("Cordis entry is not a mapping");
+    entry.set("id", this.#yaml.document.createNode(DSH_ENTRY_ID));
+    entry.set("name", this.#yaml.document.createNode(DSH_CLIENT_PACKAGE));
+    entry.delete("disabled");
+    for (const [key, value] of this.#fields) {
+      if (["id", "name", "config", "disabled"].includes(key)) continue;
+      entry.set(key, this.#yaml.detach(value, invalidated));
+    }
+    const sourceConfig = this.#map(this.#fields.get("config"));
+    const config =
+      sourceConfig === undefined
+        ? this.#yaml.document.createNode({})
+        : this.#yaml.detach(sourceConfig, invalidated);
+    if (!isMap(config))
+      throw new ConfigurationError(
+        "Cordis registration config is not a mapping",
+      );
+    // Caller nodes keep their tags and spelling; only literal launcher values change.
+    for (const key of LAUNCHER_KEYS)
+      config.set(key, this.#yaml.document.createNode(desired[key]));
+    const env = this.#map(sourceConfig?.get("env", true));
+    const desiredEnv = desired.env;
+    if (isRecord(desiredEnv)) {
+      const nextEnv =
+        env === undefined
+          ? this.#yaml.document.createNode({})
+          : this.#yaml.detach(env, invalidated);
+      if (!isMap(nextEnv))
+        throw new ConfigurationError("Cordis environment is not a mapping");
+      for (const [key, value] of Object.entries(desiredEnv)) {
+        const original = env?.get(key, true);
+        if (this.#yaml.value(original) === value) continue;
+        const replacement = this.#yaml.document.createNode(value);
+        if (isNode(original) && isNode(replacement)) {
+          if (original.comment !== undefined)
+            replacement.comment = original.comment;
+          if (original.commentBefore !== undefined)
+            replacement.commentBefore = original.commentBefore;
+        }
+        nextEnv.set(key, replacement);
+      }
+      config.set("env", nextEnv);
+    } else config.delete("env");
+    entry.set("config", config);
+    return entry;
+  }
+}
+
+class DshCordisEdit {
+  constructor(
+    readonly source: DshCordisDocument,
+    readonly desired?: Record<string, unknown>,
+  ) {}
+}
+export const dshDocument = (
+  document: Record<string, unknown>,
+): DshCordisDocument => {
+  if (!(document.cordis instanceof DshCordisDocument))
+    throw new ConfigurationError("Missing Cordis document owner");
+  return document.cordis;
+};
 export const parseDshCordisDocument = (
   text: string,
 ): ClientConfigurationDocument => {
-  const patches = parsePatchList(text);
-  const config = dshEntryConfig(patches);
-  const expressions = cordisEnvironmentExpressions(text);
+  const source = new DshCordisDocument(text);
   return {
-    document: { [PATCHES_KEY]: [...patches] },
-    servers: config === undefined ? {} : { rea: config },
-    serversPath: [PATCHES_KEY],
+    document: { cordis: source },
+    servers: source.config === undefined ? {} : { rea: source.config },
+    serversPath: [],
     dialect: "dsh",
     legacyServers: {},
-    ...(expressions.size === 0
-      ? {}
-      : { cordisEnvironmentExpressions: expressions }),
   };
 };
-
-/**
- * Whether the patch list contains the REA entry id, including a direct patch
- * that never established a row. Uninstall owns that id even when the projected
- * server is absent or its launcher is not the canonical command.
- */
-export const dshDocumentCarriesEntry = (
-  document: Record<string, unknown>,
-): boolean => {
-  const patches = document[PATCHES_KEY];
-  if (!Array.isArray(patches)) return false;
-  return patches.some((op) => {
-    if (typeof op !== "object" || op === null || Array.isArray(op))
-      return false;
-    if (Reflect.get(op, "id") === DSH_ENTRY_ID) return true;
-    const inserted = Reflect.get(op, "insert");
-    return (
-      Array.isArray(inserted) && inserted.some((entry) => isInsertEntry(entry))
-    );
-  });
-};
-
-/**
- * The effective config of the REA entry under Cordis patch semantics: patches
- * apply in order, an insert replaces the row named by id, and a later direct
- * `{ id, config }` operation replaces that row's whole config only once an
- * insertion established the row. The entry reads back as a server record even
- * when the winning writer left a wrong or missing package name, so a repair
- * preserves the row's configured environment; the foreign name is projected
- * into the record so alignment and comparison treat the row as stale. More
- * than one id-matching insertion is projected the same way: an aligned
- * duplicate still has to be collapsed to the single canonical row.
- */
-const dshEntryConfig = (
-  patches: readonly unknown[],
-): Record<string, unknown> | undefined => {
-  let name: unknown;
-  let config: Record<string, unknown> | undefined;
-  let disabled: unknown;
-  let established = false;
-  let matches = 0;
-  const configOf = (value: unknown): Record<string, unknown> =>
-    typeof value === "object" && value !== null && !Array.isArray(value)
-      ? { ...(value as Record<string, unknown>) }
-      : {};
-  for (const op of patches) {
-    if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
-    const inserted = Reflect.get(op, "insert");
-    if (Array.isArray(inserted)) {
-      for (const entry of inserted) {
-        if (!isInsertEntry(entry)) continue;
-        matches += 1;
-        name = Reflect.get(entry, "name");
-        config = configOf(Reflect.get(entry, "config"));
-        disabled = Reflect.get(entry, "disabled");
-        established = true;
-      }
-      continue;
-    }
-    // A direct patch targets a row an insertion must have established; a
-    // dangling operation with no row configures nothing Harness can load.
-    if (Reflect.get(op, "id") !== DSH_ENTRY_ID) continue;
-    if (!established) continue;
-    const opName = Reflect.get(op, "name");
-    if (opName !== undefined) name = opName;
-    if (Reflect.has(op as object, "config"))
-      config = configOf(Reflect.get(op, "config"));
-    if (Reflect.has(op as object, "disabled"))
-      disabled = Reflect.get(op, "disabled");
-  }
-  if (!established || config === undefined) return undefined;
-  // Cordis keeps activation beside the config. A literal `true` never loads
-  // REA tools, and any other explicit state (including a `!!js` expression)
-  // can evaluate to disabled, so both project as stale. Only an omitted
-  // field or boolean `false` is an enabled row. A foreign package name and a
-  // repeated insertion are projected the same way instead of hiding the
-  // row's config. A caller key named `duplicate` is not that projection;
-  // only an extra insertion sets it.
-  const configFields = { ...config };
-  delete configFields.duplicate;
-  const activationSuppressed = disabled !== undefined && disabled !== false;
-  return {
-    ...configFields,
-    ...(activationSuppressed ? { disabled: true } : {}),
-    ...(name === DSH_CLIENT_PACKAGE
-      ? {}
-      : {
-          package:
-            typeof name === "string" ? name : "non-string package declaration",
-        }),
-    ...(matches > 1 ? { duplicate: true } : {}),
-  };
-};
-
-/** The canonical row REA writes for its entry, minus Cordis activation state. */
-const canonicalDshEntry = (
-  entry: Record<string, unknown>,
-  desired: Record<string, unknown>,
-): Record<string, unknown> => {
-  const { disabled: _superseded, ...envelope } = entry;
-  return { ...envelope, name: DSH_CLIENT_PACKAGE, config: { ...desired } };
-};
-
-/**
- * Return the document with the REA entry upserted into its patch list. The
- * first id-matching insert is replaced in place, later duplicates and direct
- * patches to the entry are dropped so exactly one canonical row remains, and
- * a fresh insert operation is appended when no insertion carried the entry;
- * removing a direct-only patch does not count as carrying it.
- */
-export const withDshServer = (
+export const editDshDocument = (
   parsed: ClientConfigurationDocument,
-  desired: Record<string, unknown>,
-): Record<string, unknown> => {
-  let carriedByInsert = false;
-  const patches = (parsed.document[PATCHES_KEY] as readonly unknown[]).flatMap(
-    (op) => {
-      if (typeof op !== "object" || op === null || Array.isArray(op))
-        return [op];
-      const inserted = Reflect.get(op, "insert");
-      if (Array.isArray(inserted)) {
-        let replacedHere = false;
-        const next = inserted.flatMap((entry) => {
-          if (!isInsertEntry(entry)) return [entry];
-          // Keep the first carrying operation in place; collapse the rest.
-          if (carriedByInsert || replacedHere) return [];
-          replacedHere = true;
-          carriedByInsert = true;
-          return [canonicalDshEntry(entry as Record<string, unknown>, desired)];
-        });
-        if (!replacedHere && next.length === inserted.length) return [op];
-        return next.length === 0
-          ? []
-          : [{ ...(op as Record<string, unknown>), insert: next }];
-      }
-      // Direct patches to the REA row are superseded by the rewritten entry.
-      if (Reflect.get(op, "id") === DSH_ENTRY_ID) return [];
-      return [op];
-    },
-  );
-  if (!carriedByInsert)
-    patches.push({
-      insert: [
-        { id: DSH_ENTRY_ID, name: DSH_CLIENT_PACKAGE, config: { ...desired } },
-      ],
-    });
-  return { ...parsed.document, [PATCHES_KEY]: patches };
-};
-
-/**
- * Return the document with every REA entry removed: entries inside insert
- * operations, direct patches to the entry, and insert operations that hold
- * nothing else after removal.
- */
-export const removeDshServer = (
-  parsed: ClientConfigurationDocument,
-): Record<string, unknown> => {
-  const patches = (parsed.document[PATCHES_KEY] as readonly unknown[])
-    .map((op) => {
-      if (typeof op !== "object" || op === null || Array.isArray(op)) return op;
-      const inserted = Reflect.get(op, "insert");
-      if (!Array.isArray(inserted)) return op;
-      return {
-        ...(op as Record<string, unknown>),
-        insert: inserted.filter((entry) => !isInsertEntry(entry)),
-      };
-    })
-    .filter((op) => {
-      if (typeof op !== "object" || op === null || Array.isArray(op))
-        return true;
-      // A direct patch to the REA row goes away with the entry.
-      if (Reflect.get(op, "id") === DSH_ENTRY_ID) return false;
-      const inserted = Reflect.get(op, "insert");
-      return !(
-        Array.isArray(inserted) &&
-        inserted.every((entry) => !isInsertEntry(entry)) &&
-        inserted.length === 0
-      );
-    });
-  return { ...parsed.document, [PATCHES_KEY]: patches };
-};
-
-/** String keys of a YAML map, ignoring non-string keys. */
-const yamlMapStringKeys = (
-  map: YAMLMap<unknown, unknown>,
-): readonly string[] => {
-  const keys: string[] = [];
-  for (const pair of map.items) {
-    const key = pair.key;
-    if (typeof key === "string") keys.push(key);
-    else if (isScalar(key) && typeof key.value === "string")
-      keys.push(key.value);
-  }
-  return keys;
-};
-
-/**
- * The config node Cordis actually loads: the last insertion's config, then any
- * later direct `{ id, config }` replacement. Earlier direct patches, before an
- * insertion exists, do not establish a row.
- */
-const dshWinningConfigNode = (
-  items: readonly unknown[],
-  yamlDocument: Document,
-): unknown => {
-  let established = false;
-  let winning: unknown;
-  for (const raw of items) {
-    const item = isAlias(raw) ? (nodeMap(raw, yamlDocument) ?? raw) : raw;
-    if (!isMap(item)) continue;
-    const insertNode = item.get("insert", true);
-    const insert = isAlias(insertNode)
-      ? insertNode.resolve(yamlDocument)
-      : insertNode;
-    if (isSeq(insert)) {
-      for (const entry of insert.items) {
-        const entryMap = nodeMap(entry, yamlDocument);
-        if (
-          entryMap === undefined ||
-          mapEntryId(entryMap, yamlDocument) !== DSH_ENTRY_ID
-        )
-          continue;
-        established = true;
-        winning = nodeMap(entryMap.get("config", true), yamlDocument);
-      }
-      continue;
-    }
-    if (
-      !established ||
-      mapEntryId(item, yamlDocument) !== DSH_ENTRY_ID ||
-      !item.has("config")
-    )
-      continue;
-    winning = nodeMap(item.get("config", true), yamlDocument);
-  }
-  return winning;
-};
-
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-/**
- * Update `env` in place. An entry whose scalar still equals the desired string
- * keeps its node, so a Cordis `!!js` tag survives a launcher repair. A real
- * override replaces only that entry.
- */
-const applyDshEnvConfig = (
-  yamlDocument: Document,
-  config: YAMLMap<unknown, unknown>,
-  desiredEnv: unknown,
-): void => {
-  if (!isPlainRecord(desiredEnv)) {
-    config.set("env", yamlDocument.createNode(desiredEnv));
-    return;
-  }
-  const envNode: unknown = config.get("env", true);
-  let existing = isAlias(envNode) ? envNode.resolve(yamlDocument) : envNode;
-  // `env: *rea-env` shares the anchored map. Clone before editing so the
-  // active row keeps tagged values without rewriting the anchor in place.
-  if (isAlias(envNode) && isMap(existing)) {
-    const cloned = existing.clone();
-    if (isMap(cloned)) {
-      config.set("env", cloned as never);
-      existing = cloned;
-    }
-  }
-  if (!isMap(existing)) {
-    config.set("env", yamlDocument.createNode(desiredEnv));
-    return;
-  }
-  const retained = new Set(Object.keys(desiredEnv));
-  for (const key of yamlMapStringKeys(existing))
-    if (!retained.has(key)) existing.delete(key);
-  for (const [key, value] of Object.entries(desiredEnv)) {
-    const current = existing.get(key, true);
-    const scalar = isAlias(current) ? current.resolve(yamlDocument) : current;
-    // An alias of an unchanged tagged scalar stays, so `!!js` on the anchor
-    // is still what Harness evaluates.
-    if (isScalar(scalar) && scalar.value === value) continue;
-    existing.set(key, yamlDocument.createNode(value));
-  }
-};
-
-/**
- * Overlay REA-owned keys on the winning config node. Caller keys already on
- * that node keep their AST, so a Cordis tag such as `!!js` survives a refresh.
- * Environment values that were not overridden keep their nodes too. A winning
- * node that lives on a later patch is cloned onto the kept entry before that
- * patch is removed.
- */
-const JAVASCRIPT_TAG_NAME = "tag:yaml.org,2002:js";
-
-/**
- * Environment keys whose winning scalar is a Cordis expression. The value
- * parser keeps only the source text, so this scan is what stops that text
- * from being checked as a literal REA path.
- */
-const cordisEnvironmentExpressions = (text: string): ReadonlySet<string> => {
-  const yamlDocument = parseYamlDocument(text, { logLevel: "silent" });
-  const root = yamlDocument.contents;
-  if (!isSeq(root)) return new Set();
-  const winning = dshWinningConfigNode(root.items, yamlDocument);
-  if (!isMap(winning)) return new Set();
-  const envNode: unknown = winning.get("env", true);
-  const env = isAlias(envNode) ? envNode.resolve(yamlDocument) : envNode;
-  if (!isMap(env)) return new Set();
-  const keys = new Set<string>();
-  for (const key of yamlMapStringKeys(env)) {
-    const node: unknown = env.get(key, true);
-    const scalar = isAlias(node) ? node.resolve(yamlDocument) : node;
-    if (isScalar(scalar) && scalar.tag === JAVASCRIPT_TAG_NAME) keys.add(key);
-  }
-  return keys;
-};
-
-/** The config node to edit: the kept entry's own node, or a clone of a later or aliased winner. */
-const registrationConfigNode = (
-  yamlDocument: Document,
-  entryMap: YAMLMap<unknown, unknown>,
-  winningConfig: unknown,
-): YAMLMap<unknown, unknown> | undefined => {
-  const winning = nodeMap(winningConfig, yamlDocument);
-  if (winning === undefined) return undefined;
-  if (entryMap.get("config") === winning) return winning;
-  const cloned = winning.clone();
-  return isMap(cloned) ? cloned : undefined;
-};
-
-const applyDshRegistrationConfig = (
-  yamlDocument: Document,
-  entryMap: YAMLMap<unknown, unknown>,
-  desired: Record<string, unknown>,
-  winningConfig: unknown,
-): void => {
-  const config = registrationConfigNode(yamlDocument, entryMap, winningConfig);
-  if (config === undefined) {
-    entryMap.set("config", yamlDocument.createNode(desired));
-    return;
-  }
-  if (entryMap.get("config") !== config) entryMap.set("config", config);
-  const retained = new Set(Object.keys(desired));
-  for (const key of yamlMapStringKeys(config))
-    if (!retained.has(key)) config.delete(key);
-  for (const key of DSH_OWNED_CONFIG_KEYS) {
-    if (!Object.hasOwn(desired, key)) continue;
-    if (key === "env") {
-      applyDshEnvConfig(yamlDocument, config, desired.env);
-      continue;
-    }
-    config.set(key, yamlDocument.createNode(desired[key]));
-  }
-  for (const [key, value] of Object.entries(desired)) {
-    if (DSH_OWNED_CONFIG_KEYS.has(key) || config.has(key)) continue;
-    config.set(key, yamlDocument.createNode(value));
-  }
-};
-
-/**
- * Serialize the patch list, editing an existing file's YAML document in place
- * so user comments, formatting, and operation scope survive a registration
- * update: the first insertion carrying the REA entry keeps its position and
- * neighbor entries (a grouped insert stays grouped), the entry node itself is
- * rewritten in place, later carrying insertions and direct REA patches
- * collapse away, and a fresh root insertion is appended only when no
- * insertion carried the entry. Caller-owned config nodes, including Cordis
- * `!!js` tags, stay on the winning config; only REA-owned keys are replaced.
- * Environment entries keep their tags unless the value actually changed. A
- * comment-only file is an empty patch list, and its comments stay when the
- * registration is appended. An alias that repeats an owned insertion is
- * collapsed; aliases to other patches stay.
- */
+  desired?: Record<string, unknown>,
+): Record<string, unknown> => ({
+  cordis: new DshCordisEdit(dshDocument(parsed.document), desired),
+});
 export const serializeDshDocument = (
   document: Record<string, unknown>,
-  originalText: string | undefined,
 ): string => {
-  const desired = dshEntryConfig(document[PATCHES_KEY] as readonly unknown[]);
-  const freshPatchList = (): readonly unknown[] =>
-    desired === undefined
-      ? []
-      : [
-          {
-            insert: [
-              { id: DSH_ENTRY_ID, name: DSH_CLIENT_PACKAGE, config: desired },
-            ],
-          },
-        ];
-  if (
-    originalText === undefined ||
-    originalText.replace(/^\uFEFF/, "").trim() === ""
-  )
-    return `${stringifyYaml(freshPatchList())}`;
-  const yamlDocument = parseYamlDocument(originalText);
-  if (yamlDocument.contents === null) {
-    // No document value: comments only. Leave the file untouched when there
-    // is nothing to write; otherwise start a sequence on this document so
-    // those comments survive the appended registration.
-    if (desired === undefined)
-      return originalText.endsWith("\n") ? originalText : `${originalText}\n`;
-    const empty = parseYamlDocument("[]\n");
-    if (isSeq(empty.contents)) yamlDocument.contents = empty.contents;
-  }
-  const root = yamlDocument.contents;
-  if (!isSeq(root)) {
-    // The file was a patch list when parsed; a root that no longer is cannot
-    // be edited in place, so a fresh patch list is emitted instead.
-    return `${stringifyYaml(freshPatchList())}`;
-  }
-  const winningConfig = dshWinningConfigNode(root.items, yamlDocument);
-  // Record insert aliases that carry REA before any edit empties their
-  // anchor. Uninstall removes the anchored row first; the later alias must
-  // still be dropped or serialization keeps a dangling alias and restores.
-  const ownedInsertAliases = new Set<unknown>();
-  const ownedRootAliases = new Set<unknown>();
-  for (const candidate of root.items) {
-    if (isAlias(candidate) && aliasOwnsReaEntry(candidate, yamlDocument))
-      ownedRootAliases.add(candidate);
-    if (!isMap(candidate)) continue;
-    const candidateOperation = candidate as unknown as YAMLMap<
-      unknown,
-      unknown
-    >;
-    const candidateInsert: unknown = candidateOperation.get("insert", true);
-    if (!isAlias(candidateInsert)) continue;
-    const resolved = candidateInsert.resolve(yamlDocument);
-    if (
-      isSeq(resolved) &&
-      resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument))
-    )
-      ownedInsertAliases.add(candidateInsert);
-  }
-  let carried = false;
-  type PatchItem = (typeof root.items)[number];
-  root.items = root.items.flatMap((item): PatchItem[] => {
-    // A root alias of an operation that is itself in this list is a replay and
-    // must be dropped. An alias whose anchor sits on an inert field is the
-    // only active copy: materialize it and edit the owned row in place.
-    let current: unknown = item;
-    if (isAlias(item)) {
-      const action = rootAliasAction(item, root.items, yamlDocument, {
-        owned: ownedRootAliases,
-        carried,
-      });
-      if (action === "keep") return [item];
-      if (action === "drop") return [];
-      current = action;
-    }
-    if (!isMap(current)) return [current as PatchItem];
-    // Seq members type as node-keyed maps; alias values need the loose view.
-    const operation = current as unknown as YAMLMap<unknown, unknown>;
-    const insertNode: unknown = operation.get("insert", true);
-    // `insert: *rows` is an alias of another operation's list. Editing the
-    // anchored list and keeping the alias would still load the row twice.
-    let insert: unknown = insertNode;
-    if (isAlias(insertNode)) {
-      const resolved = insertNode.resolve(yamlDocument);
-      const carriesRea =
-        ownedInsertAliases.has(insertNode) ||
-        (isSeq(resolved) &&
-          resolved.items.some((entry) => entryOwnsRea(entry, yamlDocument)));
-      if (!carriesRea) return [current as PatchItem];
-      // The list already belongs to another insert operation. Dropping this
-      // alias avoids loading that list twice. A list anchored outside any
-      // insert is copied so its unrelated rows stay in this operation.
-      const anchoredOnAnotherInsert = root.items.some((other) => {
-        if (other === current || !isMap(other)) return false;
-        const otherOperation = other as unknown as YAMLMap<unknown, unknown>;
-        return (otherOperation.get("insert", true) as unknown) === resolved;
-      });
-      if (anchoredOnAnotherInsert || !isSeq(resolved)) return [];
-      const cloned = resolved.clone();
-      if (!isSeq(cloned)) return [current as PatchItem];
-      operation.set("insert", cloned as never);
-      insert = cloned;
-    }
-    if (!isSeq(insert)) {
-      // Direct patches to the REA row are superseded by the rewritten entry
-      // and would otherwise override it again at their position.
-      return mapEntryId(operation, yamlDocument) === DSH_ENTRY_ID
-        ? []
-        : [current as PatchItem];
-    }
-    const carrying = insert.items
-      .map((entry, index) => (entryOwnsRea(entry, yamlDocument) ? index : -1))
-      .filter((index) => index >= 0);
-    if (carrying.length === 0) return [current as PatchItem];
-    if (carried) {
-      removeSeqItems(insert, carrying);
-      return insert.items.length === 0 ? [] : [current as PatchItem];
-    }
-    const first = carrying[0] as number;
-    let entry: unknown = insert.items[first];
-    // The only owned member may be an alias of an external entry. Copy that
-    // map into the list so the refresh can keep its Cordis tags.
-    if (isAlias(entry)) {
-      const resolved = entry.resolve(yamlDocument);
-      const cloned = isMap(resolved) ? resolved.clone() : undefined;
-      if (!isMap(cloned)) return [current as PatchItem];
-      insert.items[first] = cloned as never;
-      entry = cloned;
-    }
-    carried = true;
-    for (const index of carrying.slice(1).reverse())
-      insert.items.splice(index, 1);
-    if (isMap(entry)) {
-      if (desired === undefined) {
-        insert.items.splice(carrying[0] as number, 1);
-        return insert.items.length === 0 ? [] : [current as PatchItem];
-      }
-      // Seq members type as node-keyed maps; scalar keys need the loose view.
-      const entryMap = entry as unknown as YAMLMap<unknown, unknown>;
-      // An `id: *entryId` whose anchor is an owned direct patch would dangle
-      // once that patch is removed. The kept row needs a plain scalar.
-      const idNode: unknown = entryMap.get("id", true);
-      if (isAlias(idNode))
-        entryMap.set("id", yamlDocument.createNode(DSH_ENTRY_ID));
-      entryMap.set("name", yamlDocument.createNode(DSH_CLIENT_PACKAGE));
-      applyDshRegistrationConfig(
-        yamlDocument,
-        entryMap,
-        desired,
-        winningConfig,
-      );
-      // Setup registers an enabled row; Cordis activation is REA-owned here.
-      entryMap.delete("disabled");
-    }
-    return [current as PatchItem];
-  });
-  if (!carried && desired !== undefined) {
-    const appended = yamlDocument.createNode({
-      insert: [{ id: DSH_ENTRY_ID, name: DSH_CLIENT_PACKAGE, config: desired }],
-    });
-    root.items.push(appended as unknown as (typeof root.items)[number]);
-  }
-  return yamlDocument.toString({ lineWidth: 0 });
+  if (!(document.cordis instanceof DshCordisEdit))
+    throw new ConfigurationError("Missing Cordis edit plan");
+  return document.cordis.source.serialize(document.cordis.desired);
 };
-
-const nodeMap = (
-  node: unknown,
-  yamlDocument: Document,
-): YAMLMap<unknown, unknown> | undefined => {
-  if (isAlias(node)) {
-    const resolved = node.resolve(yamlDocument);
-    return isMap(resolved) ? resolved : undefined;
-  }
-  return isMap(node) ? node : undefined;
-};
-
-/** Entry id, following an alias such as `id: *entry-id`. */
-const mapEntryId = (
-  map: YAMLMap<unknown, unknown>,
-  yamlDocument: Document,
-): unknown => {
-  const id = map.get("id", true);
-  if (isAlias(id)) {
-    const resolved = id.resolve(yamlDocument);
-    return isScalar(resolved) ? resolved.value : resolved;
-  }
-  return isScalar(id) ? id.value : id;
-};
-
-/**
- * Insert node, following `insert: *rows` so ownership sees the anchored list.
- */
-const resolvedInsertNode = (
-  map: YAMLMap<unknown, unknown>,
-  yamlDocument: Document,
-): unknown => {
-  const insert: unknown = map.get("insert", true);
-  return isAlias(insert) ? insert.resolve(yamlDocument) : insert;
-};
-
-/**
- * A root alias that carries REA is either dropped or copied.
- * Replays of a list this patch list already loads are dropped. An alias whose
- * anchor is not itself loaded is copied so unrelated rows in that operation
- * stay active.
- */
-const rootAliasAction = (
-  item: unknown,
-  rootItems: readonly unknown[],
-  yamlDocument: Document,
-  ownership: {
-    readonly owned: ReadonlySet<unknown>;
-    readonly carried: boolean;
-  },
-): "keep" | "drop" | YAMLMap<unknown, unknown> => {
-  if (!ownership.owned.has(item) && !aliasOwnsReaEntry(item, yamlDocument))
-    return "keep";
-  if (!isAlias(item)) return "drop";
-  const resolved = item.resolve(yamlDocument);
-  if (
-    ownership.carried ||
-    !isMap(resolved) ||
-    rootItems.some((other) => other === resolved)
-  )
-    return "drop";
-  const insertSeq = resolvedInsertNode(resolved, yamlDocument);
-  const listAlreadyLoaded =
-    isSeq(insertSeq) &&
-    rootItems.some((other) => {
-      if (other === resolved || !isMap(other)) return false;
-      const otherOperation = other as unknown as YAMLMap<unknown, unknown>;
-      return resolvedInsertNode(otherOperation, yamlDocument) === insertSeq;
-    });
-  if (listAlreadyLoaded) return "drop";
-  const cloned = resolved.clone();
-  return isMap(cloned) ? cloned : "drop";
-};
-
-/** An alias of an insertion or direct patch that carries the REA entry id. */
-const aliasOwnsReaEntry = (node: unknown, yamlDocument: Document): boolean => {
-  if (!isAlias(node)) return false;
-  const map = nodeMap(node, yamlDocument);
-  if (map === undefined) return false;
-  if (mapEntryId(map, yamlDocument) === DSH_ENTRY_ID) return true;
-  const insert = resolvedInsertNode(map, yamlDocument);
-  return (
-    isSeq(insert) &&
-    insert.items.some((entry) => entryOwnsRea(entry, yamlDocument))
-  );
-};
-
-const entryOwnsRea = (node: unknown, yamlDocument: Document): boolean => {
-  const map = nodeMap(node, yamlDocument);
-  return map !== undefined && mapEntryId(map, yamlDocument) === DSH_ENTRY_ID;
-};
-
-const removeSeqItems = (
-  sequence: { items: unknown[] },
-  indexes: readonly number[],
-): void => {
-  for (const index of [...indexes].reverse()) sequence.items.splice(index, 1);
-};
-
-/** Registration entry config shape for the Harness MCP client. */
 export const dshClientRegistrationEntry = (
   command: readonly string[],
   environment: Readonly<Record<string, string>> = {},
@@ -736,20 +343,4 @@ export const dshClientRegistrationEntry = (
       ? {}
       : { env: { ...environment } }),
   };
-};
-
-/**
- * Keep a caller's non-REA config fields, such as the working directory the
- * native verifier sets, across a registration refresh; REA-owned keys are
- * regenerated, never inherited.
- */
-export const dshPreservedConfigFields = (
-  value: unknown,
-): Record<string, unknown> => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return {};
-  const preserved: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(value as Record<string, unknown>))
-    if (!DSH_OWNED_CONFIG_KEYS.has(key)) preserved[key] = field;
-  return preserved;
 };

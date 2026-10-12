@@ -26,6 +26,7 @@ import {
 } from "./SupportedClients.js";
 import type { SetupClient } from "./SupportedClients.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import { dshDocument } from "./DshCordisPatch.js";
 
 interface ClientRegistrationStatusBase {
   readonly client: string;
@@ -69,7 +70,6 @@ const registrationSchema = z
     tools: z.array(z.string()).optional(),
     disabled: z.boolean().optional(),
     enabled: z.boolean().optional(),
-    duplicate: z.boolean().optional(),
   })
   .passthrough();
 
@@ -170,6 +170,7 @@ export const readClientRegistrationStatuses = async (
               parsed,
               PRODUCT_IDENTITY.mcpServerKey,
             ) &&
+            (parsed.dialect !== "dsh" || dshDocument(parsed.document).ready) &&
             policyBlock === undefined
             ? "aligned"
             : "stale",
@@ -220,15 +221,6 @@ const registrationAligned = (
     (registration.serverName !== "rea" || registration.transport !== "stdio")
   )
     return false;
-  // A projected foreign package name means the row exists but is not the
-  // canonical Harness MCP client insertion. Repeated insertions are the same
-  // kind of projection: the effective command can match and still not be the
-  // single owned row.
-  if (
-    client.format === "dsh" &&
-    (registration.package !== undefined || registration.duplicate === true)
-  )
-    return false;
   // OMP and Pi infer stdio for a command entry without an explicit type.
   if (
     (client.format === "omp" || client.format === "pi") &&
@@ -272,6 +264,11 @@ const parseRegistration = (
   value: unknown,
   client: SetupClient,
 ): z.output<typeof registrationSchema> => {
+  if (client.format === "dsh")
+    return registrationSchema
+      .pick({ command: true, args: true, serverName: true, transport: true })
+      .strip()
+      .parse(value);
   if (client.format === "opencode") {
     const entry = z
       .object({
