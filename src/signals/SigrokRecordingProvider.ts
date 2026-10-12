@@ -282,8 +282,10 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           OPERATION,
           snapshotPath,
           "Decoder changed the private recording copy.",
-          (capturedOutput === undefined ? {} : { capturedOutput }),
+          capturedOutput === undefined ? {} : { capturedOutput },
         );
+      phase = "producer";
+      resourcePath = input.path;
       const report = signalRecordingSchema.parse({
         artifact: {
           path: input.path,
