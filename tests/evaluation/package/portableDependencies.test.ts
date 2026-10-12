@@ -130,3 +130,41 @@ it("resolves nested dependencies before a hoisted optional-provider dependency",
     portableDependencies(root, { packages }, "win32", "x64"),
   ).resolves.toEqual(paths.map((path) => ({ path, version: "1.0.0" })));
 });
+
+it.each([
+  { os: ["!darwin"], cpu: ["!arm64"], applies: true },
+  { os: ["!win32"], cpu: ["x64"], applies: false },
+  { os: ["win32"], cpu: ["!x64"], applies: false },
+  { os: ["win32", "!win32"], applies: false },
+  { os: ["win32", "!linux"], applies: true },
+  { os: ["linux", "!darwin"], applies: false },
+  { cpu: ["x64", "!x64"], applies: false },
+  { cpu: ["x64", "!arm64"], applies: true },
+  { cpu: ["arm64", "!ia32"], applies: false },
+  { os: ["any"], cpu: ["any"], applies: true },
+  { os: [], cpu: [], applies: true },
+  { os: "!darwin", cpu: "x64", applies: true },
+  { os: "!win32", applies: false },
+  { os: ["any", "linux"], applies: false },
+])(
+  "checks missing native packages using npm selectors: %j",
+  async ({ applies, ...selectors }) => {
+    const root = await installed("node_modules/required");
+    const packages = {
+      "": { dependencies: { required: "1" } },
+      "node_modules/required": dependency({
+        optionalDependencies: { native: "1" },
+      }),
+      "node_modules/native": dependency({ optional: true, ...selectors }),
+    };
+    const result = portableDependencies(root, { packages }, "win32", "x64");
+    if (applies)
+      await expect(result).rejects.toThrow(
+        "Installed dependency is missing: node_modules/native",
+      );
+    else
+      await expect(result).resolves.toEqual([
+        { path: "node_modules/required", version: "1.0.0" },
+      ]);
+  },
+);

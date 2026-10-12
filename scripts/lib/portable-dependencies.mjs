@@ -3,8 +3,8 @@ import { join, posix } from "node:path";
 
 export async function portableDependencies(root, lock, platform, architecture) {
   const platformMismatch = (entry) =>
-    (entry.os !== undefined && !entry.os.includes(platform)) ||
-    (entry.cpu !== undefined && !entry.cpu.includes(architecture));
+    !matchesPlatform(entry.os, platform) ||
+    !matchesPlatform(entry.cpu, architecture);
   const present = new Set();
   for (const [path, entry] of Object.entries(lock.packages)) {
     if (!path || entry.dev) continue;
@@ -75,4 +75,16 @@ function resolveDependency(owner, name, packages) {
     const next = posix.dirname(parent);
     parent = next === "." ? "" : next;
   }
+}
+
+function matchesPlatform(selectors, value) {
+  if (selectors === undefined) return true;
+  const list = typeof selectors === "string" ? [selectors] : selectors;
+  // Match npm: a block wins; negative-only lists allow other hosts. `any` is
+  // universal only as a lone selector, and an empty list imposes no restriction.
+  if (list.length === 1 && list[0] === "any") return true;
+  if (list.includes(`!${value}`)) return false;
+  return (
+    list.every((selector) => selector.startsWith("!")) || list.includes(value)
+  );
 }

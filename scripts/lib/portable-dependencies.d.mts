@@ -4,8 +4,8 @@ export interface PortableLockEntry {
   optional?: boolean;
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
-  os?: string[];
-  cpu?: string[];
+  os?: string | string[];
+  cpu?: string | string[];
 }
 export function portableDependencies(
   root: string,
