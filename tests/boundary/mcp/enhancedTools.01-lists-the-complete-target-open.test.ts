@@ -294,11 +294,11 @@ describe("enhanced MCP tools", () => {
             address: "0x1",
             status: "ok",
             calls: ["0x2", "0x3"],
+            limitations: ["Provider did not report relationship coverage."],
             relationship_coverage: {
               status: "unknown",
               reason: "Provider did not report relationship coverage.",
             },
-            limitations: ["Provider did not report relationship coverage."],
           },
         ],
         "1": [
@@ -306,21 +306,21 @@ describe("enhanced MCP tools", () => {
             address: "0x2",
             status: "ok",
             calls: ["0x1"],
+            limitations: ["Provider did not report relationship coverage."],
             relationship_coverage: {
               status: "unknown",
               reason: "Provider did not report relationship coverage.",
             },
-            limitations: ["Provider did not report relationship coverage."],
           },
           {
             address: "0x3",
             status: "ok",
             calls: [],
+            limitations: ["Provider did not report relationship coverage."],
             relationship_coverage: {
               status: "unknown",
               reason: "Provider did not report relationship coverage.",
             },
-            limitations: ["Provider did not report relationship coverage."],
           },
         ],
       },
