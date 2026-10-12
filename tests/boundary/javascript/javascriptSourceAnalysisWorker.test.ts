@@ -187,8 +187,9 @@ it("ends worker stdin and unreferences process handles when cleanup reports insp
     const file = source("app.mjs", "export const observed = 7;");
     const result = await worker.analyze(file, 100);
     if (!result.ok) throw result.error.error;
-    await expect(worker.close()).rejects.toMatchObject({
-      _tag: "ProviderCleanupError",
+    const closing = worker.close();
+    await expect(closing).rejects.toBeInstanceOf(ProviderCleanupError);
+    await expect(closing).rejects.toMatchObject({
       cause: {
         message: "process table could not be inspected: spawn EPERM",
       },
