@@ -43,7 +43,7 @@ const settingDifferences = sameSettings.filter(
     !isDeepStrictEqual(left[key], right[key]) ||
     ((key === "provider_search_path_sha256" ||
       (key === "native_workflow_source_sha256" &&
-        left.native_question !== null)) &&
+        typeof left.native_question === "string")) &&
       !/^[a-f0-9]{64}$/.test(left[key] ?? "")),
 );
 // Producer/view IDs identify different delivery observations; a named recovery
