@@ -154,6 +154,9 @@ describe("static/runtime correlation", () => {
     expect(result.limitations.join(" ")).toMatch(
       /does not establish causality/u,
     );
+    expect(result.correlations.items[0]?.limitations.join(" ")).toMatch(
+      /generated-name normalization/u,
+    );
   });
 
   it("classifies an explicit expectation mismatch as contradiction", () => {

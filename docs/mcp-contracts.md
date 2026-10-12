@@ -352,6 +352,8 @@ it does not establish a behavior change. Addresses and generated names are
 not normalized: for example, `FUN_00001010()` and `FUN_00002010()` differ even
 when the same function moved between builds. Both dimensions carry this
 limitation inline. Numeric constants remain part of the exact comparison.
+Dimension limitations also contribute to the comparison Evidence envelope,
+so reconstruction verification and static/runtime correlation retain them.
 The `cfg` dimension separately normalizes block addresses to local block
 indices, so it can remain `unchanged` when text changes. Equal CFGs establish
 only equal observed block sizes and successor relationships, not equivalent

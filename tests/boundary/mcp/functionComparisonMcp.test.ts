@@ -55,6 +55,11 @@ describe("function comparison reconstruction MCP integration", () => {
         });
         expect(compared.isError).not.toBe(true);
         const comparison = parseEvidence(compared.structuredContent);
+        expect(comparison.limitations).toContainEqual(
+          expect.stringContaining(
+            "without address or generated-name normalization",
+          ),
+        );
         expect(comparison.normalized_result).toMatchObject({
           status: comparisonStatus,
           dimensions: expect.arrayContaining(
@@ -116,6 +121,11 @@ describe("function comparison reconstruction MCP integration", () => {
                 comparison_evidence_id: comparison.evidence_id,
                 left_evidence_ids: [left.evidence_id],
                 right_evidence_ids: [right.evidence_id],
+                limitations: expect.arrayContaining([
+                  expect.stringContaining(
+                    "without address or generated-name normalization",
+                  ),
+                ]),
               }),
             ],
           },
