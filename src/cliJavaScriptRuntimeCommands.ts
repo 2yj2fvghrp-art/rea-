@@ -51,7 +51,11 @@ export const registerJavaScriptRuntimeObservationCommands = (
             inspector_endpoint: args.endpoint,
           });
           if (!parsed.success)
-            return inputError("list_javascript_runtime_targets");
+            return inputError(
+              "list_javascript_runtime_targets",
+              parsed.error.issues,
+              { inspector_endpoint: args.endpoint },
+            );
           const result = await listJavaScriptRuntimeTargets(
             context.provider,
             parsed.data,
@@ -79,7 +83,10 @@ export const registerJavaScriptRuntimeObservationCommands = (
           runtime_kind: options.runtimeKind,
           observation_ms: options.observationMs,
         });
-        if (!parsed.success) return inputError("observe_javascript_runtime");
+        if (!parsed.success)
+          return inputError("observe_javascript_runtime", parsed.error.issues, {
+            inspector_endpoint: args.endpoint,
+          });
         const result = await observeJavaScriptRuntime(
           context.provider,
           parsed.data,
@@ -93,8 +100,16 @@ const runtimeContext = () => ({
   provider: createJavaScriptRuntimeObservationProvider(),
 });
 
-const inputError = (operation: string): JsonValue =>
-  cliError(new AnalysisInputError(operation));
+const inputError = (
+  operation: string,
+  issues?: Parameters<typeof analysisInputErrorFromIssues>[1],
+  input?: unknown,
+): JsonValue =>
+  cliError(
+    issues !== undefined
+      ? analysisInputErrorFromIssues(operation, issues, input)
+      : new AnalysisInputError(operation),
+  );
 
 const cliError = (
   error: Parameters<typeof projectAnalysisError>[0],
@@ -102,3 +117,4 @@ const cliError = (
   error: "JavaScript runtime observation failed",
   ...projectAnalysisError(error),
 });
+import { analysisInputErrorFromIssues } from "./domain/inputIssueProjection.js";

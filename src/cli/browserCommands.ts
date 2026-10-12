@@ -14,7 +14,7 @@ import {
 } from "../domain/browserObservation.js";
 import { analyzeWebBundleInputSchema } from "../domain/webBundleAnalysis.js";
 import { observeWebSessionInputSchema } from "../domain/browserSession.js";
-import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import type { Logger } from "pino";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import {
@@ -54,7 +54,11 @@ const registerTargetList = (
         });
         if (!parsed.success)
           return browserCliError(
-            new AnalysisInputError("list_browser_targets"),
+            analysisInputErrorFromIssues(
+              "list_browser_targets",
+              parsed.error.issues,
+              { cdp_endpoint: args.endpoint },
+            ),
           );
         const result = await listBrowserTargets(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
@@ -91,7 +95,15 @@ const registerPageInspection = (
           include_storage_fingerprints: options.includeStorageFingerprints,
         });
         if (!parsed.success)
-          return browserCliError(new AnalysisInputError("inspect_web_page"));
+          return browserCliError(
+            analysisInputErrorFromIssues(
+              "inspect_web_page",
+              parsed.error.issues,
+              {
+                cdp_endpoint: args.endpoint,
+              },
+            ),
+          );
         const result = await inspectWebPage(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
       }),
@@ -129,7 +141,15 @@ const registerBundleAnalysis = (
           fetch_source_maps: options.fetchSourceMaps,
         });
         if (!parsed.success)
-          return browserCliError(new AnalysisInputError("analyze_web_bundle"));
+          return browserCliError(
+            analysisInputErrorFromIssues(
+              "analyze_web_bundle",
+              parsed.error.issues,
+              {
+                cdp_endpoint: args.endpoint,
+              },
+            ),
+          );
         const result = await analyzeWebBundle(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
       }),
@@ -160,7 +180,15 @@ const registerObservationSession = (
           observation_ms: options.observationMs,
         });
         if (!parsed.success)
-          return browserCliError(new AnalysisInputError("observe_web_session"));
+          return browserCliError(
+            analysisInputErrorFromIssues(
+              "observe_web_session",
+              parsed.error.issues,
+              {
+                cdp_endpoint: args.endpoint,
+              },
+            ),
+          );
         const result = await observeWebSession(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
       }),
