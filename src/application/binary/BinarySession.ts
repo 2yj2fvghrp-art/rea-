@@ -83,11 +83,15 @@ export class BinarySession
   #transitionGeneration = 0;
   readonly #calls = new Map<Promise<unknown>, number>();
   readonly #providerRouter: SessionProviderRouter;
-  /** Set once a non-health operation has been dispatched to the active client.
+  /** Provider identities that have received a non-health operation (#2076).
    * Prompt completion reads this without starting a deep provider: a fresh
    * `open_binary` only runs `health` (which never creates a heavyweight child),
-   * so completion returns `[]` until a real tool call warms the provider. */
-  #providerWarmedForCompletion = false;
+   * so completion returns `[]` until a real tool call warms the provider that
+   * serves the completed operation. Warmth is per provider because one route
+   * can serve inventory operations from a deep provider while auxiliary
+   * operations run elsewhere; an auxiliary call must not mark a cold deep
+   * provider warm. */
+  #warmedProvidersForCompletion = new Set<string>();
   readonly #runtimeUnavailability = new Map<
     string,
     { readonly reason: string }
@@ -126,11 +130,16 @@ export class BinarySession
     return ok(target);
   }
 
-  /** Whether a non-health operation has warmed the active provider client.
+  /** Whether the provider serving `operation` has received a non-health call.
    * Prompt completion uses this as a side-effect-free readiness gate so it
-   * never cold-starts Ghidra/Hopper as a side effect. */
-  isProviderWarmed(): boolean {
-    return this.#active !== undefined && this.#providerWarmedForCompletion;
+   * never cold-starts Ghidra/Hopper as a side effect. Unknown operations and
+   * operations without an active binding report cold. */
+  isOperationWarmed(operation: AnalysisOperation): boolean {
+    const provider =
+      this.#active?.route.capabilities.get(operation)?.provider.id;
+    return (
+      provider !== undefined && this.#warmedProvidersForCompletion.has(provider)
+    );
   }
 
   /** Identify the provider producing evidence for this session. */
@@ -286,7 +295,7 @@ export class BinarySession
       }
       const previous = this.#active;
       this.#active = undefined;
-      this.#providerWarmedForCompletion = false;
+      this.#warmedProvidersForCompletion.clear();
       if (previous !== undefined) {
         const closed = await this.#retireClient(
           previous.client,
@@ -335,7 +344,7 @@ export class BinarySession
         route,
         runId,
       };
-      this.#providerWarmedForCompletion = false;
+      this.#warmedProvidersForCompletion.clear();
       this.#clearRuntimeAvailability();
       this.resetSnapshotInvalidation();
       if (options.snapshot === undefined) {
@@ -346,7 +355,7 @@ export class BinarySession
         const imported = this.importAnalysisSnapshot(options.snapshot);
         if (!imported.ok) {
           this.#active = undefined;
-          this.#providerWarmedForCompletion = false;
+          this.#warmedProvidersForCompletion.clear();
           return err(
             await this.#failedOpen(
               client,
@@ -408,7 +417,7 @@ export class BinarySession
   ): Promise<Result<null, AnalysisError>> {
     const previous = this.#active;
     this.#active = undefined;
-    this.#providerWarmedForCompletion = false;
+    this.#warmedProvidersForCompletion.clear();
     const closed =
       previous === undefined
         ? await this.#retryPendingCleanup(
@@ -607,7 +616,8 @@ export class BinarySession
     // A failed reply cannot prove that a dispatched metadata write rolled back.
     // Stop replay before dispatch, including reads overlapping the write.
     if (capability.effects.mutatesArtifact) this.invalidateSnapshot();
-    if (name !== "health") this.#providerWarmedForCompletion = true;
+    if (name !== "health")
+      this.#warmedProvidersForCompletion.add(capability.provider.id);
     const call = active.client.execute(name, arguments_, options);
     const result = await call;
     const profiled = bindExecutionTarget(
@@ -811,7 +821,7 @@ export class BinarySession
         route: previous.route,
         runId,
       };
-      this.#providerWarmedForCompletion = false;
+      this.#warmedProvidersForCompletion.clear();
       return ok(null);
     }
     const closed = await this.#retireClient(client, previous.route.identity.id);

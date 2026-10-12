@@ -77,15 +77,19 @@ const completionCandidates = async (
  * Cold sessions return `[]` before this is reached and never start a provider. */
 const COMPLETION_TIMEOUT_MS = 5_000;
 
-const isCompletionCold = (analysis: AnalysisOperationPort): boolean => {
+const isCompletionCold = (
+  analysis: AnalysisOperationPort,
+  operation: "list_documents" | "list_procedures",
+): boolean => {
   const warmed = (
-    analysis as Partial<Pick<BinarySessionPort, "isProviderWarmed">>
-  ).isProviderWarmed;
+    analysis as Partial<Pick<BinarySessionPort, "isOperationWarmed">>
+  ).isOperationWarmed;
   // Ports without warmth reporting (plain operation ports, fixed-target
-  // analysis) keep their existing behavior; only BinarySession gates.
+  // analysis) keep their existing behavior; only BinarySession gates, and
+  // only for the provider serving the completed operation.
   if (typeof warmed !== "function") return false;
   try {
-    return warmed.call(analysis) !== true;
+    return warmed.call(analysis, operation) !== true;
   } catch {
     return true;
   }
@@ -106,7 +110,7 @@ const executeCompletion = (
 const documentCandidates = async (
   analysis: AnalysisOperationPort,
 ): Promise<readonly string[]> => {
-  if (isCompletionCold(analysis)) return [];
+  if (isCompletionCold(analysis, "list_documents")) return [];
   const result = await executeCompletion(analysis, "list_documents", {});
   if (!result.ok) return [];
   const parsed = documentListSchema.safeParse(result.value.result);
@@ -117,7 +121,7 @@ const procedureCandidates = async (
   analysis: AnalysisOperationPort,
   document: string | undefined,
 ): Promise<readonly string[]> => {
-  if (isCompletionCold(analysis)) return [];
+  if (isCompletionCold(analysis, "list_procedures")) return [];
   const byAddress = new Map<string, string>();
   const input =
     document === undefined || document.length === 0 ? {} : { document };
