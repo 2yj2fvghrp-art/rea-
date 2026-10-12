@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'integrations/deepseek-harness/**'
-      - '.github/workflows/dsh-bundle.yml'
+      - "integrations/deepseek-harness/**"
+      - ".github/workflows/dsh-bundle.yml"
   pull_request:
     branches: [main]
     paths:
-      - 'integrations/deepseek-harness/**'
-      - '.github/workflows/dsh-bundle.yml'
+      - "integrations/deepseek-harness/**"
+      - ".github/workflows/dsh-bundle.yml"
   workflow_dispatch:
 
 concurrency:
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.11.0'
+          node-version: "24.11.0"
       - run: node --test integrations/deepseek-harness/tests/*.test.mjs
       - run: node integrations/deepseek-harness/scripts/verify-package.mjs
       - name: Verify install artifact without build hooks
@@ -44,12 +44,12 @@ jobs:
     timeout-minutes: 25
     env:
       DSH_HOME: /tmp/rea-dsh-profile
-      HUSKY: '0'
+      HUSKY: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.11.0'
+          node-version: "24.11.0"
       - name: Install pinned prebuilt REA runtime for local bundle
         run: npm install --prefix integrations/deepseek-harness --ignore-scripts --no-audit --no-fund
       - name: Verify real MCP initialization and tool discovery
@@ -86,7 +86,7 @@ jobs:
   release-plugin:
     name: Publish standalone dsh-v plugin GitHub release
     needs: [contract, native-harness]
-    if: ${{ false }} # held for root formatting and documentation checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -96,7 +96,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.11.0'
+          node-version: "24.11.0"
       - name: Check whether this plugin version is already published
         id: release-version
         env:

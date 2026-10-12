@@ -7,7 +7,7 @@
       name: dsh-rea-bundle/launcher
 
     - id: rea-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
+      name: "@deepseek-ai/dsh-mcp-client"
       inject: [reaLauncher]
       config:
         serverName: rea
