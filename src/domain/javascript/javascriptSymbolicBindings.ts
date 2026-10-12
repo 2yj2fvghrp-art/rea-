@@ -27,6 +27,7 @@ import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
   type JavaScriptSemanticAnalysisState,
+  type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
 import {
   symbolicCondition,
@@ -42,10 +43,28 @@ import {
 } from "./javascriptSymbolicValues.js";
 
 interface PropertyWrite {
-  readonly path: readonly string[];
+  readonly path: readonly (string | null)[];
   readonly value: t.Node;
   readonly site: t.Node;
 }
+interface OriginPropertyWrite {
+  readonly source: PropertyWrite;
+  readonly path: readonly (string | null)[];
+  readonly value: SymbolicValue;
+  readonly definite: boolean;
+}
+interface OriginProperties {
+  readonly values: readonly SymbolicValue[];
+  readonly definiteKeys: ReadonlySet<string>;
+}
+const originSnapshot = Symbol("mutation origin snapshot");
+type OriginValue = SymbolicValue & {
+  readonly [originSnapshot]?: {
+    readonly base: SymbolicValue;
+    readonly writes: readonly OriginPropertyWrite[];
+    readonly end?: number;
+  };
+};
 interface SymbolicReturnFlow {
   readonly values: readonly SymbolicValue[];
   readonly fallsThrough: boolean;
@@ -63,6 +82,7 @@ export class JavaScriptSymbolicBindings {
   #originCache:
     | WeakMap<SymbolicEnvironment, WeakMap<t.Node, SymbolicValue>>
     | undefined;
+  #originPoint: t.Node | undefined;
   readonly #active = new Set<t.Node>();
   readonly #activeFunctions = new Set<t.Function>();
   readonly #exportAliases = new Map<string, string>();
@@ -143,7 +163,9 @@ export class JavaScriptSymbolicBindings {
     try {
       completeSemanticSteps(
         electronIdentity.enrichWritesSteps((target) =>
-          this.#symbolicElectronWritePaths(target),
+          this.#atOriginPoint(target, () =>
+            this.#symbolicElectronWritePaths(target),
+          ),
         ),
       );
       if (this.truncated) electronIdentity.invalidateAll();
@@ -151,6 +173,7 @@ export class JavaScriptSymbolicBindings {
       // Origin discovery sees pre-mutation identities only. Never reuse those
       // values or incidental read-availability flags in ordinary substitutions.
       this.#originCache = undefined;
+      this.#originPoint = undefined;
       this.unresolved = unresolved;
     }
   }
@@ -196,7 +219,13 @@ export class JavaScriptSymbolicBindings {
 
   property(value: SymbolicValue, key: string): SymbolicValue {
     let result: SymbolicValue;
-    if (value.kind === "union")
+    if (this.#originCache !== undefined) {
+      const found = this.#originProperties(value, key).values;
+      result =
+        found.length > 0
+          ? symbolicUnion(found)
+          : symbolicUnknown("unresolved mutation receiver");
+    } else if (value.kind === "union")
       result = symbolicUnion(
         value.values.map((variant) => this.property(variant, key)),
       );
@@ -326,7 +355,7 @@ export class JavaScriptSymbolicBindings {
         : [
             ...new Set(
               (this.#writes.get(value.bindingId) ?? []).flatMap((w) =>
-                w.path.length === 1 ? w.path : [],
+                w.path.length === 1 && w.path[0] !== null ? [w.path[0]!] : [],
               ),
             ),
           ];
@@ -570,7 +599,9 @@ export class JavaScriptSymbolicBindings {
       if (key === null) return symbolicUnknown("dynamic destructuring");
       value = this.property(value, String(key));
     }
-    return value;
+    return this.#originCache === undefined
+      ? value
+      : this.#originObject(value, binding, node, env);
   }
 
   #initializerReadPoint(
@@ -939,6 +970,336 @@ export class JavaScriptSymbolicBindings {
     }
   }
 
+  #atOriginPoint<Value>(point: t.Node, read: () => Value): Value {
+    const cache = this.#originCache;
+    const previous = this.#originPoint;
+    this.#originCache = new WeakMap();
+    this.#originPoint = point;
+    try {
+      return read();
+    } finally {
+      this.#originCache = cache;
+      this.#originPoint = previous;
+    }
+  }
+
+  #functionOwner(node: t.Node): t.Node | undefined {
+    let current: t.Node | undefined = node;
+    while (current && !t.isFunction(current) && !t.isProgram(current))
+      current = this.state.parentsByNode.get(current);
+    return current;
+  }
+
+  #originObject(
+    value: SymbolicValue,
+    binding: JavaScriptSemanticBindingState,
+    node: t.Node,
+    environment: SymbolicEnvironment,
+  ): SymbolicValue {
+    if (
+      !symbolicVariants(value).some((variant) =>
+        ["object", "record", "array"].includes(variant.kind),
+      )
+    )
+      return value;
+    const target = this.#originPoint ?? node;
+    const read =
+      this.#functionOwner(target) === this.#functionOwner(node) ? target : node;
+    const point = this.#initializerReadPoint(
+      binding.scopeId,
+      environment,
+      read,
+    );
+    if (point === undefined) return value;
+    const owner = this.#functionOwner(read);
+    const pending = [binding.bindingId];
+    const bindings = new Set<string>();
+    const writes: OriginPropertyWrite[] = [];
+    while (pending.length > 0) {
+      if (--this.#remainingEvaluations < 0) {
+        this.truncated = true;
+        break;
+      }
+      const id = pending.pop()!;
+      if (bindings.has(id)) continue;
+      bindings.add(id);
+      for (const alias of this.#aliasesByBinding.get(id) ?? []) {
+        const candidate = this.state.bindingsById.get(alias);
+        const initializer = candidate?.initializers[0];
+        if (
+          candidate &&
+          initializer &&
+          candidate.initializers.length === 1 &&
+          candidate.definitions.every(({ kind }) => kind !== "assignment") &&
+          !this.state.conditionalInitializers.has(initializer.node) &&
+          (initializer.node.end ?? Infinity) <= point
+        )
+          pending.push(alias);
+      }
+      for (const write of this.#writes.get(id) ?? []) {
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
+        if (
+          write.path.length === 0 ||
+          (write.site.end ?? Infinity) > point ||
+          this.#functionOwner(write.site) !== owner
+        )
+          continue;
+        let definite = true;
+        for (
+          let parent = this.state.parentsByNode.get(write.site);
+          parent && parent !== owner;
+          parent = this.state.parentsByNode.get(parent)
+        ) {
+          if (
+            t.isIfStatement(parent) ||
+            t.isConditionalExpression(parent) ||
+            t.isLogicalExpression(parent) ||
+            t.isLoop(parent) ||
+            t.isSwitchCase(parent) ||
+            t.isTryStatement(parent)
+          )
+            definite = false;
+        }
+        const assignment = t.isAssignmentExpression(write.site);
+        const logical =
+          assignment && ["&&=", "||=", "??="].includes(write.site.operator);
+        const plain = assignment
+          ? write.site.operator === "=" || logical
+          : t.isCallExpression(write.site);
+        if (logical) definite = false;
+        writes.push({
+          source: write,
+          path: write.path,
+          definite,
+          value: plain
+            ? this.#atOriginPoint(write.site, () =>
+                this.evaluate(write.value, environment),
+              )
+            : symbolicUnknown("non-value property write"),
+        });
+      }
+    }
+    if (writes.length === 0) return value;
+    return symbolicUnion(
+      symbolicVariants(value).map((variant) => {
+        if (!["object", "record", "array"].includes(variant.kind))
+          return variant;
+        const snapshot = (variant as OriginValue)[originSnapshot];
+        const merged = [
+          ...(snapshot?.writes.slice(0, snapshot.end) ?? []),
+          ...writes,
+        ];
+        const seen = new Set<PropertyWrite>();
+        return {
+          ...variant,
+          [originSnapshot]: {
+            base: snapshot?.base ?? variant,
+            writes: merged
+              .filter(
+                ({ source }) => !seen.has(source) && Boolean(seen.add(source)),
+              )
+              .sort(
+                (left, right) =>
+                  (left.source.site.start ?? 0) -
+                  (right.source.site.start ?? 0),
+              ),
+          },
+        };
+      }),
+    );
+  }
+
+  /** Possible selected values for mutation provenance, never exact read proof. */
+  #originProperties(
+    value: SymbolicValue,
+    key: string | null,
+    excluded: ReadonlySet<string> = new Set(),
+    active = new Set<SymbolicValue>(),
+  ): OriginProperties {
+    const values: SymbolicValue[] = [];
+    const definiteKeys = new Set<string>();
+    const empty = { values, definiteKeys };
+    if (--this.#remainingEvaluations < 0 || active.size >= 128) {
+      this.truncated = true;
+      return empty;
+    }
+    if (active.has(value) || (key !== null && excluded.has(key))) return empty;
+    const visiting = new Set(active).add(value);
+    const snapshot = (value as OriginValue)[originSnapshot];
+    if (snapshot)
+      return this.#originSnapshotProperties(snapshot, key, excluded, visiting);
+    if (value.kind === "union") {
+      let common: Set<string> | undefined;
+      for (const variant of value.values) {
+        const result = this.#originProperties(variant, key, excluded, visiting);
+        for (const member of result.values) values.push(member);
+        common =
+          common === undefined
+            ? new Set(result.definiteKeys)
+            : new Set(
+                [...common].filter((name) => result.definiteKeys.has(name)),
+              );
+      }
+      return { values, definiteKeys: common ?? definiteKeys };
+    }
+    if (value.kind === "object") {
+      const covered = new Set(excluded);
+      for (
+        let index = value.node.properties.length - 1;
+        index >= 0;
+        index -= 1
+      ) {
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
+        if (key !== null && covered.has(key)) break;
+        const property = value.node.properties[index]!;
+        if (t.isSpreadElement(property)) {
+          const result = this.#atOriginPoint(property, () => {
+            const spread = this.evaluate(property.argument, value.environment);
+            return this.#originProperties(spread, key, covered, visiting);
+          });
+          for (const member of result.values) values.push(member);
+          for (const name of result.definiteKeys) {
+            covered.add(name);
+            definiteKeys.add(name);
+          }
+          continue;
+        }
+        const name = semanticStaticPropertyKey(property.key, property.computed);
+        if (name === null) {
+          // An unknown key can replace a known property or introduce another
+          // one; it cannot prove that an earlier possible value was removed.
+          values.push(this.#objectPropertyValue(property, value.environment));
+        } else {
+          if (!covered.has(name) && (key === null || key === name))
+            values.push(this.#objectPropertyValue(property, value.environment));
+          covered.add(name);
+          definiteKeys.add(name);
+        }
+      }
+      return { values, definiteKeys };
+    }
+    if (value.kind === "namespace") {
+      if (this.#mutated.has(value.bindingId)) return empty;
+      const replacement = this.#replacements.get(value.bindingId);
+      if (replacement)
+        return this.#originProperties(
+          this.evaluate(replacement, value.environment),
+          key,
+          excluded,
+          visiting,
+        );
+      for (const name of this.members(value)) {
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
+        if (this.#unsafeExports.has(`${value.bindingId}:${name}`)) continue;
+        definiteKeys.add(name);
+        if (!excluded.has(name) && (key === null || key === name))
+          values.push(this.#propertyValue(value, name));
+      }
+      return { values, definiteKeys };
+    }
+    if (value.kind === "record" || value.kind === "array") {
+      const entries = value.values.entries();
+      for (const [rawName, member] of entries) {
+        const name = String(rawName);
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
+        definiteKeys.add(name);
+        if (!excluded.has(name) && (key === null || key === name))
+          values.push(member);
+      }
+      return { values, definiteKeys };
+    }
+    // A known external key is a possible member, but not proof of an own
+    // enumerable key when the value is copied by an object spread.
+    if (key !== null) values.push(this.#propertyValue(value, key));
+    return { values, definiteKeys };
+  }
+
+  #originSnapshotProperties(
+    snapshot: NonNullable<OriginValue[typeof originSnapshot]>,
+    key: string | null,
+    excluded: ReadonlySet<string>,
+    active: Set<SymbolicValue>,
+  ): OriginProperties {
+    const end = snapshot.end ?? snapshot.writes.length;
+    const write = snapshot.writes[end - 1];
+    if (!write)
+      return this.#originProperties(snapshot.base, key, excluded, active);
+    const prior: OriginValue = {
+      ...snapshot.base,
+      [originSnapshot]: {
+        base: snapshot.base,
+        writes: snapshot.writes,
+        end: end - 1,
+      },
+    };
+    const head = write.path[0];
+    if (
+      head !== null &&
+      (excluded.has(head!) || (key !== null && head !== key))
+    )
+      return this.#originProperties(prior, key, excluded, active);
+    const blocked = new Set(excluded);
+    if (head !== null && write.definite) blocked.add(head!);
+    if (write.path.length === 1) {
+      const earlier = this.#originProperties(prior, key, blocked, active);
+      const removed = t.isUnaryExpression(write.source.site, {
+        operator: "delete",
+      });
+      const definiteKeys = new Set(earlier.definiteKeys);
+      if (head !== null) {
+        if (removed) definiteKeys.delete(head!);
+        else if (write.definite) definiteKeys.add(head!);
+      } else if (removed) definiteKeys.clear();
+      return {
+        values: removed ? earlier.values : [...earlier.values, write.value],
+        definiteKeys,
+      };
+    }
+    const selected = head ?? key;
+    const parents = this.#originProperties(prior, selected, excluded, active);
+    const values = parents.values.map((parent): OriginValue => ({
+      ...parent,
+      [originSnapshot]: {
+        base: parent,
+        writes: [
+          {
+            ...write,
+            path: write.path.slice(1),
+            definite: write.definite && head !== null,
+          },
+        ],
+      },
+    }));
+    const siblings =
+      head !== null && key === null
+        ? this.#originProperties(
+            prior,
+            null,
+            new Set([...excluded, head!]),
+            active,
+          )
+        : { values: [], definiteKeys: new Set<string>() };
+    return {
+      values: [...values, ...siblings.values],
+      definiteKeys: new Set([
+        ...parents.definiteKeys,
+        ...siblings.definiteKeys,
+      ]),
+    };
+  }
+
   #symbolicElectronWritePaths(
     target: t.Node,
   ): readonly (readonly (string | null)[])[] {
@@ -965,22 +1326,12 @@ export class JavaScriptSymbolicBindings {
             ...electronExportPath(value.path.slice(1)),
             ...members.slice(offset),
           ]);
-        else if (offset < members.length) {
-          const key = members[offset];
-          const keys =
-            key !== null
-              ? [key!]
-              : value.kind === "array"
-                ? value.values.map((_value, index) => String(index))
-                : this.members(value);
-          for (const member of keys) {
-            if (--this.#remainingEvaluations < 0) {
-              this.truncated = true;
-              return [["electron"]];
-            }
-            next.push(this.property(value, member));
-          }
-        }
+        else if (offset < members.length)
+          for (const member of this.#originProperties(
+            value,
+            members[offset] ?? null,
+          ).values)
+            next.push(member);
       }
       values = next;
     }
@@ -999,7 +1350,8 @@ export class JavaScriptSymbolicBindings {
         ?.definitions ?? [])
         if (definition.kind === "assignment") invalidateAll = true;
       for (const write of this.#writes.get(bindingId) ?? []) {
-        if (write.path.length === 0) invalidateAll = true;
+        if (write.path.length === 0 || write.path[0] === null)
+          invalidateAll = true;
         else invalidSlots.add(write.path[0]!);
       }
     }
@@ -1008,29 +1360,20 @@ export class JavaScriptSymbolicBindings {
   }
 
   #indexWrite(target: t.Node, value: t.Node, site: t.Node): void {
-    const path: string[] = [];
-    let root = target;
-    let dynamic = false;
-    while (t.isMemberExpression(root)) {
-      const key = semanticStaticPropertyKey(root.property, root.computed);
-      if (key === null) dynamic = true;
-      else path.unshift(key);
-      root = root.object;
-    }
-    if (dynamic && t.isIdentifier(root)) {
+    const { root, members: path } = electronMemberPath(target);
+    if (path.includes(null) && t.isIdentifier(root)) {
       const binding = resolveSemanticBindingState(this.state, root, root.name);
       if (binding)
         this.#mutated.add(
           this.#exportAliases.get(binding.bindingId) ?? binding.bindingId,
         );
-      return;
     }
     if (t.isIdentifier(root)) this.#addWrite(root, path, value, site);
   }
 
   #addWrite(
     root: t.Identifier,
-    path: readonly string[],
+    path: readonly (string | null)[],
     value: t.Node,
     site: t.Node,
   ): void {

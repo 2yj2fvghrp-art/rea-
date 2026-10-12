@@ -795,3 +795,42 @@ describe("Electron container mutation targets", () => {
     },
   );
 });
+
+describe("Electron containers populated after initialization", () => {
+  it.each([
+    ["direct slot", "box.ipc=e.ipcMain;", "box.ipc"],
+    ["earlier alias", "const alias=box; box.ipc=e.ipcMain;", "alias.ipc"],
+    ["dynamic slot", "box[slot]=e.ipcMain;", "box[slot]"],
+    ["logical fill", "box.ipc ||= e.ipcMain;", "box.ipc"],
+  ])("invalidates an API reached through a %s", (_name, fill, receiver) => {
+    const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron"); const box={};
+      ${fill}
+      delete ${receiver}.on;
+      e.ipcMain.on("overwritten",event=>event.sender.copy());
+      e.ipcMain.handle("untouched",event=>event.sender.copy());
+    `);
+    expect(electron.ipc).toMatchObject([
+      { channel: "untouched", operation: "handle" },
+    ]);
+  });
+
+  it.each([
+    ["a later fill", "", "box.ipc=e.ipcMain;"],
+    ["a definite replacement", "box.ipc=e.ipcMain; box.ipc={};", ""],
+    ["a definite deletion", "box.ipc=e.ipcMain; delete box.ipc;", ""],
+    ["a compound assignment", "box.ipc+=e.ipcMain;", ""],
+    ["an uncalled writer", "function fill(){box.ipc=e.ipcMain;}", ""],
+  ])("does not infer a mutation from %s", (_name, before, after) => {
+    const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron"); const box={};
+      ${before}
+      delete box.ipc.on;
+      ${after}
+      e.ipcMain.on("untouched",event=>event.sender.copy());
+    `);
+    expect(electron.ipc).toMatchObject([
+      { channel: "untouched", operation: "on" },
+    ]);
+  });
+});
