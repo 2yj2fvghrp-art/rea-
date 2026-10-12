@@ -39,6 +39,7 @@ describe("SnapshotHashScanner", () => {
     scanner.push(Uint8Array.from([0, 0, 0]));
     scanner.push(realSnapshotSection("65817c30a78bb44c3dc3771876b6010a"));
     expect(scanner.result()).toEqual({
+      capped: false,
       sources: 2,
       candidates: ["65817c30a78bb44c3dc3771876b6010a"],
     });
@@ -49,6 +50,7 @@ describe("SnapshotHashScanner", () => {
     scanner.push(realSnapshotSection("11111111111111111111111111111111"));
     scanner.push(realSnapshotSection("22222222222222222222222222222222"));
     expect(scanner.result()).toEqual({
+      capped: false,
       sources: 2,
       candidates: [
         "11111111111111111111111111111111",
@@ -63,6 +65,7 @@ describe("SnapshotHashScanner", () => {
     for (let offset = 0; offset < payload.length; offset += 7)
       scanner.push(payload.subarray(offset, offset + 7));
     expect(scanner.result()).toEqual({
+      capped: false,
       sources: 1,
       candidates: ["65817c30a78bb44c3dc3771876b6010a"],
     });
@@ -71,8 +74,24 @@ describe("SnapshotHashScanner", () => {
   it("ignores a magic without a following hash", () => {
     const scanner = new SnapshotHashScanner();
     scanner.push(Uint8Array.from([0xf5, 0xf5, 0xdc, 0xdc, 0xff, 0xff, 0xff]));
-    expect(scanner.result()).toEqual({ sources: 0, candidates: [] });
+    expect(scanner.result()).toEqual({
+      capped: false,
+      sources: 0,
+      candidates: [],
+    });
   });
+});
+
+it("distinguishes a full candidate set from omitted conflicts", () => {
+  const scanner = new SnapshotHashScanner();
+  for (let index = 0; index < 64; index += 1)
+    scanner.push(realSnapshotSection(index.toString(16).padStart(32, "0")));
+  expect(scanner.result().capped).toBe(false);
+  scanner.push(realSnapshotSection("0".repeat(32)));
+  expect(scanner.result().capped).toBe(false);
+  scanner.push(realSnapshotSection("f".repeat(32)));
+  expect(scanner.result()).toMatchObject({ sources: 66, capped: true });
+  expect(scanner.result().candidates).toHaveLength(64);
 });
 
 describe("BuildIdScanner", () => {
@@ -237,4 +256,20 @@ describe("LabeledStringScanner", () => {
       toolchainCapped: false,
     });
   });
+});
+
+it("checks each build-id note tail locally among many colliding prefixes", () => {
+  const scanner = new BuildIdScanner();
+  const collisions = Buffer.alloc(64 * 1024);
+  for (let at = 0; at < collisions.length; at += 8) {
+    collisions.writeUInt32LE(4, at);
+    collisions.writeUInt32LE(8, at + 4);
+  }
+  scanner.push(collisions);
+  scanner.push(
+    Buffer.from([
+      4, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 71, 78, 85, 0, 1, 2, 3, 4,
+    ]),
+  );
+  expect(scanner.result()).toBe("01020304");
 });

@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  chmod,
-  constants as fsConstants,
-  mkdtemp,
-  open as openFile,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { chmod, mkdtemp, open as openFile, rm, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +14,8 @@ import {
 } from "../application/AnalysisProvider.js";
 import type { FlutterRequest } from "../domain/flutter/flutterBuildAnalysis.js";
 import {
+  AnalysisAccessDeniedError,
+  AnalysisArtifactChangedError,
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisResourceConstraintError,
@@ -36,6 +31,12 @@ import {
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
+  openRegularFile,
+  RegularFileAdmissionFailure,
+  sameRegularFileState,
+} from "../filesystem/RegularFile.js";
+import {
+  MAX_SNAPSHOT_HASH_CANDIDATES,
   BuildIdScanner,
   LabeledStringScanner,
   SnapshotHashScanner,
@@ -43,7 +44,7 @@ import {
 import {
   ELF_HEADER_MAX_BYTES,
   readElfHeader,
-  readElfSymbol,
+  readElfSymbols,
   readSnapshotHeader,
 } from "./DartElf.js";
 
@@ -60,6 +61,11 @@ const LIBRARY_MAX_BYTES = 256 * 1024 * 1024;
 const TOTAL_EXTRACTION_MAX_BYTES = 768 * 1024 * 1024;
 /** The APK itself must fit within this budget before any copy. */
 const APK_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+// At most 32 ABI projections (two libraries each). With bounded hashes and
+// engine labels this keeps expanded result metadata below 512 KiB for ordinary
+// ABI names, independently of the archive's compressed-byte budget.
+const MAX_FLUTTER_ABIS = 32;
+const MAX_LIBRARY_PATH_BYTES = 1024;
 const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
 /** A complete AOT image carries exactly one VM and one isolate section. */
@@ -145,7 +151,7 @@ const isCancellation = (cause: unknown): boolean =>
     "code" in cause &&
     cause.code === "ABORT_ERR");
 
-const mapReaderFailure = (
+const mapInputFailure = (
   operation: string,
   path: string,
   cause: unknown,
@@ -153,6 +159,14 @@ const mapReaderFailure = (
   if (cause instanceof AnalysisError) return cause;
   if (isCancellation(cause))
     return new AnalysisCancelledError(operation, { cause });
+  if (
+    cause instanceof Error &&
+    "code" in cause &&
+    (cause.code === "EACCES" || cause.code === "EPERM")
+  )
+    return new AnalysisAccessDeniedError(operation, path, cause.code, {
+      cause,
+    });
   if (cause instanceof ArtifactReaderFailure && cause.reason === "limit")
     return new AnalysisResourceConstraintError(
       operation,
@@ -171,53 +185,76 @@ const mapReaderFailure = (
   ]);
 };
 
-/** Iterate ZIP entries, mapping reader failures to typed errors. */
-const collectEntriesSafely = async (
+interface FlutterLibrary {
+  readonly entry: ArtifactEntry;
+  readonly abi: string;
+  readonly kind: "libapp" | "libflutter";
+}
+
+/** One inventory owns occurrence ambiguity and metadata expansion for both tools. */
+const collectFlutterLibraries = async (
   reader: ZipArtifactReader,
   operation: string,
   path: string,
   signal: AbortSignal | undefined,
-): Promise<ArtifactEntry[]> => {
+): Promise<FlutterLibrary[]> => {
+  const libraries: FlutterLibrary[] = [];
+  const paths = new Set<string>();
+  const abis = new Set<string>();
   try {
-    const entries: ArtifactEntry[] = [];
-    for await (const entry of reader.entries(signal)) entries.push(entry);
-    return entries;
+    for await (const entry of reader.entries(signal)) {
+      if (entry.kind !== "file") continue;
+      const match = /^lib\/([^/]+)\/(libapp|libflutter)\.so$/u.exec(entry.path);
+      if (match === null) continue;
+      if (paths.has(entry.path))
+        throw new AnalysisInputError(operation, undefined, [
+          {
+            path: ["path"],
+            reason: "invalid_format",
+            message: `The selected APK has duplicate Flutter library members: ${path}: ${entry.path}`,
+          },
+        ]);
+      paths.add(entry.path);
+      abis.add(match[1]!);
+      if (
+        abis.size > MAX_FLUTTER_ABIS ||
+        Buffer.byteLength(entry.path) > MAX_LIBRARY_PATH_BYTES
+      )
+        throw new AnalysisResourceConstraintError(
+          operation,
+          "memory",
+          "Flutter library inventory exceeds the bounded ABI projection budget",
+          {
+            max_flutter_abis: MAX_FLUTTER_ABIS,
+            max_library_path_bytes: MAX_LIBRARY_PATH_BYTES,
+          },
+        );
+      libraries.push({
+        entry,
+        abi: match[1]!,
+        kind: match[2] === "libapp" ? "libapp" : "libflutter",
+      });
+    }
+    return libraries;
   } catch (cause) {
-    throw mapReaderFailure(operation, path, cause);
+    throw mapInputFailure(operation, path, cause);
   }
 };
 
-/** Open one entry stream, mapping reader failures to typed errors. */
-const openEntrySafely = async (
+/** The generator owns iterator closure, including early extraction failures. */
+async function* openEntrySafely(
   reader: ZipArtifactReader,
   entry: ArtifactEntry,
   operation: string,
   path: string,
   signal: AbortSignal | undefined,
-): Promise<AsyncIterable<Buffer>> => {
-  const stream = await reader.open(entry, signal).catch((cause: unknown) => {
-    throw mapReaderFailure(operation, path, cause);
-  });
-  return {
-    [Symbol.asyncIterator](): AsyncIterator<Buffer> {
-      const iterator = stream[Symbol.asyncIterator]();
-      return {
-        next: () =>
-          iterator.next().catch((cause: unknown) => {
-            throw mapReaderFailure(operation, path, cause);
-          }),
-        // An early for-await exit must close the underlying stream; the
-        // delegates forward that closure instead of dropping it.
-        return: (value) =>
-          iterator.return
-            ? iterator.return(value)
-            : Promise.resolve({ done: true, value: undefined }),
-        throw: (reason) =>
-          iterator.throw ? iterator.throw(reason) : Promise.reject(reason),
-      };
-    },
-  };
-};
+): AsyncGenerator<Buffer> {
+  try {
+    yield* await reader.open(entry, signal);
+  } catch (cause) {
+    throw mapInputFailure(operation, path, cause);
+  }
+}
 
 const checkApkSize = (operation: string, bytes: number): void => {
   if (bytes > APK_MAX_BYTES)
@@ -249,6 +286,7 @@ export class FlutterBuildProvider {
     Set<{ close(): Promise<void> }>
   >();
   private readonly removeRoot: (path: string) => Promise<void>;
+  private readonly cleanupFailures = new Map<string, readonly unknown[]>();
 
   constructor(options: FlutterProviderOptions = {}) {
     this.environment = options.environment ?? process.env;
@@ -277,52 +315,80 @@ export class FlutterBuildProvider {
       // refused instead of publishing mixed bytes under the original path.
       // The copy itself is streamed and abort-checked so cancellation
       // stops the write promptly instead of draining the whole file.
-      const before = await stat(path);
-      checkApkSize(operation, before.size);
+      let source: OwnedFileHandle;
+      try {
+        source = this.ownResource(
+          root,
+          new OwnedFileHandle(
+            await openRegularFile(path, { symlinks: "follow", signal }),
+          ),
+        );
+      } catch (cause) {
+        if (cause instanceof RegularFileAdmissionFailure) {
+          this.ownResource(root, cause.owner);
+          throw cause.cause;
+        }
+        throw cause;
+      }
+      const before = await source.handle.stat({ bigint: true });
+      checkApkSize(operation, Number(before.size));
       const output = this.ownResource(
         root,
         new OwnedFileHandle(await openFile(snapshotPath, "wx")),
       );
-      const copyStream = createReadStream(
-        path,
-        signal === undefined ? {} : { signal },
-      );
+      const chunk = Buffer.alloc(64 * 1024);
       let copiedBytes = 0;
-      for await (const chunk of copyStream) {
-        if (signal?.aborted === true)
-          throw new AnalysisCancelledError(operation, {
-            cause: signal.reason,
-          });
-        copiedBytes += (chunk as Buffer).byteLength;
-        checkApkSize(operation, copiedBytes);
-        await output.handle.writeFile(chunk as Buffer);
+      while (copiedBytes <= Number(before.size)) {
+        signal?.throwIfAborted();
+        const { bytesRead } = await source.handle.read(
+          chunk,
+          0,
+          Math.min(chunk.length, Number(before.size) - copiedBytes + 1),
+          copiedBytes,
+        );
+        signal?.throwIfAborted();
+        if (bytesRead === 0) break;
+        copiedBytes += bytesRead;
+        if (BigInt(copiedBytes) > before.size)
+          throw new AnalysisArtifactChangedError(
+            operation,
+            path,
+            "Selected file grew during snapshotting",
+          );
+        await output.handle.writeFile(chunk.subarray(0, bytesRead));
       }
       await this.releaseResource(root, output);
-      const after = await stat(path);
+      const [after, currentPath] = await Promise.all([
+        source.handle.stat({ bigint: true }),
+        stat(path, { bigint: true }).catch((cause: unknown) => {
+          throw new AnalysisArtifactChangedError(
+            operation,
+            path,
+            "Selected path became unavailable during snapshotting",
+            { cause },
+          );
+        }),
+      ]);
       if (
-        before.size !== after.size ||
-        before.mtimeMs !== after.mtimeMs ||
-        before.ino !== after.ino
+        BigInt(copiedBytes) !== before.size ||
+        !sameRegularFileState(before, after) ||
+        !sameRegularFileState(before, currentPath)
       )
-        throw new Error(
-          `The selected APK changed while it was being snapshotted: ${path}`,
+        throw new AnalysisArtifactChangedError(
+          operation,
+          path,
+          "Selected file identity or contents changed during snapshotting",
         );
+      await this.releaseResource(root, source);
       await chmod(snapshotPath, 0o400);
       const info = await stat(snapshotPath);
       const sha256 = await sha256File(operation, snapshotPath, signal);
       return { root, path: snapshotPath, bytes: info.size, sha256 };
     } catch (cause) {
       await this.discardRoot(root);
-      if (cause instanceof AnalysisError) throw cause;
-      if (isCancellation(cause))
+      if (signal?.aborted === true)
         throw new AnalysisCancelledError(operation, { cause });
-      throw new AnalysisInputError(operation, { cause }, [
-        {
-          path: ["path"],
-          reason: "invalid_value",
-          message: `The APK could not be snapshotted: ${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
-        },
-      ]);
+      throw mapInputFailure(operation, path, cause);
     }
   }
 
@@ -353,15 +419,23 @@ export class FlutterBuildProvider {
   private async discardRoot(root: string): Promise<boolean> {
     const resources = this.ownedRoots.get(root);
     if (resources === undefined) return true;
+    const attempts = await Promise.allSettled(
+      [...resources].map((resource) => this.releaseResource(root, resource)),
+    );
+    const failures = attempts.flatMap((attempt) =>
+      attempt.status === "rejected" ? [attempt.reason as unknown] : [],
+    );
+    if (failures.length > 0) {
+      this.cleanupFailures.set(root, failures);
+      return false;
+    }
     try {
-      await Promise.allSettled(
-        [...resources].map((resource) => this.releaseResource(root, resource)),
-      );
-      if (resources.size > 0) return false;
       await this.removeRoot(root);
       this.ownedRoots.delete(root);
+      this.cleanupFailures.delete(root);
       return true;
-    } catch {
+    } catch (cause) {
+      this.cleanupFailures.set(root, [cause]);
       return false;
     }
   }
@@ -381,7 +455,12 @@ export class FlutterBuildProvider {
     const failures: unknown[] = [];
     for (const root of [...this.ownedRoots.keys()]) {
       if (!(await this.discardRoot(root)))
-        failures.push(new Error(`snapshot root retained: ${root}`));
+        failures.push(
+          new AggregateError(
+            this.cleanupFailures.get(root)!,
+            `snapshot root retained: ${root}`,
+          ),
+        );
     }
     if (failures.length > 0)
       throw new AggregateError(failures, "Flutter snapshot cleanup failed");
@@ -393,596 +472,568 @@ export class FlutterBuildProvider {
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
     if (options?.signal?.aborted === true)
       return err(new AnalysisCancelledError(request.operation));
-    if (request.operation === "inspect_dart_aot")
-      return this.inspectDartAot(
-        request.input.path,
-        request.input.abi,
-        options?.signal,
-      );
     const { path } = request.input;
     const signal = options?.signal;
-    const info = await stat(path).then(
-      (value) => value,
-      () => null,
-    );
-    if (info === null || !info.isFile())
-      return err(
-        new AnalysisInputError(request.operation, {
-          cause: new Error(`The selected APK is not a readable file: ${path}`),
-        }),
-      );
-    let snapshot: OwnedSnapshot;
+    let snapshot: OwnedSnapshot | undefined;
     try {
-      snapshot = await this.ownSnapshot(
-        request.operation,
-        path,
-        options?.signal,
-      );
-    } catch (cause) {
-      if (cause instanceof AnalysisError) return err(cause);
-      return err(new AnalysisInputError(request.operation, { cause }));
-    }
-    const reader = this.readerFor(snapshot);
-    try {
-      const flutterEntries = new Map<
-        string,
-        { entry: ArtifactEntry; abi: string; kind: "libapp" | "libflutter" }
-      >();
-      for await (const entry of await collectEntriesSafely(
+      snapshot = await this.ownSnapshot(request.operation, path, signal);
+      const reader = this.readerFor(snapshot);
+      const libraries = await collectFlutterLibraries(
         reader,
         request.operation,
-        snapshot.path,
-        options?.signal,
-      )) {
-        if (entry.kind !== "file") continue;
-        const match = /^lib\/([^/]+)\/(libapp|libflutter)\.so$/u.exec(
-          entry.path,
-        );
-        if (match === null) continue;
-        if (
-          entry.declaredSize !== null &&
-          entry.declaredSize > LIBRARY_MAX_BYTES
-        )
-          return err(
-            new AnalysisResourceConstraintError(
-              request.operation,
-              "file-size",
-              `${entry.path} declares ${String(entry.declaredSize)} bytes, exceeding the ${String(LIBRARY_MAX_BYTES)}-byte read budget`,
-              { max_library_bytes: LIBRARY_MAX_BYTES, entry_path: entry.path },
-            ),
-          );
-        flutterEntries.set(entry.path, {
-          entry,
-          abi: match[1]!,
-          kind: match[2]! === "libapp" ? "libapp" : "libflutter",
-        });
-      }
-      // Preflight: refuse before any I/O when the declared entry sizes
-      // already exceed the cumulative budget, even though streaming might
-      // discover smaller actual sizes.
-      const declaredTotal = [...flutterEntries.values()].reduce(
-        (total, { entry }) => total + (entry.declaredSize ?? 0),
-        0,
+        path,
+        signal,
       );
-      if (declaredTotal > TOTAL_EXTRACTION_MAX_BYTES)
+      return request.operation === "inspect_dart_aot"
+        ? await this.inspectDartAot(
+            path,
+            request.input.abi,
+            signal,
+            snapshot,
+            reader,
+            libraries,
+          )
+        : await this.identifyFlutterBuild(
+            path,
+            signal,
+            snapshot,
+            reader,
+            libraries,
+          );
+    } catch (cause) {
+      if (cause instanceof AnalysisError) return err(cause);
+      if (signal?.aborted === true)
+        return err(new AnalysisCancelledError(request.operation, { cause }));
+      return err(new AnalysisProtocolError(request.operation, { cause }));
+    } finally {
+      if (snapshot !== undefined) await this.discardRoot(snapshot.root);
+    }
+  }
+
+  private async identifyFlutterBuild(
+    path: string,
+    signal: AbortSignal | undefined,
+    snapshot: OwnedSnapshot,
+    reader: ZipArtifactReader,
+    flutterEntries: readonly FlutterLibrary[],
+  ): Promise<Result<AnalysisExecution, AnalysisError>> {
+    const operation = "identify_flutter_build";
+    for (const { entry } of flutterEntries) {
+      if (entry.declaredSize !== null && entry.declaredSize > LIBRARY_MAX_BYTES)
         return err(
           new AnalysisResourceConstraintError(
-            request.operation,
+            operation,
             "file-size",
-            `declared library sizes total ${String(declaredTotal)} bytes, exceeding the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte cumulative budget before any extraction`,
-            {
-              max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES,
-              declared_total: declaredTotal,
-            },
+            `${entry.path} exceeds the library read budget`,
+            { max_library_bytes: LIBRARY_MAX_BYTES, entry_path: entry.path },
           ),
         );
-
-      const facts = new Map<string, LibraryFacts>();
-      let extractedTotal = 0;
-      for (const { entry, abi, kind } of flutterEntries.values()) {
-        const stream = await openEntrySafely(
-          reader,
-          entry,
-          request.operation,
-          snapshot.path,
-          options?.signal,
-        );
-        const hash = createHash("sha256");
-        const snapshotScanner = new SnapshotHashScanner();
-        const buildIdScanner = new BuildIdScanner();
-        const labeledScanner = new LabeledStringScanner();
-        let bytes = 0;
-        const headerPrefix = Buffer.alloc(ELF_HEADER_MAX_BYTES);
-        let headerBytes = 0;
-        for await (const chunk of stream) {
-          if (signal?.aborted === true)
-            return err(
-              new AnalysisCancelledError(request.operation, {
-                cause: signal.reason,
-              }),
-            );
-          const view = chunk as Buffer;
-          headerBytes += view.copy(
-            headerPrefix,
-            headerBytes,
-            0,
-            Math.min(view.length, headerPrefix.length - headerBytes),
-          );
-          bytes += view.byteLength;
-          if (bytes > LIBRARY_MAX_BYTES)
-            return err(
-              new AnalysisResourceConstraintError(
-                request.operation,
-                "file-size",
-                `${entry.path} exceeds the ${String(LIBRARY_MAX_BYTES)}-byte read budget while streaming`,
-                {
-                  max_library_bytes: LIBRARY_MAX_BYTES,
-                  entry_path: entry.path,
-                },
-              ),
-            );
-          hash.update(view);
-          if (kind === "libapp") snapshotScanner.push(view);
-          else {
-            buildIdScanner.push(view);
-            labeledScanner.push(view);
-          }
-          // Enforce the cumulative cap inside the chunk loop so refusal
-          // happens before the remaining bytes are streamed and hashed.
-          if (extractedTotal + bytes > TOTAL_EXTRACTION_MAX_BYTES)
-            return err(
-              new AnalysisResourceConstraintError(
-                request.operation,
-                "file-size",
-                `cumulative library extraction across ${String(flutterEntries.size)} entries exceeds the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte budget`,
-                { max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES },
-              ),
-            );
-        }
-        extractedTotal += bytes;
-        const digest = hash.digest("hex");
-        const current = facts.get(abi) ?? emptyFacts();
-        if (kind === "libapp") {
-          const scan = snapshotScanner.result();
-          facts.set(abi, {
-            ...current,
-            libapp: {
-              present: true,
-              bytes,
-              sha256: digest,
-              elfHeaderValid:
-                readElfHeader(headerPrefix.subarray(0, headerBytes), bytes)
-                  .header !== undefined,
-              sources: scan.sources,
-              candidates: scan.candidates,
-            },
-          });
-        } else {
-          const labeled = labeledScanner.result();
-          facts.set(abi, {
-            ...current,
-            libflutter: {
-              present: true,
-              bytes,
-              sha256: digest,
-              buildId: buildIdScanner.result(),
-              ...labeled,
-            },
-          });
-        }
-      }
-      const abis = [...facts.entries()]
-        .map(([abi, value]) => ({
-          abi,
-          libapp: {
-            present: value.libapp.present,
-            bytes: value.libapp.bytes,
-            sha256: value.libapp.sha256,
-            elf_header_valid: value.libapp.elfHeaderValid,
-            snapshot_hash_sources: value.libapp.sources,
-            snapshot_hash_candidates: [...value.libapp.candidates],
-            snapshot_hash:
-              value.libapp.candidates.length === 1
-                ? value.libapp.candidates[0]!
-                : null,
-          },
-          libflutter: {
-            present: value.libflutter.present,
-            bytes: value.libflutter.bytes,
-            sha256: value.libflutter.sha256,
-            build_id: value.libflutter.buildId,
-            dart_version: value.libflutter.dartVersion,
-            dart_version_capped: value.libflutter.dartVersionCapped,
-            toolchain_lines: [...value.libflutter.toolchainLines],
-            toolchain_capped: value.libflutter.toolchainCapped,
-          },
-        }))
-        .sort((left, right) => left.abi.localeCompare(right.abi));
-      const flutterDetected = abis.some((entry) => entry.libapp.present);
-      const partial = abis.some(
-        (entry) =>
-          (entry.libapp.present &&
-            (entry.libapp.snapshot_hash === null ||
-              entry.libapp.snapshot_hash_sources !== 2 ||
-              entry.libapp.elf_header_valid !== true)) ||
-          entry.libflutter.toolchain_capped ||
-          entry.libflutter.dart_version_capped ||
-          entry.libapp.present !== entry.libflutter.present,
-      );
-      return ok(
-        createAnalysisExecution(
+    }
+    // Preflight: refuse before any I/O when the declared entry sizes
+    // already exceed the cumulative budget, even though streaming might
+    // discover smaller actual sizes.
+    const declaredTotal = flutterEntries.reduce(
+      (total, { entry }) => total + (entry.declaredSize ?? 0),
+      0,
+    );
+    if (declaredTotal > TOTAL_EXTRACTION_MAX_BYTES)
+      return err(
+        new AnalysisResourceConstraintError(
+          operation,
+          "file-size",
+          `declared library sizes total ${String(declaredTotal)} bytes, exceeding the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte cumulative budget before any extraction`,
           {
-            target: { path, bytes: snapshot.bytes, sha256: snapshot.sha256 },
-            flutter_detected: flutterDetected,
-            abis,
-            coverage: partial ? "partial" : "complete",
-          },
-          FLUTTER_PROVIDER_IDENTITY,
-          {
-            limitations: [
-              "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
-              "The snapshot hash identifies a Dart SDK build only against an external mapping dataset; REA performs no lookup",
-              "Release engine builds often carry no labeled Dart version string; absence is reported, not guessed",
-              ...abis
-                .filter((entry) => entry.libflutter.toolchain_capped)
-                .map(
-                  (entry) =>
-                    `lib/${entry.abi}/libflutter.so has toolchain labels omitted by the complete-label grammar or the 4-line projection`,
-                ),
-              ...abis
-                .filter((entry) => entry.libflutter.dart_version_capped)
-                .map(
-                  (entry) =>
-                    `lib/${entry.abi}/libflutter.so has Dart version labels omitted by the complete-label grammar or the single-version projection`,
-                ),
-              "The snapshot hash sits 20 bytes after each snapshot magic in the AOT payload; findings are observations of that layout",
-              "ELF header validity checks the supported header layout and declared table extents; identification does not resolve symbols or validate table contents",
-              ...abis
-                .filter(
-                  (entry) =>
-                    entry.libapp.present &&
-                    entry.libapp.snapshot_hash_sources < 2,
-                )
-                .map(
-                  (entry) =>
-                    `lib/${entry.abi}/libapp.so carries ${String(entry.libapp.snapshot_hash_sources)} snapshot section(s); a complete AOT payload carries two, so the library is truncated or nonstandard`,
-                ),
-              ...abis
-                .filter(
-                  (entry) =>
-                    entry.libapp.present &&
-                    entry.libapp.elf_header_valid !== true,
-                )
-                .map(
-                  (entry) =>
-                    `lib/${entry.abi}/libapp.so has a truncated, malformed, or unsupported ELF header or table extent; byte-scanned hashes remain observations only`,
-                ),
-              ...(flutterDetected
-                ? []
-                : [
-                    "No lib/*/libapp.so was found; the target does not carry a Flutter AOT payload",
-                  ]),
-            ],
+            max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES,
+            declared_total: declaredTotal,
           },
         ),
       );
-    } catch (cause) {
-      if (cause instanceof AnalysisError) return err(cause);
-      return err(new AnalysisProtocolError(request.operation, { cause }));
-    } finally {
-      await this.discardRoot(snapshot.root);
+
+    const facts = new Map<string, LibraryFacts>();
+    let extractedTotal = 0;
+    for (const { entry, abi, kind } of flutterEntries) {
+      const stream = openEntrySafely(reader, entry, operation, path, signal);
+      const hash = createHash("sha256");
+      const snapshotScanner = new SnapshotHashScanner();
+      const buildIdScanner = new BuildIdScanner();
+      const labeledScanner = new LabeledStringScanner();
+      let bytes = 0;
+      const headerPrefix = Buffer.alloc(ELF_HEADER_MAX_BYTES);
+      let headerBytes = 0;
+      for await (const chunk of stream) {
+        if (signal?.aborted === true)
+          return err(
+            new AnalysisCancelledError(operation, {
+              cause: signal.reason,
+            }),
+          );
+        const view = chunk as Buffer;
+        headerBytes += view.copy(
+          headerPrefix,
+          headerBytes,
+          0,
+          Math.min(view.length, headerPrefix.length - headerBytes),
+        );
+        bytes += view.byteLength;
+        if (bytes > LIBRARY_MAX_BYTES)
+          return err(
+            new AnalysisResourceConstraintError(
+              operation,
+              "file-size",
+              `${entry.path} exceeds the ${String(LIBRARY_MAX_BYTES)}-byte read budget while streaming`,
+              {
+                max_library_bytes: LIBRARY_MAX_BYTES,
+                entry_path: entry.path,
+              },
+            ),
+          );
+        hash.update(view);
+        if (kind === "libapp") snapshotScanner.push(view);
+        else {
+          buildIdScanner.push(view);
+          labeledScanner.push(view);
+        }
+        // Enforce the cumulative cap inside the chunk loop so refusal
+        // happens before the remaining bytes are streamed and hashed.
+        if (extractedTotal + bytes > TOTAL_EXTRACTION_MAX_BYTES)
+          return err(
+            new AnalysisResourceConstraintError(
+              operation,
+              "file-size",
+              `cumulative library extraction across ${String(flutterEntries.length)} entries exceeds the ${String(TOTAL_EXTRACTION_MAX_BYTES)}-byte budget`,
+              { max_total_bytes: TOTAL_EXTRACTION_MAX_BYTES },
+            ),
+          );
+      }
+      extractedTotal += bytes;
+      const digest = hash.digest("hex");
+      const current = facts.get(abi) ?? emptyFacts();
+      if (kind === "libapp") {
+        const scan = snapshotScanner.result();
+        if (scan.capped)
+          return err(
+            new AnalysisResourceConstraintError(
+              operation,
+              "memory",
+              "Snapshot hash candidates exceed the retained evidence budget",
+              {
+                max_snapshot_hash_candidates: MAX_SNAPSHOT_HASH_CANDIDATES,
+                entry_path: entry.path,
+              },
+            ),
+          );
+        facts.set(abi, {
+          ...current,
+          libapp: {
+            present: true,
+            bytes,
+            sha256: digest,
+            elfHeaderValid:
+              readElfHeader(headerPrefix.subarray(0, headerBytes), bytes)
+                .header !== undefined,
+            sources: scan.sources,
+            candidates: scan.candidates,
+          },
+        });
+      } else {
+        const labeled = labeledScanner.result();
+        facts.set(abi, {
+          ...current,
+          libflutter: {
+            present: true,
+            bytes,
+            sha256: digest,
+            buildId: buildIdScanner.result(),
+            ...labeled,
+          },
+        });
+      }
     }
+    const abis = [...facts.entries()]
+      .map(([abi, value]) => ({
+        abi,
+        libapp: {
+          present: value.libapp.present,
+          bytes: value.libapp.bytes,
+          sha256: value.libapp.sha256,
+          elf_header_valid: value.libapp.elfHeaderValid,
+          snapshot_hash_sources: value.libapp.sources,
+          snapshot_hash_candidates: [...value.libapp.candidates],
+          snapshot_hash:
+            value.libapp.candidates.length === 1
+              ? value.libapp.candidates[0]!
+              : null,
+        },
+        libflutter: {
+          present: value.libflutter.present,
+          bytes: value.libflutter.bytes,
+          sha256: value.libflutter.sha256,
+          build_id: value.libflutter.buildId,
+          dart_version: value.libflutter.dartVersion,
+          dart_version_capped: value.libflutter.dartVersionCapped,
+          toolchain_lines: [...value.libflutter.toolchainLines],
+          toolchain_capped: value.libflutter.toolchainCapped,
+        },
+      }))
+      .sort((left, right) => left.abi.localeCompare(right.abi));
+    const flutterDetected = abis.some((entry) => entry.libapp.present);
+    const partial = abis.some(
+      (entry) =>
+        (entry.libapp.present &&
+          (entry.libapp.snapshot_hash === null ||
+            entry.libapp.snapshot_hash_sources !== 2 ||
+            entry.libapp.elf_header_valid !== true)) ||
+        entry.libflutter.toolchain_capped ||
+        entry.libflutter.dart_version_capped ||
+        entry.libapp.present !== entry.libflutter.present,
+    );
+    return ok(
+      createAnalysisExecution(
+        {
+          target: { path, bytes: snapshot.bytes, sha256: snapshot.sha256 },
+          flutter_detected: flutterDetected,
+          abis,
+          coverage: partial ? "partial" : "complete",
+        },
+        FLUTTER_PROVIDER_IDENTITY,
+        {
+          subject: { path, format: "apk", sha256: snapshot.sha256 },
+          locations: [{ kind: "artifact-path", path }],
+          limitations: [
+            "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
+            "The snapshot hash identifies a Dart SDK build only against an external mapping dataset; REA performs no lookup",
+            "Release engine builds often carry no labeled Dart version string; absence is reported, not guessed",
+            ...abis
+              .filter((entry) => entry.libflutter.toolchain_capped)
+              .map(
+                (entry) =>
+                  `lib/${entry.abi}/libflutter.so has toolchain labels omitted by the complete-label grammar or the 4-line projection`,
+              ),
+            ...abis
+              .filter((entry) => entry.libflutter.dart_version_capped)
+              .map(
+                (entry) =>
+                  `lib/${entry.abi}/libflutter.so has Dart version labels omitted by the complete-label grammar or the single-version projection`,
+              ),
+            "The snapshot hash sits 20 bytes after each snapshot magic in the AOT payload; findings are observations of that layout",
+            "ELF header validity checks the supported header layout and declared table extents; identification does not resolve symbols or validate table contents",
+            ...abis
+              .filter(
+                (entry) =>
+                  entry.libapp.present &&
+                  entry.libapp.snapshot_hash_sources !== 2,
+              )
+              .map(
+                (entry) =>
+                  `lib/${entry.abi}/libapp.so carries ${String(entry.libapp.snapshot_hash_sources)} snapshot section(s); a complete AOT payload carries two, so the library is truncated or nonstandard`,
+              ),
+            ...abis
+              .filter(
+                (entry) =>
+                  entry.libapp.present &&
+                  entry.libapp.elf_header_valid !== true,
+              )
+              .map(
+                (entry) =>
+                  `lib/${entry.abi}/libapp.so has a truncated, malformed, or unsupported ELF header or table extent; byte-scanned hashes remain observations only`,
+              ),
+            ...(flutterDetected
+              ? []
+              : [
+                  "No lib/*/libapp.so was found; the target does not carry a Flutter AOT payload",
+                ]),
+          ],
+        },
+      ),
+    );
   }
 
   private async inspectDartAot(
     path: string,
     abi: string | undefined,
     signal: AbortSignal | undefined,
+    snapshot: OwnedSnapshot,
+    reader: ZipArtifactReader,
+    libraries: readonly FlutterLibrary[],
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
-    const info = await stat(path).then(
-      (value) => value,
-      () => null,
-    );
-    if (info === null || !info.isFile())
+    const candidates = libraries.filter((library) => library.kind === "libapp");
+    if (candidates.length === 0)
       return err(
-        new AnalysisInputError("inspect_dart_aot", {
-          cause: new Error(`The selected APK is not a readable file: ${path}`),
-        }),
-      );
-    let snapshot: OwnedSnapshot;
-    try {
-      snapshot = await this.ownSnapshot("inspect_dart_aot", path, signal);
-    } catch (cause) {
-      if (cause instanceof AnalysisError) return err(cause);
-      return err(new AnalysisInputError("inspect_dart_aot", { cause }));
-    }
-    const reader = this.readerFor(snapshot);
-    try {
-      const candidates: { entry: ArtifactEntry; abi: string }[] = [];
-      for await (const entry of await collectEntriesSafely(
-        reader,
-        "inspect_dart_aot",
-        snapshot.path,
-        signal,
-      )) {
-        if (entry.kind !== "file") continue;
-        const match = /^lib\/([^/]+)\/libapp\.so$/u.exec(entry.path);
-        if (match === null) continue;
-        candidates.push({ entry, abi: match[1]! });
-      }
-      if (candidates.length === 0)
-        return err(
-          new AnalysisUnsupportedTargetError(
-            "inspect_dart_aot",
-            path,
-            "No lib/<abi>/libapp.so was found; the target carries no Dart AOT payload",
-          ),
-        );
-      const preference = ["arm64-v8a", "x86_64", "x86", "armeabi-v7a"];
-      const selected =
-        abi === undefined
-          ? [...candidates].sort(
-              (left, right) =>
-                (preference.indexOf(left.abi) + 1 || preference.length + 1) -
-                  (preference.indexOf(right.abi) + 1 ||
-                    preference.length + 1) || left.abi.localeCompare(right.abi),
-            )[0]!
-          : candidates.find((candidate) => candidate.abi === abi);
-      if (selected === undefined)
-        return err(
-          new AnalysisUnsupportedTargetError(
-            "inspect_dart_aot",
-            path,
-            `No libapp.so was found for ABI ${abi ?? "(none)"}; available: ${candidates
-              .map((candidate) => candidate.abi)
-              .join(", ")}`,
-          ),
-        );
-      const declared = selected.entry.declaredSize ?? LIBRARY_MAX_BYTES + 1;
-      if (declared > LIBRARY_MAX_BYTES)
-        return err(
-          new AnalysisResourceConstraintError(
-            "inspect_dart_aot",
-            "file-size",
-            `lib/${selected.abi}/libapp.so declares ${String(declared)} bytes, exceeding the ${String(LIBRARY_MAX_BYTES)}-byte read budget`,
-            { max_library_bytes: LIBRARY_MAX_BYTES },
-          ),
-        );
-      const imagePath = join(snapshot.root, "libapp.so");
-      const imageHash = createHash("sha256");
-      const imageWriter = this.ownResource(
-        snapshot.root,
-        new OwnedFileHandle(await openFile(imagePath, "wx")),
-      );
-      {
-        const stream = await openEntrySafely(
-          reader,
-          selected.entry,
+        new AnalysisUnsupportedTargetError(
           "inspect_dart_aot",
-          snapshot.path,
-          signal,
-        );
-        let total = 0;
-        for await (const chunk of stream) {
-          if (signal?.aborted === true)
-            return err(new AnalysisCancelledError("inspect_dart_aot"));
-          const view = chunk as Buffer;
-          total += view.byteLength;
-          if (total > LIBRARY_MAX_BYTES)
-            return err(
-              new AnalysisResourceConstraintError(
-                "inspect_dart_aot",
-                "file-size",
-                `lib/${selected.abi}/libapp.so exceeds the ${String(LIBRARY_MAX_BYTES)}-byte read budget while streaming`,
-                { max_library_bytes: LIBRARY_MAX_BYTES },
-              ),
-            );
-          imageHash.update(view);
-          await imageWriter.handle.writeFile(view);
-        }
-      }
-      await this.releaseResource(snapshot.root, imageWriter);
-      const imageSha256 = imageHash.digest("hex");
-      // Allocate exactly the budget-checked size before reading, so the
-      // buffer cannot exceed the declared library size plus one byte.
-      const image = Buffer.alloc(declared + 1);
-      let imageLength = 0;
-      {
-        const file = this.ownResource(
-          snapshot.root,
-          new OwnedFileHandle(await openFile(imagePath, "r")),
-        );
-        while (imageLength < image.length) {
-          if (signal?.aborted === true)
-            return err(new AnalysisCancelledError("inspect_dart_aot"));
-          const result = await file.handle.read(
-            image,
-            imageLength,
-            image.length - imageLength,
-            null,
-          );
-          if (result.bytesRead === 0) break;
-          imageLength += result.bytesRead;
-        }
-        await this.releaseResource(snapshot.root, file);
-      }
-      const bounded = image.subarray(0, imageLength);
-      const symbolNames = [
-        "_kDartVmSnapshotData",
-        "_kDartVmSnapshotInstructions",
-        "_kDartIsolateSnapshotData",
-        "_kDartIsolateSnapshotInstructions",
-      ];
-      const sections: {
-        name: string;
-        offset: number;
-        size: number;
-        magic_valid: boolean;
-        kind: number | null;
-        header_length: number | null;
-      }[] = [];
-      const dataHeaders: {
-        name: string;
-        offset: number;
-        size: number;
-        header: ReturnType<typeof readSnapshotHeader>;
-      }[] = [];
-      let isolateData: Buffer | null = null;
-      for (const name of symbolNames) {
-        const parsed = readElfSymbol(bounded, name);
-        if ("failure" in parsed) continue;
-        const header = readSnapshotHeader(
-          bounded.subarray(
-            parsed.symbol.offset,
-            parsed.symbol.offset + parsed.symbol.size,
-          ),
-          0,
-        );
-        sections.push({
-          name,
-          offset: parsed.symbol.offset,
-          size: parsed.symbol.size,
-          magic_valid: header.magicValid,
-          kind: header.kind,
-          header_length: header.headerLength,
-        });
-        if (name.endsWith("Data"))
-          dataHeaders.push({ ...parsed.symbol, header });
-        if (name === "_kDartIsolateSnapshotData")
-          isolateData = image.subarray(
-            parsed.symbol.offset,
-            parsed.symbol.offset + parsed.symbol.size,
-          );
-      }
-      // Each exported data symbol owns one header at its start. Matching
-      // records elsewhere in a symbol are not evidence for the other
-      // symbol's hash. Count a physical header only once for aliased exports.
-      const observedOffsets = new Set<number>();
-      let aliasedDataSymbols = false;
-      const hashes: string[] = [];
-      for (const section of dataHeaders) {
-        if (observedOffsets.has(section.offset)) {
-          aliasedDataSymbols = true;
-          continue;
-        }
-        observedOffsets.add(section.offset);
-        if (section.header.hash !== null) hashes.push(section.header.hash);
-      }
-      const hashScan = {
-        sources: hashes.length,
-        candidates: [...new Set(hashes)],
-      };
-      const overlappingDataSymbols = dataHeaders.some((section, index) =>
-        dataHeaders
-          .slice(0, index)
-          .some(
-            (previous) =>
-              previous.offset < section.offset + section.size &&
-              section.offset < previous.offset + previous.size,
-          ),
-      );
-      if (sections.length === 0)
-        return err(
-          new AnalysisUnsupportedTargetError(
-            "inspect_dart_aot",
-            path,
-            "No Dart snapshot symbols were found in the dynamic symbol table; the payload does not carry a recognizable AOT layout",
-          ),
-        );
-      const pool = projectStringPool(isolateData);
-      const partial =
-        aliasedDataSymbols ||
-        overlappingDataSymbols ||
-        sections.length < symbolNames.length ||
-        dataHeaders.length !== SYMBOL_PAIR_COUNT ||
-        dataHeaders.some((section) => !section.header.complete) ||
-        pool.collectionCapped ||
-        pool.packageUriCount > MAX_POOL_URIS ||
-        pool.dartUriCount > MAX_POOL_URIS ||
-        pool.classLikeTokenCount > MAX_POOL_TOKENS ||
-        hashScan.candidates.length !== 1 ||
-        hashScan.sources !== SYMBOL_PAIR_COUNT;
-      return ok(
-        createAnalysisExecution(
-          {
-            target: { path, bytes: snapshot.bytes, sha256: snapshot.sha256 },
-            abi: selected.abi,
-            libapp: {
-              bytes: imageLength,
-              sha256: imageSha256,
-              snapshot_hash:
-                hashScan.candidates.length === 1
-                  ? hashScan.candidates[0]!
-                  : null,
-              snapshot_hash_candidates: [...hashScan.candidates],
-              snapshot_hash_sources: hashScan.sources,
-              sections,
-            },
-            string_pool: {
-              package_uris: pool.packageUris.slice(0, MAX_POOL_URIS),
-              package_uri_count_at_least: pool.packageUriCount,
-              dart_uris: pool.dartUris.slice(0, MAX_POOL_URIS),
-              dart_uri_count_at_least: pool.dartUriCount,
-              class_like_tokens: pool.classLikeTokens.slice(0, MAX_POOL_TOKENS),
-              class_like_token_count_at_least: pool.classLikeTokenCount,
-              printable_run_count: pool.printableRunCount,
-            },
-            coverage: partial ? "partial" : "complete",
-          },
-          FLUTTER_PROVIDER_IDENTITY,
-          {
-            limitations: [
-              "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
-              "Snapshot sections are located through the ELF dynamic symbol table; a payload without exported snapshot symbols is refused rather than guessed",
-              "Snapshot hash sources are the headers at the start of the VM and isolate data symbols; each must contain a valid hash and a declared length that fits its symbol, including the four magic bytes",
-              "String-pool entries are byte-pattern observations from the isolate data section, not deserialized cluster semantics; typed class and function recovery needs an SDK-specific parser",
-              "class_like_tokens are identifier-shaped runs and include incidental matches",
-              "string-pool counts are lower bounds: collection stops at twice each projection bound, and any value beyond that is counted only through the capped flag",
-              ...(sections.length < symbolNames.length
-                ? [
-                    `Only ${String(sections.length)} of 4 snapshot symbols were present`,
-                  ]
-                : []),
-              ...(aliasedDataSymbols
-                ? [
-                    "Two or more snapshot data symbols share one header offset; its hash counts as one source instead of two agreeing ones",
-                  ]
-                : []),
-              ...(overlappingDataSymbols && !aliasedDataSymbols
-                ? [
-                    "Snapshot data symbol ranges overlap; independent VM/isolate coverage is not established",
-                  ]
-                : []),
-              ...dataHeaders
-                .filter((section) => !section.header.complete)
-                .map(
-                  (section) =>
-                    `${section.name} has an incomplete or invalid snapshot header: declared length ${String(section.header.headerLength)} excludes the four magic bytes, symbol size ${String(section.size)}, valid hash ${String(section.header.hash !== null)}`,
-                ),
-              ...(pool.packageUriCount > MAX_POOL_URIS
-                ? [
-                    `package_uris reports ${String(MAX_POOL_URIS)} of at least ${String(pool.packageUriCount)} distinct URIs`,
-                  ]
-                : []),
-              ...(pool.classLikeTokenCount > MAX_POOL_TOKENS
-                ? [
-                    `class_like_tokens reports ${String(MAX_POOL_TOKENS)} of at least ${String(pool.classLikeTokenCount)} distinct tokens`,
-                  ]
-                : []),
-            ],
-          },
+          path,
+          "No lib/<abi>/libapp.so was found; the target carries no Dart AOT payload",
         ),
       );
-    } catch (cause) {
-      if (cause instanceof AnalysisError) return err(cause);
-      return err(new AnalysisProtocolError("inspect_dart_aot", { cause }));
-    } finally {
-      await this.discardRoot(snapshot.root);
+    const preference = ["arm64-v8a", "x86_64", "x86", "armeabi-v7a"];
+    const selected =
+      abi === undefined
+        ? [...candidates].sort(
+            (left, right) =>
+              (preference.indexOf(left.abi) + 1 || preference.length + 1) -
+                (preference.indexOf(right.abi) + 1 || preference.length + 1) ||
+              left.abi.localeCompare(right.abi),
+          )[0]!
+        : candidates.find((candidate) => candidate.abi === abi);
+    if (selected === undefined)
+      return err(
+        new AnalysisUnsupportedTargetError(
+          "inspect_dart_aot",
+          path,
+          `No libapp.so was found for ABI ${abi ?? "(none)"}; available: ${candidates
+            .map((candidate) => candidate.abi)
+            .join(", ")}`,
+        ),
+      );
+    const declared = selected.entry.declaredSize ?? LIBRARY_MAX_BYTES + 1;
+    if (declared > LIBRARY_MAX_BYTES)
+      return err(
+        new AnalysisResourceConstraintError(
+          "inspect_dart_aot",
+          "file-size",
+          `lib/${selected.abi}/libapp.so declares ${String(declared)} bytes, exceeding the ${String(LIBRARY_MAX_BYTES)}-byte read budget`,
+          { max_library_bytes: LIBRARY_MAX_BYTES },
+        ),
+      );
+    const imagePath = join(snapshot.root, "libapp.so");
+    const imageHash = createHash("sha256");
+    const imageWriter = this.ownResource(
+      snapshot.root,
+      new OwnedFileHandle(await openFile(imagePath, "wx")),
+    );
+    {
+      const stream = openEntrySafely(
+        reader,
+        selected.entry,
+        "inspect_dart_aot",
+        path,
+        signal,
+      );
+      let total = 0;
+      for await (const chunk of stream) {
+        if (signal?.aborted === true)
+          return err(new AnalysisCancelledError("inspect_dart_aot"));
+        const view = chunk as Buffer;
+        total += view.byteLength;
+        if (total > LIBRARY_MAX_BYTES)
+          return err(
+            new AnalysisResourceConstraintError(
+              "inspect_dart_aot",
+              "file-size",
+              `lib/${selected.abi}/libapp.so exceeds the ${String(LIBRARY_MAX_BYTES)}-byte read budget while streaming`,
+              { max_library_bytes: LIBRARY_MAX_BYTES },
+            ),
+          );
+        imageHash.update(view);
+        await imageWriter.handle.writeFile(view);
+      }
     }
+    await this.releaseResource(snapshot.root, imageWriter);
+    const imageSha256 = imageHash.digest("hex");
+    // Allocate exactly the budget-checked size before reading, so the
+    // buffer cannot exceed the declared library size plus one byte.
+    const image = Buffer.alloc(declared + 1);
+    let imageLength = 0;
+    {
+      const file = this.ownResource(
+        snapshot.root,
+        new OwnedFileHandle(await openFile(imagePath, "r")),
+      );
+      while (imageLength < image.length) {
+        if (signal?.aborted === true)
+          return err(new AnalysisCancelledError("inspect_dart_aot"));
+        const result = await file.handle.read(
+          image,
+          imageLength,
+          image.length - imageLength,
+          null,
+        );
+        signal?.throwIfAborted();
+        if (result.bytesRead === 0) break;
+        imageLength += result.bytesRead;
+      }
+      await this.releaseResource(snapshot.root, file);
+    }
+    const bounded = image.subarray(0, imageLength);
+    const symbolNames = [
+      "_kDartVmSnapshotData",
+      "_kDartVmSnapshotInstructions",
+      "_kDartIsolateSnapshotData",
+      "_kDartIsolateSnapshotInstructions",
+    ];
+    const sections: {
+      name: string;
+      offset: number;
+      size: number;
+      magic_valid: boolean;
+      kind: number | null;
+      header_length: number | null;
+    }[] = [];
+    const dataHeaders: {
+      name: string;
+      offset: number;
+      size: number;
+      header: ReturnType<typeof readSnapshotHeader>;
+    }[] = [];
+    let isolateData: Buffer | null = null;
+    const inventory = readElfSymbols(bounded, symbolNames);
+    for (const symbol of inventory.symbols) {
+      const name = symbol.name;
+      const header = name.endsWith("Data")
+        ? readSnapshotHeader(
+            bounded.subarray(symbol.offset, symbol.offset + symbol.size),
+            0,
+          )
+        : null;
+      sections.push({
+        name,
+        offset: symbol.offset,
+        size: symbol.size,
+        magic_valid: header?.magicValid ?? false,
+        kind: header?.kind ?? null,
+        header_length: header?.headerLength ?? null,
+      });
+      if (header !== null) dataHeaders.push({ ...symbol, header });
+      if (name === "_kDartIsolateSnapshotData")
+        isolateData = image.subarray(
+          symbol.offset,
+          symbol.offset + symbol.size,
+        );
+    }
+    // Each exported data symbol owns one header at its start. Matching
+    // records elsewhere in a symbol are not evidence for the other
+    // symbol's hash. Count a physical header only once for aliased exports.
+    const observedOffsets = new Set<number>();
+    let aliasedDataSymbols = false;
+    const hashes: string[] = [];
+    for (const section of dataHeaders) {
+      if (observedOffsets.has(section.offset)) {
+        aliasedDataSymbols = true;
+        continue;
+      }
+      observedOffsets.add(section.offset);
+      if (section.header.hash !== null) hashes.push(section.header.hash);
+    }
+    const hashScan = {
+      sources: hashes.length,
+      candidates: [...new Set(hashes)],
+    };
+    const overlappingDataSymbols = dataHeaders.some((section, index) =>
+      dataHeaders
+        .slice(0, index)
+        .some(
+          (previous) =>
+            previous.offset < section.offset + section.size &&
+            section.offset < previous.offset + previous.size,
+        ),
+    );
+    if (sections.length === 0)
+      return err(
+        new AnalysisUnsupportedTargetError(
+          "inspect_dart_aot",
+          path,
+          `No recognizable Dart snapshot symbols were found: ${inventory.failures.map((failure) => failure.reason).join("; ")}`,
+        ),
+      );
+    const pool = projectStringPool(isolateData);
+    const partial =
+      inventory.failures.length > 0 ||
+      aliasedDataSymbols ||
+      overlappingDataSymbols ||
+      sections.length < symbolNames.length ||
+      dataHeaders.length !== SYMBOL_PAIR_COUNT ||
+      dataHeaders.some((section) => !section.header.complete) ||
+      pool.collectionCapped ||
+      pool.packageUriCount > MAX_POOL_URIS ||
+      pool.dartUriCount > MAX_POOL_URIS ||
+      pool.classLikeTokenCount > MAX_POOL_TOKENS ||
+      hashScan.candidates.length !== 1 ||
+      hashScan.sources !== SYMBOL_PAIR_COUNT;
+    return ok(
+      createAnalysisExecution(
+        {
+          target: { path, bytes: snapshot.bytes, sha256: snapshot.sha256 },
+          abi: selected.abi,
+          libapp: {
+            bytes: imageLength,
+            sha256: imageSha256,
+            snapshot_hash:
+              hashScan.candidates.length === 1 ? hashScan.candidates[0]! : null,
+            snapshot_hash_candidates: [...hashScan.candidates],
+            snapshot_hash_sources: hashScan.sources,
+            sections,
+          },
+          string_pool: {
+            package_uris: pool.packageUris.slice(0, MAX_POOL_URIS),
+            package_uri_count_at_least: pool.packageUriCount,
+            dart_uris: pool.dartUris.slice(0, MAX_POOL_URIS),
+            dart_uri_count_at_least: pool.dartUriCount,
+            class_like_tokens: pool.classLikeTokens.slice(0, MAX_POOL_TOKENS),
+            class_like_token_count_at_least: pool.classLikeTokenCount,
+            printable_run_count: pool.printableRunCount,
+          },
+          coverage: partial ? "partial" : "complete",
+        },
+        FLUTTER_PROVIDER_IDENTITY,
+        {
+          subject: { path, format: "apk", sha256: snapshot.sha256 },
+          locations: [{ kind: "artifact-path", path }],
+          limitations: [
+            "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
+            "Snapshot sections are located through the ELF dynamic symbol table; a payload without exported snapshot symbols is refused rather than guessed",
+            "Snapshot hash sources are the headers at the start of the VM and isolate data symbols; each must contain a valid hash and a declared length that fits its symbol, including the four magic bytes",
+            "String-pool entries are byte-pattern observations from the isolate data section, not deserialized cluster semantics; typed class and function recovery needs an SDK-specific parser",
+            "class_like_tokens are identifier-shaped runs and include incidental matches",
+            "string-pool counts are lower bounds: collection stops at twice each projection bound, and any value beyond that is counted only through the capped flag",
+            ...inventory.failures.map((failure) => failure.reason),
+            ...(sections.length < symbolNames.length
+              ? [
+                  `Only ${String(sections.length)} of 4 snapshot symbols were present`,
+                ]
+              : []),
+            ...(aliasedDataSymbols
+              ? [
+                  "Two or more snapshot data symbols share one header offset; its hash counts as one source instead of two agreeing ones",
+                ]
+              : []),
+            ...(overlappingDataSymbols && !aliasedDataSymbols
+              ? [
+                  "Snapshot data symbol ranges overlap; independent VM/isolate coverage is not established",
+                ]
+              : []),
+            ...dataHeaders
+              .filter((section) => !section.header.complete)
+              .map(
+                (section) =>
+                  `${section.name} has an incomplete or invalid snapshot header: declared length ${String(section.header.headerLength)} excludes the four magic bytes, symbol size ${String(section.size)}, valid hash ${String(section.header.hash !== null)}`,
+              ),
+            ...(pool.collectionCapped
+              ? [
+                  "String-pool collection or printable-run capacity was exceeded; counts are lower bounds and overflowed runs are omitted",
+                ]
+              : []),
+            ...(pool.dartUriCount > MAX_POOL_URIS
+              ? [
+                  `dart_uris reports ${String(MAX_POOL_URIS)} of at least ${String(pool.dartUriCount)} distinct URIs`,
+                ]
+              : []),
+            ...(pool.packageUriCount > MAX_POOL_URIS
+              ? [
+                  `package_uris reports ${String(MAX_POOL_URIS)} of at least ${String(pool.packageUriCount)} distinct URIs`,
+                ]
+              : []),
+            ...(pool.classLikeTokenCount > MAX_POOL_TOKENS
+              ? [
+                  `class_like_tokens reports ${String(MAX_POOL_TOKENS)} of at least ${String(pool.classLikeTokenCount)} distinct tokens`,
+                ]
+              : []),
+          ],
+        },
+      ),
+    );
   }
 }
 
-/** Categorize printable runs from one snapshot data section. */
 /**
  * Categorize printable runs from one snapshot data section. Collection stops
  * admitting new distinct entries once each category reaches its projection
@@ -1016,20 +1067,23 @@ const projectStringPool = (
   if (section !== null) {
     let run = "";
     const consider = (text: string): void => {
-      if (text.length < 6) return;
+      if (text.length < 5) return;
       runCount += 1;
       if (text.startsWith("package:")) {
-        if (packages.size >= packageBudget) collectionCapped = true;
+        if (!packages.has(text) && packages.size >= packageBudget)
+          collectionCapped = true;
         else packages.add(text);
       } else if (text.startsWith("dart:")) {
-        if (darts.size >= dartBudget) collectionCapped = true;
+        if (!darts.has(text) && darts.size >= dartBudget)
+          collectionCapped = true;
         else darts.add(text);
       } else if (
         text.length <= 128 &&
         text.length >= 5 &&
         IDENTIFIER_PATTERN.test(text)
       ) {
-        if (tokens.size >= tokenBudget) collectionCapped = true;
+        if (!tokens.has(text) && tokens.size >= tokenBudget)
+          collectionCapped = true;
         else tokens.add(text);
       }
     };

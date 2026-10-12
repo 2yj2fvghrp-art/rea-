@@ -84,16 +84,26 @@ ABIs alphabetically).
   provider-owned, read-only snapshot before digesting and parsing, so a
   concurrently modified original cannot mix into one observation; failed
   reader closure and snapshot cleanup are retained and retried on `close()`.
-  The snapshot is removed only after its reader closes successfully.
+  The snapshot is removed only after all owned readers and file descriptors
+  close successfully. Copying pins one admitted descriptor and compares its
+  identity, size, mode and timestamps after the copy.
 - **Bounded reads.** APK snapshots are bounded at 2 GiB, including while
   copying. Identification permits 768 MiB of cumulative library extraction;
   declared sizes are checked before extraction. Library reads are bounded at 256 MiB each and ZIP
   metadata at 8 MiB; the AOT image buffer is allocated at exactly the
   declared size before reading. Exceeded budgets report
   `resource_constraint`.
+- **Metadata and candidate capacity.** Both operations refuse duplicate
+  relevant library paths. Inventory is limited to 32 ABIs and 1024 bytes per
+  relevant library path, independently of compressed size. Identification
+  refuses more than 64 distinct snapshot hashes with `resource_constraint`
+  rather than silently dropping conflicting evidence.
 - **Selected ABI.** AOT inspection applies the library budget to the selected
   ABI after selection; an oversized unselected library does not block it.
   Undefined dynamic-symbol imports are not treated as snapshot exports.
+  Section-stripped images require a bounded symbol count from `DT_HASH` or
+  `DT_GNU_HASH`; layouts without either are refused. Symbol names and their
+  terminators must fit their linked string table.
 - REA performs **no hash-to-SDK lookup**: mapping the snapshot hash to a
   Dart SDK release requires an external dataset and is deliberately out of
   scope for this family.
@@ -106,12 +116,15 @@ ABIs alphabetically).
 
 ## Real verification
 
-`npm run verify:flutter -- --apk PATH [--plain-apk PATH]` runs the
-identification against a real Flutter APK and, optionally, a non-Flutter
-APK for the negative check. Record: Flutter Gallery 2.9.2 (112 MB, three
+`npm run verify:flutter -- --apk PATH [--plain-apk PATH]` runs both tools
+through compiled CLI and stdio MCP, compares Evidence, and checks every ABI.
+Use `--expectations scripts/fixtures/flutter-gallery-expectations.json` with
+the Gallery 2.9.2 release APK to check exact per-ABI engine labels and the
+snapshot hash against its pinned SHA-256. Other APKs need their own
+expectations file to verify exact engine labels; otherwise that facet is
+reported unverified. The optional plain APK checks negative detection. Record: Flutter Gallery 2.9.2 (112 MB, three
 ABIs) — every ABI reports the same agreeing hash
 `65817c30a78bb44c3dc3771876b6010a` from two snapshot sections, per-ABI
 engine build-ids, no labeled Dart version (as expected for a release
 engine), and the Android clang toolchain line; a plain aapt2-built APK
-reports not-detected with complete coverage. Scanner goldens in the test
-suite come from the same libraries.
+reports not-detected with complete coverage. The suite uses self-contained synthetic ELF images and recorded scanner prefixes; it does not read private local files.

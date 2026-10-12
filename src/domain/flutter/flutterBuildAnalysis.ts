@@ -25,7 +25,7 @@ export const flutterInputSchemas = {
       )
       .optional()
       .describe(
-        "ABI to inspect; defaults to the first lib/<abi> that carries libapp.so",
+        "ABI to inspect; defaults to arm64-v8a, x86_64, x86, armeabi-v7a, then remaining ABIs alphabetically",
       ),
   }),
 } as const;

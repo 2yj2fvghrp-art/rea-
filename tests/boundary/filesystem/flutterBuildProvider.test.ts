@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { open, rm, writeFile } from "node:fs/promises";
+import { open, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
@@ -9,21 +9,26 @@ import {
   aotFixtureImage,
   buildElf64Image,
   REFERENCE_HASH,
-} from "./FlutterTestFixtures.js";
-import { snapshotSection } from "./DartElf.js";
-import { FlutterBuildProvider } from "./FlutterBuildProvider.js";
-import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+} from "../../../src/flutter/FlutterBuild.fixture.js";
+import { snapshotSection } from "../../../src/flutter/FlutterBuild.fixture.js";
+import { FlutterBuildProvider } from "../../../src/flutter/FlutterBuildProvider.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import {
   AnalysisCancelledError,
   AnalysisResourceConstraintError,
-} from "../domain/analysisErrorCore.js";
+} from "../../../src/domain/analysisErrorCore.js";
 import {
   flutterResultSchemas,
   type FlutterOperation,
-} from "../domain/flutter/flutterBuildAnalysis.js";
-import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
-import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
-import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
+} from "../../../src/domain/flutter/flutterBuildAnalysis.js";
+import { ZipArtifactReader } from "../../../src/artifacts/ZipArtifactReader.js";
+import { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
+import {
+  createFlutterApk as buildApk,
+  createDuplicateFlutterApk,
+} from "../../fixtures/flutterApk.js";
+import * as regularFile from "../../../src/filesystem/RegularFile.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
@@ -86,22 +91,6 @@ const conflictingHashImage = (): Buffer => {
     Buffer.alloc(0x1200 - 0x1000 - vm.length),
     isolate,
   ]);
-};
-
-/** Build a real APK-shaped ZIP through the portable ZIP implementation. */
-const buildApk = async (
-  name: string,
-  files: ReadonlyArray<{ readonly path: string; readonly bytes: Buffer }>,
-): Promise<string> => {
-  const root = await createTestTempDirectory("rea-flutter-");
-  const writer = new ZipWriter(new Uint8ArrayWriter(), {
-    useWebWorkers: false,
-  });
-  for (const file of files) {
-    await writer.add(file.path, new Uint8ArrayReader(file.bytes));
-  }
-  await writeFile(join(root, name), await writer.close());
-  return join(root, name);
 };
 
 const analyzeImage = async (bytes: Buffer, operation: FlutterOperation) => {
@@ -624,11 +613,11 @@ it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
 );
 
 it.each([
-  { operation: "identify_flutter_build", phase: "copy" },
-  { operation: "inspect_dart_aot", phase: "digest" },
+  { operation: "identify_flutter_build" },
+  { operation: "inspect_dart_aot" },
 ] as const)(
-  "preserves native stream aborts during $operation $phase",
-  async ({ operation, phase }) => {
+  "preserves native stream aborts during $operation digest",
+  async ({ operation }) => {
     const path = await buildApk("abort.apk", [
       { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
     ]);
@@ -638,11 +627,11 @@ it.each([
     let abortCode: string | undefined;
     streamMock.mockImplementation((streamPath, options) => {
       const stream = nativeFs.createReadStream(streamPath, options);
-      if ((streamPath === path) === (phase === "copy")) {
+      if (streamPath !== path) {
         stream.once("error", (cause: NodeJS.ErrnoException) => {
           abortCode = cause.code;
         });
-        stream.once("open", () =>
+        stream.once("readable", () =>
           controller.abort(new Error("caller requested stop")),
         );
       }
@@ -826,13 +815,13 @@ it("reports omitted Dart labels independently of toolchain labels", async () => 
   });
 });
 
-it.each([0, 1, 2])(
+it.each([0, 1, 2, 3])(
   "retains failed local file-handle closure at acquisition stage %i",
   async (stage) => {
     const path = await buildApk("file-close.apk", [
       { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
     ]);
-    // Close order: snapshot writer, extracted-image writer, image reader.
+    // Close order: snapshot writer, admitted source, extracted-image writer, image reader.
     const owners: OwnedFileHandle[] = [];
     const originalClose = OwnedFileHandle.prototype.close;
     let failing = true;
@@ -866,3 +855,185 @@ it.each([0, 1, 2])(
     expect(removeRoot).toHaveBeenCalledTimes(1);
   },
 );
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s rejects duplicate real ZIP members before extracting either occurrence",
+  async (operation) => {
+    const path = await createDuplicateFlutterApk();
+    const extract = vi.spyOn(ZipArtifactReader.prototype, "open");
+    onTestFinished(() => extract.mockRestore());
+    const provider = new FlutterBuildProvider();
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({ operation, input: { path } });
+    if (result.ok) throw new Error("Duplicate libraries must be refused");
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "invalid_request",
+    });
+    expect(JSON.stringify(projectAnalysisError(result.error))).toContain(
+      "duplicate Flutter library members",
+    );
+    expect(JSON.stringify(projectAnalysisError(result.error))).toContain(path);
+    expect(extract).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s refuses ABI metadata expansion before opening empty libraries",
+  async (operation) => {
+    const path = await buildApk(
+      "many-abis.apk",
+      Array.from({ length: 33 }, (_, index) => ({
+        path: `lib/abi_${String(index)}/libapp.so`,
+        bytes: Buffer.alloc(0),
+      })),
+    );
+    const extract = vi.spyOn(ZipArtifactReader.prototype, "open");
+    onTestFinished(() => extract.mockRestore());
+    const provider = new FlutterBuildProvider();
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({ operation, input: { path } });
+    if (result.ok) throw new Error("ABI expansion must be refused");
+    expect(projectAnalysisError(result.error).code).toBe("resource_constraint");
+    expect(extract).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["identify_flutter_build", "inspect_dart_aot"] as const)(
+  "%s uses the selected path in malformed-APK diagnostics",
+  async (operation) => {
+    const root = await createTestTempDirectory("rea-flutter-malformed-");
+    const path = join(root, "selected.apk");
+    await writeFile(path, "not a ZIP");
+    const provider = new FlutterBuildProvider();
+    onTestFinished(() => provider.close());
+    const result = await provider.execute({ operation, input: { path } });
+    if (result.ok) throw new Error("Malformed APK must be refused");
+    const error = projectAnalysisError(result.error);
+    expect(error).toMatchObject({
+      code: "invalid_request",
+      details: { issues: [{ message: expect.stringContaining(path) }] },
+    });
+    expect(JSON.stringify(error)).not.toContain("input.apk");
+  },
+);
+
+it.each(["EACCES", "EPERM"] as const)(
+  "preserves %s at the shared source admission boundary",
+  async (code) => {
+    const admitted = vi
+      .spyOn(regularFile, "openRegularFile")
+      .mockRejectedValue(Object.assign(new Error("denied"), { code }));
+    onTestFinished(() => admitted.mockRestore());
+    const provider = new FlutterBuildProvider();
+    onTestFinished(() => provider.close());
+    for (const operation of [
+      "identify_flutter_build",
+      "inspect_dart_aot",
+    ] as const) {
+      const result = await provider.execute({
+        operation,
+        input: { path: "/selected.apk" },
+      });
+      if (result.ok) throw new Error("Denied read must fail");
+      expect(projectAnalysisError(result.error)).toMatchObject({
+        code: "access_denied",
+      });
+    }
+  },
+);
+
+it("detects same-size source rewrites with restored mtime through the opened descriptor", async () => {
+  const path = await buildApk("changing.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+  ]);
+  const before = await stat(path);
+  const content = await readFile(path);
+  const nativeAdmission = regularFile.openRegularFile;
+  const admitted = vi
+    .spyOn(regularFile, "openRegularFile")
+    .mockImplementation(async (...args) => {
+      const handle = await nativeAdmission(...args);
+      // Admission returns an open descriptor; mutate its file before the final
+      // descriptor stat, preserving the size and restoring the visible mtime.
+      const nativeStat = handle.stat.bind(handle);
+      let calls = 0;
+      vi.spyOn(handle, "stat").mockImplementation(async (...statArgs) => {
+        calls += 1;
+        if (calls === 2) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          await writeFile(path, content);
+          await utimes(path, before.atime, before.mtime);
+        }
+        return nativeStat(...statArgs);
+      });
+      return handle;
+    });
+  onTestFinished(() => admitted.mockRestore());
+  const provider = new FlutterBuildProvider();
+  onTestFinished(() => provider.close());
+  const result = await provider.execute({
+    operation: "identify_flutter_build",
+    input: { path },
+  });
+  if (result.ok) throw new Error("Concurrent source rewrite must fail");
+  expect(projectAnalysisError(result.error).code).toBe("artifact_changed");
+});
+
+it("refuses truncated hash-candidate evidence and includes five-character tokens", async () => {
+  const image = aotImage();
+  Buffer.from("Login\0").copy(image, 0x2300);
+  const aot = await analyzeImage(image, "inspect_dart_aot");
+  expect(
+    flutterResultSchemas.inspect_dart_aot.parse(aot.result).string_pool
+      .class_like_tokens,
+  ).toContain("Login");
+  const bytes = Buffer.concat(
+    Array.from({ length: 65 }, (_, index) =>
+      snapshotSection(index.toString(16).padStart(32, "0")),
+    ),
+  );
+  const path = await buildApk("many-hashes.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes },
+  ]);
+  const provider = new FlutterBuildProvider();
+  onTestFinished(() => provider.close());
+  const result = await provider.execute({
+    operation: "identify_flutter_build",
+    input: { path },
+  });
+  if (result.ok) throw new Error("Incomplete candidate set must be explicit");
+  expect(projectAnalysisError(result.error).code).toBe("resource_constraint");
+});
+
+it("stops a cancelled descriptor copy before writing its next chunk and releases every owner", async () => {
+  const path = await buildApk("copy-cancel.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
+  ]);
+  const controller = new AbortController();
+  const nativeAdmission = regularFile.openRegularFile;
+  const admitted = vi
+    .spyOn(regularFile, "openRegularFile")
+    .mockImplementation(async (...args) => {
+      const handle = await nativeAdmission(...args);
+      const nativeRead = handle.read.bind(handle);
+      vi.spyOn(handle, "read").mockImplementation(async (...readArgs) => {
+        const result = await nativeRead(...readArgs);
+        controller.abort(new Error("cancelled while copy read was pending"));
+        return result;
+      });
+      return handle;
+    });
+  onTestFinished(() => admitted.mockRestore());
+  const removeRoot = vi.fn((root: string) =>
+    rm(root, { recursive: true, force: true }),
+  );
+  const provider = new FlutterBuildProvider({ removeRoot });
+  onTestFinished(() => provider.close());
+  const result = await provider.execute(
+    { operation: "identify_flutter_build", input: { path } },
+    { signal: controller.signal },
+  );
+  if (result.ok) throw new Error("Cancelled copying must fail");
+  expect(projectAnalysisError(result.error).code).toBe("cancelled");
+  expect(removeRoot).toHaveBeenCalledTimes(1);
+});

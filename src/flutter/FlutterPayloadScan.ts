@@ -39,6 +39,7 @@ export const SNAPSHOT_HASH_PATTERN = /^[0-9a-f]{32}$/u;
 export interface SnapshotHashScan {
   /** Snapshot sections found. */
   readonly sources: number;
+  readonly capped: boolean;
   /** Distinct 32-hex hashes following the magic, in first-seen order. */
   readonly candidates: readonly string[];
 }
@@ -53,6 +54,7 @@ export const MAX_SNAPSHOT_HASH_CANDIDATES = 64;
 
 export class SnapshotHashScanner {
   #sources = 0;
+  #capped = false;
   private readonly candidates: string[] = [];
   private readonly candidateSet = new Set<string>();
   #buffer = new Uint8Array(0);
@@ -82,13 +84,13 @@ export class SnapshotHashScanner {
         ),
       ).toString("latin1");
       const isValidHash = SNAPSHOT_HASH_PATTERN.test(candidate);
-      if (
-        isValidHash &&
-        this.candidates.length < MAX_SNAPSHOT_HASH_CANDIDATES &&
-        !this.candidateSet.has(candidate)
-      ) {
-        this.candidateSet.add(candidate);
-        this.candidates.push(candidate);
+      if (isValidHash && !this.candidateSet.has(candidate)) {
+        if (this.candidates.length === MAX_SNAPSHOT_HASH_CANDIDATES)
+          this.#capped = true;
+        else {
+          this.candidateSet.add(candidate);
+          this.candidates.push(candidate);
+        }
       }
       // Only valid hash records count toward source agreement; a complete
       // magic record whose field is not lowercase hex is not a source.
@@ -112,7 +114,11 @@ export class SnapshotHashScanner {
   }
 
   result(): SnapshotHashScan {
-    return { sources: this.#sources, candidates: [...this.candidates] };
+    return {
+      sources: this.#sources,
+      candidates: [...this.candidates],
+      capped: this.#capped,
+    };
   }
 }
 
@@ -154,7 +160,9 @@ export class BuildIdScanner {
         if (
           described >= BUILD_ID_MIN_BYTES &&
           described <= BUILD_ID_MAX_BYTES &&
-          findBytes(joined, BUILD_ID_NOTE_TAIL, prefix + 8) === prefix + 8 &&
+          BUILD_ID_NOTE_TAIL.every(
+            (byte, index) => joined[prefix + 8 + index] === byte,
+          ) &&
           prefix + 16 + described <= joined.length
         ) {
           const start = prefix + 16;

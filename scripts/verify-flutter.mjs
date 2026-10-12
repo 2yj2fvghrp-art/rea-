@@ -1,199 +1,221 @@
-import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
-
-import { FlutterBuildAnalysisService } from "../dist/application/flutter/FlutterBuildAnalysisService.js";
-import { createFlutterBuildAnalysisProvider } from "../dist/composition/flutter.js";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { toolContract } from "../dist/contracts/toolContracts.js";
+import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
+import { hashStableFile } from "../dist/filesystem/StableFileHash.js";
+import { mcpTextValue } from "./lib/mcp-verifier-results.mjs";
 
 const options = parseArguments(process.argv.slice(2));
 if (options.help) {
   process.stdout.write(
-    "Usage: npm run verify:flutter [-- --apk PATH --plain-apk PATH]\n" +
-      "Pure parsing; no engine or external tool is required. --apk selects a\n" +
-      "real Flutter APK (a lib/<abi>/libapp.so carrier). --plain-apk optionally\n" +
-      "selects a non-Flutter APK for the negative detection check.\n",
+    "Usage: npm run verify:flutter -- --apk PATH [--plain-apk PATH] [--expectations JSON]\n" +
+      "Checks real APK parsing through compiled CLI and stdio MCP. Optional\n" +
+      "expectations bind exact engine labels and snapshot hash to an APK digest.\n",
   );
   process.exit(0);
 }
-
-const provider = createFlutterBuildAnalysisProvider(process.env);
-const service = new FlutterBuildAnalysisService(provider);
-let failures = 0;
-const check = (name, condition, detail = "") => {
-  const mark = condition ? "ok" : "FAIL";
-  process.stdout.write(
-    `[${mark}] ${name}${detail === "" ? "" : ` — ${detail}`}\n`,
-  );
-  if (!condition) failures += 1;
-};
-
-const run = async (operation, input) => {
-  const result = await service.execute(operation, input);
-  if (!result.ok) {
-    process.stdout.write(`[FAIL] ${operation} — ${result.error.message}\n`);
-    failures += 1;
-    return null;
-  }
-  return result.value.normalized_result;
-};
-
-if (options.apk !== null) {
-  const { readFile } = await import("node:fs/promises");
-  const identified = await run("identify_flutter_build", { path: options.apk });
-  if (identified !== null) {
-    const bytes = await stat(options.apk).then((info) => info.size);
-    const digest = createHash("sha256")
-      .update(await readFile(options.apk))
-      .digest("hex");
-    check(
-      "target identity matches the file on disk",
-      identified.target.bytes === bytes && identified.target.sha256 === digest,
-      `${bytes} bytes`,
-    );
-    check(
-      "Flutter payload detected",
-      identified.flutter_detected === true,
-      `${identified.abis.length} ABI(s)`,
-    );
-    const hashes = new Set(
-      identified.abis
-        .filter((abi) => abi.libapp.present)
-        .map((abi) => abi.libapp.snapshot_hash),
-    );
-    check(
-      "every ABI reports one agreeing snapshot hash",
-      identified.abis
-        .filter((abi) => abi.libapp.present)
-        .every(
-          (abi) =>
-            abi.libapp.snapshot_hash !== null &&
-            abi.libapp.snapshot_hash_sources === 2,
-        ),
-      `hash=${identified.abis.find((abi) => abi.libapp.present)?.libapp.snapshot_hash}`,
-    );
-    check(
-      "every ABI agrees on one snapshot hash",
-      hashes.size === 1,
-      [...hashes].join(", "),
-    );
-
-    const libappAbis = identified.abis.filter((abi) => abi.libapp.present);
-    check(
-      "every Flutter ABI carries an engine with a hex build-id",
-      libappAbis.length > 0 &&
-        libappAbis.every(
-          (abi) =>
-            abi.libflutter.present &&
-            abi.libflutter.build_id !== null &&
-            /^[0-9a-f]{16,40}$/.test(abi.libflutter.build_id),
-        ),
-      libappAbis
-        .map(
-          (abi) =>
-            `${abi.abi}:${abi.libflutter.present ? abi.libflutter.build_id?.slice(0, 12) : "missing"}`,
-        )
-        .join(", "),
-    );
-
-    const aot = await run("inspect_dart_aot", { path: options.apk });
-    if (aot !== null) {
-      check(
-        "AOT snapshot sections located through the symbol table",
-        aot.libapp.sections.length >= 4 &&
-          aot.libapp.sections
-            .filter((section) => section.name.endsWith("Data"))
-            .every((section) => section.magic_valid),
-        `${aot.libapp.sections.length} section(s), abi=${aot.abi}`,
-      );
-      check(
-        "AOT hash agrees with the identification result",
-        aot.libapp.snapshot_hash !== null &&
-          aot.libapp.snapshot_hash_sources === 2 &&
-          aot.libapp.snapshot_hash ===
-            identified.abis.find((abi) => abi.abi === aot.abi)?.libapp
-              .snapshot_hash,
-      );
-      check(
-        "string pool exposes the dependency structure",
-        aot.string_pool.package_uri_count_at_least > 100 &&
-          aot.string_pool.dart_uri_count_at_least > 50,
-        `${aot.string_pool.package_uri_count_at_least} package:, ${aot.string_pool.dart_uri_count_at_least} dart:`,
-      );
-    }
-
-    // Exercise every ABI the APK carries, not only the preferred image.
-    for (const abi of libappAbis) {
-      if (abi.abi === aot?.abi) continue;
-      const perAbi = await run("inspect_dart_aot", {
-        path: options.apk,
-        abi: abi.abi,
-      });
-      if (perAbi === null) continue;
-      check(
-        `AOT snapshot sections located through the symbol table for ${abi.abi}`,
-        perAbi.abi === abi.abi &&
-          perAbi.libapp.sections.length >= 4 &&
-          perAbi.libapp.sections
-            .filter((section) => section.name.endsWith("Data"))
-            .every((section) => section.magic_valid),
-        `${perAbi.libapp.sections.length} section(s), abi=${perAbi.abi}`,
-      );
-      check(
-        `AOT hash agrees with identification for ${abi.abi}`,
-        perAbi.libapp.snapshot_hash !== null &&
-          perAbi.libapp.snapshot_hash_sources === 2 &&
-          perAbi.libapp.snapshot_hash === abi.libapp.snapshot_hash,
-      );
-    }
-  }
-}
-
-if (options.plainApk !== null) {
-  const negative = await run("identify_flutter_build", {
-    path: options.plainApk,
-  });
-  if (negative !== null)
-    check(
-      "non-Flutter APK reports not detected with complete coverage",
-      negative.flutter_detected === false && negative.coverage === "complete",
-    );
-}
-
-try {
-  await provider.close();
-} catch (cause) {
-  failures += 1;
-  process.stdout.write(
-    `[FAIL] provider close retained cleanup — ${cause instanceof Error ? cause.message : String(cause)}\n`,
-  );
-}
-
 if (options.apk === null) {
-  process.stderr.write(
-    "No Flutter APK was provided; pass --apk PATH to run the real verification.\n",
-  );
+  process.stderr.write("No Flutter APK was provided; pass --apk PATH.\n");
   process.exit(2);
 }
-if (failures > 0) {
-  process.stdout.write(`\n${failures} check(s) failed\n`);
-  process.exit(1);
+const expectations =
+  options.expectations === null
+    ? null
+    : JSON.parse(await readFile(options.expectations, "utf8"));
+const root = await PrivateRuntimeRoot.create({
+  prefix: "rea-flutter-verifier-",
+});
+const entrypoint = resolve("scripts/rea.mjs");
+const environment = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => typeof value === "string"),
+);
+Object.assign(environment, {
+  TMPDIR: root.path,
+  TMP: root.path,
+  TEMP: root.path,
+});
+const client = new Client({ name: "flutter-verifier", version: "1" });
+const transport = new StdioClientTransport({
+  command: process.execPath,
+  args: [entrypoint, "mcp"],
+  env: environment,
+  stderr: "pipe",
+});
+const execute = promisify(execFile);
+try {
+  await client.connect(transport);
+  const apk = resolve(options.apk);
+  const identity = await hashStableFile(apk);
+  const identified = await run("identify_flutter_build", { path: apk });
+  assert.deepEqual(identified.target, { path: apk, ...identity });
+  assert.equal(identified.flutter_detected, true);
+  assert.equal(identified.coverage, "complete");
+  const abis = identified.abis.filter((abi) => abi.libapp.present);
+  assert.ok(abis.length > 0);
+  const hashes = new Set();
+  for (const abi of abis) {
+    assert.equal(abi.libapp.elf_header_valid, true);
+    assert.equal(abi.libapp.snapshot_hash_sources, 2);
+    assert.ok(abi.libapp.snapshot_hash);
+    hashes.add(abi.libapp.snapshot_hash);
+    assert.equal(abi.libflutter.present, true);
+    assert.match(abi.libflutter.build_id ?? "", /^(?:[0-9a-f]{2}){4,64}$/u);
+  }
+  assert.equal(hashes.size, 1, "Every ABI must agree on the snapshot hash");
+  if (expectations !== null) {
+    assert.equal(identity.sha256, expectations.target_sha256);
+    assert.deepEqual([...hashes], [expectations.snapshot_hash]);
+    assert.deepEqual(
+      abis.map((abi) => abi.abi).sort(),
+      Object.keys(expectations.engines).sort(),
+    );
+    for (const abi of abis) {
+      assert.deepEqual(
+        {
+          dart_version: abi.libflutter.dart_version,
+          toolchain_lines: abi.libflutter.toolchain_lines,
+        },
+        expectations.engines[abi.abi],
+      );
+      assert.equal(abi.libflutter.dart_version_capped, false);
+      assert.equal(abi.libflutter.toolchain_capped, false);
+    }
+    process.stdout.write(
+      "[ok] Exact per-ABI engine labels match digest-bound expectations\n",
+    );
+  } else {
+    process.stdout.write(
+      "[unverified] Exact engine labels and their absence need --expectations JSON\n",
+    );
+  }
+  // The same checks apply to the default selection and each remaining ABI.
+  const preferred = await run("inspect_dart_aot", { path: apk });
+  for (const abi of abis) {
+    const aot =
+      abi.abi === preferred.abi
+        ? preferred
+        : await run("inspect_dart_aot", { path: apk, abi: abi.abi });
+    assert.equal(aot.abi, abi.abi);
+    assert.deepEqual(aot.target, identified.target);
+    assert.equal(aot.libapp.sha256, abi.libapp.sha256);
+    assert.equal(aot.libapp.bytes, abi.libapp.bytes);
+    assert.equal(aot.libapp.snapshot_hash_sources, 2);
+    assert.equal(aot.libapp.snapshot_hash, abi.libapp.snapshot_hash);
+    assert.deepEqual(
+      aot.libapp.sections.map((section) => section.name).sort(),
+      [
+        "_kDartVmSnapshotData",
+        "_kDartVmSnapshotInstructions",
+        "_kDartIsolateSnapshotData",
+        "_kDartIsolateSnapshotInstructions",
+      ].sort(),
+    );
+    for (const section of aot.libapp.sections) {
+      assert.ok(section.offset + section.size <= aot.libapp.bytes);
+      if (!section.name.endsWith("Data")) continue;
+      assert.equal(section.magic_valid, true);
+      assert.equal(
+        section.kind,
+        3,
+        "This verifier requires an AOT app snapshot",
+      );
+      assert.ok(
+        section.header_length >= 48 &&
+          section.header_length + 4 <= section.size,
+        `Snapshot extent must fit ${section.name} on ${abi.abi}`,
+      );
+    }
+    assert.ok(aot.string_pool.package_uri_count_at_least > 0);
+    assert.ok(aot.string_pool.dart_uri_count_at_least > 0);
+    process.stdout.write(
+      `[ok] ${abi.abi}: four symbols, bounded AOT headers, agreeing hashes and string pool\n`,
+    );
+  }
+  if (options.plainApk !== null) {
+    const plain = resolve(options.plainApk);
+    const negative = await run("identify_flutter_build", { path: plain });
+    assert.deepEqual(negative.target, {
+      path: plain,
+      ...(await hashStableFile(plain)),
+    });
+    assert.equal(negative.flutter_detected, false);
+    assert.equal(negative.coverage, "complete");
+  }
+  assert.deepEqual(
+    await hashStableFile(apk),
+    identity,
+    "Verification must preserve its input",
+  );
+} finally {
+  // Server shutdown retries retained provider cleanup and must settle before success.
+  try {
+    await client.close();
+    await transport.close();
+    assert.deepEqual(
+      await readdir(root.path),
+      [],
+      "Provider snapshots must be released before verification succeeds",
+    );
+  } finally {
+    await root.close();
+  }
 }
-process.stdout.write("\nall flutter checks passed\n");
+process.stdout.write("all Flutter CLI/MCP checks passed\n");
+
+async function run(operation, input) {
+  const contract = toolContract(operation);
+  const args = [
+    entrypoint,
+    operation.replaceAll("_", "-"),
+    input.path,
+    "--json",
+  ];
+  if (input.abi !== undefined) args.push("--abi", input.abi);
+  const { stdout } = await execute(process.execPath, args, {
+    env: environment,
+    timeout: 60_000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  const cli = contract.outputSchema.parse(JSON.parse(stdout));
+  const response = await client.callTool(
+    { name: operation, arguments: input },
+    { timeout: 60_000 },
+  );
+  assert.notEqual(response.isError, true, mcpTextValue(response));
+  const mcp = contract.outputSchema.parse(JSON.parse(mcpTextValue(response)));
+  assert.deepEqual(cli.normalized_result, mcp.normalized_result);
+  assert.deepEqual(cli.subject, mcp.subject);
+  assert.equal(cli.subject.local_path, input.path);
+  assert.equal(cli.subject.digest.sha256, cli.normalized_result.target.sha256);
+  assert.deepEqual(cli.limitations, mcp.limitations);
+  process.stdout.write(
+    `[ok] ${operation}${input.abi === undefined ? "" : ` ${input.abi}`}: CLI/MCP Evidence parity\n`,
+  );
+  return cli.normalized_result;
+}
 
 function parseArguments(argv) {
-  const parsed = { help: false, apk: null, plainApk: null };
+  const parsed = { help: false, apk: null, plainApk: null, expectations: null };
+  const names = {
+    "--apk": "apk",
+    "--plain-apk": "plainApk",
+    "--expectations": "expectations",
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") parsed.help = true;
-    else if (argument === "--apk") {
-      parsed.apk = argv[index + 1] ?? null;
-      index += 1;
-    } else if (argument === "--plain-apk") {
-      parsed.plainApk = argv[index + 1] ?? null;
-      index += 1;
-    } else {
-      process.stderr.write(`unknown argument: ${argument}\n`);
-      process.exit(2);
-    }
+    else if (
+      Object.hasOwn(names, argument) &&
+      typeof argv[index + 1] === "string" &&
+      !argv[index + 1].startsWith("--")
+    ) {
+      parsed[names[argument]] = argv[++index];
+    } else throw new Error(`Unknown argument or missing value: ${argument}`);
   }
   return parsed;
 }

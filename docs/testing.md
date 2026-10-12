@@ -699,7 +699,14 @@ symbols through the dynamic symbol table on both ELF64 and ELF32 images,
 validates the data-section headers, agrees with the identification hash,
 and projects a string pool of 756 `package:` and 201 `dart:` URIs from the
 isolate data section; a plain aapt2-built APK reports not-detected with
-complete coverage. Scanner and ELF goldens come from the same libraries.
+complete coverage. The suite uses self-contained synthetic ELF images and recorded scanner
+prefixes, with no private local-file dependency. The verifier now compares
+compiled CLI and stdio MCP Evidence on every ABI, including data-header kind
+and declared lengths. Add
+`--expectations scripts/fixtures/flutter-gallery-expectations.json` for the
+documented Gallery APK to assert its pinned digest, hash and exact engine
+labels; exact labels on other APKs remain unverified without an expectations
+file.
 See [Flutter build identification](flutter-analysis.md) for boundaries and
 budgets.
 
