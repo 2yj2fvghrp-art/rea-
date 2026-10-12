@@ -191,6 +191,7 @@ export const collectInterfaceBuilderResourceKeys = (
   }[],
 ) =>
   nodes.flatMap((node) => {
+    if (node.kind !== "resource") return [];
     const source = node.evidence.find(
       (item) => item.artifact_path !== null && item.artifact_sha256 !== null,
     );

@@ -43,8 +43,13 @@ describe("Apple asset catalog application workflow", () => {
           id: "ib:Main.nib:object:3",
           kind: "control",
           name: "Toolbar",
-          attributes: { title: "not-an-asset-key" },
-          evidence: [],
+          attributes: { NSImageName: "Toolbar", imageName: "Toolbar" },
+          evidence: [
+            {
+              artifact_path: "Contents/Resources/Main.nib",
+              artifact_sha256: "d".repeat(64),
+            },
+          ],
         },
       ]),
     ).toEqual([
@@ -176,3 +181,28 @@ it.each([1, 2])(
     });
   },
 );
+
+it("keeps recognized image fields on NIBArchive controls out of resource joins", async () => {
+  const bundle = await createTestTempDirectory("rea-asset-nib-control-");
+  const resources = join(bundle, "Contents", "Resources");
+  await mkdir(resources, { recursive: true });
+  await writeFile(
+    join(resources, "Panel.nib"),
+    encodeNibArchiveFixture({
+      classes: ["NSIBObjectData", "NSButton", "NSString"],
+      objects: [
+        { classIndex: 0, values: { NSRoot: { ref: 1 } } },
+        { classIndex: 1, values: { NSImageName: { ref: 2 } } },
+        { classIndex: 2, values: { "NS.bytes": "Toolbar" } },
+      ],
+    }),
+  );
+  await writeFile(join(resources, "Assets.car"), "inert catalog fixture");
+  const result = await analyzeAppleAssetCatalogs({
+    environment: {},
+    bundlePath: bundle,
+    targetSha256: "a".repeat(64),
+    runAssetUtil: () => Promise.resolve(JSON.stringify([{ Name: "Toolbar" }])),
+  });
+  expect(result.resource_key_matches).toEqual([]);
+});
