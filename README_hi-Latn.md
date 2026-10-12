@@ -279,9 +279,11 @@ REA use karne, bugs report karne, features request karne, builds test karne aur 
 
 ## Disclaimer
 
-REA lawful reverse-engineering research, analysis aur reconstruction ke liye tools deta hai. Zaroori authorization lena aur applicable laws ka paalan karna aapki zimmedari hai. Yeh project illegal ya unauthorized use ko endorse nahi karta.
+Responsible-use guidance ke liye [DISCLAIMER.md](DISCLAIMER.md) dekhiye.
 
-REA ek open-source software project hai. Humne koi cryptocurrency ya token na issue kiya hai, na endorse kiya hai. REA naam use karne wale tokens ka is project se koi sambandh nahi hai.
+Illegal ya unauthorized use par project ka stand REA ke saare versions, distribution channels aur platforms par laagu hota hai; har copy ke apne applicable licenses bane rehte hain.
+
+REA lawful research, education, interoperability, software preservation, aur us software ke analysis ke liye hai jiske aap owner hain ya jise examine karne ke liye aap authorized hain.
 
 ## Contributing
 
@@ -292,3 +294,7 @@ Development setup aur checks ke liye [CONTRIBUTING.md](CONTRIBUTING.md), verific
 ## License
 
 [MIT](LICENSE)
+
+REA-authored code MIT ke under licensed hai. Third-party material ke apne licenses aur copyright notices bane rehte hain; dependency inventory, preserved license texts aur external-tool terms ke liye [Third-party notices](THIRD_PARTY_NOTICES.md) dekhiye.
+
+**Commercial tools aapko legally obtain karne honge aur unhe use karne ke liye authorized hona hoga**, jisme IDA Pro / Hex-Rays decompilers, Hopper aur JEB shaamil hain, unke applicable licenses ke under. REA koi tool license, key ya activation entitlement nahi deta. Trials aur demos vendor terms ke adheen rehte hain, jisme user, feature, automation aur output sharing restrictions shaamil hain. Cracked copies, stolen keys, unauthorized key sharing aur license restrictions ko bypass karna authorized nahi hai. Yeh guidance MIT ya third-party licenses ko amend nahi karti.
