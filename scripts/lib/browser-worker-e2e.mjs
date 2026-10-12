@@ -42,6 +42,10 @@ export async function verifyBrowserWorkers(
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0];
+    await page.waitForURL(site.origin + "/", {
+      waitUntil: "load",
+      timeout: 20000,
+    });
     await page.evaluate(() => window.ready);
     const other = await context.newPage();
     await other.goto(site.origin + "/other");
