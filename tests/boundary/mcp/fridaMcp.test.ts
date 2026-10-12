@@ -5,6 +5,7 @@ import { expect, it, onTestFinished } from "vitest";
 
 import type { FridaInstrumentationPort } from "../../../src/application/frida/FridaInstrumentationPort.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
+import { expandToolAvailability } from "../../../src/contracts/toolOutputSchemaPrimitives.js";
 import { FridaInstrumentationManager } from "../../../src/frida/FridaInstrumentationManager.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
@@ -92,7 +93,9 @@ const expectFridaToolsAvailable = async (client: Client) => {
   );
   if (!parsedInventory.success)
     throw new Error("Invalid binary session output");
-  const toolAvailability = parsedInventory.data.result.tool_availability;
+  const toolAvailability = expandToolAvailability(
+    parsedInventory.data.result.tool_availability,
+  );
   expect(toolAvailability).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -293,18 +296,23 @@ it("reports Frida tools as unavailable after the optional binding fails to load"
     name: "binary_session",
     arguments: {},
   });
-  expect(inventory.structuredContent).toMatchObject({
-    result: {
-      tool_availability: expect.arrayContaining([
-        expect.objectContaining({
-          name: "list_frida_devices",
-          available: false,
-          reason: "provider_unavailable",
-          remediation: expect.stringContaining("Cannot find package 'frida'"),
-        }),
-      ]),
-    },
-  });
+  const parsedInventory = toolContract("binary_session").outputSchema.safeParse(
+    inventory.structuredContent,
+  );
+  if (!parsedInventory.success)
+    throw new Error("Invalid binary session output");
+  expect(
+    expandToolAvailability(parsedInventory.data.result.tool_availability),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: "list_frida_devices",
+        available: false,
+        reason: "provider_unavailable",
+        remediation: expect.stringContaining("Cannot find package 'frida'"),
+      }),
+    ]),
+  );
 });
 
 it("retains cancellation Evidence after the MCP client stops waiting", async () => {

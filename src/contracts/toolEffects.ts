@@ -115,6 +115,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   resume_frida_session: effects({
@@ -122,6 +123,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   unload_frida_script: effects({
@@ -144,6 +146,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,
+    executesForeignCode: true,
     idempotent: false,
   }),
   inspect_pe_resources: evidence,
