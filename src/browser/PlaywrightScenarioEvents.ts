@@ -59,6 +59,7 @@ export class PlaywrightScenarioEvents {
   private readonly network: PlaywrightScenarioNetwork | undefined;
   private stopNetwork: (() => void) | undefined;
   private sealed = false;
+  private readonly selected: string[];
 
   constructor(options: EventCaptureOptions) {
     const network = options.network ?? {
@@ -66,6 +67,7 @@ export class PlaywrightScenarioEvents {
       response_body: false,
       header_values: false,
     };
+    this.selected = [...options.enabled].sort();
     this.enabled = new Set(options.enabled);
     if (network.request_body || network.response_body || network.header_values)
       this.enabled = new Set([...this.enabled, "network"]);
@@ -163,11 +165,13 @@ export class PlaywrightScenarioEvents {
   result(): {
     readonly retained: number;
     readonly dropped: number;
+    readonly selected: string[];
     readonly items: readonly BrowserScenarioEvent[];
   } {
     return {
       retained: this.items.length,
       dropped: 0,
+      selected: this.selected,
       items: this.items,
     };
   }

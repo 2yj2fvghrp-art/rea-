@@ -77,7 +77,7 @@ class RetrySession implements BrowserScenarioSessionPort {
     return 0;
   }
   events() {
-    return { retained: 0, dropped: 0, items: [] };
+    return { retained: 0, dropped: 0, selected: [], items: [] };
   }
   async perform(_action: BrowserScenarioAction) {}
   async capture(

@@ -442,6 +442,7 @@ interface ScenarioCaptureOptions {
   readonly domText?: string;
   readonly elapsedMs?: number;
   readonly eventSequence?: number;
+  readonly eventFamilies?: readonly string[];
 }
 
 const scenarioCapture = (
@@ -520,6 +521,7 @@ const scenarioCapture = (
     events: {
       retained: 1,
       dropped: 0,
+      selected: [...(options.eventFamilies ?? [])],
       items: [
         {
           sequence: eventSequence,
@@ -544,3 +546,33 @@ const textArtifact = (text: string) => {
     text,
   };
 };
+
+it("reports mismatched event family selection as unknown", () => {
+  const noneSelected = scenarioCapture({ eventFamilies: [] });
+  const consoleSelected = scenarioCapture({ eventFamilies: ["console"] });
+  const errorsSelected = scenarioCapture({ eventFamilies: ["page-errors"] });
+
+  const noneVsConsole = compareBrowserScenarios(
+    compareBrowserScenariosInputSchema.parse({
+      before_scenario: noneSelected,
+      after_scenario: consoleSelected,
+    }),
+  );
+  expect(noneVsConsole.overall_status).toBe("unknown");
+
+  const consoleVsErrors = compareBrowserScenarios(
+    compareBrowserScenariosInputSchema.parse({
+      before_scenario: consoleSelected,
+      after_scenario: errorsSelected,
+    }),
+  );
+  expect(consoleVsErrors.overall_status).toBe("unknown");
+
+  const sameSelection = compareBrowserScenarios(
+    compareBrowserScenariosInputSchema.parse({
+      before_scenario: consoleSelected,
+      after_scenario: consoleSelected,
+    }),
+  );
+  expect(sameSelection.overall_status).not.toBe("unknown");
+});

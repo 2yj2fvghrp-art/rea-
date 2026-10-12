@@ -28,6 +28,7 @@ export const browserScenarioCaptureSchema = z
     events: z.strictObject({
       retained: z.number().int().min(0),
       dropped: z.number().int().min(0),
+      selected: z.array(z.string().min(1)).default([]),
       items: z.array(browserScenarioEventSchema),
     }),
     completeness: browserScenarioCompletenessSchema,

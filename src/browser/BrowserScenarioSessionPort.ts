@@ -22,6 +22,7 @@ export interface BrowserScenarioSessionPort {
   events(): {
     readonly retained: number;
     readonly dropped: number;
+    readonly selected: string[];
     readonly items: readonly BrowserScenarioEvent[];
   };
   /** Gaps in selected event families that prevent complete capture claims. */

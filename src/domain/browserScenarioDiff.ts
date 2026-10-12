@@ -332,13 +332,26 @@ const compareStepArtifacts = (
       ),
       beforeState: eventEvidenceState(input.beforeCapture, input.beforeStep),
       afterState: eventEvidenceState(input.afterCapture, input.afterStep),
-      incomparableReason: networkContentCoverageReason(
-        input.beforeCapture,
-        input.afterCapture,
-      ),
+      incomparableReason:
+        eventSelectionMismatch(input.beforeCapture, input.afterCapture) ??
+        networkContentCoverageReason(input.beforeCapture, input.afterCapture),
     }),
   ];
 };
+
+/** Event evidence is incomparable when the two captures selected different families. */
+const eventSelectionMismatch = (
+  before: BrowserScenarioCapture,
+  after: BrowserScenarioCapture,
+): string | undefined =>
+  JSON.stringify(before.events.selected) ===
+  JSON.stringify(after.events.selected)
+    ? undefined
+    : "Event family selection differs (" +
+      before.events.selected.join(",") +
+      " before, " +
+      after.events.selected.join(",") +
+      " after).";
 
 interface CompareCapturedValuesInput<Value> {
   readonly artifact: BrowserScenarioArtifactKind;

@@ -145,11 +145,13 @@ class FakeSession implements BrowserScenarioSessionPort {
   events(): {
     readonly retained: number;
     readonly dropped: number;
+    readonly selected: string[];
     readonly items: readonly BrowserScenarioEvent[];
   } {
     return {
       retained: this.eventItems.length,
       dropped: 0,
+      selected: [],
       items: this.eventItems,
     };
   }
