@@ -11,17 +11,23 @@ import {
   serializeClientConfiguration,
   withClientServers,
   type ClientConfigurationDocument,
-  type ClientRegistrationDialect,
 } from "./ClientConfigurationDocument.js";
+import { dshDocument, DshCordisDocument } from "./DshCordisPatch.js";
 import { constants as fsConstants } from "node:fs";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import writeFileAtomic from "write-file-atomic";
+import { clientRegistrationEnvironment } from "./ClientRegistrationEnvironment.js";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { npxRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
+import {
+  readRegularFileText,
+  RegularFileCleanupFailure,
+} from "./RegularFileRead.js";
+import type { ClientConfigurationFileError } from "./ClientConfigurationFiles.js";
 import type {
   ClientConfigurationInspection,
   ClientConfigurationResult,
@@ -37,25 +43,44 @@ export const configureClientConfiguration = (
 ): Promise<ClientConfigurationResult> => {
   if (client.configPathError !== undefined)
     return Promise.resolve({ status: "failed", reason: "path" });
-  if (client.format === undefined || client.format === "unsupported")
-    return Promise.resolve({ status: "failed", reason: "readback" });
-  return configureClientDocument(client, environment, command, client.format);
+  return configureClientDocument(client, environment, command);
 };
 
 const configureClientDocument = async (
   client: SetupClient,
   environment: SetupProviderEnvironment,
   command: readonly string[],
-  format: NonNullable<SetupClient["format"]>,
 ): Promise<ClientConfigurationResult> => {
+  const format = client.format;
+  if (format === undefined || format === "unsupported")
+    return { status: "failed", reason: "readback" };
   const files = await readClientConfigurationFiles(client);
-  if (!files.ok) return { status: "failed", reason: "readback" };
+  if (!files.ok) {
+    throwCleanupFailure(files.error);
+    return { status: "failed", reason: "readback" };
+  }
+  const existing = files.value.at(-1);
+  const editabilityError =
+    existing?.dialect === "dsh"
+      ? dshDocument(existing.document).editabilityError
+      : undefined;
+  if (editabilityError !== undefined)
+    return { status: "failed", reason: "readback" };
   const policy = await readClientPolicyBlock(
     client,
     undefined,
-    clientConfigurationDesired(client, environment, command, client.format),
+    clientConfigurationDesired(
+      client,
+      environment,
+      command,
+      files.value.at(-1),
+    ),
   );
-  if (!policy.ok || policy.value !== undefined)
+  if (!policy.ok) {
+    throwCleanupFailure(policy.error);
+    return { status: "failed", reason: "readback" };
+  }
+  if (policy.value !== undefined)
     return { status: "failed", reason: "readback" };
   const transactionPath = await resolveClientConfigTransactionPath(
     client.configPath,
@@ -64,24 +89,33 @@ const configureClientDocument = async (
     return { status: "failed", reason: "path" };
   let original: string | undefined;
   try {
-    original = await readFile(transactionPath, "utf8");
+    original = await readRegularFileText(transactionPath);
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     if (!isMissing(cause)) return { status: "failed", reason: "readback" };
   }
   let parsed: ClientConfigurationDocument;
   try {
     parsed = parseClientConfiguration(
-      original ?? (format === "toml" || format === "grok" ? "" : "{}"),
+      original ??
+        (format === "toml" || format === "grok" || format === "dsh"
+          ? ""
+          : "{}"),
       format,
     );
     const policy = await readClientPolicyBlock(
       client,
       parsed,
-      clientConfigurationDesired(client, environment, command, parsed.dialect),
+      clientConfigurationDesired(client, environment, command, parsed),
     );
-    if (!policy.ok || policy.value !== undefined)
+    if (!policy.ok) {
+      throwCleanupFailure(policy.error);
+      return { status: "failed", reason: "readback" };
+    }
+    if (policy.value !== undefined)
       return { status: "failed", reason: "readback" };
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     // Malformed existing configuration fails the readback gate.
     void cause;
     return { status: "failed", reason: "readback" };
@@ -90,9 +124,36 @@ const configureClientDocument = async (
     client,
     environment,
     command,
-    parsed.dialect,
+    parsed,
   );
   if (registrationCurrent(parsed, desired)) return { status: "unchanged" };
+  return persistClientConfiguration({
+    client,
+    transactionPath,
+    format,
+    original,
+    parsed,
+    desired,
+  });
+};
+
+interface ClientConfigurationUpdate {
+  readonly client: SetupClient;
+  readonly transactionPath: string;
+  readonly format: NonNullable<SetupClient["format"]>;
+  readonly original: string | undefined;
+  readonly parsed: ClientConfigurationDocument;
+  readonly desired: unknown;
+}
+
+const persistClientConfiguration = async ({
+  client,
+  transactionPath,
+  format,
+  original,
+  parsed,
+  desired,
+}: ClientConfigurationUpdate): Promise<ClientConfigurationResult> => {
   const backupPath =
     original === undefined ? undefined : `${client.configPath}.rea.backup`;
   if (
@@ -149,7 +210,7 @@ const configureClientDocument = async (
   }
   try {
     const readback = parseClientConfiguration(
-      await readFile(transactionPath, "utf8"),
+      await readRegularFileText(transactionPath),
       format,
     );
     if (!registrationCurrent(readback, desired)) {
@@ -157,6 +218,7 @@ const configureClientDocument = async (
       return { status: "failed", reason: "readback" };
     }
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     // Readback failure restores the transaction before reporting.
     void cause;
     await restoreConfig(transactionPath, original);
@@ -177,21 +239,22 @@ export const clientConfigurationAligned = async (
   if (client.configPathError !== undefined) return false;
   try {
     const files = await readClientConfigurationFiles(client);
-    if (!files.ok) return false;
-    const original = await readFile(client.configPath, "utf8");
+    if (!files.ok) {
+      throwCleanupFailure(files.error);
+      return false;
+    }
+    const original = await readRegularFileText(client.configPath);
     const parsed = parseClientConfiguration(original, client.format);
     const policy = await readClientPolicyBlock(
       client,
       parsed,
-      clientConfigurationDesired(
-        client,
-        providerEnvironment,
-        command,
-        parsed.dialect,
-      ),
+      clientConfigurationDesired(client, providerEnvironment, command, parsed),
     );
+    if (!policy.ok) {
+      throwCleanupFailure(policy.error);
+      return false;
+    }
     return (
-      policy.ok &&
       policy.value === undefined &&
       registrationCurrent(
         parsed,
@@ -199,11 +262,12 @@ export const clientConfigurationAligned = async (
           client,
           providerEnvironment,
           command,
-          parsed.dialect,
+          parsed,
         ),
       )
     );
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     // Unreadable configuration is treated as not aligned so setup repairs it.
     void cause;
     return false;
@@ -220,19 +284,35 @@ export const inspectClientConfiguration = async (
     return { status: "invalid", remediation: client.configPathError };
   if (client.format === "unsupported") return { status: "already_current" };
   const files = await readClientConfigurationFiles(client);
-  if (!files.ok) return { status: "invalid", remediation: files.error.detail };
+  if (!files.ok) {
+    throwCleanupFailure(files.error);
+    return {
+      status: "invalid",
+      remediation: files.error.detail,
+    };
+  }
+  const existing = files.value.at(-1);
+  const editabilityError =
+    existing?.dialect === "dsh"
+      ? dshDocument(existing.document).editabilityError
+      : undefined;
+  if (editabilityError !== undefined)
+    return {
+      status: "invalid",
+      remediation: editabilityError.message,
+    };
   const policy = await readClientPolicyBlock(
     client,
     undefined,
-    clientConfigurationDesired(
-      client,
-      providerEnvironment,
-      command,
-      client.format,
-    ),
+    clientConfigurationDesired(client, providerEnvironment, command, existing),
   );
-  if (!policy.ok)
-    return { status: "invalid", remediation: policy.error.detail };
+  if (!policy.ok) {
+    throwCleanupFailure(policy.error);
+    return {
+      status: "invalid",
+      remediation: policy.error.detail,
+    };
+  }
   if (policy.value !== undefined)
     return { status: "invalid", remediation: policy.value };
   const transactionPath = await resolveClientConfigTransactionPath(
@@ -246,13 +326,13 @@ export const inspectClientConfiguration = async (
     };
   let original: string;
   try {
-    original = await readFile(transactionPath, "utf8");
+    original = await readRegularFileText(transactionPath);
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     if (isMissing(cause)) return { status: "create" };
     return {
       status: "invalid",
-      remediation:
-        "The configuration file could not be read. Check its permissions before rerunning setup.",
+      remediation: `The configuration file could not be read. Check its permissions before rerunning setup. ${cause instanceof Error ? cause.message : String(cause)}`,
     };
   }
   try {
@@ -260,26 +340,27 @@ export const inspectClientConfiguration = async (
     const policy = await readClientPolicyBlock(
       client,
       parsed,
-      clientConfigurationDesired(
-        client,
-        providerEnvironment,
-        command,
-        parsed.dialect,
-      ),
+      clientConfigurationDesired(client, providerEnvironment, command, parsed),
     );
-    if (!policy.ok)
-      return { status: "invalid", remediation: policy.error.detail };
+    if (!policy.ok) {
+      throwCleanupFailure(policy.error);
+      return {
+        status: "invalid",
+        remediation: policy.error.detail,
+      };
+    }
     if (policy.value !== undefined)
       return { status: "invalid", remediation: policy.value };
     const desired = clientConfigurationDesired(
       client,
       providerEnvironment,
       command,
-      parsed.dialect,
+      parsed,
     );
     if (registrationCurrent(parsed, desired))
       return { status: "already_current" };
   } catch (cause: unknown) {
+    if (cause instanceof RegularFileCleanupFailure) throw cause;
     // Malformed configuration is reported with the invalid remediation.
     void cause;
     return {
@@ -296,6 +377,11 @@ export const inspectClientConfiguration = async (
 
 const isMissing = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+
+const throwCleanupFailure = (error: ClientConfigurationFileError): void => {
+  if (error.cleanupFailure !== undefined) throw error.cleanupFailure;
+};
+
 const preserveConfigBackup = async (
   source: string,
   destination: string,
@@ -326,6 +412,7 @@ const registrationCurrent = (
   parsed: ClientConfigurationDocument,
   desired: unknown,
 ): boolean =>
+  (parsed.dialect !== "dsh" || dshDocument(parsed.document).ready) &&
   clientConfigurationValuesEqual(
     parsed.servers[PRODUCT_IDENTITY.mcpServerKey],
     desired,
@@ -337,17 +424,31 @@ const clientConfigurationDesired = (
   client: SetupClient,
   providerEnvironment: SetupProviderEnvironment,
   command: readonly string[],
-  format: ClientRegistrationDialect | undefined,
+  parsed?: ClientConfigurationDocument,
 ) => {
-  const environment = Object.fromEntries(
-    Object.entries(providerEnvironment).sort(([left], [right]) =>
-      left.localeCompare(right),
-    ),
+  const format = parsed?.dialect ?? client.format ?? "json";
+  const launcher =
+    command.length === 0 ? [PRODUCT_IDENTITY.cliBinary, "mcp"] : command;
+  if (format === "dsh") {
+    const desired = (
+      parsed === undefined
+        ? new DshCordisDocument("")
+        : dshDocument(parsed.document)
+    ).desired(launcher, providerEnvironment);
+    if (!desired.ok) throw desired.error;
+    return desired.value;
+  }
+  // Preserve explicitly configured server settings, never the ambient process
+  // environment. Newly discovered provider paths win only for their own keys.
+  const environment = clientRegistrationEnvironment(
+    parsed,
+    providerEnvironment,
   );
+  if (!environment.ok) throw environment.error;
   const registration = clientRegistrationEntry(
-    format ?? "json",
-    command.length === 0 ? [PRODUCT_IDENTITY.cliBinary, "mcp"] : command,
-    environment,
+    format,
+    launcher,
+    environment.value,
   );
   return {
     ...registration,

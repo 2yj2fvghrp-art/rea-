@@ -8,7 +8,10 @@ import { canonicalJson } from "../comparisonSemantics.js";
 import { digestCanonicalValue } from "../canonicalDigest.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
-import { freezeOwnedJsonSnapshotSteps } from "../immutableJson.js";
+import {
+  freezeJsonSnapshot,
+  freezeOwnedJsonSnapshotSteps,
+} from "../immutableJson.js";
 
 import type {
   ApplicationGraphEvidence,
@@ -169,7 +172,28 @@ const sourceMapObservationMatchesIdentity = (
   observation: ApplicationNode["observations"][number],
 ): boolean => {
   const { evidence, source_map_reference: reference } = observation;
+  const sourceDigests = [
+    observation.properties.content_sha256,
+    // Older graph producers used `source_sha256` for the same source-map fact.
+    observation.properties.source_sha256,
+  ];
+  const hasKnownSourceDigest = identity.source_sha256 !== null;
+  const sourceDigestMatches =
+    sourceDigests.every(
+      (digest) =>
+        digest === undefined ||
+        digest === null ||
+        digest === identity.source_sha256,
+    ) &&
+    (!hasKnownSourceDigest || sourceDigests.includes(identity.source_sha256));
+  const contentAvailabilityMatches =
+    (observation.properties.content_available !== true ||
+      hasKnownSourceDigest) &&
+    (observation.properties.content_available !== false ||
+      !hasKnownSourceDigest);
   return (
+    sourceDigestMatches &&
+    contentAvailabilityMatches &&
     reference !== null &&
     evidence.state === "observed" &&
     evidence.artifact.available &&
@@ -449,6 +473,10 @@ export const createJavaScriptApplicationNode = (
   input: unknown,
 ): ApplicationNode => {
   const parsed = applicationNodeInputSchema.parse(input);
+  // These properties are newly parsed and exclusively owned. Authenticate
+  // them before the observation/node schemas and final graph validate again.
+  for (const observation of parsed.observations)
+    freezeJsonSnapshot(observation.properties);
   const identity = normalizeIdentity(parsed.identity);
   const identifier = nodeId({ kind: parsed.kind, identity });
   const observations = parsed.observations
@@ -479,6 +507,7 @@ export const createJavaScriptApplicationEdge = (
   input: unknown,
 ): ApplicationEdge => {
   const parsed = applicationEdgeInputSchema.parse(input);
+  freezeJsonSnapshot(parsed.properties);
   const semantic = {
     ...parsed,
     evidence: normalizeEvidence(parsed.evidence),

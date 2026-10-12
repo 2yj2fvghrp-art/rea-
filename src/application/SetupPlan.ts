@@ -15,6 +15,7 @@ import type {
 } from "./SetupTypes.js";
 import type { SetupClient } from "./SupportedClients.js";
 import type { DoctorReport } from "./Doctor.js";
+import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 /** Read-only setup facts shared by client selection and preflight. */
 export interface SetupDiscovery {
@@ -308,12 +309,12 @@ const clientConfigurationDetail = (
   installHopper: boolean,
 ): string => {
   const entries = Object.entries(environment)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
     .map(([name, value]) => `${name}=${value}`);
   const environmentDetail =
     entries.length === 0
-      ? " No additional environment variables."
-      : ` Environment: ${entries.join(", ")}.`;
+      ? " No additional provider environment variables. Existing server environment overrides are retained."
+      : ` Detected provider environment: ${entries.join(", ")}. Existing server environment overrides are retained; detected values replace matching keys.`;
   const hopperDetail = installHopper
     ? environment.HOPPER_LAUNCHER_PATH === undefined
       ? " If this plan installs Hopper, REA will add HOPPER_LAUNCHER_PATH using the launcher path reported by that installation."

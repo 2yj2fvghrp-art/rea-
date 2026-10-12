@@ -14,6 +14,7 @@ import type {
 } from "../../domain/artifactGraph.js";
 import {
   hasZipSignature,
+  isZipPackageFormat,
   zipPackageFormatForPath,
   type ZipPackageFormat,
 } from "../../domain/zipPackageFormat.js";
@@ -217,9 +218,8 @@ export const rootOccurrenceFor = (
   entry_kind: metadata.format === "directory" ? "directory" : "file",
   artifact_kind:
     metadata.format === "directory" ||
-    ["zip", "ipa", "apk", "msix", "appx", "asar", "dmg", "pkg"].includes(
-      metadata.format,
-    )
+    isZipPackageFormat(metadata.format) ||
+    ["asar", "dmg", "pkg"].includes(metadata.format)
       ? "container"
       : artifactRoleForFormat(metadata.path, metadata.format).kind,
   artifact_format: metadata.format,
@@ -295,23 +295,53 @@ export const createArtifactEdges = (
   return edges;
 };
 
-export const nearestParent = (
-  path: string,
-  occurrences: ReadonlyMap<string, MutableOccurrence>,
+interface ArtifactParentIndex {
+  readonly children: Map<string, ArtifactParentIndex>;
+  occurrence?: MutableOccurrence;
+}
+
+/** Resolve strict observed ancestors without rebuilding every path prefix. */
+export const resolveOccurrenceParents = (
+  occurrences: readonly MutableOccurrence[],
+  byPath: ReadonlyMap<string, MutableOccurrence>,
   expandedContainerIds: ReadonlySet<string>,
-): MutableOccurrence | undefined => {
-  const parts = path.split("/");
-  while (parts.length > 1) {
-    parts.pop();
-    const candidate = occurrences.get(parts.join("/"));
+): void => {
+  const root: ArtifactParentIndex = { children: new Map() };
+  for (const occurrence of byPath.values()) {
     if (
-      candidate !== undefined &&
-      (candidate.entry_kind === "directory" ||
-        expandedContainerIds.has(candidate.occurrence_id))
+      occurrence.entry_kind !== "directory" &&
+      !expandedContainerIds.has(occurrence.occurrence_id)
     )
-      return candidate;
+      continue;
+    let branch = root;
+    for (const segment of occurrence.logical_path.split("/")) {
+      let child = branch.children.get(segment);
+      if (child === undefined) {
+        child = { children: new Map() };
+        branch.children.set(segment, child);
+      }
+      branch = child;
+    }
+    branch.occurrence = occurrence;
   }
-  return undefined;
+  for (const occurrence of occurrences) {
+    const path = occurrence.logical_path;
+    let branch = root;
+    let parent: MutableOccurrence | undefined;
+    // Walk parent segments only. Stop scanning the path once no observed
+    // directory or expanded container can be an ancestor.
+    for (let start = 0; ;) {
+      const slash = path.indexOf("/", start);
+      if (slash < 0) break;
+      const segment = path.slice(start, slash);
+      const child = branch.children.get(segment);
+      if (child === undefined) break;
+      branch = child;
+      parent = branch.occurrence ?? parent;
+      start = slash + 1;
+    }
+    occurrence.parent_occurrence_id = parent?.occurrence_id ?? null;
+  }
 };
 
 /**

@@ -5,32 +5,32 @@ import { MachOSliceArtifactReader } from "../MachOSliceArtifactReader.js";
 import { NativeDmgArtifactReader } from "../NativeDmgArtifactReader.js";
 import { ZipArtifactReader } from "../ZipArtifactReader.js";
 import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
-import { ZIP_NON_ENTRY_TAIL_LIMITATION } from "../../domain/zipPackageFormat.js";
+import {
+  isZipPackageFormat,
+  ZIP_NON_ENTRY_TAIL_LIMITATION,
+} from "../../domain/zipPackageFormat.js";
+import type { StableRegularFileDescriptor } from "../../filesystem/RegularFile.js";
 
-export const createReader = async (
+export const createReader = (
   path: string,
   format: ArtifactOccurrence["artifact_format"],
   environment: Readonly<NodeJS.ProcessEnv>,
-  signal?: AbortSignal,
-): Promise<ArtifactReader | undefined> => {
+  rootSource?: StableRegularFileDescriptor,
+): ArtifactReader | undefined => {
+  if (isZipPackageFormat(format))
+    return new ZipArtifactReader(path, format, undefined, rootSource);
   switch (format) {
     case "directory":
       return new DirectoryArtifactReader(path);
-    case "zip":
-    case "ipa":
-    case "apk":
-    case "msix":
-    case "appx":
-      return new ZipArtifactReader(path, format);
     case "asar":
       return new AsarArtifactReader(path);
     case "mach-o-universal":
       return process.platform === "darwin"
-        ? new MachOSliceArtifactReader(path, environment)
+        ? new MachOSliceArtifactReader(path, environment, undefined, rootSource)
         : undefined;
     case "dmg":
       if (process.platform !== "darwin") return undefined;
-      return NativeDmgArtifactReader.create(path, environment, signal);
+      return new NativeDmgArtifactReader(path, environment);
     default:
       return undefined;
   }
@@ -41,11 +41,7 @@ export const inventoryLimitations = (
   reader: ArtifactReader | undefined,
 ): string[] => {
   if (reader !== undefined)
-    return reader.format === "zip" ||
-      reader.format === "ipa" ||
-      reader.format === "apk" ||
-      reader.format === "msix" ||
-      reader.format === "appx"
+    return isZipPackageFormat(reader.format)
       ? [ZIP_NON_ENTRY_TAIL_LIMITATION]
       : [];
   // dmg and pkg reach here only after classifyRootFormat matched their bytes.
