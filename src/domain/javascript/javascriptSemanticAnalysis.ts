@@ -10,6 +10,7 @@ import {
 import {
   collectSemanticModuleLink,
   collectSemanticCallable,
+  semanticImportEqualsSpecifier,
   collectSemanticReferences,
   collectSemanticReferencesSteps,
   immutableSemanticBindings,
@@ -18,6 +19,7 @@ import {
 import {
   semanticObjectPatternKeys,
   semanticStaticPropertyKey,
+  semanticWriteTargets,
 } from "./javascriptAstValues.js";
 import type {
   JavaScriptSemanticAnalysisState,
@@ -31,16 +33,14 @@ import {
   resolveSemanticBindingFromScope,
   semanticBindingId,
   semanticScopeId,
+  semanticStableInitializer,
   semanticVariableScope,
 } from "./javascriptSemanticState.js";
 import {
   completeSemanticSteps,
   traverseJavaScriptAstSteps,
 } from "./javascriptSemanticTraversal.js";
-import {
-  semanticNamespaceInteropOperand,
-  semanticRequireOrigin,
-} from "./javascriptSemanticRequireOrigin.js";
+import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { collectSemanticMemberMutationsSteps } from "./javascriptSemanticMemberMutations.js";
 import {
   collectSemanticReturns,
@@ -49,7 +49,7 @@ import {
 import { collectJavaScriptDerivedSemanticsSteps } from "./javascriptSemanticDerivedAnalysis.js";
 import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
 import {
-  collectElectronMemberWritesSteps,
+  collectJavaScriptIdentityWritesSteps,
   electronExportPath,
   electronMemberPath,
   ELECTRON_MODULE,
@@ -64,6 +64,8 @@ import {
 } from "./javascriptSourceParser.js";
 
 import { isJavaScriptRpcClientFactory } from "./javascriptRpcEndpoints.js";
+import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
+import { SemanticPropertyPathCoverage } from "./javascriptSemanticPropertyPaths.js";
 
 interface BindPatternInput {
   readonly pattern: t.Node;
@@ -119,6 +121,15 @@ export const analyzeParsedJavaScriptReferences = (
   completeSemanticSteps(collectDefinitionsSteps(file.program, state));
   return collectSemanticReferences(file.program, state, name);
 };
+
+/** Share the lexical index with bounded, demand-driven boundary analyses. */
+export function* indexJavaScriptBindingsSteps(
+  program: t.Program,
+): Generator<void, JavaScriptSemanticAnalysisState> {
+  const state = createState(program);
+  yield* collectDefinitionsSteps(program, state);
+  return state;
+}
 
 /** Recover semantics from an already parsed JavaScript artifact. */
 export const analyzeParsedJavaScriptSemantics = (
@@ -205,13 +216,10 @@ export function* classifyParsedJavaScriptRpcClientRootsSteps(
       if (binding === undefined) return;
       let client = clients.get(binding.bindingId);
       if (client === undefined) {
-        const [initializer] = binding.initializers;
+        const initializer = semanticStableInitializer(binding, state);
         client =
           initializer !== undefined &&
           initializer.projection.length === 0 &&
-          binding.initializers.length === 1 &&
-          !binding.definitions.some(({ kind }) => kind === "assignment") &&
-          !state.conditionalInitializers.has(initializer.node) &&
           isJavaScriptRpcClientFactory(initializer.node);
         clients.set(binding.bindingId, client);
       }
@@ -371,9 +379,27 @@ export const classifyParsedJavaScriptElectronBindings = (
 export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
 ): Generator<void, ReadonlyMap<number, readonly string[]>> {
-  const facts = new Map<number, readonly string[]>();
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
+  return (yield* indexJavaScriptElectronIdentitySteps(file.program, state))
+    .bindings;
+}
+
+/** Shared lexical identity and visible-write proof for direct and wrapped calls. */
+export interface JavaScriptElectronIdentity {
+  readonly bindings: ReadonlyMap<number, readonly string[]>;
+  readonly intactExport: (path: readonly (string | null)[]) => boolean;
+  readonly exportPath: (root: t.Node) => readonly string[] | undefined;
+}
+
+export function* indexJavaScriptElectronIdentitySteps(
+  program: t.Program,
+  state: JavaScriptSemanticAnalysisState,
+): Generator<void, JavaScriptElectronIdentity> {
+  const facts = new Map<number, readonly string[]>();
+  const interop = createSemanticModuleInterop(state);
+  const writes = new SemanticPropertyPathCoverage();
+  let collectedWrites = false;
   const exportsByBinding = new Map<string, readonly string[] | null>();
   const rootExport = (root: t.Node): readonly string[] | undefined => {
     if (t.isIdentifier(root)) {
@@ -382,24 +408,49 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
       if (binding === undefined) return undefined;
       let exported = exportsByBinding.get(binding.bindingId);
       if (exported === undefined) {
-        exported = electronExport(binding, state);
+        exported = electronExport(binding, state, interop);
         exportsByBinding.set(binding.bindingId, exported);
       }
-      return exported ?? undefined;
+      return collectedWrites && interop.invalidated(binding)
+        ? undefined
+        : (exported ?? undefined);
     }
-    const origin = semanticRequireOrigin(
-      semanticNamespaceInteropOperand(root, state) ?? root,
-      state,
-    )?.origin;
+    const wrapped = interop.callOrigin(root);
+    const origin =
+      wrapped === undefined
+        ? semanticRequireOrigin(root, state)?.origin
+        : collectedWrites && interop.invalidatedCall(root)
+          ? undefined
+          : wrapped.origin;
     return origin !== undefined && ELECTRON_MODULE.test(origin.specifier)
       ? electronExportPath(origin.importedPath)
       : undefined;
   };
-  const writes = yield* collectElectronMemberWritesSteps(
-    file.program,
-    rootExport,
+  yield* collectJavaScriptIdentityWritesSteps(
+    program,
+    (root, kind) => {
+      if (kind === "opaque-call") return interop.opaqueMutationPath(root);
+      const exported = kind === "binding" ? undefined : rootExport(root);
+      return exported === undefined
+        ? (interop.intrinsicPath(root) ??
+            (kind === "member"
+              ? interop.boundIntrinsic(root)?.path
+              : undefined))
+        : ["electron", ...exported];
+    },
+    interop.intrinsicInvocation,
+    interop.staticString,
+    interop.isFreshObject,
+    (node, path) => {
+      if (path[0] === "electron") writes.retain(path);
+      else interop.retainWrite(node, path);
+    },
   );
-  yield* traverseJavaScriptAstSteps(file.program, {
+  collectedWrites = true;
+  const intactExport = (path: readonly (string | null)[]): boolean =>
+    ELECTRON_MODULE.test(path[0] ?? "") &&
+    !writes.covers(["electron", ...path.slice(1)]);
+  yield* traverseJavaScriptAstSteps(program, {
     enter: (node) => {
       if (
         !t.isCallExpression(node) &&
@@ -409,11 +460,14 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
         return;
       const { root, members } = electronMemberPath(node.callee);
       const exported = rootExport(root);
-      if (exported !== undefined && !writes.covers([...exported, ...members]))
+      if (
+        exported !== undefined &&
+        intactExport(["electron", ...exported, ...members])
+      )
         facts.set(root.start ?? -1, exported);
     },
   });
-  return facts;
+  return { bindings: facts, intactExport, exportPath: rootExport };
 }
 
 // Read import and require origins directly; general value evaluation is
@@ -421,19 +475,16 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 const electronExport = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
+  interop: ReturnType<typeof createSemanticModuleInterop>,
 ): readonly string[] | null => {
-  const initializers = namespacePreservingInitializers(binding, state);
-  if (initializers === undefined) return null;
-  const directOrigin = bindingOrigin(binding, initializers, state);
-  const [initializer] = initializers;
-  if (
-    directOrigin === undefined &&
-    (initializer === undefined ||
-      initializers.length !== 1 ||
-      initializers.length !== binding.initializers.length ||
-      state.conditionalInitializers.has(initializer.node))
-  )
-    return null;
+  const reassigned = binding.definitions.some(
+    ({ kind }) => kind === "assignment",
+  );
+  const converted = interop.origin(binding);
+  if (reassigned && converted === undefined) return null;
+  const directOrigin = converted?.origin ?? bindingOrigin(binding, state);
+  const initializer = semanticStableInitializer(binding, state);
+  if (directOrigin === undefined && initializer === undefined) return null;
   const provenance =
     directOrigin === undefined
       ? evaluateSemanticProvenance(binding, state)
@@ -448,66 +499,17 @@ const electronExport = (
     : null;
 };
 
-/**
- * Return the initializers that can change which module a binding names.
- * Bundlers emit `name = __toESM(name)` after a CommonJS require; rewrapping
- * the binding's own value keeps every member, so it is not a reassignment.
- */
-const namespacePreservingInitializers = (
-  binding: JavaScriptSemanticBindingState,
-  state: JavaScriptSemanticAnalysisState,
-): JavaScriptSemanticBindingState["initializers"] | undefined => {
-  const initializers = binding.initializers.filter(
-    ({ node }) => !rewrapsOwnNamespace(binding, node, state),
-  );
-  const rewraps = binding.initializers.length - initializers.length;
-  const assignments = binding.definitions.filter(
-    ({ kind }) => kind === "assignment",
-  ).length;
-  return assignments === rewraps ? initializers : undefined;
-};
-
-const rewrapsOwnNamespace = (
-  binding: JavaScriptSemanticBindingState,
-  node: t.Node,
-  state: JavaScriptSemanticAnalysisState,
-): boolean => {
-  const assignment = state.parentsByNode.get(node);
-  const operand = semanticNamespaceInteropOperand(node, state);
-  return (
-    t.isAssignmentExpression(assignment) &&
-    assignment.operator === "=" &&
-    assignment.right === node &&
-    t.isIdentifier(assignment.left, { name: binding.name }) &&
-    t.isIdentifier(operand, { name: binding.name }) &&
-    !semanticResolutionBlocked(state, operand, operand.name) &&
-    resolveSemanticBindingState(state, operand, operand.name) === binding
-  );
-};
-
 const bindingOrigin = (
   binding: JavaScriptSemanticBindingState,
-  initializers: JavaScriptSemanticBindingState["initializers"],
   state: JavaScriptSemanticAnalysisState,
 ): JavaScriptModuleOrigin | undefined => {
   if (binding.directOrigins.length > 0)
     return binding.directOrigins.length === 1
       ? binding.directOrigins[0]
       : undefined;
-  const [initializer] = initializers;
-  // A var/let declaration permits writes without proving one occurred.
-  // Require one unconditional initializer and no actual binding writes.
-  if (
-    initializer === undefined ||
-    initializers.length !== 1 ||
-    state.conditionalInitializers.has(initializer.node)
-  )
-    return undefined;
-  const origin = semanticRequireOrigin(
-    semanticNamespaceInteropOperand(initializer.node, state) ??
-      initializer.node,
-    state,
-  )?.origin;
+  const initializer = semanticStableInitializer(binding, state);
+  if (initializer === undefined) return undefined;
+  const origin = semanticRequireOrigin(initializer.node, state)?.origin;
   const projection = initializer.projection;
   return origin === undefined ||
     !projection.every((key): key is string => typeof key === "string")
@@ -650,10 +652,11 @@ function* collectDefinitionsSteps(
   for (const [index, { body, scope, parameters }] of functionBodies.entries()) {
     if (index % 64 === 0) yield;
     for (const parameter of parameters)
-      for (const identifier of assignedPatternIdentifiers(
+      for (const identifier of semanticWriteTargets(
         t.isTSParameterProperty(parameter) ? parameter.parameter : parameter,
       ))
-        copyParameterToBody({ identifier, body, scope, state });
+        if (t.isIdentifier(identifier))
+          copyParameterToBody({ identifier, body, scope, state });
   }
 }
 
@@ -750,6 +753,8 @@ const bindInnerDeclaration = (
   state: JavaScriptSemanticAnalysisState,
 ): void => {
   if (t.isImportDeclaration(node)) bindImports(node, scope, state);
+  else if (t.isTSImportEqualsDeclaration(node))
+    bindImportEquals(node, scope, state);
   else if (t.isVariableDeclarator(node))
     bindPattern({
       pattern: node.id,
@@ -783,6 +788,25 @@ const bindInnerDeclaration = (
     });
 };
 
+const bindImportEquals = (
+  node: t.TSImportEqualsDeclaration,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  const specifier = semanticImportEqualsSpecifier(node);
+  if (specifier === null) return;
+  addBinding({
+    state,
+    scope,
+    name: node.id.name,
+    kind: "import",
+    mutable: false,
+    definitionNode: node.id,
+    initializer: null,
+    directOrigin: { specifier, importedPath: [] },
+  });
+};
+
 const bindAssignment = (
   node: t.Node,
   scope: JavaScriptSemanticScopeState,
@@ -801,16 +825,18 @@ const bindAssignment = (
         state,
       );
     else
-      for (const identifier of assignedPatternIdentifiers(node.left))
-        addAssignment(identifier, node, scope, state);
+      for (const identifier of semanticWriteTargets(node.left))
+        if (t.isIdentifier(identifier))
+          addAssignment(identifier, node, scope, state);
   } else if (t.isUpdateExpression(node) && t.isIdentifier(node.argument))
     addAssignment(node.argument, node, scope, state);
   else if (t.isForOfStatement(node) || t.isForInStatement(node))
     for (const pattern of t.isVariableDeclaration(node.left)
       ? node.left.declarations.map(({ id }) => id)
       : [node.left]) {
-      for (const identifier of assignedPatternIdentifiers(pattern))
-        addAssignment(identifier, node, scope, state);
+      for (const identifier of semanticWriteTargets(pattern))
+        if (t.isIdentifier(identifier))
+          addAssignment(identifier, node, scope, state);
       if (t.isForOfStatement(node))
         // Keep the loop value unknown, but preserve references yielded into
         // each bound slot so writes/escapes can reach their iterable origins.
@@ -823,30 +849,6 @@ const bindAssignment = (
           referenceOnly: true,
         });
     }
-};
-
-const assignedPatternIdentifiers = (
-  pattern: t.Node,
-): readonly t.Identifier[] => {
-  const identifiers: t.Identifier[] = [];
-  const pending = [pattern];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) continue;
-    if (t.isIdentifier(node)) identifiers.push(node);
-    else if (t.isRestElement(node)) pending.push(node.argument);
-    else if (t.isAssignmentPattern(node)) pending.push(node.left);
-    else if (t.isArrayPattern(node)) {
-      for (const element of node.elements)
-        if (element !== null) pending.push(element);
-    } else if (t.isObjectPattern(node)) {
-      for (const property of node.properties)
-        pending.push(
-          t.isRestElement(property) ? property.argument : property.value,
-        );
-    }
-  }
-  return identifiers;
 };
 
 const nestedScope = (

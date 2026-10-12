@@ -53,10 +53,44 @@ CIL decoding, and projected inspection records have a separate conservative
 output occurrences still consume that budget. These are inspection resource
 policies, not PE format limits or a hard bound on total V8 heap use.
 
+Path-based member comparison uses the same per-input snapshot policy and
+inspects its two selected paths sequentially, retaining each inspection rather
+than both full byte snapshots. The limit therefore remains a per-file resource
+admission rule, not an aggregate comparison limit. Comparison Evidence keeps
+the caller-selected paths as its parameters and artifact locations.
+
 Input overflow returns a resource constraint. Decode or projection overflow
 reports `resource-limit` with unavailable or partial coverage; omitted facts do
 not become empty observations. Ambiguous PE section mappings are rejected
 rather than interpreted according to section order.
+
+### Selected member inspection
+
+When whole-assembly member decoding reaches the representation budget, select
+known declaring types before their signatures and CIL bodies are decoded:
+
+```bash
+rea inspect-managed-members /absolute/path/Assembly.dll --type Example.Parser
+```
+
+MCP uses `inspect_managed_members` with
+`{"path":"/absolute/path/Assembly.dll","type_names":["Example.Parser"]}`.
+Repeat `--type` or supply multiple unique `type_names` for several types.
+Names match the reported `full_name` exactly. Top-level names are namespace
+qualified; nested types currently report bare names, which can select several
+types with that name.
+
+The result preserves the requested names in `selection.type_names` and reports
+unmatched names separately. If metadata names are unreadable, limitations retain
+that uncertainty. With no selection, `selection` is null and whole-assembly
+inspection keeps its existing resource policy. Selection restricts types,
+fields, methods, call edges and field accesses; member references remain an
+assembly-wide inventory, so output size is not guaranteed to be small.
+
+Coverage describes the selected members. Comparisons leave members outside the
+opposite observation's selection unknown, and application graphs report their
+selected scope as partial. Neither makes an absence claim about the whole
+assembly. Older member Evidence without `selection` remains readable.
 
 ## Analysis objective
 
@@ -125,6 +159,24 @@ PE/CLI classification, assembly and module identities, and metadata coverage.
 Member inspection binds build-local tokens, signatures, row offsets, method
 bodies, and decoded relationships to that artifact and MVID. Missing or malformed
 facts remain explicit in coverage and per-member status.
+
+Metadata table streams may carry the CLR-compatible `ExtraData` extension
+(`HeapSizes` flag `0x40`), which Microsoft readers honor although it is not
+specified by ECMA-335. REA skips its fixed four-byte word after the row counts
+before decoding table rows; the word's value is not a length. An incomplete
+word is reported as a metadata coverage failure at its file offset, without
+reading beyond the declared table stream.
+
+For unoptimized `#-` metadata, nonempty `FieldPtr` and `MethodPtr` tables
+translate TypeDef list positions to physical member definitions. REA resolves
+these indirections for member ownership and local attribute-constructor types;
+field and method tokens still identify the original definition rows.
+`field_list` and `method_list` retain the metadata's list coordinates, which
+refer to the pointer table when present rather than necessarily contiguous
+definition rows. Malformed or ambiguous pointers leave the owner unknown with
+partial coverage while preserving readable member and attribute facts.
+The retained inverse indexes are admitted against the existing representation
+budget before allocation.
 
 `exported_types` reports ExportedType rows as declared. Facade assemblies such
 as .NET `System.Runtime.dll` provide their types this way: `forwarder: true`

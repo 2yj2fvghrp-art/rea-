@@ -9,7 +9,6 @@
 **看到喜歡的功能，弄清它的工作原理，深入到二進位層面。**
 
 [![npm version](https://img.shields.io/npm/v/rea-agents?style=flat-square&color=cb3837)](https://www.npmjs.com/package/rea-agents)
-[![CI](https://img.shields.io/github/actions/workflow/status/morluto/rea/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/morluto/rea/actions/workflows/ci.yml)
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](docs/mcp-contracts.md#generated-catalog)
 [![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
@@ -261,7 +260,7 @@ npx rea-agents@latest setup
 
 ## Star 歷史
 
-🎉 **GitHub Star 達到 90,000 個，感謝大家！**
+🎉 **GitHub Star 達到 110,000 個，感謝大家！**
 
 感謝每一位使用 REA、報告錯誤、提出功能需求、測試建置和貢獻修復的朋友。
 
@@ -275,7 +274,9 @@ npx rea-agents@latest setup
 
 ## 免責聲明
 
-REA 為合法的逆向工程研究、分析和重建提供工具。你有責任取得所需授權並遵守適用法律。本專案不認同非法或未經授權的使用。
+負責任使用的相關指引請見 [DISCLAIMER.md](DISCLAIMER.md)。
+
+REA 用於合法的研究、教育、互通性、軟體保存，以及分析你擁有或獲准檢查的軟體。
 
 ## 參與貢獻
 
