@@ -173,7 +173,7 @@ describe("bounded Ghidra RISC-V admission", () => {
     [{ flags: 0x1 }, "soft-float convention"],
     [{ flags: 0x3 }, "single-float"],
     [{ flags: 0x7 }, "quad-float"],
-    [{ flags: 0x8000_0005 }, "bits outside the verified lane"],
+    [{ flags: 0x8000_0005 }, "(0x80000000)"],
     [{ flags: 0x24 }, "bits outside the verified lane"],
   ] satisfies [Partial<RiscvElfMetadata>, string][])(
     "refuses an unverified RISC-V interpretation %j",
@@ -188,6 +188,7 @@ describe("bounded Ghidra RISC-V admission", () => {
       expect(await provider.resolveAnalysisProfile(value)).toEqual(
         expect.objectContaining({ ok: false }),
       );
+      expect(ghidraPinnedLanguage(value)).toBeUndefined();
     },
   );
 

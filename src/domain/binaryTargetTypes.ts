@@ -74,8 +74,8 @@ export interface MipsAbiFlags {
 }
 
 /**
- * RISC-V declares its width, compression and floating-point ABI in `e_flags`
- * alone, so the header facts are the whole declaration.
+ * ELF class and flags retain the width and ABI declarations used by this lane.
+ * ISA extensions in `.riscv.attributes` are not inspected by this header parser.
  */
 export type RiscvElfMetadata = ElfFamilyMetadata;
 

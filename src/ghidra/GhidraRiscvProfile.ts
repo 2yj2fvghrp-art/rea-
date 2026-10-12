@@ -32,20 +32,6 @@ const riscvUnsupportedFloatAbi = (abi: number): string =>
       ? "single-float"
       : "quad-float";
 
-/** Ghidra v1 pins the generic language; the header alone leaves RV32 ambiguous. */
-export const ghidraRiscvLanguageOverride = (
-  target: BinaryTarget,
-): GhidraLanguageOverride | undefined =>
-  target.kind === "executable" &&
-  target.architecture === "riscv" &&
-  target.riscv.byteOrder === "little" &&
-  (target.riscv.flags & EF_RISCV_FLOAT_ABI) === EF_RISCV_FLOAT_ABI_DOUBLE
-    ? {
-        languageId: `RISCV:LE:${target.riscv.elfClass}:default`,
-        compilerSpecId: "gcc",
-      }
-    : undefined;
-
 /**
  * Keep family recognition separate from the deliberately bounded Ghidra lane.
  *
@@ -84,14 +70,24 @@ export const ghidraRiscvUnsupportedReason = (
     return `This Ghidra RISC-V lane requires the EF_RISCV_FLOAT_ABI_DOUBLE declaration (${riscvUnsupportedFloatAbi(
       abi,
     )} observed); the pinned generic language uses the double-float compiler specification.`;
-  if ((metadata.flags & ~EF_RISCV_DECLARED_BITS) !== 0)
-    return `RISC-V e_flags declares bits outside the verified lane (0x${(
-      metadata.flags & ~EF_RISCV_DECLARED_BITS
-    ).toString(
-      16,
-    )}); reserved or newer declarations are not treated as compatible with this profile.`;
+  const unsupportedFlags = (metadata.flags & ~EF_RISCV_DECLARED_BITS) >>> 0;
+  if (unsupportedFlags !== 0)
+    return `RISC-V e_flags declares bits outside the verified lane (0x${unsupportedFlags.toString(16)}); reserved or newer declarations are not treated as compatible with this profile.`;
   return null;
 };
+
+/** Pin a language only for declarations admitted by the same lane boundary. */
+export const ghidraRiscvLanguageOverride = (
+  target: BinaryTarget,
+): GhidraLanguageOverride | undefined =>
+  target.kind === "executable" &&
+  target.architecture === "riscv" &&
+  ghidraRiscvUnsupportedReason(target) === null
+    ? {
+        languageId: `RISCV:LE:${target.riscv.elfClass}:default`,
+        compilerSpecId: "gcc",
+      }
+    : undefined;
 
 /** Commit source ELF interpretation without confusing target ISA with host CPU. */
 export const ghidraRiscvProfileParameters = (
@@ -106,7 +102,9 @@ export const ghidraRiscvProfileParameters = (
           byte_order: target.riscv.byteOrder,
           type: target.riscv.type,
           flags: target.riscv.flags,
-          float_abi_double: true,
+          float_abi_double:
+            (target.riscv.flags & EF_RISCV_FLOAT_ABI) ===
+            EF_RISCV_FLOAT_ABI_DOUBLE,
           rvc_declared: (target.riscv.flags & EF_RISCV_RVC) !== 0,
           rve_declared: (target.riscv.flags & EF_RISCV_RVE) !== 0,
           tso_declared: (target.riscv.flags & EF_RISCV_TSO) !== 0,
