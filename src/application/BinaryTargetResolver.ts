@@ -31,7 +31,7 @@ import {
   rawBinarySelectionError,
 } from "../domain/rawBinary.js";
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
-import { mzWindowsHeaderOffset } from "../domain/dosMz.js";
+import { mzWindowsHeader } from "../domain/dosMz.js";
 import {
   hasZipSignature,
   isZipPackageFormat,
@@ -412,11 +412,31 @@ const readExecutableMetadata = async (
   const fileSize = (await handle.stat()).size;
   throwIfTargetResolutionCancelled(signal);
   if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) {
-    const offset = mzWindowsHeaderOffset(bytes);
-    if (offset !== null) {
+    const windowsHeader = mzWindowsHeader(bytes);
+    if (windowsHeader?.kind === "declared") {
+      const { offset } = windowsHeader;
       if (offset < 64)
         return err("invalid Windows new-header offset in MZ image");
       return readPeMetadata(handle, offset, signal);
+    }
+    if (
+      windowsHeader?.kind === "candidate" &&
+      windowsHeader.offset >= 64 &&
+      windowsHeader.offset <= fileSize - 4
+    ) {
+      const signature = Buffer.alloc(4);
+      const observed = await handle.read(
+        signature,
+        0,
+        signature.length,
+        windowsHeader.offset,
+      );
+      throwIfTargetResolutionCancelled(signal);
+      if (
+        observed.bytesRead === signature.length &&
+        signature.equals(Buffer.from("PE\0\0"))
+      )
+        return readPeMetadata(handle, windowsHeader.offset, signal);
     }
     // MZ relocation records may extend past the initial probe; their format
     // bounds are at most 65535 records inside a 65535-paragraph header.

@@ -4,7 +4,7 @@ import type {
   UniversalMachOSlice,
 } from "./binaryTargetTypes.js";
 import { err, ok, type Result } from "./result.js";
-import { mzWindowsHeaderOffset, parseDosMzHeader } from "./dosMz.js";
+import { mzWindowsHeader, parseDosMzHeader } from "./dosMz.js";
 import { decodePeMachine } from "./peMachine.js";
 
 /** Format and architecture facts recovered from an executable header. */
@@ -216,8 +216,9 @@ const parseMz = (
   bytes: Buffer,
   fileSize: number,
 ): Result<ExecutableMetadata, string> => {
-  const offset = mzWindowsHeaderOffset(bytes);
-  if (offset !== null) {
+  const windowsHeader = mzWindowsHeader(bytes);
+  if (windowsHeader?.kind === "declared") {
+    const { offset } = windowsHeader;
     if (offset < 64 || offset > bytes.length - 24)
       return err("invalid or truncated Windows executable header in MZ image");
     const signature = bytes.toString("ascii", offset, offset + 2);
