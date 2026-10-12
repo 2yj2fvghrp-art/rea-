@@ -224,6 +224,23 @@ const contextualCandidate = (
       "URL schemes and protocol-relative URLs are outside this local artifact path context.",
     ]);
   if (context === "url-reference") {
+    // A file base gives raw drive-letter segments special meaning, including
+    // after dot segments reach the root. Parse before percent decoding so an
+    // encoded drive-like filename stays literal. The synthetic base establishes
+    // only this ambiguity; it does not establish the source's runtime scheme.
+    const sourceUrlPath = input.sourcePath
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+    const fileReference = URL.parse(declared, `file:///${sourceUrlPath}`);
+    if (fileReference === null)
+      return unresolvedCandidate("rejected", [
+        "The URL reference cannot be parsed as a URL.",
+      ]);
+    if (/^\/[A-Za-z]:(?:\/|$)/u.test(fileReference.pathname))
+      return unresolvedCandidate("unavailable", [
+        "Drive-letter URL paths cannot be mapped without the source URL scheme and filesystem root.",
+      ]);
     const decoded = percentDecodeUrlPath(declared);
     if (decoded === null)
       return unresolvedCandidate("rejected", [

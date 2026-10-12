@@ -336,3 +336,40 @@ cliTest(
     }
   },
 );
+
+// Windows cannot materialize the pipe-named directory needed for this decoy.
+cliTest.skipIf(process.platform === "win32")(
+  "keeps file-URL drive letters distinct from encoded POSIX paths through the compiled CLI",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-worker-url-drive-");
+    await writeFixtureFiles(root, {
+      "dist/drive.mjs": 'new Worker(new URL("c|/worker.js", import.meta.url));',
+      "dist/encoded.mjs":
+        'new Worker(new URL("c%7C/worker.js", import.meta.url));',
+      "dist/c|/worker.js": "self.postMessage('existing relative-path decoy');",
+    });
+
+    const result = await analyzeJavaScriptDirectory("CLI", cli, root);
+    expect(result.statistics.parse_failures).toBe(0);
+    const references = workerReferences(result.graph);
+    expect(references).toHaveLength(2);
+    expect(references).toEqual(
+      expect.arrayContaining([
+        {
+          source: "dist/drive.mjs",
+          declared_specifier: "c|/worker.js",
+          expression: null,
+          resolved_path: null,
+          mapped_paths: [],
+        },
+        {
+          source: "dist/encoded.mjs",
+          declared_specifier: "c%7C/worker.js",
+          expression: null,
+          resolved_path: "dist/c|/worker.js",
+          mapped_paths: ["dist/c|/worker.js"],
+        },
+      ]),
+    );
+  },
+);
