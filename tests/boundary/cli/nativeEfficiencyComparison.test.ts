@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -16,7 +16,8 @@ import {measureNativeEntry} from './experiments/analysis-efficiency/native-entry
 const sha='0'.repeat(64);
 const duplicate=process.argv[1]==='duplicate';
 const stale=process.argv[1]==='stale-dos';
-const dos=process.argv[1]==='dos'||stale;
+const collision=process.argv[1];
+const dos=process.argv[1]==='dos'||stale||collision==='load-collision';
 const dossier={procedure:{address:'0x1000'},pseudocode:'return;',callers:[],callees:[]};
 class ToolFailure extends Error {}
 const build=async digit=>{
@@ -26,9 +27,9 @@ const build=async digit=>{
     if(stale)process.stdout.write(name+'\\n');
     if(name==='open_binary'||name==='close_binary')return {};
     if(name==='inspect_native_load_image')return {evidence_id:'ev_'+digit.repeat(63)+'6',normalized_result:{status:'verified',target_sha256:stale?'f'.repeat(64):sha,entry:{linear_address:'0x1000'}}};
-    if(name==='resolve_containing_procedure')return {evidence_id:parent,normalized_result:{found:true}};
+    if(name==='resolve_containing_procedure')return {evidence_id:'ev_'+digit.repeat(63)+'7',normalized_result:{found:true}};
     if(name==='analyze_function')return {evidence_id:parent,subject:{digest:{sha256:sha}},normalized_result:dossier};
-    const id='ev_'+digit.repeat(63)+(duplicate?1:++ordinal);
+    const id='ev_'+digit.repeat(63)+(collision==='containing-collision'?7:collision==='load-collision'?6:duplicate?1:++ordinal);
     if(args.view.kind==='summary')return {evidence_id:id};
     const facet=args.view.facet;
     const item=facet==='pseudocode'?{text:dossier.pseudocode,unit:'utf16-code-units'}:dossier[facet];
@@ -38,6 +39,155 @@ const build=async digit=>{
 };
 process.stdout.write(JSON.stringify([await build('1'),await build('2')]));
 `;
+
+it.each([
+  "observed",
+  "missing",
+  "errored",
+  "wrong-target",
+  "wrong-entry",
+  "unreferenced",
+])(
+  "binds the DOS model grade to its observed load image: %s",
+  async (scenario) => {
+    // Synthetic transcripts exercise grading; they are not real-provider or
+    // resource measurements. Real DOS transcripts are replayed separately.
+    const root = await createTestTempDirectory("rea-dos-grader-");
+    const trial = join(root, "trial");
+    const referenceDirectory = join(root, "reference");
+    await mkdir(trial);
+    await mkdir(referenceDirectory);
+    const sha = "0".repeat(64);
+    const imageId = "ev_" + "1".repeat(64);
+    const procedureId = "ev_" + "2".repeat(64);
+    const procedure = {
+      address: "0x1000",
+      name: "entry",
+      classification: "observed",
+      signature: null,
+      locals: [],
+      body: { ranges: [], total_bytes: 0 },
+    };
+    const loadImage = {
+      status: "verified",
+      target_sha256: sha,
+      entry: { linear_address: "0x1000" },
+    };
+    const reference = {
+      artifact_sha256: sha,
+      entry_address: "0x1000",
+      caller_count: 0,
+      callee_count: 0,
+      pseudocode_prefix: "return;",
+      containing_procedure: { procedure },
+      procedure,
+      load_image: loadImage,
+    };
+    const answer = {
+      ...reference,
+      load_image_status: "verified",
+      evidence_ids: [
+        procedureId,
+        ...(["missing", "errored", "unreferenced"].includes(scenario)
+          ? []
+          : [imageId]),
+      ],
+    };
+    const event = (tool: string, status: string, value: unknown) => ({
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        tool,
+        status,
+        arguments: {},
+        result: { structured_content: value },
+      },
+    });
+    const events = [
+      event("analyze_function", "completed", { evidence_id: procedureId }),
+    ];
+    if (scenario !== "missing")
+      events.push(
+        event(
+          "inspect_native_load_image",
+          scenario === "errored" ? "failed" : "completed",
+          scenario === "errored"
+            ? { error: { code: "unsupported_target" } }
+            : {
+                operation: "inspect_native_load_image",
+                evidence_id: imageId,
+                normalized_result: {
+                  ...loadImage,
+                  target_sha256:
+                    scenario === "wrong-target" ? "f".repeat(64) : sha,
+                  entry: {
+                    linear_address:
+                      scenario === "wrong-entry" ? "0x2000" : "0x1000",
+                  },
+                },
+              },
+        ),
+      );
+    const resourceLog = join(root, "resource.log");
+    const output = join(root, "review.json");
+    for (const [path, value] of [
+      [
+        join(trial, "summary.json"),
+        {
+          completed_mcp_calls: [
+            { tool: "close_binary", status: "completed", arguments: {} },
+          ],
+        },
+      ],
+      [join(trial, "trial-settings.json"), {}],
+      [join(trial, "cleanup.json"), { profile_removed: true }],
+      [join(trial, "answer.txt"), answer],
+      [join(referenceDirectory, "answer.json"), reference],
+      [
+        resourceLog,
+        {
+          resource_scope: "synthetic-grader-fixture",
+          abort: null,
+          resource_counters_verified: true,
+          resource_events_final: {
+            "memory.events": { high: 0, max: 0, oom: 0, oom_kill: 0 },
+            "pids.events": { max: 0 },
+          },
+        },
+      ],
+    ] as const)
+      await writeFile(path, JSON.stringify(value));
+    await writeFile(
+      join(trial, "events.jsonl"),
+      events.map((value) => JSON.stringify(value)).join("\n"),
+    );
+    const command = execute("python3", [
+      resolve("experiments/analysis-efficiency/review-model.py"),
+      "--domain",
+      "native",
+      "--trial",
+      trial,
+      "--reference",
+      referenceDirectory,
+      "--resource-log",
+      resourceLog,
+      "--output",
+      output,
+    ]);
+    if (scenario === "observed") await command;
+    else await expect(command).rejects.toMatchObject({ code: 1 });
+    const report = JSON.parse(await readFile(output, "utf8"));
+    expect(report.all_selected_checks_pass).toBe(scenario === "observed");
+    if (["missing", "errored", "unreferenced"].includes(scenario))
+      expect(report.checks.load_image_source_observed_and_referenced).toBe(
+        false,
+      );
+    if (scenario === "wrong-target")
+      expect(report.checks["load_image.target_sha256"]).toBe(false);
+    if (scenario === "wrong-entry")
+      expect(report.checks["load_image.source_entry"]).toBe(false);
+  },
+);
 
 it("retains the DOS load-image source for its facts and derived entry seed", async () => {
   const { stdout } = await execute(process.execPath, [
@@ -69,6 +219,24 @@ it("rejects a stale DOS load image before using its entry and closes the session
     ),
   });
 });
+
+it.each(["containing-collision", "load-collision"])(
+  "rejects a retained view that reuses an earlier producer identity: %s",
+  async (collision) => {
+    await expect(
+      execute(process.execPath, [
+        "--input-type=module",
+        "-e",
+        generate,
+        collision,
+      ]),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "Retained native view reused an Evidence identity",
+      ),
+    });
+  },
+);
 
 it("rejects a producer that reuses a view identity across facets", async () => {
   await expect(

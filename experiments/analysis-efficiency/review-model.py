@@ -216,15 +216,27 @@ def main():
         check('procedure.body_ranges', procedure.get('body_ranges', body.get('ranges', body.get('ranges_inclusive'))), expected['body']['ranges'])
         check('procedure.total_bytes', procedure.get('total_bytes', body.get('total_bytes')), expected['body']['total_bytes'])
         if 'load_image' in reference:
-            load = reference['load_image']
+            sources = [source for source in producer_results.get('inspect_native_load_image', [])
+                       if isinstance(source, dict)
+                       and source.get('operation') == 'inspect_native_load_image'
+                       and isinstance(source.get('evidence_id'), str)
+                       and source.get('evidence_id') in reported_ids
+                       and isinstance(source.get('normalized_result'), dict)]
+            checks['load_image_source_observed_and_referenced'] = bool(sources)
+            load = sources[-1]['normalized_result'] if sources else {}
+            entry = load.get('entry')
+            entry = entry if isinstance(entry, dict) else {}
+            check('load_image.target_sha256', load.get('target_sha256'), reference['artifact_sha256'])
+            check('load_image.source_status', load.get('status'), reference['load_image']['status'])
+            check('load_image.source_entry', entry.get('linear_address'), reference['entry_address'])
             status = answer.get('load_image_status')
-            check('load_image_status', status.get('status') if isinstance(status, dict) else status, load['status'])
+            check('load_image_status', status.get('status') if isinstance(status, dict) else status, load.get('status'))
             if isinstance(status, dict):
                 for key in ['format', 'load_segment', 'header_bytes', 'module_bytes', 'overlay_bytes']:
                     if key in status:
-                        check('load_image.' + key, status[key], load[key])
+                        check('load_image.' + key, status[key], load.get(key))
                 if 'entry_linear_address' in status:
-                    check('load_image.entry_linear_address', status['entry_linear_address'], load['entry']['linear_address'])
+                    check('load_image.entry_linear_address', status['entry_linear_address'], entry.get('linear_address'))
         calls = summary['completed_mcp_calls']
         checks['default_analysis_not_disabled'] = all(not call['arguments'].get('skip_auto_analysis', False) for call in calls if call['tool'] == 'open_binary')
         checks['session_close_completed'] = any(call['tool'] == 'close_binary' and call['status'] == 'completed' for call in calls)

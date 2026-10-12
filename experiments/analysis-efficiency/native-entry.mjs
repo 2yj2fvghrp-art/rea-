@@ -4,11 +4,17 @@ import { isDeepStrictEqual } from "node:util";
 export const NATIVE_ARTIFACTS = ["jq", "sharex.exe", "freedos.edlin.exe"];
 const normalized = (value) => value.normalized_result;
 
-const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
+const retainedEntryViews = async (
+  call,
+  info,
+  inputSha,
+  ToolFailure,
+  sourceEvidenceIds,
+) => {
   const n = normalized(info);
   const retainedViews = [];
   const retainedViewEvidence = [];
-  const observedEvidenceIds = new Set([info.evidence_id]);
+  const observedEvidenceIds = new Set([info.evidence_id, ...sourceEvidenceIds]);
   let nativeSummaryOutcome, summaryEvidenceId;
   for (const facet of ["procedure", "pseudocode", "callers", "callees"]) {
     const selected = await call("inspect_analysis_view", {
@@ -175,7 +181,10 @@ export const measureNativeEntry = async ({
     const n = normalized(info);
     const selected =
       values["native-question"] === "entry-views"
-        ? await retainedEntryViews(call, info, inputSha, ToolFailure)
+        ? await retainedEntryViews(call, info, inputSha, ToolFailure, [
+            containing.evidence_id,
+            ...(loadImageEvidenceId === undefined ? [] : [loadImageEvidenceId]),
+          ])
         : {};
     const { main, mainEvidenceIds = [] } =
       values["native-question"] === "entry-and-main"

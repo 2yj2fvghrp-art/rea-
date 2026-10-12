@@ -154,6 +154,11 @@ parent ID, while `retained_views` holds its item, coverage, limitations and unkn
 DOS load-image facts retain their source ID and must match the selected carrier
 digest before their entry address can be used; a stale result closes the session
 without querying a procedure.
+Derived view IDs are checked against every prior producer reference as well as
+other derived views. DOS model grades require the actual completed load-image
+response and its reported source ID; status, digest, entry and supplied metadata
+are checked against that observation. Missing, failed or unreferenced responses
+cannot establish load-image verification.
 The comparator preserves both runs' reference maps and compares the facts. Existing
 `entry`/`entry-and-main` answers keep their ID arrays. Historical SDK receipts above
 retain their original pre-review representation; no replies or measurements were
