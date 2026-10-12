@@ -1012,7 +1012,56 @@ export class JavaScriptSymbolicBindings {
     );
     if (point === undefined) return value;
     const owner = this.#functionOwner(read);
-    const pending = [binding.bindingId];
+    let retained: readonly OriginPropertyWrite[] | undefined;
+    const readWrites = (): readonly OriginPropertyWrite[] =>
+      (retained ??= this.#originWrites(
+        binding.bindingId,
+        point,
+        owner,
+        environment,
+      ));
+    return symbolicUnion(
+      symbolicVariants(value).map((variant) => {
+        if (!["object", "record", "array"].includes(variant.kind))
+          return variant;
+        const snapshot = (variant as OriginValue)[originSnapshot];
+        let retainedWrites: readonly OriginPropertyWrite[] | undefined;
+        return {
+          ...variant,
+          [originSnapshot]: {
+            base: snapshot?.base ?? variant,
+            get writes(): readonly OriginPropertyWrite[] {
+              if (retainedWrites !== undefined) return retainedWrites;
+              const merged = [
+                ...(snapshot?.writes.slice(0, snapshot.end) ?? []),
+                ...readWrites(),
+              ];
+              const seen = new Set<PropertyWrite>();
+              retainedWrites = merged
+                .filter(
+                  ({ source }) =>
+                    !seen.has(source) && Boolean(seen.add(source)),
+                )
+                .sort(
+                  (left, right) =>
+                    (left.source.site.start ?? 0) -
+                    (right.source.site.start ?? 0),
+                );
+              return retainedWrites;
+            },
+          },
+        };
+      }),
+    );
+  }
+
+  #originWrites(
+    bindingId: string,
+    point: number,
+    owner: t.Node | undefined,
+    environment: SymbolicEnvironment,
+  ): readonly OriginPropertyWrite[] {
+    const pending = [bindingId];
     const bindings = new Set<string>();
     const writes: OriginPropertyWrite[] = [];
     while (pending.length > 0) {
@@ -1037,16 +1086,16 @@ export class JavaScriptSymbolicBindings {
           pending.push(alias);
       }
       for (const write of this.#writes.get(id) ?? []) {
-        if (--this.#remainingEvaluations < 0) {
-          this.truncated = true;
-          break;
-        }
         if (
           write.path.length === 0 ||
           (write.site.end ?? Infinity) > point ||
           this.#functionOwner(write.site) !== owner
         )
           continue;
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
         let definite = true;
         for (
           let parent = this.state.parentsByNode.get(write.site);
@@ -1070,46 +1119,24 @@ export class JavaScriptSymbolicBindings {
           ? write.site.operator === "=" || logical
           : t.isCallExpression(write.site);
         if (logical) definite = false;
+        let retainedValue: SymbolicValue | undefined;
+        const readValue = (): SymbolicValue =>
+          plain
+            ? this.#atOriginPoint(write.site, () =>
+                this.evaluate(write.value, environment),
+              )
+            : symbolicUnknown("non-value property write");
         writes.push({
           source: write,
           path: write.path,
           definite,
-          value: plain
-            ? this.#atOriginPoint(write.site, () =>
-                this.evaluate(write.value, environment),
-              )
-            : symbolicUnknown("non-value property write"),
+          get value(): SymbolicValue {
+            return (retainedValue ??= readValue());
+          },
         });
       }
     }
-    if (writes.length === 0) return value;
-    return symbolicUnion(
-      symbolicVariants(value).map((variant) => {
-        if (!["object", "record", "array"].includes(variant.kind))
-          return variant;
-        const snapshot = (variant as OriginValue)[originSnapshot];
-        const merged = [
-          ...(snapshot?.writes.slice(0, snapshot.end) ?? []),
-          ...writes,
-        ];
-        const seen = new Set<PropertyWrite>();
-        return {
-          ...variant,
-          [originSnapshot]: {
-            base: snapshot?.base ?? variant,
-            writes: merged
-              .filter(
-                ({ source }) => !seen.has(source) && Boolean(seen.add(source)),
-              )
-              .sort(
-                (left, right) =>
-                  (left.source.site.start ?? 0) -
-                  (right.source.site.start ?? 0),
-              ),
-          },
-        };
-      }),
-    );
+    return writes;
   }
 
   /** Possible selected values for mutation provenance, never exact read proof. */
@@ -1232,24 +1259,30 @@ export class JavaScriptSymbolicBindings {
     excluded: ReadonlySet<string>,
     active: Set<SymbolicValue>,
   ): OriginProperties {
-    const end = snapshot.end ?? snapshot.writes.length;
-    const write = snapshot.writes[end - 1];
+    const writes = snapshot.writes;
+    let end = snapshot.end ?? writes.length;
+    let write = writes[end - 1];
+    while (write !== undefined) {
+      if (--this.#remainingEvaluations < 0) {
+        this.truncated = true;
+        return { values: [], definiteKeys: new Set() };
+      }
+      const head = write.path[0];
+      if (
+        head === null ||
+        (!excluded.has(head!) && (key === null || head === key))
+      )
+        break;
+      end -= 1;
+      write = writes[end - 1];
+    }
     if (!write)
       return this.#originProperties(snapshot.base, key, excluded, active);
     const prior: OriginValue = {
       ...snapshot.base,
-      [originSnapshot]: {
-        base: snapshot.base,
-        writes: snapshot.writes,
-        end: end - 1,
-      },
+      [originSnapshot]: { base: snapshot.base, writes, end: end - 1 },
     };
     const head = write.path[0];
-    if (
-      head !== null &&
-      (excluded.has(head!) || (key !== null && head !== key))
-    )
-      return this.#originProperties(prior, key, excluded, active);
     const blocked = new Set(excluded);
     if (head !== null && write.definite) blocked.add(head!);
     if (write.path.length === 1) {
