@@ -61,6 +61,24 @@ const invalidInputs = [
     error: "JavaScript runtime observation failed",
     issue: { path: ["target_id"], reason: "out_of_range", minimum: 1 },
   },
+  {
+    command: "discover-webmcp-tools",
+    arguments: [malformedEndpoint, "target"],
+    operation: "discover_webmcp_tools",
+    error: "Browser observation failed",
+    issue: {
+      path: ["cdp_endpoint"],
+      reason: "invalid_value",
+      message: "Invalid CDP endpoint URL",
+    },
+  },
+  {
+    command: "capture-web-screenshot",
+    arguments: [browserEndpoint, ""],
+    operation: "capture_web_screenshot",
+    error: "Browser observation failed",
+    issue: { path: ["target_id"], reason: "out_of_range", minimum: 1 },
+  },
 ] as const;
 
 describe("browser and Inspector CLI input diagnostics", () => {
@@ -153,6 +171,28 @@ describe("browser and Inspector CLI input diagnostics", () => {
               reason: "invalid_value",
               message: "Storage fingerprints require storage key capture",
             },
+          ]),
+        },
+      });
+    },
+  );
+
+  cliTest(
+    "retains correction details for invalid capture comparison inputs",
+    async ({ cli, workspace }) => {
+      const result = await cli.run({
+        arguments: ["compare-web-captures", "{}", "{}", "--json"],
+        cwd: workspace.root,
+        environment: { ...workspace.environment, REA_LOG_LEVEL: "silent" },
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.json).toMatchObject({
+        code: "invalid_request",
+        details: {
+          operation: "compare_web_captures",
+          issues: expect.arrayContaining([
+            expect.objectContaining({ reason: expect.any(String) }),
           ]),
         },
       });

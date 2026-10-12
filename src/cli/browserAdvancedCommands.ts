@@ -59,13 +59,18 @@ const registerWebMcp = (
     run: ({ args, options }) =>
       logCliCommand(logger, "discover-webmcp-tools", async () => {
         const context = browserContext();
-        const parsed = discoverWebMcpToolsInputSchema.safeParse({
+        const input = {
           cdp_endpoint: args.endpoint,
           allowed_origins: options.allowedOrigins,
           target_id: args.targetId,
           observation_ms: options.observationMs,
-        });
-        if (!parsed.success) return inputError("discover_webmcp_tools");
+        };
+        const parsed = discoverWebMcpToolsInputSchema.safeParse(input);
+        if (!parsed.success)
+          return inputError(
+            "discover_webmcp_tools",
+            projectInputIssues(parsed.error.issues, input),
+          );
         const result = await discoverWebMcpTools(context.provider, parsed.data);
         return result.ok ? result.value : browserCliError(result.error);
       }),
@@ -113,7 +118,11 @@ const registerCaptureDiff = (
         const parsed = scenarioComparison.success
           ? scenarioComparison
           : browserCaptureComparisonInputSchema.safeParse({ before, after });
-        if (!parsed.success) return inputError("compare_web_captures");
+        if (!parsed.success)
+          return inputError(
+            "compare_web_captures",
+            projectInputIssues(parsed.error.issues, { before, after }),
+          );
         const result = await compareWebCaptureEvidence(
           new CdpBrowserProvider(),
           parsed.data,
@@ -140,12 +149,17 @@ const registerScreenshot = (
     run: ({ args, options }) =>
       logCliCommand(logger, "capture-web-screenshot", async () => {
         const context = browserContext();
-        const parsed = captureWebScreenshotInputSchema.safeParse({
+        const input = {
           cdp_endpoint: args.endpoint,
           allowed_origins: options.allowedOrigins,
           target_id: args.targetId,
-        });
-        if (!parsed.success) return inputError("capture_web_screenshot");
+        };
+        const parsed = captureWebScreenshotInputSchema.safeParse(input);
+        if (!parsed.success)
+          return inputError(
+            "capture_web_screenshot",
+            projectInputIssues(parsed.error.issues, input),
+          );
         const result = await captureWebScreenshot(
           context.provider,
           parsed.data,
