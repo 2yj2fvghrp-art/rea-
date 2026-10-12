@@ -10,6 +10,7 @@ import { parseArgs, promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse as parseToml } from "smol-toml";
+import { verifyPortableInventory } from "./lib/portable-inventory.mjs";
 
 const { values } = parseArgs({ options: { directory: { type: "string" } } });
 if (process.platform !== "win32" || !values.directory)
@@ -18,6 +19,7 @@ const directory = resolve(values.directory);
 const manifest = JSON.parse(
   await readFile(join(directory, "portable.json"), "utf8"),
 );
+await verifyPortableInventory(directory, manifest.files);
 for (const file of manifest.files) {
   const path = resolve(directory, file.path);
   const within = relative(directory, path);
