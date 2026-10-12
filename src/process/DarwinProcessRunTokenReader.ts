@@ -241,9 +241,16 @@ export const createDarwinProcessRunTokenReader = (
     readonly xcrun?: string;
     /** Deadline for the helper compilation; the default keeps verification fast. */
     readonly compileTimeoutMs?: number;
+    /**
+     * Caller-owned directory holding the compiler's module cache. Unset keeps
+     * Swift's reusable default cache; a supplied directory outlives this
+     * reader because cleanup only removes the per-run helper root.
+     */
+    readonly moduleCachePath?: string;
   } = {},
 ) => {
   const compilerTimeoutMs = options.compileTimeoutMs ?? COMPILER_TIMEOUT_MS;
+  const moduleCachePath = options.moduleCachePath ?? "";
   let root: string | undefined;
   let executable: string | undefined;
   let compilation: ProcessReaderCompilation | undefined;
@@ -280,17 +287,20 @@ export const createDarwinProcessRunTokenReader = (
         ...process.env,
         TMPDIR: compilerTemporary,
       };
-      const moduleCachePath = process.env.REA_DARWIN_MODULE_CACHE_PATH;
-      if (moduleCachePath === undefined) {
-        // Ignore ambient Swift cache settings unless REA's cache is explicit.
+      const compilerArguments = ["swiftc"];
+      if (moduleCachePath === "") {
+        // Use Swift's reusable default cache for REA's internal helper compilation.
         delete compilerEnvironment.CLANG_MODULE_CACHE_PATH;
       } else {
+        await mkdir(moduleCachePath, { recursive: true });
+        compilerArguments.push("-module-cache-path", moduleCachePath);
         compilerEnvironment.CLANG_MODULE_CACHE_PATH = moduleCachePath;
       }
+      compilerArguments.push(...sourceFiles, "-o", output);
       try {
         await execFileOutput(
           options.xcrun ?? "/usr/bin/xcrun",
-          ["swiftc", ...sourceFiles, "-o", output],
+          compilerArguments,
           {
             timeout: compilerTimeoutMs,
             maxBuffer: 1024 * 1024,

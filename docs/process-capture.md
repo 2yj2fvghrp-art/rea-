@@ -36,10 +36,7 @@ helper into a private temporary directory before a capture or owned provider
 process starts; the same prerequisite applies to owned provider-process
 supervision on macOS. REA removes that directory when it exits. REA does not
 install Xcode, Command Line Tools, or other software. Capability checks prepare
-this helper before reporting macOS capture as available. Set
-`REA_DARWIN_MODULE_CACHE_PATH` in REA's host environment to choose the Swift
-module cache used during helper compilation. When unset, REA ignores an
-inherited `CLANG_MODULE_CACHE_PATH` and Swift uses its default cache.
+this helper before reporting macOS capture as available.
 
 ## Capture a command
 
@@ -419,3 +416,18 @@ while its token became unavailable after this change; npm changes its title
 as well. A newly started unreadable process can prevent verified cleanup even
 after the selected command exits. REA preserves this uncertainty and leaves
 that process untouched.
+
+Reading those tokens requires compiling a small Swift helper with `xcrun swiftc`.
+By default that compilation reuses Swift's shared module cache, while the
+compiler's intermediate objects stay inside the per-run temporary root that REA
+removes afterwards. Set `REA_DARWIN_MODULE_CACHE_PATH` to a writable directory
+when a shared cache is unavailable, for example under an enforced write
+boundary. REA creates the directory, passes it to the compiler as
+`-module-cache-path`, and exports it as `CLANG_MODULE_CACHE_PATH` so the
+Objective-C header modules the helper builds land there too. REA never removes
+that directory: it outlives each run, so the first compilation into a new
+directory pays a cold-cache build and later runs reuse it. An absent or empty
+value keeps the shared default.
+
+This setting controls the Swift/Clang module cache. It does not establish
+containment of `xcrun`'s tool-lookup cache or all compiler writes.
