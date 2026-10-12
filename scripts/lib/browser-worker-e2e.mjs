@@ -127,6 +127,31 @@ export async function verifyBrowserWorkers(
     });
     client = new Client({ name: "worker-verifier", version: "1" });
     await client.connect(transport);
+    const catalog = await client.listTools();
+    const bundleTool = catalog.tools.find(
+      (tool) => tool.name === "analyze_web_bundle",
+    );
+    assert.ok(bundleTool);
+    assert.equal(
+      Object.hasOwn(bundleTool.inputSchema.properties, "worker_target_ids"),
+      false,
+    );
+    await assert.rejects(
+      promisify(execFile)(
+        process.execPath,
+        [
+          entrypoint,
+          "analyze-web-bundle",
+          endpoint,
+          target,
+          "--worker-target-ids",
+          shared.targetId,
+          "--json",
+        ],
+        { timeout: 10000 },
+      ),
+      /worker-target-ids/,
+    );
     const rejected = await client.callTool({
       name: "inspect_web_page",
       arguments: { ...input, worker_target_ids: [foreignWorker.targetId] },

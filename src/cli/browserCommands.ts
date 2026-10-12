@@ -112,7 +112,6 @@ const registerBundleAnalysis = (
     }),
     options: z.object({
       ...browserScopeOptions,
-      workerTargetIds: browserPageInspectionOptions.shape.workerTargetIds,
       observationMs: observationDuration(500),
       fetchSourceMaps: z
         .boolean()
@@ -128,7 +127,6 @@ const registerBundleAnalysis = (
           target_id: args.targetId,
           observation_ms: options.observationMs,
           include_script_sources: true,
-          worker_target_ids: options.workerTargetIds,
           fetch_source_maps: options.fetchSourceMaps,
         });
         if (!parsed.success)

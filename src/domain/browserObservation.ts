@@ -135,14 +135,16 @@ const refineInspectWebPageInput = (
     });
 };
 
-/** Caller schema for source-capturing inspection and bundle analysis. */
+/** Page-only source capture for static bundle analysis. */
 export const inspectWebPageWithSourceInputSchema =
-  inspectWebPageWithSourceShapeSchema.superRefine(refineInspectWebPageInput);
+  inspectWebPageWithSourceShapeSchema
+    .omit({ worker_target_ids: true })
+    .superRefine(refineInspectWebPageInput);
 
 /** Caller-visible schema for one passive inspection. */
 export const inspectWebPageInputSchema = z.union([
   inspectWebPageWithoutSourceSchema.superRefine(refineInspectWebPageInput),
-  inspectWebPageWithSourceInputSchema,
+  inspectWebPageWithSourceShapeSchema.superRefine(refineInspectWebPageInput),
 ]);
 
 export type ListBrowserTargetsInput = z.infer<

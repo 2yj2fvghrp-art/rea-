@@ -264,6 +264,14 @@ it("does not request worker sources when source capture is disabled", async () =
       ?.scripts[0]?.source,
   ).toMatchObject({ included: false });
   expect(
+    result.value.workers.find((w) => w.target_id === "own")?.observation
+      ?.completeness.excluded,
+  ).toContainEqual({
+    section: "script_sources",
+    reason: "not_approved",
+    count: 1,
+  });
+  expect(
     browser.commands.some(
       (c) =>
         c.method === "Debugger.getScriptSource" && c.sessionId === "worker-own",
@@ -370,6 +378,80 @@ it.each([false, true, null])(
     ).toBe(false);
     if (controls)
       expect(observed.lifecycle.at(-1)).toMatchObject({ controls_page: false });
+  },
+);
+
+it.each([undefined, "malformed", [42], []])(
+  "retains ordered pre-admission transitions and distinguishes unknown clients from revocation: %j",
+  async (clients) => {
+    const { provider, input } = await fixture({
+      eventsBeforeReply: ["ServiceWorker.enable", "Target.setAutoAttach"],
+      commandEvents(command, origin) {
+        if (command.method === "ServiceWorker.enable")
+          return [["allowed-page"], clients].map((controlledClients) => ({
+            method: "ServiceWorker.workerVersionUpdated",
+            sessionId: "session-1",
+            params: {
+              versions: [
+                { targetId: "service", controlledClients, status: "activated" },
+              ],
+            },
+          }));
+        if (
+          command.method === "Target.setAutoAttach" &&
+          command.params.autoAttach === true
+        )
+          return [
+            {
+              method: "Target.attachedToTarget",
+              sessionId: "session-1",
+              params: {
+                sessionId: "worker-service",
+                targetInfo: {
+                  targetId: "service",
+                  type: "service_worker",
+                  url: origin + "/service.js",
+                  attached: true,
+                },
+              },
+            },
+          ];
+        if (
+          command.method === "Network.enable" &&
+          command.sessionId === "worker-service"
+        )
+          return [
+            {
+              method: "ServiceWorker.workerVersionUpdated",
+              sessionId: "session-1",
+              params: { versions: [{ targetId: "service" }] },
+            },
+            {
+              method: "Debugger.scriptParsed",
+              sessionId: "worker-service",
+              params: {
+                scriptId: "after-unknown",
+                url: origin + "/late.js",
+                executionContextId: 1,
+              },
+            },
+          ];
+        return undefined;
+      },
+    });
+    const result = await provider.inspectPage(input);
+    if (!result.ok) throw result.error;
+    const observed = result.value.workers.find(
+      (w) => w.target_id === "service",
+    )!.observation!;
+    const revoked = Array.isArray(clients) && clients.length === 0;
+    expect(observed.ownership).toBe("service_worker_client");
+    expect(
+      observed.lifecycle.slice(0, 2).map((event) => event.controls_page),
+    ).toEqual([true, revoked ? false : null]);
+    expect(observed.scripts.map((script) => script.script_id)).toEqual(
+      revoked ? [] : ["1", "after-unknown"],
+    );
   },
 );
 

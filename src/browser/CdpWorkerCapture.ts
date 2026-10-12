@@ -34,10 +34,7 @@ export class CdpWorkerCapture {
   readonly #workers = new Map<string, WorkerState>();
   readonly #sessions = new Map<string, WorkerState>();
   readonly #controlled = new Set<string>();
-  readonly #versionsByTarget = new Map<
-    string,
-    Observation["lifecycle"][number]
-  >();
+  readonly #versionsByTarget = new Map<string, Observation["lifecycle"]>();
   readonly #pending = new Set<Promise<void>>();
   readonly #invalidTargets = new Set<string>();
   #failure: unknown;
@@ -122,6 +119,12 @@ export class CdpWorkerCapture {
     return [...this.#workers.values()]
       .map((worker) => {
         worker.events.recordScriptMetadataBudgetExclusions();
+        if (!this.context.input.include_script_sources)
+          worker.events.completeness.exclude(
+            "script_sources",
+            "not_approved",
+            worker.sources.size,
+          );
         if (!worker.enabled) {
           worker.events.completeness.unavailable("scripts");
           worker.events.completeness.unavailable("network_requests");
@@ -224,17 +227,19 @@ export class CdpWorkerCapture {
         opener_target_id: cdpStringValue(target.openerId) ?? null,
         parent_frame_id: cdpStringValue(target.parentFrameId) ?? null,
         observation: {
-          ownership: this.#controlled.has(id)
+          ownership: this.#versionsByTarget
+            .get(id)
+            ?.some((event) => event.controls_page === true)
             ? "service_worker_client"
             : "unknown",
           selected_explicitly:
             this.context.input.worker_target_ids?.includes(id) ?? false,
-          page_target_id: this.#controlled.has(id)
+          page_target_id: this.#versionsByTarget
+            .get(id)
+            ?.some((event) => event.controls_page === true)
             ? this.context.target.id
             : null,
-          lifecycle: this.#versionsByTarget.has(id)
-            ? [this.#versionsByTarget.get(id)!]
-            : [],
+          lifecycle: this.#versionsByTarget.get(id) ?? [],
           execution_contexts: [],
           scripts: [],
           network_requests: [],
@@ -254,6 +259,7 @@ export class CdpWorkerCapture {
       sources: new Map(),
     };
     this.#workers.set(id, worker);
+    this.#versionsByTarget.delete(id);
     return worker;
   }
 
@@ -432,11 +438,13 @@ export class CdpWorkerCapture {
     for (const version of recordsValue(params.versions)) {
       const id = cdpStringValue(version.targetId);
       if (id === undefined) continue;
-      const controls = Array.isArray(version.controlledClients)
-        ? version.controlledClients.includes(this.context.target.id)
-        : null;
-      if (controls) this.#controlled.add(id);
-      else this.#controlled.delete(id);
+      const controls =
+        Array.isArray(version.controlledClients) &&
+        version.controlledClients.every((client) => typeof client === "string")
+          ? version.controlledClients.includes(this.context.target.id)
+          : null;
+      if (controls === true) this.#controlled.add(id);
+      else if (controls === false) this.#controlled.delete(id);
       const lifecycle: Observation["lifecycle"][number] = {
         event: "version",
         observed_at: new Date().toISOString(),
@@ -444,9 +452,13 @@ export class CdpWorkerCapture {
         version_status: cdpStringValue(version.status) ?? null,
         controls_page: controls,
       };
-      this.#versionsByTarget.set(id, lifecycle);
       const worker = this.#workers.get(id);
-      if (worker === undefined) continue;
+      if (worker === undefined) {
+        const pending = this.#versionsByTarget.get(id) ?? [];
+        pending.push(lifecycle);
+        this.#versionsByTarget.set(id, pending);
+        continue;
+      }
       if (controls) {
         worker.item.observation.ownership = "service_worker_client";
         worker.item.observation.page_target_id = this.context.target.id;
@@ -481,7 +493,9 @@ export class CdpWorkerCapture {
       worker.enabled ||
       worker.detached ||
       (!worker.item.observation.selected_explicitly &&
-        worker.item.observation.ownership === "unknown")
+        (worker.item.type === "service_worker"
+          ? !this.#controlled.has(worker.item.target_id)
+          : worker.item.observation.ownership === "unknown"))
     )
       return;
     worker.enabled = true;
