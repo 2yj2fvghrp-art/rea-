@@ -61,7 +61,12 @@ if (args.includes("--version")) {
         : join(output, "rootfs", "config");
     await mkdir(join(output, "rootfs"));
     const content = Buffer.from("firmware=true\n");
-    if (mode !== "missing-file" && mode !== "depth-reentry")
+    if (
+      mode !== "missing-file" &&
+      mode !== "depth-reentry" &&
+      mode !== "depth-orphan" &&
+      mode !== "nested-unknown"
+    )
       await writeFile(child, mode === "budget" ? Buffer.alloc(10000) : content);
     if (mode === "link") await symlink("/etc/passwd", join(output, "escape"));
     const childHash = createHash("sha256").update(content).digest("hex");

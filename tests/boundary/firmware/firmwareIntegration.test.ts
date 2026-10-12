@@ -286,7 +286,7 @@ it("routes a nested unknown chunk through its published child", async () => {
         kind: "unknown-chunk-handler",
         input_path: "$output/rootfs/config",
         provider_id: "unknown-id",
-        range: { offset: 0, length: 13 },
+        range: { offset: 0, length: 14 },
         root_file_range: null,
         continuation: expect.stringContaining("published child at"),
       }),
