@@ -257,6 +257,21 @@ it("retains distinct wrapper invocation ranges for one IPC API source", () => {
     findings[1]?.invocation_location,
   );
 });
+it("keeps a directly observed renderer operation singular when tracing its exposed callback", () => {
+  const result = analyzeJavaScriptStaticSource(`
+    const {contextBridge,ipcRenderer}=require("electron");
+    contextBridge.exposeInMainWorld("desktop",{ping:()=>ipcRenderer.invoke("ping")});
+  `);
+  expect(result.electron.ipc).toHaveLength(1);
+  expect(result.electron.ipc[0]).toMatchObject({
+    channel: "ping",
+    operation: "invoke",
+  });
+  expect(result.electron.ipc[0]).not.toHaveProperty("resolution_basis");
+  expect(result.electron.call_paths).toContainEqual(
+    expect.objectContaining({ entry: "desktop.ping", channel: "ping" }),
+  );
+});
 it("does not identify overwritten Electron namespaces or shadowed require", () => {
   for (const source of [
     `const e=require("electron");e.ipcMain={on(){}};e.ipcMain.on("bad",event=>event.sender.copy());`,
@@ -325,6 +340,37 @@ it("keeps conditional IPC channels unknown instead of reporting them uncondition
       e.contextBridge.exposeInMainWorld("desktop", {action:()=>e.ipcRenderer.send(channel)});
     `);
   expect(result.electron.call_paths ?? []).toEqual([]);
+  expect(result.parse_status).toBe("partial");
+});
+it("retains enclosing branch predicates without emitting unconditional wrapper findings", () => {
+  const result = analyzeJavaScriptStaticSource(`
+    const e=require("electron");
+    function expose(key,api){e.contextBridge.exposeInMainWorld(key,api);}
+    function register(channel,handler){e.ipcMain.on(channel,handler);}
+    if(flag){
+      expose("conditional",{copy:()=>navigator.clipboard.writeText("copy")});
+      register("only:flag",event=>event.sender.copy());
+    }
+  `);
+  expect(result.electron.context_bridge_apis).not.toContainEqual(
+    expect.objectContaining({
+      api_key: "conditional",
+      resolution_basis: "wrapper-substitution",
+    }),
+  );
+  expect(result.electron.ipc).not.toContainEqual(
+    expect.objectContaining({
+      channel: "only:flag",
+      resolution_basis: "wrapper-substitution",
+    }),
+  );
+  for (const entry of ["conditional.copy", "only:flag"])
+    expect(result.electron.call_paths).toContainEqual(
+      expect.objectContaining({
+        entry,
+        conditions: [expect.objectContaining({ expression: "flag" })],
+      }),
+    );
   expect(result.parse_status).toBe("partial");
 });
 it("preserves the raw bridge observation for a guarded object value", () => {
@@ -473,4 +519,34 @@ it("does not trust helper names or follow returns after a definite throw", () =>
       `);
     expect(result.electron.call_paths ?? []).toEqual([]);
   }
+});
+
+describe("wrapped Electron API identity", () => {
+  it("does not restore rejected Electron identities through wrapper substitution", () => {
+    for (const source of [
+      `const e=require("electron");e.ipcMain={on(){}};e.ipcMain.on("bad",event=>event.sender.copy());`,
+      `function require(){return {ipcMain:{on(){}}}};const e=require("electron");e.ipcMain.on("bad",event=>event.sender.copy());`,
+      `const e=require("electron");const ipc=e.ipcRenderer,alias=ipc;delete alias.send;function send(channel){ipc.send(channel)}send("bad");`,
+      `require("electron/renderer").ipcRenderer={};const e=require("electron");function send(channel){e.ipcRenderer.send(channel)}send("bad");`,
+      `const e=require("electron");[e.ipcRenderer]=replacements;function send(channel){e.ipcRenderer.send(channel)}send("bad");`,
+      `const e=require("electron");for(e.contextBridge of replacements){}function expose(api){e.contextBridge.exposeInMainWorld("api",api)}expose({copy:()=>navigator.clipboard.writeText("bad")});`,
+      `const e=require("electron");const ipc=e.ipcRenderer;Reflect.deleteProperty(ipc,"send");function send(channel){ipc.send(channel)}send("bad");`,
+    ]) {
+      const { electron } = analyzeJavaScriptStaticSource(source);
+      expect(electron.call_paths ?? []).toEqual([]);
+      expect(electron.ipc).toEqual([]);
+      expect(electron.context_bridge_apis).toEqual([]);
+    }
+  });
+  it("keeps unaffected Electron methods available after a sibling method write", () => {
+    const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron");
+      delete e.ipcRenderer.send;
+      function invoke(channel){e.ipcRenderer.invoke(channel)}
+      invoke("good");
+    `);
+    expect(electron.ipc).toContainEqual(
+      expect.objectContaining({ channel: "good", operation: "invoke" }),
+    );
+  });
 });
