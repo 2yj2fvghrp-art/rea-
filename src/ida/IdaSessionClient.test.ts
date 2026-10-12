@@ -950,6 +950,28 @@ describe("headless IDA reaped worker cleanup", () => {
   });
 });
 
+/** A headless session whose open never completed, with inventory entry helpers. */
+const failedOpenFixture = async () => {
+  const { producer, client } = await fixture("headless");
+  producer.overrideCall = (name) =>
+    name === "idb_open" ? { error: "open did not complete" } : undefined;
+  expect((await client.execute("health", {})).ok).toBe(false);
+  const open = producer.calls.find(({ name }) => name === "idb_open")?.args;
+  const entry = (session_id: string, owned: boolean) => ({
+    session_id,
+    input_path: String(open?.input_path),
+    owned,
+    backend: "worker",
+    is_active: true,
+  });
+  return {
+    producer,
+    client,
+    requested: String(open?.preferred_session_id),
+    entry,
+  };
+};
+
 describe("headless IDA cleanup diagnostics", () => {
   it("does not name a worker whose close was confirmed when inventory then fails", async () => {
     const { producer, client } = await fixture("headless");
@@ -971,19 +993,7 @@ describe("headless IDA cleanup diagnostics", () => {
   });
 
   it("keeps peers seen beside the requested worker when its close fails", async () => {
-    const { producer, client } = await fixture("headless");
-    producer.overrideCall = (name) =>
-      name === "idb_open" ? { error: "open did not complete" } : undefined;
-    expect((await client.execute("health", {})).ok).toBe(false);
-    const open = producer.calls.find(({ name }) => name === "idb_open")?.args;
-    const requested = String(open?.preferred_session_id);
-    const entry = (session_id: string, owned: boolean) => ({
-      session_id,
-      input_path: String(open?.input_path),
-      owned,
-      backend: "worker",
-      is_active: true,
-    });
+    const { producer, client, requested, entry } = await failedOpenFixture();
     producer.overrideCall = (name) => {
       if (name === "idb_list")
         return {
@@ -1004,6 +1014,51 @@ describe("headless IDA cleanup diagnostics", () => {
           upstream_sessions: {
             sessions: [
               { session_id: requested, backend: "worker", owned: true },
+              {
+                session_id: "unrelated-live-peer",
+                backend: "worker",
+                owned: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("drops the requested worker from blockers once its close is confirmed", async () => {
+    const { producer, client, requested, entry } = await failedOpenFixture();
+    let inventories = 0;
+    producer.beforeCall = async (name) => {
+      if (name === "idb_list" && ++inventories > 1)
+        throw new Error("inventory unavailable");
+    };
+    producer.overrideCall = (name) => {
+      if (name === "idb_list")
+        return {
+          sessions: [
+            entry(requested, true),
+            entry("unrelated-live-peer", false),
+          ],
+        };
+      if (name === "idb_close")
+        return {
+          success: true,
+          session_id: requested,
+          saved: false,
+          owned: true,
+          backend: "worker",
+        };
+      return undefined;
+    };
+
+    const result = await client.close();
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_sessions: {
+            sessions: [
               {
                 session_id: "unrelated-live-peer",
                 backend: "worker",

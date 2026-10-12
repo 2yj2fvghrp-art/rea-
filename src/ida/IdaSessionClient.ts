@@ -590,6 +590,15 @@ export class IdaSessionClient implements AnalysisClient {
         ];
   }
 
+  /** Drop a session whose release upstream confirmed, keeping other blockers. */
+  #forgetReleasedSession(sessionId: string): void {
+    const remaining = this.#blockingSessions?.filter(
+      ({ session_id }) => session_id !== sessionId,
+    );
+    this.#blockingSessions =
+      remaining !== undefined && remaining.length > 0 ? remaining : undefined;
+  }
+
   /** Replace blocker evidence from a successful inventory; true when blocked. */
   #recordBlockingSessions(
     entries: readonly (UpstreamSession & { readonly owned: boolean })[],
@@ -661,6 +670,7 @@ export class IdaSessionClient implements AnalysisClient {
           if (!this.#databaseCloseCompleted) {
             await this.#closeDatabase(this.#database);
             this.#databaseCloseCompleted = true;
+            this.#forgetReleasedSession(this.#database);
           }
           const inventory = databaseListSchema.parse(
             await this.connection.call("idb_list", {}),
