@@ -150,7 +150,16 @@ async function verifyCase(executable, entrypoint, scenario) {
     phase = "public-map-assertions";
     observed = item?.mappings;
     assert.equal(item.status, "included");
-    assert.deepEqual(item.mappings, expected);
+    assert.equal(item.mappings.length, expected.length);
+    for (const [index, coordinates] of expected.entries()) {
+      const mapping = item.mappings[index];
+      for (const [key, value] of Object.entries(coordinates))
+        assert.deepEqual(mapping[key], value);
+      // This compiler fixture has one source declaration in one wrapped leaf.
+      assert.equal(mapping.source_index, 0);
+      assert.equal(mapping.declaration_index, 0);
+    }
+    assert.equal(item.original_sources.length, 1);
     assert.equal(item.artifact.sha256, sha(site.map));
     assert.equal(item.artifact.bytes, Buffer.byteLength(site.map));
     assert.equal(item.original_sources[0].artifact.sha256, sha(site.original));
@@ -196,9 +205,7 @@ function compilerMappingsAtPhysicalPositions(site, mapUrl) {
   const expected = [];
   const prefixLength = site.generated.indexOf(site.leafCode);
   assert.ok(prefixLength >= 0);
-  const leaf = new TraceMap(site.leafMap, mapUrl);
-  assert.equal(leaf.sources.length, 1, "Compiler fixture has one declaration");
-  eachMapping(leaf, (mapping) => {
+  eachMapping(new TraceMap(site.leafMap, mapUrl), (mapping) => {
     if (
       mapping.source === null ||
       mapping.originalLine === null ||
@@ -215,8 +222,6 @@ function compilerMappingsAtPhysicalPositions(site, mapUrl) {
       .slice(0, prefixLength + leafOffset)
       .split("\n");
     expected.push({
-      source_index: 0,
-      declaration_index: 0,
       generated_line: physical.length,
       generated_column: physical.at(-1).length,
       source: mapping.source,
