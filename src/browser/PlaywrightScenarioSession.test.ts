@@ -169,3 +169,54 @@ it("preserves both cleanup failures and retries retained owners", async () => {
   expect(storage.close).toHaveBeenCalledTimes(2);
   expect(cleanup.close).toHaveBeenCalledTimes(2);
 });
+
+it("does not block service workers when the scenario allows them", async () => {
+  const allowScenario = browserScenarioSchema.parse({
+    browser: {
+      mode: "connect",
+      cdp_endpoint: "http://127.0.0.1:9222",
+      target_id: "target-1",
+    },
+    start_url: { url: "https://app.example.test/" },
+    actions: [{ step_id: "wait", action: "wait_for_timeout", duration_ms: 1 }],
+    environment: { service_workers: "allow" },
+  });
+  const evaluate = vi.fn(async () => false);
+  const addInitScript = vi.fn(async () => undefined);
+  const page = Object.assign(new EventEmitter(), {
+    url: () => "about:blank",
+    goto: vi.fn(async () => undefined),
+    context: () => context,
+    evaluate,
+    addInitScript,
+  });
+  const context = Object.assign(new EventEmitter(), {
+    setDefaultTimeout: vi.fn(),
+    setDefaultNavigationTimeout: vi.fn(),
+    addCookies: vi.fn(async () => undefined),
+    browser: () => browser,
+  });
+  const browser = Object.assign(new EventEmitter(), {
+    version: () => "Chrome 154",
+  });
+  const close = vi.fn(async () => {});
+  mocks.openBrowser.mockResolvedValue({
+    page,
+    context,
+    browser,
+    cleanup: { close },
+    profilePath: "/tmp/profile",
+  });
+  mocks.storage = {
+    initialize: vi.fn(async () => undefined),
+    settle: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+  };
+
+  await PlaywrightScenarioSession.open(allowScenario, {}, {});
+
+  // With service_workers: "allow", the session must not evaluate the page for
+  // a controller or inject a registration-blocking init script.
+  expect(evaluate).not.toHaveBeenCalled();
+  expect(addInitScript).not.toHaveBeenCalled();
+});
