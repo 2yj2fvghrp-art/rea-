@@ -105,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/4, 2/4, 3/4, 4/4]
+        shard: [1/6, 2/6, 3/6, 4/6, 5/6, 6/6]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -145,6 +145,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Reuse portable build outputs across runs
+        uses: ./.github/actions/portable-build-cache
+        with:
+          save: "true"
       - run: npm run test:prepare
       - name: Find successful default-branch timing history
         id: history
@@ -178,6 +182,17 @@ jobs:
             .cache/ci-test-history/test-results.json
             docs/public/product-catalog.json
             docs/verification/managed-conformance-*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      # test:prepare caches only portable JS, skill, and catalog outputs.
+      # Native package jobs still run their build and prepack checks; Turbo
+      # restores matching outputs or rebuilds when their inputs differ.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rea-build-cache
+          path: .turbo/cache/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -290,6 +305,12 @@ jobs:
           sudo apt-get install --no-install-recommends -y g++-mingw-w64-x86-64
       - run: npm run build:windows-native
       - run: npm run verify:windows-native:artifact
+      - run: node scripts/build-windows-native.mjs --inspection-fixture
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-native-inspection-fixture
+          path: .cache/windows-native-inspection-fixture/
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-native-controls
@@ -298,7 +319,7 @@ jobs:
 
   package-e2e:
     name: Native package baseline (${{ matrix.platform }} ${{ matrix.architecture }})
-    needs: [changes, windows-native-build]
+    needs: [changes, build, windows-native-build]
     if: needs.changes.outputs.runtime == 'true'
     strategy:
       fail-fast: false
@@ -330,6 +351,10 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          name: rea-build-cache
+          path: .turbo/cache/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
           name: windows-native-controls
           path: native/windows/build/
       - run: npm run verify:windows-native:artifact
@@ -347,7 +372,7 @@ jobs:
 
   apple-artifacts:
     name: Real Apple artifact CLI/MCP E2E
-    needs: changes
+    needs: [changes, build]
     if: needs.changes.outputs.apple == 'true'
     runs-on: macos-15
     timeout-minutes: 15
@@ -358,7 +383,13 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rea-build-cache
+          path: .turbo/cache/
       - name: Verify Apple artifact formats and metadata
+        env:
+          REA_ARTIFACT_NODE_COMPILE_CACHE: ${{ runner.temp }}/rea-artifact-node-cache
         run: |
           npm run verify:keyed-archive
           npm run verify:asset-catalog
@@ -418,7 +449,7 @@ jobs:
 
   windows-curated:
     name: Windows capability and package lane
-    needs: [changes, windows-native-build]
+    needs: [changes, build, windows-native-build]
     if: needs.changes.outputs.package == 'true'
     runs-on: windows-latest
     timeout-minutes: 25
@@ -429,8 +460,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rea-build-cache
+          path: .turbo/cache/
       - run: npm run build:cached
-      - run: npm run typecheck
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-native-controls
@@ -466,7 +500,7 @@ jobs:
           tests/acceptance/webSourceLocationCli.test.ts
           tests/boundary/cli/referenceSourceImportStatus.test.ts
           tests/boundary/filesystem/asarInventoryFreshness.test.ts
-          tests/composition/javascript-applications/javascriptArtifactReconstruction.test.ts
+          tests/boundary/filesystem/javascript-applications/javascriptArtifactReconstruction.test.ts
           tests/conformance/providers/ghidra/windowsCapabilities.test.ts
           src/ghidra/GhidraInstallation.test.ts
           tests/boundary/providers/ghidra/ghidraTransport.test.ts
@@ -484,6 +518,12 @@ jobs:
           tests/process-global/updateMaintenance.test.ts
           tests/conformance/providers/ghidra/realGhidraWindowsWorkflow.test.ts
       - run: npm run verify:windows-native
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-native-inspection-fixture
+          path: .cache/windows-native-inspection-fixture/
+      - name: Verify native inspection failure ownership and recovery
+        run: node scripts/verify-windows-native-inspection.mjs
       - name: Verify real Node Inspector discovery and observation
         timeout-minutes: 10
         env:
