@@ -67,6 +67,14 @@ rea trace-android-references /path/Example.apk example.MainActivity
 rea trace-android-references /path/Example.apk example.MainActivity --method-name onCreate
 ```
 
+`search-android-classes` preserves all reported class entries, including
+distinct raw classes that share a decompiler-visible name. Its
+`total_classes` counts those entries, and `ambiguous_names` lists names with
+multiple entries (empty when there are none). An ambiguous name cannot be
+resolved by `inspect-android-class`: the exact lookup fails closed rather than
+silently selecting a class. A truncated page or disagreement with the loaded
+class count remains an analysis error, not a successful search.
+
 Equivalent MCP methods are `inspect_android_package`, `search_android_classes`,
 `inspect_android_class`, `inspect_android_method` and `trace_android_references`.
 Every request includes `path`. Class/method operations use `class_name`,

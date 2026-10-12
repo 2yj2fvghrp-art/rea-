@@ -201,6 +201,42 @@ it("completes large class inventories with exact case-sensitive search semantics
   await provider.close();
 });
 
+it("preserves duplicate decompiler aliases and reports ambiguous class identity", async () => {
+  const { service, apk, provider } = await setup("duplicate-class-alias");
+  try {
+    const outcome = await service.execute("search_android_classes", {
+      path: apk,
+      query: "fixture.Target",
+    });
+    if (!outcome.ok) throw outcome.error;
+    const result = androidResultSchemas.search_android_classes.parse(
+      outcome.value.normalized_result,
+    );
+    expect(result.total_classes).toBe(402);
+    expect(result.matches).toEqual(["fixture.Target", "fixture.Target"]);
+    expect(result.ambiguous_names).toEqual(["fixture.Target"]);
+    expect(result.coverage).toBe("complete");
+  } finally {
+    await provider.close();
+  }
+});
+
+it("still rejects incomplete inventories even when aliases are valid", async () => {
+  const { service, apk, provider } = await setup("mismatched-class-count");
+  try {
+    const outcome = await service.execute("search_android_classes", {
+      path: apk,
+      query: "",
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisOutputError" },
+    });
+  } finally {
+    await provider.close();
+  }
+});
+
 it("close cancels active and queued work and prevents later acquisition", async () => {
   const { service, apk, launches, provider } = await setup("stall");
   const active = service.execute("inspect_android_package", { path: apk });

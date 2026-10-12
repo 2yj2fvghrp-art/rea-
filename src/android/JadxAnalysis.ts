@@ -167,18 +167,28 @@ const searchClasses = async (
         "JADX class pagination is incomplete",
       );
   } while (classes.length < total);
-  if (new Set(classes).size !== classes.length || total !== loaded.class_count)
+  if (total !== loaded.class_count)
     throw new AnalysisOutputError(
       request.operation,
-      "JADX class inventory is duplicated or differs from the loaded class count",
+      "JADX class inventory differs from the loaded class count",
     );
-  return androidResultSchemas.search_android_classes.parse({
+  // Different raw classes may share a decompiler alias. Keep every observed
+  // entry and expose ambiguity; exact class lookup already rejects collisions.
+  const seen = new Set<string>();
+  const ambiguous = new Set<string>();
+  for (const name of classes) {
+    if (seen.has(name)) ambiguous.add(name);
+    seen.add(name);
+  }
+  const result = androidResultSchemas.search_android_classes.parse({
     engine,
     query: request.input.query,
     total_classes: total,
     matches: classes.filter((name) => name.includes(request.input.query)),
+    ambiguous_names: [...ambiguous],
     coverage: "complete",
   });
+  return { ...result, ambiguous_names: result.ambiguous_names ?? [] };
 };
 
 const matchingMethods = (

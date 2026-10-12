@@ -121,6 +121,7 @@ export const androidResultSchemas = {
     query: z.string(),
     total_classes: z.number().int().nonnegative(),
     matches: z.array(z.string()),
+    ambiguous_names: z.array(z.string()).optional(),
     coverage: z.literal("complete"),
   }),
   inspect_android_class: z.strictObject({

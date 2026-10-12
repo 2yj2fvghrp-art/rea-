@@ -16,6 +16,7 @@ const classes = [
     { length: mode === "large-inventory" ? 9000 : 400 },
     (_, index) => `fixture.Class${index}`,
   ),
+  ...(mode === "duplicate-class-alias" ? ["fixture.Target"] : []),
 ];
 const methods = [
   {
@@ -55,7 +56,8 @@ register("load_apk", async ({ path }) => {
   return json({
     state: "LOADED",
     apk_path: mode === "wrong-apk" ? "/different.apk" : path,
-    class_count: classes.length,
+    class_count:
+      mode === "mismatched-class-count" ? classes.length + 1 : classes.length,
     resource_count: 1,
     threads: 1,
     resources: "full",
