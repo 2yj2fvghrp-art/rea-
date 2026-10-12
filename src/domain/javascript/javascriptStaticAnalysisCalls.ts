@@ -73,17 +73,24 @@ export const inspectCall = (
     });
   for (const specifier of vitePreloadDependencySpecifiers(source, node, name))
     addReference(context, { node, kind: "dynamic-import", specifier });
-  const worker =
-    t.isNewExpression(node) && isWorkerConstructor(node.callee, bindings)
-      ? node
-      : undefined;
-  if (worker !== undefined || name === "Worker" || name.endsWith(".Worker"))
+  const worker = t.isNewExpression(node) ? node : undefined;
+  const workerConstructor =
+    worker === undefined
+      ? undefined
+      : workerConstructorKind(worker.callee, bindings);
+  if (
+    workerConstructor !== undefined ||
+    name === "Worker" ||
+    name.endsWith(".Worker")
+  )
     addReference(context, {
       node,
       kind: "worker",
+      // Node string paths use the process cwd or filesystem root, neither of
+      // which is established by the analyzed source's artifact location.
       specifier:
-        first ??
-        (worker === undefined
+        (workerConstructor === "node" ? undefined : first) ??
+        (workerConstructor === undefined || worker === undefined
           ? undefined
           : workerUrlSpecifier(worker, bindings)),
     });
@@ -133,7 +140,6 @@ const workerUrlSpecifier = (
   if (!t.isNewExpression(node)) return undefined;
   const callee = unwrapJavaScriptExpression(node.callee).node;
   if (
-    !t.isIdentifier(callee, { name: "URL" }) ||
     !isUnmodifiedGlobalReference(callee, bindings, "URL") ||
     !isUnmodifiedImportMetaUrl(argumentNode(node.arguments[1]), bindings)
   )
@@ -155,27 +161,26 @@ const workerUrlSpecifier = (
     : undefined;
 };
 
-const isWorkerConstructor = (
+const workerConstructorKind = (
   callee: t.Node,
   bindings: JavaScriptSemanticAnalysisState,
-): boolean => {
+): "browser" | "node" | undefined => {
   const node = unwrapJavaScriptExpression(callee).node;
   const member =
     t.isMemberExpression(node) &&
     semanticStaticPropertyName(node.property, node.computed) === "Worker";
   const root = unwrapJavaScriptExpression(member ? node.object : node).node;
-  if (!t.isIdentifier(root)) return false;
+  if (!t.isIdentifier(root)) return undefined;
   const browserGlobal = member
     ? ["globalThis", "window", "self"].includes(root.name)
     : root.name === "Worker";
   if (browserGlobal && isUnmodifiedGlobalReference(node, bindings, "Worker"))
-    return true;
+    return "browser";
   const binding = resolveSemanticBindingState(bindings, root, root.name);
   const [origin] = binding?.directOrigins ?? [];
   // Named ESM exports and module namespace exports are read-only. Default
   // imports and CommonJS objects can replace Worker, so their identity is unknown.
-  return (
-    binding?.runtimeImport === true &&
+  return binding?.runtimeImport === true &&
     binding.definitions.length === 1 &&
     binding.directOrigins.length === 1 &&
     origin !== undefined &&
@@ -184,7 +189,8 @@ const isWorkerConstructor = (
     (member
       ? origin.importedPath.length === 0
       : origin.importedPath.length === 1 && origin.importedPath[0] === "Worker")
-  );
+    ? "node"
+    : undefined;
 };
 
 // Element factories such as jsx("audio", props) and createElement("video",

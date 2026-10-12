@@ -231,6 +231,11 @@ cliTest(
         'new (URL as typeof URL)("./worker.js", import.meta.url)',
         'new URL("./worker.js" as string, import.meta.url as string)',
         'new URL("./worker.js", (import.meta as ImportMeta).url)',
+        'new globalThis.URL("./worker.js", import.meta.url)',
+        'new window.URL("./worker.js", import.meta.url)',
+        'new self.URL("./worker.js", import.meta.url)',
+        'new global.URL("./worker.js", import.meta.url)',
+        'new ((globalThis as typeof globalThis)["URL"]!)("./worker.js", import.meta.url)',
       ].map((urlExpression, index) => ({
         source: `nested/typed-${index}.ts`,
         expression: `new Worker(${urlExpression});`,
@@ -334,6 +339,10 @@ cliTest(
         'import { Worker } from "node:worker_threads"; new Worker(new URL("/worker.js", import.meta.url));',
       "typed-apply-meta.ts":
         'import { Worker } from "node:worker_threads"; Object.defineProperty.apply(Object, ([import.meta, "url", { value: "file:///other.mjs" }] as const)); new Worker(new URL("./worker.js", import.meta.url));',
+      "overwritten-qualified-url.mjs":
+        'globalThis.URL = replacement; new Worker(new globalThis.URL("./worker.js", import.meta.url));',
+      "shadowed-qualified-url.mjs":
+        'function start(window) { new Worker(new window.URL("./worker.js", import.meta.url)); }',
       ...Object.fromEntries(
         ["globalThis.URL", "URL", 'globalThis["URL"]'].map((target, index) => [
           `overwritten-url-${index}.mjs`,
@@ -460,6 +469,122 @@ cliTest(
         }),
       );
     }
+  },
+);
+
+cliTest(
+  "bounds repeated ambient alias branches through the compiled CLI",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-worker-alias-branches-");
+    const aliases = [
+      "const alias0 = globalThis;",
+      ...Array.from(
+        { length: 40 },
+        (_, index) =>
+          `const alias${index + 1} = flag${index} ? alias${index} : alias${index};`,
+      ),
+      "alias40.URL = replacement;",
+    ].join("\n");
+    const splitAliases = [
+      "const alias0 = globalThis;",
+      ...Array.from(
+        { length: 40 },
+        (_, index) =>
+          `const left${index} = alias${index}; const right${index} = alias${index}; const alias${index + 1} = flag${index} ? left${index} : right${index};`,
+      ),
+      "alias40.URL = replacement;",
+    ].join("\n");
+    const memberAliases = [
+      "const alias0 = globalThis;",
+      ...Array.from(
+        { length: 40 },
+        (_, index) =>
+          `const alias${index + 1} = flag${index} ? alias${index}.globalThis : alias${index}.window;`,
+      ),
+      "alias40.URL = replacement;",
+    ].join("\n");
+    const expression = 'new Worker(new URL("./worker.js", import.meta.url))';
+    await writeFixtureFiles(root, {
+      "entry.mjs": `import { Worker } from "node:worker_threads";\n${aliases}\n${expression};`,
+      "split.mjs": `import { Worker } from "node:worker_threads";\n${splitAliases}\n${expression};`,
+      "member.mjs": `import { Worker } from "node:worker_threads";\n${memberAliases}\n${expression};`,
+      "worker.js": "self.postMessage('existing alias-mutation decoy');",
+    });
+
+    const result = await analyzeJavaScriptDirectory(
+      "CLI",
+      { run: (invocation) => cli.run({ ...invocation, timeoutMs: 20_000 }) },
+      root,
+    );
+    expect(result.statistics.parse_failures).toBe(0);
+    const references = workerReferences(result.graph);
+    expect(references).toHaveLength(3);
+    expect(references).toEqual(
+      expect.arrayContaining(
+        ["entry.mjs", "split.mjs", "member.mjs"].map((source) => ({
+          source,
+          declared_specifier: null,
+          expression,
+          resolved_path: null,
+          mapped_paths: [],
+        })),
+      ),
+    );
+  },
+);
+
+cliTest(
+  "keeps Node Worker filesystem strings unresolved through the compiled CLI",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-node-worker-filesystem-");
+    const cases = [
+      {
+        prefix: 'import { Worker } from "node:worker_threads";',
+        expression: 'new Worker("./worker.js")',
+      },
+      {
+        prefix: 'import { Worker as ThreadWorker } from "worker_threads";',
+        expression: 'new ThreadWorker("/worker.js")',
+      },
+      {
+        prefix: 'import * as threads from "node:worker_threads";',
+        expression: 'new threads.Worker("./worker.js")',
+      },
+      {
+        prefix: 'import { Worker } from "node:worker_threads";',
+        expression: 'new (Worker as typeof Worker)("/worker.js")',
+      },
+      {
+        prefix: 'import * as threads from "node:worker_threads";',
+        expression: 'new ((threads as typeof threads).Worker!)("./worker.js")',
+      },
+    ].map((fixture, index) => ({
+      ...fixture,
+      source: `nested/node-literal-${index}.ts`,
+    }));
+    await writeFixtureFiles(root, {
+      ...Object.fromEntries(
+        cases.map(({ prefix, expression, source }) => [
+          source,
+          `${prefix}\n${expression};`,
+        ]),
+      ),
+      "worker.js": "self.postMessage('filesystem-root decoy');",
+      "nested/worker.js": "self.postMessage('source-sibling decoy');",
+    });
+
+    const result = await analyzeJavaScriptDirectory("CLI", cli, root);
+    expect(result.statistics.parse_failures).toBe(0);
+    const references = workerReferences(result.graph);
+    expect(references).toHaveLength(cases.length);
+    for (const { source, expression } of cases)
+      expect(references).toContainEqual({
+        source,
+        declared_specifier: null,
+        expression,
+        resolved_path: null,
+        mapped_paths: [],
+      });
   },
 );
 
