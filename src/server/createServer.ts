@@ -1,3 +1,6 @@
+import type { PacketCaptureService } from "../application/captures/PacketCaptureService.js";
+import { createPacketCaptureService } from "../composition/captures.js";
+import { registerCaptureTools } from "./registerCaptureTools.js";
 import type { WasmArtifactService } from "../application/wasm/WasmArtifactService.js";
 import { wasmArtifactModule } from "../composition/wasm.js";
 import { registerWasmTools } from "./registerWasmTools.js";
@@ -5,8 +8,11 @@ import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
-import { createEvmInterfaceService } from "../composition/evm.js";
+import { evmInterfaceModule } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
+import type { SqliteDatabaseService } from "../application/sqlite/SqliteDatabaseService.js";
+import { createSqliteDatabaseService } from "../composition/sqlite.js";
+import { registerSqliteTools } from "./registerSqliteTools.js";
 import { registerRecordedCrashTools } from "./registerRecordedCrashTools.js";
 import { createRecordedCrashService } from "../composition/binaryDiagnostics.js";
 import { createGoBinaryService } from "../composition/go.js";
@@ -120,8 +126,10 @@ const ACTIVE_TARGET_INSTRUCTIONS =
 export interface CreateServerOptions {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly delivery?: ToolResultDelivery;
+  readonly packetCapture?: PacketCaptureService;
   readonly wasmArtifact?: WasmArtifactService;
   readonly evmInterface?: EvmInterfaceService;
+  readonly sqliteDatabase?: SqliteDatabaseService;
   readonly logger?: Logger;
   readonly binaryLayout?: BinaryLayoutService;
   readonly goBinary?: GoBinaryService;
@@ -162,6 +170,9 @@ const installSessionToolAvailability = (
   const basePolicy = sessionAvailabilityPolicy(options.availabilityPolicy, {
     optionalProviderLoadFailures: options.optionalProviderLoadFailures,
     optionalFeatures: {
+      packetCaptureEnabled:
+        options.packetCapture !== undefined ||
+        (linux && isAbsolute(environment.REA_TSHARK_COMMAND ?? "")),
       wasmArtifactEnabled:
         options.wasmArtifact !== undefined ||
         isAbsolute(environment.REA_WABT_BIN_DIRECTORY ?? ""),
@@ -247,7 +258,13 @@ export const createServer = (
   const environment = snapshotEnvironment(options.environment ?? process.env);
   const delivery = selectToolResultDelivery(environment, options.delivery);
   const evmInterface =
-    options.evmInterface ?? createEvmInterfaceService(environment);
+    options.evmInterface ?? evmInterfaceModule.create(environment);
+  const sqliteDatabase =
+    options.sqliteDatabase ?? createSqliteDatabaseService(environment);
+  const binaryLayout =
+    options.binaryLayout ?? createBinaryLayoutService(environment);
+  const recordedCrash =
+    options.recordedCrash ?? createRecordedCrashService(environment);
   const webSourceLocation =
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const webModuleTrace =
@@ -263,6 +280,9 @@ export const createServer = (
     environment,
     delivery,
     evmInterface,
+    sqliteDatabase,
+    binaryLayout,
+    recordedCrash,
     webSourceLocation,
     webModuleTrace,
     javascriptRecovery,
@@ -285,6 +305,8 @@ export const createServer = (
     environment,
     options.wasmArtifact,
   );
+  const packetCapture =
+    options.packetCapture ?? createPacketCaptureService(environment);
   const apktool =
     options.apktoolAnalysis ??
     createApktoolResourceAnalysisProvider(environment);
@@ -297,12 +319,16 @@ export const createServer = (
       android.close(),
       fridaInstrumentation.closeAll(),
       wasmArtifact.close(),
+      packetCapture.close(),
       apktool.close(),
       jeb.close(),
       adbDevice.close(),
       flutter.close(),
       pcap.close(),
       evmInterface.close(),
+      sqliteDatabase.close(),
+      binaryLayout.close(),
+      recordedCrash.close(),
       webSourceLocation.close(),
       webModuleTrace.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
@@ -375,10 +401,18 @@ export const createServer = (
     for (const result of results)
       if (result.status === "rejected") throw result.reason;
   };
+  registerCaptureTools(
+    server,
+    packetCapture,
+    toolLogger,
+    recordEvidence,
+    analysisAdmission,
+  );
   registerConfiguredAnalysisTools(
     toolContext,
     android,
     wasmArtifact,
+    evmInterface,
     jeb,
     firmwareAnalysis,
   );
@@ -463,6 +497,7 @@ const registerConfiguredAnalysisTools = (
   }: ServerToolContext,
   android: AndroidAnalysisPort,
   wasmArtifact: Pick<WasmArtifactService, "inspect" | "close">,
+  evmInterface: EvmInterfaceService,
   jeb: JebAnalysisPort,
   firmwareAnalysis: FirmwareAnalysisService,
 ): void => {
@@ -519,7 +554,15 @@ const registerConfiguredAnalysisTools = (
   );
   registerEvmTools(
     server,
-    options.evmInterface ?? createEvmInterfaceService(environment),
+    evmInterface,
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+    evidenceById,
+  );
+  registerSqliteTools(
+    server,
+    options.sqliteDatabase ?? createSqliteDatabaseService(environment),
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,

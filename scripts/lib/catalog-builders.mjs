@@ -29,6 +29,8 @@ export const toolFamilyCatalog = (sources) => {
         ...sources.evmContracts.EVM_TOOL_CONTRACTS,
         ...sources.goContracts.GO_TOOL_CONTRACTS,
         ...sources.wasmContracts.WASM_TOOL_CONTRACTS,
+        ...sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
+        ...sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
       ],
     },
     {
@@ -201,6 +203,10 @@ export const providerCatalog = (sources) => {
         ),
     },
     {
+      identity: sources.captureProvider.TSHARK_PROVIDER_IDENTITY,
+      contracts: sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.wasmProvider.WABT_PROVIDER_IDENTITY,
       contracts: sources.wasmContracts.WASM_TOOL_CONTRACTS,
     },
@@ -211,6 +217,10 @@ export const providerCatalog = (sources) => {
     {
       identity: sources.goProvider.GO_BINARY_PROVIDER_IDENTITY,
       contracts: sources.goContracts.GO_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.sqliteDomain.SQLITE_PROVIDER_IDENTITY,
+      contracts: sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
     },
     {
       identity: sources.artifactProviders.ARTIFACT_GRAPH_PROVIDER,

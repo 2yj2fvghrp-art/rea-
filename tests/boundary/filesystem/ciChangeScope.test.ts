@@ -313,6 +313,14 @@ it.each([
     { code: true, apple: true, package: false, runtime: false },
   ],
   [
+    "tests/boundary/cli/nativePlistCli.test.ts",
+    { code: true, apple: true, package: false, runtime: false },
+  ],
+  [
+    "tests/boundary/filesystem/windowsNpxRegistration.test.ts",
+    { code: true, package: true, runtime: true, apple: false },
+  ],
+  [
     "src/process/ProcessOwnership.test.ts",
     { code: true, package: true, apple: false, evm: false, browser: false },
   ],
@@ -434,6 +442,10 @@ it("rejects skipped selected work while allowing unselected lanes to skip", asyn
 });
 
 it.each([
+  [
+    ".github/workflows/sqlite-runtime.yml",
+    { workflows: true, code: true, package: false, website: false },
+  ],
   [
     ".github/workflows/real-termux.yml",
     { workflows: true, code: false, package: false, website: false },
