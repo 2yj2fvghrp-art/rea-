@@ -518,6 +518,43 @@ it("fails without emitting a plan when package metadata is malformed", async () 
   expect(await readFile(join(directory, "scope-output"), "utf8")).toBe("");
 });
 
+it.each([
+  [
+    "verify:keyed-archive",
+    "npm run build:cached && node scripts/verify/apple/keyed-archive.mjs",
+    { apple: true, package: false, evm: false, browser: false },
+  ],
+  [
+    "verify:inspector",
+    "npm run build:cached && node scripts/verify/inspector/runtime-observation.mjs",
+    { package: true, apple: false, evm: false, browser: false },
+  ],
+  [
+    "verify:windows-native",
+    "node scripts/verify-windows-native.mjs",
+    { package: true, apple: false, evm: false, browser: false },
+  ],
+])(
+  "routes the %s script to its glob-owned lane",
+  async (script, command, expected) => {
+    const { directory } = await fixture();
+    const base = await change(
+      directory,
+      ["package.json"],
+      JSON.stringify({ scripts: { [script]: command } }),
+    );
+    const head = await change(
+      directory,
+      ["package.json"],
+      JSON.stringify({ scripts: { [script]: `${command} --verbose` } }),
+    );
+    expect(await classify(directory, base, head)).toMatchObject({
+      code: true,
+      ...expected,
+    });
+  },
+);
+
 it("retains a broad fallback when a provider script adds shared shell work", async () => {
   const { directory } = await fixture();
   const before = {

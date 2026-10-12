@@ -92,11 +92,11 @@ function classifyPackage(base, head) {
     const scriptOwners =
       simple &&
       entries.every((entry) =>
-        Object.values(SCOPES).some((patterns) => patterns.includes(entry)),
+        Object.values(SCOPES).some((patterns) => matchesAny(entry, patterns)),
       )
         ? Object.entries(SCOPES)
             .filter(([, patterns]) =>
-              entries.some((entry) => patterns.includes(entry)),
+              entries.some((entry) => matchesAny(entry, patterns)),
             )
             .map(([owner]) => owner)
         : [];
