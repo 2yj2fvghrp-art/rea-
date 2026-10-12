@@ -96,10 +96,12 @@ export const startMcpTransport = async (
       },
     );
   } catch (cause: unknown) {
-    const [binaryCleanup, androidCleanup] = await Promise.allSettled([
-      session.close(),
-      closeAndroid(),
-    ]);
+    const [binaryCleanup, androidCleanup, optionalProviderCleanup] =
+      await Promise.allSettled([
+        session.close(),
+        closeAndroid(),
+        closeOptionalProviders(),
+      ]);
     serverLogger.error(
       {
         error: cause instanceof Error ? cause.message : String(cause),
@@ -115,7 +117,11 @@ export const startMcpTransport = async (
       );
       dependencies.writeStderr(`${cleanupError.message}\n`);
     }
-    for (const cleanup of [binaryCleanup, androidCleanup]) {
+    for (const cleanup of [
+      binaryCleanup,
+      androidCleanup,
+      optionalProviderCleanup,
+    ]) {
       if (cleanup.status === "rejected") {
         const reason =
           cleanup.reason instanceof Error
