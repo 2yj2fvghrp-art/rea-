@@ -53,7 +53,10 @@ import {
 } from "./javascriptSemanticValues.js";
 import type { JavaScriptSemanticValue } from "./javascriptSemanticValueTypes.js";
 import type { ElectronCalleeBinding } from "./electronStaticAnalysisTypes.js";
-import { createElectronWrapperParameters } from "./javascriptElectronWrapperParameters.js";
+import {
+  createElectronWrapperParameters,
+  type WrapperEntries,
+} from "./javascriptElectronWrapperParameters.js";
 import {
   isContextBridgeExposure,
   resolveElectronApiObjects,
@@ -443,6 +446,8 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 export interface JavaScriptElectronIdentity extends JavaScriptElectronSemanticFacts {
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
   readonly exportPath: (root: t.Node) => readonly string[] | undefined;
+  /** Outermost call sites of wrappers that forward a computed IPC channel. */
+  readonly wrapperEntries: WrapperEntries;
 }
 
 export function* indexJavaScriptElectronIdentitySteps(
@@ -546,7 +551,9 @@ export function* indexJavaScriptElectronIdentitySteps(
       }
       const exported = rootExport(root);
       if (exported === undefined) {
-        wrappers.defer(root, members);
+        if (!t.isNewExpression(node))
+          wrappers.defer(root, members, node.arguments[0]);
+        else wrappers.defer(root, members);
         return;
       }
       if (intactExport(["electron", ...exported, ...members]))
@@ -558,6 +565,7 @@ export function* indexJavaScriptElectronIdentitySteps(
     },
   });
   yield* wrappers.collectCallSitesSteps(program);
+  const wrapperEntries = yield* wrappers.collectEntriesSteps(program);
   for (const { root, binding } of wrappers.resolved())
     if (intactExport(["electron", ...binding.path]))
       facts.set(root.start ?? -1, binding);
@@ -572,6 +580,7 @@ export function* indexJavaScriptElectronIdentitySteps(
     loaders,
     intactExport,
     exportPath: rootExport,
+    wrapperEntries,
   };
 }
 

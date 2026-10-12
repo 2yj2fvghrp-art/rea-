@@ -14,11 +14,18 @@ export interface SymbolicEnvironment {
   readonly scopeNode?: t.Function;
   /** Completion boundary proven for this captured activation. */
   readonly completedAt?: t.Node;
+  /**
+   * The resolver of the source that owns this environment's syntax, when it
+   * is not the evaluating source. Linked sources keep their own bindings.
+   */
+  readonly owner?: object;
 }
 
 export interface SymbolicCondition {
   readonly node: t.Node;
   readonly positive: boolean | "nullish" | "not-nullish";
+  /** The activation that evaluated the predicate, when one is known. */
+  readonly environment?: SymbolicEnvironment;
 }
 
 export interface SymbolicMetadata {
@@ -27,6 +34,23 @@ export interface SymbolicMetadata {
   /** A control-flow join prevented a sound predicate from being retained. */
   readonly conditionUnresolved?: true;
 }
+
+/**
+ * One ordered write to a member of a fresh local object literal. A static key
+ * names one member; a loop write assigns the member named by its `for...of`
+ * declaration once per iterated element.
+ */
+export type SymbolicMemberWrite = {
+  readonly value: t.Node;
+  /** Short-circuit test the write is the right operand of, if any. */
+  readonly guard?: {
+    readonly test: t.Node;
+    readonly operator: t.LogicalExpression["operator"];
+  };
+} & (
+  | { readonly key: string }
+  | { readonly key: t.Expression; readonly loop: t.ForOfStatement }
+);
 
 export interface SymbolicFunction extends SymbolicMetadata {
   readonly kind: "function";
@@ -53,6 +77,8 @@ export type SymbolicValue = (
       readonly kind: "object";
       readonly node: t.ObjectExpression;
       readonly environment: SymbolicEnvironment;
+      /** Member writes completed on this fresh local literal before the read. */
+      readonly writes?: readonly SymbolicMemberWrite[];
     }
   | {
       readonly kind: "namespace";
@@ -69,6 +95,13 @@ export type SymbolicValue = (
       readonly values: ReadonlyMap<string, SymbolicValue>;
     }
   | { readonly kind: "union"; readonly values: readonly SymbolicValue[] }
+  | {
+      readonly kind: "promise";
+      /** Expression creating the promise. */
+      readonly node: t.Node;
+      /** Whether it is created fulfilled; otherwise its settlement is unknown. */
+      readonly fulfilled: boolean;
+    }
   | SymbolicFunction
 ) &
   SymbolicMetadata;
@@ -97,12 +130,24 @@ export const symbolicTruth = (value: SymbolicValue): boolean | undefined => {
   }
   return value.kind === "literal"
     ? Boolean(value.value)
-    : ["function", "object", "namespace", "array", "record", "loader"].includes(
-          value.kind,
-        )
+    : isSymbolicObject(value)
       ? true
       : undefined;
 };
+
+const OBJECT_KINDS: ReadonlySet<SymbolicValue["kind"]> = new Set([
+  "function",
+  "object",
+  "namespace",
+  "array",
+  "record",
+  "loader",
+  "promise",
+]);
+
+/** Whether a value is a JavaScript object (functions and promises included). */
+export const isSymbolicObject = (value: SymbolicValue): boolean =>
+  OBJECT_KINDS.has(value.kind);
 
 /** Attach selection predicates to values while preserving their representation. */
 export const symbolicCondition = (

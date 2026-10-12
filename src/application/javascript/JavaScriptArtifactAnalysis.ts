@@ -1,10 +1,15 @@
 import { parseContentSecurityPolicy } from "../../domain/javascript/contentSecurityPolicy.js";
-import { electronStaticFindingCount } from "../../domain/javascript/electronStaticAnalysisTypes.js";
+import {
+  electronStaticFindingCount,
+  type ElectronCallPath,
+} from "../../domain/javascript/electronStaticAnalysisTypes.js";
 import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 
 import { resolveJavaScriptSourceMapReference } from "../../domain/javascript/javascriptSourceMapPaths.js";
 import { analyzeParsedJavaScriptStaticSourceSteps } from "../../domain/javascript/javascriptStaticAnalysis.js";
+import type { JavaScriptCompanionSource } from "../../domain/javascript/javascriptGlobalSymbolLinks.js";
+import { globalSymbolRegistryCompanions } from "../../domain/javascript/javascriptGlobalSymbolRegistry.js";
 import {
   analyzeParsedJavaScriptSemanticsSteps,
   classifyParsedJavaScriptOpenReceiversSteps,
@@ -74,8 +79,25 @@ interface ArtifactAnalysisContext<
   readonly projectSemantics: (
     file: JavaScriptArtifactFile,
     ir: JavaScriptSemanticIr,
+    paths: readonly ElectronCallPath[] | undefined,
   ) => Generator<void, SemanticIr>;
+  readonly companions?: ReadonlyMap<
+    string,
+    readonly JavaScriptCompanionSource[]
+  >;
 }
+
+/** Sources that name a global symbol registry key another source names. */
+const javascriptCompanionSources = (
+  fileSet: JavaScriptArtifactFileSet,
+): ReadonlyMap<string, readonly JavaScriptCompanionSource[]> =>
+  globalSymbolRegistryCompanions(
+    fileSet.files.flatMap((file) =>
+      file.kind === "javascript" && file.text.included
+        ? [{ path: file.path, text: file.text.value }]
+        : [],
+    ),
+  );
 
 /** Analyze every text source from the artifact without a result quota. */
 export const analyzeJavaScriptArtifactFiles = (
@@ -97,6 +119,7 @@ export const analyzeAndProjectJavaScriptArtifactFiles = async (
   projectSemantics: (
     file: JavaScriptArtifactFile,
     ir: JavaScriptSemanticIr,
+    paths: readonly ElectronCallPath[] | undefined,
   ) => Iterator<void, void> | void,
   beforeFile?: (
     file: JavaScriptArtifactFile,
@@ -109,12 +132,17 @@ export const analyzeAndProjectJavaScriptArtifactFiles = async (
   const projectFileSemantics = function* (
     file: JavaScriptArtifactFile,
     ir: JavaScriptSemanticIr,
+    paths: readonly ElectronCallPath[] | undefined,
   ): Generator<void, JavaScriptModuleSemanticIr> {
-    const projection = projectSemantics(file, ir);
+    const projection = projectSemantics(file, ir, paths);
     if (projection !== undefined) while (projection.next().done !== true) yield;
     return projectJavaScriptModuleSemantics(ir);
   };
-  const context = { state, projectSemantics: projectFileSemantics };
+  const context = {
+    state,
+    projectSemantics: projectFileSemantics,
+    companions: javascriptCompanionSources(fileSet),
+  };
   for (const [index, file] of fileSet.files.entries()) {
     // Let progress, cancellation and garbage collection run between files.
     await setImmediate();
@@ -143,6 +171,7 @@ export const analyzeAndAdoptJavaScriptArtifactFiles = async (
   readonly interruption: AnalysisError | null;
 }> => {
   const state = emptyArtifactAnalysis<JavaScriptModuleSemanticIr>();
+  const companions = javascriptCompanionSources(fileSet);
   let interruption: AnalysisError | null = null;
   const selectedFileCount =
     fileSet.files.length - (fileSet.source_selection?.unselected_files ?? 0);
@@ -177,6 +206,7 @@ export const analyzeAndAdoptJavaScriptArtifactFiles = async (
         file,
         projection.remainingFileNodeBudget(),
         signal,
+        companions.get(file.path),
       );
       const facts = result.ok ? result.value : result.error;
       const applicationProjectionFailure = facts.applicationProjectionFailure;
@@ -313,7 +343,11 @@ const analyzeArtifactFiles = <SemanticIr extends JavaScriptModuleSemanticIr>(
   projectSemantics: ArtifactAnalysisContext<SemanticIr>["projectSemantics"],
 ): JavaScriptArtifactAnalysis<SemanticIr> => {
   const state = emptyArtifactAnalysis<SemanticIr>();
-  const context = { state, projectSemantics };
+  const context = {
+    state,
+    projectSemantics,
+    companions: javascriptCompanionSources(fileSet),
+  };
   for (const file of fileSet.files) {
     const steps = analyzeArtifactFileSteps(file, context);
     while (steps.next().done !== true);
@@ -390,6 +424,7 @@ function* analyzeArtifactFileSteps<
     file.text.value,
     parsed,
     openReceiverFacts,
+    context.companions?.get(file.path),
   );
   const staticFindings = findingCount(analysis);
   yield;
@@ -400,7 +435,11 @@ function* analyzeArtifactFileSteps<
   const projected =
     semantics === null
       ? null
-      : yield* context.projectSemantics(file, semantics);
+      : yield* context.projectSemantics(
+          file,
+          semantics,
+          analysis.electron.call_paths,
+        );
   state.files.push({
     file,
     javascript: analysis,

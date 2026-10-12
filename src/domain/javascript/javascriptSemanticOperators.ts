@@ -28,6 +28,18 @@ import {
  */
 export type JavaScriptSemanticOperand = JavaScriptSemanticPrimitive | undefined;
 
+/**
+ * A leaf proven to be an object whose identity and primitive coercion are
+ * unknown. Only strict equality with a primitive and loose equality with a
+ * nullish value compare it exactly; every other operator yields unknown.
+ */
+export const SEMANTIC_OBJECT_OPERAND: unique symbol = Symbol("object operand");
+
+/** One exact candidate of a leaf expression the folder reads. */
+export type SemanticLeafOperand =
+  | JavaScriptSemanticOperand
+  | typeof SEMANTIC_OBJECT_OPERAND;
+
 // Operands are primitives, so the casts select JavaScript's own coercions and
 // the host operators compute exact results without invoking application code.
 type BinaryOperator = (
@@ -77,11 +89,30 @@ const applySemanticBinaryOperator = (
   return apply(left as number, right as number);
 };
 
+/** Exact equality between an object and another operand, if it has one. */
+const compareObject = (
+  operator: string,
+  other: SemanticLeafOperand,
+): boolean | undefined => {
+  const strict = operator === "===" || operator === "!==";
+  if (!strict && operator !== "==" && operator !== "!=") return undefined;
+  // Two objects compare by identity; loose equality coerces the object
+  // unless the other operand is nullish.
+  if (
+    other === SEMANTIC_OBJECT_OPERAND ||
+    (!strict && other !== null && other !== undefined)
+  )
+    return undefined;
+  return operator.startsWith("!");
+};
+
 /** Apply one side-effect-free unary operator, or report it as unsupported. */
 const applySemanticUnaryOperator = (
   operator: string,
-  argument: JavaScriptSemanticOperand,
+  argument: SemanticLeafOperand,
 ): { readonly value: JavaScriptSemanticOperand } | undefined => {
+  if (argument === SEMANTIC_OBJECT_OPERAND)
+    return operator === "!" ? { value: false } : undefined;
   switch (operator) {
     case "!":
       return { value: !argument };
@@ -124,9 +155,23 @@ export type SemanticOperands =
   | readonly JavaScriptSemanticOperand[]
   | SemanticOperandFailure;
 
-export const isSemanticOperands = (
-  result: SemanticOperands,
-): result is readonly JavaScriptSemanticOperand[] => Array.isArray(result);
+/** Exact candidates of one leaf expression, or why they are unknown. */
+export type SemanticLeafOperands =
+  | readonly SemanticLeafOperand[]
+  | SemanticOperandFailure;
+
+export const isSemanticOperands = <Operand>(
+  result: readonly Operand[] | SemanticOperandFailure,
+): result is readonly Operand[] => Array.isArray(result);
+
+/** Keep primitive candidates; an object candidate cannot become text or a number. */
+const primitiveOperands = (
+  values: readonly SemanticLeafOperand[],
+  reason: string,
+): SemanticOperands =>
+  values.includes(SEMANTIC_OBJECT_OPERAND)
+    ? { status: "unknown", reason }
+    : (values as readonly JavaScriptSemanticOperand[]);
 
 /** Keep a lattice failure, or explain why a non-primitive cannot be an operand. */
 export const semanticOperandFailure = (
@@ -146,8 +191,8 @@ export const semanticOperandFailure = (
  */
 export interface SemanticOperandLeaves {
   readonly state: JavaScriptSemanticAnalysisState;
-  /** Exact primitive candidates of a non-operator expression. */
-  readonly operands: (node: t.Node, depth: number) => SemanticOperands;
+  /** Exact candidates of a non-operator expression. */
+  readonly operands: (node: t.Node, depth: number) => SemanticLeafOperands;
   /**
    * Element candidates of a `join` receiver that is not array syntax; a hole
    * or absent element is `[undefined]`.
@@ -155,9 +200,7 @@ export interface SemanticOperandLeaves {
   readonly arrayItems: (
     node: t.Node,
     depth: number,
-  ) =>
-    | readonly (readonly JavaScriptSemanticOperand[])[]
-    | SemanticOperandFailure;
+  ) => readonly (readonly SemanticLeafOperand[])[] | SemanticOperandFailure;
 }
 
 /** Operator syntax the folder evaluates itself rather than as a leaf. */
@@ -189,17 +232,24 @@ export const foldSemanticOperands = (
   leaves: SemanticOperandLeaves,
   depth: number,
 ): SemanticOperands => {
+  const folded = foldOperand(node, leaves, depth);
+  return isSemanticOperands(folded)
+    ? primitiveOperands(folded, "Expression is an object.")
+    : folded;
+};
+
+const foldOperand = (
+  node: t.Node,
+  leaves: SemanticOperandLeaves,
+  depth: number,
+): SemanticLeafOperands => {
   if (depth > SEMANTIC_EXPRESSION_DEPTH_LIMIT)
     return semanticResourceLimitUnknown("expression-depth");
   const unwrapped = unwrapJavaScriptExpression(node);
   if (unwrapped.depth > 0) {
     if (depth + unwrapped.depth > SEMANTIC_EXPRESSION_DEPTH_LIMIT)
       return semanticResourceLimitUnknown("expression-depth");
-    return foldSemanticOperands(
-      unwrapped.node,
-      leaves,
-      depth + unwrapped.depth,
-    );
+    return foldOperand(unwrapped.node, leaves, depth + unwrapped.depth);
   }
   if (isSemanticOperatorExpression(node)) {
     if (t.isBinaryExpression(node)) return foldBinary(node, leaves, depth);
@@ -223,11 +273,11 @@ const foldBinary = (
   node: t.BinaryExpression,
   leaves: SemanticOperandLeaves,
   depth: number,
-): SemanticOperands => {
+): SemanticLeafOperands => {
   // Minified concatenations nest thousands deep on the left; walk iteratively.
   const pending: {
     readonly node: t.BinaryExpression;
-    left: readonly JavaScriptSemanticOperand[] | undefined;
+    left: readonly SemanticLeafOperand[] | undefined;
   }[] = [];
   let current: t.Node = node;
   for (;;) {
@@ -239,7 +289,7 @@ const foldBinary = (
       current = current.left;
       continue;
     }
-    let result = foldSemanticOperands(current, leaves, depth + 1);
+    let result = foldOperand(current, leaves, depth + 1);
     for (;;) {
       if (!isSemanticOperands(result)) return result;
       const parent = pending.at(-1);
@@ -257,33 +307,61 @@ const foldBinary = (
 
 const combineOperands = (
   operator: string,
-  left: readonly JavaScriptSemanticOperand[],
-  right: readonly JavaScriptSemanticOperand[],
+  left: readonly SemanticLeafOperand[],
+  right: readonly SemanticLeafOperand[],
 ): SemanticOperands => {
   if (left.length > SEMANTIC_PRIMITIVE_CANDIDATE_LIMIT / right.length)
     return semanticResourceLimitUnknown("primitive-candidates");
-  if (
-    operator === "+" &&
-    exceedsSemanticPrimitiveAdditionByteBudget(left, right)
-  )
-    return semanticResourceLimitUnknown("primitive-bytes");
-  return uniqueOperands(
-    left.flatMap((leftValue) =>
-      right.map((rightValue) =>
-        applySemanticBinaryOperator(operator, leftValue, rightValue),
-      ),
-    ),
-  );
+  const leftPrimitives = primitiveOperands(left, "");
+  const rightPrimitives = primitiveOperands(right, "");
+  if (isSemanticOperands(leftPrimitives) && isSemanticOperands(rightPrimitives))
+    return operator === "+" &&
+      exceedsSemanticPrimitiveAdditionByteBudget(
+        leftPrimitives,
+        rightPrimitives,
+      )
+      ? semanticResourceLimitUnknown("primitive-bytes")
+      : uniqueOperands(
+          leftPrimitives.flatMap((leftValue) =>
+            rightPrimitives.map((rightValue) =>
+              applySemanticBinaryOperator(operator, leftValue, rightValue),
+            ),
+          ),
+        );
+  const values: JavaScriptSemanticOperand[] = [];
+  for (const leftValue of left)
+    for (const rightValue of right) {
+      if (
+        leftValue !== SEMANTIC_OBJECT_OPERAND &&
+        rightValue !== SEMANTIC_OBJECT_OPERAND
+      ) {
+        values.push(
+          applySemanticBinaryOperator(operator, leftValue, rightValue),
+        );
+        continue;
+      }
+      const compared = compareObject(
+        operator,
+        leftValue === SEMANTIC_OBJECT_OPERAND ? rightValue : leftValue,
+      );
+      if (compared === undefined)
+        return {
+          status: "unknown",
+          reason: `Operator ${operator} reads an object operand.`,
+        };
+      values.push(compared);
+    }
+  return uniqueOperands(values);
 };
 
 const foldUnary = (
   node: t.UnaryExpression,
   leaves: SemanticOperandLeaves,
   depth: number,
-): SemanticOperands => {
+): SemanticLeafOperands => {
   // `void` discards its argument's value whatever that value is.
   if (node.operator === "void") return [undefined];
-  const argument = foldSemanticOperands(node.argument, leaves, depth + 1);
+  const argument = foldOperand(node.argument, leaves, depth + 1);
   if (!isSemanticOperands(argument)) return argument;
   const values: JavaScriptSemanticOperand[] = [];
   for (const value of argument) {
@@ -341,9 +419,14 @@ const joinItems = (
 ): (readonly string[])[] | SemanticOperandFailure => {
   if (!t.isArrayExpression(receiver)) {
     const items = leaves.arrayItems(receiver, depth + 1);
-    return Array.isArray(items)
-      ? items.map((values) => values.map(semanticJoinText))
-      : (items as SemanticOperandFailure);
+    if (!Array.isArray(items)) return items as SemanticOperandFailure;
+    const texts: (readonly string[])[] = [];
+    for (const item of items) {
+      const values = primitiveOperands(item, "Join item is an object.");
+      if (!isSemanticOperands(values)) return values;
+      texts.push(values.map(semanticJoinText));
+    }
+    return texts;
   }
   const items: (readonly string[])[] = [];
   for (const element of receiver.elements) {
