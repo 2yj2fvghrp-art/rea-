@@ -83,6 +83,11 @@ export class BinarySession
   #transitionGeneration = 0;
   readonly #calls = new Map<Promise<unknown>, number>();
   readonly #providerRouter: SessionProviderRouter;
+  /** Set once a non-health operation has been dispatched to the active client.
+   * Prompt completion reads this without starting a deep provider: a fresh
+   * `open_binary` only runs `health` (which never creates a heavyweight child),
+   * so completion returns `[]` until a real tool call warms the provider. */
+  #providerWarmedForCompletion = false;
   readonly #runtimeUnavailability = new Map<
     string,
     { readonly reason: string }
@@ -119,6 +124,13 @@ export class BinarySession
       if (!imported.ok) return imported;
     }
     return ok(target);
+  }
+
+  /** Whether a non-health operation has warmed the active provider client.
+   * Prompt completion uses this as a side-effect-free readiness gate so it
+   * never cold-starts Ghidra/Hopper as a side effect. */
+  isProviderWarmed(): boolean {
+    return this.#active !== undefined && this.#providerWarmedForCompletion;
   }
 
   /** Identify the provider producing evidence for this session. */
@@ -274,6 +286,7 @@ export class BinarySession
       }
       const previous = this.#active;
       this.#active = undefined;
+      this.#providerWarmedForCompletion = false;
       if (previous !== undefined) {
         const closed = await this.#retireClient(
           previous.client,
@@ -322,6 +335,7 @@ export class BinarySession
         route,
         runId,
       };
+      this.#providerWarmedForCompletion = false;
       this.#clearRuntimeAvailability();
       this.resetSnapshotInvalidation();
       if (options.snapshot === undefined) {
@@ -332,6 +346,7 @@ export class BinarySession
         const imported = this.importAnalysisSnapshot(options.snapshot);
         if (!imported.ok) {
           this.#active = undefined;
+          this.#providerWarmedForCompletion = false;
           return err(
             await this.#failedOpen(
               client,
@@ -393,6 +408,7 @@ export class BinarySession
   ): Promise<Result<null, AnalysisError>> {
     const previous = this.#active;
     this.#active = undefined;
+    this.#providerWarmedForCompletion = false;
     const closed =
       previous === undefined
         ? await this.#retryPendingCleanup(
@@ -591,6 +607,7 @@ export class BinarySession
     // A failed reply cannot prove that a dispatched metadata write rolled back.
     // Stop replay before dispatch, including reads overlapping the write.
     if (capability.effects.mutatesArtifact) this.invalidateSnapshot();
+    if (name !== "health") this.#providerWarmedForCompletion = true;
     const call = active.client.execute(name, arguments_, options);
     const result = await call;
     const profiled = bindExecutionTarget(
@@ -794,6 +811,7 @@ export class BinarySession
         route: previous.route,
         runId,
       };
+      this.#providerWarmedForCompletion = false;
       return ok(null);
     }
     const closed = await this.#retireClient(client, previous.route.identity.id);

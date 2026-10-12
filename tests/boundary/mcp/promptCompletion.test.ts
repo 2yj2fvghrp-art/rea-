@@ -50,6 +50,16 @@ describe("guided prompt completion from live analysis", () => {
     expect((await session.open(target)).ok).toBe(true);
     const completion = createPromptCompletionSource(session, session);
 
+    // Completion never cold-starts a deep provider (#2076): a fresh open only
+    // runs `health`, so document/procedure completion stays empty with no
+    // provider call until a real tool call warms the provider.
+    expect(session.isProviderWarmed()).toBe(false);
+    expect(await completion.complete("document", "app")).toEqual([]);
+    expect(await completion.complete("procedure", "")).toEqual([]);
+    expect(requests).toEqual([]);
+
+    expect((await session.execute("list_documents", {})).ok).toBe(true);
+    expect(session.isProviderWarmed()).toBe(true);
     expect(await completion.complete("document", "app")).toEqual([
       "App",
       "AppTests",
@@ -68,6 +78,50 @@ describe("guided prompt completion from live analysis", () => {
     await session.close();
     expect(await completion.complete("document", "")).toEqual([]);
     expect(await completion.complete("procedure", "")).toEqual([]);
+  });
+
+  it("never dispatches a provider operation for cold completion", async () => {
+    const operations: string[] = [];
+    const session = createTestBinarySession(
+      () => ({
+        execute(operation, parameters) {
+          operations.push(operation);
+          return client([]).execute(operation, parameters);
+        },
+        close: () => Promise.resolve(resultOk(null)),
+      }),
+      {
+        resolveAnalysisProfile: () =>
+          Promise.resolve(
+            resultOk({
+              profile: createAnalysisProfile(
+                {
+                  id: "fixture",
+                  name: "Fixture analysis provider",
+                  version: "1",
+                },
+                { fixture: true },
+              ),
+            }),
+          ),
+      },
+    );
+    directory = await createTestTempDirectory("rea-prompt-completion-");
+    const target = join(directory, "fixture.hop");
+    await writeFile(target, "fixture");
+    expect((await session.open(target)).ok).toBe(true);
+    // Open only runs the composite `health` probe, which answers without
+    // creating a child: not even `health` reaches the deep provider.
+    expect(operations).toEqual([]);
+
+    const completion = createPromptCompletionSource(session, session);
+    expect(await completion.complete("document", "")).toEqual([]);
+    expect(await completion.complete("procedure", "")).toEqual([]);
+    // No `list_documents`/`list_procedures` dispatch: the deep provider is
+    // never started as a completion side effect.
+    expect(operations).toEqual([]);
+
+    await session.close();
   });
 });
 
