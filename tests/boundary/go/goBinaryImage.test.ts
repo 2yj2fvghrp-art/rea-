@@ -436,6 +436,48 @@ it("does not treat Mach-O __PAGEZERO as a module string header", () => {
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(/mapped|range/i);
 });
 
+// cmd/link writes an unstripped Mach-O's DWARF into a __DWARF segment with
+// file bytes but vmsize 0, so the segment is never mapped.
+it.each([
+  [32, "little"],
+  [32, "big"],
+  [64, "little"],
+  [64, "big"],
+] as const)(
+  "reads %i-bit %s-endian Mach-O build info beside an unmapped segment",
+  (bits, byteOrder) => {
+    const fixture = createGoBinaryFixture({ format: "macho", bits, byteOrder });
+    addLegacyMapping(
+      fixture.bytes,
+      "macho",
+      { address: 0x20000n, fileOffset: 3072, fileSize: 1024, memorySize: 0 },
+      { bits, little: byteOrder === "little" },
+    );
+    expect(readGoBinaryImage(fixture.bytes).build_info?.go_version).toBe(
+      "go1.26.0",
+    );
+  },
+);
+
+// The linker places __DWARF at __LINKEDIT's address; its file bytes must not
+// alias the mapped segment that shares its address.
+it("does not map an unmapped Mach-O segment's file bytes at its address", () => {
+  const fixture = createGoBinaryFixture({
+    format: "macho",
+    encoding: "pointer",
+    goVersion: "go1.17",
+  });
+  addLegacyMapping(fixture.bytes, "macho", {
+    address: 0x10000n,
+    fileOffset: 2048,
+    fileSize: 2048,
+    memorySize: 0,
+  });
+  expect(readGoBinaryImage(fixture.bytes).build_info?.go_version).toBe(
+    "go1.17",
+  );
+});
+
 it.each(["elf", "pe", "macho"] as const)(
   "refuses file aliases overlapping only part of a zero-filled %s module header",
   (format) => {

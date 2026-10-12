@@ -63,7 +63,13 @@ export const readGoMachoImage = (bytes: Buffer): GoBinaryContainer => {
       const maxProtection = reader.u32(offset + (wide ? 56 : 40));
       const protection = reader.u32(offset + (wide ? 60 : 44));
       const sectionCount = reader.u32(offset + (wide ? 64 : 48));
-      if (fileSize > memorySize || address + memorySize > 1n << BigInt(bits))
+      // cmd/link emits unstripped DWARF as an unmapped __DWARF segment whose
+      // vmsize is 0; it has file bytes but no virtual mapping.
+      const unmapped = memorySize === 0n;
+      if (
+        (!unmapped && fileSize > memorySize) ||
+        address + memorySize > 1n << BigInt(bits)
+      )
         throw new GoBinaryFormatFailure(
           "malformed",
           "Mach-O segment addresses or sizes are invalid",
@@ -74,7 +80,7 @@ export const readGoMachoImage = (bytes: Buffer): GoBinaryContainer => {
           "Mach-O section table exceeds its segment command",
         );
       const mapping = {
-        ...(fileSize === 0n
+        ...(fileSize === 0n || unmapped
           ? { offset: 0, size: 0 }
           : reader.fileRange(fileOffset, fileSize, "Mach-O segment")),
         address,
