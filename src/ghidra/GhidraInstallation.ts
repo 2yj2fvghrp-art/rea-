@@ -737,6 +737,9 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
       [
         "-Dstdout.encoding=UTF-8",
         "-Dstderr.encoding=UTF-8",
+        // JDK 17/18 use the legacy names; JDK 19+ use the names above.
+        "-Dsun.stdout.encoding=UTF-8",
+        "-Dsun.stderr.encoding=UTF-8",
         "-XX:-UsePerfData",
         "-XshowSettings:properties",
         "-version",
