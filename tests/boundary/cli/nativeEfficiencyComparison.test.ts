@@ -14,6 +14,7 @@ const execute = promisify(execFile);
 const generate = `
 import {measureNativeEntry} from './experiments/analysis-efficiency/native-entry.mjs';
 const sha='0'.repeat(64);
+const duplicate=process.argv[1]==='duplicate';
 const dossier={procedure:{address:'0x1000'},pseudocode:'return;',callers:[],callees:[]};
 class ToolFailure extends Error {}
 const build=async digit=>{
@@ -23,7 +24,7 @@ const build=async digit=>{
     if(name==='open_binary'||name==='close_binary')return {};
     if(name==='resolve_containing_procedure')return {evidence_id:parent,normalized_result:{found:true}};
     if(name==='analyze_function')return {evidence_id:parent,subject:{digest:{sha256:sha}},normalized_result:dossier};
-    const id='ev_'+digit.repeat(63)+(++ordinal);
+    const id='ev_'+digit.repeat(63)+(duplicate?1:++ordinal);
     if(args.view.kind==='summary')return {evidence_id:id};
     const facet=args.view.facet;
     const item=facet==='pseudocode'?{text:dossier.pseudocode,unit:'utf16-code-units'}:dossier[facet];
@@ -33,6 +34,21 @@ const build=async digit=>{
 };
 process.stdout.write(JSON.stringify([await build('1'),await build('2')]));
 `;
+
+it("rejects a producer that reuses a view identity across facets", async () => {
+  await expect(
+    execute(process.execPath, [
+      "--input-type=module",
+      "-e",
+      generate,
+      "duplicate",
+    ]),
+  ).rejects.toMatchObject({
+    stderr: expect.stringContaining(
+      "Retained native view reused an Evidence identity",
+    ),
+  });
+});
 
 it.each(["references", "item", "coverage", "limitations", "unknowns"])(
   "separates native references while comparing %s exactly",

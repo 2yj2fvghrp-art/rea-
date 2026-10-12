@@ -8,6 +8,7 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
   const n = normalized(info);
   const retainedViews = [];
   const retainedViewEvidence = [];
+  const observedEvidenceIds = new Set([info.evidence_id]);
   let nativeSummaryOutcome, summaryEvidenceId;
   for (const facet of ["procedure", "pseudocode", "callers", "callees"]) {
     const selected = await call("inspect_analysis_view", {
@@ -20,6 +21,8 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
       },
     });
     const view = normalized(selected);
+    if (observedEvidenceIds.has(selected.evidence_id))
+      throw new Error("Retained native view reused an Evidence identity");
     const expected =
       facet === "procedure"
         ? n.procedure
@@ -29,12 +32,12 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
     if (
       !isDeepStrictEqual(view.item, expected) ||
       view.parent_evidence_id !== info.evidence_id ||
-      view.artifact.sha256 !== inputSha ||
-      selected.evidence_id === info.evidence_id
+      view.artifact.sha256 !== inputSha
     )
       throw new Error(
         "Retained native view changed the selected source facts or identity",
       );
+    observedEvidenceIds.add(selected.evidence_id);
     retainedViews.push({
       facet,
       item: view.item,
@@ -55,6 +58,8 @@ const retainedEntryViews = async (call, info, inputSha, ToolFailure) => {
       source: { kind: "retained-evidence", evidence_id: info.evidence_id },
       view: { kind: "summary" },
     });
+    if (observedEvidenceIds.has(summary.evidence_id))
+      throw new Error("Native summary reused an Evidence identity");
     nativeSummaryOutcome = { status: "supported" };
     summaryEvidenceId = summary.evidence_id;
   } catch (error) {
