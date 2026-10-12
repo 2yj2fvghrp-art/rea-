@@ -72,6 +72,16 @@ descriptor checkpoint; they are not silently rerun or attributed to this script.
 
 ## Measurements and compatibility scope
 
+Exact verifier source SHA-256 is
+`2fec069b53324ef82070d323b26dd613b6da0caa7f18100adbeb39b045cf98dc`.
+All three carriers pass all three scenarios and CLI parity with this same source.
+
+| Carrier | Seconds | Sampled peak family bytes | Last-observed CPU seconds |
+| ------- | ------: | ------------------------: | ------------------------: |
+| WETH    |  25.595 |             1,116,884,992 |                    23.926 |
+| Factory |  23.979 |             1,132,994,560 |                    23.419 |
+| Pool    |  24.589 |             1,141,415,936 |                    24.043 |
+
 Runs are serial under the existing one-CPU quota, 4 GiB hard memory, unchanged
 3 GiB early-stop, no swap and 192-task ceiling. Resource receipts, complete
 producer replies, derived malformed input, launcher and runtime copies stay in
@@ -86,8 +96,20 @@ requiring four. Independently completed main CI at
 `fdd8f826023c568937d237c2f97d855de283a9b8` reports the same TypeScript failure
 ([run 38309578208](https://github.com/morluto/rea/actions/runs/38309578208)).
 The unrelated regression is recorded in the maintainer-requested private bug
-handoff; this change does not repair it. The frozen-runtime observations above
-must not be described as latest-main build verification.
+handoff; this change does not repair it. The maintainer independently corrected
+the producing caller in main `8fc2043eb8bcedbf34dce064f977e455438635d6`.
+The frozen-runtime observations above remain pinned to their original revision;
+synchronizing the branch does not relabel them as latest-main verification.
+
+After rebasing, a fresh build and all 10 focused EVM MCP boundary tests pass.
+The same unchanged source verifier also passes all three real Factory scenarios,
+CLI parity, healthy SQLite WASM checks and final cleanup on the newly built
+runtime `b3eadf147221a2fa997ac26667a183ca5bccb1f4` (parent is corrected main
+`8fc2043eb8bcedbf34dce064f977e455438635d6`). Its `dist/`/`bridge/` file-table
+SHA-256 is `7a4cec0fa4f7e929356b50a6b13472f80bd6f526221e427125370cca3ef98d00`.
+This related rerun takes 24.285 seconds, samples 1,146,167,296 peak family bytes
+and records 23.662 last-observed CPU seconds. The older failed build and earlier
+cohort receipts are preserved; wider domain/model matrices are not repeated.
 
 Static composition continues to bind one named canonical contract and one
 typed factory. Existing SDK checks reject duplicate registration before use
