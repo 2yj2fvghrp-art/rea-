@@ -157,3 +157,29 @@ it("rejects cancelled and invalid requests before any provider work", async () =
   expect(result.error._tag).toBe("AnalysisCancelledError");
   expect(f.calls()).toBe(0);
 });
+
+it("retains a completed observation when cancellation arrives at the service boundary", async () => {
+  const f = await fixture();
+  const input = {
+    path: f.path,
+    decoders: "uart",
+    input_format: null,
+    annotations: null,
+  };
+  const execution = await f.service.provider.decode(input);
+  if (!execution.ok) throw execution.error;
+  const service = new SignalRecordingService({
+    decode: async () => {
+      f.controller.abort();
+      return execution;
+    },
+    close: async () => {},
+  });
+  const result = await service.decode(input, { signal: f.controller.signal });
+  if (result.ok) throw new Error("Expected late cancellation");
+  expect(result.error._tag).toBe("AnalysisCancelledError");
+  expect(result.error.partialObservation).toMatchObject({
+    operation: "decode_signal_recording",
+    normalized_result: { annotations_text: "10-20 uart-1: 42\n" },
+  });
+});

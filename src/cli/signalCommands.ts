@@ -19,25 +19,17 @@ export const registerSignalCommands = (
       "Decode an existing signal recording with caller-supplied sigrok",
     args: z.object({ path: z.string().describe("Local signal recording") }),
     options: decodeSignalRecordingInputSchema.omit({ path: true }),
+    // The provider cleans each call before returning, including failed calls.
+    // A second close here could replace a cleanup error carrying partial Evidence.
     run: ({ args, options }) =>
-      withCommandCancellation(async (signal) => {
-        try {
-          return await logCliCommand(
-            logger,
-            CLI_COMMANDS.decodeSignalRecording,
-            async () => {
-              const result = await service.decode(
-                { ...options, path: resolve(args.path) },
-                { signal },
-              );
-              return result.ok
-                ? result.value
-                : projectAnalysisError(result.error);
-            },
+      withCommandCancellation((signal) =>
+        logCliCommand(logger, CLI_COMMANDS.decodeSignalRecording, async () => {
+          const result = await service.decode(
+            { ...options, path: resolve(args.path) },
+            { signal },
           );
-        } finally {
-          await service.close();
-        }
-      }),
+          return result.ok ? result.value : projectAnalysisError(result.error);
+        }),
+      ),
   });
 };

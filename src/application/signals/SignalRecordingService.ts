@@ -19,6 +19,7 @@ import {
 import { err, ok, type Result } from "../../domain/result.js";
 
 export interface SignalRecordingPort {
+  /** Release per-call resources before returning, or retain failed cleanup for close/retry. */
   decode(
     input: DecodeSignalRecordingInput,
     options?: ExecutionOptions,
@@ -58,8 +59,6 @@ export class SignalRecordingService {
       );
     const decoded = await this.provider.decode(input.data, options);
     if (!decoded.ok) return decoded;
-    if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(operation));
     const execution = decoded.value;
     const report = signalRecordingSchema.safeParse(execution.result);
     if (
@@ -75,15 +74,20 @@ export class SignalRecordingService {
           "Decoder returned malformed data or changed the selected recording identity/options.",
         ),
       );
-    return ok(
-      createEvidence(execution.subject, execution.provider, {
-        operation,
-        parameters: input.data,
-        result: report.data,
-        confidence: "observed",
-        locations: execution.locations,
-        limitations: execution.limitations,
-      }),
-    );
+    const evidence = createEvidence(execution.subject, execution.provider, {
+      operation,
+      parameters: input.data,
+      result: report.data,
+      confidence: "observed",
+      locations: execution.locations,
+      limitations: execution.limitations,
+    });
+    return options?.signal?.aborted
+      ? err(
+          new AnalysisCancelledError(operation, {
+            partialObservation: evidence,
+          }),
+        )
+      : ok(evidence);
   }
 }
