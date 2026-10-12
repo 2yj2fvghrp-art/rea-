@@ -3,11 +3,7 @@ import { semanticStaticPropertyKey } from "./javascriptAstValues.js";
 
 /** Read only explicit type-reference attributes; never evaluate an options expression. */
 export const typescriptImportResolutionMode = (
-  node:
-    | t.ImportDeclaration
-    | t.ExportNamedDeclaration
-    | t.ExportAllDeclaration
-    | t.TSImportType,
+  node: t.Node,
 ): "import" | "require" | undefined => {
   if (t.isTSImportType(node)) {
     const attributes = literalProperty(node.options, "with");
@@ -17,6 +13,12 @@ export const typescriptImportResolutionMode = (
       ? mode.value
       : undefined;
   }
+  if (
+    !t.isImportDeclaration(node) &&
+    !t.isExportNamedDeclaration(node) &&
+    !t.isExportAllDeclaration(node)
+  )
+    return undefined;
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
   if (kind !== "type") return undefined;
   const mode = node.attributes?.find(

@@ -230,13 +230,7 @@ const inspectNode = (
   bindings: JavaScriptSemanticAnalysisState,
 ): void => {
   const { source, accumulator } = findings;
-  const resolutionMode =
-    t.isImportDeclaration(node) ||
-    t.isExportAllDeclaration(node) ||
-    t.isExportNamedDeclaration(node) ||
-    t.isTSImportType(node)
-      ? typescriptImportResolutionMode(node)
-      : undefined;
+  const resolutionMode = typescriptImportResolutionMode(node);
   inspectElectronStaticNode(node, findings, resolutionMode);
   if (t.isCallExpression(node)) {
     inspectBundlerBootstrap(source, node, accumulator, bindings);
