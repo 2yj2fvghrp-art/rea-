@@ -42,7 +42,10 @@ with sample-number ranges, and stderr. For example, `1104-1938 uart-1: 52`
 is producer display text over a sample range, not a timestamp or an independently
 verified protocol fact. Text is retained verbatim; it is not parsed as a lossless
 binary payload. Empty output does not establish absence of traffic. Warnings
-remain visible even when sigrok exits zero.
+remain visible even when sigrok exits zero, including `tool.version_diagnostics`
+from the separate version probe. Post-run identity failures name the tool, limiter
+or private copy involved, rather than blaming the admitted source. Resource-signal
+failures retain the signal and effective limits without inferring its exact cause.
 
 REA decodes a private, read-only copy of the recording, verifies that copy and
 the selected executable and resource limiter after decoding, and removes the workspace after owned

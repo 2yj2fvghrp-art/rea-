@@ -1,3 +1,4 @@
+import { OwnedCommandFailure } from "../../../src/process/OwnedCommand.js";
 import { it, expect, onTestFinished } from "vitest";
 import { writeFile, readdir, chmod, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,10 +18,11 @@ const fixture = async (mode = "ok", failCleanup = false) => {
   const script = join(directory, "producer.mjs");
   await writeFile(
     script,
-    `import {readFileSync, writeFileSync, chmodSync} from 'node:fs';
-if (process.argv.includes('--version')) console.log('sigrok-cli 0.7.2\\nlibsigrokdecode 0.5.3');
+    `import {readFileSync, writeFileSync, chmodSync, truncateSync} from 'node:fs';
+if (process.argv.includes('--version')) { console.log('sigrok-cli 0.7.2\\nlibsigrokdecode 0.5.3'); console.error('version warning'); }
 else if (${JSON.stringify(mode)} === 'nonzero') { console.error('invalid decoder'); process.exitCode = 1; }
 else if (${JSON.stringify(mode)} === 'malformed-copy') { chmodSync('recording', 0o600); writeFileSync('recording', 'changed'); }
+else if (${JSON.stringify(mode)} === 'oversized-copy') { chmodSync('recording', 0o600); truncateSync('recording', 32 * 1024 * 1024 + 1); }
 else if (${JSON.stringify(mode)} === 'overflow') process.stdout.write('x'.repeat(5 * 1024 * 1024));
 else if (${JSON.stringify(mode)} === 'wait') { console.log('ready'); setInterval(() => {}, 1000); }
 else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('wrong copy'); console.log('10-20 uart-1: 42'); console.error('producer warning'); }
@@ -41,6 +43,20 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
     },
     async (input) => {
       calls++;
+      if (mode === "file-limit" && !input.arguments.includes("--version")) {
+        const stdout = { text: "", bytes: 0, observedBytes: 0 };
+        const stderr = {
+          text: "before file limit\n",
+          bytes: 18,
+          observedBytes: 18,
+        };
+        throw new OwnedCommandFailure("process", "Synthetic SIGXFSZ snapshot", {
+          stdout,
+          stderr,
+          exitCode: null,
+          signal: "SIGXFSZ",
+        });
+      }
       const spawned = await spawnOwnedProviderProcess({
         ...input,
         command: process.execPath,
@@ -70,10 +86,14 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
     },
     "linux",
     async (...args) => {
+      if (mode === "oversized-tool" && calls === 2 && args[0] === script) {
+        const { truncate } = await import("node:fs/promises");
+        await truncate(script, 64 * 1024 * 1024 + 1);
+      }
       if (mode === "post-run-abort" && calls === 2) controller.abort();
       return readStableArtifact(...args);
     },
-    async (limits) => limits,
+    async (limits) => ({ ...limits, file_bytes: 1048576 }),
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -103,6 +123,7 @@ it("decodes an immutable copy, preserves options and warnings, and releases its 
   const report = signalRecordingSchema.parse(result.value.normalized_result);
   expect(report.annotations_text).toBe("10-20 uart-1: 42\n");
   expect(report.diagnostics).toBe("producer warning\n");
+  expect(report.tool.version_diagnostics).toBe("version warning\n");
   expect(report.selection.input_format).toBeNull();
   expect(report.tool.arguments).toEqual([
     "--dont-scan",
@@ -288,5 +309,37 @@ it("preserves configured symlink paths separately from resolved tool identities"
       configured_path: join(f.directory, "configured-tool"),
       path: join(f.directory, "producer.mjs"),
     },
+  });
+});
+
+it.each(["oversized-copy", "oversized-tool"])(
+  "identifies the mutated %s without blaming the admitted source",
+  async (mode) => {
+    const f = await fixture(mode);
+    const result = await f.service.decode({ path: f.path, decoders: "uart" });
+    if (result.ok) throw new Error("Expected changed artifact");
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisArtifactChangedError",
+      path:
+        mode === "oversized-tool"
+          ? join(f.directory, "producer.mjs")
+          : expect.stringMatching(/decoder-.*[/\\]recording$/u),
+    });
+    expect(
+      (await readdir(f.directory)).filter((name) =>
+        name.startsWith("decoder-"),
+      ),
+    ).toEqual([]);
+  },
+);
+it("preserves termination signal and effective file ceiling as a resource failure", async () => {
+  const f = await fixture("file-limit");
+  const result = await f.service.decode({ path: f.path, decoders: "uart" });
+  if (result.ok) throw new Error("Expected resource failure");
+  expect(result.error).toMatchObject({
+    _tag: "AnalysisResourceConstraintError",
+    resource: "file-size",
+    reportedLimits: { file_bytes: 1048576 },
+    capturedOutput: { signal: "SIGXFSZ", stderr: "before file limit\n" },
   });
 });

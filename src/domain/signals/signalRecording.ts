@@ -44,6 +44,7 @@ export const signalRecordingSchema = z.strictObject({
     path: z.string(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     version_banner: z.string(),
+    version_diagnostics: z.string(),
     arguments: z.array(z.string()),
   }),
   resource_limiter: z.strictObject({

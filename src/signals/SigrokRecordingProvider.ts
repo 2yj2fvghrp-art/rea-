@@ -1,4 +1,7 @@
-import { readLinuxResourceLimits } from "../process/LinuxResourceLimits.js";
+import {
+  readLinuxResourceLimits,
+  type LinuxResourceLimits,
+} from "../process/LinuxResourceLimits.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, realpath, writeFile } from "node:fs/promises";
@@ -11,7 +14,10 @@ import {
 import type { SignalRecordingPort } from "../application/signals/SignalRecordingService.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { readStableArtifact } from "../artifacts/readStableArtifact.js";
-import { AnalysisError } from "../domain/analysisErrorBase.js";
+import {
+  AnalysisError,
+  type AnalysisCapturedOutput,
+} from "../domain/analysisErrorBase.js";
 import {
   AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
@@ -109,8 +115,15 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
     input: DecodeSignalRecordingInput,
     options?: ExecutionOptions,
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
-    let phase: "configuration" | "artifact" | "workspace" | "producer" =
-      "configuration";
+    let phase:
+      | "configuration"
+      | "artifact"
+      | "workspace"
+      | "producer"
+      | "integrity" = "configuration";
+    let capturedOutput: AnalysisCapturedOutput | undefined;
+    let resourcePath = input.path;
+    let effectiveLimits: LinuxResourceLimits | undefined;
     let root: Runtime | undefined;
     let result: Result<AnalysisExecution, AnalysisError>;
     try {
@@ -143,7 +156,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
         64 * 1024 * 1024,
         options?.signal,
       );
-      const effectiveLimits = await this.readLimits(LIMITS);
+      effectiveLimits = await this.readLimits(LIMITS);
       const limitArguments = [
         `--as=${effectiveLimits.address_space_bytes}:${effectiveLimits.address_space_bytes}`,
         `--fsize=${effectiveLimits.file_bytes}:${effectiveLimits.file_bytes}`,
@@ -178,22 +191,39 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
             ...(this.launcher === undefined ? {} : { launcher: this.launcher }),
           },
         );
+        capturedOutput = {
+          stdout: output.stdout.text,
+          stderr: output.stderr.text,
+          truncated: output.diagnosticTruncated ?? false,
+          exit_code: output.exitCode ?? null,
+          signal: output.signal ?? null,
+        };
         // Finish bounded integrity checks after output; service handles late cancellation with Evidence.
+        const previousPhase = phase;
+        phase = "integrity";
+        resourcePath = command;
         const current = await this.readArtifact(command, 64 * 1024 * 1024);
+        resourcePath = limiter;
         const currentLimiter = await this.readArtifact(
           limiter,
           64 * 1024 * 1024,
         );
         if (currentLimiter.sha256 !== limiterIdentity.sha256)
-          throw new AnalysisOutputError(
+          throw new AnalysisArtifactChangedError(
             OPERATION,
+            limiter,
             "Configured resource limiter changed during analysis.",
+            { capturedOutput },
           );
         if (current.sha256 !== tool.sha256)
-          throw new AnalysisOutputError(
+          throw new AnalysisArtifactChangedError(
             OPERATION,
+            command,
             "Configured decoder executable changed during analysis.",
+            { capturedOutput },
           );
+        phase = previousPhase;
+        resourcePath = input.path;
         if (output.exitCode !== 0)
           throw new ProviderAdapterError(
             SIGROK_PROVIDER_IDENTITY.id,
@@ -242,14 +272,17 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           : [`--protocol-decoder-annotations=${input.annotations}`]),
       ];
       const output = await execute(args);
+      phase = "integrity";
+      resourcePath = snapshotPath;
       if (
         (await this.readArtifact(snapshotPath, LIMITS.input_bytes)).sha256 !==
         selected.sha256
       )
         throw new AnalysisArtifactChangedError(
           OPERATION,
-          input.path,
+          snapshotPath,
           "Decoder changed the private recording copy.",
+          (capturedOutput === undefined ? {} : { capturedOutput }),
         );
       const report = signalRecordingSchema.parse({
         artifact: {
@@ -265,6 +298,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           path: command,
           sha256: tool.sha256,
           version_banner: version.stdout.text,
+          version_diagnostics: version.stderr.text,
           arguments: args,
         },
         resource_limiter: {
@@ -299,7 +333,16 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
         cause.cleanupOwner !== undefined
       )
         this.#pending.set(root, cause.cleanupOwner);
-      result = err(this.#failure(cause, phase, input.path, root?.path ?? null));
+      result = err(
+        this.#failure(
+          cause,
+          phase,
+          resourcePath,
+          root?.path ?? null,
+          effectiveLimits,
+          capturedOutput,
+        ),
+      );
     }
     try {
       await this.#release();
@@ -340,9 +383,16 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
   }
   #failure(
     cause: unknown,
-    phase: "configuration" | "artifact" | "workspace" | "producer",
+    phase:
+      | "configuration"
+      | "artifact"
+      | "workspace"
+      | "producer"
+      | "integrity",
     path: string,
     workspacePath: string | null,
+    effectiveLimits: LinuxResourceLimits | undefined,
+    observedOutput: AnalysisCapturedOutput | undefined,
   ): AnalysisError {
     if (cause instanceof AnalysisError) return cause;
     if (
@@ -359,6 +409,8 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
               stdout: cause.snapshot.stdout.text,
               stderr: cause.snapshot.stderr.text,
               truncated: cause.snapshot.diagnosticTruncated ?? false,
+              exit_code: cause.snapshot.exitCode ?? null,
+              signal: cause.snapshot.signal ?? null,
             };
       const detail = {
         cause,
@@ -378,6 +430,18 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           "memory",
           reason,
           { output_bytes: LIMITS.output_bytes },
+          detail,
+        );
+      if (
+        cause.reason === "process" &&
+        (cause.snapshot?.signal === "SIGXFSZ" ||
+          cause.snapshot?.signal === "SIGXCPU")
+      )
+        return new AnalysisResourceConstraintError(
+          OPERATION,
+          cause.snapshot.signal === "SIGXFSZ" ? "file-size" : "cpu",
+          `Producer terminated with ${cause.snapshot.signal}; the signal's exact cause is not independently established.`,
+          effectiveLimits === undefined ? null : { ...effectiveLimits },
           detail,
         );
       return new AnalysisOutputError(OPERATION, reason, detail);
@@ -408,6 +472,28 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
         },
       });
     }
+    if (phase === "integrity") {
+      const detail = {
+        cause,
+        ...(observedOutput === undefined
+          ? {}
+          : { capturedOutput: observedOutput }),
+      };
+      if (
+        cause instanceof ArtifactReaderFailure &&
+        ["limit", "integrity", "path"].includes(cause.reason)
+      )
+        return new AnalysisArtifactChangedError(
+          OPERATION,
+          path,
+          `Post-run identity verification failed for ${path}: ${reason}`,
+          detail,
+        );
+      return new ProviderAdapterError(SIGROK_PROVIDER_IDENTITY.id, OPERATION, {
+        ...detail,
+        diagnostics: { stage: "integrity", resource_path: path, reason },
+      });
+    }
     if (phase === "configuration")
       return new AnalysisCapabilityUnavailableError(
         SIGROK_PROVIDER_IDENTITY.id,
@@ -418,7 +504,11 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           userMessage: `${reason} On Linux, configure sigrok-cli 0.7.2 through REA_SIGROK_COMMAND and util-linux prlimit through REA_SIGROK_PRLIMIT_COMMAND (default /usr/bin/prlimit).`,
         },
       );
-    if (cause instanceof ArtifactReaderFailure && cause.reason === "limit")
+    if (
+      phase === "artifact" &&
+      cause instanceof ArtifactReaderFailure &&
+      cause.reason === "limit"
+    )
       return new AnalysisResourceConstraintError(
         OPERATION,
         "file-size",
