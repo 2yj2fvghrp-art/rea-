@@ -88,11 +88,21 @@ interface IdaOperationFailureContext {
   parameters: Readonly<Record<string, JsonValue>>;
 }
 
+/** Upstream session ids of inventory entries, omitting unreported ones. */
+const sessionIds = (
+  entries: readonly { readonly session_id: string }[],
+): readonly string[] =>
+  entries.map(({ session_id }) => session_id).filter((id) => id.length > 0);
+
 /** A failed cleanup retains its private workspace and reports the remaining resource. */
 class IdaCleanupError extends ProviderAdapterError {
   override readonly cleanupIncomplete = true;
   override readonly cleanupResources: readonly string[];
-  constructor(path: string, cause: unknown, workerSession?: string) {
+  constructor(
+    path: string,
+    cause: unknown,
+    workerSessions?: readonly string[],
+  ) {
     super("ida", "close", {
       cause,
       diagnostics: {
@@ -100,14 +110,14 @@ class IdaCleanupError extends ProviderAdapterError {
           "IDA cleanup could not be verified; the remaining connection or private workspace is retained for retry.",
         failure_reason: cause instanceof Error ? cause.message : String(cause),
         workspace: path,
-        ...(workerSession === undefined
+        ...(workerSessions === undefined
           ? {}
           : {
               upstream_worker: {
-                session_id: workerSession,
+                session_ids: [...workerSessions],
                 state: "unverified",
                 reason:
-                  "Release of the owned headless worker was not confirmed. Upstream workers outlive their supervisor, so it may still be running until it finishes and reaches its idle timeout; exiting REA does not stop it.",
+                  "Release of the headless worker using the private input was not confirmed. Upstream workers outlive their supervisor, so it may still be running until it finishes and reaches its idle timeout; exiting REA does not stop it. An empty list means upstream reported no session id.",
               },
             }),
       },
@@ -128,6 +138,7 @@ export class IdaSessionClient implements AnalysisClient {
   #databaseCloseCompleted = false;
   #openAttempted = false;
   #openCompleted = false;
+  #blockingWorkers: readonly string[] | undefined;
   #callGraphAdvertised = false;
   #initialIdentity: string | undefined;
   #metadata: JsonValue = null;
@@ -553,9 +564,15 @@ export class IdaSessionClient implements AnalysisClient {
     return shared;
   }
 
-  /** The private worker session whose release cleanup has not yet confirmed. */
-  #unreleasedWorkerSession(): string | undefined {
-    return this.#openAttempted ? this.#workspace?.sessionId : undefined;
+  /**
+   * Worker sessions whose release cleanup has not confirmed: the inventory
+   * entries that blocked release, else the requested private session.
+   */
+  #unreleasedWorkerSessions(): readonly string[] | undefined {
+    if (this.#blockingWorkers !== undefined) return this.#blockingWorkers;
+    return this.#openAttempted && this.#workspace !== undefined
+      ? [this.#workspace.sessionId]
+      : undefined;
   }
 
   async #closeDatabase(database: string): Promise<void> {
@@ -584,6 +601,7 @@ export class IdaSessionClient implements AnalysisClient {
     this.#closing = true;
     await this.#tail;
     if (this.#closed) return ok(null);
+    this.#blockingWorkers = undefined;
     try {
       if (this.#workspace !== undefined && this.#openAttempted) {
         if (this.#database === undefined) {
@@ -598,15 +616,18 @@ export class IdaSessionClient implements AnalysisClient {
               entry.session_id === workspace.sessionId &&
               sameIdaHostPath(entry.input_path, workspace.inputPath),
           )?.session_id;
-          if (
-            this.#database === undefined &&
-            inventory.sessions.some((entry) =>
-              sameIdaHostPath(entry.input_path, workspace.inputPath),
-            )
-          )
+          const peers =
+            this.#database === undefined
+              ? inventory.sessions.filter((entry) =>
+                  sameIdaHostPath(entry.input_path, workspace.inputPath),
+                )
+              : [];
+          if (peers.length > 0) {
+            this.#blockingWorkers = sessionIds(peers);
             throw new AnalysisProtocolError(
               "An unowned worker still uses the private workspace; it was retained.",
             );
+          }
         }
         if (this.#database !== undefined) {
           if (!this.#databaseCloseCompleted) {
@@ -616,19 +637,20 @@ export class IdaSessionClient implements AnalysisClient {
           const inventory = databaseListSchema.parse(
             await this.connection.call("idb_list", {}),
           );
-          if (
-            inventory.sessions.some(
-              (entry) =>
-                entry.session_id === this.#database ||
-                sameIdaHostPath(
-                  entry.input_path,
-                  this.#workspace?.inputPath ?? "",
-                ),
-            )
-          )
+          const remaining = inventory.sessions.filter(
+            (entry) =>
+              entry.session_id === this.#database ||
+              sameIdaHostPath(
+                entry.input_path,
+                this.#workspace?.inputPath ?? "",
+              ),
+          );
+          if (remaining.length > 0) {
+            this.#blockingWorkers = sessionIds(remaining);
             throw new AnalysisProtocolError(
               "IDA worker remains registered after close.",
             );
+          }
           this.#database = undefined;
         }
         if (!this.#openCompleted)
@@ -647,7 +669,7 @@ export class IdaSessionClient implements AnalysisClient {
         new IdaCleanupError(
           this.#workspace?.directory ?? "IDA MCP connection",
           cause,
-          this.#unreleasedWorkerSession(),
+          this.#unreleasedWorkerSessions(),
         ),
       );
     }

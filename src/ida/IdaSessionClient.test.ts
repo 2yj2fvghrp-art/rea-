@@ -792,10 +792,18 @@ describe("headless IDA session ownership and cleanup", () => {
   it("retains the private workspace and reports cleanup failure when worker release is unverified", async () => {
     const { producer, client, root } = await fixture("headless");
     await client.execute("health", {});
+    const sessionId = producer.database;
     producer.failClose = true;
     const result = await client.close();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_worker: { session_ids: [sessionId], state: "unverified" },
+        },
+      },
+    });
     expect(
       (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
     ).toBe(true);
@@ -843,6 +851,14 @@ describe("headless IDA reaped worker cleanup", () => {
     const result = await client.close();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+    // The released session must not be named as the remaining worker.
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_worker: { session_ids: ["unrelated-live-peer"] },
+        },
+      },
+    });
     expect(producer.closes).toBe(0);
     expect(
       (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
