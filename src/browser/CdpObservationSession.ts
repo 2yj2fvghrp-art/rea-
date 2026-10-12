@@ -20,6 +20,8 @@ import {
 import { mainFrameUrl } from "./CdpCaptureDocuments.js";
 import { isMainFrameNavigation } from "./CdpCaptureEventHelpers.js";
 import { cdpTargetEventMatches } from "./CdpTargetEvents.js";
+import { CdpSessionNetwork, type SessionTarget } from "./CdpSessionNetwork.js";
+import { sessionResult } from "./CdpSessionResult.js";
 
 interface ObservationContext {
   readonly connection: CdpConnection;
@@ -58,9 +60,18 @@ export const observeCdpSession = async (
   const mainFrameId = frameId(initial);
   if (mainFrameId === undefined)
     throw new BrowserObservationError("inspect_web_page", "protocol_error");
-  const capture = new TimelineCapture(allowedOrigins, mainFrameId, initialUrl);
+  const { capture, network, completeness, limitations } = sessionRecorders(
+    context,
+    allowedOrigins,
+    mainFrameId,
+    initialUrl,
+  );
   const removeListener = context.connection.onEvent((event) => {
     if (cdpTargetEventMatches(event, context.sessionId)) capture.ingest(event);
+    // The event that ends the timeline (an out-of-scope document redirect)
+    // still completes its in-scope hop; recording stops right after it.
+    network?.ingest(event);
+    if (capture.ended) network?.stop();
   });
   const removeDisconnectListener = context.connection.onDisconnect(() =>
     capture.targetTerminated(),
@@ -78,6 +89,8 @@ export const observeCdpSession = async (
       context.sessionId,
       context.signal,
     );
+    // CDP reports only requests that start after it processed Network.enable.
+    const coverageStartedAt = new Date();
     await context.connection.send(
       "Page.setLifecycleEventsEnabled",
       { enabled: true },
@@ -97,6 +110,7 @@ export const observeCdpSession = async (
       capture,
       context.signal,
     );
+    network?.stop();
     if (endReason === "window_elapsed")
       endReason = await captureFinalUrl(context, capture, allowedOrigins);
     await context.progress?.report({
@@ -106,36 +120,74 @@ export const observeCdpSession = async (
       message: "Browser observation window ended",
       terminal: true,
     });
-    return {
+    return sessionResult({
       browser: context.discovery.version,
-      target: {
-        target_id: context.target.id,
-        initial_url: allowedSanitizedUrl(initialUrl, allowedOrigins)?.url ?? "",
-        final_url: capture.finalUrl,
-      },
+      targetId: context.target.id,
+      capture,
+      network,
+      completeness,
+      limitations,
       window: {
         armed_at: armedAt,
         ended_at: new Date().toISOString(),
         requested_ms: context.input.observation_ms,
         end_reason: endReason,
       },
-      timeline: capture.timeline,
-      completeness: capture.completeness.snapshot(),
-      limitations: [
-        "The timeline begins after REA attaches; earlier navigation and network activity is unavailable.",
-        "Only navigation metadata is retained; headers, bodies, cookies, console values, and payloads are not captured by this tool.",
-        "An out-of-policy destination ends collection immediately and is recorded without its URL.",
-      ],
-    };
+      coverageStartedAt,
+    });
   } finally {
     removeListener();
     removeDisconnectListener();
   }
 };
 
+/** Create the timeline and, when requested, the page's network recorder. */
+const sessionRecorders = (
+  context: ObservationContext,
+  allowedOrigins: ReadonlySet<string>,
+  mainFrameId: string,
+  initialUrl: string,
+) => {
+  const options = context.input.network;
+  const completeness = new CdpCaptureCompleteness(
+    options === undefined
+      ? ["timeline"]
+      : [
+          "timeline",
+          "network_requests",
+          "websocket_connections",
+          "websocket_frames",
+        ],
+  );
+  const capture = new TimelineCapture(
+    allowedOrigins,
+    mainFrameId,
+    initialUrl,
+    completeness,
+  );
+  const limitations: string[] = [];
+  const network =
+    options === undefined
+      ? undefined
+      : new CdpSessionNetwork({
+          options,
+          allowedOrigins,
+          completeness,
+          limitations,
+        });
+  const page: SessionTarget = {
+    target_id: context.target.id,
+    type: "page",
+    url: capture.initialUrl,
+    sessionId: context.sessionId,
+  };
+  network?.register(page);
+  return { capture, network, completeness, limitations };
+};
+
 class TimelineCapture {
   readonly timeline: TimelineEvent[] = [];
-  readonly completeness = new CdpCaptureCompleteness(["timeline"]);
+  readonly initialUrl: string | null;
   finalUrl: string | null;
   #sequence = 0;
   #pendingReload = false;
@@ -146,9 +198,15 @@ class TimelineCapture {
     private readonly allowedOrigins: ReadonlySet<string>,
     private readonly mainFrameId: string,
     initialUrl: string,
+    readonly completeness: CdpCaptureCompleteness,
   ) {
-    this.finalUrl =
+    this.initialUrl =
       allowedSanitizedUrl(initialUrl, allowedOrigins)?.url ?? null;
+    this.finalUrl = this.initialUrl;
+  }
+
+  get ended(): boolean {
+    return this.#endReason !== undefined;
   }
 
   ingest(event: CdpEvent): void {

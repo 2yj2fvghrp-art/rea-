@@ -6,6 +6,20 @@ import {
 } from "./browserObservation.js";
 import { browserCompletenessSchema } from "./browserCompleteness.js";
 import { browserVersionSchema } from "./browserObservationSchemas.js";
+import { jsonValueSchema } from "./jsonValue.js";
+
+const observeWebSessionNetworkSchema = z
+  .strictObject({
+    header_values: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Retain request and response headers; transport credentials are always omitted.",
+      ),
+  })
+  .describe(
+    "Record in-scope HTTP and WebSocket traffic from the selected page as one HAR 1.2 log. Omit to retain navigation metadata only.",
+  );
 
 /** Input for a navigation-aware browser observation window. */
 export const observeWebSessionInputSchema = z.strictObject({
@@ -13,6 +27,7 @@ export const observeWebSessionInputSchema = z.strictObject({
   allowed_origins: browserAllowedOriginsSchema,
   target_id: z.string().trim().min(1),
   observation_ms: z.number().int().min(1).default(10_000),
+  network: observeWebSessionNetworkSchema.optional(),
 });
 export type ObserveWebSessionInput = z.infer<
   typeof observeWebSessionInputSchema
@@ -41,6 +56,55 @@ const timelineEventSchema = z.object({
   detail: z.string().nullable(),
 });
 
+const harObjectSchema = z.record(z.string(), jsonValueSchema);
+
+/** HAR 1.2 network evidence recorded during one observation window. */
+export const webSessionNetworkSchema = z.object({
+  har: z.object({
+    log: z.object({
+      version: z.literal("1.2"),
+      creator: z.object({ name: z.string(), version: z.string() }),
+      browser: z.object({ name: z.string(), version: z.string() }),
+      entries: z.array(harObjectSchema),
+    }),
+  }),
+  har_bytes: z
+    .number()
+    .int()
+    .min(0)
+    .describe("UTF-8 bytes of the compact JSON serialization of har."),
+  targets: z
+    .array(
+      z.object({
+        target_id: z.string(),
+        type: z.enum(["page"]),
+        url: z.string().nullable(),
+      }),
+    )
+    .describe(
+      "Observed targets; HAR entries reference them by _rea_target_id.",
+    ),
+  redactions: z.object({
+    transport_credential_headers: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        "Authorization, Proxy-Authorization, Cookie and Set-Cookie headers omitted, plus URL-valued headers whose userinfo was removed.",
+      ),
+    out_of_scope_url_headers: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        "URL-valued headers (Location, Content-Location, Referer, Origin, Link, Refresh) omitted because a target was outside the selected origins or could not be parsed.",
+      ),
+  }),
+  coverage_started_at: z.iso.datetime(),
+  prior_activity_available: z.literal(false),
+});
+export type WebSessionNetwork = z.infer<typeof webSessionNetworkSchema>;
+
 /** Navigation-aware session result for external user actions. */
 export const webObservationSessionSchema = z.object({
   browser: browserVersionSchema,
@@ -60,6 +124,9 @@ export const webObservationSessionSchema = z.object({
     ]),
   }),
   timeline: z.array(timelineEventSchema),
+  network: webSessionNetworkSchema
+    .optional()
+    .describe("Present only when network capture was requested."),
   completeness: browserCompletenessSchema,
   limitations: z.array(z.string()),
 });

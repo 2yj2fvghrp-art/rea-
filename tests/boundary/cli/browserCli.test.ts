@@ -284,6 +284,136 @@ describe("browser CLI capture parity", () => {
   );
 });
 
+it(
+  "maps observe-web-session network flags onto HAR evidence",
+  async () => {
+    const browser = await startFakeCdpBrowser({
+      commandEvents: ({ method, sessionId }, origin) =>
+        method === "Network.enable" && sessionId === "session-1"
+          ? [
+              {
+                method: "Network.requestWillBeSent",
+                sessionId,
+                params: {
+                  requestId: "cli-request",
+                  type: "Fetch",
+                  wallTime: Date.now() / 1_000,
+                  timestamp: 1,
+                  request: {
+                    url: `${origin}/api?device_id=cli-device`,
+                    method: "GET",
+                    headers: { "X-Fingerprint": "FP456" },
+                  },
+                },
+              },
+              {
+                method: "Network.responseReceived",
+                sessionId,
+                params: {
+                  requestId: "cli-request",
+                  timestamp: 1.5,
+                  response: {
+                    status: 200,
+                    statusText: "OK",
+                    mimeType: "application/json",
+                    protocol: "h2",
+                    headers: {
+                      "X-Served-By": "cli-edge",
+                      "Content-Location": "https://elsewhere.example.test/doc",
+                    },
+                  },
+                },
+              },
+            ]
+          : undefined,
+    });
+    browsers.push(browser);
+    const session = [
+      "observe-web-session",
+      browser.endpoint,
+      "allowed-page",
+      "--allowed-origins",
+      browser.allowedOrigin,
+      "--observation-ms",
+      "100",
+      "--json",
+    ];
+
+    const recorded = await runCli([...session, "--header-values"], process.env);
+
+    expect(recorded).toMatchObject({
+      operation: "observe_web_session",
+      parameters: {
+        network: { header_values: true },
+      },
+      normalized_result: {
+        network: {
+          har: {
+            log: {
+              version: "1.2",
+              entries: [
+                expect.objectContaining({
+                  _rea_target_id: "allowed-page",
+                  request: expect.objectContaining({
+                    headers: [{ name: "X-Fingerprint", value: "FP456" }],
+                  }),
+                  response: expect.objectContaining({
+                    headers: [{ name: "X-Served-By", value: "cli-edge" }],
+                  }),
+                }),
+              ],
+            },
+          },
+          redactions: {
+            transport_credential_headers: 0,
+            out_of_scope_url_headers: 1,
+          },
+        },
+      },
+    });
+
+    // --network alone records the traffic but leaves every header out.
+    const withoutHeaders = await runCli([...session, "--network"], process.env);
+    expect(withoutHeaders).toMatchObject({
+      parameters: { network: { header_values: false } },
+      normalized_result: {
+        network: {
+          har: {
+            log: {
+              entries: [
+                expect.objectContaining({
+                  request: expect.objectContaining({ headers: [] }),
+                  response: expect.objectContaining({ headers: [] }),
+                }),
+              ],
+            },
+          },
+          redactions: {
+            transport_credential_headers: 0,
+            out_of_scope_url_headers: 0,
+          },
+        },
+      },
+    });
+
+    const navigationOnly = await runCli(session, process.env);
+    expect(navigationOnly).toMatchObject({
+      normalized_result: { window: { end_reason: "window_elapsed" } },
+    });
+    expect(
+      isRecord(navigationOnly) && isRecord(navigationOnly.parameters)
+        ? navigationOnly.parameters.network
+        : "missing",
+    ).toBeUndefined();
+    expect(
+      isRecord(navigationOnly) && isRecord(navigationOnly.normalized_result)
+        ? navigationOnly.normalized_result.network
+        : "missing",
+    ).toBeUndefined();
+  },
+  INTEGRATION_TEST_TIMEOUT_MS,
+);
+
 const screenshotArtifact = (value: unknown): Record<string, unknown> => {
   if (
     !isRecord(value) ||

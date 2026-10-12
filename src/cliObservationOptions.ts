@@ -19,6 +19,18 @@ export const browserScopeOptions = {
     .describe("Optional exact-origin filter"),
 };
 
+/** Opt-in HAR network evidence for observe-web-session; header capture enables it. */
+export const sessionNetworkOptions = {
+  network: z
+    .boolean()
+    .default(false)
+    .describe("Record in-scope network traffic as a HAR 1.2 log"),
+  headerValues: z
+    .boolean()
+    .default(false)
+    .describe("Retain headers other than transport credentials"),
+};
+
 export const browserPageInspectionOptions = z.object({
   ...browserScopeOptions,
   observationMs: observationDuration(500),

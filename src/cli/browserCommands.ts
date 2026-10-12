@@ -21,6 +21,7 @@ import {
   browserPageInspectionOptions,
   browserScopeOptions,
   observationDuration,
+  sessionNetworkOptions,
 } from "../cliObservationOptions.js";
 
 /** Register CLI equivalents of the passive browser MCP tools. */
@@ -141,7 +142,8 @@ const registerObservationSession = (
   logger: Logger,
 ): void => {
   cli.command(CLI_COMMANDS.observeWebSession, {
-    description: "Observe user-driven page navigation during a chosen window",
+    description:
+      "Observe user-driven page navigation during a chosen window, optionally recording in-scope network traffic as HAR",
     args: z.object({
       endpoint: z.string().describe("Configured loopback CDP HTTP endpoint"),
       targetId: z.string().describe("Target ID from list-browser-targets"),
@@ -149,15 +151,22 @@ const registerObservationSession = (
     options: z.object({
       ...browserScopeOptions,
       observationMs: observationDuration(10_000, 1),
+      ...sessionNetworkOptions,
     }),
     run: ({ args, options }) =>
       logCliCommand(logger, "observe-web-session", async () => {
         const context = browserContext();
+        const network = options.network || options.headerValues;
         const parsed = observeWebSessionInputSchema.safeParse({
           cdp_endpoint: args.endpoint,
           allowed_origins: options.allowedOrigins,
           target_id: args.targetId,
           observation_ms: options.observationMs,
+          ...(network
+            ? {
+                network: { header_values: options.headerValues },
+              }
+            : {}),
         });
         if (!parsed.success)
           return browserCliError(new AnalysisInputError("observe_web_session"));

@@ -449,6 +449,82 @@ it("does not attach to a target outside the request's allowed origin scope", asy
   expect(browser.commands).toHaveLength(0);
 });
 
+it("records observe_web_session traffic as HAR Evidence", async () => {
+  const browser = await startFakeCdpBrowser({
+    commandEvents: ({ method, sessionId }, origin) =>
+      method === "Network.enable" && sessionId === "session-1"
+        ? [
+            {
+              method: "Network.requestWillBeSent",
+              sessionId,
+              params: {
+                requestId: "mcp-request",
+                type: "Fetch",
+                wallTime: Date.now() / 1_000,
+                timestamp: 1,
+                request: {
+                  url: `${origin}/api`,
+                  method: "POST",
+                  headers: {
+                    Authorization: "Bearer mcp-token",
+                    "X-Fingerprint": "FP456",
+                  },
+                  postData: "fingerprint=FP456",
+                },
+              },
+            },
+          ]
+        : undefined,
+  });
+  browsers.push(browser);
+  const connected = await connectBrowser();
+  const { tools } = await connected.client.listTools();
+  // Workers and out-of-process iframes are separate targets REA does not attach.
+  expect(
+    tools.find(({ name }) => name === "observe_web_session")?.description,
+  ).toContain(
+    "from the selected page, not its workers or out-of-process iframes,",
+  );
+
+  const result = await connected.client.callTool({
+    name: "observe_web_session",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      allowed_origins: [browser.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 50,
+      network: { header_values: true },
+    },
+  });
+
+  expect(result.isError).not.toBe(true);
+  const evidence = evidenceFor(result.structuredContent);
+  expect(evidence.parameters).toMatchObject({
+    network: { header_values: true },
+  });
+  expect(result.structuredContent).toMatchObject({
+    normalized_result: {
+      network: {
+        har: {
+          log: {
+            entries: [
+              expect.objectContaining({
+                request: expect.objectContaining({
+                  headers: [{ name: "X-Fingerprint", value: "FP456" }],
+                  bodySize: -1,
+                }),
+              }),
+            ],
+          },
+        },
+        redactions: { transport_credential_headers: 1 },
+      },
+    },
+  });
+  const serialized = JSON.stringify(result);
+  expect(serialized).not.toContain("mcp-token");
+});
+
 it("projects legal oversized PNG dimensions as a memory constraint", async () => {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(0x7fffffff, 0);

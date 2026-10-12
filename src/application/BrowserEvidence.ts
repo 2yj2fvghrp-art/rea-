@@ -162,6 +162,9 @@ const browserParameters = (
     ...("fetch_source_maps" in input
       ? { fetch_source_maps: input.fetch_source_maps }
       : {}),
+    ...("network" in input && input.network !== undefined
+      ? { network: input.network }
+      : {}),
   };
 };
 

@@ -13,7 +13,7 @@ REA can attach to a user-owned Chrome-family browser through the Chrome DevTools
 - `list_browser_targets` / `rea list-browser-targets` discovers all eligible page targets at the endpoint by default, with an optional exact-origin filter.
 - `inspect_web_page` / `rea inspect-web-page` captures DOM structure, accessibility nodes, scripts, resources, safe response/DOM metadata, attach-window network and console metadata, WebSocket frame sizes, workers, quota, and optionally selected storage key names, redacted storage-content fingerprints, or script sources.
 - `analyze_web_bundle` / `rea analyze-web-bundle` parses selected script artifacts without execution and derives chunk edges, route and endpoint candidates, vendor fingerprints, static WebMCP declarations, and optionally source-map/original-source evidence.
-- `observe_web_session` / `rea observe-web-session` arms an observation window of the requested duration for an external user action and records ordered reload, SPA navigation, redirect, failure, lifecycle, and target-termination metadata.
+- `observe_web_session` / `rea observe-web-session` arms an observation window of the requested duration for an external user action and records ordered reload, SPA navigation, redirect, failure, lifecycle, and target-termination metadata. When selected, it also [records the session's in-scope traffic as HAR](#record-session-traffic-as-har).
 - `discover_webmcp_tools` / `rea discover-webmcp-tools` uses the experimental CDP WebMCP domain to return every in-scope registration and its complete observed `input_schema` declaration and canonical `input_schema_sha256` digest inline. Declarations are untrusted JSON data, including declared types, required fields, enums, examples and reference URLs. REA does not resolve schema references. These fields replace `input_schema_shape`. Registrations with the same name and URL in distinct observed frames retain separate identities. `tool_key` includes the observed frame ID; it is not a stable identity across navigation or browser sessions. Same-frame registration updates replace that owner only, and removal leaves other owners intact. REA never exposes `WebMCP.invokeTool`; malformed protocol payloads fail explicitly instead of returning incomplete tool metadata.
 - `compare_web_captures` / `rea compare-web-captures` compares passive captures or exact-step-aligned browser scenarios. Scenario results commit reproducible literal normalization and expose alignment failures plus artifact-level action, screenshot, DOM, accessibility, URL, history, storage, and event differences. Missing or truncated evidence is never treated as equivalence.
 - `capture_web_screenshot` / `rea capture-web-screenshot` returns a content-addressed visible-viewport PNG.
@@ -141,6 +141,75 @@ Screenshot capture returns the complete visible viewport as an inline image arti
 rea capture-web-screenshot http://127.0.0.1:9222 TARGET_ID \
   --json
 ```
+
+## Record session traffic as HAR
+
+`observe_web_session` can also record the in-scope HTTP and WebSocket traffic of
+a user-driven flow, across main-frame navigations, as one HAR 1.2 log in
+`normalized_result.network.har`. Select it with the MCP `network` object or any
+CLI network flag; without one the tool retains navigation metadata only. Export
+the log and inspect it offline with
+[`inspect_web_network_capture`](web-network-captures.md):
+
+```bash
+rea observe-web-session http://127.0.0.1:9222 TARGET_ID \
+  --allowed-origins https://app.example.test \
+  --allowed-origins https://api.example.test \
+  --observation-ms 30000 \
+  --network --header-values \
+  --json > session.json
+jq -c '.normalized_result.network.har' session.json > session.har
+rea inspect-web-network-capture "$PWD/session.har" har --json
+```
+
+Select `header_values` (`--header-values`) to retain request and response
+headers except `Authorization`, `Proxy-Authorization`, `Cookie` and
+`Set-Cookie`; otherwise header arrays are empty. Request and response bodies and
+WebSocket payloads are not retained: a request that carried a body has
+`bodySize` `-1`, responses report their decoded size, and WebSocket frames keep
+direction, opcode, time and byte size. HAR cookie arrays are always empty, and
+transport credential headers are never retained; their count is reported in
+`redactions.transport_credential_headers`. URL-valued headers (`Location`,
+`Content-Location`, `Referer`, `Origin`, `Link` and `Refresh`) follow the request
+scope: one that points outside the selected origins, or whose target cannot be
+parsed, is omitted and counted in `redactions.out_of_scope_url_headers`, and
+userinfo in a retained one, including a scheme-relative `//user:pass@host`
+target, is removed and counted with the transport credentials. A header whose
+userinfo cannot be cut out leaving the same target URL is omitted instead, and
+so is one that REA's transport-URL parser reads as ambiguous, such as
+`http:user:pass@host/` without `//`.
+`Link` follows RFC 8288: its `anchor` parameter is a URL scoped and stripped
+like a `<target>`, and a `<` or `>` outside a quoted-string, an unterminated
+target or quoted-string, or an `anchor` value that is not a token or a
+quoted-string without quoted-pairs makes it unparseable. `Refresh` targets
+follow the HTML declarative refresh syntax, with or without `url=`; a delay
+alone is kept. Chromium ends a quoted `Refresh` URL at its last matching quote
+rather than the first, so a value with that quote again after its closing
+quote is unparseable. Timings follow HAR 1.2: `send`, `wait`
+and `receive` are non-negative and `time` is their sum; a phase REA did not
+observe is `0`, and a response still loading when recording stopped says so in
+its entry comment. Query values and other retained text are kept verbatim, so
+treat the HAR as sensitive local evidence.
+
+**Scope.** Requests and WebSocket handshakes use the same origin boundary as the
+timeline. Out-of-scope requests, sockets and their frames are excluded and
+counted in `completeness.excluded`. A redirect to an excluded origin keeps the
+in-scope hop with an empty `redirectURL` and an entry comment. Recording stops
+when the window elapses or the timeline ends, whichever is first. Chrome runs
+out-of-process cross-site iframes and the page's dedicated, shared and service
+workers as separate targets. REA does not attach them, so their traffic is not
+recorded even when their origin is selected, and a dedicated worker's script
+request can appear without its response; a limitation says so.
+
+**Coverage.** Request and frame metadata are not capped, and `har_bytes`
+reports the log's serialized size. REA does not check it against
+`inspect_web_network_capture`'s 32 MiB input budget or 96 MiB decoder reply
+limit. The decoder's reply is several times the log's size, about five times
+for a log dominated by WebSocket frames, so a log can exceed the reply limit
+well below 32 MiB. Coverage starts at
+`coverage_started_at`, after REA attaches, and `prior_activity_available` is
+always `false`. Frames on sockets opened earlier have no URL to authorize and are
+excluded as `unattributed_origin`.
 
 ## MCP input
 
