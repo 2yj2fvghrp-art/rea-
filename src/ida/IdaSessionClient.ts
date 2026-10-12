@@ -77,7 +77,7 @@ const wasCancelled = (options: ExecutionOptions | undefined): boolean =>
 class IdaCleanupError extends ProviderAdapterError {
   override readonly cleanupIncomplete = true;
   override readonly cleanupResources: readonly string[];
-  constructor(path: string, cause: unknown) {
+  constructor(path: string, cause: unknown, workerSession?: string) {
     super("ida", "close", {
       cause,
       diagnostics: {
@@ -85,6 +85,16 @@ class IdaCleanupError extends ProviderAdapterError {
           "IDA cleanup could not be verified; the remaining connection or private workspace is retained for retry.",
         failure_reason: cause instanceof Error ? cause.message : String(cause),
         workspace: path,
+        ...(workerSession === undefined
+          ? {}
+          : {
+              upstream_worker: {
+                session_id: workerSession,
+                state: "unverified",
+                reason:
+                  "Release of the owned headless worker was not confirmed. Upstream workers outlive their supervisor, so it may still be running until it finishes and reaches its idle timeout; exiting REA does not stop it.",
+              },
+            }),
       },
     });
     this.cleanupResources = [path];
@@ -406,6 +416,11 @@ export class IdaSessionClient implements AnalysisClient {
     return shared;
   }
 
+  /** The private worker session whose release cleanup has not yet confirmed. */
+  #unreleasedWorkerSession(): string | undefined {
+    return this.#openAttempted ? this.#workspace?.sessionId : undefined;
+  }
+
   async #closeOnce(): Promise<Result<null, AnalysisError>> {
     this.#closing = true;
     await this.#tail;
@@ -487,6 +502,7 @@ export class IdaSessionClient implements AnalysisClient {
         new IdaCleanupError(
           this.#workspace?.directory ?? "IDA MCP connection",
           cause,
+          this.#unreleasedWorkerSession(),
         ),
       );
     }

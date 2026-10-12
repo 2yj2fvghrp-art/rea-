@@ -68,6 +68,16 @@ describe("headless IDA timeout through the one-shot CLI", () => {
           provider_id: "ida",
           cleanup: "incomplete",
           resources: [expect.stringContaining(workspaceRoot)],
+          cleanup_error: {
+            details: {
+              diagnostics: {
+                upstream_worker: {
+                  session_id: expect.stringMatching(/^rea-/),
+                  state: "unverified",
+                },
+              },
+            },
+          },
         },
       });
     },

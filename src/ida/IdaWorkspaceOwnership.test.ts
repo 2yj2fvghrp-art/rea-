@@ -98,6 +98,10 @@ describe("IDA workspace ownership before input preparation", () => {
           expect(closed.error.cleanupResources).toEqual([
             expect.stringContaining(workspace ?? "missing workspace"),
           ]);
+          // No open was attempted, so there is no worker to report.
+          expect(closed.error).not.toHaveProperty(
+            "diagnostics.upstream_worker",
+          );
         }
         expect(producer.detaches).toBe(1);
       } finally {
