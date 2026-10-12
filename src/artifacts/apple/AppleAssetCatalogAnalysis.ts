@@ -5,7 +5,10 @@ import {
   ArtifactReaderFailure,
   sameArtifactSourceIdentity,
 } from "../ArtifactReader.js";
-import { analyzeInterfaceBuilderBundle } from "./InterfaceBuilderAnalysis.js";
+import {
+  analyzeInterfaceBuilderBundle,
+  NIB_VALUES_ATTRIBUTE,
+} from "./InterfaceBuilderAnalysis.js";
 import {
   appleAssetCatalogInputSchema,
   parseAppleAssetCatalogRecords,
@@ -187,6 +190,26 @@ const inspectAssetCatalogEntry = async (input: {
   }
 };
 
+/**
+ * The decoded archive fields of one Interface Builder node. The keyed-archive
+ * parser flattens an object's fields onto the node, while the NIBArchive
+ * projection groups them under `nibValues` beside the class, label and ID it
+ * derives from the same archive.
+ */
+const decodedArchiveFields = (
+  attributes: Readonly<Record<string, unknown>>,
+): readonly (readonly [string, unknown])[] => {
+  const nested = attributes[NIB_VALUES_ATTRIBUTE];
+  return [
+    ...Object.entries(attributes).filter(
+      ([field]) => field !== NIB_VALUES_ATTRIBUTE,
+    ),
+    ...(typeof nested === "object" && nested !== null && !Array.isArray(nested)
+      ? Object.entries(nested)
+      : []),
+  ];
+};
+
 /** Return only explicit image or asset fields from decoded resource objects. */
 export const collectInterfaceBuilderResourceKeys = (
   nodes: readonly {
@@ -207,7 +230,7 @@ export const collectInterfaceBuilderResourceKeys = (
     const sourcePath = source?.artifact_path;
     const sourceArchiveSha256 = source?.artifact_sha256;
     if (sourcePath == null || sourceArchiveSha256 == null) return [];
-    return Object.entries(node.attributes).flatMap(([field, value]) =>
+    return decodedArchiveFields(node.attributes).flatMap(([field, value]) =>
       RESOURCE_KEY_FIELDS.has(field) &&
       typeof value === "string" &&
       value.length > 0

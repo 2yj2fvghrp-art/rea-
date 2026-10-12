@@ -33,6 +33,13 @@ const MAX_AGGREGATE_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_AGGREGATE_DECODE_BYTES = 256 * 1024 * 1024;
 const MAX_REPORTED_OMITTED_ARCHIVES = 64;
 
+/**
+ * Graph-node attribute holding a decoded archive object's own field map. The
+ * keyed-archive parser flattens those fields onto the node instead, so a
+ * consumer that reads archive fields must combine both shapes.
+ */
+export const NIB_VALUES_ATTRIBUTE = "nibValues";
+
 /** Decode compiled Interface Builder archives from a local app bundle. */
 export const analyzeInterfaceBuilderBundle = async (input: {
   readonly bundlePath: string;
@@ -465,7 +472,7 @@ const projectNibArchive = (
             customClass: className,
             label: name,
             objectID: String(object.id),
-            nibValues: Object.fromEntries(
+            [NIB_VALUES_ATTRIBUTE]: Object.fromEntries(
               Object.entries(object.values).map(([key, value]) => {
                 budget.reserveJsonPropertyNameOccurrence(key);
                 return [key, dereference(value) ?? null];

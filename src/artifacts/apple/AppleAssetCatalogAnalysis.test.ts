@@ -9,6 +9,7 @@ import {
   analyzeAppleAssetCatalogs,
   collectInterfaceBuilderResourceKeys,
 } from "./AppleAssetCatalogAnalysis.js";
+import { encodeNibArchiveFixture } from "./NibArchive.fixture.js";
 
 describe("Apple asset catalog application workflow", () => {
   it("joins only explicit resource-key fields with archive provenance", () => {
@@ -116,5 +117,77 @@ describe("Apple asset catalog application workflow", () => {
     expect(result.limitations).not.toContainEqual(
       expect.stringContaining("No compiled Assets.car catalog"),
     );
+  });
+});
+
+describe("Apple asset catalog NIBArchive resource-key joins", () => {
+  it("joins a recognized resource key decoded from a NIBArchive projection", async () => {
+    const bundle = await createTestTempDirectory("rea-asset-catalog-nib-");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(
+      join(resources, "Panel.nib"),
+      encodeNibArchiveFixture({
+        classes: ["NSIBObjectData", "NSImageView", "NSImage", "NSString"],
+        objects: [
+          { classIndex: 0, values: { NSRoot: { ref: 1 } } },
+          { classIndex: 1, values: { image: { ref: 2 } } },
+          { classIndex: 2, values: { NSImageName: { ref: 3 } } },
+          { classIndex: 3, values: { "NS.bytes": "Toolbar" } },
+        ],
+      }),
+    );
+    // The NIBArchive projection groups archive fields under `nibValues`, so
+    // the join must read them from there rather than from the node's top level.
+    const resourceKeyMatches = async (
+      records: readonly Readonly<Record<string, unknown>>[],
+    ) => {
+      if (records.length > 0)
+        await writeFile(join(resources, "Assets.car"), "catalog");
+      const result = await analyzeAppleAssetCatalogs({
+        environment: {},
+        bundlePath: bundle,
+        targetSha256: "a".repeat(64),
+        runAssetUtil: () => Promise.resolve(JSON.stringify(records)),
+      });
+      return result.resource_key_matches;
+    };
+    expect(await resourceKeyMatches([])).toEqual([
+      {
+        source_node_id: expect.stringContaining("object:"),
+        source_path: "Contents/Resources/Panel.nib",
+        source_archive_sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        field: "NSImageName",
+        key: "Toolbar",
+        status: "unmatched",
+        renditions: [],
+      },
+    ]);
+    const rendition = (renditionName: string) => ({
+      Name: "Toolbar",
+      RenditionName: renditionName,
+    });
+    expect(await resourceKeyMatches([rendition("toolbar@2x.png")])).toEqual([
+      expect.objectContaining({
+        status: "matched",
+        renditions: [
+          expect.objectContaining({ rendition_name: "toolbar@2x.png" }),
+        ],
+      }),
+    ]);
+    expect(
+      await resourceKeyMatches([
+        rendition("toolbar@2x.png"),
+        rendition("toolbar~ipad.png"),
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        status: "ambiguous",
+        renditions: [
+          expect.objectContaining({ rendition_name: "toolbar@2x.png" }),
+          expect.objectContaining({ rendition_name: "toolbar~ipad.png" }),
+        ],
+      }),
+    ]);
   });
 });
