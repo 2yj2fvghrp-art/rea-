@@ -11,6 +11,10 @@ Follow-up: [native PE/DOS entry views and real model verification](native-entry-
 records the post-merge native continuation, including a small-function case where
 four selected replies cost more bytes than the complete dossier.
 
+Follow-up: [EVM descriptor and real-template controls](evm-descriptor.md) extends
+the offline corpus with digest-pinned Uniswap runtime templates and an independent
+published ABI selector oracle, preserving unknown deployment/immutable metadata.
+
 The 12 detailed checkpoint receipts were archived byte-for-byte before removal
 from the final PR tree. The archive `review-receipts-00d51e0fc-20261012` is in the
 private experiment lab outside the checkout; its `archive-index.json` records
