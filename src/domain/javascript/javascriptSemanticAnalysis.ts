@@ -364,23 +364,20 @@ const resolveGlobalAliasFact = (
   return openGlobalFact(name);
 };
 
-/** Shared lexical identities and visible writes for every Electron analysis pass. */
-export interface JavaScriptElectronIdentity {
-  /** Proven export paths by call or construction root offset; omission is unknown. */
-  readonly bindings: ReadonlyMap<number, readonly string[]>;
-  readonly isVisiblyOverwritten: (exportPath: readonly string[]) => boolean;
-}
-
-/** Resolve proven lexical identities and their shared visible-write coverage. */
-export const classifyParsedJavaScriptElectronIdentity = (
+/**
+ * Proven Electron export path segments for call and construction roots, keyed by
+ * root offset. Only proven Electron origins are present; callers must not
+ * infer an Electron export from an absent entry or familiar local name.
+ */
+export const classifyParsedJavaScriptElectronBindings = (
   file: ParsedJavaScriptSource,
-): JavaScriptElectronIdentity =>
-  completeSemanticSteps(classifyParsedJavaScriptElectronIdentitySteps(file));
+): ReadonlyMap<number, readonly string[]> =>
+  completeSemanticSteps(classifyParsedJavaScriptElectronBindingsSteps(file));
 
-/** Keep mutation interpretation with the owner of lexical Electron identity. */
-export function* classifyParsedJavaScriptElectronIdentitySteps(
+/** Resolve Electron aliases while yielding during lexical and AST scans. */
+export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
-): Generator<void, JavaScriptElectronIdentity> {
+): Generator<void, ReadonlyMap<number, readonly string[]>> {
   const facts = new Map<number, readonly string[]>();
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
@@ -434,9 +431,6 @@ export function* classifyParsedJavaScriptElectronIdentitySteps(
     },
   );
   collectedWrites = true;
-  const isVisiblyOverwritten = (
-    exportPath: readonly (string | null)[],
-  ): boolean => writes.covers(["electron", ...exportPath]);
   yield* traverseJavaScriptAstSteps(file.program, {
     enter: (node) => {
       if (
@@ -449,12 +443,12 @@ export function* classifyParsedJavaScriptElectronIdentitySteps(
       const exported = rootExport(root);
       if (
         exported !== undefined &&
-        !isVisiblyOverwritten([...exported, ...members])
+        !writes.covers(["electron", ...exported, ...members])
       )
         facts.set(root.start ?? -1, exported);
     },
   });
-  return { bindings: facts, isVisiblyOverwritten };
+  return facts;
 }
 
 // Read import and require origins directly; general value evaluation is

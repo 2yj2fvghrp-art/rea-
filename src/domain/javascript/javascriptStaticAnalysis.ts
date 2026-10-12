@@ -38,8 +38,9 @@ import {
   type JavaScriptFindingContext,
 } from "./javascriptStaticAnalysisState.js";
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
+import type { JavaScriptSemanticAnalysisState } from "./javascriptSemanticState.js";
 import {
-  classifyParsedJavaScriptElectronIdentitySteps,
+  classifyParsedJavaScriptElectronBindingsSteps,
   indexJavaScriptBindingsSteps,
   classifyParsedJavaScriptRpcClientRootsSteps,
   classifyParsedJavaScriptOpenReceivers,
@@ -83,23 +84,26 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
-  const electronIdentity =
-    yield* classifyParsedJavaScriptElectronIdentitySteps(file);
+  const electronBindings =
+    yield* classifyParsedJavaScriptElectronBindingsSteps(file);
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
-  yield* traverseStaticSourceSteps(file, {
-    source,
-    accumulator,
-    ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
-    electronBindings: electronIdentity.bindings,
-    rpcScan: createJavaScriptRpcScan(source, clientRoots),
-  });
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
+  yield* traverseStaticSourceSteps(
+    file,
+    {
+      source,
+      accumulator,
+      ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
+      electronBindings,
+      rpcScan: createJavaScriptRpcScan(source, clientRoots),
+    },
+    bindings,
+  );
   accumulator.electronCallPaths = collectElectronWrappedCallPaths(
     file.program,
     bindings,
     source,
     accumulator,
-    electronIdentity,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
   return finalizeStaticAnalysis(source, file, accumulator);
@@ -108,11 +112,12 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
 function* traverseStaticSourceSteps(
   file: ParsedJavaScriptSource,
   findings: JavaScriptFindingContext,
+  bindings: JavaScriptSemanticAnalysisState,
 ): Generator<void, void> {
   yield* traverseJavaScriptAstSteps(file, {
     enter: (node) => {
       findings.accumulator.visitedNodes += 1;
-      inspectNode(node, findings);
+      inspectNode(node, findings, bindings);
       return undefined;
     },
   });
@@ -218,11 +223,12 @@ const finalizeStaticAnalysis = (
 const inspectNode = (
   node: t.Node,
   findings: JavaScriptFindingContext,
+  bindings: JavaScriptSemanticAnalysisState,
 ): void => {
   const { source, accumulator } = findings;
   inspectElectronStaticNode(node, findings);
   if (t.isCallExpression(node)) {
-    inspectBundlerBootstrap(source, node, accumulator);
+    inspectBundlerBootstrap(source, node, accumulator, bindings);
     inspectBundlerRegistration(source, node, accumulator);
     inspectEsbuildWrapper(source, node, accumulator);
     inspectCall(source, node, findings);
