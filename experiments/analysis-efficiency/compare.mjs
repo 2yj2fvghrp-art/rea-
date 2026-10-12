@@ -27,6 +27,7 @@ const sameSettings = [
   "native_question",
   "javascript_question",
   "provider_settings_sha256",
+  "provider_search_path_sha256",
   "provider_environment_policy_sha256",
   "measure_source_sha256",
   "package_lock_sha256",
@@ -37,7 +38,10 @@ const sameSettings = [
   "architecture",
 ];
 const settingDifferences = sameSettings.filter(
-  (key) => !isDeepStrictEqual(left[key], right[key]),
+  (key) =>
+    !isDeepStrictEqual(left[key], right[key]) ||
+    (key === "provider_search_path_sha256" &&
+      !/^[a-f0-9]{64}$/.test(left[key] ?? "")),
 );
 // Producer/view IDs identify different delivery observations; a named recovery
 // describes the delivery path. All selected analyst facts still must agree.

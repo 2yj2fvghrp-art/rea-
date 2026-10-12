@@ -204,6 +204,8 @@ def main():
             'question_template_sha256': template_digest,
             'provider_settings_sha256': hashlib.sha256(
                 json.dumps(provider_env, sort_keys=True).encode()).hexdigest(),
+            'provider_search_path_sha256': hashlib.sha256(
+                provider_env.get('PATH', os.environ.get('PATH', '')).encode()).hexdigest(),
             'provider_environment_policy_sha256': hashlib.sha256(
                 provider_policy_text.encode()).hexdigest(),
             'features': {'shell_tool': False, 'unified_exec': False,

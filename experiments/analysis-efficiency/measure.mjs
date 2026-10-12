@@ -719,6 +719,9 @@ const report = {
   javascript_question:
     values.artifact === "obsidian.asar" ? values["javascript-question"] : null,
   provider_settings_sha256: sha(JSON.stringify(selectedProviders)),
+  provider_search_path_sha256: sha(
+    selectedProviders.PATH ?? process.env.PATH ?? "",
+  ),
   provider_environment_policy_sha256: sha(providerPolicyText),
   ...fingerprints,
   node_version: process.version,

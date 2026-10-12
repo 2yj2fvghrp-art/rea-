@@ -72,7 +72,11 @@ reject undeclared inherited REA/Hopper and Ghidra/Java configuration keys before
 starting a measured server or creating a model profile; include those settings
 explicitly in `--providers`. Both drivers use `provider-environment.json` and
 record its digest. The system/runtime environment still needs comparable
-controlled conditions; its contents are not serialized. Historical receipts
+controlled conditions; its contents are not serialized. Both drivers also
+fingerprint the effective provider `PATH` without recording its value, and
+the SDK comparator rejects different or unrecorded search paths. This detects different
+search configuration, not replacement of executable bytes at the same path.
+Historical receipts
 predate this guard, so their selected-settings digest alone does not certify
 that no undeclared provider setting was inherited.
 
@@ -490,3 +494,31 @@ Actual old migration inputs have SHA-256
 and atomic inventory identity
 `ev_22c17e52489f3ec0e7298a62da37bd985dbbec202d7208a0bb1c20d863790aed`
 remain unchanged after the recorded import/view/export workflows.
+
+### Complete carrier identity and provider search configuration
+
+The outer `inspect_artifact` carrier now uses the same owning subject/digest/format
+validator as its atomic inventory. Invalid imported/inline carriers are rejected
+before selected-view construction; the generic historical Evidence parser and
+valid complete records are unchanged. Six additional boundary assertions cover
+missing subject, wrong format and wrong digest across summary/node projections.
+The negative checks use the small keyed-archive workflow so the original large
+ZIP retention/capacity workflow keeps its existing deadline and distinct coverage.
+An initial large-workflow placement timed out and is retained as a failed attempt.
+The three public MCP workflows, build, fast static gate and generated docs pass.
+The final static/test scope observed one soft `memory.high` event, with no hard
+memory, task-limit, OOM or OOM-kill event; it is not a performance trial.
+
+Both research drivers fingerprint the effective provider `PATH`, including an
+explicit caller override, without serializing its value or the ambient environment.
+The SDK comparator rejects absent or unequal search-path fingerprints. This
+records search configuration, not executable replacement at an unchanged path;
+provider/runtime identities and controlled host conditions still matter.
+
+Actual public SDK calls using the original shipped Obsidian inspection reproduce
+accepted null/wrong-format outer subjects on frozen `2ef0467bb` and `invalid_request`
+on the corrected compiled runtime. Two fresh Obsidian replays with different
+inherited search paths preserve selected facts and source identities, but the
+comparator rejects matching settings with only `provider_search_path_sha256`
+different. The original records and failed/accepted replies stay in private lab
+receipts; no environment value is copied into them.
