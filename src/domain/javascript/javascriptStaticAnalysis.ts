@@ -1,6 +1,6 @@
 import * as t from "@babel/types";
-import { collectElectronWrappedCallPaths } from "./electronWrappedCallPaths.js";
 import { JavaScriptSymbolicBindings } from "./javascriptSymbolicBindings.js";
+import { collectElectronWrappedCallPaths } from "./electronWrappedCallPaths.js";
 import {
   ELECTRON_IDENTITY_LIMITATION,
   ELECTRON_MODULE,
@@ -41,7 +41,7 @@ import {
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
 import type { JavaScriptSemanticAnalysisState } from "./javascriptSemanticState.js";
 import {
-  classifyParsedJavaScriptElectronBindingsSteps,
+  indexJavaScriptElectronIdentitySteps,
   indexJavaScriptBindingsSteps,
   classifyParsedJavaScriptRpcClientRootsSteps,
   classifyParsedJavaScriptOpenReceivers,
@@ -86,13 +86,14 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
+  const electronIdentity = yield* indexJavaScriptElectronIdentitySteps(
+    file.program,
+    bindings,
+  );
   const symbolicBindings = new JavaScriptSymbolicBindings(
     bindings,
     file.program,
-  );
-  const electronBindings = yield* classifyParsedJavaScriptElectronBindingsSteps(
-    file,
-    (path) => symbolicBindings.hasElectronWrite(path),
+    electronIdentity,
   );
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
   yield* traverseStaticSourceSteps(
@@ -101,7 +102,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
       source,
       accumulator,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
-      electronBindings,
+      electronBindings: electronIdentity.bindings,
       rpcScan: createJavaScriptRpcScan(source, clientRoots),
     },
     bindings,
@@ -111,6 +112,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     symbolicBindings,
     source,
     accumulator,
+    electronIdentity,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
   return finalizeStaticAnalysis(source, file, accumulator);

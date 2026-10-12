@@ -5,14 +5,14 @@ import {
 } from "./javascriptAstValues.js";
 import { javascriptBootstrapAt } from "./javascriptBootstrap.js";
 import {
-  collectJavaScriptIdentityWritesSteps,
   ELECTRON_MODULE,
-  electronMemberPath,
   electronExportPath,
+  electronMemberPath,
 } from "./javascriptElectronMemberWrites.js";
-import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
-import { SemanticPropertyPathCoverage } from "./javascriptSemanticPropertyPaths.js";
-import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
+import {
+  indexJavaScriptElectronIdentitySteps,
+  type JavaScriptElectronIdentity,
+} from "./javascriptSemanticAnalysis.js";
 import { symbolicLogicalRight } from "./javascriptSymbolicControlFlow.js";
 import {
   moduleFactory,
@@ -74,7 +74,7 @@ export class JavaScriptSymbolicBindings {
     ReadonlyMap<string, t.ObjectMethod | t.ObjectProperty> | null
   >();
   readonly #mutated = new Set<string>();
-  readonly #electronWrites = new SemanticPropertyPathCoverage();
+  readonly #electronIdentity: JavaScriptElectronIdentity;
   readonly #namespaceOwners = new Map<string, t.Function>();
   readonly #unsafeExports = new Set<string>();
   readonly #aliasesByBinding = new Map<string, string[]>();
@@ -90,7 +90,11 @@ export class JavaScriptSymbolicBindings {
   constructor(
     readonly state: JavaScriptSemanticAnalysisState,
     program: t.Program,
+    electronIdentity = completeSemanticSteps(
+      indexJavaScriptElectronIdentitySteps(program, state),
+    ),
   ) {
+    this.#electronIdentity = electronIdentity;
     this.#indexBindingAliases();
     traverseJavaScriptAst(program, {
       enter: (node) => {
@@ -134,7 +138,21 @@ export class JavaScriptSymbolicBindings {
     });
     for (const table of this.#bootstrapTables)
       this.#invalidateBootstrapTable(table.tableAliases, table.modules);
-    this.#indexElectronWrites(program);
+    const unresolved = this.unresolved;
+    this.#originCache = new WeakMap();
+    try {
+      completeSemanticSteps(
+        electronIdentity.enrichWritesSteps((target) =>
+          this.#symbolicElectronWritePaths(target),
+        ),
+      );
+      if (this.truncated) electronIdentity.invalidateAll();
+    } finally {
+      // Origin discovery sees pre-mutation identities only. Never reuse those
+      // values or incidental read-availability flags in ordinary substitutions.
+      this.#originCache = undefined;
+      this.unresolved = unresolved;
+    }
   }
 
   environmentAt(node: t.Node): SymbolicEnvironment {
@@ -145,11 +163,6 @@ export class JavaScriptSymbolicBindings {
       current = this.state.parentsByNode.get(current);
     }
     return emptyEnvironment;
-  }
-
-  /** Share visible mutation coverage with direct and substituted Electron readers. */
-  hasElectronWrite(exportPath: readonly (string | null)[]): boolean {
-    return this.#electronWrites.covers(exportPath);
   }
 
   evaluate(
@@ -213,7 +226,7 @@ export class JavaScriptSymbolicBindings {
       if (
         this.#originCache === undefined &&
         ELECTRON_MODULE.test(path[0] ?? "") &&
-        this.hasElectronWrite(path.slice(1))
+        !this.#electronIdentity.intactExport(path)
       ) {
         return symbolicUnknown("overwritten Electron API member");
       }
@@ -509,13 +522,24 @@ export class JavaScriptSymbolicBindings {
         : symbolicUnknown("unbound identifier");
     if (binding.definitions.some((d) => d.kind === "assignment"))
       return symbolicUnknown("reassigned binding");
-    if (this.#originCache === undefined && this.#mutated.has(binding.bindingId))
+    // Electron member identity is checked at the selected property. A write
+    // to one method must not erase the module origin or unaffected siblings.
+    const electronOrigin = this.#electronIdentity.exportPath(node);
+    if (
+      this.#originCache === undefined &&
+      electronOrigin === undefined &&
+      this.#mutated.has(binding.bindingId)
+    )
       return symbolicUnknown("dynamic member writes");
     for (let e: SymbolicEnvironment | undefined = env; e; e = e.parent) {
       const value = e.values.get(binding.bindingId);
       if (value) return value;
     }
-    if (this.#originCache === undefined && this.#writes.has(binding.bindingId))
+    if (
+      this.#originCache === undefined &&
+      electronOrigin === undefined &&
+      this.#writes.has(binding.bindingId)
+    )
       return symbolicUnknown("overwritten object members");
     const initializer =
       binding.initializers.length === 1 ? binding.initializers[0] : undefined;
@@ -906,131 +930,6 @@ export class JavaScriptSymbolicBindings {
       aliases.push(binding.bindingId);
       this.#aliasesByBinding.set(source.bindingId, aliases);
     }
-  }
-
-  #indexElectronWrites(program: t.Program): void {
-    const interop = createSemanticModuleInterop(this.state);
-    const pathsByBinding = new Map<string, readonly string[] | null>();
-    const retainPath = (
-      bindingId: string,
-      path: readonly string[] | undefined,
-    ): readonly string[] | undefined => {
-      pathsByBinding.set(bindingId, path ?? null);
-      return path;
-    };
-    const bindingPath = (
-      binding: ReturnType<typeof resolveSemanticBindingState>,
-      visited = new Set<string>(),
-    ): readonly string[] | undefined => {
-      if (!binding || visited.has(binding.bindingId)) return undefined;
-      const cached = pathsByBinding.get(binding.bindingId);
-      if (cached !== undefined) return cached ?? undefined;
-      visited.add(binding.bindingId);
-      const converted = interop.origin(binding)?.origin;
-      const direct =
-        converted ??
-        (binding.directOrigins.length === 1
-          ? binding.directOrigins[0]
-          : undefined);
-      if (direct && ELECTRON_MODULE.test(direct.specifier))
-        return retainPath(binding.bindingId, [
-          "electron",
-          ...electronExportPath(direct.importedPath),
-        ]);
-      const initializer =
-        binding.initializers.length === 1 ? binding.initializers[0] : undefined;
-      if (
-        !initializer ||
-        !initializer.projection.every(
-          (segment): segment is string => typeof segment === "string",
-        )
-      )
-        return retainPath(binding.bindingId, undefined);
-      const required = semanticRequireOrigin(
-        initializer.node,
-        this.state,
-      )?.origin;
-      if (required && ELECTRON_MODULE.test(required.specifier))
-        return retainPath(binding.bindingId, [
-          "electron",
-          ...electronExportPath([
-            ...required.importedPath,
-            ...initializer.projection.map(String),
-          ]),
-        ]);
-      const member = electronMemberPath(initializer.node);
-      if (
-        !t.isIdentifier(member.root) ||
-        !member.members.every(
-          (segment): segment is string => typeof segment === "string",
-        )
-      )
-        return retainPath(binding.bindingId, undefined);
-      const source = resolveSemanticBindingState(
-        this.state,
-        member.root,
-        member.root.name,
-      );
-      const sourcePath = bindingPath(source, visited);
-      return retainPath(
-        binding.bindingId,
-        sourcePath === undefined
-          ? undefined
-          : [
-              ...sourcePath,
-              ...member.members,
-              ...initializer.projection.map(String),
-            ],
-      );
-    };
-    const rootPath = (root: t.Node): readonly string[] | undefined => {
-      const direct = semanticRequireOrigin(root, this.state)?.origin;
-      if (direct && ELECTRON_MODULE.test(direct.specifier))
-        return ["electron", ...electronExportPath(direct.importedPath)];
-      if (!t.isIdentifier(root)) return undefined;
-      const binding = resolveSemanticBindingState(this.state, root, root.name);
-      return bindingPath(binding);
-    };
-    const unresolved = this.unresolved;
-    this.#originCache = new WeakMap();
-    try {
-      completeSemanticSteps(
-        collectJavaScriptIdentityWritesSteps(
-          program,
-          (target, kind) => {
-            if (kind === "opaque-call") {
-              const scope = interop.opaqueMutationPath(target);
-              return scope === undefined ? [] : [scope];
-            }
-            // Replacing a binding does not mutate the module object it held.
-            // Ordinary evaluation separately rejects reassigned bindings.
-            if (kind === "binding") {
-              const path = interop.intrinsicPath(target);
-              return path === undefined ? [] : [path];
-            }
-            const { root, members } = electronMemberPath(target);
-            const path = rootPath(root) ?? interop.intrinsicPath(root);
-            return path === undefined
-              ? this.#symbolicElectronWritePaths(target)
-              : [[...path, ...members]];
-          },
-          interop.intrinsicInvocation,
-          interop.staticString,
-          interop.isFreshObject,
-          (_node, path) => {
-            if (path[0] === "electron") {
-              this.#electronWrites.retain(path.slice(1));
-            }
-          },
-        ),
-      );
-    } finally {
-      // Origin discovery sees pre-mutation identities only. Never reuse those
-      // values or incidental read-availability flags in ordinary substitutions.
-      this.#originCache = undefined;
-      this.unresolved = unresolved;
-    }
-    if (this.truncated) this.#electronWrites.retain([]);
   }
 
   #symbolicElectronWritePaths(
