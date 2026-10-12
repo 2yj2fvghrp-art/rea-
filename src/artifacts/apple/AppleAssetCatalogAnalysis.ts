@@ -5,12 +5,10 @@ import {
   ArtifactReaderFailure,
   sameArtifactSourceIdentity,
 } from "../ArtifactReader.js";
-import {
-  analyzeInterfaceBuilderBundle,
-  NIB_VALUES_ATTRIBUTE,
-} from "./InterfaceBuilderAnalysis.js";
+import { analyzeInterfaceBuilderBundle } from "./InterfaceBuilderAnalysis.js";
 import {
   appleAssetCatalogInputSchema,
+  appleResourceKeyFields,
   parseAppleAssetCatalogRecords,
   projectAppleAssetCatalogPage,
 } from "../../domain/apple/appleAssetCatalog.js";
@@ -19,17 +17,6 @@ import { execFileOutput } from "../../process/ExecFileOutput.js";
 const ASSETUTIL = "/usr/bin/assetutil";
 const MAX_CATALOG_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_METADATA_BYTES = 64 * 1024 * 1024;
-const RESOURCE_KEY_FIELDS = new Set([
-  "image",
-  "imageName",
-  "image_name",
-  "resourceName",
-  "resource_name",
-  "assetName",
-  "asset_name",
-  "UIImageName",
-  "NSImageName",
-]);
 
 /** Inspect compiled asset catalog metadata without extracting rendition bytes. */
 export const analyzeAppleAssetCatalogs = async (input: {
@@ -190,26 +177,6 @@ const inspectAssetCatalogEntry = async (input: {
   }
 };
 
-/**
- * The decoded archive fields of one Interface Builder node. The keyed-archive
- * parser flattens an object's fields onto the node, while the NIBArchive
- * projection groups them under `nibValues` beside the class, label and ID it
- * derives from the same archive.
- */
-const decodedArchiveFields = (
-  attributes: Readonly<Record<string, unknown>>,
-): readonly (readonly [string, unknown])[] => {
-  const nested = attributes[NIB_VALUES_ATTRIBUTE];
-  return [
-    ...Object.entries(attributes).filter(
-      ([field]) => field !== NIB_VALUES_ATTRIBUTE,
-    ),
-    ...(typeof nested === "object" && nested !== null && !Array.isArray(nested)
-      ? Object.entries(nested)
-      : []),
-  ];
-};
-
 /** Return only explicit image or asset fields from decoded resource objects. */
 export const collectInterfaceBuilderResourceKeys = (
   nodes: readonly {
@@ -230,21 +197,15 @@ export const collectInterfaceBuilderResourceKeys = (
     const sourcePath = source?.artifact_path;
     const sourceArchiveSha256 = source?.artifact_sha256;
     if (sourcePath == null || sourceArchiveSha256 == null) return [];
-    return decodedArchiveFields(node.attributes).flatMap(([field, value]) =>
-      RESOURCE_KEY_FIELDS.has(field) &&
-      typeof value === "string" &&
-      value.length > 0
-        ? [
-            {
-              sourceNodeId: node.id,
-              sourcePath,
-              sourceArchiveSha256,
-              field,
-              key: value,
-            },
-          ]
-        : [],
-    );
+    return appleResourceKeyFields(node.attributes).flatMap(([field, value]) => [
+      {
+        sourceNodeId: node.id,
+        sourcePath,
+        sourceArchiveSha256,
+        field,
+        key: value,
+      },
+    ]);
   });
 
 const runAssetUtil = async (
