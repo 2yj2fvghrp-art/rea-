@@ -479,11 +479,11 @@ it("records observe_web_session traffic as HAR Evidence without persisting decla
   browsers.push(browser);
   const connected = await connectBrowser();
   const { tools } = await connected.client.listTools();
-  // Workers and out-of-process iframes are separate targets REA does not attach.
+  // Out-of-process iframes are separate targets REA does not observe.
   expect(
     tools.find(({ name }) => name === "observe_web_session")?.description,
   ).toContain(
-    "from the selected page, not its workers or out-of-process iframes,",
+    "from the selected page and its workers, not out-of-process iframes,",
   );
 
   const result = await connected.client.callTool({

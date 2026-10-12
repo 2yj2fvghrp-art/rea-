@@ -85,7 +85,8 @@ export const redactedSessionResult = (input: {
             "A request parameter spells a declared sensitive value and is left empty in the Evidence parameters.",
           ]
         : []),
-      ...input.limitations,
+      // Worker limitations name targets and quote browser error text.
+      ...input.limitations.map((limitation) => redactor.text(limitation)),
     ],
   };
 };

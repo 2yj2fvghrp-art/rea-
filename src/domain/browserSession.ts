@@ -46,7 +46,7 @@ const observeWebSessionNetworkSchema = z
       ),
   })
   .describe(
-    "Record in-scope HTTP and WebSocket traffic from the selected page as one HAR 1.2 log. Omit to retain navigation metadata only.",
+    "Record in-scope HTTP and WebSocket traffic from the page and its workers as one HAR 1.2 log. Omit to retain navigation metadata only.",
   );
 
 /**
@@ -146,8 +146,13 @@ export const webSessionNetworkSchema = z.object({
     .array(
       z.object({
         target_id: z.string(),
-        type: z.enum(["page"]),
+        type: z.enum(["page", "worker", "shared_worker", "service_worker"]),
         url: z.string().nullable(),
+        attribution: z
+          .enum(["page", "origin"])
+          .describe(
+            "page: the selected page or its dedicated worker; origin: an in-scope shared or service worker that can also serve other documents.",
+          ),
       }),
     )
     .describe(

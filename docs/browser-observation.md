@@ -200,11 +200,44 @@ timeline. Out-of-scope requests, sockets and their frames are excluded and
 counted in `completeness.excluded`. A redirect to an excluded origin keeps the
 in-scope hop with an empty `redirectURL` and an entry comment. Recording stops
 when the window elapses or the timeline ends, whichever is first; body reads that
-already started still complete. Chrome runs out-of-process cross-site iframes and
-the page's dedicated, shared and service workers as separate targets. REA does
-not attach them, so their traffic is not recorded even when their origin is
-selected, and a dedicated worker's script request can appear without its
-response; a limitation says so.
+already started still complete. Chrome runs out-of-process cross-site iframes
+as separate targets. REA does not observe them, so their traffic is not
+recorded even when their origin is selected; a limitation says so.
+
+**Workers.** New dedicated workers of the selected page, and those started by
+observed workers, are auto-attached and held at startup only until REA enables
+their Network domain and worker auto-attach, each step bounded by 5 seconds,
+then resumed; REA never evaluates worker code. In-scope shared and service
+workers in the page's browser context are attached while running, so their
+earliest requests can precede observation. Every entry carries `_rea_target_id`;
+`network.targets` maps it to the target type, URL and attribution. `page`
+attribution means the selected page or its dedicated worker; `origin` means a
+shared or service worker that can also serve other documents of that origin. A
+page-scoped CDP transport cannot attach shared or service workers, so `workers`
+is reported attach-limited. Dedicated workers started by an observed worker
+share its attribution. Worker coverage is
+optional: when the browser does not implement a Target command REA needs, a
+worker exits before REA reaches it, the target ends or disconnects while a
+worker command is pending, or a worker command gets no answer within 5 seconds,
+`workers` is reported unavailable and the limitations give the reason; other
+rejections, including invalid parameters on a worker's `Network.enable`, fail
+the observation. A worker that ends also ends its
+pending body reads, which are stated as omitted. Held workers are always
+resumed unless they have already ended or the caller cancels, including those
+attached after recording stopped.
+Worker sessions are released when REA closes its WebSocket. Chrome reports a
+worker script request on the page target but its response on the worker target,
+so that entry has no response and says so in its comment. Chrome also exposes no
+body for a service worker's fetch whose response the worker passes to a page
+(`respondWith(fetch(request))`); when the browser returns an empty body although
+encoded bytes arrived, the entry states the omission and `network_bodies` is
+reported unavailable. The page's auto-attach also announces its own
+out-of-process iframes, holding new ones at startup like workers; REA resumes
+each without observing it. When one is announced while recording,
+`network_requests` and `websocket_connections` record an `out_of_target_scope`
+exclusion of unknown count, and a limitation names the iframe target and states
+that its traffic, and that of frames inside it, is not recorded. Iframes of
+other pages are not reported.
 
 **Declared sensitive values.** `sensitive_values` (`--sensitive-value`, repeatable)
 lists literals to replace with `[REDACTED:value-N]` markers in every retained

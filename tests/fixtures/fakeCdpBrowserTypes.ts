@@ -68,6 +68,8 @@ export interface FakeOptions {
   readonly malformedEventShapeOnMethod?: string;
   readonly closeOnMethod?: string;
   readonly hangOnMethod?: string;
+  /** Leave matching commands unanswered, like hangOnMethod for one target or session. */
+  readonly hangWhen?: (command: FakeCdpCommand) => boolean;
   readonly unsupportedMethods?: readonly string[];
   readonly transitionalFrameReads?: number;
   readonly attachedFrameUrl?: string;

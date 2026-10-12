@@ -54,6 +54,8 @@ export interface RecordedExchange {
   redirectUrl: string | null;
   redirectExcluded: boolean;
   decodedBytes: number;
+  /** Encoded body bytes that Network.dataReceived reported. */
+  encodedBytes: number;
   endTimestamp: number | null;
   error: string | null;
   body: RecordedContent | undefined;
@@ -100,6 +102,8 @@ export class CdpSessionNetwork {
   #remainingBytes = WEB_SESSION_NETWORK_CONTENT_BYTES;
   #stopped = false;
   readonly #abandonReads = new AbortController();
+  /** Aborted when a worker session ends; its reads will never be answered. */
+  readonly #sessionEnds = new Map<string, AbortController>();
 
   constructor(readonly context: SessionNetworkContext) {}
 
@@ -117,6 +121,10 @@ export class CdpSessionNetwork {
 
   get retainedContentBytes(): number {
     return WEB_SESSION_NETWORK_CONTENT_BYTES - this.#remainingBytes;
+  }
+
+  get stopped(): boolean {
+    return this.#stopped;
   }
 
   /** Retain Network events from one authorized target session. */
@@ -166,11 +174,15 @@ export class CdpSessionNetwork {
         exchange.responseTimestamp = numberValue(params?.timestamp) ?? null;
         return;
       case "Network.dataReceived":
-        if (exchange !== undefined)
-          exchange.decodedBytes += Math.max(
-            0,
-            numberValue(params?.dataLength) ?? 0,
-          );
+        if (exchange === undefined) return;
+        exchange.decodedBytes += Math.max(
+          0,
+          numberValue(params?.dataLength) ?? 0,
+        );
+        exchange.encodedBytes += Math.max(
+          0,
+          numberValue(params?.encodedDataLength) ?? 0,
+        );
         return;
       case "Network.loadingFinished":
       case "Network.loadingFailed":
@@ -222,6 +234,25 @@ export class CdpSessionNetwork {
   /** Stop waiting for body reads that a terminated target will never answer. */
   abandonReads(): void {
     this.#abandonReads.abort();
+  }
+
+  /** Aborted once the observed target has terminated or disconnected. */
+  get terminated(): AbortSignal {
+    return this.#abandonReads.signal;
+  }
+
+  /** Stop waiting for body reads on one ended worker session. */
+  endSession(sessionId: string): void {
+    this.#sessionEnd(sessionId).abort();
+  }
+
+  #sessionEnd(sessionId: string): AbortController {
+    let controller = this.#sessionEnds.get(sessionId);
+    if (controller === undefined) {
+      controller = new AbortController();
+      this.#sessionEnds.set(sessionId, controller);
+    }
+    return controller;
   }
 
   /** Wait for started protocol work and surface failures it could not classify. */
@@ -398,6 +429,9 @@ export class CdpSessionNetwork {
 
   async #readBody(exchange: RecordedExchange, reserved: number): Promise<void> {
     const deadline = AbortSignal.timeout(BODY_READ_TIMEOUT_MS);
+    const sessionId = exchange.target.sessionId;
+    const sessionEnded =
+      sessionId === undefined ? undefined : this.#sessionEnd(sessionId).signal;
     let reply: UnknownRecord | undefined;
     try {
       reply = recordValue(
@@ -408,12 +442,13 @@ export class CdpSessionNetwork {
           AbortSignal.any([
             deadline,
             this.#abandonReads.signal,
+            ...(sessionEnded === undefined ? [] : [sessionEnded]),
             ...(this.context.signal === undefined ? [] : [this.context.signal]),
           ]),
         ),
       );
     } catch (cause: unknown) {
-      const omitted = this.#readOmission(cause, deadline);
+      const omitted = this.#readOmission(cause, deadline, sessionEnded);
       if (omitted === undefined) throw cause;
       this.context.completeness.unavailable("network_bodies");
       exchange.body = { omitted };
@@ -423,7 +458,14 @@ export class CdpSessionNetwork {
     }
     const text = cdpStringValue(reply?.body);
     const base64 = reply?.base64Encoded === true;
-    if (
+    // Chrome reads back an empty body for a service worker's fetch whose
+    // response the worker passes to a page, although its bytes arrived.
+    if (text === "" && exchange.encodedBytes > 0) {
+      this.context.completeness.unavailable("network_bodies");
+      exchange.body = {
+        omitted: `The browser exposed no body although ${String(exchange.encodedBytes)} encoded bytes arrived.`,
+      };
+    } else if (
       text !== undefined &&
       (!base64 || canonicalBase64Bytes(text) !== undefined)
     )
@@ -441,8 +483,14 @@ export class CdpSessionNetwork {
    * Why a failed body read is an omission, or undefined when it must fail the
    * observation: caller cancellation, transport and other protocol failures.
    */
-  #readOmission(cause: unknown, deadline: AbortSignal): string | undefined {
+  #readOmission(
+    cause: unknown,
+    deadline: AbortSignal,
+    sessionEnded: AbortSignal | undefined,
+  ): string | undefined {
     if (this.context.signal?.aborted === true) return undefined;
+    if (sessionEnded?.aborted === true)
+      return "The worker ended before its response body was read.";
     // Set synchronously by a disconnect, before rejected reads are handled.
     if (this.#abandonReads.signal.aborted)
       return "The target ended before its response body was read.";
@@ -451,6 +499,9 @@ export class CdpSessionNetwork {
     if (!(cause instanceof CdpCommandRejection)) return undefined;
     if (cause.code === -32_601)
       return "Network.getResponseBody was unavailable from this browser target.";
+    // The read's session no longer exists, as when a worker has exited.
+    if (cause.code === -32_001)
+      return "The target ended before its response body was read.";
     // The browser's "no body for this request" reply.
     return cause.code === -32_000 && cause.reportedMessage !== null
       ? `Response body unavailable: ${cause.reportedMessage}`
@@ -572,6 +623,7 @@ const openExchange = (
     redirectUrl: null,
     redirectExcluded: false,
     decodedBytes: 0,
+    encodedBytes: 0,
     endTimestamp: null,
     error: null,
     body: undefined,

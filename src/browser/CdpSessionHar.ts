@@ -35,10 +35,11 @@ interface SessionEntry {
 
 /** Limitations stated whenever observe_web_session records network evidence. */
 export const SESSION_NETWORK_LIMITATIONS = [
-  "Network evidence covers selected-origin requests and WebSocket connections of the page's own target that start after REA attaches; frames on earlier sockets carry no URL and are excluded.",
-  "Traffic of out-of-process (cross-site) iframes and of the page's workers (dedicated, shared and service workers), which the browser runs as separate targets, is not recorded, even when their origin is selected; a dedicated worker's script request can appear without its response.",
+  "Network evidence covers selected-origin requests and WebSocket connections that start after REA attaches; frames on earlier sockets carry no URL and are excluded.",
+  "Traffic of out-of-process (cross-site) iframes, which the browser runs as separate targets, is not recorded, even when their origin is selected.",
   "Authorization, Proxy-Authorization, Cookie and Set-Cookie headers are never retained, and HAR cookie arrays are empty. Headers are those CDP reports on request and response events.",
   "Bodies are browser-decoded. Response bodies are read after loading finishes and can be unavailable once the browser releases them; each omission is stated in its entry comment.",
+  "New dedicated workers of the selected page, and those started by observed workers, are held at startup only until REA enables their Network domain and worker auto-attach (each step bounded by 5 s), then resumed. Shared and service workers are attached while running, so their earliest requests can precede observation; their traffic has origin attribution because they can also serve other same-origin documents. Chrome exposes no body for a service worker's fetch whose response the worker passes to a page; that entry states the omission.",
   `Retained bodies and WebSocket payloads share a ${String(WEB_SESSION_NETWORK_CONTENT_BYTES)} byte budget, equal to inspect_web_network_capture's input budget; request and frame metadata are not capped.`,
 ];
 

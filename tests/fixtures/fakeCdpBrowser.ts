@@ -99,7 +99,11 @@ export const startFakeCdpBrowser = async (
         socket.close();
         return;
       }
-      if (options.hangOnMethod === command.method) return;
+      if (
+        options.hangOnMethod === command.method ||
+        options.hangWhen?.(command) === true
+      )
+        return;
       if (options.malformedMessageOnMethod === command.method) {
         socket.send("{not-json");
         return;

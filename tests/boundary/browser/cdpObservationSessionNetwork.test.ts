@@ -14,6 +14,7 @@ import {
   type FakeCdpBrowser,
   type FakeOptions,
 } from "../../fixtures/fakeCdpBrowser.js";
+import { sessionNetworkTargetResult } from "../../fixtures/fakeCdpSessionTargets.js";
 import { trackBrowser } from "./cdpBrowserProvider.support.js";
 
 type FakeCommand = Parameters<NonNullable<FakeOptions["commandResult"]>>[0];
@@ -36,20 +37,28 @@ interface NetworkScript {
     origin: string,
     sessionId: string | undefined,
   ) => readonly FakeEvent[];
+  /** Events for any other command; undefined falls through to the defaults. */
+  readonly events?: (
+    command: FakeCommand,
+    origin: string,
+  ) => readonly FakeEvent[] | undefined;
   readonly result?: (
     command: FakeCommand,
   ) => Readonly<Record<string, unknown>> | undefined;
   readonly options?: FakeOptions;
 }
 
-/** A real CDP wire fake whose page session emits scripted traffic. */
+/** A real CDP wire fake whose page and worker sessions emit scripted traffic. */
 const startNetworkBrowser = async (
   script: NetworkScript,
 ): Promise<FakeCdpBrowser> => {
   const browser = await startFakeCdpBrowser({
-    commandResult: (command) => script.result?.(command),
+    commandResult: (command, origin) =>
+      script.result?.(command) ?? sessionNetworkTargetResult(command, origin),
     ...script.options,
     commandEvents: (command, origin) => {
+      const custom = script.events?.(command, origin);
+      if (custom !== undefined) return custom;
       if (command.method !== "Network.enable") return undefined;
       return command.sessionId === PAGE_SESSION ||
         command.sessionId === undefined
@@ -232,6 +241,15 @@ const socketEvents = (
   ),
 ];
 
+const commandIndex = (
+  browser: FakeCdpBrowser,
+  method: string,
+  sessionId: string,
+): number =>
+  browser.commands.findIndex(
+    (command) => command.method === method && command.sessionId === sessionId,
+  );
+
 it("records traffic across a same-origin navigation as one admissible HAR", async () => {
   const browser = await startNetworkBrowser({
     page: (origin, session) => {
@@ -297,13 +315,14 @@ it("records traffic across a same-origin navigation as one admissible HAR", asyn
     prior_activity_available: false,
     content_budget_bytes: WEB_SESSION_NETWORK_CONTENT_BYTES,
     retained_content_bytes: 14 + 8,
-    targets: [{ target_id: "allowed-page", type: "page" }],
+    targets: [{ target_id: "allowed-page", type: "page", attribution: "page" }],
   });
-  // Out-of-process iframes and workers are separate targets REA does not attach.
+  // Workers are recorded; out-of-process iframes are separate targets REA
+  // does not observe.
   expect(session.limitations).toEqual(
     expect.arrayContaining([
-      "Network evidence covers selected-origin requests and WebSocket connections of the page's own target that start after REA attaches; frames on earlier sockets carry no URL and are excluded.",
-      "Traffic of out-of-process (cross-site) iframes and of the page's workers (dedicated, shared and service workers), which the browser runs as separate targets, is not recorded, even when their origin is selected; a dedicated worker's script request can appear without its response.",
+      "Network evidence covers selected-origin requests and WebSocket connections that start after REA attaches; frames on earlier sockets carry no URL and are excluded.",
+      "Traffic of out-of-process (cross-site) iframes, which the browser runs as separate targets, is not recorded, even when their origin is selected.",
     ]),
   );
   const har = JSON.stringify(session.network?.har);
@@ -2328,13 +2347,1167 @@ it("treats a browser without response bodies as an omission and caps inline post
   );
 });
 
+it("holds a new dedicated worker only until its Network domain and worker auto-attach are enabled", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (
+        command.method === "Target.setAutoAttach" &&
+        command.sessionId === PAGE_SESSION
+      )
+        return [
+          event("Target.attachedToTarget", PAGE_SESSION, {
+            sessionId: "worker-1",
+            waitingForDebugger: true,
+            targetInfo: {
+              targetId: "worker-a",
+              type: "worker",
+              url: `${origin}/worker.js`,
+            },
+          }),
+          event("Target.attachedToTarget", PAGE_SESSION, {
+            sessionId: "worker-2",
+            waitingForDebugger: true,
+            targetInfo: {
+              targetId: "worker-b",
+              type: "worker",
+              url: "https://other.example.test/worker.js",
+            },
+          }),
+          // Only dedicated workers are observed, whatever else is announced.
+          ...(["service_worker", "iframe"] as const).map((type) =>
+            event("Target.attachedToTarget", PAGE_SESSION, {
+              sessionId: `held-${type}`,
+              waitingForDebugger: true,
+              targetInfo: {
+                targetId: `announced-${type}`,
+                type,
+                url: `${origin}/${type}`,
+              },
+            }),
+          ),
+        ];
+      if (
+        command.method === "Network.enable" &&
+        command.sessionId === "worker-1"
+      )
+        return exchange("worker-1", "from-worker", `${origin}/from-worker`);
+      if (
+        command.method === "Runtime.runIfWaitingForDebugger" &&
+        command.sessionId === "worker-1"
+      )
+        // The worker exits; its detach must not end the page observation.
+        return [
+          event("Target.detachedFromTarget", PAGE_SESSION, {
+            sessionId: "worker-1",
+            targetId: "worker-a",
+          }),
+        ];
+      return undefined;
+    },
+  });
+
+  const session = await observe(browser);
+
+  expect(session.window.end_reason).toBe("window_elapsed");
+  expect(
+    browser.commands.find(({ method }) => method === "Target.setAutoAttach")
+      ?.params,
+  ).toMatchObject({
+    autoAttach: true,
+    waitForDebuggerOnStart: true,
+    flatten: true,
+    filter: [{ type: "worker" }, { type: "iframe" }],
+  });
+  const enabled = commandIndex(browser, "Network.enable", "worker-1");
+  const resumed = commandIndex(
+    browser,
+    "Runtime.runIfWaitingForDebugger",
+    "worker-1",
+  );
+  const nested = commandIndex(browser, "Target.setAutoAttach", "worker-1");
+  expect(enabled).toBeGreaterThan(-1);
+  expect(nested).toBeGreaterThan(enabled);
+  expect(resumed).toBeGreaterThan(nested);
+  // Out-of-scope workers are never observed but are always released.
+  expect(commandIndex(browser, "Network.enable", "worker-2")).toBe(-1);
+  expect(
+    commandIndex(browser, "Runtime.runIfWaitingForDebugger", "worker-2"),
+  ).toBeGreaterThan(-1);
+  // Other targets the page announces are released without observation.
+  for (const sessionId of ["held-service_worker", "held-iframe"]) {
+    expect(commandIndex(browser, "Network.enable", sessionId)).toBe(-1);
+    expect(
+      commandIndex(browser, "Runtime.runIfWaitingForDebugger", sessionId),
+    ).toBeGreaterThan(-1);
+  }
+  expect(session.network?.targets).toStrictEqual([
+    expect.objectContaining({ target_id: "allowed-page" }),
+    {
+      target_id: "worker-a",
+      type: "worker",
+      url: `${browser.allowedOrigin}/worker.js`,
+      attribution: "page",
+    },
+  ]);
+  expect(entries(session)).toContainEqual(
+    expect.objectContaining({ _rea_target_id: "worker-a" }),
+  );
+  expect(
+    session.completeness.excluded.filter(
+      ({ section }) => section === "workers",
+    ),
+  ).toStrictEqual([
+    { section: "workers", reason: "disallowed_origin", count: 1 },
+  ]);
+});
+
+it("attaches same-context shared workers with origin attribution", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (command.method === "Target.setDiscoverTargets") {
+        const sharedWorker = (
+          method: string,
+          targetId: string,
+          url: string,
+          browserContextId = "context-1",
+        ) =>
+          event(method, undefined, {
+            targetInfo: {
+              targetId,
+              type: "shared_worker",
+              url,
+              browserContextId,
+            },
+          });
+        // Chrome announces a starting worker before its script URL is known.
+        return [
+          sharedWorker("Target.targetCreated", "shared-a", ""),
+          sharedWorker(
+            "Target.targetInfoChanged",
+            "shared-a",
+            `${origin}/shared.js`,
+          ),
+          sharedWorker(
+            "Target.targetCreated",
+            "shared-elsewhere",
+            `${origin}/shared.js`,
+            "context-2",
+          ),
+          sharedWorker(
+            "Target.targetInfoChanged",
+            "shared-elsewhere",
+            `${origin}/shared.js`,
+            "context-2",
+          ),
+          sharedWorker(
+            "Target.targetCreated",
+            "shared-foreign",
+            "https://other.example.test/s.js",
+          ),
+          sharedWorker(
+            "Target.targetInfoChanged",
+            "shared-foreign",
+            "https://other.example.test/s.js",
+          ),
+        ];
+      }
+      if (
+        command.method === "Network.enable" &&
+        command.sessionId === "shared-1"
+      )
+        return exchange("shared-1", "shared", `${origin}/from-shared`);
+      return undefined;
+    },
+    result: (command) =>
+      command.method === "Target.attachToTarget" &&
+      command.params.targetId === "shared-a"
+        ? { sessionId: "shared-1" }
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(session.network?.targets).toContainEqual({
+    target_id: "shared-a",
+    type: "shared_worker",
+    url: `${browser.allowedOrigin}/shared.js`,
+    attribution: "origin",
+  });
+  expect(entries(session)).toContainEqual(
+    expect.objectContaining({ _rea_target_id: "shared-a" }),
+  );
+  const attached = browser.commands
+    .filter(({ method }) => method === "Target.attachToTarget")
+    .map(({ params }) => params.targetId);
+  expect(attached).toContain("shared-a");
+  expect(attached).not.toContain("shared-elsewhere");
+  // Each excluded target is counted once; the URL-less announcement is not one.
+  const workerExclusions = session.completeness.excluded.filter(
+    ({ section }) => section === "workers",
+  );
+  expect(workerExclusions).toHaveLength(2);
+  expect(workerExclusions).toEqual(
+    expect.arrayContaining([
+      { section: "workers", reason: "out_of_target_scope", count: 1 },
+      { section: "workers", reason: "disallowed_origin", count: 1 },
+    ]),
+  );
+});
+
+it("states that a page-scoped transport cannot attach shared or service workers", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "page", `${origin}/page`),
+    options: { pageScopedVersionWebSocket: true, omitTargetWebSocket: true },
+  });
+
+  const session = await observe(browser);
+
+  expect(entries(session).map(urlOf)).toEqual([
+    `${browser.allowedOrigin}/page`,
+  ]);
+  expect(session.completeness.attach_limited_sections).toContain("workers");
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining("browser-level CDP transport"),
+  );
+  expect(
+    browser.commands.some(
+      ({ method }) => method === "Target.setDiscoverTargets",
+    ),
+  ).toBe(false);
+});
+
+it("adds an in-scope service worker found by discovery", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (command.method === "Target.setDiscoverTargets")
+        return [
+          event("Target.targetCreated", undefined, {
+            targetInfo: {
+              targetId: "service-a",
+              type: "service_worker",
+              url: `${origin}/sw.js`,
+              browserContextId: "context-1",
+            },
+          }),
+        ];
+      if (
+        command.method === "Network.enable" &&
+        command.sessionId === "service-1"
+      )
+        return exchange("service-1", "cached", `${origin}/from-service`);
+      return undefined;
+    },
+    result: (command) =>
+      command.method === "Target.attachToTarget"
+        ? command.params.targetId === "service-a"
+          ? { sessionId: "service-1" }
+          : undefined
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(session.network?.targets).toContainEqual({
+    target_id: "service-a",
+    type: "service_worker",
+    url: `${browser.allowedOrigin}/sw.js`,
+    attribution: "origin",
+  });
+  expect(entries(session)).toContainEqual(
+    expect.objectContaining({ _rea_target_id: "service-a" }),
+  );
+});
+
+it("states that a service worker's pass-through response exposed no body", async () => {
+  // Chrome reads back "" for a fetch the service worker passes to the page:
+  // dataReceived reports no decoded bytes but the encoded bytes that arrived.
+  const received = (
+    requestId: string,
+    dataLength: number,
+    encodedDataLength: number,
+  ) =>
+    event("Network.dataReceived", "service-1", {
+      requestId,
+      timestamp: 100 + clock,
+      dataLength,
+      encodedDataLength,
+    });
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (command.method === "Target.setDiscoverTargets")
+        return [
+          event("Target.targetCreated", undefined, {
+            targetInfo: {
+              targetId: "service-a",
+              type: "service_worker",
+              url: `${origin}/sw.js`,
+              browserContextId: "context-1",
+            },
+          }),
+        ];
+      if (
+        command.method !== "Network.enable" ||
+        command.sessionId !== "service-1"
+      )
+        return undefined;
+      return [
+        request("service-1", "passed", `${origin}/from-sw?n=6`),
+        response("service-1", "passed", "application/json"),
+        received("passed", 0, 31),
+        finished("service-1", "passed", 186),
+        // The worker read this body itself, so the browser exposes it.
+        request("service-1", "read", `${origin}/read`),
+        response("service-1", "read", "application/json"),
+        received("read", 7, 7),
+        finished("service-1", "read", 120),
+        // No body bytes arrived, so the empty body is the response's own.
+        ...exchange("service-1", "empty", `${origin}/empty`),
+      ];
+    },
+    result: (command) =>
+      command.method === "Target.attachToTarget" &&
+      command.params.targetId === "service-a"
+        ? { sessionId: "service-1" }
+        : bodies({ passed: "", read: '{"n":6}', empty: "" })(command),
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all" },
+  });
+
+  const byPath = (path: string) =>
+    entries(session).find((entry) => urlOf(entry).endsWith(path));
+  const passed = byPath("/from-sw?n=6");
+  expect(passed).toMatchObject({
+    _rea_target_id: "service-a",
+    comment: "The browser exposed no body although 31 encoded bytes arrived.",
+  });
+  expect(JSON.stringify(passed?.response)).not.toContain('"text"');
+  expect(byPath("/read")).toMatchObject({
+    response: { content: { size: 7, text: '{"n":6}' } },
+  });
+  expect(byPath("/empty")).toMatchObject({
+    response: { content: { size: 0, text: "" } },
+  });
+  expect(
+    [byPath("/read"), byPath("/empty")].map((entry) => entry?.comment),
+  ).toStrictEqual([undefined, undefined]);
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+});
+
+it("names the page's out-of-process iframes and resumes them unobserved", async () => {
+  const frame = (sessionId: string, targetId: string, url: string) =>
+    event("Target.attachedToTarget", PAGE_SESSION, {
+      sessionId,
+      waitingForDebugger: true,
+      targetInfo: { targetId, type: "iframe", url },
+    });
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "page", `${origin}/page`),
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach" &&
+      command.sessionId === PAGE_SESSION
+        ? [
+            frame("frame-1", "frame-a", `${origin}/embed`),
+            // An iframe that returns out of process is announced again.
+            frame("frame-2", "frame-a", `${origin}/embed`),
+            frame("frame-3", "frame-b", "https://embed.example.test/"),
+          ]
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(entries(session).map(urlOf)).toEqual([
+    `${browser.allowedOrigin}/page`,
+  ]);
+  // Each iframe is released and never observed.
+  for (const sessionId of ["frame-1", "frame-2", "frame-3"])
+    expect(
+      browser.commands
+        .filter((command) => command.sessionId === sessionId)
+        .map(({ method }) => method),
+    ).toStrictEqual(["Runtime.runIfWaitingForDebugger"]);
+  // REA cannot count requests it does not observe.
+  expect(
+    session.completeness.excluded.filter(
+      ({ reason }) => reason === "out_of_target_scope",
+    ),
+  ).toStrictEqual([
+    { section: "network_requests", reason: "out_of_target_scope", count: null },
+    {
+      section: "websocket_connections",
+      reason: "out_of_target_scope",
+      count: null,
+    },
+  ]);
+  expect(
+    session.limitations.filter((limitation) =>
+      limitation.startsWith("Out-of-process iframe "),
+    ),
+  ).toStrictEqual(
+    ["frame-a", "frame-b"].map(
+      (targetId) =>
+        `Out-of-process iframe ${targetId} of the selected page was not observed; its requests and WebSocket connections, and those of frames inside it, are not recorded.`,
+    ),
+  );
+  expect(session.completeness.unavailable_sections).not.toContain("workers");
+});
+
+it("does not report out-of-process iframes of other pages", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "page", `${origin}/page`),
+    events: (command) =>
+      command.method === "Target.setDiscoverTargets"
+        ? // Discovery reports other tabs' iframes, in the page's browser
+          // context and in others.
+          ["context-1", "context-2"].map((browserContextId) =>
+            event("Target.targetCreated", undefined, {
+              targetInfo: {
+                targetId: `frame-elsewhere-${browserContextId}`,
+                type: "iframe",
+                url: "https://embed.example.test/",
+                browserContextId,
+                parentFrameId: `other-page-${browserContextId}`,
+              },
+            }),
+          )
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(session.completeness.policy_filtered_sections).toStrictEqual([]);
+  expect(
+    session.completeness.excluded.filter(
+      ({ reason }) => reason === "out_of_target_scope",
+    ),
+  ).toStrictEqual([]);
+  expect(
+    session.limitations.filter((limitation) =>
+      limitation.includes("frame-elsewhere"),
+    ),
+  ).toStrictEqual([]);
+  expect(
+    browser.commands
+      .filter(({ method }) => method === "Target.attachToTarget")
+      .map(({ params }) => params.targetId),
+  ).toStrictEqual(["allowed-page"]);
+});
+
+it("states a held iframe it could not resume without claiming worker loss", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach" &&
+      command.sessionId === PAGE_SESSION
+        ? [
+            event("Target.attachedToTarget", PAGE_SESSION, {
+              sessionId: "frame-gone",
+              waitingForDebugger: true,
+              targetInfo: {
+                targetId: "frame-gone",
+                type: "iframe",
+                url: `${origin}/embed`,
+              },
+            }),
+          ]
+        : undefined,
+    options: {
+      commandError: ({ method, sessionId }) =>
+        method === "Runtime.runIfWaitingForDebugger" &&
+        sessionId === "frame-gone"
+          ? { code: -32_001, message: "Session with given id not found." }
+          : undefined,
+    },
+  });
+
+  const session = await observe(browser);
+
+  expect(session.limitations).toContainEqual(
+    "A held iframe was not resumed: CDP Runtime.runIfWaitingForDebugger failed (-32001): Session with given id not found.",
+  );
+  expect(session.completeness.unavailable_sections).not.toContain("workers");
+});
+
+it.each([
+  ["Target.setAutoAttach", true],
+  ["Target.getTargetInfo", false],
+  ["Target.setDiscoverTargets", true],
+] as const)(
+  "keeps network evidence and reports workers unavailable without %s",
+  async (method, discovers) => {
+    const browser = await startNetworkBrowser({
+      page: (origin, session) => exchange(session, "page", `${origin}/page`),
+      options: { unsupportedMethods: [method] },
+    });
+
+    const session = await observe(browser);
+
+    expect(entries(session).map(urlOf)).toEqual([
+      `${browser.allowedOrigin}/page`,
+    ]);
+    expect(session.completeness.unavailable_sections).toContain("workers");
+    expect(session.limitations).toContainEqual(
+      `${method} was unavailable from this browser target.`,
+    );
+    // Discovery needs the page's browser context, which getTargetInfo reports.
+    expect(
+      browser.commands.some(
+        (command) => command.method === "Target.setDiscoverTargets",
+      ),
+    ).toBe(discovers);
+  },
+);
+
+it("retains any other rejection of a worker setup command", async () => {
+  const browser = await startNetworkBrowser({
+    options: {
+      commandError: ({ method }) =>
+        method === "Target.setAutoAttach"
+          ? { code: -32_000, message: "Not allowed" }
+          : undefined,
+    },
+  });
+
+  const result = await new CdpBrowserProvider().observeSession(
+    observeWebSessionInputSchema.parse({
+      cdp_endpoint: browser.endpoint,
+      allowed_origins: [browser.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 100,
+      network: {},
+    }),
+  );
+
+  expect(result.ok).toBe(false);
+  if (!result.ok)
+    expect(result.error.userMessage).toContain(
+      "CDP Target.setAutoAttach failed (-32000): Not allowed",
+    );
+});
+
+it("reports a worker that ends during setup with the browser's reason", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (command.method === "Target.setAutoAttach")
+        return [
+          event("Target.attachedToTarget", PAGE_SESSION, {
+            sessionId: "worker-gone",
+            waitingForDebugger: true,
+            targetInfo: {
+              targetId: "worker-gone",
+              type: "worker",
+              url: `${origin}/gone.js`,
+            },
+          }),
+        ];
+      if (command.method === "Target.setDiscoverTargets")
+        return [
+          event("Target.targetCreated", undefined, {
+            targetInfo: {
+              targetId: "shared-gone",
+              type: "shared_worker",
+              url: `${origin}/shared.js`,
+              browserContextId: "context-1",
+            },
+          }),
+        ];
+      return undefined;
+    },
+    options: {
+      commandError: ({ method, sessionId, params }) =>
+        method === "Network.enable" && sessionId === "worker-gone"
+          ? { code: -32_001, message: "Session with given id not found." }
+          : method === "Runtime.runIfWaitingForDebugger"
+            ? { code: -32_001, message: "Session with given id not found." }
+            : method === "Target.attachToTarget" &&
+                params.targetId === "shared-gone"
+              ? { code: -32_602, message: "No target with given id found" }
+              : undefined,
+    },
+  });
+
+  const session = await observe(browser);
+
+  expect(session.window.end_reason).toBe("window_elapsed");
+  expect(session.limitations).toEqual(
+    expect.arrayContaining([
+      "Network observation could not start for worker worker-gone: CDP Network.enable failed (-32001): Session with given id not found.",
+      "A held worker was not resumed: CDP Runtime.runIfWaitingForDebugger failed (-32001): Session with given id not found.",
+      "Worker shared-gone was not observed: CDP Target.attachToTarget failed (-32602): No target with given id found",
+    ]),
+  );
+  expect(session.completeness.unavailable_sections).toContain("workers");
+});
+
+it("resumes a worker or iframe attached after the timeline ends without observing it", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach"
+        ? [
+            navigation(PAGE_SESSION, "https://outside.example.test/"),
+            ...(["worker", "iframe"] as const).map((type) =>
+              event("Target.attachedToTarget", PAGE_SESSION, {
+                sessionId: `${type}-late`,
+                waitingForDebugger: true,
+                targetInfo: {
+                  targetId: `${type}-late`,
+                  type,
+                  url: `${origin}/late-${type}`,
+                },
+              }),
+            ),
+          ]
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(session.window.end_reason).toBe("target_left_scope");
+  for (const late of ["worker-late", "iframe-late"])
+    expect(
+      browser.commands
+        .filter(({ sessionId }) => sessionId === late)
+        .map(({ method }) => method),
+    ).toEqual(["Runtime.runIfWaitingForDebugger"]);
+  // The iframe would carry traffic only after the timeline ended.
+  expect(session.limitations.join("\n")).not.toContain("iframe-late");
+});
+
+it("still releases a held worker whose attach payload is malformed", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command) =>
+      command.method === "Target.setAutoAttach"
+        ? [
+            event("Target.attachedToTarget", PAGE_SESSION, {
+              sessionId: "worker-odd",
+              waitingForDebugger: true,
+            }),
+          ]
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(
+    commandIndex(browser, "Runtime.runIfWaitingForDebugger", "worker-odd"),
+  ).toBeGreaterThan(-1);
+  expect(commandIndex(browser, "Network.enable", "worker-odd")).toBe(-1);
+  expect(session.completeness.excluded).toContainEqual({
+    section: "workers",
+    reason: "invalid_protocol_value",
+    count: 1,
+  });
+});
+
+it("skips shared and service worker discovery without a browser context", async () => {
+  const browser = await startNetworkBrowser({
+    result: (command) =>
+      command.method === "Target.getTargetInfo"
+        ? { targetInfo: { targetId: "allowed-page", type: "page" } }
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(
+    browser.commands.some(
+      ({ method }) => method === "Target.setDiscoverTargets",
+    ),
+  ).toBe(false);
+  expect(session.completeness.excluded).toContainEqual({
+    section: "workers",
+    reason: "invalid_protocol_value",
+    count: null,
+  });
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining("did not report the page's browser context"),
+  );
+});
+
+const heldWorker = (sessionId: string, origin: string) =>
+  event("Target.attachedToTarget", PAGE_SESSION, {
+    sessionId,
+    waitingForDebugger: true,
+    targetInfo: {
+      targetId: `target-${sessionId}`,
+      type: "worker",
+      url: `${origin}/${sessionId}.js`,
+    },
+  });
+
+it("bounds worker commands and stops waiting when the worker ends", async () => {
+  const detaching = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach"
+        ? [heldWorker("worker-h", origin)]
+        : undefined,
+    options: { hangOnMethod: "Runtime.runIfWaitingForDebugger" },
+  });
+  setTimeout(
+    () =>
+      detaching.emitEvent(
+        event("Target.detachedFromTarget", PAGE_SESSION, {
+          sessionId: "worker-h",
+        }),
+      ),
+    600,
+  );
+  const startedAt = Date.now();
+
+  const ended = await observe(detaching);
+
+  expect(Date.now() - startedAt).toBeLessThan(4_000);
+  expect(ended.limitations).toContainEqual(
+    "A held worker was not resumed: the worker ended.",
+  );
+  expect(ended.completeness.unavailable_sections).not.toContain("workers");
+
+  const silent = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach"
+        ? [heldWorker("worker-s", origin)]
+        : undefined,
+    options: { hangOnMethod: "Runtime.runIfWaitingForDebugger" },
+  });
+
+  const timedOut = await observe(silent);
+
+  expect(timedOut.limitations).toContainEqual(
+    "A held worker was not resumed: Runtime.runIfWaitingForDebugger did not answer within 5 s.",
+  );
+  expect(timedOut.completeness.unavailable_sections).toContain("workers");
+});
+
+it("stops waiting for a discovered worker destroyed while it is attaching", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setDiscoverTargets"
+        ? [
+            event("Target.targetCreated", undefined, {
+              targetInfo: {
+                targetId: "shared-destroyed",
+                type: "shared_worker",
+                url: `${origin}/shared.js`,
+                browserContextId: "context-1",
+              },
+            }),
+          ]
+        : undefined,
+    options: {
+      hangWhen: ({ method, params }) =>
+        method === "Target.attachToTarget" &&
+        params.targetId === "shared-destroyed",
+    },
+  });
+  // Before attaching there is no worker session, so only the target's
+  // destruction can end the pending attach.
+  setTimeout(
+    () =>
+      browser.emitEvent(
+        event("Target.targetDestroyed", undefined, {
+          targetId: "shared-destroyed",
+        }),
+      ),
+    600,
+  );
+  const startedAt = Date.now();
+
+  const session = await observe(browser);
+
+  expect(Date.now() - startedAt).toBeLessThan(4_000);
+  expect(session.limitations).toContainEqual(
+    "Worker shared-destroyed was not observed: the worker ended.",
+  );
+  expect(session.completeness.unavailable_sections).toContain("workers");
+});
+
+it("omits worker bodies whose session has ended", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach"
+        ? [heldWorker("worker-b", origin), heldWorker("worker-c", origin)]
+        : command.method === "Network.enable" &&
+            command.sessionId === "worker-b"
+          ? exchange("worker-b", "gone", `${origin}/gone`)
+          : command.method === "Network.enable" &&
+              command.sessionId === "worker-c"
+            ? exchange("worker-c", "held", `${origin}/held`)
+            : command.method === "Network.getResponseBody" &&
+                command.sessionId === "worker-c"
+              ? [
+                  event("Target.detachedFromTarget", PAGE_SESSION, {
+                    sessionId: "worker-c",
+                  }),
+                ]
+              : undefined,
+    options: {
+      // The detach reaches REA while worker-c's read is still in flight.
+      eventsBeforeReply: ["Network.getResponseBody"],
+      commandError: ({ method, sessionId }) =>
+        method === "Network.getResponseBody" && sessionId === "worker-b"
+          ? { code: -32_001, message: "Session with given id not found." }
+          : undefined,
+    },
+  });
+
+  const session = await observe(browser, {
+    network: { response_bodies: "all" },
+  });
+
+  expect(session.window.end_reason).toBe("window_elapsed");
+  const comments = entries(session).map((entry) => entry.comment);
+  expect(comments).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("The target ended before its response body"),
+      expect.stringContaining("The worker ended before its response body"),
+    ]),
+  );
+  expect(session.completeness.unavailable_sections).toContain("network_bodies");
+});
+
+it("observes dedicated workers started by an observed worker", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) => {
+      if (
+        command.method === "Target.setAutoAttach" &&
+        command.sessionId === PAGE_SESSION
+      )
+        return [heldWorker("worker-p", origin)];
+      if (
+        command.method === "Target.setAutoAttach" &&
+        command.sessionId === "worker-p"
+      )
+        return [
+          event("Target.attachedToTarget", "worker-p", {
+            sessionId: "worker-n",
+            waitingForDebugger: true,
+            targetInfo: {
+              targetId: "target-worker-n",
+              type: "worker",
+              url: `${origin}/inner.js`,
+            },
+          }),
+        ];
+      if (
+        command.method === "Network.enable" &&
+        command.sessionId === "worker-n"
+      )
+        return exchange("worker-n", "inner", `${origin}/inner-data.json`);
+      return undefined;
+    },
+  });
+
+  const session = await observe(browser);
+
+  expect(session.network?.targets).toContainEqual({
+    target_id: "target-worker-n",
+    type: "worker",
+    url: `${browser.allowedOrigin}/inner.js`,
+    attribution: "page",
+  });
+  expect(entries(session)).toContainEqual(
+    expect.objectContaining({ _rea_target_id: "target-worker-n" }),
+  );
+  expect(
+    commandIndex(browser, "Runtime.runIfWaitingForDebugger", "worker-n"),
+  ).toBeGreaterThan(-1);
+});
+
+it("ends the session when it disconnects during a worker command", async () => {
+  const browser = await startNetworkBrowser({
+    options: { closeOnMethod: "Runtime.runIfWaitingForDebugger" },
+  });
+  // Emitted after setup, so the disconnect lands in the window.
+  setTimeout(
+    () => browser.emitEvent(heldWorker("worker-d", browser.allowedOrigin)),
+    500,
+  );
+
+  const session = await observe(browser, { observation_ms: 10_000 });
+
+  expect(session.window.end_reason).toBe("target_terminated");
+  expect(session.limitations).toContainEqual(
+    "A held worker was not resumed: the target ended.",
+  );
+  expect(session.completeness.unavailable_sections).toContain("workers");
+});
+
+it("stops waiting for a held worker when the page crashes", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach" &&
+      command.sessionId === PAGE_SESSION
+        ? [heldWorker("worker-x", origin)]
+        : undefined,
+    options: { hangOnMethod: "Runtime.runIfWaitingForDebugger" },
+  });
+  // The connection stays open, so only the page's termination can end the
+  // pending resume before its deadline.
+  setTimeout(
+    () => browser.emitEvent(event("Inspector.targetCrashed", PAGE_SESSION, {})),
+    600,
+  );
+  const startedAt = Date.now();
+
+  const session = await observe(browser, { observation_ms: 10_000 });
+
+  expect(Date.now() - startedAt).toBeLessThan(4_000);
+  expect(session.window.end_reason).toBe("target_terminated");
+  expect(session.limitations).toContainEqual(
+    "A held worker was not resumed: the target ended.",
+  );
+});
+
+it("ends the page, not a worker, when the browser detaches the page session", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "slow", `${origin}/slow`),
+    options: {
+      hangWhen: ({ method, sessionId }) =>
+        method === "Network.getResponseBody" && sessionId === PAGE_SESSION,
+    },
+  });
+  // A browser-level detach names the page session in its parameters, as
+  // when the tab closes; it must not end the page as though it were a worker.
+  setTimeout(
+    () =>
+      browser.emitEvent(
+        event("Target.detachedFromTarget", undefined, {
+          sessionId: PAGE_SESSION,
+          targetId: "allowed-page",
+        }),
+      ),
+    600,
+  );
+
+  const session = await observe(browser, {
+    observation_ms: 10_000,
+    network: { response_bodies: "all" },
+  });
+
+  expect(session.window.end_reason).toBe("target_terminated");
+  expect(entries(session)[0]).toMatchObject({
+    comment: expect.stringContaining(
+      "The target ended before its response body was read.",
+    ),
+  });
+});
+
+it("tolerates a missing Target command on a worker but not a missing Network domain", async () => {
+  const announce = (
+    command: { method: string; sessionId?: string },
+    origin: string,
+  ) =>
+    command.method === "Target.setAutoAttach" &&
+    command.sessionId === PAGE_SESSION
+      ? [heldWorker("worker-m", origin)]
+      : undefined;
+  const nested = await startNetworkBrowser({
+    events: announce,
+    options: {
+      commandError: ({ method, sessionId }) =>
+        method === "Target.setAutoAttach" && sessionId === "worker-m"
+          ? { code: -32_601, message: "'Target.setAutoAttach' wasn't found" }
+          : undefined,
+    },
+  });
+
+  const session = await observe(nested);
+
+  expect(session.completeness.unavailable_sections).toContain("workers");
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining(
+      "Workers started by worker target-worker-m were not observed",
+    ),
+  );
+
+  const network = await startNetworkBrowser({
+    events: announce,
+    options: {
+      commandError: ({ method, sessionId }) =>
+        method === "Network.enable" && sessionId === "worker-m"
+          ? { code: -32_601, message: "'Network.enable' wasn't found" }
+          : undefined,
+    },
+  });
+  const result = await new CdpBrowserProvider().observeSession(
+    observeWebSessionInputSchema.parse({
+      cdp_endpoint: network.endpoint,
+      allowed_origins: [network.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 300,
+      network: {},
+    }),
+  );
+  expect(result.ok).toBe(false);
+});
+
+it("fails the observation when a worker rejects REA's parameters", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach" &&
+      command.sessionId === PAGE_SESSION
+        ? [heldWorker("worker-p", origin)]
+        : undefined,
+    options: {
+      commandError: ({ method, sessionId }) =>
+        method === "Network.enable" && sessionId === "worker-p"
+          ? { code: -32_602, message: "Invalid parameters" }
+          : undefined,
+    },
+  });
+
+  const result = await new CdpBrowserProvider().observeSession(
+    observeWebSessionInputSchema.parse({
+      cdp_endpoint: browser.endpoint,
+      allowed_origins: [browser.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 300,
+      network: {},
+    }),
+  );
+
+  expect(result.ok).toBe(false);
+  if (!result.ok)
+    expect(result.error.userMessage).toContain(
+      "CDP Network.enable failed (-32602): Invalid parameters",
+    );
+});
+
+it("redacts declared values in worker limitations", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach" &&
+      command.sessionId === PAGE_SESSION
+        ? [heldWorker("SECRETTARGET", origin)]
+        : undefined,
+    options: {
+      commandError: ({ method, sessionId }) =>
+        method === "Network.enable" && sessionId === "SECRETTARGET"
+          ? { code: -32_001, message: "Session SECRETTARGET not found." }
+          : undefined,
+    },
+  });
+
+  const session = await observe(browser, {
+    sensitive_values: ["SECRETTARGET"],
+  });
+
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining("Network observation could not start for worker"),
+  );
+  expect(JSON.stringify(session)).not.toContain("SECRETTARGET");
+});
+
+it("counts a worker announced without a session", async () => {
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Target.setAutoAttach"
+        ? [
+            event("Target.attachedToTarget", PAGE_SESSION, {
+              waitingForDebugger: true,
+              targetInfo: {
+                targetId: "orphan",
+                type: "worker",
+                url: `${origin}/orphan.js`,
+              },
+            }),
+          ]
+        : undefined,
+  });
+
+  const session = await observe(browser);
+
+  expect(session.completeness.excluded).toContainEqual({
+    section: "workers",
+    reason: "invalid_protocol_value",
+    count: 1,
+  });
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining("announced without a session"),
+  );
+});
+
+const sharedWorkerCreated = (origin: string) =>
+  event("Target.targetCreated", undefined, {
+    targetInfo: {
+      targetId: "shared-x",
+      type: "shared_worker",
+      url: `${origin}/shared.js`,
+      browserContextId: "context-1",
+    },
+  });
+
+it("retains unexpected per-worker rejections and malformed attach replies", async () => {
+  for (const reply of [
+    { error: { code: -32_000, message: "Not allowed" } },
+    { result: {} },
+  ]) {
+    const browser = await startNetworkBrowser({
+      events: (command, origin) =>
+        command.method === "Target.setDiscoverTargets"
+          ? [sharedWorkerCreated(origin)]
+          : undefined,
+      result: (command) =>
+        "result" in reply &&
+        command.method === "Target.attachToTarget" &&
+        command.params.targetId === "shared-x"
+          ? reply.result
+          : undefined,
+      options: {
+        commandError: (command) =>
+          "error" in reply &&
+          command.method === "Target.attachToTarget" &&
+          command.params.targetId === "shared-x"
+            ? reply.error
+            : undefined,
+      },
+    });
+
+    const result = await new CdpBrowserProvider().observeSession(
+      observeWebSessionInputSchema.parse({
+        cdp_endpoint: browser.endpoint,
+        allowed_origins: [browser.allowedOrigin],
+        target_id: "allowed-page",
+        observation_ms: 250,
+        network: {},
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+  }
+});
+
+it("does not attach workers discovered after recording stopped", async () => {
+  // The final-URL read runs after recording stops while REA still listens,
+  // so a worker announced before its reply reaches the stopped recorder.
+  const browser = await startNetworkBrowser({
+    events: (command, origin) =>
+      command.method === "Page.getFrameTree"
+        ? [sharedWorkerCreated(origin)]
+        : undefined,
+    options: { eventsBeforeReply: ["Page.getFrameTree"] },
+  });
+
+  const session = await observe(browser, { observation_ms: 250 });
+
+  expect(session.window.end_reason).toBe("window_elapsed");
+  expect(
+    browser.commands.some(
+      ({ method, params }) =>
+        method === "Target.attachToTarget" && params.targetId === "shared-x",
+    ),
+  ).toBe(false);
+});
+
 it("ends the window when a navigation's inline body exceeds the CDP message limit", async () => {
   // Chrome ignores maxPostDataSize for navigations and inlines a form
   // submission's body whole, so its request event can exceed the limit.
   const browser: FakeCdpBrowser = await startNetworkBrowser({
     result: (command) => {
-      // After the last setup reply, so the event lands in the window.
-      if (command.method === "Page.setLifecycleEventsEnabled")
+      // After the last setup reply (worker discovery), so the event lands
+      // in the window.
+      if (command.method === "Target.setDiscoverTargets")
         setImmediate(() => {
           browser.emitEvent(
             request(PAGE_SESSION, "form", `${browser.allowedOrigin}/submit`, {

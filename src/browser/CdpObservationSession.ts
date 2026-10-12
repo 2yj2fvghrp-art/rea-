@@ -21,6 +21,7 @@ import { mainFrameUrl } from "./CdpCaptureDocuments.js";
 import { isMainFrameNavigation } from "./CdpCaptureEventHelpers.js";
 import { cdpTargetEventMatches } from "./CdpTargetEvents.js";
 import { CdpSessionNetwork, type SessionTarget } from "./CdpSessionNetwork.js";
+import { CdpSessionWorkers } from "./CdpSessionWorkers.js";
 import { redactedSessionResult } from "./CdpSessionResult.js";
 
 interface ObservationContext {
@@ -60,21 +61,19 @@ export const observeCdpSession = async (
   const mainFrameId = frameId(initial);
   if (mainFrameId === undefined)
     throw new BrowserObservationError("inspect_web_page", "protocol_error");
-  const { capture, network, completeness, limitations } = sessionRecorders(
-    context,
-    allowedOrigins,
-    mainFrameId,
-    initialUrl,
-  );
+  const { capture, network, workers, completeness, limitations } =
+    sessionRecorders(context, allowedOrigins, mainFrameId, initialUrl);
   const removeListener = context.connection.onEvent((event) => {
     // A terminated target never answers reads still in flight, even after
     // the window while they settle.
     if (isTermination(event, context.sessionId)) network?.abandonReads();
     if (cdpTargetEventMatches(event, context.sessionId)) capture.ingest(event);
     // The event that ends the timeline (an out-of-scope document redirect)
-    // still completes its in-scope hop; recording stops right after it.
+    // still completes its in-scope hop; recording stops right after it. The
+    // worker handler still runs, so a worker held at startup is resumed.
     network?.ingest(event);
     if (capture.ended) network?.stop();
+    workers?.ingest(event);
   });
   const removeDisconnectListener = context.connection.onDisconnect(() => {
     capture.targetTerminated();
@@ -101,6 +100,7 @@ export const observeCdpSession = async (
       context.sessionId,
       context.signal,
     );
+    await workers?.attach();
     const armedAt = new Date().toISOString();
     await context.progress?.report({
       phase: "browser_observation",
@@ -189,10 +189,13 @@ const sessionRecorders = (
     target_id: context.target.id,
     type: "page",
     url: capture.initialUrl,
+    attribution: "page",
     sessionId: context.sessionId,
   };
   network?.register(page);
-  return { capture, network, completeness, limitations };
+  const workers =
+    network === undefined ? undefined : new CdpSessionWorkers(network, page);
+  return { capture, network, workers, completeness, limitations };
 };
 
 class TimelineCapture {
