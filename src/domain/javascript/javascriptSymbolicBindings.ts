@@ -543,8 +543,15 @@ export class JavaScriptSymbolicBindings {
       return symbolicUnknown("overwritten object members");
     const initializer =
       binding.initializers.length === 1 ? binding.initializers[0] : undefined;
-    if (!initializer)
-      return symbolicUnknown("missing or ambiguous initializer");
+    if (!initializer) {
+      // Static imports have no initializer. During mutation discovery their
+      // proven module origin comes from the shared identity owner.
+      return this.#originCache !== undefined &&
+        binding.initializers.length === 0 &&
+        electronOrigin !== undefined
+        ? { kind: "external", path: ["electron", ...electronOrigin] }
+        : symbolicUnknown("missing or ambiguous initializer");
+    }
     const point = this.#initializerReadPoint(binding.scopeId, env, node);
     if (
       !initializer.entryBody &&

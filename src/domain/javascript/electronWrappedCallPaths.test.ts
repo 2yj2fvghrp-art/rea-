@@ -714,3 +714,84 @@ describe("wrapped Electron API identity", () => {
     );
   });
 });
+
+describe("Electron container mutation targets", () => {
+  it.each([
+    "delete box.ipc;",
+    "box.ipc = replacement;",
+    "Reflect.set(box, 'ipc', replacement);",
+    "Object.defineProperty(box, 'ipc', { value: replacement });",
+  ])("preserves the module when replacing a container slot: %s", (write) => {
+    const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron");
+      const box={ipc:e.ipcMain};
+      ${write}
+      e.ipcMain.on("direct:untouched",event=>event.sender.copy());
+      function register(channel,handler){e.ipcMain.on(channel,handler);}
+      register("wrapped:untouched",event=>event.sender.copy());
+    `);
+    expect(
+      electron.ipc.filter(({ channel }) => channel !== null),
+    ).toMatchObject([
+      { channel: "direct:untouched", operation: "on" },
+      { channel: "wrapped:untouched", operation: "on" },
+    ]);
+    expect(electron.call_paths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          channel: "wrapped:untouched",
+          terminal: "ipc-event.sender.copy",
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    "delete box.ipc.on;",
+    "box.ipc.on = replacement;",
+    "Object.assign(box.ipc, { on: replacement });",
+    "Object.defineProperty(box.ipc, 'on', { value: replacement });",
+    "Reflect.set(box.ipc, 'on', replacement);",
+  ])(
+    "invalidates members written through the container receiver: %s",
+    (write) => {
+      const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron");
+      const box={ipc:e.ipcMain};
+      ${write}
+      e.ipcMain.on("direct:overwritten",event=>event.sender.copy());
+      function register(channel,handler){e.ipcMain.on(channel,handler);}
+      register("wrapped:overwritten",event=>event.sender.copy());
+    `);
+      expect(electron.ipc).toEqual([]);
+      expect(electron.call_paths ?? []).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['import { ipcMain } from "electron";', "ipcMain"],
+    ['import electron from "electron";', "electron.ipcMain"],
+  ])(
+    "retains imported origins inside container writes: %s",
+    (declaration, ipc) => {
+      const { electron } = analyzeJavaScriptStaticSource(`
+      ${declaration}
+      const box={ipc:${ipc}};
+      delete box.ipc.on;
+      ${ipc}.on("direct:overwritten",event=>event.sender.copy());
+      ${ipc}.handle("direct:untouched",event=>event.sender.copy());
+      const e=require("electron");
+      function register(channel,handler){e.ipcMain.on(channel,handler);}
+      register("wrapped:overwritten",event=>event.sender.copy());
+    `);
+      expect(electron.ipc).toMatchObject([
+        { channel: "direct:untouched", operation: "handle" },
+      ]);
+      expect(
+        (electron.call_paths ?? []).some(
+          ({ channel }) => channel === "wrapped:overwritten",
+        ),
+      ).toBe(false);
+    },
+  );
+});

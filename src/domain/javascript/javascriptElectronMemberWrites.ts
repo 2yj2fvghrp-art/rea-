@@ -52,7 +52,7 @@ export interface JavaScriptIntrinsicInvocation {
     | undefined;
 }
 
-/** Index writes through caller-proven identities of complete assignment targets. */
+/** Index writes through caller-proven identities of bindings and receiver values. */
 export function* collectJavaScriptIdentityWritesSteps(
   program: t.Program,
   origin: (
@@ -143,8 +143,16 @@ export function* collectJavaScriptIdentityWritesSteps(
               : undefined;
       if (target === undefined) return;
       for (const leaf of semanticWriteTargets(target)) {
-        const kind = t.isIdentifier(leaf) ? "binding" : "member";
-        for (const exported of origin(leaf, kind)) retain(node, exported);
+        if (t.isIdentifier(leaf)) {
+          for (const exported of origin(leaf, "binding"))
+            retain(node, exported);
+          continue;
+        }
+        // Replacing a container slot does not mutate the value previously in
+        // that slot. Resolve its receiver, then append the written key once.
+        const key = semanticStaticPropertyKey(leaf.property, leaf.computed);
+        for (const exported of origin(leaf.object, "member"))
+          retain(node, [...exported, key]);
       }
     },
   });
