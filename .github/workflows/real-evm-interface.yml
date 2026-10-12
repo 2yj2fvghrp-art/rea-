@@ -39,3 +39,5 @@ jobs:
           echo "REA_VERIFY_SOLC_MODULE=${evm_fixture_root}/node_modules/solc/index.js" >> "${GITHUB_ENV}"
       - name: Verify source-owned compiled bytecode through public CLI and MCP
         run: npm run verify:evm:interface
+      - name: Verify exact compiler artifacts through public CLI and MCP
+        run: npm run verify:solc:artifacts

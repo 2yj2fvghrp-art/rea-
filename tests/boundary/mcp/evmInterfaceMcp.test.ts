@@ -10,6 +10,7 @@ import {
 } from "../../../src/domain/analysisErrorCore.js";
 import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { evmInterfaceSummaryViewResultSchema } from "../../../src/domain/analysisView/analysisView.js";
+import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 import { err, ok } from "../../../src/domain/result.js";
 import { silentLogger } from "../../../src/logger.js";
 import { createServer } from "../../../src/server/createServer.js";
@@ -61,6 +62,52 @@ it("advertises exact valid schemas and records inline EVM interface evidence wit
   expect(
     ajv.validate(inputSchema, { path: value.artifact.path, encoding: "hex" }),
   ).toBe(true);
+  expect(
+    ajv.validate(inputSchema, { path: value.artifact.path, encoding: "raw" }),
+  ).toBe(true);
+  const compilerEncoding = {
+    kind: "solc-json",
+    source_unit: "contracts/Example.sol",
+    contract_name: "Example",
+    bytecode_kind: "deployed",
+  };
+  expect(
+    ajv.validate(inputSchema, {
+      path: value.artifact.path,
+      encoding: compilerEncoding,
+    }),
+    JSON.stringify(ajv.errors),
+  ).toBe(true);
+  for (const missing of [
+    "source_unit",
+    "contract_name",
+    "bytecode_kind",
+  ] as const) {
+    const incomplete: Record<string, string> = { ...compilerEncoding };
+    delete incomplete[missing];
+    expect(
+      ajv.validate(inputSchema, {
+        path: value.artifact.path,
+        encoding: incomplete,
+      }),
+    ).toBe(false);
+  }
+  for (const encoding of [
+    "solc-json",
+    { ...compilerEncoding, bytecode_kind: "runtime" },
+    { ...compilerEncoding, extra: true },
+    { ...compilerEncoding, kind: "raw" },
+  ])
+    expect(
+      ajv.validate(inputSchema, { path: value.artifact.path, encoding }),
+    ).toBe(false);
+  expect(
+    ajv.validate(inputSchema, {
+      path: value.artifact.path,
+      encoding: "hex",
+      compiler_selection: compilerEncoding,
+    }),
+  ).toBe(false);
   expect(
     ajv.validate(inputSchema, {
       path: value.artifact.path,
@@ -406,7 +453,7 @@ it.each(["valid", "wrong-subject", "no-subject"])(
       {
         operation: "inspect_evm_interface",
         parameters: { path: value.artifact.path, encoding: "hex" },
-        result: value,
+        result: jsonValueSchema.parse(value),
         confidence: "inferred",
         rawResult: { original: true },
       },

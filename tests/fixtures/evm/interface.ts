@@ -2,10 +2,21 @@ import { createHash } from "node:crypto";
 import { createAnalysisExecution } from "../../../src/application/AnalysisProvider.js";
 import type { EvmInterface } from "../../../src/domain/evm/evmInterface.js";
 
+type ConcreteEvmFixture = Omit<
+  EvmInterface,
+  "bytecode" | "compiler_artifact" | "inference_status"
+> & {
+  bytecode: Omit<EvmInterface["bytecode"], "sha256" | "bytes" | "hex"> & {
+    sha256: string;
+    bytes: number;
+    hex: string;
+  };
+};
+
 /** Source-owned transport seam, independent of real engine verification. */
 export const evmInterfaceFixture = (
   path = "/artifacts/source-owned.hex",
-): EvmInterface => ({
+): ConcreteEvmFixture => ({
   artifact: { path, sha256: "a".repeat(64), bytes: 10, encoding: "hex" },
   bytecode: {
     sha256: createHash("sha256")
@@ -27,7 +38,9 @@ export const evmInterfaceFixture = (
 });
 
 /** Bind a fixture to its explicit producing seam and carrier identity. */
-export const evmInterfaceExecution = (value = evmInterfaceFixture()) =>
+export const evmInterfaceExecution = (
+  value: EvmInterface = evmInterfaceFixture(),
+) =>
   createAnalysisExecution(
     value,
     { id: "fixture-evm", name: "Source-owned EVM seam", version: "1" },

@@ -226,6 +226,14 @@ it("retains native Inspector verification on every documented package host", asy
 
 it.each([
   [
+    "scripts/verify-solc-artifacts.mjs",
+    { code: true, evm: true, package: false, browser: false },
+  ],
+  [
+    "scripts/fixtures/solidity/compiler-artifacts.sol",
+    { code: true, evm: true, package: false, browser: false },
+  ],
+  [
     "src/evm/client.ts",
     { code: true, runtime: true, evm: true, browser: false, package: false },
   ],
