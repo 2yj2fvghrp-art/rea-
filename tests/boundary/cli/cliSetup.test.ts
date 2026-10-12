@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, rm } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -328,6 +328,46 @@ describe("non-interactive setup in a terminal", () => {
       },
     );
   }, 60_000);
+
+  it("shows the pending plan when stdin is not a terminal", async () => {
+    await withTerminalSetup(
+      ["--client", "codex", "--skill=false"],
+      async ({ output, exitCode, home }) => {
+        const config = join(home, ".codex", "config.toml");
+        expect(exitCode).toBe(1);
+        expect(output).toContain("Ready to review");
+        expect(output).toContain(config);
+        expect(output).toContain(
+          "Review the setup plan, then rerun interactively or with --yes.",
+        );
+        await expect(access(config)).rejects.toThrow();
+      },
+      { redirectStdin: true },
+    );
+  }, 60_000);
+
+  it("names changes already applied when a later step fails", async () => {
+    await withTerminalSetup(
+      ["--yes", "--client", "codex"],
+      async ({ output, exitCode, home }) => {
+        const config = join(home, ".codex", "config.toml");
+        expect(exitCode).toBe(1);
+        expect(output).toContain("Already applied");
+        expect(output).toContain("Codex");
+        expect(output).toContain(config);
+        expect(output.indexOf("REA skill")).toBeGreaterThan(
+          output.indexOf("Already applied"),
+        );
+        await expect(access(config)).resolves.toBeUndefined();
+      },
+      {
+        prepare: async (home) => {
+          await mkdir(join(home, ".agents"), { recursive: true });
+          await writeFile(join(home, ".agents", "skills"), "");
+        },
+      },
+    );
+  }, 60_000);
 });
 
 interface TerminalSetupRun {
@@ -343,13 +383,40 @@ const isolatedClientEnvironment = (): NodeJS.ProcessEnv => {
   return environment;
 };
 
+interface TerminalSetupOptions {
+  readonly prepare?: (home: string) => Promise<void>;
+  /** Give setup a terminal stdout while leaving stdin redirected. */
+  readonly redirectStdin?: boolean;
+}
+
+/**
+ * Launch setup with the parent's terminal stdout and a non-terminal stdin.
+ * A direct pseudo-terminal would make stdin a terminal and start the
+ * interactive journey instead.
+ */
+const redirectedStdinLauncher = (args: readonly string[]): string =>
+  [
+    'import { spawn } from "node:child_process";',
+    `const child = spawn(process.execPath, ${JSON.stringify(["scripts/rea.mjs", "setup", ...args])}, {`,
+    "  cwd: process.cwd(),",
+    "  env: process.env,",
+    '  stdio: ["ignore", "inherit", "inherit"],',
+    "});",
+    'for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"]) {',
+    "  process.on(signal, () => child.kill(signal));",
+    "}",
+    'child.on("exit", (code) => process.exit(code ?? 1));',
+  ].join("\n");
+
 /** Run the public setup command under a real pseudo-terminal in an isolated home. */
 const withTerminalSetup = async (
   args: readonly string[],
   assert: (run: TerminalSetupRun) => void | Promise<void>,
+  options?: TerminalSetupOptions,
 ): Promise<void> => {
   const home = await createTestTempDirectory("rea-cli-setup-terminal-");
   try {
+    await options?.prepare?.(home);
     const { output, exitCode } = await new Promise<{
       output: string;
       exitCode: number;
@@ -357,7 +424,9 @@ const withTerminalSetup = async (
       let output = "";
       const terminal = spawn(
         process.execPath,
-        ["scripts/rea.mjs", "setup", ...args],
+        options?.redirectStdin === true
+          ? ["--input-type=module", "--eval", redirectedStdinLauncher(args)]
+          : ["scripts/rea.mjs", "setup", ...args],
         {
           cwd: process.cwd(),
           env: {

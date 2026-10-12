@@ -92,10 +92,42 @@ export const renderTerminalSetupSummary = (
   scopeSelected: boolean,
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
 ): void => {
-  if (result.status !== "planned") {
-    renderInteractiveSetupResult(result, environment);
-    return;
+  switch (result.status) {
+    case "planned":
+      renderPlannedTerminalSummary(result, scopeSelected);
+      return;
+    case "needs_confirmation":
+      // Redirected stdin skips the interactive journey, so show the plan here.
+      if (result.plannedActions.length > 0)
+        renderPreflight(result.plannedActions);
+      outro(
+        result.remediation ??
+          "Review the setup plan, then rerun interactively or with --yes.",
+        promptStreams,
+      );
+      return;
+    case "needs_human":
+      // No progress events on this path, so name changes that already landed.
+      renderRetainedSetupOutcomes(result);
+      renderInteractiveSetupResult(result, environment);
+      return;
+    case "ready":
+    case "cancelled":
+      renderInteractiveSetupResult(result, environment);
+      return;
+    default: {
+      const exhaustive: never = result.status;
+      throw new TypeError(
+        `Unhandled setup result status: ${String(exhaustive)}`,
+      );
+    }
   }
+};
+
+const renderPlannedTerminalSummary = (
+  result: SetupResult,
+  scopeSelected: boolean,
+): void => {
   if (result.plannedActions.length === 0) {
     writeLine("◆  No changes planned for the selected scope.");
     if (!scopeSelected)
@@ -112,6 +144,54 @@ export const renderTerminalSetupSummary = (
       : "Dry run: no changes were made. Run the same command without --dry-run to apply.",
     promptStreams,
   );
+};
+
+/** Show mutations kept after a later setup step failed. */
+const renderRetainedSetupOutcomes = (result: SetupResult): void => {
+  const applied = new Set(result.appliedActions);
+  const actions = result.plannedActions.filter((action) =>
+    applied.has(appliedActionKey(action)),
+  );
+  const represented = new Set(
+    actions.flatMap((action) => {
+      const name = configuredClientName(action);
+      return name === undefined ? [] : [name];
+    }),
+  );
+  const extraClients = Object.entries(result.clients).flatMap(
+    ([name, client]) =>
+      client.status === "configured" && !represented.has(name)
+        ? [clientDisplayNames.get(name) ?? name]
+        : [],
+  );
+  if (actions.length === 0 && extraClients.length === 0) return;
+  writeLine("◆  Already applied");
+  for (const action of actions) {
+    writeLine(`│  ${action.operation.toUpperCase()}  ${action.label}`);
+    writeLine(`│          ${action.target}`);
+  }
+  for (const name of extraClients) writeLine(`│  CONFIGURED  ${name}`);
+};
+
+const configuredClientName = (action: SetupAction): string | undefined =>
+  action.kind === "configure_client" &&
+  action.id.startsWith("configure_client:")
+    ? action.id.slice("configure_client:".length)
+    : undefined;
+
+const appliedActionKey = (action: SetupAction): string => {
+  switch (action.kind) {
+    case "configure_client":
+      return `configured_${configuredClientName(action) ?? action.label}`;
+    case "install_skill":
+      return "installed_skill";
+    case "install_hopper":
+      return "installed_hopper";
+    default: {
+      const exhaustive: never = action.kind;
+      return exhaustive;
+    }
+  }
 };
 
 /** Finish an interactive setup journey without exposing the full doctor catalog. */
