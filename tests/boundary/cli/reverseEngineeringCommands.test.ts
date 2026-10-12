@@ -1,7 +1,6 @@
 import pino from "pino";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { createReverseEngineeringService } from "../../../src/composition/reverseEngineering.js";
 import { registerReverseEngineeringCommands } from "../../../src/cli/reverseEngineeringCommands.js";
 import { CLI_COMMANDS } from "../../../src/cliCommandNames.js";
 import {
@@ -15,14 +14,9 @@ import { err } from "../../../src/domain/result.js";
 import type { CliInstance } from "../../../src/cli/types.js";
 import type { ReverseEngineeringService } from "../../../src/application/reverse/ReverseEngineeringService.js";
 
-vi.mock("../../../src/composition/reverseEngineering.js", () => ({
-  createReverseEngineeringService: vi.fn(),
-}));
-
 const originalExitCode = process.exitCode;
 
 afterEach(() => {
-  vi.resetAllMocks();
   process.exitCode = originalExitCode;
 });
 
@@ -63,10 +57,13 @@ const runObjdump = async (service: Partial<ReverseEngineeringService>) => {
       return cli;
     },
   } as unknown as CliInstance;
-  vi.mocked(createReverseEngineeringService).mockReturnValue(
-    service as ReverseEngineeringService,
+  registerReverseEngineeringCommands(
+    cli,
+    pino({ enabled: false }),
+    {},
+    undefined,
+    () => service as ReverseEngineeringService,
   );
-  registerReverseEngineeringCommands(cli, pino({ enabled: false }), {});
   const command = commands.get(CLI_COMMANDS.inspectWithObjdump);
   if (command === undefined)
     throw new Error("objdump CLI command was not registered");
