@@ -416,3 +416,15 @@ while its token became unavailable after this change; npm changes its title
 as well. A newly started unreadable process can prevent verified cleanup even
 after the selected command exits. REA preserves this uncertainty and leaves
 that process untouched.
+
+Reading those tokens requires compiling a small Swift helper with `xcrun swiftc`.
+By default that compilation reuses Swift's shared module cache, while the
+compiler's intermediate objects stay inside the per-run temporary root that REA
+removes afterwards. Set `REA_SWIFTC_MODULE_CACHE_PATH` to a writable directory
+when a shared cache is unavailable, for example under an enforced write
+boundary. REA creates the directory, passes it to the compiler as
+`-module-cache-path`, and exports it as `CLANG_MODULE_CACHE_PATH` so the
+Objective-C header modules the helper builds land there too. REA never removes
+that directory: it outlives each run, so the first compilation into a new
+directory pays a cold-cache build and later runs reuse it. An absent or empty
+value keeps the shared default.

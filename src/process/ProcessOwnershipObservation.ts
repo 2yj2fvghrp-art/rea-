@@ -220,15 +220,23 @@ export const createSystemProcessOwnershipHost = (
   options: {
     /** Override the compiler executable used by the Darwin native reader. */
     readonly darwinXcrun?: string;
+    /** Override the caller-owned module cache used compiling that helper. */
+    readonly darwinModuleCachePath?: string;
   } = {},
 ): ProcessOwnershipHost => {
+  const darwinModuleCachePath =
+    options.darwinModuleCachePath ??
+    hostEnvironment.REA_SWIFTC_MODULE_CACHE_PATH;
   const darwinTokens =
     platform === "darwin"
-      ? createDarwinProcessRunTokenReader(
-          options.darwinXcrun === undefined
+      ? createDarwinProcessRunTokenReader({
+          ...(options.darwinXcrun === undefined
             ? {}
-            : { xcrun: options.darwinXcrun },
-        )
+            : { xcrun: options.darwinXcrun }),
+          ...(darwinModuleCachePath === undefined
+            ? {}
+            : { moduleCachePath: darwinModuleCachePath }),
+        })
       : undefined;
   const listProcesses = async (signal?: AbortSignal) => {
     if (platform === "win32") return [];

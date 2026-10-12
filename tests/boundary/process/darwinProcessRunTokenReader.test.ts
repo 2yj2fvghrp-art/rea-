@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -387,6 +388,138 @@ it.skipIf(process.platform === "win32")(
     } finally {
       await Promise.all([reader.close(), Promise.allSettled([preparation])]);
     }
+  },
+);
+
+const writeCacheRecordingCompiler = async (directory: string) => {
+  const executable = join(directory, "fake-cache-xcrun");
+  const statePath = join(directory, "cache-compile-state.json");
+  const source = `#!/usr/bin/env node
+const fs = process.getBuiltinModule("node:fs");
+const path = process.getBuiltinModule("node:path");
+const flagIndex = process.argv.indexOf("-module-cache-path");
+const cache = flagIndex === -1 ? undefined : process.argv[flagIndex + 1];
+fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify({
+  arguments: process.argv.slice(2),
+  moduleCacheEnvironment: process.env.CLANG_MODULE_CACHE_PATH ?? null,
+}));
+if (cache !== undefined) {
+  fs.mkdirSync(cache, { recursive: true });
+  fs.writeFileSync(path.join(cache, "written-into-cache"), "kept");
+}
+const output = process.argv[process.argv.indexOf("-o") + 1];
+fs.writeFileSync(output, "#!/bin/sh\\nexit 0\\n");
+fs.chmodSync(output, 0o755);
+`;
+  await writeFile(executable, source);
+  await chmod(executable, 0o755);
+  return { executable, statePath };
+};
+
+const readCacheCompileState = async (statePath: string) =>
+  JSON.parse(await readFile(statePath, "utf8")) as {
+    arguments: string[];
+    moduleCacheEnvironment: string | null;
+  };
+
+const existsPath = async (target: string) =>
+  access(target).then(
+    () => true,
+    () => false,
+  );
+
+it.skipIf(process.platform === "win32")(
+  "forwards a caller-owned module cache and keeps it after the helper root is removed",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-caller-cache-test-",
+    );
+    const cachePath = join(directory, "caller", "modules");
+    const fakeCompiler = await writeCacheRecordingCompiler(directory);
+    const reader = createDarwinProcessRunTokenReader({
+      xcrun: fakeCompiler.executable,
+      moduleCachePath: cachePath,
+    });
+    const executable = await reader.prepare();
+    await reader.close();
+    const state = await readCacheCompileState(fakeCompiler.statePath);
+    const flagIndex = state.arguments.indexOf("-module-cache-path");
+    expect(state.arguments[0]).toBe("swiftc");
+    expect(flagIndex).toBe(1);
+    expect(state.arguments[flagIndex + 1]).toBe(cachePath);
+    expect(state.moduleCacheEnvironment).toBe(cachePath);
+    expect(await existsPath(join(cachePath, "written-into-cache"))).toBe(true);
+    expect(await existsPath(executable)).toBe(false);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "selects the caller module cache through REA_SWIFTC_MODULE_CACHE_PATH",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-host-cache-test-",
+    );
+    const cachePath = join(directory, "from-environment", "modules");
+    const fakeCompiler = await writeCacheRecordingCompiler(directory);
+    const host = createSystemProcessOwnershipHost(
+      "darwin",
+      { ...process.env, REA_SWIFTC_MODULE_CACHE_PATH: cachePath },
+      { darwinXcrun: fakeCompiler.executable },
+    );
+    await host.prepare?.(AbortSignal.timeout(15_000));
+    const state = await readCacheCompileState(fakeCompiler.statePath);
+    const flagIndex = state.arguments.indexOf("-module-cache-path");
+    expect(state.arguments[flagIndex + 1]).toBe(cachePath);
+    await host.close?.();
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "keeps the shared module cache for the system host without the setting",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-host-default-test-",
+    );
+    const hostEnvironment = { ...process.env };
+    delete hostEnvironment.REA_SWIFTC_MODULE_CACHE_PATH;
+    const fakeCompiler = await writeCacheRecordingCompiler(directory);
+    const host = createSystemProcessOwnershipHost("darwin", hostEnvironment, {
+      darwinXcrun: fakeCompiler.executable,
+    });
+    await host.prepare?.(AbortSignal.timeout(15_000));
+    const state = await readCacheCompileState(fakeCompiler.statePath);
+    expect(state.arguments).not.toContain("-module-cache-path");
+    expect(state.moduleCacheEnvironment).toBeNull();
+    await host.close?.();
+  },
+);
+
+it.skipIf(!onDarwin)(
+  "compiles the helper against the caller cache with the host compiler",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-real-cache-test-",
+    );
+    const cachePath = join(directory, "caller", "modules");
+    const host = createSystemProcessOwnershipHost("darwin", {
+      ...process.env,
+      REA_SWIFTC_MODULE_CACHE_PATH: cachePath,
+    });
+    try {
+      await host.prepare?.(AbortSignal.timeout(180_000));
+      const entries = await readdir(cachePath);
+      expect(
+        entries.some(
+          (name) =>
+            name.endsWith(".swiftmodule") ||
+            name.endsWith(".pcm") ||
+            name === "Modules",
+        ),
+      ).toBe(true);
+    } finally {
+      await host.close?.();
+    }
+    expect(await existsPath(join(directory, "caller"))).toBe(true);
   },
 );
 
