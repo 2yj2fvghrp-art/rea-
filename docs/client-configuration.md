@@ -232,6 +232,27 @@ Harness integration, with live DeepSeek API compatibility remaining unverified.
 See the [Harness MCP guide](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/mcp/mcp-client/README.md)
 for its native configuration contract.
 
+### Installable Harness bundle (alternative to CLI setup)
+
+This repository also contains a build-free `dsh.bundle` plugin at
+[`integrations/deepseek-harness/`](../integrations/deepseek-harness/README.md).
+Its `rea-launcher` Cordis service resolves the packaged REA executable,
+and `rea-mcp` injects that service into Harness's native MCP client. Install
+with `dsh plugin --profile web add
+'github:xxxxxwater/rea#path:integrations/deepseek-harness'` and verify
+with `dsh --profile web --dump-config`. Unlike legacy `rea setup`, the
+new bundle is installed into a specific Harness profile.
+
+If REA was already registered by CLI setup, the home patch's `rea-mcp`
+row overrides the new bundle row. Back up `$DSH_HOME/cordis.patch.yml`,
+remove only the legacy REA row, and keep all unrelated patches. For the
+fork's source checkout rather than the pinned upstream npm prebuilt server,
+build REA and set `REA_DSH_ENTRYPOINT` to its absolute
+`scripts/rea.mjs` path in the Harness host environment. The current CLI's
+reserved `desktop` profile cannot be treated as an ordinary CLI target.
+See the plugin guide for Desktop installation, complete migration and
+verification scope.
+
 ## Other client settings
 
 For OpenCode, setup writes the V1 `mcp.rea` entry, which OpenCode V1 and V2

@@ -1,0 +1,80 @@
+name: DeepSeek Harness plugin compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/deepseek-harness/**'
+      - '.github/workflows/dsh-bundle.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'integrations/deepseek-harness/**'
+      - '.github/workflows/dsh-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Bundle contract and Node tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+      - run: node --test integrations/deepseek-harness/tests/*.test.mjs
+      - run: node integrations/deepseek-harness/scripts/verify-package.mjs
+      - name: Verify install artifact without build hooks
+        working-directory: integrations/deepseek-harness
+        run: |
+          npm pack --dry-run --json > /tmp/rea-dsh-pack.json
+          node -e 'const a=require("/tmp/rea-dsh-pack.json")[0].files.map(x=>x.path);for(const f of ["package.json","launcher.mjs","cordis.patch.yml","README.md"])if(!a.includes(f))throw Error("missing packed file: "+f)'
+
+  native-harness:
+    name: Latest upstream Harness + packaged REA MCP
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DSH_HOME: ${{ runner.temp }}/rea-dsh-profile
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+      - name: Install pinned prebuilt REA runtime for local bundle
+        run: npm install --prefix integrations/deepseek-harness --ignore-scripts --no-audit --no-fund
+      - name: Verify real MCP initialization and tool discovery
+        run: node integrations/deepseek-harness/scripts/smoke-mcp.mjs
+      - uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: master
+          path: harness-upstream
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness-upstream/package.json
+      - name: Build current upstream Harness
+        working-directory: harness-upstream
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Install local source bundle in a real Harness profile
+        working-directory: harness-upstream
+        run: pnpm dsh plugin --profile web add "$GITHUB_WORKSPACE/integrations/deepseek-harness"
+      - name: Verify native bundle composition
+        working-directory: harness-upstream
+        run: |
+          pnpm dsh --profile web --dump-config > /tmp/rea-dsh-composition.txt
+          grep -F 'dsh-rea-bundle' /tmp/rea-dsh-composition.txt
+          grep -F 'id: rea-mcp' /tmp/rea-dsh-composition.txt
+          grep -F 'ctx.reaLauncher.command' /tmp/rea-dsh-composition.txt
+      - name: Report scope
+        run: |
+          echo 'Validated: build-free bundle, prebuilt REA MCP handshake, current upstream Harness composition.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Not validated: live DeepSeek API calls, paid providers, native Desktop installation, optional Ghidra/IDA.' >> "$GITHUB_STEP_SUMMARY"

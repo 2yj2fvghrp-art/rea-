@@ -69,6 +69,19 @@ npx rea-agents setup
 
 设置流程支持 Claude Code、Codex、Cursor、Gemini CLI、Grok Build 和[其他智能体](docs/installation.md#supported-agents)。提供方配置和手动注册 MCP 的方法见[安装与设置](docs/installation.md)。
 
+### DeepSeek Harness 原生插件
+
+本仓库现在提供符合 Harness `dsh.bundle` 规范的可安装插件：
+
+```sh
+dsh plugin --profile web add 'github:xxxxxwater/rea#path:integrations/deepseek-harness'
+dsh --profile web --dump-config
+```
+
+完整的安装、macOS Desktop 配置、本仓库 REA 源码启动以及旧 MCP 注册迁移说明，
+请阅读 [DeepSeek Harness 插件指南](integrations/deepseek-harness/README.md)。
+该插件复用 REA 原有的 MCP 工具与 Evidence，不会自动安装 Ghidra 或 IDA。
+
 ### 询问智能体
 
 ```text
