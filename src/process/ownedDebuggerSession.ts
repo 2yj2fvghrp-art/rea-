@@ -7,12 +7,17 @@ const DETACH_TIMEOUT_MS = 1_000;
 const MAX_LATE_DEBUGGER_OUTPUT_BYTES = 64 * 1024;
 export type OwnedDebuggerDetachResult =
   | { readonly status: "no-inferior" }
-  | { readonly status: "detached"; readonly outputSink: "durable" };
+  | {
+      readonly status: "detached";
+      readonly outputSink: "durable";
+      readonly inputSink: "durable" | "not-inherited";
+    };
 const detachAttempts = new WeakMap<
   object,
   Promise<OwnedDebuggerDetachResult>
 >();
 const detachOutcomes = new WeakMap<object, "confirmed" | "unconfirmed">();
+const stopAttempts = new WeakMap<object, Promise<OwnedDebuggerStopResult>>();
 
 const isVerifiedDetachResult = (
   result: unknown,
@@ -23,7 +28,10 @@ const isVerifiedDetachResult = (
     ("status" in result &&
       result.status === "detached" &&
       "outputSink" in result &&
-      result.outputSink === "durable"));
+      result.outputSink === "durable" &&
+      "inputSink" in result &&
+      (result.inputSink === "durable" ||
+        result.inputSink === "not-inherited")));
 
 const waitForInferiorDetach = async (
   session: object,
@@ -127,7 +135,7 @@ const finishExitedDebuggerSession = async (
 };
 
 /** Stop only the directly owned debugger process, never its process group or target. */
-export const stopOwnedDebuggerProcess = async (
+const performOwnedDebuggerStop = async (
   session: OwnedDebuggerProcess,
   debuggerName: string,
   options: { readonly platform?: NodeJS.Platform } = {},
@@ -150,6 +158,16 @@ export const stopOwnedDebuggerProcess = async (
       platform,
       "already_exited",
     );
+  }
+  try {
+    session.supervisor.limitAdditionalOutputBytes(
+      MAX_LATE_DEBUGGER_OUTPUT_BYTES,
+    );
+  } catch (cause: unknown) {
+    return {
+      status: "incomplete",
+      reason: `Owned ${debuggerName} output capture could not be bounded while the debugger remains active: ${cause instanceof Error ? cause.message : String(cause)}`,
+    };
   }
   if (platform === "win32")
     return {
@@ -209,6 +227,25 @@ export const stopOwnedDebuggerProcess = async (
     platform,
     "stopped",
   );
+};
+
+/** Share one complete shutdown attempt so overlapping callers cannot detach or signal twice. */
+export const stopOwnedDebuggerProcess = (
+  session: OwnedDebuggerProcess,
+  debuggerName: string,
+  options: { readonly platform?: NodeJS.Platform } = {},
+): Promise<OwnedDebuggerStopResult> => {
+  const existing = stopAttempts.get(session);
+  if (existing !== undefined) return existing;
+
+  let tracked!: Promise<OwnedDebuggerStopResult>;
+  tracked = performOwnedDebuggerStop(session, debuggerName, options).finally(
+    () => {
+      if (stopAttempts.get(session) === tracked) stopAttempts.delete(session);
+    },
+  );
+  stopAttempts.set(session, tracked);
+  return tracked;
 };
 
 /**

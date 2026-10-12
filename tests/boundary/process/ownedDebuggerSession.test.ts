@@ -64,6 +64,7 @@ it("retains process supervision after an incomplete stop and disposes after a re
       ({
         status: "detached",
         outputSink: "durable",
+        inputSink: "durable",
       }) as const,
     supervisor: {
       waitForExit: async (): Promise<boolean> => {
@@ -236,6 +237,107 @@ it("does not signal a POSIX debugger when provider detach cannot be verified", a
   expect(signals).toEqual([]);
 });
 
+it("caps output before returning an incomplete result for a live debugger", async () => {
+  const limitAdditionalOutputBytes = vi.fn();
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "live-without-detach",
+      exited: false,
+      launched: { process: { kill: vi.fn(() => true) } },
+      supervisor: {
+        waitForExit: async () => false,
+        limitAdditionalOutputBytes,
+        waitForOutputClose: async () => false,
+        dispose: vi.fn(),
+        unrefOutputStreams: vi.fn(),
+        disposeAfterOutputClose: vi.fn(),
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result.status).toBe("incomplete");
+  expect(limitAdditionalOutputBytes).toHaveBeenCalledWith(64 * 1024);
+});
+
+it("does not terminate a detached inferior without an independent input path", async () => {
+  const kill = vi.fn(() => true);
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "detached-with-piped-stdin",
+      exited: false,
+      launched: { process: { kill } },
+      detachInferior: async () =>
+        ({
+          status: "detached",
+          outputSink: "durable",
+          inputSink: "unknown",
+        }) as never,
+      supervisor: {
+        waitForExit: async () => true,
+        limitAdditionalOutputBytes: vi.fn(),
+        waitForOutputClose: async () => true,
+        dispose: vi.fn(),
+        unrefOutputStreams: vi.fn(),
+        disposeAfterOutputClose: vi.fn(),
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result).toMatchObject({ status: "incomplete" });
+  expect(kill).not.toHaveBeenCalled();
+});
+
+it("shares the entire in-flight stop across concurrent callers", async () => {
+  const finishWaitForExit: ((exited: boolean) => void)[] = [];
+  const waitForExit = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finishWaitForExit.push(resolve);
+      }),
+  );
+  const detachInferior = vi.fn(
+    async () => ({ status: "no-inferior" }) as const,
+  );
+  const kill = vi.fn(() => true);
+  const session = {
+    id: "concurrent-full-stop",
+    exited: false,
+    launched: { process: { kill } },
+    detachInferior,
+    supervisor: {
+      waitForExit,
+      limitAdditionalOutputBytes: vi.fn(),
+      waitForOutputClose: async () => true,
+      dispose: vi.fn(),
+      unrefOutputStreams: vi.fn(),
+      disposeAfterOutputClose: vi.fn(),
+    },
+  };
+
+  const first = stopOwnedDebuggerProcess(session, "GDB", {
+    platform: "linux",
+  });
+  await vi.waitFor(() => expect(waitForExit).toHaveBeenCalledTimes(1));
+  const second = stopOwnedDebuggerProcess(session, "GDB", {
+    platform: "linux",
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  for (const finish of finishWaitForExit) finish(true);
+  expect(detachInferior).toHaveBeenCalledTimes(1);
+  expect(kill).toHaveBeenCalledTimes(1);
+
+  await expect(Promise.all([first, second])).resolves.toEqual([
+    { status: "stopped" },
+    { status: "stopped" },
+  ]);
+  expect(detachInferior).toHaveBeenCalledTimes(1);
+  expect(kill).toHaveBeenCalledTimes(1);
+});
+
 it("retains an exited debugger after provider detach failed", async () => {
   let exited = false;
   let disposals = 0;
@@ -341,6 +443,7 @@ it("retains an owned debugger when inferior detach does not settle", async () =>
   let resolveDetach!: (value: {
     readonly status: "detached";
     readonly outputSink: "durable";
+    readonly inputSink: "durable";
   }) => void;
   let disposals = 0;
   try {
@@ -358,10 +461,12 @@ it("retains an owned debugger when inferior detach does not settle", async () =>
           return Promise.resolve({
             status: "detached",
             outputSink: "durable",
+            inputSink: "durable",
           } as const);
         return new Promise<{
           readonly status: "detached";
           readonly outputSink: "durable";
+          readonly inputSink: "durable";
         }>((resolve) => {
           resolveDetach = resolve;
         });
@@ -398,7 +503,11 @@ it("retains an owned debugger when inferior detach does not settle", async () =>
     expect(signals).toEqual([]);
     expect(disposals).toBe(0);
 
-    resolveDetach({ status: "detached", outputSink: "durable" });
+    resolveDetach({
+      status: "detached",
+      outputSink: "durable",
+      inputSink: "durable",
+    });
     await vi.advanceTimersByTimeAsync(0);
     expect(
       await stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
@@ -727,6 +836,7 @@ it("does not escalate when the debugger exits after SIGTERM", async () => {
         ({
           status: "detached",
           outputSink: "durable",
+          inputSink: "durable",
         }) as const,
       supervisor: {
         waitForExit: async () => true,
@@ -771,6 +881,7 @@ it("disposes supervision when the debugger exits after SIGKILL", async () => {
         ({
           status: "detached",
           outputSink: "durable",
+          inputSink: "durable",
         }) as const,
       supervisor: {
         waitForExit: async () => {
@@ -989,6 +1100,7 @@ it.skipIf(process.platform === "win32")(
             ({
               status: "detached",
               outputSink: "durable",
+              inputSink: "durable",
             }) as const,
           supervisor,
         },
