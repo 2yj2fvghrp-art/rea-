@@ -745,6 +745,15 @@ read-only operations, digest identity, and runtime cleanup. The separate
 ordinary user. It requires the built Windows native bundle and an existing
 Ghidra/JDK installation; neither is inferred from startup alone.
 
+## QuickBMS
+
+For custom game or application archives that no REA tool parses, the skill
+has your agent find or write a QuickBMS script. REA does not install or run
+QuickBMS. To test the scripts, download it yourself from
+https://aluigi.altervista.org/quickbms.htm. Without QuickBMS the agent still
+writes the script and gives you the commands. See the
+[QuickBMS guide](quickbms.md).
+
 ## MCP Registry
 
 REA is published in the official MCP Registry as `io.github.morluto/rea`. Registry

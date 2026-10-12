@@ -1,6 +1,6 @@
 ---
 name: reverse-engineer-anything
-description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
+description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, custom archive, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
 metadata:
   version: "40"
 ---
@@ -57,6 +57,11 @@ explicit path or endpoint and do not need it.
   `extract_firmware` when extraction is requested, with a caller-selected new
   absolute output directory. These tools use caller-supplied Binwalk/Unblob on
   Linux; see the [firmware guide](https://github.com/morluto/rea/blob/main/docs/firmware-analysis.md).
+- Custom game or application archive that no REA tool parses (`.pak`, `.big`,
+  `.arc`, `.dat` and similar): read
+  [references/quickbms.md](references/quickbms.md) to find or write a
+  QuickBMS script, and use native analysis of the loader when the layout is
+  unclear.
 - .NET NativeAOT PE/ELF: native Ghidra analysis. Native code can yield pseudocode;
   consult the NativeAOT workflow in `references/native-and-artifacts.md` for
   optional metadata recovery and its supported host/layout boundary.
@@ -228,6 +233,8 @@ as complete while required questions remain open.
   [references/runtime-observation.md](references/runtime-observation.md)
 - Evidence paging, comparisons, residual unknowns, and verification:
   [references/evidence-workflows.md](references/evidence-workflows.md)
+- Custom game or application archives REA does not parse, with QuickBMS
+  scripts: [references/quickbms.md](references/quickbms.md)
 
 ## Finish the task
 

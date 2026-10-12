@@ -28,8 +28,8 @@ instead of silently disabling it to make an analysis command work.
 
 Static JavaScript and ordinary ZIP inventory need neither Hopper nor Ghidra.
 HAR inspection is offline and does not require a live browser. Native
-decompilation, Android analysis and firmware extraction have their own
-bring-your-own prerequisites. Use supported inventory/static evidence when it
+decompilation, Android analysis, firmware extraction and running QuickBMS
+scripts for custom archives have their own bring-your-own prerequisites. Use supported inventory/static evidence when it
 answers part of the question, and name the unavailable evidence separately.
 Do not substitute another target. Label observations from ordinary shell tools
 as such; only actual REA output supplies REA Evidence.
