@@ -5,6 +5,7 @@ import {
   disassemblySchema,
   idaAddressSchema,
   modernCalleesSchema,
+  modernStringsSchema,
   modernXrefsSchema,
 } from "./IdaProtocolValues.js";
 
@@ -67,6 +68,40 @@ export const nativeCalleesSchema = z
 export const nativeXrefsSchema = z
   .array(modernXrefsSchema.element.extend({ error: nativeErrorSchema }))
   .length(1);
+
+/** Native regex failures carry an empty page, which must not imply absence. */
+export const nativeStringsSchema = modernStringsSchema
+  .extend({ error: z.string().optional() })
+  .transform((page) => {
+    if (page.error !== undefined)
+      throw new AnalysisProtocolError(
+        `Native IDA string search failed: ${page.error}`,
+      );
+    return page;
+  });
+
+/**
+ * Native regexes fold bytes, while REA's insensitive literal search folds
+ * Unicode strings. Include every non-ASCII value as a candidate, then apply
+ * REA's exact predicate. Ill-formed UTF-16 cannot cross upstream JSON/UTF-8.
+ */
+export const nativeLiteralSearchPattern = (
+  pattern: string,
+  caseSensitive: boolean,
+): string | undefined => {
+  if (/[\uD800-\uDFFF]/u.test(pattern)) return undefined;
+  let literal = (caseSensitive ? pattern : pattern.toLowerCase()).replace(
+    /[.*+?^${}()|[\]\\]/gu,
+    "\\$&",
+  );
+  // Spell ASCII variants explicitly rather than depending on an upstream locale.
+  if (!caseSensitive)
+    literal = literal.replace(
+      /[a-z]/gu,
+      (char) => `[${char}${char.toUpperCase()}]`,
+    );
+  return caseSensitive ? literal : `(?:${literal})|[\\x80-\\xff]`;
+};
 
 /** Read-only tools required from the native bridge; GUI lifecycle tools are excluded. */
 export const nativeTools = [

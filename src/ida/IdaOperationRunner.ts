@@ -4,6 +4,8 @@ import {
   nativeDisassemblySchema,
   nativeCalleesSchema,
   nativeXrefsSchema,
+  nativeLiteralSearchPattern,
+  nativeStringsSchema,
 } from "./IdaNativeProtocol.js";
 import { analysisSearchInput } from "../contracts/analysisSearchContract.js";
 import {
@@ -20,7 +22,10 @@ import type { RelationshipCoverage } from "../domain/relationshipCoverage.js";
 import { readCallGraphCallees, unavailableCallGraph } from "./IdaCallGraph.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import type { IdaOperation } from "./IdaProviderCapabilities.js";
-import { IDA_LIMITATIONS } from "./IdaProviderCapabilities.js";
+import {
+  IDA_LIMITATIONS,
+  IDA_NATIVE_STRING_LIMITATION,
+} from "./IdaProviderCapabilities.js";
 import type { EvidenceLocation } from "../domain/evidence.js";
 import {
   disassemblySchema,
@@ -34,6 +39,7 @@ import {
   modernDecompileSchema,
   modernDisassemblySchema,
   modernLookupSchema,
+  modernLookupBatchSchema,
   modernPageSchema,
   modernStringsSchema,
   modernXrefsSchema,
@@ -66,6 +72,7 @@ const MISSING_PROCEDURE_ANSWERS: ReadonlySet<string> = new Set([
 ]);
 const lines = (asm: IdaDisassembly) =>
   asm.lines.map(({ address, instruction }) => `${address}: ${instruction}`);
+const searchQuerySchema = z.object(analysisSearchInput);
 
 /** Translate explicit analyst questions into a closed set of read-only upstream requests. */
 export class IdaOperationRunner {
@@ -141,36 +148,7 @@ export class IdaOperationRunner {
       const item = modernLookupSchema.parse(
         await this.call("lookup_funcs", { queries: [query] }),
       )[0];
-      if (item === undefined || item.query !== query)
-        throw new AnalysisProtocolError(
-          `IDA function lookup answered for a different query than ${JSON.stringify(query)}.`,
-        );
-      if (
-        requestedBy !== undefined &&
-        item.fn === null &&
-        item.error !== null &&
-        MISSING_PROCEDURE_ANSWERS.has(item.error)
-      )
-        throw new AnalysisInputError(
-          requestedBy,
-          {
-            cause: new AnalysisProtocolError(
-              `IDA function lookup failed for ${query}: ${item.error}`,
-            ),
-          },
-          [
-            {
-              path: [],
-              reason: "invalid_value",
-              message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${item.error}.`,
-            },
-          ],
-        );
-      if (item.fn === null || item.error !== null)
-        throw new AnalysisProtocolError(
-          `IDA function lookup failed for ${query}: ${item.error ?? "missing function"}`,
-        );
-      return item.fn;
+      return this.lookupFunction(query, item, requestedBy);
     }
     const address = idaAddressSchema.safeParse(
       /^0x/iu.test(query) ? query : undefined,
@@ -191,6 +169,43 @@ export class IdaOperationRunner {
         "IDA function identity changed during lookup.",
       );
     return entry;
+  }
+
+  private lookupFunction(
+    query: string,
+    item: z.infer<typeof modernLookupBatchSchema>[number] | undefined,
+    requestedBy?: string,
+  ): IdaFunction {
+    if (item?.query !== query)
+      throw new AnalysisProtocolError(
+        `IDA function lookup answered for a different query than ${JSON.stringify(query)}.`,
+      );
+    if (
+      requestedBy !== undefined &&
+      item.fn === null &&
+      item.error !== null &&
+      MISSING_PROCEDURE_ANSWERS.has(item.error)
+    )
+      throw new AnalysisInputError(
+        requestedBy,
+        {
+          cause: new AnalysisProtocolError(
+            `IDA function lookup failed for ${query}: ${item.error}`,
+          ),
+        },
+        [
+          {
+            path: [],
+            reason: "invalid_value",
+            message: `IDA could not resolve procedure ${JSON.stringify(query)}: ${item.error}.`,
+          },
+        ],
+      );
+    if (item.fn === null || item.error !== null)
+      throw new AnalysisProtocolError(
+        `IDA function lookup failed for ${query}: ${item.error ?? "missing function"}`,
+      );
+    return item.fn;
   }
 
   /** True only for modern callee reads on targets not proven x86-only; x86 reads never reach the graph code. */
@@ -221,7 +236,11 @@ export class IdaOperationRunner {
         result.set(callee.address, identity({ ...callee, size: "unknown" }));
   }
 
-  async strings(): Promise<{ address: string; value: string }[]> {
+  async strings(
+    nativePattern?: string,
+  ): Promise<{ address: string; value: string }[]> {
+    if (this.protocol === "native")
+      this.limitations.push(IDA_NATIVE_STRING_LIMITATION);
     const result: { address: string; value: string }[] = [];
     let offset: number | null = 0;
     while (offset !== null) {
@@ -238,9 +257,14 @@ export class IdaOperationRunner {
         );
         offset = page.next_offset;
       } else {
-        const page = modernStringsSchema.parse(
+        const page = (
+          this.protocol === "native" ? nativeStringsSchema : modernStringsSchema
+        ).parse(
           await this.call("find_regex", {
-            pattern: this.protocol === "native" ? "[\\s\\S]*" : "(?s).*",
+            pattern:
+              this.protocol === "native"
+                ? (nativePattern ?? "[\\s\\S]*")
+                : "(?s).*",
             offset,
             limit: 100,
           }),
@@ -436,9 +460,31 @@ export class IdaOperationRunner {
         else queries.push(item.addr);
       }
     }
-    for (const query of new Set(queries)) {
-      const resolved = identity(await this.resolve(query));
-      result.set(resolved.address, resolved);
+    const querySet = new Set(queries);
+    if (this.protocol === "native" && querySet.size > 0) {
+      const rows = modernLookupBatchSchema.parse(
+        await this.call("lookup_funcs", { queries: [...querySet] }),
+      );
+      const byQuery = new Map(rows.map((row) => [row.query, row]));
+      if (
+        rows.length !== querySet.size ||
+        byQuery.size !== rows.length ||
+        rows.some((row) => !querySet.has(row.query))
+      )
+        throw new AnalysisProtocolError(
+          "Native IDA returned an inconsistent callee lookup batch.",
+        );
+      for (const query of querySet) {
+        const resolved = identity(
+          this.lookupFunction(query, byQuery.get(query)),
+        );
+        result.set(resolved.address, resolved);
+      }
+    } else {
+      for (const query of querySet) {
+        const resolved = identity(await this.resolve(query));
+        result.set(resolved.address, resolved);
+      }
     }
     if (this.relationshipCoverage === undefined)
       this.relationshipCoverage = {
@@ -452,19 +498,29 @@ export class IdaOperationRunner {
     operation: IdaOperation,
     parameters: Readonly<Record<string, JsonValue>>,
   ): Promise<JsonValue> {
+    const query =
+      operation === "search_procedures" || operation === "search_strings"
+        ? searchQuerySchema.parse(parameters)
+        : undefined;
+    const matches =
+      query === undefined ? undefined : this.searchPredicate(query);
     if (operation === "list_procedures" || operation === "search_procedures") {
       const items = (await this.functions()).map((fn) => ({
         address: fn.address,
         value: fn.name,
       }));
-      return operation === "list_procedures"
+      return matches === undefined
         ? items
-        : this.search(items, parameters);
+        : items.filter(({ value }) => matches(value));
     }
     if (operation === "list_strings" || operation === "search_strings") {
-      const items = await this.strings();
-      return operation === "search_strings"
-        ? this.search(items, parameters)
+      const nativePattern =
+        this.protocol === "native" && query?.mode === "literal"
+          ? nativeLiteralSearchPattern(query.pattern, query.case_sensitive)
+          : undefined;
+      const items = await this.strings(nativePattern);
+      return matches !== undefined
+        ? items.filter(({ value }) => matches(value))
         : parameters.address === undefined
           ? items
           : items.filter(
@@ -512,11 +568,9 @@ export class IdaOperationRunner {
     }
   }
 
-  private search(
-    items: { address: string; value: string }[],
-    input: Readonly<Record<string, JsonValue>>,
-  ): JsonValue {
-    const query = z.object(analysisSearchInput).parse(input);
+  private searchPredicate(
+    query: z.infer<typeof searchQuerySchema>,
+  ): (value: string) => boolean {
     let matches: (value: string) => boolean;
     if (query.mode === "regex") {
       try {
@@ -535,7 +589,7 @@ export class IdaOperationRunner {
       matches = (value) =>
         (query.case_sensitive ? value : value.toLowerCase()).includes(needle);
     }
-    return items.filter(({ value }) => matches(value));
+    return matches;
   }
 
   private async dossier(fn: IdaFunction): Promise<JsonValue> {

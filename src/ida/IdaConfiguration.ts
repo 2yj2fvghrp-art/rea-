@@ -43,7 +43,7 @@ const registrationSchema = z
   ])
   .refine(
     (config) => config.protocol !== "native" || config.mode === "attached",
-    "The native IDA Free protocol requires attached mode",
+    "The native IDA MCP protocol requires attached mode",
   );
 
 /** An upstream MCP registration plus REA's database lifecycle selection. */

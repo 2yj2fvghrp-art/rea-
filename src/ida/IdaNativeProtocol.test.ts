@@ -6,6 +6,10 @@ import {
   RecordingIdaMcp,
 } from "../../tests/fixtures/idaMcp.js";
 import type { JsonValue } from "../domain/jsonValue.js";
+import {
+  AnalysisInputError,
+  AnalysisProtocolError,
+} from "../domain/analysisErrorCore.js";
 import { readIdaConfiguration } from "./IdaConfiguration.js";
 import {
   decodeIdaToolResult,
@@ -101,7 +105,7 @@ const fixture = async () => {
   return { producer, client, target, resources, root };
 };
 
-describe("native IDA Free attached protocol", () => {
+describe("native IDA attached protocol", () => {
   it("requires explicit opt-in and rejects native headless registrations", async () => {
     const { root } = await fixture();
     const path = join(root, "native.json");
@@ -191,7 +195,7 @@ describe("native IDA Free attached protocol", () => {
   });
 });
 
-describe("native IDA Free provider observations", () => {
+describe("native IDA provider observations", () => {
   it("retains native tool provenance, reads recorded metadata, and closes only its connection", async () => {
     const { client, producer, resources } = await fixture();
     for (const operation of [
@@ -276,7 +280,7 @@ describe("native IDA Free provider observations", () => {
   });
 });
 
-describe("native IDA Free malformed observations", () => {
+describe("native IDA query identity", () => {
   it.each([
     "procedure_address",
     "procedure_assembly",
@@ -312,7 +316,297 @@ describe("native IDA Free malformed observations", () => {
       }
     },
   );
+});
 
+describe("native IDA callee lookup batches", () => {
+  it("batches unique callees and binds reordered replies to their source queries", async () => {
+    const { client, producer } = await fixture();
+    const previous = producer.overrideCall;
+    producer.overrideCall = (name, args) => {
+      if (name === "callees")
+        return [
+          {
+            callees: [
+              { addr: "0x2004", name: "first", type: "internal" },
+              { addr: "0x2004", name: "first", type: "internal" },
+              { addr: "0x3000", name: "second", type: "internal" },
+              { addr: "0x4000", name: "import", type: "external" },
+            ],
+            more: false,
+            error: null,
+          },
+        ];
+      if (
+        name === "lookup_funcs" &&
+        Array.isArray(args.queries) &&
+        args.queries.length > 1
+      )
+        return [
+          {
+            query: "0x3000",
+            fn: { addr: "0x3000", name: "second", size: "0x20" },
+            error: null,
+          },
+          {
+            query: "0x2004",
+            fn: { addr: "0x2000", name: "first", size: "0x20" },
+            error: null,
+          },
+        ];
+      return previous?.(name, args);
+    };
+    try {
+      const result = await client.execute("procedure_callees", {
+        procedure: "main",
+      });
+      if (!result.ok) throw result.error;
+      expect(result.value.result).toEqual(["0x4000", "0x2000", "0x3000"]);
+      expect(
+        producer.calls
+          .filter(({ name }) => name === "lookup_funcs")
+          .map(({ args }) => args.queries),
+      ).toEqual([["main"], ["0x2004", "0x3000"]]);
+      expect(result.value.rawResult).toMatchObject({
+        observations: expect.arrayContaining([
+          expect.objectContaining({
+            tool: "lookup_funcs",
+            arguments: { queries: ["0x2004", "0x3000"] },
+            result: [
+              expect.objectContaining({ query: "0x3000" }),
+              expect.objectContaining({ query: "0x2004" }),
+            ],
+          }),
+        ]),
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects missing, duplicate, unrelated, and failed callee lookup rows as provider faults", async () => {
+    const { client, producer } = await fixture();
+    const previous = producer.overrideCall;
+    const first = {
+      query: "0x2000",
+      fn: { addr: "0x2000", name: "first", size: "0x20" },
+      error: null,
+    };
+    const second = {
+      query: "0x3000",
+      fn: { addr: "0x3000", name: "second", size: "0x20" },
+      error: null,
+    };
+    let rows: JsonValue = [];
+    producer.overrideCall = (name, args) => {
+      if (name === "callees")
+        return [
+          {
+            callees: [
+              { addr: "0x2000", name: "first", type: "internal" },
+              { addr: "0x3000", name: "second", type: "internal" },
+            ],
+            more: false,
+            error: null,
+          },
+        ];
+      if (
+        name === "lookup_funcs" &&
+        Array.isArray(args.queries) &&
+        args.queries.length > 1
+      )
+        return rows;
+      return previous?.(name, args);
+    };
+    try {
+      for (const reply of [
+        [first],
+        [first, first],
+        [first, { ...second, query: "unrequested" }],
+        [first, { query: "0x3000", fn: null, error: "Not found" }],
+      ]) {
+        rows = reply;
+        const result = await client.execute("procedure_callees", {
+          procedure: "main",
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok)
+          expect(result.error).toBeInstanceOf(AnalysisProtocolError);
+      }
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe("native IDA literal matching", () => {
+  it("retains literal, Unicode, case, and regex semantics while narrowing native candidates", async () => {
+    const { client, producer } = await fixture();
+    const values = [
+      "A.B",
+      "axb",
+      "Kelvin",
+      "İstanbul",
+      "σ",
+      "ς",
+      "literal[bracket",
+      "a\\b",
+      "🧪",
+    ];
+    producer.overrideCall = (name, args) => {
+      if (name !== "find_regex") return undefined;
+      if (typeof args.pattern !== "string")
+        throw new Error("Invalid fixture pattern");
+      // Exercise a byte-oriented producer seam, including Unicode candidates
+      // whose final matching semantics belong to REA, not the upstream regex.
+      const regex = new RegExp(
+        Buffer.from(args.pattern).toString("latin1"),
+        "i",
+      );
+      return {
+        matches: values.flatMap((value, i) =>
+          regex.test(Buffer.from(value).toString("latin1"))
+            ? [{ addr: `0x${(0x3000 + i).toString(16)}`, string: value }]
+            : [],
+        ),
+        cursor: { done: true },
+      };
+    };
+    const cases = [
+      {
+        pattern: "a.b",
+        mode: "literal",
+        case_sensitive: false,
+        expected: ["A.B"],
+      },
+      { pattern: "a.b", mode: "literal", case_sensitive: true, expected: [] },
+      {
+        pattern: "kelvin",
+        mode: "literal",
+        case_sensitive: false,
+        expected: ["Kelvin"],
+      },
+      {
+        pattern: "İ",
+        mode: "literal",
+        case_sensitive: false,
+        expected: ["İstanbul"],
+      },
+      { pattern: "σ", mode: "literal", case_sensitive: false, expected: ["σ"] },
+      {
+        pattern: "σ",
+        mode: "regex",
+        case_sensitive: false,
+        expected: ["σ", "ς"],
+      },
+      {
+        pattern: "[",
+        mode: "literal",
+        case_sensitive: false,
+        expected: ["literal[bracket"],
+      },
+      {
+        pattern: "\\",
+        mode: "literal",
+        case_sensitive: true,
+        expected: ["a\\b"],
+      },
+      {
+        pattern: "\ud800",
+        mode: "literal",
+        case_sensitive: false,
+        expected: [],
+      },
+      {
+        pattern: "🧪",
+        mode: "literal",
+        case_sensitive: true,
+        expected: ["🧪"],
+      },
+    ];
+    try {
+      for (const { expected, ...query } of cases) {
+        const before = producer.calls.length;
+        const result = await client.execute("search_strings", query);
+        if (!result.ok) throw result.error;
+        expect(result.value.result).toEqual(
+          expected.map((value) => ({
+            address: `0x${(0x3000 + values.indexOf(value)).toString(16)}`,
+            value,
+          })),
+        );
+        const reads = producer.calls
+          .slice(before)
+          .filter(({ name }) => name === "find_regex");
+        expect(reads).toHaveLength(1);
+        if (query.mode === "regex" || query.pattern === "\ud800")
+          expect(reads[0]?.args.pattern).toBe("[\\s\\S]*");
+        else expect(reads[0]?.args.pattern).not.toBe("[\\s\\S]*");
+      }
+      const before = producer.calls.length;
+      const invalid = await client.execute("search_strings", {
+        pattern: "[",
+        mode: "regex",
+      });
+      expect(invalid.ok).toBe(false);
+      if (!invalid.ok) expect(invalid.error).toBeInstanceOf(AnalysisInputError);
+      expect(
+        producer.calls.slice(before).some(({ name }) => name === "find_regex"),
+      ).toBe(false);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe("native IDA string pagination and failures", () => {
+  it("reads all candidate pages and reports native search failures explicitly", async () => {
+    const { client, producer } = await fixture();
+    producer.overrideCall = (name, args) =>
+      name === "find_regex"
+        ? {
+            matches: [
+              {
+                addr: args.offset === 0 ? "0x3000" : "0x3001",
+                string: args.offset === 0 ? "σ" : "needle",
+              },
+            ],
+            cursor: args.offset === 0 ? { next: 1 } : { done: true },
+          }
+        : undefined;
+    try {
+      const found = await client.execute("search_strings", {
+        pattern: "needle",
+      });
+      if (!found.ok) throw found.error;
+      expect(found.value.result).toEqual([
+        { address: "0x3001", value: "needle" },
+      ]);
+      const reads = producer.calls.filter(({ name }) => name === "find_regex");
+      expect(reads.map(({ args }) => args.offset)).toEqual([0, 1]);
+      expect(new Set(reads.map(({ args }) => args.pattern)).size).toBe(1);
+      producer.overrideCall = (name) =>
+        name === "find_regex"
+          ? {
+              matches: [],
+              cursor: { done: true },
+              error: "Regex resource failure",
+            }
+          : undefined;
+      const failed = await client.execute("search_strings", {
+        pattern: "needle",
+      });
+      expect(failed.ok).toBe(false);
+      if (!failed.ok) {
+        expect(failed.error).toBeInstanceOf(AnalysisProtocolError);
+        expect(failed.error.message).toContain("Regex resource failure");
+      }
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe("native IDA malformed observations", () => {
   it("rejects wrong-function pseudocode, upstream cloud failures, and malformed assembly", async () => {
     const { client, producer } = await fixture();
     for (const value of [

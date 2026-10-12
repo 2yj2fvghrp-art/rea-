@@ -37,6 +37,9 @@ export const IDA_LIMITATIONS = Object.freeze([
   "Complete function body ranges, typed references, unresolved indirect calls, referenced data, and basic blocks are unavailable in this adapter. Empty unsupported dossier facets are unknown, not observed absence.",
 ]);
 
+export const IDA_NATIVE_STRING_LIMITATION =
+  "Native string observations use upstream C-string rendering; other string representations remain unknown.";
+
 /**
  * Attached mode requires the legacy 1.4 profile, whose `disassemble_function`
  * jumps to the function and whose `decompile_function` opens or reuses a
@@ -81,5 +84,8 @@ export const idaCapabilities = (
       changesPermissions: false,
       requiresRoot: false,
     },
-    limitations: IDA_LIMITATIONS,
+    limitations:
+      native && (operation === "list_strings" || operation === "search_strings")
+        ? [...IDA_LIMITATIONS, IDA_NATIVE_STRING_LIMITATION]
+        : IDA_LIMITATIONS,
   }));
