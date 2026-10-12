@@ -38,7 +38,7 @@ it("enforces the offered complete-file byte budget while preserving authenticate
   const ir = analyzeJavaScriptSemantics(text);
   const module = projectJavaScriptModuleSemantics(ir);
   const projection = await completeJavaScriptAnalysisSteps(
-    projectJavaScriptSemanticFileSteps(file, ir, 100),
+    projectJavaScriptSemanticFileSteps(file, ir, null, null),
   );
   const observed = await writeJavaScriptAnalysisTransfer(
     join(root, "observed"),
