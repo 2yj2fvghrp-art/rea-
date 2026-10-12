@@ -30,6 +30,12 @@ entry does not hide a malformed entry elsewhere.
 HAR uses unchanged `har-schema@2.0.0` draft-06 schemas, `ajv@8.20.0`,
 `ajv-formats@3.0.1`, `jsonc-parser@3.3.1` JSON visitor, and
 `lossless-json@4.3.1` numeric representations, pinned in the npm lockfile.
+A request URL is admitted when the `ajv-formats` RFC 3986 `uri` check accepts
+it, either as written or with these characters percent-encoded: each `[`, `]`,
+`{`, `}`, `|`, `^` and backtick, each `%` not followed by two hexadecimal
+digits, and each backslash after the first `?` or `#`. Browsers leave each of
+them unescaped in a query. Other spellings only WHATWG URL parsing accepts,
+such as a backslash before the first `?` or `#`, or a tab, are rejected.
 Only the HAR 1.2 profile is supported. Unknown extensions remain reported
 evidence. Duplicate object keys, including equal values and escaped spellings,
 are rejected before materialization. Prototype-named members such as

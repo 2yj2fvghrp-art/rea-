@@ -320,6 +320,50 @@ it("preserves duplicate headers and binary bytes, redacting credentials and decl
   expect(JSON.stringify(events)).not.toContain("transport-secret");
 });
 
+it("withholds every transport-credential header value in any letter case", async () => {
+  const { collector, events } = harness();
+  const request = new RequestFixture("input");
+  const response = new ResponseFixture(request, "output");
+  request.headersArray = async () => [
+    { name: "Authorization", value: "Bearer transport-secret" },
+    { name: "PROXY-AUTHORIZATION", value: "Basic transport-secret" },
+    { name: "cookie", value: "sid=transport-secret" },
+    { name: "X-Visible", value: "kept" },
+  ];
+  response.headersArray = async () => [
+    { name: "SET-COOKIE", value: "sid=transport-secret" },
+    { name: "X-Visible", value: "kept" },
+  ];
+  collector.request(request);
+  collector.response(response);
+  collector.finished(request);
+  await collector.finish();
+  const headers = (phase: "request" | "response") => {
+    const content = events.find(
+      (event) => event.kind === "network-content" && event.phase === phase,
+    );
+    if (content?.kind !== "network-content")
+      throw new Error(`Missing ${phase}`);
+    return content.headers;
+  };
+  const withheld = (name: string) => ({ name, value: null, redacted: true });
+  const kept = { name: "X-Visible", value: "kept", redacted: false };
+  expect(headers("request")).toEqual({
+    state: "captured",
+    items: [
+      withheld("Authorization"),
+      withheld("PROXY-AUTHORIZATION"),
+      withheld("cookie"),
+      kept,
+    ],
+  });
+  expect(headers("response")).toEqual({
+    state: "captured",
+    items: [withheld("SET-COOKIE"), kept],
+  });
+  expect(JSON.stringify(events)).not.toContain("transport-secret");
+});
+
 it("does not read unfinished streaming responses and reports the cutoff", async () => {
   const { collector, events } = harness();
   const request = new RequestFixture("stream");

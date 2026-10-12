@@ -517,3 +517,47 @@ it.each(["format", "process"])(
     expect(JSON.stringify(projected)).not.toContain("capture-private");
   },
 );
+
+it("admits RFC 3986 request URLs and browser-serialized URL characters", () => {
+  const decode = (url: string) => {
+    const har = historicalHar();
+    const [entry] = har.log.entries;
+    if (entry === undefined) throw new Error("Fixture has no entry");
+    entry.request.url = url;
+    return () => decodeHarCapture(JSON.stringify(har), []);
+  };
+
+  // RFC 3986 only, then URLs browsers serialize with characters RFC 3986
+  // rejects; the reported URL keeps the original spelling.
+  expect(decode("http://example.com:99999/")).not.toThrow();
+  for (const url of [
+    "https://example.test/?q=[1]|{x}^`",
+    "https://example.test/search?q=100%",
+    "https://example.test/?status=100%Done",
+    "https://example.test/files/50%A",
+    "https://example.test/files/100%.png",
+    "https://example.test/x?cb=%%CACHEBUSTER%%",
+    "https://example.test/collect?e={%22k%22:%22a\\%22b%22}",
+    "https://example.test/a#x\\y",
+  ]) {
+    expect(new URL(url).href).toBe(url);
+    expect(decode(url)().records[0]?.reported).toMatchObject({
+      request: { url },
+    });
+  }
+  expect(decode("not a url")).toThrow(/format/u);
+  // WHATWG alone reads these as userinfo that the decoder cannot strip.
+  for (const url of [
+    "http:\\\\user:pass@example.test/",
+    "http:/\\user:pass@example.test/",
+    "http:\\\\user:pass@example.test/?q=\\",
+    "ht\ttp://user:pass@example.test/",
+  ]) {
+    expect(new URL(url).password).toBe("pass");
+    expect(decode(url)).toThrow(/format/u);
+  }
+  // WHATWG alone reads a path backslash as a separator.
+  const pathBackslash = "https://example.test/a\\b?q=1";
+  expect(new URL(pathBackslash).pathname).toBe("/a/b");
+  expect(decode(pathBackslash)).toThrow(/format/u);
+});

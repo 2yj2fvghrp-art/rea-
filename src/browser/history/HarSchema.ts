@@ -3,7 +3,7 @@ import { Ajv } from "ajv";
 import { z } from "zod";
 import { CaptureFormatError } from "./CaptureFormatError.js";
 
-/** Validate using the unchanged, pinned upstream HAR 1.2 draft-06 schemas. */
+/** Validate using the unchanged, pinned upstream HAR 1.2 draft-06 schemas; `uri` also admits browser-serialized URL characters. */
 export const createHarValidator = (): ((value: unknown) => void) => {
   const require = createRequire(import.meta.url);
   const schemas = z
@@ -15,6 +15,33 @@ export const createHarValidator = (): ((value: unknown) => void) => {
   if (typeof plugin !== "function")
     throw new Error("Pinned AJV formats plugin is unavailable");
   plugin(ajv);
+  // Browsers serialize request URLs per WHATWG URL, leaving [ ] { } | ^ `, a
+  // `%` that starts no escape, and a `\` in the query or fragment unescaped;
+  // Chrome's own HAR exports carry them too. Only those are percent-encoded
+  // before the pinned RFC 3986 check. A `\` before the first `?` or `#` and a
+  // tab stay inadmissible: browsers never serialize them, and WHATWG alone
+  // reads an authority through them.
+  const rfc3986 = ajv.formats.uri;
+  if (typeof rfc3986 !== "function")
+    throw new Error("Pinned AJV uri format is unavailable");
+  ajv.addFormat("uri", {
+    type: "string",
+    validate: (value: string) => {
+      if (rfc3986(value) === true) return true;
+      const query = value.search(/[?#]/u);
+      return (
+        rfc3986(
+          value.replace(
+            /[[\]{}|^`\\]|%(?![0-9A-Fa-f]{2})/gu,
+            (char: string, offset: number) =>
+              char === "\\" && (query === -1 || offset < query)
+                ? char
+                : encodeURIComponent(char),
+          ),
+        ) === true
+      );
+    },
+  });
   for (const schema of Object.values(schemas)) ajv.addSchema(schema);
   const validate = ajv.getSchema("har.json#");
   if (validate === undefined)

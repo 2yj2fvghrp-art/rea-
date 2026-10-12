@@ -1,13 +1,8 @@
 import type { WebNetworkCaptureRecord } from "../../domain/webNetworkCapture.js";
 import { parseRecordedTransportUrl } from "../../domain/recordedTransportUrl.js";
+import { TRANSPORT_CREDENTIAL_HEADERS } from "../network/TransportCredentials.js";
 
 type Redaction = WebNetworkCaptureRecord["redactions"][number];
-const CREDENTIAL_HEADERS = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-]);
 
 /** Literal redaction and structural authentication exclusions preserve unrelated local evidence. */
 export class CaptureRedaction {
@@ -58,7 +53,7 @@ export class CaptureRedaction {
     return (
       (/^\/(request|response)\/headers\/\d+\/value$/.test(pointer) &&
         typeof parent.name === "string" &&
-        CREDENTIAL_HEADERS.has(parent.name.toLowerCase())) ||
+        TRANSPORT_CREDENTIAL_HEADERS.has(parent.name.toLowerCase())) ||
       /^\/(request|response)\/cookies\/\d+\/value$/.test(pointer)
     );
   }

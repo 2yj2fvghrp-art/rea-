@@ -10,6 +10,7 @@ import type {
 } from "../../domain/browserNetworkEvidence.js";
 import type { BrowserScenarioSecrets } from "../BrowserScenarioSecrets.js";
 import { withPlaywrightExecutionBoundary } from "../PlaywrightExecutionBoundary.js";
+import { TRANSPORT_CREDENTIAL_HEADERS } from "./TransportCredentials.js";
 
 /** The producer seam for ordered, duplicate-preserving HTTP headers. */
 export interface NetworkHeadersSource {
@@ -22,13 +23,6 @@ export interface NetworkReadOptions {
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
 }
-
-const credentialHeaders = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-]);
 
 const errorMessage = (
   cause: unknown,
@@ -56,7 +50,7 @@ export const captureNetworkHeaders = async (
       state: "captured",
       items: headers.map(({ name, value }) => {
         const safeName = secrets.redact(name);
-        const credential = credentialHeaders.has(name.toLowerCase());
+        const credential = TRANSPORT_CREDENTIAL_HEADERS.has(name.toLowerCase());
         const safeValue = credential
           ? null
           : secrets.redactBytes(Buffer.from(value)).toString("utf8");
