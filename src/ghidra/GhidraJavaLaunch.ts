@@ -12,6 +12,7 @@ export const ghidraJavaLaunch = async (options: {
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
   readonly signal?: AbortSignal;
+  readonly onStderr: (mode: "-envvars" | "-vmargs", stderr: string) => void;
 }): Promise<{
   readonly command: string;
   readonly arguments: readonly string[];
@@ -45,6 +46,7 @@ export const ghidraJavaLaunch = async (options: {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     },
   );
+  options.onStderr("-envvars", configuredEnvironment.stderr);
   for (const line of configuredEnvironment.stdout.split(/\r?\n/u)) {
     if (line === "") continue;
     const separator = line.indexOf("=");
@@ -66,6 +68,7 @@ export const ghidraJavaLaunch = async (options: {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     },
   );
+  options.onStderr("-vmargs", configuredArguments.stderr);
   const vmArguments = configuredArguments.stdout
     .split(/\r?\n/u)
     .filter((line) => line !== "");
