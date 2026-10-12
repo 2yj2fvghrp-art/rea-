@@ -151,8 +151,14 @@ CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents setup --client claude_code
 CLAUDE_CONFIG_DIR=~/.claude-rea claude
 ```
 
-The profile needs its own login. Sessions started without the variable don't
-load REA, its skill, or that profile's history.
+The profile needs its own login. Setup only adds to the profile it targets, so
+if you already ran setup without the variable, the default profile still loads
+REA. Remove that copy with the variable unset: run
+`claude mcp remove --scope user rea` and delete
+`~/.claude/skills/reverse-engineer-anything`. Don't use `rea uninstall` for
+this, because it also removes REA from every other client. Afterwards, sessions
+started without the variable don't load REA, its skill, or that profile's
+history.
 
 **One project.** Install without configuring Claude Code: use the curl
 installer's `--no-setup`, or run setup only for other clients. Then register
@@ -172,6 +178,11 @@ Avoid `--scope project`, which writes `.mcp.json` into the repository where it
 can be committed or copied. `rea doctor` and `rea uninstall` read only the
 user-level entry, so they don't report or remove a local-scope registration;
 remove it with `claude mcp remove --scope local rea` from the same directory.
+`rea update` doesn't refresh it either, so it stays on the version it names.
+To move it to a newer release, run `claude mcp remove --scope local rea` from
+the same directory, then the `claude mcp add` command above with the new
+version. Running setup for Claude Code instead would add a user-level entry
+for every project.
 
 Check either route with `claude mcp list`, run once inside the intended
 profile or project and once outside it.
