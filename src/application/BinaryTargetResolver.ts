@@ -294,12 +294,15 @@ const detectArtifactFormat = async (
     if (lower.endsWith(".app")) return "app-pack";
     return zipPackageFormatForPath(lower) ?? "zip";
   }
+  // Binary plists, including keyed archives, often use other extensions.
+  if (observed.bytesRead === 8 && magic.equals(Buffer.from("bplist00")))
+    return "plist";
   const named = namedArtifactFormat(lower);
   if (named !== undefined) return named;
   if (
     lower.endsWith(".pkg") &&
     observed.bytesRead >= 4 &&
-    magic.subarray(0, 4).toString("ascii") === "xar!"
+    magic.subarray(0, 4).equals(Buffer.from("xar!"))
   )
     return "pkg";
   if (lower.endsWith(".dmg")) {
@@ -310,7 +313,7 @@ const detectArtifactFormat = async (
       const trailer = Buffer.alloc(4);
       const read = await handle.read(trailer, 0, trailer.length, size - 512);
       throwIfTargetResolutionCancelled(signal);
-      if (read.bytesRead === 4 && trailer.toString("ascii") === "koly")
+      if (read.bytesRead === 4 && trailer.equals(Buffer.from("koly")))
         return "dmg";
     }
   }
