@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { providerCapability } from "../../contracts/toolOutputSchemaPrimitives.js";
+import { expandProviderCapabilities } from "../../contracts/toolOutputSchemaPrimitives.js";
+import { providerCapabilitySets } from "../binary/BinarySessionStatus.js";
 import { sqliteDatabaseCapability } from "./SqliteDatabaseCapability.js";
 
 it.each([
@@ -14,8 +15,8 @@ it.each([
 ])(
   "reports SQLite inspection availability on Node %s as %s",
   (version, available) => {
-    const capability = providerCapability.parse(
-      sqliteDatabaseCapability(version),
+    const [capability] = expandProviderCapabilities(
+      providerCapabilitySets([sqliteDatabaseCapability(version)]),
     );
     expect(capability).toMatchObject({
       operation: "inspect_sqlite_database",

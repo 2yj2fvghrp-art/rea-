@@ -4,7 +4,8 @@ import { createServerIdentity } from "../serverIdentity.js";
 import { silentLogger } from "../logger.js";
 import type { Logger } from "pino";
 import type { DirectAnalysisDependencies } from "./DirectAnalysisDependencies.js";
-import { providerCapability } from "../contracts/toolOutputSchemaPrimitives.js";
+import { providerCapabilitySet } from "../contracts/toolOutputSchemaPrimitives.js";
+import { providerCapabilitySets } from "./binary/BinarySessionStatus.js";
 import { sqliteDatabaseCapability } from "./sqlite/SqliteDatabaseCapability.js";
 
 /** Read target-free provider status and operation availability. */
@@ -23,9 +24,11 @@ export const runSessionStatus = async (
     return {
       ...status,
       capabilities: [
-        ...providerCapability.array().parse(status.capabilities),
-        sqliteDatabaseCapability(process.versions.node),
-      ].sort((left, right) => left.operation.localeCompare(right.operation)),
+        ...providerCapabilitySet.array().parse(status.capabilities),
+        ...providerCapabilitySets([
+          sqliteDatabaseCapability(process.versions.node),
+        ]),
+      ],
       server_identity: createServerIdentity({
         startedAt: new Date().toISOString(),
       }),

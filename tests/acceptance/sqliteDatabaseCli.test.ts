@@ -3,6 +3,13 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, onTestFinished } from "vitest";
+import { z } from "zod";
+import {
+  expandProviderCapabilities,
+  expandToolAvailability,
+  providerCapabilitySet,
+  toolAvailabilityInventory,
+} from "../../src/contracts/toolOutputSchemaPrimitives.js";
 
 import { SQLITE_NATIVE_LIMITS_AVAILABLE } from "../fixtures/sqlite/database.js";
 import { connectLocalToolsMcp } from "../fixtures/localToolsMcp.js";
@@ -13,6 +20,121 @@ import { cliTest } from "../support/cli/cliFixture.js";
 const digest = (bytes: Buffer): string =>
   createHash("sha256").update(bytes).digest("hex");
 
+cliTest.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
+  "bounds default context and projects exact columns without evaluating unrelated cells",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-sqlite-selective-");
+    const path = join(root, "selected.db");
+    const database = new DatabaseSync(path);
+    try {
+      database.exec(`
+        CREATE TABLE selected(id INTEGER, "" TEXT, payload BLOB GENERATED ALWAYS AS (zeroblob(72*1024*1024)) VIRTUAL);
+        CREATE TABLE unrelated(value TEXT);
+        CREATE VIEW unrelated_view AS SELECT value FROM unrelated;
+        CREATE INDEX selected_id ON selected(id);
+        CREATE TRIGGER selected_trigger AFTER INSERT ON selected BEGIN SELECT 1; END;
+        WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<21)
+        INSERT INTO selected(id, "") SELECT n, 'retained' FROM numbers;
+      `);
+    } finally {
+      database.close();
+    }
+    const before = await readFile(path);
+    const { call } = await connectLocalToolsMcp();
+    const inventory = await call("inspect_sqlite_database", { path });
+    expect(inventory.isError).not.toBe(true);
+    const schema = z
+      .object({
+        normalized_result: z.object({
+          schema: z.object({
+            scope: z.literal("inventory"),
+            tables: z.array(
+              z.object({
+                name: z.string(),
+                columns: z.array(z.unknown()),
+                columns_completeness: z.literal("not_requested"),
+              }),
+            ),
+          }),
+        }),
+      })
+      .parse(inventory.structuredContent).normalized_result.schema;
+    expect(schema.tables.map((table) => table.name)).toEqual([
+      "selected",
+      "unrelated",
+    ]);
+    expect(schema.tables.every((table) => table.columns.length === 0)).toBe(
+      true,
+    );
+    expect(JSON.stringify(inventory.structuredContent)).not.toContain(
+      "zeroblob",
+    );
+    const selected = await call("inspect_sqlite_database", {
+      path,
+      table: "selected",
+      columns: ["", "id", "id"],
+    });
+    expect(selected.isError).not.toBe(true);
+    expect(selected.structuredContent).toMatchObject({
+      normalized_result: {
+        schema: {
+          scope: "selected_table",
+          tables: [{ name: "selected" }],
+          views: [],
+          indexes: [{ name: "selected_id" }],
+          triggers: [{ name: "selected_trigger" }],
+        },
+        rows: {
+          columns: ["", "id", "id"],
+          row_limit: 20,
+          returned_rows: 20,
+          truncated: true,
+          values: expect.arrayContaining([
+            [
+              {
+                type: "text",
+                value: "retained",
+                bytes_hex: "72657461696e6564",
+                encoding: "UTF-8",
+              },
+              { type: "integer", value: "1" },
+              { type: "integer", value: "1" },
+            ],
+          ]),
+        },
+      },
+    });
+    const cliResult = await cli.run({
+      arguments: [
+        "inspect-sqlite-database",
+        path,
+        "--table",
+        "selected",
+        "--column",
+        "id",
+        "--column",
+        "",
+        "--row-limit",
+        "1",
+        "--json",
+      ],
+      environment: { REA_LOG_LEVEL: "silent" },
+    });
+    expect(cliResult.exitCode, cliResult.stdout + cliResult.stderr).toBe(0);
+    expect(cliResult.json).toMatchObject({
+      normalized_result: { rows: { columns: ["id", ""], returned_rows: 1 } },
+    });
+    for (const input of [
+      { path, columns: ["id"] },
+      { path, schema_scope: "selected_table" },
+      { path, table: "selected", columns: [] },
+      { path, table: "selected", columns: ["ID"] },
+    ])
+      expect((await call("inspect_sqlite_database", input)).isError).toBe(true);
+    expect(await readFile(path)).toEqual(before);
+  },
+);
+
 cliTest(
   "discovers SQLite runtime availability before inspecting a database through CLI and MCP",
   async ({ cli }) => {
@@ -21,9 +143,14 @@ cliTest(
       environment: { REA_LOG_LEVEL: "silent" },
     });
     expect(result.exitCode, result.stdout + result.stderr).toBe(0);
-    expect(result.json).toMatchObject({
-      open: false,
-      capabilities: expect.arrayContaining([
+    const status = z
+      .object({
+        open: z.literal(false),
+        capabilities: z.array(providerCapabilitySet),
+      })
+      .parse(result.json);
+    expect(expandProviderCapabilities(status.capabilities)).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           operation: "inspect_sqlite_database",
           available: SQLITE_NATIVE_LIMITS_AVAILABLE,
@@ -45,23 +172,28 @@ cliTest(
           },
         }),
       ]),
-    });
+    );
     const { call } = await connectLocalToolsMcp();
     const response = await call("binary_session", {});
     expect(response.isError).not.toBe(true);
-    expect(response.structuredContent).toMatchObject({
-      result: {
-        tool_availability: expect.arrayContaining([
-          expect.objectContaining({
-            name: "inspect_sqlite_database",
-            available: SQLITE_NATIVE_LIMITS_AVAILABLE,
-            remediation: SQLITE_NATIVE_LIMITS_AVAILABLE
-              ? null
-              : expect.stringContaining("Node.js 24.x >=24.15 or 26+"),
-          }),
-        ]),
-      },
-    });
+    const sessionStatus = z
+      .object({
+        result: z.object({ tool_availability: toolAvailabilityInventory }),
+      })
+      .parse(response.structuredContent);
+    expect(
+      expandToolAvailability(sessionStatus.result.tool_availability),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "inspect_sqlite_database",
+          available: SQLITE_NATIVE_LIMITS_AVAILABLE,
+          remediation: SQLITE_NATIVE_LIMITS_AVAILABLE
+            ? null
+            : expect.stringContaining("Node.js 24.x >=24.15 or 26+"),
+        }),
+      ]),
+    );
   },
 );
 
@@ -156,17 +288,11 @@ const sourceState = async (path: string) => {
   };
 };
 
-cliTest
-  .runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)
-  .for(["DELETE", "PERSIST", "TRUNCATE"])(
-  "inspects a real %s SQLite schema and lossless selected records identically through CLI and MCP",
-  async (journalMode, { cli }) => {
-    const root = await createTestTempDirectory("rea-sqlite-public-");
-    const path = join(root, "selected.db");
-    const database = new DatabaseSync(path);
-    try {
-      database.exec(`PRAGMA journal_mode=${journalMode}`);
-      database.exec(`
+const createLosslessSnapshot = (path: string, journalMode: string): void => {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`PRAGMA journal_mode=${journalMode}`);
+    database.exec(`
       CREATE TABLE "odd "" table" (
         id INTEGER PRIMARY KEY,
         payload BLOB,
@@ -181,32 +307,39 @@ cliTest
       CREATE TRIGGER observed AFTER INSERT ON "odd "" table" BEGIN SELECT 1; END;
       CREATE TABLE keyed(k TEXT PRIMARY KEY) WITHOUT ROWID, STRICT;
     `);
-      const insert = database.prepare(
-        'INSERT INTO "odd "" table"(id,payload,amount,missing,text_value,negative_zero) VALUES(?,?,?,NULL,CAST(X\'80ff\' AS TEXT),?)',
-      );
-      insert.setReadBigInts(true);
-      expect(
-        insert.run(
-          9007199254740993n,
-          Buffer.from("deadbeef", "hex"),
-          Infinity,
-          -0,
-        ).lastInsertRowid,
-      ).toBe(9007199254740993n);
+    const insert = database.prepare(
+      'INSERT INTO "odd "" table"(id,payload,amount,missing,text_value,negative_zero) VALUES(?,?,?,NULL,CAST(X\'80ff\' AS TEXT),?)',
+    );
+    insert.setReadBigInts(true);
+    expect(
       insert.run(
-        9007199254740994n,
+        9007199254740993n,
         Buffer.from("deadbeef", "hex"),
         Infinity,
         -0,
-      );
-    } finally {
-      database.close();
-    }
+      ).lastInsertRowid,
+    ).toBe(9007199254740993n);
+    insert.run(9007199254740994n, Buffer.from("deadbeef", "hex"), Infinity, -0);
+  } finally {
+    database.close();
+  }
+};
+
+cliTest
+  .runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)
+  .for(["DELETE", "PERSIST", "TRUNCATE"])(
+  "inspects a real %s SQLite schema and lossless selected records identically through CLI and MCP",
+  async (journalMode, { cli }) => {
+    const root = await createTestTempDirectory("rea-sqlite-public-");
+    const path = join(root, "selected.db");
+    createLosslessSnapshot(path, journalMode);
     const original = await readFile(path);
     const result = await cli.run({
       arguments: [
         "inspect-sqlite-database",
         "selected.db",
+        "--schema-scope",
+        "database",
         "--table",
         'odd " table',
         "--row-limit",
@@ -303,6 +436,7 @@ cliTest
     const response = await call("inspect_sqlite_database", {
       path,
       table: 'odd " table',
+      schema_scope: "database",
       row_limit: 1,
     });
     expect(response.isError, JSON.stringify(response)).not.toBe(true);

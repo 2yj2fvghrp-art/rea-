@@ -87,7 +87,10 @@ it.each([6, 9])(
       CREATE TABLE records(value TEXT);
       ${trigger};
     `);
-    const result = inspectSqliteDatabaseSnapshot(path, { path });
+    const result = inspectSqliteDatabaseSnapshot(path, {
+      path,
+      schema_scope: "database",
+    });
     expect(result.schema.triggers).toEqual([
       { name: "large_definition", table: "records", sql: trigger },
     ]);
@@ -101,7 +104,10 @@ it("inspects a large schema identifier without expanding a native sort record", 
   const name = "x".repeat(4 * 1024 * 1024);
   const sql = `CREATE TABLE "${name}" (value TEXT)`;
   const path = await createDatabase(sql);
-  const result = inspectSqliteDatabaseSnapshot(path, { path });
+  const result = inspectSqliteDatabaseSnapshot(path, {
+    path,
+    schema_scope: "database",
+  });
   expect(result.schema.tables).toMatchObject([
     { name, sql, columns: [{ name: "value", declared_type: "TEXT" }] },
   ]);
@@ -115,7 +121,10 @@ it.each(["UTF-8", "UTF-16le", "UTF-16be"])(
   async (encoding) => {
     const sql = 'CREATE TABLE "\uFEFFé𝄞" ("列" TEXT DEFAULT \'\uFEFFvalue\')';
     const path = await createDatabase(`PRAGMA encoding='${encoding}'; ${sql}`);
-    const result = inspectSqliteDatabaseSnapshot(path, { path });
+    const result = inspectSqliteDatabaseSnapshot(path, {
+      path,
+      schema_scope: "database",
+    });
     expect(result.schema.tables).toMatchObject([
       {
         name: "\uFEFFé𝄞",
@@ -134,7 +143,10 @@ it("counts schema names once when enforcing the complete reply budget", async ()
   const path = await createDatabase(
     names.map((name) => `CREATE TABLE "${name}" (value TEXT);`).join("\n"),
   );
-  const result = inspectSqliteDatabaseSnapshot(path, { path });
+  const result = inspectSqliteDatabaseSnapshot(path, {
+    path,
+    schema_scope: "database",
+  });
   expect(result.schema.tables).toHaveLength(names.length);
   expect(result.schema.tables.map((table) => table.name)).toEqual(
     expect.arrayContaining(names),
@@ -153,9 +165,9 @@ it("rejects malformed schema bytes instead of returning replacement text", async
   if (marker < 0) throw new Error("Schema marker missing");
   bytes[marker] = 0xff;
   await writeFile(path, bytes);
-  expect(() => inspectSqliteDatabaseSnapshot(path, { path })).toThrow(
-    /schema sql contains malformed UTF-8 text/,
-  );
+  expect(() =>
+    inspectSqliteDatabaseSnapshot(path, { path, schema_scope: "database" }),
+  ).toThrow(/schema sql contains malformed UTF-8 text/);
 });
 
 it("refuses possible shadow tables when their virtual module is unavailable", async () => {
@@ -180,6 +192,7 @@ it("refuses possible shadow tables when their virtual module is unavailable", as
   const result = inspectSqliteDatabaseSnapshot(path, {
     path,
     table: "search_é_manual",
+    schema_scope: "database",
   });
   expect(result.schema.tables).toEqual(
     expect.arrayContaining([
@@ -294,8 +307,8 @@ nativeTest.skipIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
   "rejects a runtime without native limits before querying the snapshot",
   async () => {
     const path = await createDatabase("CREATE TABLE items(value INTEGER)");
-    expect(() => inspectSqliteDatabaseSnapshot(path, { path })).toThrow(
-      "DatabaseSync.limits",
-    );
+    expect(() =>
+      inspectSqliteDatabaseSnapshot(path, { path, schema_scope: "database" }),
+    ).toThrow("DatabaseSync.limits");
   },
 );

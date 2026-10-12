@@ -11,6 +11,7 @@ const fixture = () => ({
   engine: { name: "SQLite", version: "3.50.2" },
   database_encoding: "UTF-8",
   schema: {
+    scope: "inventory",
     completeness: "complete",
     tables: [],
     indexes: [],
@@ -111,7 +112,7 @@ it.each(["path", "digest", "subject", "wal", "table"])(
   },
 );
 
-it("returns observed inline evidence only while the request remains active", async () => {
+it("preserves completed observed evidence when cancellation arrives after provider completion", async () => {
   const value = fixture();
   const service = new SqliteDatabaseService({
     inspect: () => Promise.resolve(ok(execution(value))),
@@ -140,7 +141,7 @@ it("returns observed inline evidence only while the request remains active", asy
       { signal: controller.signal },
     ),
   ).toMatchObject({
-    ok: false,
-    error: { _tag: "AnalysisCancelledError" },
+    ok: true,
+    value: { normalized_result: value },
   });
 });

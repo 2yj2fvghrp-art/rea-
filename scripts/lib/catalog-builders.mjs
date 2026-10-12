@@ -209,7 +209,7 @@ export const providerCatalog = (sources) => {
       contracts: sources.goContracts.GO_TOOL_CONTRACTS,
     },
     {
-      identity: sources.sqliteProvider.SQLITE_PROVIDER_IDENTITY,
+      identity: sources.sqliteDomain.SQLITE_PROVIDER_IDENTITY,
       contracts: sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
     },
     {

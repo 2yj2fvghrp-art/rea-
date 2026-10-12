@@ -17,10 +17,8 @@ import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { OwnedCommandFailure } from "../process/OwnedCommand.js";
 import type { ProviderProcessSnapshot } from "../process/ProviderProcess.js";
-import {
-  SQLITE_DATABASE_LIMITS,
-  SQLITE_PROVIDER_IDENTITY,
-} from "./SqliteDatabaseLimits.js";
+import { SQLITE_PROVIDER_IDENTITY } from "../domain/sqlite/sqliteDatabase.js";
+import { SQLITE_DATABASE_LIMITS } from "./SqliteDatabaseLimits.js";
 
 /** Preserve diagnostics independently of worker exit and private-root cleanup. */
 export const capturedSqliteOutput = (

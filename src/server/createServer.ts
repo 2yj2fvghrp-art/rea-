@@ -523,6 +523,7 @@ const registerConfiguredAnalysisTools = (
     options.sqliteDatabase ?? createSqliteDatabaseService(environment),
     toolLogger,
     recordEvidence,
+    withAdmittedAnalysis,
   );
   registerRecordedCrashTools(
     server,

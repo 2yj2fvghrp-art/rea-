@@ -86,8 +86,9 @@ explicit path or endpoint and do not need it.
 
 - Explicit local SQLite database snapshot: `inspect_sqlite_database`. Inspect
   with Node.js 24.x >=24.15 or 26+ providing native SQLite limits. Read schema
-  first or select an exact ordinary table and `row_limit` when rows are
-  needed. Preserve both database and existing sibling WAL identity; row samples
+  first (compact inventory by default), or select an exact ordinary table
+  and `columns` when rows are needed. Defaults are selected-table schema and
+  20 rows; request `schema_scope: "database"` for the complete stored schema. Preserve both database and existing sibling WAL identity; row samples
   report truncation and have unspecified order. Use a quiescent snapshot rather
   than assuming a live database/WAL pair was copied atomically. See the
   [SQLite guide](https://github.com/morluto/rea/blob/main/docs/sqlite-databases.md).

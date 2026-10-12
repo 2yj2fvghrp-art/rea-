@@ -18,7 +18,7 @@ note while the inventory command still succeeds.
 ```sh
 rea capabilities --json
 rea inspect-sqlite-database ./application.sqlite --json
-rea inspect-sqlite-database ./application.sqlite --table settings --row-limit 20 --json
+rea inspect-sqlite-database ./application.sqlite --table settings --column key --column value --row-limit 20 --json
 ```
 
 ```json
@@ -27,6 +27,7 @@ rea inspect-sqlite-database ./application.sqlite --table settings --row-limit 20
   "arguments": {
     "path": "/artifacts/application.sqlite",
     "table": "settings",
+    "columns": ["key", "value"],
     "row_limit": 20
   }
 }
@@ -40,16 +41,25 @@ an atomic SQLite snapshot, even if no change is detected during inspection.
 
 ## Returned evidence
 
-The complete schema inventory includes tables and their columns, indexes, views
-and triggers. SQL declarations retain the original schema text. Virtual and
+Without a table selection, the default `schema_scope` is `inventory`: compact
+table metadata and index, view and trigger names, without SQL declarations or
+column details. Selecting a table defaults to `selected_table`, which expands
+that table and its indexes and triggers. Explicit `schema_scope: "database"`
+(or CLI `--schema-scope database`) expands all stored declarations and supported
+columns. `schema.completeness` refers to the reported scope; omitted column
+details are marked `not_requested`. SQL declarations retain the original text. Virtual and
 shadow tables are identified as such; their supported metadata coverage is
 reported. If a virtual table cannot be resolved, possible backing tables have
 `kind: "unknown"` and an explicit limitation; their rows are refused. Unrelated
 ordinary tables remain selectable. Schema inventory does not execute views,
 triggers or arbitrary SQL.
 
-Rows are optional. `table` selects one exact ordinary-table name. `row_limit`
-requires `table`, defaults to 100 and accepts positive safe integers. Samples
+Rows are optional. `table` selects one exact ordinary-table name. `columns`
+(CLI repeated `--column`) selects exact visible column names in the requested
+order; omission selects all visible columns, including generated columns.
+Unselected cells are not evaluated or projected. Column selection requires a
+table and at least one name; empty-string identifiers are valid. `row_limit`
+requires `table`, defaults to 20 and accepts positive safe integers. Samples
 remain subject to the byte and worker resource limits below, regardless of row count. The result reports
 the selected limit, returned count and whether more rows were observed. Row
 order is unspecified; a truncated sample does not prove anything about omitted
@@ -80,6 +90,11 @@ Empty rollback journals and fully zeroed journal headers left by successful
 Other retained rollback journals are refused because recovery is outside this
 profile. Journal files are never modified or copied into the worker snapshot.
 
+A provider admits at most two inspections through acquisition, worker execution
+and cleanup. Additional requests receive a typed capacity error before reading
+files or creating workers; retry after an active inspection finishes. This
+bounds simultaneous input buffering and private snapshot/worker counts.
+
 The database and WAL together are limited to 256 MiB. SQLite values/records,
 SQL statements and the complete worker JSON reply each have a 16 MiB limit.
 The owned worker has a 256 MiB JavaScript heap limit and a 30-second inspection
@@ -92,6 +107,12 @@ MCP also applies its configured response budget to the complete Evidence
 envelope. If delivery exceeds that budget, it reports a transport constraint
 with guidance for exporting retained Evidence, requesting a matching larger
 client/server response budget or using complete CLI JSON output.
+
+A cancellation received after the worker has completed does not erase the
+completed observation. If subsequent private-root cleanup fails, the error
+retains the completed Evidence and the resource owner for cleanup retry. MCP
+records that Evidence before delivering the error, which carries its retained
+evidence ID for later retrieval or export.
 
 Changed input identities, special files, malformed databases, unsupported
 formats and resource failures are reported as errors with the selected path and

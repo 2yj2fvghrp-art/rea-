@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { localPathStringSchema } from "../localPath.js";
+import type { JsonValue } from "../jsonValue.js";
+
+/** Format identity is shared by discovery, catalog, and observed SQLite results. */
+export const SQLITE_PROVIDER_IDENTITY = {
+  id: "sqlite",
+  name: "REA SQLite database inspector",
+  version: null,
+} as const;
 
 /** Default ordinary-table sample size when the caller selects a table. */
-export const SQLITE_ROW_LIMIT_DEFAULT = 100;
+export const SQLITE_ROW_LIMIT_DEFAULT = 20;
 
 const nonnegative = z.number().int().nonnegative();
 const hex = z.string().regex(/^(?:[0-9a-f]{2})*$/);
@@ -25,13 +33,26 @@ export const inspectSqliteDatabaseInputSchema = z
       .describe(
         "Exact ordinary table name; views and virtual/shadow tables are not executed",
       ),
+    columns: z
+      .array(z.string())
+      .min(1)
+      .optional()
+      .describe(
+        "Exact row columns in caller-selected order; requires table. Omit to sample all visible columns.",
+      ),
+    schema_scope: z
+      .enum(["inventory", "selected_table", "database"])
+      .optional()
+      .describe(
+        "Default: compact inventory without a table, or detailed selected-table schema with a table. Database explicitly expands all stored declarations and supported columns.",
+      ),
     row_limit: z
       .number()
       .int()
       .min(1)
       .optional()
       .describe(
-        "Selected-table sample size, default 100; subject to byte and worker resource limits",
+        "Selected-table sample size, default 20; subject to byte and worker resource limits",
       ),
   })
   .superRefine((input, context) => {
@@ -41,8 +62,27 @@ export const inspectSqliteDatabaseInputSchema = z
         path: ["row_limit"],
         message: "row_limit requires an explicit table selection",
       });
+    if (input.columns !== undefined && input.table === undefined)
+      context.addIssue({
+        code: "custom",
+        path: ["columns"],
+        message: "columns requires an explicit table selection",
+      });
+    if (input.schema_scope === "selected_table" && input.table === undefined)
+      context.addIssue({
+        code: "custom",
+        path: ["schema_scope"],
+        message: "selected_table schema scope requires table",
+      });
   })
-  .meta({ dependentRequired: { row_limit: ["table"] } });
+  .meta({
+    dependentRequired: { row_limit: ["table"], columns: ["table"] },
+    if: {
+      properties: { schema_scope: { const: "selected_table" } },
+      required: ["schema_scope"],
+    },
+    then: { required: ["table"] },
+  });
 
 /** JSON-safe SQLite cells retain integers, binary content and special REAL values. */
 export const sqliteValueSchema = z.discriminatedUnion("type", [
@@ -75,11 +115,16 @@ export const sqliteDatabaseSchema = z
     }),
     database_encoding: encoding,
     schema: z.strictObject({
-      completeness: z.literal("complete"),
+      scope: z.enum(["inventory", "selected_table", "database"]),
+      completeness: z
+        .literal("complete")
+        .describe(
+          "Complete within the indicated schema scope; inventory omits declarations and column details",
+        ),
       tables: z.array(
         z.strictObject({
           name: z.string(),
-          sql: z.string().nullable(),
+          sql: z.string().nullable().optional(),
           root_page: nonnegative,
           kind: z
             .enum(["table", "virtual", "shadow", "unknown"])
@@ -88,7 +133,12 @@ export const sqliteDatabaseSchema = z
             ),
           without_rowid: z.boolean(),
           strict: z.boolean(),
-          columns_completeness: z.enum(["complete", "unsupported"]),
+          column_count: nonnegative.nullable(),
+          columns_completeness: z.enum([
+            "complete",
+            "unsupported",
+            "not_requested",
+          ]),
           columns: z.array(
             z.strictObject({
               cid: nonnegative,
@@ -111,18 +161,21 @@ export const sqliteDatabaseSchema = z
         z.strictObject({
           name: z.string(),
           table: z.string(),
-          sql: z.string().nullable(),
+          sql: z.string().nullable().optional(),
           root_page: nonnegative,
         }),
       ),
       views: z.array(
-        z.strictObject({ name: z.string(), sql: z.string().nullable() }),
+        z.strictObject({
+          name: z.string(),
+          sql: z.string().nullable().optional(),
+        }),
       ),
       triggers: z.array(
         z.strictObject({
           name: z.string(),
           table: z.string(),
-          sql: z.string().nullable(),
+          sql: z.string().nullable().optional(),
         }),
       ),
     }),
@@ -160,3 +213,23 @@ export type InspectSqliteDatabaseInput = z.infer<
 >;
 export type SqliteDatabase = z.infer<typeof sqliteDatabaseSchema>;
 export type SqliteValue = z.infer<typeof sqliteValueSchema>;
+
+/** Preserve explicit caller selections while omitting absent optional values from JSON. */
+export const sqliteInspectionParameters = (
+  input: InspectSqliteDatabaseInput,
+): Readonly<Record<string, JsonValue>> => ({
+  path: input.path,
+  ...(input.table === undefined ? {} : { table: input.table }),
+  ...(input.columns === undefined ? {} : { columns: input.columns }),
+  ...(input.schema_scope === undefined
+    ? {}
+    : { schema_scope: input.schema_scope }),
+  ...(input.row_limit === undefined ? {} : { row_limit: input.row_limit }),
+});
+
+/** One contract owner interprets omitted scope for adapters and selection checks. */
+export const sqliteSchemaScope = (
+  input: InspectSqliteDatabaseInput,
+): SqliteDatabase["schema"]["scope"] =>
+  input.schema_scope ??
+  (input.table === undefined ? "inventory" : "selected_table");

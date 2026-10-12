@@ -48,6 +48,86 @@ const createFixture = async (wal = false) => {
 const expectPrivateRootRemoved = (path: string) =>
   expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
 
+it.each(["late-cancellation", "cleanup-failure"])(
+  "preserves completed native-worker observations across %s",
+  async (scenario) => {
+    const { workspace, database } = await createFixture();
+    const original = await readFile(database.path);
+    const controller = new AbortController();
+    let cleanupAllowed = false;
+    let root: PrivateRuntimeRoot | undefined;
+    const provider = new SqliteDatabaseProvider(
+      process.env,
+      (spawn) =>
+        spawnOwnedProviderProcess({
+          ...spawn,
+          arguments: spawn.arguments.map((argument, index) =>
+            index === 1 ? fileURLToPath(workerUrl) : argument,
+          ),
+        }),
+      async () => {
+        root = await PrivateRuntimeRoot.create({ parent: workspace.root });
+        const acquired = root;
+        return {
+          path: acquired.path,
+          close: async () => {
+            if (scenario === "late-cancellation") controller.abort();
+            else if (!cleanupAllowed)
+              throw new Error("Completed snapshot cleanup denied");
+            await acquired.close();
+          },
+        };
+      },
+    );
+    onTestFinished(async () => {
+      cleanupAllowed = true;
+      await provider.close();
+    });
+    const result = await provider.inspect(
+      { path: database.path, table: "records", columns: ["id"], row_limit: 1 },
+      { signal: controller.signal },
+    );
+    if (scenario === "late-cancellation") {
+      expect(controller.signal.aborted).toBe(true);
+      expect(result).toMatchObject({
+        ok: true,
+        value: { result: { rows: { columns: ["id"], returned_rows: 1 } } },
+      });
+    } else {
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          cleanupIncomplete: true,
+          partialObservation: {
+            operation: "inspect_sqlite_database",
+            confidence: "observed",
+            subject: {
+              local_path: database.path,
+              digest: { sha256: digestForTest(original) },
+            },
+            parameters: {
+              path: database.path,
+              table: "records",
+              columns: ["id"],
+              row_limit: 1,
+            },
+            normalized_result: { rows: { columns: ["id"], returned_rows: 1 } },
+          },
+        },
+      });
+      if (root === undefined) throw new Error("Missing retained root");
+      await expect(access(root.path)).resolves.toBeUndefined();
+      cleanupAllowed = true;
+      await provider.close();
+      await expectPrivateRootRemoved(root.path);
+    }
+    expect(await readFile(database.path)).toEqual(original);
+  },
+);
+
+const digestForTest = (bytes: Buffer): string =>
+  createHash("sha256").update(bytes).digest("hex");
+
 it("inspects committed WAL schema and rows while preserving every source artifact", async () => {
   const { database } = await createFixture(true);
   const paths = [database.path, database.walPath, `${database.path}-shm`];
@@ -61,6 +141,7 @@ it("inspects committed WAL schema and rows while preserving every source artifac
   const result = await createProvider().inspect({
     path: database.path,
     table: "records",
+    schema_scope: "database",
     row_limit: 1,
   });
   if (!result.ok) throw result.error;
@@ -89,6 +170,7 @@ it("inspects committed WAL schema and rows while preserving every source artifac
           kind: "table",
           without_rowid: false,
           strict: false,
+          column_count: 7,
           columns_completeness: "complete",
           columns: expect.arrayContaining([
             expect.objectContaining({ name: "generated_value", hidden: 2 }),
@@ -447,7 +529,7 @@ it("retains an unavailable virtual module definition without executing it", asyn
   bytes.write("zzzz", declaration + Buffer.byteLength("USING "), "utf8");
   await writeFile(path, bytes);
   const provider = createProvider();
-  const result = await provider.inspect({ path });
+  const result = await provider.inspect({ path, schema_scope: "database" });
   if (!result.ok) throw result.error;
   expect(result.value.result).toMatchObject({
     rows: null,

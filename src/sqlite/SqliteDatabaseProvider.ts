@@ -14,22 +14,26 @@ import {
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { createEvidence } from "../domain/evidence.js";
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   inspectSqliteDatabaseInputSchema,
   sqliteDatabaseSchema,
   type InspectSqliteDatabaseInput,
+  SQLITE_PROVIDER_IDENTITY,
+  sqliteInspectionParameters,
 } from "../domain/sqlite/sqliteDatabase.js";
 import { isAbsolute } from "node:path";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { OwnedCommandFailure } from "../process/OwnedCommand.js";
 import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import { sqliteDatabaseFailure } from "./SqliteDatabaseFailures.js";
-import { SQLITE_PROVIDER_IDENTITY } from "./SqliteDatabaseLimits.js";
 import { captureSqliteDatabaseSnapshot } from "./SqliteDatabaseSnapshot.js";
+import { SQLITE_DATABASE_LIMITS } from "./SqliteDatabaseLimits.js";
 
 import {
   executeSqliteDatabaseWorker,
@@ -40,6 +44,7 @@ const operation = "inspect_sqlite_database";
 type SqliteOutcome = Result<AnalysisExecution, AnalysisError>;
 type SqliteRuntimeRoot = Pick<PrivateRuntimeRoot, "path" | "close">;
 interface PendingSnapshotCleanup {
+  readonly input: InspectSqliteDatabaseInput;
   readonly result: SqliteOutcome;
   readonly output: AnalysisCapturedOutput | undefined;
   process: ProviderProcessSupervisor | undefined;
@@ -68,7 +73,26 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
     input: InspectSqliteDatabaseInput,
     options?: ExecutionOptions,
   ): Promise<SqliteOutcome> {
-    if (this.#closed) return err(new AnalysisCancelledError(operation));
+    if (this.#closed || options?.signal?.aborted)
+      return err(new AnalysisCancelledError(operation));
+    if (this.#active.size >= SQLITE_DATABASE_LIMITS.concurrentInspections)
+      return err(
+        new AnalysisResourceConstraintError(
+          operation,
+          "capacity",
+          "SQLite inspection capacity is occupied. Retry after an active inspection completes.",
+          {
+            active_inspections: this.#active.size,
+            max_concurrent_inspections:
+              SQLITE_DATABASE_LIMITS.concurrentInspections,
+            input_bytes_per_inspection: SQLITE_DATABASE_LIMITS.inputBytes,
+          },
+          {
+            remediationAction:
+              "Retry after an active SQLite inspection completes.",
+          },
+        ),
+      );
     const inspection = this.#artifactResources
       .run(() => this.#inspect(input, options))
       .catch((cause: unknown) =>
@@ -178,6 +202,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
       const cleaned = await cleanupSqliteRoot(
         root,
         pending.result,
+        pending.input,
         pending.output,
       );
       if (cleaned.ok) this.#pendingCleanup.delete(root);
@@ -263,15 +288,22 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
     if (root !== undefined) {
       if (processOwner !== undefined) {
         this.#pendingCleanup.set(root, {
+          input,
           result,
           output: retainedOutput,
           process: processOwner,
         });
         return result;
       }
-      const cleaned = await cleanupSqliteRoot(root, result, retainedOutput);
+      const cleaned = await cleanupSqliteRoot(
+        root,
+        result,
+        input,
+        retainedOutput,
+      );
       if (!cleaned.ok) {
         this.#pendingCleanup.set(root, {
+          input,
           result,
           output: retainedOutput,
           process: undefined,
@@ -279,7 +311,8 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
         return cleaned;
       }
     }
-    return completedResult(result, options?.signal, retainedOutput);
+    // Completion was acknowledged before cleanup. A later abort does not erase it.
+    return result;
   }
 }
 
@@ -296,20 +329,6 @@ const selectedFailure = (
         output === undefined ? undefined : { capturedOutput: output },
       )
     : failure;
-const completedResult = (
-  result: Result<AnalysisExecution, AnalysisError>,
-  signal?: AbortSignal,
-  output?: AnalysisCapturedOutput,
-): Result<AnalysisExecution, AnalysisError> =>
-  result.ok && signal?.aborted
-    ? err(
-        new AnalysisCancelledError(
-          operation,
-          output === undefined ? undefined : { capturedOutput: output },
-        ),
-      )
-    : result;
-
 const createSqliteObservation = (
   report: ReturnType<typeof sqliteDatabaseSchema.parse>,
   path: string,
@@ -333,6 +352,7 @@ const createSqliteObservation = (
 const cleanupSqliteRoot = async (
   root: Pick<PrivateRuntimeRoot, "path" | "close">,
   result: Result<AnalysisExecution, AnalysisError>,
+  input: InspectSqliteDatabaseInput,
   output?: AnalysisCapturedOutput,
 ): Promise<Result<null, AnalysisError>> => {
   try {
@@ -346,10 +366,30 @@ const cleanupSqliteRoot = async (
         {
           reason: cause instanceof Error ? cause.message : String(cause),
           previous_error: result.ok ? null : projectAnalysisError(result.error),
-          previous_result: result.ok ? result.value.result : null,
           ...(output === undefined ? {} : { captured_output: { ...output } }),
         },
-        { operation, cause },
+        {
+          operation,
+          cause,
+          ...(result.ok
+            ? {
+                partialObservation: createEvidence(
+                  result.value.subject ?? undefined,
+                  result.value.provider,
+                  {
+                    operation,
+                    parameters: sqliteInspectionParameters(input),
+                    result: result.value.result,
+                    confidence: "observed",
+                    locations: result.value.locations,
+                    limitations: result.value.limitations,
+                  },
+                ),
+              }
+            : result.error.partialObservation === undefined
+              ? {}
+              : { partialObservation: result.error.partialObservation }),
+        },
       ),
     );
   }

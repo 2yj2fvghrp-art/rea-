@@ -17,6 +17,9 @@ Use `inspect_sqlite_database` with an explicit local database snapshot for its
 schema and optional rows from one exact ordinary table. It requires Node.js
 24.x >=24.15 or 26+ with the native `DatabaseSync.limits` API. It also consumes the
 existing sibling `-wal`; retain both original digests when citing its result.
+Default output is a compact inventory; a selected table expands only its own
+schema and samples 20 rows. Select `columns` to avoid irrelevant or large cells,
+and request `schema_scope: "database"` only for complete schema details.
 Choose `row_limit` when a finite sample is useful and keep truncation and
 unspecified row order explicit. Virtual tables, shadow tables and views are
 schema facts, not row-read targets. REA inspects private copies and leaves

@@ -18,9 +18,12 @@ import {
   type InspectSqliteDatabaseInput,
   type SqliteDatabase,
   SQLITE_ROW_LIMIT_DEFAULT,
+  sqliteSchemaScope,
+  sqliteInspectionParameters,
 } from "../../domain/sqlite/sqliteDatabase.js";
 import { analysisInputErrorFromIssues } from "../../domain/inputIssueProjection.js";
 import { err, ok, type Result } from "../../domain/result.js";
+import { jsonValueSchema } from "../../domain/jsonValue.js";
 
 const OPERATION = "inspect_sqlite_database";
 
@@ -34,10 +37,24 @@ const matchesSelectedDatabase = (
   subject.sha256 === report.artifact.sha256 &&
   subject.format === "file" &&
   (report.wal === null || report.wal.path === `${input.path}-wal`) &&
+  report.schema.scope === sqliteSchemaScope(input) &&
+  (report.schema.scope !== "selected_table" ||
+    (report.schema.tables.length === 1 &&
+      report.schema.tables[0]?.name === input.table &&
+      report.schema.indexes.every((index) => index.table === input.table) &&
+      report.schema.triggers.every(
+        (trigger) => trigger.table === input.table,
+      ) &&
+      report.schema.views.length === 0)) &&
   (input.table === undefined
     ? report.rows === null
     : report.rows?.table === input.table &&
-      report.rows.row_limit === (input.row_limit ?? SQLITE_ROW_LIMIT_DEFAULT));
+      report.rows.row_limit === (input.row_limit ?? SQLITE_ROW_LIMIT_DEFAULT) &&
+      (input.columns === undefined ||
+        (report.rows.columns.length === input.columns.length &&
+          report.rows.columns.every(
+            (name, index) => name === input.columns?.[index],
+          ))));
 
 /** Shared snapshot inspection and caller-selection validation for CLI and MCP. */
 export class SqliteDatabaseService {
@@ -74,8 +91,6 @@ export class SqliteDatabaseService {
       );
     const inspected = await this.provider.inspect(input.data, options);
     if (!inspected.ok) return inspected;
-    if (options?.signal?.aborted)
-      return err(new AnalysisCancelledError(OPERATION));
     const execution = inspected.value;
     const report = sqliteDatabaseSchema.safeParse(execution.result);
     if (
@@ -92,16 +107,8 @@ export class SqliteDatabaseService {
     return ok(
       createEvidence(execution.subject, execution.provider, {
         operation: OPERATION,
-        parameters: {
-          path: input.data.path,
-          ...(input.data.table === undefined
-            ? {}
-            : { table: input.data.table }),
-          ...(input.data.row_limit === undefined
-            ? {}
-            : { row_limit: input.data.row_limit }),
-        },
-        result: report.data,
+        parameters: sqliteInspectionParameters(input.data),
+        result: jsonValueSchema.parse(report.data),
         ...(execution.rawResult === null
           ? {}
           : { rawResult: execution.rawResult }),

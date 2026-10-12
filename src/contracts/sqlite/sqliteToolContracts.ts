@@ -13,12 +13,12 @@ export const SQLITE_TOOL_CONTRACTS = [
     ...toolContractMetadata("inspect_sqlite_database"),
     kind: "artifact-provider",
     description:
-      "Inspect an explicit local SQLite database snapshot and its existing sibling WAL without modifying source files or opening a native analysis provider. Requires Node.js 24.x >=24.15 or 26+ with native DatabaseSync.limits support, checked by the worker. Returns database/WAL SHA-256, tables and columns, indexes, views and triggers inline as observed Evidence. Optionally select an exact ordinary table and a row limit (default 100, subject to byte and worker resource limits); returned rows retain 64-bit integers, text bytes and blobs with explicit truncation. No arbitrary SQL, view or virtual-table execution, extension loading, database repair, encryption support or live-snapshot atomicity claim. An isolated temporary copy and owned worker enforce input, value/record, SQL-statement, JSON-reply, JavaScript-heap and deadline limits; overall native heap is not capped. Supply a quiescent snapshot for coherent database/WAL evidence.",
+      "Inspect an explicit local SQLite database snapshot and its existing sibling WAL without modifying source files or opening a native analysis provider. Requires Node.js 24.x >=24.15 or 26+ with native DatabaseSync.limits support, checked by the worker. Returns observed Evidence with database/WAL SHA-256 and a compact schema inventory. Selecting an exact ordinary table expands only its schema and samples rows (default 20, subject to byte and worker resource limits). Select exact columns in the requested order to avoid unrelated or large values; schema_scope=database explicitly expands the whole schema; returned rows retain 64-bit integers, text bytes and blobs with explicit truncation. No arbitrary SQL, view or virtual-table execution, extension loading, database repair, encryption support or live-snapshot atomicity claim. At most two inspections per provider are admitted; occupied capacity is retryable. An isolated temporary copy and owned worker enforce input, value/record, SQL-statement, JSON-reply, JavaScript-heap and deadline limits; overall native heap is not capped. Supply a quiescent snapshot for coherent database/WAL evidence.",
     inputSchema: inspectSqliteDatabaseInputSchema,
     outputSchema: evidenceResultOf(sqliteDatabaseSchema),
     examples: [
       {
-        title: "Inspect the complete schema of a local SQLite snapshot",
+        title: "Inspect a compact inventory of a local SQLite snapshot",
         input: { path: "/artifacts/application.sqlite" },
       },
       {
@@ -26,7 +26,15 @@ export const SQLITE_TOOL_CONTRACTS = [
         input: {
           path: "/artifacts/application.sqlite",
           table: "settings",
+          columns: ["key", "value"],
           row_limit: 20,
+        },
+      },
+      {
+        title: "Expand the complete stored schema",
+        input: {
+          path: "/artifacts/application.sqlite",
+          schema_scope: "database",
         },
       },
     ],

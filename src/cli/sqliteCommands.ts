@@ -28,13 +28,25 @@ export const registerSqliteCommands = (
         .string()
         .optional()
         .describe("Exact ordinary table name to read"),
+      column: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Repeat to select exact row columns in the requested order; requires table",
+        ),
+      schemaScope: z
+        .enum(["inventory", "selected_table", "database"])
+        .optional()
+        .describe(
+          "Compact inventory by default, or selected-table details when table is supplied; database requests full schema",
+        ),
       rowLimit: z
         .number()
         .int()
         .min(1)
         .optional()
         .describe(
-          "Positive safe integer row count; default 100; requires table",
+          "Positive safe integer row count; default 20; requires table",
         ),
     }),
     run: ({ args, options }) =>
@@ -50,6 +62,12 @@ export const registerSqliteCommands = (
                 ...(options.rowLimit === undefined
                   ? {}
                   : { row_limit: options.rowLimit }),
+                ...(options.column === undefined
+                  ? {}
+                  : { columns: options.column }),
+                ...(options.schemaScope === undefined
+                  ? {}
+                  : { schema_scope: options.schemaScope }),
               },
               { signal },
             )

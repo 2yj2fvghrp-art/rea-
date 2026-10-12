@@ -21,8 +21,199 @@ import { createManagedBinarySession } from "../../../src/composition/binary.js";
 import { startMcpTransport } from "../../../src/main/transport.js";
 import { createToolResultDelivery } from "../../../src/server/toolResult.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
+import { SqliteDatabaseProvider } from "../../../src/sqlite/SqliteDatabaseProvider.js";
+import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
+import { fileURLToPath } from "node:url";
+import {
+  createSqliteDatabaseFixture,
+  SQLITE_NATIVE_LIMITS_AVAILABLE,
+} from "../../fixtures/sqlite/database.js";
+import {
+  createTestWorkspace,
+  removeTestWorkspace,
+} from "../../support/workspace/workspaceFixture.js";
+import { z } from "zod";
+import { createDeferred } from "../../fixtures/binarySession.js";
 
 const resources: Array<{ close(): Promise<void> }> = [];
+
+it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
+  "drains an admitted SQLite inspection before changing the session binding",
+  async () => {
+    const workspace = await createTestWorkspace("rea-sqlite-mcp-admission-");
+    const database = createSqliteDatabaseFixture(workspace.root);
+    database.close();
+    const acquired = createDeferred<void>();
+    const release = createDeferred<void>();
+    const provider = new SqliteDatabaseProvider(
+      process.env,
+      (spawn) =>
+        spawnOwnedProviderProcess({
+          ...spawn,
+          arguments: spawn.arguments.map((argument, index) =>
+            index === 1
+              ? fileURLToPath(
+                  new URL(
+                    "../../../dist/sqlite/SqliteDatabaseWorker.js",
+                    import.meta.url,
+                  ),
+                )
+              : argument,
+          ),
+        }),
+      async () => {
+        const root = await PrivateRuntimeRoot.create({
+          parent: workspace.root,
+        });
+        acquired.resolve();
+        await release.promise;
+        return root;
+      },
+    );
+    const session = createManagedBinarySession();
+    const server = createServer(
+      { kind: "session", session },
+      { sqliteDatabase: new SqliteDatabaseService(provider) },
+    );
+    const client = new Client({ name: "sqlite-admission", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const inspection = client.callTool({
+        name: "inspect_sqlite_database",
+        arguments: { path: database.path, table: "records", columns: ["id"] },
+      });
+      await acquired.promise;
+      let closed = false;
+      const closing = session.close().then((result) => {
+        closed = true;
+        return result;
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(closed).toBe(false);
+      release.resolve();
+      const result = await inspection;
+      expect(result.isError).not.toBe(true);
+      const evidenceId = z
+        .object({ evidence_id: z.string() })
+        .parse(result.structuredContent).evidence_id;
+      expect(result.structuredContent).toMatchObject({
+        normalized_result: { rows: { columns: ["id"], returned_rows: 3 } },
+      });
+      expect(await closing).toMatchObject({ ok: true });
+      // Closing a binding clears its ledger after the admitted recording succeeds.
+      expect(session.evidenceById(evidenceId)).toBeUndefined();
+      expect(closed).toBe(true);
+    } finally {
+      release.resolve();
+      await client.close();
+      await server.close();
+      await session.close();
+      await removeTestWorkspace(workspace.root);
+    }
+  },
+);
+
+it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE)(
+  "records completed SQLite evidence before delivering a cleanup failure",
+  async () => {
+    const workspace = await createTestWorkspace("rea-sqlite-mcp-retention-");
+    const database = createSqliteDatabaseFixture(workspace.root);
+    database.close();
+    let removalAllowed = false;
+    const provider = new SqliteDatabaseProvider(
+      process.env,
+      (spawn) =>
+        spawnOwnedProviderProcess({
+          ...spawn,
+          arguments: spawn.arguments.map((argument, index) =>
+            index === 1
+              ? fileURLToPath(
+                  new URL(
+                    "../../../dist/sqlite/SqliteDatabaseWorker.js",
+                    import.meta.url,
+                  ),
+                )
+              : argument,
+          ),
+        }),
+      async () => {
+        const root = await PrivateRuntimeRoot.create({
+          parent: workspace.root,
+        });
+        return {
+          path: root.path,
+          close: async () => {
+            if (!removalAllowed)
+              throw new Error(
+                "Snapshot cleanup denied after completed observation",
+              );
+            await root.close();
+          },
+        };
+      },
+    );
+    const session = createManagedBinarySession();
+    const server = createServer(
+      { kind: "session", session },
+      { sqliteDatabase: new SqliteDatabaseService(provider) },
+    );
+    const client = new Client({
+      name: "sqlite-retained-observation",
+      version: "1",
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const result = await client.callTool({
+        name: "inspect_sqlite_database",
+        arguments: { path: database.path, table: "records", columns: ["id"] },
+      });
+      expect(result.isError).toBe(true);
+      const error = z
+        .object({
+          error: z.object({
+            details: z.object({
+              partial_observation: z.object({
+                kind: z.literal("retained-evidence"),
+                evidence_id: z.string(),
+              }),
+            }),
+          }),
+        })
+        .parse(parseMcpToolError(result)).error;
+      const retained = session.evidenceById(
+        error.details.partial_observation.evidence_id,
+      );
+      expect(retained).toMatchObject({
+        operation: "inspect_sqlite_database",
+        parameters: { columns: ["id"] },
+        normalized_result: { rows: { columns: ["id"], returned_rows: 3 } },
+      });
+      expect(JSON.stringify(parseMcpToolError(result))).not.toContain(
+        "normalized_result",
+      );
+      const bundle = await client.callTool({
+        name: "get_evidence_bundle",
+        arguments: {},
+      });
+      expect(bundle.isError).not.toBe(true);
+      expect(JSON.stringify(bundle.structuredContent)).toContain(
+        error.details.partial_observation.evidence_id,
+      );
+    } finally {
+      removalAllowed = true;
+      await client.close();
+      await server.close();
+      await session.close();
+      await removeTestWorkspace(workspace.root);
+    }
+  },
+);
 
 it.each(["handle", "stdin"] as const)(
   "retains failed SQLite cleanup through production stdio shutdown: %s",

@@ -141,6 +141,21 @@ it("waits for concurrent acquisitions and releases only owners whose cleanup suc
     provider.inspect({ path: database.path }),
   ];
   await acquired.promise;
+  // Two admitted snapshots occupy capacity even before the worker launches.
+  expect(await provider.inspect({ path: database.path })).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError", resource: "capacity" },
+  });
+  expect(roots).toHaveLength(2);
+  expect(
+    await provider.inspect(
+      { path: database.path },
+      { signal: AbortSignal.abort() },
+    ),
+  ).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisCancelledError" },
+  });
   let settled = false;
   const closing = provider.close().finally(() => {
     settled = true;
