@@ -36,9 +36,13 @@ export const verifyPromptCatalog = async (client, options, expectedNames) => {
     throw new Error("packaged MCP guided prompt rendering failed");
 };
 
-/** Verify live completion through each installed stdio target state. */
-export const verifyPromptCompletion = async (client, options, targetOpen) => {
-  const expected = targetOpen ? ["fixture"] : [];
+/** Verify live completion through each installed stdio provider-ready state. */
+export const verifyPromptCompletion = async (
+  client,
+  options,
+  providerReady,
+) => {
+  const expected = providerReady ? ["fixture"] : [];
   const requests = [
     {
       ref: { type: "ref/prompt", name: "investigate_feature" },
