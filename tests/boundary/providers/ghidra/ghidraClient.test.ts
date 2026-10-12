@@ -642,6 +642,7 @@ describe("GhidraClient cleanup and diagnostics", () => {
     expect(client.operationHealthSnapshot()).toBeUndefined();
     await expect(client.start()).resolves.toMatchObject({ ok: true });
     expect(client.operationHealthSnapshot()).toBeUndefined();
+    const child = await launcher.started;
 
     await client.close();
 
@@ -652,7 +653,7 @@ describe("GhidraClient cleanup and diagnostics", () => {
       endpoint_path: launcher.endpointPaths[0],
       project_root: join(launcher.runtimeRoots[0] ?? "", "project"),
       process_id: expect.any(Number),
-      exit_code: 0,
+      exit_code: child.exitCode,
       run_id: "11111111-1111-4111-8111-111111111111",
     });
     await expect(access(launcher.runtimeRoots[0] ?? "")).rejects.toMatchObject({
