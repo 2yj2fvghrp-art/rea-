@@ -68,6 +68,32 @@ if (
 const selectedProviders = values.providers
   ? JSON.parse(await readFile(values.providers, "utf8"))
   : {};
+if (
+  selectedProviders === null ||
+  Array.isArray(selectedProviders) ||
+  typeof selectedProviders !== "object" ||
+  Object.values(selectedProviders).some((value) => typeof value !== "string")
+)
+  throw new Error(
+    "--providers must contain an object of explicit string settings",
+  );
+const providerPolicyText = await readFile(
+  new URL("./provider-environment.json", import.meta.url),
+  "utf8",
+);
+const providerPolicy = JSON.parse(providerPolicyText);
+const undeclaredProviderKeys = Object.keys(process.env).filter(
+  (key) =>
+    (providerPolicy.namespace_prefixes.some((prefix) =>
+      key.startsWith(prefix),
+    ) ||
+      providerPolicy.additional_keys.includes(key)) &&
+    !Object.hasOwn(selectedProviders, key),
+);
+if (undeclaredProviderKeys.length > 0)
+  throw new Error(
+    `Declare inherited provider settings explicitly in --providers: ${undeclaredProviderKeys.sort().join(", ")}. Values are not logged.`,
+  );
 await mkdir(values.output, { recursive: false, mode: 0o700 });
 const runtimeFiles = [];
 const fingerprintTree = async (directory) => {
@@ -693,6 +719,7 @@ const report = {
   javascript_question:
     values.artifact === "obsidian.asar" ? values["javascript-question"] : null,
   provider_settings_sha256: sha(JSON.stringify(selectedProviders)),
+  provider_environment_policy_sha256: sha(providerPolicyText),
   ...fingerprints,
   node_version: process.version,
   sdk_client_version: clientVersion,

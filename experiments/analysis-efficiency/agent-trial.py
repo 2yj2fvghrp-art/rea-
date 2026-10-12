@@ -62,6 +62,23 @@ def main():
     node = shutil.which('node')
     if subprocess.check_output([node, '--version'], text=True).strip() != 'v24.18.0':
         raise SystemExit('Use pinned Node 24.18.0 on PATH')
+    provider_env = {'REA_LOG_LEVEL': 'silent', 'NODE_OPTIONS': '--max-old-space-size=512'}
+    if args.providers:
+        declared = json.loads(args.providers.read_text())
+        if not isinstance(declared, dict) or not all(
+            isinstance(value, str) for value in declared.values()
+        ):
+            raise ValueError('--providers must contain an object of explicit string settings')
+        provider_env.update(declared)
+    provider_policy_text = (experiment / 'provider-environment.json').read_text()
+    provider_policy = json.loads(provider_policy_text)
+    undeclared = sorted(key for key in os.environ if (
+        any(key.startswith(prefix) for prefix in provider_policy['namespace_prefixes'])
+        or key in provider_policy['additional_keys']
+    ) and key not in provider_env)
+    if undeclared:
+        raise ValueError('Declare inherited provider settings explicitly in --providers: '
+                         + ', '.join(undeclared) + '. Values are not logged.')
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     runtime_files, runtime_digest = runtime_fingerprint(repository)
     (args.output / 'runtime-files.json').write_text(json.dumps(runtime_files))
@@ -84,10 +101,6 @@ def main():
         'XDG_DATA_HOME': str(account / '.local/share'),
         'NODE_OPTIONS': '--max-old-space-size=512',
     })
-    provider_env = {'REA_LOG_LEVEL': 'silent', 'NODE_OPTIONS': '--max-old-space-size=512'}
-    if args.providers:
-        # This explicit caller file supplies only selected provider settings.
-        provider_env.update(json.loads(args.providers.read_text()))
     target_digest = file_digest(Path(args.artifact_path)) if args.artifact_path else None
     command_args = [str(repository / 'scripts/rea.mjs'), 'mcp']
     instruction = (
@@ -183,7 +196,7 @@ def main():
             'package_lock_sha256': file_digest(repository / 'package-lock.json'),
             'experiment_sources_sha256': {
                 name: hashlib.sha256((experiment / name).read_bytes()).hexdigest()
-                for name in ['agent-trial.py']
+                for name in ['agent-trial.py', 'provider-environment.json']
             },
             'developer_instructions': instruction,
             'developer_instructions_sha256': hashlib.sha256(instruction.encode()).hexdigest(),
@@ -191,6 +204,8 @@ def main():
             'question_template_sha256': template_digest,
             'provider_settings_sha256': hashlib.sha256(
                 json.dumps(provider_env, sort_keys=True).encode()).hexdigest(),
+            'provider_environment_policy_sha256': hashlib.sha256(
+                provider_policy_text.encode()).hexdigest(),
             'features': {'shell_tool': False, 'unified_exec': False,
                          'multi_agent': False, 'code_mode': args.mode == 'client-code',
                          'code_mode_only': args.mode == 'client-code'},

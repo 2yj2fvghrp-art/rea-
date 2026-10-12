@@ -27,6 +27,7 @@ const sameSettings = [
   "native_question",
   "javascript_question",
   "provider_settings_sha256",
+  "provider_environment_policy_sha256",
   "measure_source_sha256",
   "package_lock_sha256",
   "node_version",

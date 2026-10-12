@@ -67,8 +67,14 @@ silently substitute a newer `main` or the previous Code Mode experiment.
 The public artifacts and acquisition digests are in `corpus.json`. Supply their
 actual local paths and an optional JSON object of explicit provider environment
 settings. Do not add credentials to that file. Provider settings are inherited
-by the child, but the report persists only the selected settings' digest. It
-does not serialize the ambient environment.
+by the child, but the report persists only the selected settings' digest. Runs
+reject undeclared inherited REA/Hopper and Ghidra/Java configuration keys before
+starting a measured server or creating a model profile; include those settings
+explicitly in `--providers`. Both drivers use `provider-environment.json` and
+record its digest. The system/runtime environment still needs comparable
+controlled conditions; its contents are not serialized. Historical receipts
+predate this guard, so their selected-settings digest alone does not certify
+that no undeclared provider setting was inherited.
 
 ```sh
 export NODE_OPTIONS=--max-old-space-size=512
@@ -418,6 +424,32 @@ left for team review. Commit `00d51e0fcd1d1bba60bf56281725e82d525a27ae`
 synchronizes only the two PR-related description checks.
 
 ## Frozen runtime references
+
+### Review follow-up
+
+Two substantive bot findings were reproduced and addressed before merge. Atomic
+inventory projections now reuse the owning subject/digest/format validation.
+Actual public SDK calls with original Obsidian data demonstrated the old
+acceptance of null subjects and inconsistent formats; the corrected runtime
+rejects both with `invalid_request`. Six boundary assertions also cover missing
+subject, wrong format and wrong digest across summary and node views.
+
+The related three-file run passes 37 assertions, and full static/docs gates
+pass. Genuine baseline SQLite/Obsidian import/view/export still preserves whole
+original records and source/view identities with WABT unavailable. A new real
+Obsidian summary workflow preserves every selected fact, atomic source identity
+and 16,322 delivered JSON bytes; catalog bytes remain 2,359,082.
+
+Both experimental drivers reject undeclared inherited provider controls before
+server/profile creation and log no values. Explicit settings still override
+the corresponding inherited values. This prevents claiming equal declared
+settings while silently inheriting a different analysis option; it does not
+certify every aspect of the inherited system/runtime environment. These are
+research-driver controls, with no production configuration changes.
+
+The source/static scope records 98 `memory.high` events, no hard limit/OOM event,
+and a sampled peak of 3,221,209,088 bytes. The real migration/Obsidian scope peaks
+at 677,367,808 bytes with no limit/OOM events. All raw receipts remain outside Git.
 
 These revisions identify different experiment stages; model measurements were
 not rerun or relabeled as post-integration measurements.
