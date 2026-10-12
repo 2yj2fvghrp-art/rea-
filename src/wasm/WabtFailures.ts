@@ -13,8 +13,31 @@ import {
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { OwnedCommandFailure } from "../process/OwnedCommand.js";
 import { PrivateRuntimeRootUnavailableError } from "../process/PrivateRuntimeRootUnavailableError.js";
+import { boundedUtf8Text } from "../process/boundedUtf8Text.js";
+import type { ProviderProcessSnapshot } from "../process/ProviderProcess.js";
 import { WABT_LIMITS, WABT_PROVIDER_IDENTITY } from "./WabtRelease.js";
-const OUTPUT_LIMIT_EXCERPT_CHARACTERS = 4096;
+const OUTPUT_LIMIT_EXCERPT_BYTES = 4096;
+/** Past the output budget, retained text is a prefix of an oversized stream; keep a bounded excerpt and the observed sizes. */
+const outputLimitExcerpt = (snapshot: ProviderProcessSnapshot) => {
+  const stdout = boundedUtf8Text(
+    snapshot.stdout.text,
+    OUTPUT_LIMIT_EXCERPT_BYTES,
+  );
+  const stderr = boundedUtf8Text(
+    snapshot.stderr.text,
+    OUTPUT_LIMIT_EXCERPT_BYTES,
+  );
+  return {
+    stdout: stdout.text,
+    stderr: stderr.text,
+    truncated:
+      snapshot.diagnosticTruncated === true ||
+      stdout.truncated ||
+      stderr.truncated,
+    stdout_bytes: snapshot.stdout.observedBytes,
+    stderr_bytes: snapshot.stderr.observedBytes,
+  };
+};
 /** Preserve lifecycle failures and diagnostic bytes instead of returning partial success. */
 export const wabtFailure = (
   cause: unknown,
@@ -29,20 +52,16 @@ export const wabtFailure = (
   )
     return new AnalysisCancelledError("inspect_wasm_artifact", { cause });
   if (cause instanceof OwnedCommandFailure) {
-    // Past the output budget the retained text is a prefix of the oversized
-    // stream, so only a bounded excerpt of each stream is kept.
-    const retained = (text: string) =>
-      cause.reason === "output-limit"
-        ? text.slice(0, OUTPUT_LIMIT_EXCERPT_CHARACTERS)
-        : text;
     const capturedOutput =
       cause.snapshot === null
         ? undefined
-        : {
-            stdout: retained(cause.snapshot.stdout.text),
-            stderr: retained(cause.snapshot.stderr.text),
-            truncated: cause.snapshot.diagnosticTruncated ?? false,
-          };
+        : cause.reason === "output-limit"
+          ? outputLimitExcerpt(cause.snapshot)
+          : {
+              stdout: cause.snapshot.stdout.text,
+              stderr: cause.snapshot.stderr.text,
+              truncated: cause.snapshot.diagnosticTruncated ?? false,
+            };
     const options =
       capturedOutput === undefined ? { cause } : { cause, capturedOutput };
     if (cause.cleanupFailure !== null)
@@ -75,7 +94,7 @@ export const wabtFailure = (
         {
           ...options,
           remediationAction:
-            "The WABT output budget is fixed, so retrying this module will fail the same way. It is too large for inspect_wasm_artifact.",
+            "The WABT output budget is fixed, so retrying with the same input will fail the same way.",
         },
       );
     if (phase === "configuration" && cause.reason === "process")
