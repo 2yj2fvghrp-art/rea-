@@ -269,8 +269,8 @@ const fixtureEnvironment = {
 
 const client = (
   requests: Array<Readonly<Record<string, unknown>>>,
-): AnalysisClient => ({
-  execute(operation, parameters) {
+): AnalysisClient => {
+  const execute: AnalysisClient["execute"] = (operation, parameters) => {
     if (operation === "list_documents")
       return Promise.resolve(observed(["AppTests", "App", "App"]));
     if (operation === "list_procedures") {
@@ -285,6 +285,10 @@ const client = (
       );
     }
     return Promise.resolve(observed(null));
-  },
-  close: () => Promise.resolve(resultOk(null)),
-});
+  };
+  return {
+    execute,
+    executeIfReady: execute,
+    close: () => Promise.resolve(resultOk(null)),
+  };
+};
