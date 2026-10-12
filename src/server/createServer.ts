@@ -317,7 +317,6 @@ export const createServer = (
       artifactResources.close(),
       reverseEngineering.close(),
       firmwareAnalysis.close(),
-      options.browserScenarioCapture?.close?.() ?? Promise.resolve(),
       gdbSessions.closeAll(),
     ])
       .then((results) => {

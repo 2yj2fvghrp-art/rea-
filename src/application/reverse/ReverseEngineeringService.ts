@@ -360,7 +360,13 @@ export class ReverseEngineeringService {
             operation,
             "transport",
             "The host rejected the provider command because its argument list exceeds the process launch limit.",
-            { argument_bytes: Buffer.byteLength(args.join("\0")) },
+            {
+              argument_bytes: args.reduce(
+                (bytes, argument, index) =>
+                  bytes + Buffer.byteLength(argument) + (index === 0 ? 0 : 1),
+                0,
+              ),
+            },
             { cause },
           ),
         );

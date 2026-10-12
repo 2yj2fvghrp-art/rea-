@@ -15,7 +15,7 @@ it("uses the captured server environment to resolve reverse-engineering provider
   await writeFile(artifact, "fixture");
   await writeFile(
     provider,
-    "#!/usr/bin/env node\nprocess.stdout.write('captured-environment-provider');\n",
+    `#!${process.execPath}\nprocess.stdout.write('captured-environment-provider');\n`,
   );
   await chmod(provider, 0o755);
 
@@ -68,7 +68,7 @@ it("prefers an explicit provider environment over the captured server environmen
   ] as const) {
     await writeFile(
       path,
-      `#!/usr/bin/env node\nprocess.stdout.write('${output}');\n`,
+      `#!${process.execPath}\nprocess.stdout.write('${output}');\n`,
     );
     await chmod(path, 0o755);
   }
@@ -122,7 +122,7 @@ it("snapshots an explicit provider environment when the server is created", asyn
   ] as const) {
     await writeFile(
       path,
-      `#!/usr/bin/env node\nprocess.stdout.write('${output}');\n`,
+      `#!${process.execPath}\nprocess.stdout.write('${output}');\n`,
     );
     await chmod(path, 0o755);
   }
