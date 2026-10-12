@@ -1,6 +1,7 @@
 import { it, expect, onTestFinished } from "vitest";
-import { writeFile, readdir, chmod } from "node:fs/promises";
+import { writeFile, readdir, chmod, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { readStableArtifact } from "../../../src/artifacts/readStableArtifact.js";
 import { SigrokRecordingProvider } from "../../../src/signals/SigrokRecordingProvider.js";
 import { SignalRecordingService } from "../../../src/application/signals/SignalRecordingService.js";
 import { signalRecordingSchema } from "../../../src/domain/signals/signalRecording.js";
@@ -26,14 +27,17 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
 `,
   );
   await chmod(script, 0o700);
+  const configuredCommand =
+    mode === "symlink" ? join(directory, "configured-tool") : script;
+  if (mode === "symlink") await symlink(script, configuredCommand);
   const controller = new AbortController();
   let calls = 0;
   let mayClean = !failCleanup;
   const provider = new SigrokRecordingProvider(
     {
       ...process.env,
-      REA_SIGROK_COMMAND: script,
-      REA_SIGROK_PRLIMIT_COMMAND: script,
+      REA_SIGROK_COMMAND: configuredCommand,
+      REA_SIGROK_PRLIMIT_COMMAND: configuredCommand,
     },
     async (input) => {
       calls++;
@@ -65,6 +69,10 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
       };
     },
     "linux",
+    async (...args) => {
+      if (mode === "post-run-abort" && calls === 2) controller.abort();
+      return readStableArtifact(...args);
+    },
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -245,5 +253,39 @@ it("refuses unsupported hosts before launching or allocating a workspace", async
   expect(result.error).toMatchObject({
     _tag: "AnalysisCapabilityUnavailableError",
     reason: expect.stringContaining("Linux"),
+  });
+});
+
+it("preserves complete Evidence when aborted during post-run integrity checks", async () => {
+  const f = await fixture("post-run-abort");
+  const result = await f.service.decode(
+    { path: f.path, decoders: "uart" },
+    { signal: f.controller.signal },
+  );
+  if (result.ok) throw new Error("Expected late cancellation");
+  expect(result.error._tag).toBe("AnalysisCancelledError");
+  expect(result.error.partialObservation).toMatchObject({
+    normalized_result: {
+      annotations_text: "10-20 uart-1: 42\n",
+      diagnostics: "producer warning\n",
+    },
+  });
+  expect(
+    (await readdir(f.directory)).filter((name) => name.startsWith("decoder-")),
+  ).toEqual([]);
+});
+it("preserves configured symlink paths separately from resolved tool identities", async () => {
+  const f = await fixture("symlink");
+  const result = await f.service.decode({ path: f.path, decoders: "uart" });
+  if (!result.ok) throw result.error;
+  expect(result.value.normalized_result).toMatchObject({
+    tool: {
+      configured_path: join(f.directory, "configured-tool"),
+      path: join(f.directory, "producer.mjs"),
+    },
+    resource_limiter: {
+      configured_path: join(f.directory, "configured-tool"),
+      path: join(f.directory, "producer.mjs"),
+    },
   });
 });

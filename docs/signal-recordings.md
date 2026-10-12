@@ -37,7 +37,7 @@ See the [upstream manual](https://sigrok.org/wiki/Sigrok-cli) for formats,
 decoder stacking and annotation selectors. No arbitrary command flags are accepted.
 
 The returned Evidence includes the input path/digest, exact selections, tool
-path/digest, full version banner (including library versions), annotation text
+configured and resolved paths/digests, full version banner (including library versions), annotation text
 with sample-number ranges, and stderr. For example, `1104-1938 uart-1: 52`
 is producer display text over a sample range, not a timestamp or an independently
 verified protocol fact. Text is retained verbatim; it is not parsed as a lossless
@@ -46,7 +46,10 @@ remain visible even when sigrok exits zero.
 
 REA decodes a private, read-only copy of the recording, verifies that copy and
 the selected executable and resource limiter after decoding, and removes the workspace after owned
-process cleanup. Failed cleanup retains ownership for retry. The source file is
+process cleanup. Failed cleanup retains ownership for retry, and the one-shot
+CLI awaits a retry without replacing the original failure or completed Evidence.
+Completed observations remain in the MCP session after cancellation or cleanup
+failure; bounded post-run integrity checks finish before honoring a late abort. The source file is
 never passed to sigrok. Caller-supplied tools and their libraries/decoder modules
 are trusted, and hashes identify bytes rather than publisher authenticity.
 

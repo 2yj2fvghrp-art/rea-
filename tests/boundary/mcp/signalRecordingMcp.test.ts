@@ -1,3 +1,8 @@
+import { createEvidence } from "../../../src/domain/evidence.js";
+import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
+import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
+import { SignalRecordingService } from "../../../src/application/signals/SignalRecordingService.js";
+import { err } from "../../../src/domain/result.js";
 import { expect, it, onTestFinished } from "vitest";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { createApplicationMcpHarness } from "../../fixtures/applicationMcpHarness.js";
@@ -38,3 +43,72 @@ it("advertises valid target-free signal decoding schemas and actionable missing-
   });
   await harness.client.ping();
 });
+
+it.each(["cancelled", "cleanup"])(
+  "retains completed Evidence after %s failure",
+  async (kind) => {
+    const input = {
+      path:
+        process.platform === "win32" ? "C:\\recording.vcd" : "/recording.vcd",
+      decoders: "uart",
+    };
+    const evidence = createEvidence(
+      undefined,
+      { id: "fixture", name: "Completed decoder fixture", version: "1" },
+      {
+        operation: "decode_signal_recording",
+        parameters: input,
+        result: { annotations_text: "10-20 uart-1: 42\n" },
+        confidence: "observed",
+      },
+    );
+    const failure =
+      kind === "cancelled"
+        ? new AnalysisCancelledError("decode_signal_recording", {
+            partialObservation: evidence,
+          })
+        : new ProviderCleanupError(
+            "sigrok-recording",
+            ["private-workspace"],
+            {},
+            {
+              operation: "decode_signal_recording",
+              partialObservation: evidence,
+            },
+          );
+    const signalRecording = new SignalRecordingService({
+      decode: async () => err(failure),
+      close: async () => {},
+    });
+    const harness = await createApplicationMcpHarness({
+      serverOptions: { signalRecording },
+    });
+    onTestFinished(harness.close);
+    const response = await harness.client.callTool({
+      name: "decode_signal_recording",
+      arguments: input,
+    });
+    expect(response.isError).toBe(true);
+    expect(parseMcpToolError(response)).toMatchObject({
+      error: {
+        details: {
+          partial_observation: {
+            kind: "retained-evidence",
+            evidence_id: evidence.evidence_id,
+          },
+        },
+      },
+    });
+    const bundle = await harness.client.callTool({
+      name: "get_evidence_bundle",
+      arguments: {},
+    });
+    expect(bundle.isError).not.toBe(true);
+    expect(JSON.stringify(bundle.structuredContent)).toContain(
+      evidence.evidence_id,
+    );
+    expect(harness.session.evidenceById(evidence.evidence_id)).toEqual(
+      evidence,
+    );
+  },
+);

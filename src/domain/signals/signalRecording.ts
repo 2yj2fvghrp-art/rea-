@@ -40,12 +40,14 @@ export const signalRecordingSchema = z.strictObject({
     ),
   diagnostics: z.string(),
   tool: z.strictObject({
+    configured_path: z.string(),
     path: z.string(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     version_banner: z.string(),
     arguments: z.array(z.string()),
   }),
   resource_limiter: z.strictObject({
+    configured_path: z.string(),
     path: z.string(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     arguments: z.array(z.string()),
