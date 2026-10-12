@@ -559,3 +559,128 @@ describe("wrapped Electron mutation identity", () => {
     ]);
   });
 });
+
+describe("symbolic Electron mutation origins", () => {
+  it.each([
+    [
+      "factory",
+      (body: string) =>
+        `function getElectron(){return require("electron");} const e=getElectron(); ${body}`,
+    ],
+    ["module table", (body: string) => bundle(`const e=load(2); ${body}`)],
+    [
+      "module entry point",
+      (body: string) => `const e=require("electron/main"); ${body}`,
+    ],
+  ] as const)(
+    "invalidates an aliased method from a %s without losing its sibling",
+    (_name, source) => {
+      const result = analyzeJavaScriptStaticSource(
+        source(`
+      const ipc=e.ipcMain;
+      delete ipc.on;
+      function listen(channel,handler){e.ipcMain.on(channel,handler);}
+      function handle(channel,handler){e.ipcMain.handle(channel,handler);}
+      listen("overwritten:channel",event=>event.sender.copy());
+      handle("untouched:channel",event=>event.sender.copy());
+    `),
+      );
+      expect(
+        result.electron.ipc.filter(({ channel }) => channel !== null),
+      ).toMatchObject([{ channel: "untouched:channel", operation: "handle" }]);
+      expect(result.electron.call_paths).toMatchObject([
+        { channel: "untouched:channel", terminal: "ipc-event.sender.copy" },
+      ]);
+    },
+  );
+
+  it("invalidates Electron members reached through a returned container", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      function getApis(){return {ipc:require("electron").ipcMain};}
+      const apis=getApis(), copy=apis;
+      delete copy.ipc.on;
+      function register(channel,handler){apis.ipc.on(channel,handler);}
+      register("overwritten:channel",event=>event.sender.copy());
+    `);
+    expect(result.electron.ipc).toEqual([]);
+    expect(result.electron.call_paths ?? []).toEqual([]);
+  });
+
+  it("shares container writes with direct Electron identity readers", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const ipc=require("electron").ipcMain;
+      const container={ipc};
+      delete container.ipc.on;
+      function register(channel,handler){ipc.on(channel,handler);}
+      register("overwritten:channel",event=>event.sender.copy());
+    `);
+    expect(result.electron.ipc).toEqual([]);
+    expect(result.electron.call_paths ?? []).toEqual([]);
+  });
+
+  it.each([
+    'function pick(){return flag ? require("electron").ipcMain : require("electron").ipcRenderer;}',
+    'function pick(){return flag ? require("electron").ipcMain : unknownApi;}',
+  ])(
+    "retains possible conditional write targets without losing siblings: %s",
+    (factory) => {
+      const result = analyzeJavaScriptStaticSource(`
+      ${factory}
+      const selected=pick();
+      delete selected.on;
+      const e=require("electron");
+      function register(channel,handler){e.ipcMain.on(channel,handler);}
+      function handle(channel,handler){e.ipcMain.handle(channel,handler);}
+      register("overwritten:channel",event=>event.sender.copy());
+      handle("untouched:channel",event=>event.sender.copy());
+    `);
+      expect(
+        result.electron.ipc.filter(({ channel }) => channel !== null),
+      ).toMatchObject([{ channel: "untouched:channel", operation: "handle" }]);
+      expect(result.electron.call_paths).toMatchObject([
+        { channel: "untouched:channel", terminal: "ipc-event.sender.copy" },
+      ]);
+    },
+  );
+
+  it.each([
+    "const container={ipc};",
+    "function collect(...apis){return apis;} const container=collect(ipc);",
+  ])(
+    "covers dynamic container selections while preserving sibling methods: %s",
+    (container) => {
+      const result = analyzeJavaScriptStaticSource(`
+      const ipc=require("electron").ipcMain;
+      ${container}
+      delete container[key].on;
+      function register(channel,handler){ipc.on(channel,handler);}
+      function handle(channel,handler){ipc.handle(channel,handler);}
+      register("overwritten:channel",event=>event.sender.copy());
+      handle("untouched:channel",event=>event.sender.copy());
+    `);
+      expect(result.electron.ipc).toMatchObject([
+        { channel: null, operation: "handle" },
+        { channel: "untouched:channel", operation: "handle" },
+      ]);
+      expect(result.electron.call_paths).toMatchObject([
+        { channel: "untouched:channel", terminal: "ipc-event.sender.copy" },
+      ]);
+    },
+  );
+
+  it("discovers successive writes without reusing pre-mutation values", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      function getElectron(){return require("electron");}
+      const e=getElectron();
+      const ipc=e.ipcMain;
+      delete ipc.on;
+      delete ipc.handle;
+      function listen(channel,handler){e.ipcMain.on(channel,handler);}
+      function handle(channel,handler){e.ipcMain.handle(channel,handler);}
+      listen("overwritten:listen",event=>event.sender.copy());
+      handle("overwritten:handle",event=>event.sender.copy());
+    `);
+    expect(result.electron.ipc).toEqual([]);
+    expect(result.electron.call_paths ?? []).toEqual([]);
+  });
+});

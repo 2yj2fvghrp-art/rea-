@@ -1,5 +1,6 @@
 import * as t from "@babel/types";
 import { collectElectronWrappedCallPaths } from "./electronWrappedCallPaths.js";
+import { JavaScriptSymbolicBindings } from "./javascriptSymbolicBindings.js";
 import {
   ELECTRON_IDENTITY_LIMITATION,
   ELECTRON_MODULE,
@@ -84,10 +85,16 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
-  const electronBindings =
-    yield* classifyParsedJavaScriptElectronBindingsSteps(file);
-  const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
+  const symbolicBindings = new JavaScriptSymbolicBindings(
+    bindings,
+    file.program,
+  );
+  const electronBindings = yield* classifyParsedJavaScriptElectronBindingsSteps(
+    file,
+    (path) => symbolicBindings.hasElectronWrite(path),
+  );
+  const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
   yield* traverseStaticSourceSteps(
     file,
     {
@@ -101,7 +108,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   );
   accumulator.electronCallPaths = collectElectronWrappedCallPaths(
     file.program,
-    bindings,
+    symbolicBindings,
     source,
     accumulator,
   );

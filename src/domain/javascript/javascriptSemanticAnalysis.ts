@@ -377,6 +377,7 @@ export const classifyParsedJavaScriptElectronBindings = (
 /** Resolve Electron aliases while yielding during lexical and AST scans. */
 export function* classifyParsedJavaScriptElectronBindingsSteps(
   file: ParsedJavaScriptSource,
+  additionalWrites?: (exportPath: readonly (string | null)[]) => boolean,
 ): Generator<void, ReadonlyMap<number, readonly string[]>> {
   const facts = new Map<number, readonly string[]>();
   const state = createState(file.program);
@@ -412,15 +413,21 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
   };
   yield* collectJavaScriptIdentityWritesSteps(
     file.program,
-    (root, kind) => {
-      if (kind === "opaque-call") return interop.opaqueMutationPath(root);
+    (target, kind) => {
+      if (kind === "opaque-call") {
+        const scope = interop.opaqueMutationPath(target);
+        return scope === undefined ? [] : [scope];
+      }
+      const { root, members } = electronMemberPath(target);
       const exported = kind === "binding" ? undefined : rootExport(root);
-      return exported === undefined
-        ? (interop.intrinsicPath(root) ??
+      const path =
+        exported === undefined
+          ? (interop.intrinsicPath(root) ??
             (kind === "member"
               ? interop.boundIntrinsic(root)?.path
               : undefined))
-        : ["electron", ...exported];
+          : ["electron", ...exported];
+      return path === undefined ? [] : [[...path, ...members]];
     },
     interop.intrinsicInvocation,
     interop.staticString,
@@ -443,7 +450,8 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
       const exported = rootExport(root);
       if (
         exported !== undefined &&
-        !writes.covers(["electron", ...exported, ...members])
+        !writes.covers(["electron", ...exported, ...members]) &&
+        !additionalWrites?.([...exported, ...members])
       )
         facts.set(root.start ?? -1, exported);
     },
