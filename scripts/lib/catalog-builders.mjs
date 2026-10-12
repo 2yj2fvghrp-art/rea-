@@ -27,6 +27,7 @@ export const toolFamilyCatalog = (sources) => {
       contracts: [
         ...sources.artifactContracts.ARTIFACT_TOOL_CONTRACTS,
         ...sources.evmContracts.EVM_TOOL_CONTRACTS,
+        ...sources.goContracts.GO_TOOL_CONTRACTS,
         ...sources.wasmContracts.WASM_TOOL_CONTRACTS,
       ],
     },
@@ -52,6 +53,16 @@ export const toolFamilyCatalog = (sources) => {
       id: "pcap",
       surface: "pcap-provider",
       contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
+    },
+    {
+      id: "flutter",
+      surface: "flutter-provider",
+      contracts: sources.flutterContracts.FLUTTER_TOOL_CONTRACTS,
+    },
+    {
+      id: "frida",
+      surface: "instrumentation-provider",
+      contracts: sources.fridaContracts.FRIDA_TOOL_CONTRACTS,
     },
     {
       id: "apktool",
@@ -150,6 +161,10 @@ export const providerCatalog = (sources) => {
   } = electronContractSlices(sources);
   return [
     {
+      identity: sources.fridaProvider.FRIDA_PROVIDER_IDENTITY,
+      contracts: sources.fridaContracts.FRIDA_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.hopperProvider.HOPPER_PROVIDER_IDENTITY,
       contracts: declaredContracts(
         "hopper",
@@ -194,6 +209,10 @@ export const providerCatalog = (sources) => {
       contracts: sources.evmContracts.EVM_TOOL_CONTRACTS,
     },
     {
+      identity: sources.goProvider.GO_BINARY_PROVIDER_IDENTITY,
+      contracts: sources.goContracts.GO_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.artifactProviders.ARTIFACT_GRAPH_PROVIDER,
       contracts: sources.artifactContracts.ARTIFACT_TOOL_CONTRACTS,
     },
@@ -225,6 +244,10 @@ export const providerCatalog = (sources) => {
     {
       identity: sources.pcapProvider.PCAP_PROVIDER_IDENTITY,
       contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.flutterProvider.FLUTTER_PROVIDER_IDENTITY,
+      contracts: sources.flutterContracts.FLUTTER_TOOL_CONTRACTS,
     },
     {
       identity: sources.apktoolProvider.APKTOOL_PROVIDER_IDENTITY,

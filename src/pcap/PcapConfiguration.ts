@@ -1,9 +1,5 @@
 import { isAbsolute } from "node:path";
 
-import {
-  execFileOutput,
-  execFileOutputFailure,
-} from "../process/ExecFileOutput.js";
 import type { ProviderAvailability } from "../application/AnalysisProvider.js";
 import type { ProviderRejectionCode } from "../contracts/providerSelection.js";
 import type { JsonValue } from "../domain/jsonValue.js";
@@ -11,9 +7,6 @@ import type { JsonValue } from "../domain/jsonValue.js";
 /** Environment keys selecting the caller's tshark and capinfos binaries. */
 export const TSHARK_COMMAND_ENV = "REA_TSHARK_COMMAND";
 export const CAPINFOS_COMMAND_ENV = "REA_CAPINFOS_COMMAND";
-
-const VERSION_TIMEOUT_MS = 20_000;
-const VERSION_MAX_OUTPUT_BYTES = 64 * 1024;
 
 /** How each tool was selected for this provider instance. */
 export interface PcapToolSelection {
@@ -94,30 +87,19 @@ export class PcapConfigurationFailure extends Error {
   }
 }
 
-/** Read the version from the first line of `--version` output. */
-const parseVersion = (stdout: string): string | null => {
+/** Recognize the selected Wireshark tool's version banner. */
+const parseVersion = (
+  stdout: string,
+  tool: "tshark" | "capinfos",
+): string | null => {
   const line = stdout
     .split(/\r?\n/u)
     .map((entry) => entry.trim())
     .find((entry) => entry !== "");
-  return line === undefined ? null : line;
-};
-
-/** Probe one tool; returns its version line or null if unusable. */
-const probeTool = async (
-  command: string,
-  signal: AbortSignal | undefined,
-): Promise<string | null> => {
-  try {
-    const { stdout } = await execFileOutput(command, ["--version"], {
-      timeout: VERSION_TIMEOUT_MS,
-      maxBuffer: VERSION_MAX_OUTPUT_BYTES,
-      ...(signal === undefined ? {} : { signal }),
-    });
-    return parseVersion(stdout);
-  } catch {
-    return null;
-  }
+  return line !== undefined &&
+    new RegExp(`^${tool} \\(Wireshark\\) \\d+\\.\\d+\\.\\d+`, "iu").test(line)
+    ? line
+    : null;
 };
 
 export interface PcapClientIdentity {
@@ -128,10 +110,13 @@ export interface PcapClientIdentity {
 /** Probe both tools without reading any capture file. */
 export const inspectPcapClient = async (
   selection: PcapToolSelection,
-  signal?: AbortSignal,
+  probe: (command: string) => Promise<string>,
 ): Promise<PcapClientIdentity> => ({
-  tsharkVersion: await probeTool(selection.tshark.command, signal),
-  capinfosVersion: await probeTool(selection.capinfos.command, signal),
+  tsharkVersion: parseVersion(await probe(selection.tshark.command), "tshark"),
+  capinfosVersion: parseVersion(
+    await probe(selection.capinfos.command),
+    "capinfos",
+  ),
 });
 
 /** Availability in the shape shared by every provider. */
@@ -146,10 +131,9 @@ const rejectionCodeOf = (
 
 export const pcapConfigurationAvailability = (
   cause: PcapConfigurationFailure,
-): ProviderAvailability =>
-  ({
-    status: "unavailable",
-    code: rejectionCodeOf(cause.code),
-    reason: cause.message,
-    diagnostics: { ...cause.diagnostics },
-  }) as ProviderAvailability;
+): ProviderAvailability => ({
+  status: "unavailable",
+  code: rejectionCodeOf(cause.code),
+  reason: cause.message,
+  diagnostics: { ...cause.diagnostics },
+});

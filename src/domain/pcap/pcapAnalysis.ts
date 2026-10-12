@@ -55,6 +55,7 @@ const endpoint = z.strictObject({
 const dnsQuery = z.strictObject({
   query: z.string().min(1),
   response_addresses: z.array(z.string().min(1)),
+  response_address_count: z.number().int().nonnegative(),
 });
 
 const protocolCount = z.strictObject({
@@ -90,11 +91,17 @@ export const pcapResultSchemas = {
     dns_query_count: z.number().int().nonnegative(),
     /** TLS Server Name Indication values observed in handshakes. */
     tls_sni_values: z.array(z.string().min(1)),
+    tls_sni_count: z.number().int().nonnegative(),
     /** Protocol distribution (frame.protocols column counts). */
     protocol_distribution: z.array(protocolCount),
+    protocol_count: z.number().int().nonnegative(),
     /** HTTP request URIs seen on plain-text ports, bounded. */
     http_request_uris: z.array(z.string().min(1)),
     http_request_uri_count: z.number().int().nonnegative(),
+    http_uri_redaction_count: z.number().int().nonnegative(),
+    unattributed_dns_addresses: z.array(z.string().min(1)),
+    unattributed_dns_address_count: z.number().int().nonnegative(),
+    unattributed_dns_packet_count: z.number().int().nonnegative(),
     coverage: z.enum(["complete", "partial"]),
   }),
 } as const;

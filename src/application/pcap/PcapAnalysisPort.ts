@@ -14,7 +14,7 @@ import type { Result } from "../../domain/result.js";
 export interface PcapAnalysisPort {
   /** Probe both tools without reading any capture file. */
   inspectAvailability(signal?: AbortSignal): Promise<ProviderAvailability>;
-  /** The provider holds no long-lived resources; safe to call always. */
+  /** Retry cleanup of retained owned commands and capture snapshots. */
   close(): Promise<void>;
   execute(
     request: PcapRequest,

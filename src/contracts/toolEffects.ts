@@ -53,6 +53,7 @@ const sessionEvidence = effects({ mutatesSession: true });
 
 /** Explicit effect audit for every public tool. */
 export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
+  inspect_go_binary: evidence,
   inspect_wasm_artifact: effects({
     mutatesSession: true,
     writesFilesystem: true,
@@ -97,6 +98,57 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     writesFilesystem: true,
     launchesProcess: true,
   }),
+  list_frida_devices: effects({ launchesProcess: true, accessesNetwork: true }),
+  list_frida_processes: effects({
+    launchesProcess: true,
+    accessesNetwork: true,
+  }),
+  start_frida_session: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    idempotent: false,
+  }),
+  load_frida_script: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    executesForeignCode: true,
+    idempotent: false,
+  }),
+  resume_frida_session: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    executesForeignCode: true,
+    idempotent: false,
+  }),
+  unload_frida_script: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    idempotent: false,
+  }),
+  frida_session_status: effects(),
+  close_frida_session: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    idempotent: false,
+  }),
+  instrument_with_frida: effects({
+    mutatesTarget: true,
+    mutatesSession: true,
+    launchesProcess: true,
+    accessesNetwork: true,
+    executesForeignCode: true,
+    idempotent: false,
+  }),
   inspect_pe_resources: evidence,
   inspect_analysis_view: evidence,
   inspect_firmware_regions: effects({
@@ -122,6 +174,15 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   inspect_pcap_capture: effects({
     mutatesSession: true,
     launchesProcess: true,
+    writesFilesystem: true,
+  }),
+  identify_flutter_build: effects({
+    mutatesSession: true,
+    writesFilesystem: true,
+  }),
+  inspect_dart_aot: effects({
+    mutatesSession: true,
+    writesFilesystem: true,
   }),
   inspect_apktool_client: effects({
     mutatesSession: true,

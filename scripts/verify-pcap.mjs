@@ -1,136 +1,129 @@
-import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { readdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { toolContract } from "../dist/contracts/toolContracts.js";
+import { hashStableFile } from "../dist/filesystem/StableFileHash.js";
+import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
+import { mcpTextValue } from "./lib/mcp-verifier-results.mjs";
 
-import { PcapAnalysisService } from "../dist/application/pcap/PcapAnalysisService.js";
-import { createPcapAnalysisProvider } from "../dist/composition/pcap.js";
-
-const options = parseArguments(process.argv.slice(2));
-if (options.help) {
-  process.stdout.write(
-    "Usage: npm run verify:pcap [-- --pcap PATH]\n" +
-      "Requires caller-supplied tshark and capinfos (REA_TSHARK_COMMAND and\n" +
-      "REA_CAPINFOS_COMMAND, or both on PATH). Without --pcap, only the client\n" +
-      "check runs; --pcap selects a real capture file for full verification.\n",
+const args = process.argv.slice(2);
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(
+    "Usage: npm run verify:pcap -- [--pcap PATH]\nRequires caller-supplied tshark/capinfos. Without --pcap, only client readiness is verified.",
   );
   process.exit(0);
 }
-
-const provider = createPcapAnalysisProvider(process.env);
-const service = new PcapAnalysisService(provider);
-let failures = 0;
-const check = (name, condition, detail = "") => {
-  const mark = condition ? "ok" : "FAIL";
-  process.stdout.write(
-    `[${mark}] ${name}${detail === "" ? "" : ` — ${detail}`}\n`,
-  );
-  if (!condition) failures += 1;
-};
-
-const client = await service.execute("inspect_pcap_client", {});
-if (!client.ok) {
-  process.stdout.write(
-    `[FAIL] inspect_pcap_client — ${client.error.message}\n`,
-  );
-  process.exit(1);
-}
-const clientResult = client.value.normalized_result;
-check(
-  "tshark reports a version",
-  typeof clientResult.client.tshark_version === "string" &&
-    clientResult.client.tshark_version !== "",
-  `tshark=${clientResult.client.tshark_version} capinfos=${clientResult.client.capinfos_version}`,
+if (!(args.length === 0 || (args.length === 2 && args[0] === "--pcap")))
+  throw new Error("Expected --pcap PATH");
+const path = args[1] === undefined ? null : resolve(args[1]);
+const root = await PrivateRuntimeRoot.create({ prefix: "rea-pcap-verifier-" });
+const environment = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => typeof value === "string"),
 );
-
-if (options.pcap !== null) {
-  const { readFile } = await import("node:fs/promises");
-  const inspected = await service.execute("inspect_pcap_capture", {
-    path: options.pcap,
-  });
-  if (!inspected.ok) {
-    process.stdout.write(
-      `[FAIL] inspect_pcap_capture — ${inspected.error.message}\n`,
-    );
-    failures += 1;
-  } else {
-    const r = inspected.value.normalized_result;
-    const bytes = await stat(options.pcap).then((info) => info.size);
-    const digest = createHash("sha256")
-      .update(await readFile(options.pcap))
-      .digest("hex");
-    check(
-      "target identity matches the file on disk",
-      r.target.bytes === bytes && r.target.sha256 === digest,
-      `${bytes} bytes`,
-    );
-    check(
-      "file type and encapsulation reported",
-      typeof r.file_type === "string" && typeof r.encapsulation === "string",
-      `${r.file_type} / ${r.encapsulation}`,
-    );
-    check(
-      "packet count is positive",
-      typeof r.packet_count === "number" && r.packet_count > 0,
-      `${r.packet_count} packets`,
-    );
-    check(
-      "endpoint inventory is non-empty",
-      r.endpoints.length > 0,
-      `${r.endpoint_count} distinct`,
-    );
-    check(
-      "protocol distribution is non-empty",
-      r.protocol_distribution.length > 0,
-      `${r.protocol_distribution.length} protocols`,
-    );
-    if (r.tls_sni_values.length > 0)
-      check(
-        "TLS SNI values reported",
-        r.tls_sni_values.every((sni) => typeof sni === "string"),
-        r.tls_sni_values.slice(0, 3).join(", "),
-      );
-    if (r.dns_queries.length > 0)
-      check(
-        "DNS queries reported",
-        r.dns_queries.every((q) => typeof q.query === "string"),
-        r.dns_queries
-          .slice(0, 2)
-          .map((q) => q.query)
-          .join(", "),
-      );
-  }
-} else {
-  process.stdout.write(
-    "[note] no --pcap provided; skipping capture inspection\n",
-  );
-}
-
+Object.assign(environment, {
+  TMPDIR: root.path,
+  TMP: root.path,
+  TEMP: root.path,
+});
+const entrypoint = resolve("scripts/rea.mjs");
+const execute = promisify(execFile);
+const client = new Client({ name: "pcap-real-verifier", version: "1" });
+const transport = new StdioClientTransport({
+  command: process.execPath,
+  args: [entrypoint, "mcp"],
+  env: environment,
+  stderr: "pipe",
+});
+transport.stderr?.resume();
 try {
-  await provider.close();
-} catch (cause) {
-  failures += 1;
-  process.stdout.write(
-    `[FAIL] provider close — ${cause instanceof Error ? cause.message : String(cause)}\n`,
-  );
-}
-
-if (failures > 0) {
-  process.stdout.write(`\n${failures} check(s) failed\n`);
-  process.exit(1);
-}
-process.stdout.write("\nall pcap checks passed\n");
-
-function parseArguments(argv) {
-  const parsed = { help: false, pcap: null };
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--help" || argument === "-h") parsed.help = true;
-    else if (argument === "--pcap") {
-      parsed.pcap = argv[index + 1] ?? null;
-      index += 1;
-    } else {
-      process.stderr.write(`unknown argument: ${argument}\n`);
-      process.exit(2);
-    }
+  await client.connect(transport);
+  const readiness = await run("inspect_pcap_client", {});
+  assert(readiness.client.tshark_version && readiness.client.capinfos_version);
+  if (path === null)
+    console.log("[unverified] Capture inspection: no --pcap was supplied");
+  else {
+    const identity = await hashStableFile(path);
+    const result = await run("inspect_pcap_capture", { path });
+    assert.deepEqual(result.target, { path, ...identity });
+    assert(result.packet_count >= 0);
+    assert(
+      result.endpoints.every(
+        (entry) => entry.packet_count <= result.packet_count,
+      ),
+    );
+    assert(
+      result.protocol_distribution.every(
+        (entry) => entry.packet_count <= result.packet_count,
+      ),
+    );
+    const partial =
+      result.endpoint_count > result.endpoints.length ||
+      result.dns_query_count > result.dns_queries.length ||
+      result.tls_sni_count > result.tls_sni_values.length ||
+      result.protocol_count > result.protocol_distribution.length ||
+      result.http_request_uri_count > result.http_request_uris.length ||
+      result.unattributed_dns_packet_count > 0 ||
+      result.dns_queries.some(
+        (entry) =>
+          entry.response_address_count > entry.response_addresses.length,
+      );
+    assert.equal(result.coverage, partial ? "partial" : "complete");
+    assert.deepEqual(
+      await hashStableFile(path),
+      identity,
+      "Input capture must remain unchanged",
+    );
+    console.log(
+      `[ok] ${result.packet_count} packets; ${result.endpoint_count} addresses; coverage=${result.coverage}`,
+    );
   }
-  return parsed;
+} finally {
+  try {
+    await client.close();
+    await transport.close();
+    assert.deepEqual(
+      await readdir(root.path),
+      [],
+      "Owned capture snapshots must be released",
+    );
+  } finally {
+    await root.close();
+  }
+}
+console.log("All asserted pcap CLI/MCP checks passed");
+
+async function run(name, input) {
+  const contract = toolContract(name);
+  const { stdout } = await execute(
+    process.execPath,
+    [
+      entrypoint,
+      name.replaceAll("_", "-"),
+      ...(input.path === undefined ? [] : [input.path]),
+      "--json",
+    ],
+    { env: environment, timeout: 360_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  const cli = contract.outputSchema.parse(JSON.parse(stdout));
+  const response = await client.callTool(
+    { name, arguments: input },
+    { timeout: 360_000 },
+  );
+  assert.notEqual(response.isError, true, mcpTextValue(response));
+  const mcp = contract.outputSchema.parse(JSON.parse(mcpTextValue(response)));
+  assert.deepEqual(mcp.normalized_result, cli.normalized_result);
+  assert.deepEqual(mcp.subject, cli.subject);
+  if (input.path !== undefined) {
+    assert.equal(cli.subject.local_path, input.path);
+    assert.equal(
+      cli.subject.digest.sha256,
+      cli.normalized_result.target.sha256,
+    );
+  }
+  console.log(`[ok] ${name}: named output schema and CLI/MCP Evidence parity`);
+  return cli.normalized_result;
 }

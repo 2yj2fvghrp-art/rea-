@@ -18,6 +18,15 @@ export interface MipsElfMetadata {
   readonly abiFlags?: MipsAbiFlags | null;
   /** Unavailable declaration sources; missing records there remain unknown. */
   readonly limitations?: readonly string[];
+  /** Complete dynamic REL declarations, or the reason they could not be inspected. */
+  readonly sharedLoad?:
+    | {
+        readonly status: "complete";
+        readonly relocationCount: number;
+        readonly relocationTypes: readonly number[];
+        readonly symbolRelativeCount: number;
+      }
+    | { readonly status: "unavailable"; readonly reason: string };
 }
 
 /** Declared fields of the 24-byte MIPS ABI flags record, not inferred semantics. */
@@ -33,6 +42,12 @@ export interface MipsAbiFlags {
   readonly ases: number;
   readonly flags1: number;
   readonly flags2: number;
+}
+
+/** Byte range of the selected slice inside its universal Mach-O container. */
+export interface UniversalMachOSlice {
+  readonly offset: number;
+  readonly size: number;
 }
 
 interface BinaryTargetIdentity {
@@ -75,6 +90,14 @@ export type BinaryTarget =
     })
   | (ExecutableTarget & {
       readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
+      readonly universalSlice?: never;
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
+  | (ExecutableTarget & {
+      readonly format: "mach-o-universal";
+      /** Selected slice range a provider must analyze instead of the container. */
+      readonly universalSlice: UniversalMachOSlice;
       readonly executableRole?: never;
       readonly managed?: never;
     })
@@ -121,3 +144,9 @@ export type BinaryTarget =
         readonly kind: "artifact";
         readonly format: "plist" | "javascript" | "source-map";
       });
+
+/** Whether an executable target contains a thin or universal Mach-O image. */
+export const isMachOFormat = (
+  format: unknown,
+): format is "mach-o" | "mach-o-universal" =>
+  format === "mach-o" || format === "mach-o-universal";

@@ -1,15 +1,16 @@
 /**
  * Cross-platform pcap provider tests.
  *
- * POSIX hosts run the existing #!/bin/sh stubs (PcapProvider.test.ts);
+ * POSIX hosts run the #!/bin/sh fixtures;
  * Windows runs the .cmd stubs from tests/fixtures/pcap/. Both validate
  * the same provider contract surface: tool probing, capture inspection,
  * refusal paths, and cancellation before spawn.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import { PcapProvider } from "../../../src/pcap/PcapProvider.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
@@ -24,13 +25,16 @@ const capinfosStub = isWindows
   ? join(stubDir, "capinfos-stub.cmd")
   : join(stubDir, "capinfos-stub.sh");
 
-const providerOver = (): PcapProvider =>
-  new PcapProvider({
+const providerOver = (): PcapProvider => {
+  const provider = new PcapProvider({
     environment: {
       REA_TSHARK_COMMAND: tsharkStub,
       REA_CAPINFOS_COMMAND: capinfosStub,
     },
   });
+  onTestFinished(() => provider.close());
+  return provider;
+};
 
 const evidenceResult = async (
   provider: PcapProvider,
@@ -55,8 +59,7 @@ it("inspects both tools through cross-platform stubs", async () => {
 });
 
 it("inspects a capture with metadata, endpoints, DNS, and protocol facts", async () => {
-  const root = await mkdtemp(join("/tmp", "rea-pcap-x-"));
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const root = await createTestTempDirectory("rea-pcap-x-");
   const capturePath = join(root, "capture.pcap");
   const captureBytes = "cross-platform-pcap-fixture";
   await writeFile(capturePath, captureBytes);

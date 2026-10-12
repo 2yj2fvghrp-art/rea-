@@ -68,10 +68,8 @@ describe("parseCapinfosOutput", () => {
     });
   });
 
-  it("reports null fields for empty output", () => {
-    const result = parseCapinfosOutput("");
-    expect(result.fileType).toBeNull();
-    expect(result.packetCount).toBeNull();
+  it("rejects empty metadata rather than reporting complete unknown facts", () => {
+    expect(() => parseCapinfosOutput("")).toThrow(/machine-readable/u);
   });
 });
 
@@ -84,6 +82,7 @@ const REAL_TSHARK_JSON = JSON.stringify([
         "ip.src": ["192.168.1.1"],
         "ip.dst": ["8.8.8.8"],
         "dns.qry.name": ["example.com"],
+        "dns.flags.response": ["1"],
         "dns.a": ["93.184.216.34"],
       },
     },
@@ -121,30 +120,34 @@ describe("parseTsharkJsonOutput", () => {
     maxHttpUris: 50,
   };
 
-  it("projects endpoints, DNS, TLS SNI, protocols, and HTTP URIs", () => {
-    const result = parseTsharkJsonOutput(REAL_TSHARK_JSON, limits);
+  it("projects endpoints, DNS, TLS SNI, protocols, and HTTP URIs", async () => {
+    const result = await parseTsharkJsonOutput(REAL_TSHARK_JSON, limits);
     expect(result.endpoints).toEqual(
       expect.arrayContaining([
-        { address: "192.168.1.1", port: null, packetCount: 3 },
-        { address: "8.8.8.8", port: null, packetCount: 1 },
-        { address: "93.184.216.34", port: null, packetCount: 2 },
+        { address: "192.168.1.1", port: null, packet_count: 3 },
+        { address: "8.8.8.8", port: null, packet_count: 1 },
+        { address: "93.184.216.34", port: null, packet_count: 2 },
       ]),
     );
     expect(result.dnsQueries).toEqual([
-      { query: "example.com", responseAddresses: ["93.184.216.34"] },
+      {
+        query: "example.com",
+        response_addresses: ["93.184.216.34"],
+        response_address_count: 1,
+      },
     ]);
     expect(result.tlsSniValues).toEqual(["example.com"]);
     expect(result.httpRequestUris).toEqual(["http://example.com/page"]);
     expect(result.protocolDistribution).toEqual(
       expect.arrayContaining([
-        { protocol: "sll:ethertype:ip:udp:dns", packetCount: 1 },
-        { protocol: "sll:ethertype:ip:tcp:tls", packetCount: 1 },
-        { protocol: "sll:ethertype:ip:tcp:http", packetCount: 1 },
+        { protocol: "sll:ethertype:ip:udp:dns", packet_count: 1 },
+        { protocol: "sll:ethertype:ip:tcp:tls", packet_count: 1 },
+        { protocol: "sll:ethertype:ip:tcp:http", packet_count: 1 },
       ]),
     );
   });
 
-  it("bounds each category to its limit", () => {
+  it("bounds each category to its limit", async () => {
     const packets = Array.from({ length: 10 }, (_, index) => ({
       _source: {
         layers: {
@@ -155,7 +158,7 @@ describe("parseTsharkJsonOutput", () => {
         },
       },
     }));
-    const result = parseTsharkJsonOutput(JSON.stringify(packets), {
+    const result = await parseTsharkJsonOutput(JSON.stringify(packets), {
       ...limits,
       maxEndpoints: 3,
     });
@@ -163,8 +166,16 @@ describe("parseTsharkJsonOutput", () => {
     expect(result.endpointCount).toBe(11); // 10 src + 1 dst
   });
 
-  it("handles empty or malformed JSON without crashing", () => {
-    expect(parseTsharkJsonOutput("", limits).endpointCount).toBe(0);
-    expect(parseTsharkJsonOutput("not json", limits).endpointCount).toBe(0);
+  it.each([
+    "",
+    "not json",
+    "{}",
+    "null",
+    "[null]",
+    '[{"_source":{"layers":{"ip.src":[3]}}}]',
+  ])("rejects malformed producer output %s", async (text) => {
+    await expect(parseTsharkJsonOutput(text, limits)).rejects.toMatchObject({
+      _tag: "AnalysisProtocolError",
+    });
   });
 });

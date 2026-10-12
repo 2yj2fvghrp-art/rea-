@@ -24,7 +24,6 @@ import type {
   BinarySessionPort,
   SavedAnalysisSnapshot,
 } from "./BinarySessionPort.js";
-import { writeAnalysisSnapshot } from "./AnalysisSnapshotFiles.js";
 import {
   SessionProviderRouter,
   type SessionProviderRoute,
@@ -82,7 +81,9 @@ export class BinarySession
     | undefined;
   #transition: Promise<void> = Promise.resolve();
   #transitionGeneration = 0;
+  #transitionPending = 0;
   readonly #calls = new Map<Promise<unknown>, number>();
+  readonly #promptCompletionControllers = new Set<AbortController>();
   readonly #providerRouter: SessionProviderRouter;
   readonly #runtimeUnavailability = new Map<
     string,
@@ -143,14 +144,7 @@ export class BinarySession
         }
       }
     }
-    const profile = this.#active?.profile;
-    return structuredClone(
-      profile !== null &&
-        profile !== undefined &&
-        profile.provider.id === selected.id
-        ? profile.provider
-        : selected,
-    );
+    return structuredClone(selected);
   }
 
   /** External live state cannot be replayed by a direct or composed CLI workflow. */
@@ -376,7 +370,7 @@ export class BinarySession
       await this.#drainCalls(admittedThrough);
       const snapshot = this.exportAnalysisSnapshot();
       if (!snapshot.ok) return snapshot;
-      const written = await writeAnalysisSnapshot(
+      const written = await this.writeAnalysisSnapshot(
         snapshot.value,
         path,
         overwrite,
@@ -421,7 +415,16 @@ export class BinarySession
           );
     this.clearSessionRecords();
     this.#clearRuntimeAvailability();
-    return closed;
+    const fileResources = await this.closeWriteResources();
+    if (!closed.ok && !fileResources.ok)
+      return err(
+        analysisErrorWithCleanupFailure(
+          closed.error,
+          fileResources.error,
+          "close_binary",
+        ),
+      );
+    return closed.ok ? fileResources : closed;
   }
 
   async #retireClient(
@@ -531,6 +534,38 @@ export class BinarySession
     return call.finally(() => this.#calls.delete(call));
   }
 
+  /** Run a prompt lookup only against an already connected provider child. */
+  executeIfProviderReady(
+    name: Parameters<AnalysisOperationPort["execute"]>[0],
+    arguments_: Readonly<Record<string, JsonValue>>,
+    options?: Pick<ExecutionOptions, "signal" | "selectorOrigin">,
+  ): Promise<Result<AnalysisExecution, AnalysisError> | undefined> {
+    const active = this.#active;
+    if (
+      this.#transitionPending > 0 ||
+      active === undefined ||
+      active.client.executeIfReady === undefined
+    )
+      return Promise.resolve(undefined);
+
+    const controller = new AbortController();
+    this.#promptCompletionControllers.add(controller);
+    const signal =
+      options?.signal === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, options.signal]);
+    const generation = this.#transitionGeneration;
+    const call = active.client.executeIfReady(name, arguments_, {
+      ...options,
+      signal,
+    });
+    this.#calls.set(call, generation);
+    return call.finally(() => {
+      this.#calls.delete(call);
+      this.#promptCompletionControllers.delete(controller);
+    });
+  }
+
   /** Admit one composed request until its result and session bookkeeping settle. */
   withAdmittedAnalysis<Value>(
     operationName: string,
@@ -587,6 +622,9 @@ export class BinarySession
     if (!prepared.ok) return prepared;
     const { active, capability, profile, cacheable, cached } = prepared.value;
     if (cached !== undefined) return ok(cached);
+    // A failed reply cannot prove that a dispatched metadata write rolled back.
+    // Stop replay before dispatch, including reads overlapping the write.
+    if (capability.effects.mutatesArtifact) this.invalidateSnapshot();
     const call = active.client.execute(name, arguments_, options);
     const result = await call;
     const profiled = bindExecutionTarget(
@@ -594,9 +632,22 @@ export class BinarySession
       name,
       active.target,
     );
-    this.#observeRuntimeAvailability(name, profiled);
-    if (
+    const execution =
       profiled.ok &&
+      (name === "procedure_callers" || name === "procedure_callees") &&
+      profiled.value.relationshipCoverage === undefined
+        ? ok({
+            ...profiled.value,
+            relationshipCoverage: {
+              status: "unknown" as const,
+              reason:
+                "Provider did not report relationship coverage for this observation.",
+            },
+          })
+        : profiled;
+    this.#observeRuntimeAvailability(name, execution);
+    if (
+      execution.ok &&
       cacheable &&
       profile !== undefined &&
       name !== "decode_interface_builder" &&
@@ -605,16 +656,21 @@ export class BinarySession
       name !== "trace_dylib_resolution"
     ) {
       const evidence = createEvidence(
-        profiled.value.subject ?? active.target,
-        profiled.value.provider,
+        execution.value.subject ?? active.target,
+        execution.value.provider,
         {
           operation: name,
           parameters: arguments_,
-          result: profiled.value.result,
+          result: execution.value.result,
           analysisProfile: profile,
-          rawResult: profiled.value.rawResult,
-          limitations: profiled.value.limitations,
-          locations: profiled.value.locations,
+          rawResult: execution.value.rawResult,
+          limitations: execution.value.limitations,
+          ...(execution.value.relationshipCoverage === undefined
+            ? {}
+            : {
+                relationshipCoverage: execution.value.relationshipCoverage,
+              }),
+          locations: execution.value.locations,
         },
       );
       const recorded = this.recordEvidence(evidence);
@@ -624,12 +680,10 @@ export class BinarySession
         profile,
         operation: name,
         parameters: arguments_,
-        execution: profiled.value,
+        execution: execution.value,
       });
-    } else if (profiled.ok && capability.effects.mutatesArtifact) {
-      this.invalidateSnapshot();
     }
-    return profiled;
+    return execution;
   }
 
   #observeRuntimeAvailability(
@@ -708,6 +762,9 @@ export class BinarySession
   #serialize<T>(
     operation: (admittedThrough: number) => Promise<T>,
   ): Promise<T> {
+    for (const controller of this.#promptCompletionControllers)
+      controller.abort();
+    this.#transitionPending += 1;
     // Later calls wait for this transition and must not be included in its drain.
     const admittedThrough = this.#transitionGeneration++;
     const result = this.#transition.then(
@@ -717,6 +774,14 @@ export class BinarySession
     this.#transition = result.then(
       () => undefined,
       () => undefined,
+    );
+    void result.then(
+      () => {
+        this.#transitionPending -= 1;
+      },
+      () => {
+        this.#transitionPending -= 1;
+      },
     );
     return result;
   }

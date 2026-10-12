@@ -21,9 +21,10 @@ export REA_CAPINFOS_COMMAND=/absolute/path/capinfos
 ```
 
 Readiness is `rea inspect-pcap-client`: it runs `--version` on both
-binaries and reports their resolved commands, selection sources, and
-versions. Missing binaries report `capability_unavailable` with the
-`REA_TSHARK_COMMAND` remediation rather than attempting an installation.
+binaries and reports their selected commands, selection sources, and
+versions. Both binaries must be usable. Missing or invalid tools report
+`capability_unavailable`; select them with `REA_TSHARK_COMMAND` and
+`REA_CAPINFOS_COMMAND`.
 
 ## Answer an analyst question
 
@@ -43,25 +44,44 @@ Equivalent MCP methods are `inspect_pcap_client` and
   cooked-mode, etc.).
 - **`packet_count`**, **`capture_start`**/**`capture_end`**, and
   **`capture_duration_seconds`** describe the capture window.
-- **`endpoints`** lists distinct IP addresses with packet counts, bounded
-  to 200 with `endpoint_count` reporting the true total.
-- **`dns_queries`** lists observed DNS queries with their resolved
-  addresses (A and AAAA), bounded to 100.
+- **`endpoints`** lists IPv4 and IPv6 addresses, counting an address at
+  most once per packet. It retains 200 entries with the exact `endpoint_count`.
+- **`dns_queries`** retains 100 observed question names. Address values are
+  associated only with a single question in the same response packet; they
+  may include additional DNS records, not just final resolution answers.
+  Each query retains 100 addresses and its exact `response_address_count`.
+  Multi-question and missing-question address records remain in
+  `unattributed_dns_addresses` with explicit address/packet counts.
 - **`tls_sni_values`** reports Server Name Indication from TLS
   handshakes — the hostname evidence in encrypted traffic.
 - **`protocol_distribution`** counts each `frame.protocols` value.
 - **`http_request_uris`** lists plain-text HTTP requests, bounded to 50.
-- **`coverage: "partial"`** appears when any category was truncated.
+  Transport credentials are excluded without changing other URL bytes;
+  ambiguous credential-bearing URLs are omitted. `http_uri_redaction_count`
+  counts affected distinct source URIs and `http_request_uri_count` counts
+  all distinct observed URIs before redaction or projection limits.
+- SNI and protocol lists retain 50 values each, with `tls_sni_count` and
+  `protocol_count` exposing the full examined totals.
+- **`coverage: "partial"`** appears when any category is truncated or DNS
+  address attribution remains unresolved, including URIs omitted or coalesced
+  after credential exclusion.
 - The capture's own SHA-256 from capinfos is compared against REA's
-  digest; a mismatch is reported as a limitation.
+  snapshot digest; a mismatch is a protocol refusal.
 
 ## Resource and lifecycle limits
 
-- tshark output is budgeted at 64 MiB; capinfos at 64 KiB; both tools
+- tshark output is budgeted at 8 MiB to bound JSON expansion; its selected-field
+  shape and a conservative 128 MiB expansion estimate are checked before
+  decoding. Retained facts have a separate 16 MiB
+  estimated-memory budget. capinfos output is bounded at 64 KiB; both tools
   run with a timeout (300 s for tshark, 60 s for capinfos).
-- The capture file is digested with streaming SHA-256 before analysis.
-- Cancellation is checked between digest chunks and after tool
-  invocations.
+- The capture is copied from one admitted regular-file descriptor into an
+  owned read-only snapshot, bounded at 2 GiB. Identity is rechecked after the
+  copy, and both tools consume those same bytes. Source permission and change
+  errors remain typed; failed cleanup stays owned for retry on close.
+- Commands use shared process supervision. Cancellation reaches probes,
+  snapshot acquisition, tool execution and JSON processing. `tshark -n`
+  disables name resolution, and `capinfos -M` supplies exact numeric values.
 - REA runs no subprocess for `inspect_pcap_client` beyond `--version`.
 
 ## Companion flows
@@ -74,11 +94,9 @@ feeding NFLOG with per-packet UID attribution.
 
 ## Platform coverage
 
-The provider is platform-agnostic — it spawns whatever binary
-`REA_TSHARK_COMMAND` points to and parses its stdout. Cross-platform
-tests exercise the provider contract through `.cmd` (Windows) and
-`.sh` (POSIX) stub scripts, validating tool probing, capture
-inspection, refusal paths, and cancellation on both platforms.
+Cross-platform fixtures exercise the provider contract through `.cmd`
+(Windows) and `.sh` (POSIX) scripts. Windows batch files use the shared
+explicit cmd.exe invocation boundary and require REA's native ownership controls.
 
 **Real-engine verification is Linux-only** (Docker `rea-tshark` image and
 Android emulator). Windows and macOS have not been verified against real
@@ -89,12 +107,17 @@ results as they become available.
 
 ## Real verification
 
-`npm run verify:pcap -- --pcap PATH` exercises both operations against a
-real capture file. Record: tshark/capinfos 4.6.6 (Alpine Docker image)
+`npm run verify:pcap -- --pcap PATH` exercises compiled CLI and stdio MCP,
+validates their named output schemas, compares Evidence and checks input
+identity and snapshot cleanup. Without `--pcap`, capture inspection is
+explicitly reported as unverified. Record: tshark/capinfos 4.6.6 (Alpine Docker image)
 against two real captures: a 50-packet Docker-captured pcap with DNS,
 TLS, and HTTP traffic, and a 30-packet Android emulator capture (tcpdump
 on-device, pulled via `adb pull`) containing DNS, mDNS, ICMP, and Google
 endpoints — file type, encapsulation, packet count, SHA-256 digest
 agreement, endpoint inventory, DNS queries, TLS SNI values, protocol
-distribution, and HTTP URIs all verified on both. Parser goldens in the
-test suite come from the same tools.
+distribution and HTTP URIs where present. Additional generated captures cover
+interleaved DNS replies, IPv6, SNI truncation and large packet counts. A pcapng
+conversion of the 50-packet capture also passes the same CLI/MCP verifier.
+Synthetic process fixtures verify failure and cancellation behavior; they
+do not establish real-engine behavior on untested hosts.

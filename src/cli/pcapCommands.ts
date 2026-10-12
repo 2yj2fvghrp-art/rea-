@@ -1,5 +1,6 @@
 import { z } from "incur";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 import { PcapAnalysisService } from "../application/pcap/PcapAnalysisService.js";
 import type { PcapAnalysisPort } from "../application/pcap/PcapAnalysisPort.js";
 import { createPcapAnalysisProvider } from "../composition/pcap.js";
@@ -26,8 +27,18 @@ export const registerPcapCommands = (
         try {
           await provider.close();
         } catch (cause) {
-          if (cause instanceof AnalysisError)
-            return projectAnalysisError(cause);
+          if (cause instanceof AnalysisError) {
+            if (result.ok) cause.retainPartialObservation(result.value);
+            return projectAnalysisError(
+              result.ok
+                ? cause
+                : analysisErrorWithCleanupFailure(
+                    result.error,
+                    cause,
+                    operation,
+                  ),
+            );
+          }
           throw cause;
         }
         return result.ok ? result.value : projectAnalysisError(result.error);

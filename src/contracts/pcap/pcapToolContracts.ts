@@ -12,7 +12,7 @@ export const PCAP_TOOL_CONTRACTS = [
     name: "inspect_pcap_client",
     ...toolContractMetadata("inspect_pcap_client"),
     description:
-      "Inspect the caller-selected tshark and capinfos binaries: resolved commands, selection sources, and versions. Reads no capture file. REA never installs the Wireshark suite; select binaries with REA_TSHARK_COMMAND and REA_CAPINFOS_COMMAND (absolute) or from PATH.",
+      "Inspect the caller-selected tshark and capinfos binaries: selected commands, selection sources, and versions. Both tools must be usable. Reads no capture file. REA never installs the Wireshark suite; select binaries with REA_TSHARK_COMMAND and REA_CAPINFOS_COMMAND (absolute) or from PATH.",
     kind: "pcap-provider",
     inputSchema: pcapInputSchemas.inspect_pcap_client,
     outputSchema: evidenceResultOf(pcapResultSchemas.inspect_pcap_client),
@@ -22,7 +22,7 @@ export const PCAP_TOOL_CONTRACTS = [
     name: "inspect_pcap_capture",
     ...toolContractMetadata("inspect_pcap_capture"),
     description:
-      "Inspect one saved pcap or pcapng capture file through capinfos and tshark: file type, encapsulation, packet count, capture timing, snapshot length, SHA-256 digest, endpoint inventory with packet counts, DNS queries with resolved addresses, TLS Server Name Indication values, protocol distribution, and plain-text HTTP request URIs — each bounded with partial coverage on truncation. REA never captures traffic; this reads an already-saved file.",
+      "Inspect one saved pcap or pcapng capture through an owned snapshot: metadata, exact packet count, SHA-256, IPv4/IPv6 address counts, DNS questions and address values from the same single-question response, TLS SNI, protocol distribution and HTTP URIs. Unattributed DNS addresses and projection limits remain explicit. Requires caller-supplied capinfos and tshark; REA never captures traffic.",
     kind: "pcap-provider",
     inputSchema: pcapInputSchemas.inspect_pcap_capture,
     outputSchema: evidenceResultOf(pcapResultSchemas.inspect_pcap_capture),
