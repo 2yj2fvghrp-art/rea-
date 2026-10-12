@@ -151,11 +151,11 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
   if (typeof confined !== "string") return confined;
-  if (input.context === "html-reference")
+  if (input.context === "html-reference" || input.context === "url-reference")
     return (
       resolveFileCandidates(input, [confined]) ??
       unresolvedCandidate("not-found", [
-        `The exact HTML resource ${confined} was not found among the selected application files.`,
+        `The exact ${input.context === "html-reference" ? "HTML" : "URL"} resource ${confined} was not found among the selected application files.`,
       ])
     );
   const isModuleUrlPath =

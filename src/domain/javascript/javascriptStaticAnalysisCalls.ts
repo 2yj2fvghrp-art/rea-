@@ -1,5 +1,6 @@
 import * as t from "@babel/types";
 
+import { htmlUrlText } from "../artifactPathSyntax.js";
 import { sanitizeEndpointCandidate } from "../browserObservation.js";
 import {
   addFindingOnce,
@@ -7,9 +8,11 @@ import {
 } from "./javascriptStaticAnalysisFindings.js";
 import {
   STATIC_ROUTE_CALL_NAMES,
+  argumentNode,
   argumentValue,
   calleeName,
   endpointArgument as endpointArgumentHelper,
+  isImportMetaUrl,
   prefixedArgument,
   range,
   rangeForOffsets,
@@ -26,6 +29,10 @@ import type {
   JavaScriptFindingContext as FindingContext,
   JavaScriptReferenceInput as ReferenceInput,
 } from "./javascriptStaticAnalysisState.js";
+import {
+  isUnshadowedGlobal,
+  type JavaScriptSemanticAnalysisState,
+} from "./javascriptSemanticState.js";
 
 type JavaScriptCallLike =
   | t.CallExpression
@@ -37,6 +44,7 @@ export const inspectCall = (
   source: string,
   node: JavaScriptCallLike,
   context: FindingContext,
+  bindings: JavaScriptSemanticAnalysisState,
 ): void => {
   const { accumulator } = context;
   const name = calleeName(node.callee);
@@ -60,7 +68,11 @@ export const inspectCall = (
   for (const specifier of vitePreloadDependencySpecifiers(source, node, name))
     addReference(context, { node, kind: "dynamic-import", specifier });
   if (name === "Worker" || name.endsWith(".Worker"))
-    addReference(context, { node, kind: "worker", specifier: first });
+    addReference(context, {
+      node,
+      kind: "worker",
+      specifier: first ?? workerUrlSpecifier(node.arguments[0], bindings),
+    });
   if (name.endsWith("serviceWorker.register"))
     addReference(context, { node, kind: "service-worker", specifier: first });
   inspectEndpointCall(node, name, first, context);
@@ -95,6 +107,29 @@ export const inspectCall = (
         location: range(node),
       },
     });
+};
+
+const workerUrlSpecifier = (
+  argument: JavaScriptCallLike["arguments"][number] | undefined,
+  bindings: JavaScriptSemanticAnalysisState,
+): string | undefined => {
+  const node = argumentNode(argument);
+  if (
+    !t.isNewExpression(node) ||
+    !isUnshadowedGlobal(node.callee, bindings, "URL") ||
+    !isImportMetaUrl(argumentNode(node.arguments[1]))
+  )
+    return undefined;
+  const specifier = stringValue(node.arguments[0]);
+  // Keep URL forms requiring additional normalization or the source-file base
+  // explicit as expressions until their resolution semantics are supported.
+  return specifier !== undefined &&
+    specifier.length > 0 &&
+    htmlUrlText(specifier) === specifier &&
+    !specifier.startsWith("?") &&
+    !specifier.startsWith("#")
+    ? specifier
+    : undefined;
 };
 
 // Element factories such as jsx("audio", props) and createElement("video",
