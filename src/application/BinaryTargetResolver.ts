@@ -96,7 +96,7 @@ export const parseBinaryTarget = async (
             new BinaryTargetError(
               path,
               "raw-binary format requires an executable target kind",
-              { constraint: "raw_binary_load_rejected" },
+              { constraint: "load_selection_rejected" },
             ),
           );
         const admitted = admitRawBinary({
@@ -130,7 +130,7 @@ export const parseBinaryTarget = async (
       if (pairing !== undefined)
         return err(
           new BinaryTargetError(path, pairing, {
-            constraint: "raw_binary_load_rejected",
+            constraint: "load_selection_rejected",
           }),
         );
       if (formatHint === "dos-com") {
@@ -139,7 +139,7 @@ export const parseBinaryTarget = async (
             new BinaryTargetError(
               path,
               "DOS COM format requires an executable target kind",
-              { constraint: "file_format_rejected" },
+              { constraint: "load_selection_rejected" },
             ),
           );
         const length = validateDosComLength(metadata.size);

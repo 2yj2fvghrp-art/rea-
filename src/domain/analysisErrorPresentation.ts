@@ -78,9 +78,9 @@ export const analysisErrorRemediationAction = (
     return "For a JavaScript/Electron application directory, call analyze_javascript_application with input_path or run `rea analyze <directory>`. For binary analysis, select its executable file.";
   if (
     error instanceof BinaryTargetError &&
-    error.constraint === "raw_binary_load_rejected"
+    error.constraint === "load_selection_rejected"
   )
-    return "Correct the reported raw-binary load argument (target_format, architecture, entry_point) and retry.";
+    return "Correct the reported load argument (--target-format, --architecture, or --entry-point on the CLI; format, architecture, or entry_point through MCP) and retry.";
   if (
     error instanceof BinaryTargetError &&
     error.constraint === "file_format_rejected"
@@ -112,7 +112,7 @@ export const analysisErrorCategory = (
 ): AnalysisErrorProjection["category"] => {
   if (
     error instanceof BinaryTargetError &&
-    error.constraint === "raw_binary_load_rejected"
+    error.constraint === "load_selection_rejected"
   )
     return "invalid_input";
   if (
@@ -248,7 +248,7 @@ export const analysisErrorUserMessage = (error: AnalysisError): string => {
     return error.constraint === "directory_requires_file"
       ? "open_binary accepts files and macOS app bundles. This target is a directory; JavaScript/Electron application directories can be analyzed directly with analyze_javascript_application or `rea analyze <directory>`."
       : error.constraint === "file_format_rejected" ||
-          error.constraint === "raw_binary_load_rejected"
+          error.constraint === "load_selection_rejected"
         ? `${error.message}.`
         : `${error.message}. Check that the path exists, is readable, and points to a supported file.`;
   if (error._tag === "ProcessCaptureError")

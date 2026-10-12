@@ -229,11 +229,11 @@ describe("raw-binary load rejection diagnostics", () => {
         "Cannot open artifact: raw-binary arm entry_point 0x1 must be 4-byte aligned.",
       details: {
         reason: "raw-binary arm entry_point 0x1 must be 4-byte aligned",
-        constraint: "raw_binary_load_rejected",
+        constraint: "load_selection_rejected",
       },
       remediation: {
         action:
-          "Correct the reported raw-binary load argument (target_format, architecture, entry_point) and retry.",
+          "Correct the reported load argument (--target-format, --architecture, or --entry-point on the CLI; format, architecture, or entry_point through MCP) and retry.",
       },
     });
     expect(projected.message).not.toContain("Check that the path");
@@ -248,7 +248,7 @@ describe("raw-binary load rejection diagnostics", () => {
     expect(projected).toMatchObject({
       code: "invalid_request",
       category: "invalid_input",
-      details: { constraint: "raw_binary_load_rejected" },
+      details: { constraint: "load_selection_rejected" },
     });
     expect(projected.message).toContain("x86 address width");
     expect(projected.message).not.toContain("Check that the path");
@@ -264,7 +264,7 @@ describe("raw-binary load rejection diagnostics", () => {
       category: "invalid_input",
       message:
         "Cannot open artifact: architecture and entry_point apply only with format=raw-binary.",
-      details: { constraint: "raw_binary_load_rejected" },
+      details: { constraint: "load_selection_rejected" },
     });
     expect(projected.message).not.toContain("Check that the path");
   });
@@ -300,7 +300,22 @@ describe("raw-binary load rejection diagnostics", () => {
       category: "invalid_input",
       details: {
         reason: "raw-binary format requires an executable target kind",
-        constraint: "raw_binary_load_rejected",
+        constraint: "load_selection_rejected",
+      },
+    });
+  });
+
+  it("projects the DOS COM target-kind pairing as caller input too", async () => {
+    const projected = await rawBinaryRejection({
+      formatHint: "dos-com",
+      targetKind: "database",
+    });
+    expect(projected).toMatchObject({
+      code: "invalid_request",
+      category: "invalid_input",
+      details: {
+        reason: "DOS COM format requires an executable target kind",
+        constraint: "load_selection_rejected",
       },
     });
   });

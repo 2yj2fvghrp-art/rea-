@@ -64,10 +64,10 @@ export interface RawBinaryAdmission {
 export interface RawBinaryAdmissionRejection {
   readonly reason: string;
   /**
-   * `raw_binary_load_rejected` names a caller-input selection problem;
+   * `load_selection_rejected` names a caller-input selection problem;
    * `file_format_rejected` names a refusal caused by the target file itself.
    */
-  readonly constraint: "raw_binary_load_rejected" | "file_format_rejected";
+  readonly constraint: "load_selection_rejected" | "file_format_rejected";
 }
 
 const addressWidth = (architecture: BinaryArchitecture): bigint =>
@@ -86,19 +86,19 @@ export const admitRawBinary = (input: {
     return err({
       reason:
         "raw-binary format requires architecture (x86, x86_64, arm, or arm64)",
-      constraint: "raw_binary_load_rejected",
+      constraint: "load_selection_rejected",
     });
   if (typeof input.entryPoint !== "string")
     return err({
       reason:
         "raw-binary format requires entry_point as a hexadecimal address of the form 0x…",
-      constraint: "raw_binary_load_rejected",
+      constraint: "load_selection_rejected",
     });
   const entry = parseRawBinaryEntryPoint(input.entryPoint);
   if (!entry.ok)
     return err({
       reason: entry.error,
-      constraint: "raw_binary_load_rejected",
+      constraint: "load_selection_rejected",
     });
   if (
     (architecture.data === "arm" || architecture.data === "arm64") &&
@@ -106,7 +106,7 @@ export const admitRawBinary = (input: {
   )
     return err({
       reason: `raw-binary ${architecture.data} entry_point ${entry.value.canonical} must be 4-byte aligned`,
-      constraint: "raw_binary_load_rejected",
+      constraint: "load_selection_rejected",
     });
   const length = validateRawBinaryLength(input.fileBytes);
   if (!length.ok)
@@ -119,7 +119,7 @@ export const admitRawBinary = (input: {
   if (entry.value.value > max || last > max)
     return err({
       reason: `raw-binary mapping from ${entry.value.canonical} must fit in the ${architecture.data} address width`,
-      constraint: "raw_binary_load_rejected",
+      constraint: "load_selection_rejected",
     });
   return ok({
     architecture: architecture.data,
