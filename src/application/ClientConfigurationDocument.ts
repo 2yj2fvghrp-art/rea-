@@ -55,24 +55,6 @@ export interface ClientConfigurationDocument {
 
 const objectSchema = z.record(z.string(), z.unknown());
 
-/**
- * Validate and copy own configuration properties, rejecting non-record YAML
- * values and excluding parser-injected prototypes. Name the structural error
- * without exposing Zod's issue dump.
- */
-const asConfigurationObject = (
-  value: unknown,
-  label: string,
-): Record<string, unknown> => {
-  const parsed = objectSchema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  throw new TypeError(
-    label === "root"
-      ? "The configuration root must be an object"
-      : `"${label}" must be an object`,
-  );
-};
-
 /** Compare parsed configuration values without depending on parser prototypes. */
 export const clientConfigurationValuesEqual = (
   left: unknown,
@@ -104,6 +86,7 @@ export const clientConfigurationServersKey = (
     case "hermes":
       return "mcp_servers";
     case "opencode":
+    case "zcode":
       return "mcp";
     case "vscode":
       return "servers";
@@ -124,17 +107,21 @@ const parseDocument = (
   format: ClientConfigurationFormat,
 ): Record<string, unknown> => {
   if (format === "toml" || format === "grok")
-    return asConfigurationObject(parseToml(text), "root");
+    return requireObject(parseToml(text), "The configuration root");
   // Pi loads `mcp.json` with a strict `JSON.parse` and no BOM tolerance, so
   // comments, trailing commas, a BOM, or an empty existing file must be
   // rejected instead of registering into a document Pi cannot load.
-  if (format === "pi") return asConfigurationObject(JSON.parse(text), "root");
+  if (format === "pi")
+    return requireObject(JSON.parse(text), "The configuration root");
   // An empty file, which some clients create before any server is added,
   // holds no settings to preserve.
   if (isEmptyClientConfigurationText(text)) return {};
   // Hermes stores MCP servers in `mcp_servers` inside a YAML document.
   if (format === "hermes")
-    return asConfigurationObject(parseYaml(text), "root");
+    return requireObject(parseYaml(text), "The configuration root");
+  // ZCode loads nonempty native files with strict JSON.parse.
+  if (format === "zcode")
+    return requireObject(JSON.parse(text), "The configuration root");
   const errors: ParseError[] = [];
   // Accept a UTF-8 BOM without shifting diagnostics or editing the original text.
   const jsonText = text.startsWith("\uFEFF") ? ` ${text.slice(1)}` : text;
@@ -144,7 +131,39 @@ const parseDocument = (
     throw new SyntaxError(
       `Invalid JSON/JSONC at offset ${firstError.offset}: ${printParseErrorCode(firstError.error)}`,
     );
-  return asConfigurationObject(document, "root");
+  return requireObject(document, "The configuration root");
+};
+
+/** A parsed configuration whose structure, not its syntax, cannot hold MCP servers. */
+export class ClientConfigurationShapeError extends TypeError {}
+
+/** Validate and copy own properties, excluding non-record YAML values and parser-injected prototypes. */
+const requireObject = (
+  value: unknown,
+  description: string,
+): Record<string, unknown> => {
+  const parsed = objectSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new ClientConfigurationShapeError(`${description} must be an object`, {
+    cause: parsed.error,
+  });
+};
+
+/** ZCode reads the same-scope fallback as strict JSON with a mcpServers table. */
+export const parseZcodeFallbackConfiguration = (
+  text: string,
+): ClientConfigurationDocument => {
+  const document = requireObject(JSON.parse(text), "ZCode fallback root");
+  return {
+    document,
+    servers:
+      document.mcpServers === undefined
+        ? {}
+        : requireObject(document.mcpServers, "ZCode fallback mcpServers"),
+    serversPath: ["mcpServers"],
+    dialect: "json",
+    legacyServers: {},
+  };
 };
 
 /** Members of OpenCode V2's `mcp` object that are not server names. */
@@ -163,7 +182,22 @@ export const parseClientConfiguration = (
   const serversKey = clientConfigurationServersKey(format);
   const value = document[serversKey];
   const servers =
-    value === undefined ? {} : asConfigurationObject(value, serversKey);
+    value === undefined ? {} : requireObject(value, `"${serversKey}"`);
+  // ZCode reads stdio servers from the nested `mcp.servers` table of
+  // `~/.zcode/cli/config.json`; entries carry `command`, `args`, and `env`.
+  if (format === "zcode") {
+    const nested = servers.servers;
+    return {
+      document,
+      servers:
+        nested === undefined
+          ? {}
+          : requireObject(nested, `"${serversKey}.servers"`),
+      serversPath: [serversKey, "servers"],
+      dialect: format,
+      legacyServers: {},
+    };
+  }
   const native = servers.servers;
   // A V1 server named `servers` has a string `type` discriminator; the V2
   // table may instead hold a server object named `type`.
@@ -184,7 +218,7 @@ export const parseClientConfiguration = (
     };
   return {
     document,
-    servers: asConfigurationObject(native, "servers"),
+    servers: requireObject(native, `"${serversKey}.servers"`),
     serversPath: [serversKey, "servers"],
     dialect: "opencode_v2",
     legacyServers: Object.fromEntries(
@@ -223,8 +257,16 @@ export const withClientServers = (
       : editDshDocument(parsed);
   const [key = "", nested] = parsed.serversPath;
   if (nested === undefined) return { ...parsed.document, [key]: servers };
-  const outer = { ...objectSchema.parse(parsed.document[key]) };
-  if (removeLegacy !== undefined && !OPENCODE_V2_MCP_SETTINGS.has(removeLegacy))
+  // A fresh document may not hold the outer table yet (for example a new
+  // ZCode `config.json` without an `mcp` object), so treat absence as empty.
+  const outerValue = parsed.document[key];
+  const outer =
+    outerValue === undefined ? {} : { ...objectSchema.parse(outerValue) };
+  if (
+    parsed.dialect === "opencode_v2" &&
+    removeLegacy !== undefined &&
+    !OPENCODE_V2_MCP_SETTINGS.has(removeLegacy)
+  )
     delete outer[removeLegacy];
   return { ...parsed.document, [key]: { ...outer, [nested]: servers } };
 };

@@ -152,7 +152,7 @@ describe("Hermes YAML shape diagnostics", () => {
       expect(result.items).toContainEqual({
         name: "hermes",
         status: "failed",
-        detail: `${problem} and was not changed. Repair it, then rerun uninstall.`,
+        detail: `Configuration was not changed: ${problem}. Repair it, then rerun uninstall.`,
       });
       expect(await readFile(client.configPath, "utf8")).toBe(original);
       expect(await readFile(cursor, "utf8")).toBe(cursorOriginal);
