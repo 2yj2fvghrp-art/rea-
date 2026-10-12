@@ -36,7 +36,10 @@ helper into a private temporary directory before a capture or owned provider
 process starts; the same prerequisite applies to owned provider-process
 supervision on macOS. REA removes that directory when it exits. REA does not
 install Xcode, Command Line Tools, or other software. Capability checks prepare
-this helper before reporting macOS capture as available.
+this helper before reporting macOS capture as available. Set
+`REA_DARWIN_MODULE_CACHE_PATH` in REA's host environment to choose the Swift
+module cache used during helper compilation. When unset, REA ignores an
+inherited `CLANG_MODULE_CACHE_PATH` and Swift uses its default cache.
 
 ## Capture a command
 

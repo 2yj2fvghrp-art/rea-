@@ -55,6 +55,7 @@ const outputIndex = process.argv.indexOf("-o");
 state.output = process.argv[outputIndex + 1];
 state.root = path.dirname(state.output);
 state.arguments = process.argv.slice(2);
+state.moduleCachePath = process.env.CLANG_MODULE_CACHE_PATH ?? null;
 state.releasePath = releasePath;
 fs.writeFileSync(statePath, JSON.stringify(state));
 if (state.calls === 1) {
@@ -120,6 +121,12 @@ const waitForCompileState = async (statePath: string) => {
             "arguments" in parsed && Array.isArray(parsed.arguments)
               ? parsed.arguments
               : [],
+          moduleCachePath:
+            "moduleCachePath" in parsed &&
+            (typeof parsed.moduleCachePath === "string" ||
+              parsed.moduleCachePath === null)
+              ? parsed.moduleCachePath
+              : undefined,
         };
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -332,6 +339,85 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
+it.skipIf(process.platform === "win32")(
+  "uses the configured REA Swift module cache",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-module-cache-test-",
+    );
+    const cachePath = join(directory, "module-cache");
+    vi.stubEnv("CLANG_MODULE_CACHE_PATH", join(directory, "ambient-cache"));
+    vi.stubEnv("REA_DARWIN_MODULE_CACHE_PATH", cachePath);
+    const fakeCompiler = await writeBlockingCompiler(directory);
+    const reader = createDarwinProcessRunTokenReader({
+      xcrun: fakeCompiler.executable,
+    });
+    const preparation = reader.prepare();
+    try {
+      const state = await waitForCompileState(fakeCompiler.statePath);
+      expect(state.moduleCachePath).toBe(cachePath);
+      expect(state.arguments).not.toContain("-module-cache-path");
+      await writeFile(fakeCompiler.releasePath, "release");
+      await preparation;
+    } finally {
+      vi.unstubAllEnvs();
+      await Promise.all([reader.close(), Promise.allSettled([preparation])]);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "uses Swift's default module cache when no cache is configured",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-default-module-cache-test-",
+    );
+    vi.stubEnv("CLANG_MODULE_CACHE_PATH", undefined);
+    vi.stubEnv("REA_DARWIN_MODULE_CACHE_PATH", undefined);
+    const fakeCompiler = await writeBlockingCompiler(directory);
+    const reader = createDarwinProcessRunTokenReader({
+      xcrun: fakeCompiler.executable,
+    });
+    const preparation = reader.prepare();
+    try {
+      const state = await waitForCompileState(fakeCompiler.statePath);
+      expect(state.moduleCachePath).toBeNull();
+      expect(state.arguments).not.toContain("-module-cache-path");
+      await writeFile(fakeCompiler.releasePath, "release");
+      await preparation;
+    } finally {
+      vi.unstubAllEnvs();
+      await Promise.all([reader.close(), Promise.allSettled([preparation])]);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "ignores an inherited Swift module cache unless REA's cache is configured",
+  async () => {
+    const directory = await createTestTempDirectory(
+      "rea-process-token-default-module-cache-test-",
+    );
+    vi.stubEnv("CLANG_MODULE_CACHE_PATH", join(directory, "ambient-cache"));
+    vi.stubEnv("REA_DARWIN_MODULE_CACHE_PATH", undefined);
+    const fakeCompiler = await writeBlockingCompiler(directory);
+    const reader = createDarwinProcessRunTokenReader({
+      xcrun: fakeCompiler.executable,
+    });
+    const preparation = reader.prepare();
+    try {
+      const state = await waitForCompileState(fakeCompiler.statePath);
+      expect(state.moduleCachePath).toBeNull();
+      expect(state.arguments).not.toContain("-module-cache-path");
+      await writeFile(fakeCompiler.releasePath, "release");
+      await preparation;
+    } finally {
+      vi.unstubAllEnvs();
+      await Promise.all([reader.close(), Promise.allSettled([preparation])]);
+    }
+  },
+);
+
 it
   .skipIf(!onDarwin || process.getuid?.() === 0)
   .each(["file", "read-only directory"])(
@@ -348,6 +434,7 @@ it
     }
     const cachePath = join(cacheParent, "modules");
     vi.stubEnv("CLANG_MODULE_CACHE_PATH", cachePath);
+    vi.stubEnv("REA_DARWIN_MODULE_CACHE_PATH", undefined);
     const reader = createDarwinProcessRunTokenReader();
     try {
       const executable = await reader.prepare();
@@ -364,28 +451,6 @@ it
       vi.unstubAllEnvs();
       if (kind === "read-only directory") await chmod(cacheParent, 0o700);
       await reader.close();
-    }
-  },
-);
-
-it.skipIf(process.platform === "win32")(
-  "uses the compiler-managed module cache instead of rebuilding system modules per REA process",
-  async () => {
-    const directory = await createTestTempDirectory(
-      "rea-process-token-module-cache-test-",
-    );
-    const fakeCompiler = await writeBlockingCompiler(directory);
-    const reader = createDarwinProcessRunTokenReader({
-      xcrun: fakeCompiler.executable,
-    });
-    const preparation = reader.prepare();
-    try {
-      const state = await waitForCompileState(fakeCompiler.statePath);
-      expect(state.arguments).not.toContain("-module-cache-path");
-      await writeFile(fakeCompiler.releasePath, "release");
-      await preparation;
-    } finally {
-      await Promise.all([reader.close(), Promise.allSettled([preparation])]);
     }
   },
 );

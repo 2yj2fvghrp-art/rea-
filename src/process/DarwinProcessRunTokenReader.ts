@@ -280,8 +280,13 @@ export const createDarwinProcessRunTokenReader = (
         ...process.env,
         TMPDIR: compilerTemporary,
       };
-      // Use Swift's reusable default cache for REA's internal helper compilation.
-      delete compilerEnvironment.CLANG_MODULE_CACHE_PATH;
+      const moduleCachePath = process.env.REA_DARWIN_MODULE_CACHE_PATH;
+      if (moduleCachePath === undefined) {
+        // Ignore ambient Swift cache settings unless REA's cache is explicit.
+        delete compilerEnvironment.CLANG_MODULE_CACHE_PATH;
+      } else {
+        compilerEnvironment.CLANG_MODULE_CACHE_PATH = moduleCachePath;
+      }
       try {
         await execFileOutput(
           options.xcrun ?? "/usr/bin/xcrun",
