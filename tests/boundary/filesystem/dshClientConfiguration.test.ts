@@ -2147,3 +2147,103 @@ describe("DeepSeek Harness caller node metadata", () => {
     },
   );
 });
+
+describe("DeepSeek Harness uninstall of a shared operation", () => {
+  it("keeps a group patch's own fields and comment when its only row was REA's", async () => {
+    const { home, client } = await harnessClient();
+    const entry = canonicalEntry();
+    await writeFile(
+      client.configPath,
+      `- insert:
+    - id: user-a
+      name: plugin-a
+# caller group patch
+- id: tools
+  config:
+    sandbox: strict
+  insert:
+    - id: rea-mcp
+      name: "${entry.name}"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${entry.config.command}
+        args: ${JSON.stringify(entry.config.args)}
+`,
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    const text = await readFile(client.configPath, "utf8");
+    expect(parseYaml(text)).toEqual([
+      { insert: [{ id: "user-a", name: "plugin-a" }] },
+      { id: "tools", config: { sandbox: "strict" } },
+    ]);
+    expect(text).toContain("# caller group patch");
+  });
+
+  it("drops an emptied operation that targets REA's own row", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      stringifyYaml([
+        { insert: [{ id: "user-a", name: "plugin-a" }] },
+        {
+          id: "rea-mcp",
+          config: { serverName: "rea" },
+          insert: [canonicalEntry()],
+        },
+      ]),
+    );
+
+    const host = systemUninstallHost(home);
+    expect((await host.removeClient(client)).status).toBe("removed");
+    expect(parseYaml(await readFile(client.configPath, "utf8"))).toEqual([
+      { insert: [{ id: "user-a", name: "plugin-a" }] },
+    ]);
+  });
+
+  it.each([
+    { selector: { id: "tools" } },
+    { selector: { name: "tools" } },
+    { selector: { id: "tools", name: "tools" } },
+  ])(
+    "drops an emptied operation left with only its target selector $selector",
+    async ({ selector }) => {
+      const { home, client } = await harnessClient();
+      await writeFile(
+        client.configPath,
+        stringifyYaml([
+          { insert: [{ id: "user-a", name: "plugin-a" }] },
+          { ...selector, insert: [canonicalEntry()] },
+        ]),
+      );
+
+      expect(
+        (await systemUninstallHost(home).removeClient(client)).status,
+      ).toBe("removed");
+      expect(parseYaml(await readFile(client.configPath, "utf8"))).toEqual([
+        { insert: [{ id: "user-a", name: "plugin-a" }] },
+      ]);
+    },
+  );
+
+  it("still drops an insert-only operation that REA's row emptied", async () => {
+    const { home, client } = await harnessClient();
+    await writeFile(
+      client.configPath,
+      stringifyYaml([
+        { insert: [{ id: "user-a", name: "plugin-a" }] },
+        { insert: [canonicalEntry()] },
+      ]),
+    );
+
+    expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
+      "removed",
+    );
+    expect(parseYaml(await readFile(client.configPath, "utf8"))).toEqual([
+      { insert: [{ id: "user-a", name: "plugin-a" }] },
+    ]);
+  });
+});
