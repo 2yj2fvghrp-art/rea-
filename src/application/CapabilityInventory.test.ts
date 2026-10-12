@@ -497,3 +497,48 @@ it("reports host denial before target mismatch but keeps composed workflow prere
     ).reason,
   ).toBe("target_required");
 });
+
+describe("trace_feature requirements", () => {
+  const capabilities = (operations: readonly string[]) =>
+    operations.map((operation) => ({
+      operation,
+      available: true,
+      reason: null,
+    }));
+
+  it("needs the search operations the workflow actually calls", () => {
+    expect(
+      entry(
+        "trace_feature",
+        status({
+          open: true,
+          kind: "executable",
+          capabilities: capabilities([
+            "search_strings",
+            "search_procedures",
+            "xrefs",
+            "resolve_containing_procedure",
+          ]),
+        }),
+      ),
+    ).toMatchObject({ available: true, reason: "available" });
+  });
+
+  it("is unavailable when only the list operations exist", () => {
+    expect(
+      entry(
+        "trace_feature",
+        status({
+          open: true,
+          kind: "executable",
+          capabilities: capabilities([
+            "list_strings",
+            "list_procedures",
+            "xrefs",
+            "resolve_containing_procedure",
+          ]),
+        }),
+      ),
+    ).toMatchObject({ available: false, reason: "provider_missing" });
+  });
+});
