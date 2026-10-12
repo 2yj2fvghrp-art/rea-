@@ -161,6 +161,43 @@ export class CdpSessionNetwork {
     this.#stopped = true;
   }
 
+  /** Every retained URL, for resolving declared sensitive query parameters. */
+  *retainedUrls(): Iterable<string> {
+    for (const target of this.targets)
+      if (target.url !== null) yield target.url;
+    for (const exchange of this.exchanges) {
+      yield exchange.url;
+      if (exchange.redirectUrl !== null) yield exchange.redirectUrl;
+      yield* this.#headerUrls(exchange.requestHeaders, exchange.url);
+      yield* this.#headerUrls(
+        recordValue(exchange.response?.headers),
+        exchange.url,
+      );
+    }
+    for (const socket of this.sockets) {
+      yield socket.url;
+      yield* this.#headerUrls(socket.requestHeaders, socket.url);
+      yield* this.#headerUrls(
+        recordValue(socket.response?.headers),
+        socket.url,
+      );
+    }
+  }
+
+  /** In-scope URLs inside headers that the HAR will retain. */
+  *#headerUrls(
+    headers: UnknownRecord | undefined,
+    requestUrl: string,
+  ): Iterable<string> {
+    if (!this.context.options.header_values || headers === undefined) return;
+    for (const [name, value] of Object.entries(headers)) {
+      if (typeof value !== "string") continue;
+      for (const line of value.split("\n"))
+        for (const { url } of headerUrlTargets(name, line, requestUrl) ?? [])
+          if (allowedSanitizedUrl(url, this.context.allowedOrigins)) yield url;
+    }
+  }
+
   #request(
     target: SessionTarget,
     key: string,

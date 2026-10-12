@@ -4,7 +4,7 @@ import {
   type Evidence,
   type EvidenceObservation,
 } from "../domain/evidence.js";
-import { jsonValueSchema } from "../domain/jsonValue.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { sanitizeBrowserUrl } from "../domain/browserObservation.js";
 import type {
   InspectWebPageInput,
@@ -18,9 +18,10 @@ import type {
   AnalyzeWebBundleInput,
   WebBundleAnalysis,
 } from "../domain/webBundleAnalysis.js";
-import type {
-  ObserveWebSessionInput,
-  WebObservationSession,
+import {
+  hasRedactedUrlAuthority,
+  type ObserveWebSessionInput,
+  type WebObservationSession,
 } from "../domain/browserSession.js";
 import type {
   DiscoverWebMcpToolsInput,
@@ -76,7 +77,10 @@ export const createBrowserEvidence = (
   createEvidence(undefined, provider, {
     predicateType: browserPredicate(operation),
     operation,
-    parameters: browserParameters(input, result),
+    parameters: withoutDeclaredLiterals(
+      input,
+      browserParameters(input, result),
+    ),
     result: jsonValueSchema.parse(result),
     confidence: "observed",
     authority: "external-service",
@@ -162,10 +166,38 @@ const browserParameters = (
     ...("fetch_source_maps" in input
       ? { fetch_source_maps: input.fetch_source_maps }
       : {}),
-    ...("network" in input && input.network !== undefined
-      ? { network: input.network }
+    // Declared literals are never persisted; their names and count are.
+    ...("sensitive_query_parameters" in input
+      ? {
+          network: input.network ?? null,
+          sensitive_value_count: input.sensitive_values.length,
+          sensitive_query_parameters: input.sensitive_query_parameters,
+        }
       : {}),
   };
+};
+
+/**
+ * Request values that spell a declared sensitive literal are left empty, as
+ * inspect_web_network_capture does for its Evidence parameters.
+ */
+const withoutDeclaredLiterals = (
+  input: BrowserEvidenceInput,
+  parameters: EvidenceObservation["parameters"],
+): EvidenceObservation["parameters"] => {
+  if (!("sensitive_values" in input) || input.sensitive_values.length === 0)
+    return parameters;
+  const hide = (value: JsonValue): JsonValue =>
+    typeof value === "string"
+      ? input.sensitive_values.some((literal) => value.includes(literal))
+        ? ""
+        : value
+      : Array.isArray(value)
+        ? value.map(hide)
+        : value;
+  return Object.fromEntries(
+    Object.entries(parameters).map(([name, value]) => [name, hide(value)]),
+  );
 };
 
 const browserResultTargetOrigin = (
@@ -184,8 +216,12 @@ const browserResultTargetOrigin = (
     return result.inspection.target.origin;
   if (!("target" in result)) return undefined;
   if ("origin" in result.target) return result.target.origin;
-  if ("initial_url" in result.target)
-    return sanitizeBrowserUrl(result.target.initial_url).origin ?? undefined;
+  if ("initial_url" in result.target) {
+    const url = result.target.initial_url;
+    // A host or port redacted for a declared literal names no real origin.
+    if (hasRedactedUrlAuthority(url)) return undefined;
+    return sanitizeBrowserUrl(url).origin ?? undefined;
+  }
   return undefined;
 };
 

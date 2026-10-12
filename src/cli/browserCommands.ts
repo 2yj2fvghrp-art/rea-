@@ -167,6 +167,8 @@ const registerObservationSession = (
                 network: { header_values: options.headerValues },
               }
             : {}),
+          sensitive_values: options.sensitiveValue,
+          sensitive_query_parameters: options.sensitiveQueryParameter,
         });
         if (!parsed.success)
           return browserCliError(new AnalysisInputError("observe_web_session"));

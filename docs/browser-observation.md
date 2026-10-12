@@ -157,6 +157,7 @@ rea observe-web-session http://127.0.0.1:9222 TARGET_ID \
   --allowed-origins https://api.example.test \
   --observation-ms 30000 \
   --network --header-values \
+  --sensitive-query-parameter device_id \
   --json > session.json
 jq -c '.normalized_result.network.har' session.json > session.har
 rea inspect-web-network-capture "$PWD/session.har" har --json
@@ -188,8 +189,7 @@ rather than the first, so a value with that quote again after its closing
 quote is unparseable. Timings follow HAR 1.2: `send`, `wait`
 and `receive` are non-negative and `time` is their sum; a phase REA did not
 observe is `0`, and a response still loading when recording stopped says so in
-its entry comment. Query values and other retained text are kept verbatim, so
-treat the HAR as sensitive local evidence.
+its entry comment.
 
 **Scope.** Requests and WebSocket handshakes use the same origin boundary as the
 timeline. Out-of-scope requests, sockets and their frames are excluded and
@@ -200,6 +200,74 @@ out-of-process cross-site iframes and the page's dedicated, shared and service
 workers as separate targets. REA does not attach them, so their traffic is not
 recorded even when their origin is selected, and a dedicated worker's script
 request can appear without its response; a limitation says so.
+
+**Declared sensitive values.** `sensitive_values` (`--sensitive-value`, repeatable)
+lists literals to replace with `[REDACTED:value-N]` markers in every retained
+URL, query parameter, header, timeline and browser metadata field. Each field is
+checked as written and in its UTF-8 percent-decoded, form-decoded and
+JSON-unescaped forms, nested up to three levels, with invalid UTF-8 escapes read
+as U+FFFD; HAR `queryString` names and values are checked again, after URL
+decoding, as fields of their own. A declared value with an unpaired UTF-16
+surrogate has no UTF-8 spelling and is matched as written or JSON-escaped.
+Other spellings, such as percent-encoding in a legacy charset (`%E9` from a
+windows-1252 form), HTML entities or base64 inside a header, are not detected;
+declare them as values of their own. Only
+the host, port, URL path segments, query pairs and fragment pieces that spell a
+declared value are rewritten, so the rest of each URL keeps its exact bytes and
+stays a valid URI. A host that spells a declared value becomes
+`redacted.invalid` and keeps its port (`https://redacted.invalid:8443/`). A port
+that spells one loses its digits and keeps its host and the `:` before it
+(`https://app.example:/`): no browser writes an empty port, so it marks the
+removed one, but a URL parser reads it as the scheme's default port. When both
+spell declared values, the authority becomes `redacted.invalid:`, and a value
+spanning the host and port fails the URL closed, as described below. When
+`allowed_origins` is omitted, Evidence does not derive it from a target URL
+whose host or port was redacted. Path segments, query pairs and fragment pieces
+are rewritten with percent-encoded markers. A piece is redacted as written and
+then decoded, since decoding can erase the spelling that matched (a query `+`
+read as a space, a lowercase or unreserved escape); a piece whose result still
+spells a declared value in any of the forms above, or in a query with its
+spaces read back as `+`, is emptied.
+A URL-valued header is rewritten piece by piece only
+when its whole value is one absolute URL, as `Referer`, `Origin` and an
+absolute `Location` or `Content-Location` are. A relative `Location` or
+`Content-Location`, and every `Link` and `Refresh` value, is redacted as text:
+its markers are not percent-encoded, so the value may no longer be a valid
+URI-reference, and a declared value found only in a decoded spelling (a
+lowercase or unreserved escape, or a nested encoding) empties the whole header
+value. Declared values are matched as spelled, and
+browsers report hosts lowercased and IDN hosts as punycode, so declare that
+spelling to redact a host. Overlapping declared values are replaced as one
+marker, so no part of either survives. A URL in which a declared value spans
+pieces becomes `<scheme>//redacted.invalid/`, or `urn:redacted` or `x:y` when
+that spells a declared value; a HAR entry whose URL none of these can stand in
+for is omitted and counted in `completeness.excluded` as `provider_unavailable`:
+a request under `network_requests`, and a WebSocket under
+`websocket_connections` with its frames under `websocket_frames`. Any other field
+in which a declared value survives replacement is emptied; an emptied query
+flag stays as an empty `=` pair, so the remaining pairs keep their positions. A
+marker is chosen so that neither it nor its percent-encoding spells a declared
+value; when none qualifies the value is removed without a marker. Target IDs,
+MIME types, methods and the browser metadata in `browser` and
+`har.log.browser`, which also names the Evidence environment, are redacted like
+any other field. `redactions.explicit_value_fields` counts the HAR and network
+target fields that changed: URLs, query parameter names and values, header
+names and values, methods, status texts, MIME types, resource types and target
+IDs, including those of HAR entries later omitted. The top-level `browser`,
+`target` and `timeline` fields are redacted the same way but not counted.
+`sensitive_query_parameters`
+(`--sensitive-query-parameter`, repeatable) names exact query parameters; every
+value observed for them in a retained URL is replaced wherever it appears.
+Values are read only from the query string of each retained URL, including the
+in-scope targets of retained URL-valued headers. Parameters inside a fragment,
+such as a hash-routed `#/reset?token=...` or an implicit-grant
+`#access_token=...`, are not read, so declare those values with
+`sensitive_values`.
+Evidence parameters keep the parameter names and the number of declared
+literals, never the literals; a request parameter or parameter name that
+spells one is left empty, and the result says so. REA does not infer sensitivity from names or
+patterns: everything else, including query values, is retained verbatim, so
+treat the HAR as sensitive local evidence.
 
 **Coverage.** Request and frame metadata are not capped, and `har_bytes`
 reports the log's serialized size. REA does not check it against

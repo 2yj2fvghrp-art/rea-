@@ -153,6 +153,13 @@ const navigation = (sessionId: string | undefined, url: string): FakeEvent =>
     timestamp: 100 + clock,
   });
 
+/** Decodings a consumer applies, using WHATWG URL parsing as an independent oracle. */
+const decodings = (value: string): string[] => {
+  const decode = (text: string) =>
+    new URLSearchParams(`v=${text.replaceAll("&", "%26")}`).get("v") ?? text;
+  return [value, decode(value.replaceAll("+", "%2B")), decode(value)];
+};
+
 const entries = (session: WebObservationSession): HarEntry[] =>
   session.network?.har.log.entries ?? [];
 
@@ -241,6 +248,185 @@ it("records traffic across a same-origin navigation as one admissible HAR", asyn
   expect(session.network?.har_bytes).toBe(Buffer.byteLength(har));
   // The emitted log is admissible to inspect_web_network_capture's decoder.
   expect(decodeHarCapture(har, []).records).toHaveLength(3);
+});
+
+it("replaces declared literals and query values everywhere and never keeps transport credentials", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      navigation(session, `${origin}/next?device_id=dev-123`),
+      request(session, "post", `${origin}/api?device_id=dev-123&page=2`, {
+        request: {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer request-token",
+            Cookie: "sid=cookie-value",
+            "X-Fingerprint": "FP456",
+            "Content-Type": "application/json",
+          },
+          postData: '{"fp":"FP456","device":"dev-123"}',
+        },
+      }),
+      response(session, "post", "application/json", {
+        "Set-Cookie": "sid=cookie-value",
+        "X-Echo": "dev-123",
+      }),
+      finished(session, "post"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live?device_id=dev-123`,
+      }),
+      event("Network.webSocketFrameSent", session, {
+        requestId: "socket",
+        timestamp: 300,
+        response: { opcode: 1, payloadData: "hello FP456 dev-123" },
+      }),
+      event("Network.webSocketFrameReceived", session, {
+        requestId: "socket",
+        timestamp: 301,
+        response: {
+          opcode: 2,
+          payloadData: Buffer.from("binary FP456").toString("base64"),
+        },
+      }),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_values: ["FP456"],
+    sensitive_query_parameters: ["device_id"],
+  });
+
+  const serialized = JSON.stringify(session);
+  for (const literal of [
+    "FP456",
+    "dev-123",
+    "request-token",
+    "cookie-value",
+    Buffer.from("binary FP456").toString("base64"),
+  ])
+    expect(serialized).not.toContain(literal);
+  const post = entries(session).find((entry) =>
+    JSON.stringify(entry.request).includes('"method":"POST"'),
+  );
+  if (post === undefined) throw new Error("missing POST entry");
+  const url = urlOf(post);
+  // Percent-encoded markers keep each redacted URL a valid URI.
+  expect(URL.canParse(url)).toBe(true);
+  expect(new URL(url).searchParams.get("device_id")).toMatch(/REDACTED/u);
+  expect(new URL(url).searchParams.get("page")).toBe("2");
+  const headerNames = JSON.stringify(post).toLowerCase();
+  expect(headerNames).not.toContain('"authorization"');
+  expect(headerNames).not.toContain('"cookie"');
+  expect(headerNames).not.toContain('"set-cookie"');
+  expect(post).toMatchObject({
+    request: { method: "POST", cookies: [] },
+    response: { cookies: [] },
+  });
+  // Changed fields: the POST URL and its device_id query value, two header
+  // values, and the socket URL and its query value.
+  expect(session.network?.redactions).toEqual({
+    transport_credential_headers: 3,
+    out_of_scope_url_headers: 0,
+    explicit_value_fields: 6,
+  });
+  expect(session.target.final_url).not.toContain("dev-123");
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(2);
+});
+
+it("reads named query values from each retained URL source on its own", async () => {
+  // Each value appears in exactly one retained URL, so no other source
+  // declares it on that source's behalf.
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "page", `${origin}/page?code=REQURL1`, {
+        request: { headers: { Referer: `${origin}/from?code=REQREF2` } },
+      }),
+      response(session, "page", "text/html", {
+        Link: "</next?code=RESLINK3>; rel=next",
+        "Content-Location": "/canon?code=RESLOC4",
+      }),
+      finished(session, "page"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live?code=WSURL5`,
+      }),
+      event("Network.webSocketWillSendHandshakeRequest", session, {
+        requestId: "socket",
+        timestamp: 900,
+        wallTime: 1_900_000_000,
+        request: { headers: { Referer: `${origin}/chat?code=WSREF6` } },
+      }),
+      event("Network.webSocketHandshakeResponseReceived", session, {
+        requestId: "socket",
+        timestamp: 900.25,
+        response: {
+          status: 101,
+          statusText: "Switching Protocols",
+          headers: { "Content-Location": `${origin}/socket?code=WSLOC7` },
+        },
+      }),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_query_parameters: ["code"],
+  });
+
+  for (const value of decodings(JSON.stringify(session)))
+    for (const literal of [
+      "REQURL1",
+      "REQREF2",
+      "RESLINK3",
+      "RESLOC4",
+      "WSURL5",
+      "WSREF6",
+      "WSLOC7",
+    ])
+      expect(value).not.toContain(literal);
+  const origin = browser.allowedOrigin;
+  const marker = (index: number) =>
+    encodeURIComponent(`[REDACTED:value-${String(index)}]`);
+  expect(entries(session)).toMatchObject([
+    {
+      request: {
+        url: `${origin}/page?code=${marker(1)}`,
+        headers: [
+          { name: "Referer", value: `${origin}/from?code=${marker(2)}` },
+        ],
+      },
+      response: {
+        headers: [
+          { name: "Link", value: "</next?code=[REDACTED:value-3]>; rel=next" },
+          { name: "Content-Location", value: "/canon?code=[REDACTED:value-4]" },
+        ],
+      },
+    },
+    {
+      request: {
+        url: `${origin.replace("http:", "ws:")}/live?code=${marker(5)}`,
+        headers: [
+          { name: "Referer", value: `${origin}/chat?code=${marker(6)}` },
+        ],
+        queryString: [{ name: "code", value: "[REDACTED:value-5]" }],
+      },
+      response: {
+        status: 101,
+        headers: [
+          {
+            name: "Content-Location",
+            value: `${origin}/socket?code=${marker(7)}`,
+          },
+        ],
+      },
+    },
+  ]);
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(2);
 });
 
 it("excludes out-of-scope requests, sockets and redirect targets with stated reasons", async () => {
@@ -363,6 +549,169 @@ it("keeps the in-scope document hop when its redirect leaves scope", async () =>
   );
 });
 
+it("redacts declared values whatever their percent-encoding", async () => {
+  const literals = ["tok/en*x", "O'Brien Smith", "a/b c", "x*y"];
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      // Lowercase hex, an unencoded '*' and a Referer repeating the value.
+      ...exchange(session, "state", `${origin}/cb?state=tok%2fen*x`),
+      request(session, "search", `${origin}/search?q=O%27Brien%20Smith`, {
+        request: { headers: { Referer: `${origin}/cb?state=tok%2fen*x` } },
+      }),
+      request(session, "path", `${origin}/files/a%2Fb%20c/x#a%2Fb%20c`),
+      request(session, "star", `${origin}/k?v=x%2Ay&keep=1`),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_values: ["O'Brien Smith", "a/b c", "x*y"],
+    sensitive_query_parameters: ["state"],
+  });
+
+  for (const value of decodings(JSON.stringify(session)))
+    for (const literal of literals) expect(value).not.toContain(literal);
+  for (const entry of entries(session))
+    expect(URL.canParse(urlOf(entry))).toBe(true);
+  const star = entries(session).find((entry) => urlOf(entry).includes("/k?"));
+  expect(star?.request).toMatchObject({
+    queryString: [
+      { name: "v", value: "[REDACTED:value-3]" },
+      { name: "keep", value: "1" },
+    ],
+  });
+  expect(
+    entries(session).some((entry) =>
+      JSON.stringify(entry.request).includes('"name":"Referer"'),
+    ),
+  ).toBe(true);
+});
+
+it("redacts declared values as written where decoding would erase their spelling", async () => {
+  const literals = ["ab+/cd==", "tok+en", "abc%2fdef", "%7Euser", "tok%41"];
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      // Browsers keep a query's '+', '/', '=' and escapes as written.
+      request(session, "sig", `${origin}/cb?sig=ab+/cd==&keep=a+b`, {
+        request: { headers: { Referer: `${origin}/start?sig=ab+/cd==` } },
+      }),
+      request(session, "name", `${origin}/n?tok+en=1`),
+      request(session, "lower", `${origin}/l?t=abc%2fdef`),
+      request(session, "unreserved", `${origin}/%7Euser/k?v=tok%41&y=%41`),
+      // Beside escapes, a written '+' leaves no spelling of the value to
+      // replace once a form decodes it, so the value is emptied.
+      request(session, "mixed", `${origin}/m?sig=ab+%2Fcd%3D%3D&x=1`),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_values: literals,
+  });
+
+  for (const value of decodings(JSON.stringify(session)))
+    for (const literal of literals)
+      for (const reading of decodings(literal))
+        expect(value).not.toContain(reading);
+  const origin = browser.allowedOrigin;
+  const marker = (index: number) =>
+    encodeURIComponent(`[REDACTED:value-${String(index)}]`);
+  const query = (...pairs: (readonly [string, string])[]) =>
+    pairs.map(([name, value]) => ({ name, value }));
+  for (const entry of entries(session))
+    expect(URL.canParse(urlOf(entry))).toBe(true);
+  expect(entries(session).map((entry) => entry.request)).toMatchObject([
+    {
+      url: `${origin}/cb?sig=${marker(1)}&keep=a+b`,
+      queryString: query(["sig", "[REDACTED:value-1]"], ["keep", "a b"]),
+      headers: [{ name: "Referer", value: `${origin}/start?sig=${marker(1)}` }],
+    },
+    {
+      url: `${origin}/n?${marker(2)}=1`,
+      queryString: query(["[REDACTED:value-2]", "1"]),
+    },
+    {
+      url: `${origin}/l?t=${marker(3)}`,
+      queryString: query(["t", "[REDACTED:value-3]"]),
+    },
+    {
+      url: `${origin}/${marker(4)}/k?v=${marker(5)}&y=%41`,
+      queryString: query(["v", "[REDACTED:value-5]"], ["y", "A"]),
+    },
+    {
+      url: `${origin}/m?sig=&x=1`,
+      queryString: query(["sig", ""], ["x", "1"]),
+    },
+  ]);
+  // Each URL and the query name or value it hides, and the Referer.
+  expect(session.network?.redactions.explicit_value_fields).toBe(11);
+});
+
+it("redacts a redirect hop's status, header names, target and relative URL-valued headers", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "hop", `${origin}/start`),
+      request(session, "hop", `${origin}/landing?code=SECRET1&state=1`, {
+        event: {
+          redirectResponse: {
+            status: 302,
+            statusText: "Found STATUSLIT",
+            headers: {
+              Location: "/landing?code=SECRET1&state=1",
+              Link: "</next?code=SECRET1>; rel=next, </other>; rel=prev",
+              Refresh: "0; url=/landing?code=SECRET1",
+              // Only a decoded spelling of the declared "abc/def".
+              "Content-Location": "/start?keep=1&v=abc%2fdef",
+              "X-NAMELIT-Trace": "1",
+            },
+          },
+        },
+      }),
+      response(session, "hop", "text/html"),
+      finished(session, "hop"),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_values: ["STATUSLIT", "NAMELIT", "abc/def"],
+    sensitive_query_parameters: ["code"],
+  });
+
+  for (const value of decodings(JSON.stringify(session)))
+    for (const literal of ["SECRET1", "STATUSLIT", "NAMELIT", "abc/def"])
+      expect(value).not.toContain(literal);
+  const origin = browser.allowedOrigin;
+  const target = `${origin}/landing?code=${encodeURIComponent("[REDACTED:value-4]")}&state=1`;
+  // A URL-valued header that is not one absolute URL is redacted as text:
+  // its markers are raw, and a value spelled only once decoded empties it.
+  expect(entries(session)).toMatchObject([
+    {
+      request: { url: `${origin}/start` },
+      response: {
+        status: 302,
+        statusText: "Found [REDACTED:value-1]",
+        headers: [
+          {
+            name: "Location",
+            value: "/landing?code=[REDACTED:value-4]&state=1",
+          },
+          {
+            name: "Link",
+            value:
+              "</next?code=[REDACTED:value-4]>; rel=next, </other>; rel=prev",
+          },
+          { name: "Refresh", value: "0; url=/landing?code=[REDACTED:value-4]" },
+          { name: "Content-Location", value: "" },
+          { name: "X-[REDACTED:value-2]-Trace", value: "1" },
+        ],
+        redirectURL: target,
+      },
+    },
+    { request: { url: target } },
+  ]);
+});
+
 it("omits URL-valued headers that point outside the selected origins", async () => {
   const browser = await startNetworkBrowser({
     page: (origin, session) => [
@@ -395,6 +744,7 @@ it("omits URL-valued headers that point outside the selected origins", async () 
 
   const session = await observe(browser, {
     network: { header_values: true },
+    sensitive_query_parameters: ["code"],
   });
 
   const serialized = JSON.stringify(session.network);
@@ -406,6 +756,7 @@ it("omits URL-valued headers that point outside the selected origins", async () 
     "bare.example.test",
     "CODE123",
     "CODE789",
+    "CODE456",
     "hunter2",
     "token@",
   ])
@@ -420,7 +771,7 @@ it("omits URL-valued headers that point outside the selected origins", async () 
       headers: [
         {
           name: "Referer",
-          value: `${browser.allowedOrigin}/start?code=CODE456`,
+          value: `${browser.allowedOrigin}/start?code=%5BREDACTED%3Avalue-1%5D`,
         },
       ],
     },
@@ -587,6 +938,7 @@ it("omits a quoted Refresh URL that Chromium reads to a later quote", async () =
   expect(session.network?.redactions).toStrictEqual({
     transport_credential_headers: 1,
     out_of_scope_url_headers: 2,
+    explicit_value_fields: 0,
   });
   const host = browser.allowedOrigin.slice("http://".length);
   expect(entries(session)[0]).toMatchObject({
@@ -711,6 +1063,94 @@ it("reads a Refresh delay glued to text without backtracking", async () => {
   ]);
 });
 
+it("keeps the HAR admissible when a declared value spells every URL", async () => {
+  const page = (origin: string, session: string | undefined) =>
+    exchange(session, "cb", `${origin}/cb?proto=http&x=1`);
+  const withSocket = (origin: string, session: string | undefined) => [
+    ...page(origin, session),
+    event("Network.webSocketCreated", session, {
+      requestId: "socket",
+      url: `${origin.replace("http:", "ws:")}/live`,
+    }),
+    event("Network.webSocketFrameSent", session, {
+      requestId: "socket",
+      timestamp: 300,
+      response: { opcode: 1, payloadData: "ping" },
+    }),
+    event("Network.webSocketFrameReceived", session, {
+      requestId: "socket",
+      timestamp: 301,
+      response: { opcode: 1, payloadData: "pong" },
+    }),
+  ];
+  const omissions = (session: WebObservationSession) => ({
+    unavailable: session.completeness.unavailable_sections,
+    excluded: session.completeness.excluded.filter(
+      ({ reason }) => reason === "provider_unavailable",
+    ),
+  });
+  // The observed value "http" is spelled by the scheme and by the first
+  // placeholder, so the next placeholder stands in for the URL.
+  const scheme = await observe(await startNetworkBrowser({ page }), {
+    sensitive_query_parameters: ["proto"],
+  });
+  expect(JSON.stringify(scheme.network?.har)).not.toContain("http:");
+  expect(entries(scheme)).toMatchObject([{ request: { url: "urn:redacted" } }]);
+  expect(
+    decodeHarCapture(JSON.stringify(scheme.network?.har), []).records,
+  ).toHaveLength(1);
+
+  // Every URL spells ":", so both entries are omitted, each counted against
+  // its own sections.
+  const colon = await observe(await startNetworkBrowser({ page: withSocket }), {
+    sensitive_values: [":"],
+  });
+  expect(entries(colon)).toEqual([]);
+  expect(omissions(colon)).toEqual({
+    unavailable: [
+      "network_requests",
+      "websocket_connections",
+      "websocket_frames",
+    ],
+    excluded: [
+      { section: "network_requests", reason: "provider_unavailable", count: 1 },
+      {
+        section: "websocket_connections",
+        reason: "provider_unavailable",
+        count: 1,
+      },
+      { section: "websocket_frames", reason: "provider_unavailable", count: 2 },
+    ],
+  });
+  expect(colon.limitations).toContainEqual(
+    "2 HAR entries were omitted because every placeholder URL spells a declared sensitive value.",
+  );
+  expect(
+    decodeHarCapture(JSON.stringify(colon.network?.har), []).records,
+  ).toHaveLength(0);
+
+  // Only the socket's URL spells a value that every placeholder spells, so
+  // only the socket and its frames are omitted.
+  const browser = await startNetworkBrowser({ page: withSocket });
+  const socket = await observe(browser, {
+    sensitive_values: ["ws", "urn", "x:y"],
+  });
+  expect(entries(socket).map(urlOf)).toEqual([
+    `${browser.allowedOrigin}/cb?proto=http&x=1`,
+  ]);
+  expect(omissions(socket)).toEqual({
+    unavailable: ["websocket_connections", "websocket_frames"],
+    excluded: [
+      {
+        section: "websocket_connections",
+        reason: "provider_unavailable",
+        count: 1,
+      },
+      { section: "websocket_frames", reason: "provider_unavailable", count: 2 },
+    ],
+  });
+});
+
 it("emits browser-serialized URLs that the HAR decoder accepts", async () => {
   const browser = await startNetworkBrowser({
     page: (origin, session) =>
@@ -787,6 +1227,253 @@ it("reports HAR 1.2 timings for a response still loading", async () => {
     timings: { send: 0, wait: 250, receive: 0 },
     comment: expect.stringContaining("had not finished loading"),
   });
+});
+
+it("keeps a URL parseable when its host spells a declared value", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "api", `${origin}/api?x=1`),
+  });
+
+  const session = await observe(browser, { sensitive_values: ["127.0.0.1"] });
+
+  expect(JSON.stringify(session)).not.toContain("127.0.0.1");
+  const [entry] = entries(session);
+  if (entry === undefined) throw new Error("missing entry");
+  // The port spells no declared value, so it is kept.
+  expect(new URL(urlOf(entry)).host).toBe(
+    `redacted.invalid:${new URL(browser.allowedOrigin).port}`,
+  );
+  expect(entry.request).toMatchObject({
+    queryString: [{ name: "x", value: "1" }],
+  });
+  expect(session.limitations).toContainEqual(
+    expect.stringContaining("left empty in the Evidence parameters"),
+  );
+});
+
+it("keeps the host and an emptied port when only the port spells a declared value", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => exchange(session, "api", `${origin}/api?x=1`),
+  });
+  const { hostname, port } = new URL(browser.allowedOrigin);
+
+  const session = await observe(browser, { sensitive_values: [port] });
+
+  expect(JSON.stringify(session)).not.toContain(`:${port}`);
+  // The ':' left before the emptied port marks the removed digits.
+  expect(entries(session).map(urlOf)).toEqual([`http://${hostname}:/api?x=1`]);
+  expect(
+    decodeHarCapture(JSON.stringify(session.network?.har), []).records,
+  ).toHaveLength(1);
+});
+
+it("leaves no query pairs when a declared value spans them", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "span", `${origin}/p?tok=SPANVAL&x=1`),
+      response(session, "span", "text/plain"),
+      finished(session, "span"),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: {},
+    sensitive_values: ["tok=SPANVAL"],
+  });
+
+  // No single piece spells the value, so the URL fails closed, and the
+  // pairs that would let a reader rebuild it fail closed with it.
+  expect(JSON.stringify(session.network)).not.toContain("SPANVAL");
+  const [entry] = entries(session);
+  expect(entry?.request).toMatchObject({
+    url: "http://redacted.invalid/",
+    queryString: [],
+  });
+});
+
+it("checks each derived query name and value as a field of its own", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) =>
+      exchange(session, "q", `${origin}/q?x=a%2525252Fb&a%2525252Fb=2&k=1`),
+  });
+
+  const session = await observe(browser, { sensitive_values: ["a/b"] });
+
+  // The URL spells "a/b" only four decodings deep and is kept; its decoded
+  // query value and name spell it three deep and are emptied.
+  const [entry] = entries(session);
+  expect(entry?.request).toMatchObject({
+    url: `${browser.allowedOrigin}/q?x=a%2525252Fb&a%2525252Fb=2&k=1`,
+    queryString: [
+      { name: "x", value: "" },
+      { name: "", value: "2" },
+      { name: "k", value: "1" },
+    ],
+  });
+  expect(session.network?.redactions.explicit_value_fields).toBe(2);
+});
+
+it("keeps query pairs aligned when a redacted flag is emptied", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) =>
+      exchange(session, "flag", `${origin}/flag?a=1&tok%2562&b=2&c=3`),
+  });
+
+  const session = await observe(browser, { sensitive_values: ["tokb"] });
+
+  // Only the URL and the flag's name changed.
+  const [entry] = entries(session);
+  expect(entry?.request).toMatchObject({
+    url: `${browser.allowedOrigin}/flag?a=1&=&b=2&c=3`,
+    queryString: [
+      { name: "a", value: "1" },
+      { name: "", value: "" },
+      { name: "b", value: "2" },
+      { name: "c", value: "3" },
+    ],
+  });
+  expect(session.network?.redactions.explicit_value_fields).toBe(2);
+});
+
+it("redacts declared values in browser metadata once for the result and HAR", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "ua", `${origin}/ua`, {
+        request: { headers: { "User-Agent": "FakeChrome" } },
+      }),
+      response(session, "ua", "text/plain"),
+      finished(session, "ua"),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: { header_values: true },
+    sensitive_values: ["FakeChrome", "fake-revision", "1.3", "13.0"],
+  });
+
+  expect(JSON.stringify(session)).not.toMatch(/FakeChrome|fake-revision/u);
+  expect(session.browser).toStrictEqual({
+    product: "[REDACTED:value-1]/1.0",
+    protocol_version: "[REDACTED:value-3]",
+    revision: "[REDACTED:value-2]",
+    user_agent: "[REDACTED:value-1]",
+    js_version: "[REDACTED:value-4]",
+  });
+  expect(session.network?.har.log.browser).toEqual({
+    name: session.browser.product,
+    version: session.browser.revision,
+  });
+  // Browser metadata is redacted but not counted; the header value is.
+  expect(session.network?.redactions.explicit_value_fields).toBe(1);
+});
+
+it("accepts a declared lone surrogate and redacts the pair it splits", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) =>
+      exchange(session, "astral", `${origin}/p/%F0%90%80%80?q=1`),
+  });
+
+  const session = await observe(browser, {
+    sensitive_values: ["\ud800", "ok"],
+  });
+
+  expect(entries(session)[0]?.request).toMatchObject({
+    url: `${browser.allowedOrigin}/p/%5BREDACTED%3Avalue-1%5D%EF%BF%BD?q=1`,
+  });
+});
+
+it("redacts declared values in metadata fields and target IDs consistently", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      request(session, "meta", `${origin}/meta`, {
+        request: { method: "acme" },
+      }),
+      response(session, "meta", "application/vnd.acme+json"),
+      finished(session, "meta"),
+      event("Network.webSocketCreated", session, {
+        requestId: "socket",
+        url: `${origin.replace("http:", "ws:")}/live`,
+      }),
+    ],
+  });
+
+  const session = await observe(browser, {
+    sensitive_values: ["acme", "allowed"],
+  });
+
+  const serialized = JSON.stringify(session);
+  expect(serialized).not.toContain("acme");
+  expect(serialized).not.toContain("allowed");
+  expect(entries(session).map((entry) => entry._rea_target_id)).toEqual([
+    session.target.target_id,
+    session.target.target_id,
+  ]);
+  expect(session.network?.targets[0]?.target_id).toBe(session.target.target_id);
+});
+
+it("redacts query values and literals that only the navigation timeline retains", async () => {
+  const browser = await startNetworkBrowser({
+    page: (origin, session) => [
+      navigation(session, `${origin}/reset?token=TOK123`),
+      event("Network.requestWillBeSent", session, {
+        requestId: "REQLIT-1",
+        type: "Document",
+        frameId: "frame-main",
+        loaderId: "loader-hop",
+        timestamp: 101,
+        request: { url: `${origin}/done?token=TOK123`, headers: {} },
+        redirectResponse: { status: 302, headers: {} },
+      }),
+      event("Page.lifecycleEvent", session, {
+        frameId: "frame-main",
+        loaderId: "loader-hop",
+        name: "detaillit",
+        timestamp: 102,
+      }),
+    ],
+  });
+
+  const session = await observe(browser, {
+    network: undefined,
+    sensitive_values: ["frame-main", "REQLIT", "detaillit"],
+    sensitive_query_parameters: ["token"],
+  });
+
+  // Without network capture, the target and timeline URLs are the only
+  // source of query values: the page's "frame-secret", then "TOK123".
+  expect(session.network).toBeUndefined();
+  for (const value of decodings(JSON.stringify(session)))
+    for (const literal of [
+      "frame-secret",
+      "TOK123",
+      "frame-main",
+      "REQLIT",
+      "detaillit",
+    ])
+      expect(value).not.toContain(literal);
+  const origin = browser.allowedOrigin;
+  const marker = (index: number) =>
+    encodeURIComponent(`[REDACTED:value-${String(index)}]`);
+  const frame = "[REDACTED:value-1]";
+  expect(session.target).toMatchObject({
+    initial_url: `${origin}/app?token=${marker(4)}`,
+    final_url: `${origin}/app?token=${marker(4)}`,
+  });
+  expect(session.timeline).toMatchObject([
+    {
+      type: "navigation_committed",
+      frame_id: frame,
+      url: `${origin}/reset?token=${marker(5)}`,
+      detail: "link",
+    },
+    {
+      type: "redirect",
+      frame_id: frame,
+      request_id: "[REDACTED:value-2]-1",
+      url: `${origin}/done?token=${marker(5)}`,
+    },
+    { type: "lifecycle", frame_id: frame, detail: "[REDACTED:value-3]" },
+  ]);
 });
 
 it("keeps navigation-only sessions unchanged when network is not selected", async () => {

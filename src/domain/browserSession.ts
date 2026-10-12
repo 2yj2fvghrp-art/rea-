@@ -21,6 +21,21 @@ const observeWebSessionNetworkSchema = z
     "Record in-scope HTTP and WebSocket traffic from the selected page as one HAR 1.2 log. Omit to retain navigation metadata only.",
   );
 
+/**
+ * Reserved host (RFC 2606) that replaces a URL host spelling a declared
+ * sensitive value, so the redacted URL stays parseable.
+ */
+export const REDACTED_URL_HOST = "redacted.invalid";
+
+/**
+ * True when redaction replaced a URL's host or emptied its port, so the URL
+ * names no real origin. Browsers never serialize an empty port.
+ */
+export const hasRedactedUrlAuthority = (url: string): boolean =>
+  URL.canParse(url) &&
+  (new URL(url).hostname === REDACTED_URL_HOST ||
+    /^[^:/?#]+:\/\/[^/?#]*:(?![^/?#])/u.test(url));
+
 /** Input for a navigation-aware browser observation window. */
 export const observeWebSessionInputSchema = z.strictObject({
   cdp_endpoint: browserEndpointSchema,
@@ -28,6 +43,18 @@ export const observeWebSessionInputSchema = z.strictObject({
   target_id: z.string().trim().min(1),
   observation_ms: z.number().int().min(1).default(10_000),
   network: observeWebSessionNetworkSchema.optional(),
+  sensitive_values: z
+    .array(z.string().min(1))
+    .default([])
+    .describe(
+      "Literal text replaced in every retained URL, header and timeline field. Never persisted in Evidence parameters; only the count is.",
+    ),
+  sensitive_query_parameters: z
+    .array(z.string().min(1))
+    .default([])
+    .describe(
+      "Exact query parameter names whose values, observed in the query string of a retained URL, are replaced wherever they appear in the result. Parameters inside a URL fragment are not read; declare those values in sensitive_values. Names alone never establish sensitivity otherwise.",
+    ),
 });
 export type ObserveWebSessionInput = z.infer<
   typeof observeWebSessionInputSchema
@@ -98,6 +125,13 @@ export const webSessionNetworkSchema = z.object({
       .min(0)
       .describe(
         "URL-valued headers (Location, Content-Location, Referer, Origin, Link, Refresh) omitted because a target was outside the selected origins or could not be parsed.",
+      ),
+    explicit_value_fields: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        "HAR and network target fields changed by declared sensitive values or observed sensitive query parameter values: URLs, query parameter names and values, header names and values, methods, status texts, MIME types, resource types and target IDs, including those of HAR entries later omitted. The top-level browser, target and timeline fields are redacted the same way but not counted.",
       ),
   }),
   coverage_started_at: z.iso.datetime(),

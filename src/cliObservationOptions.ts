@@ -29,6 +29,18 @@ export const sessionNetworkOptions = {
     .boolean()
     .default(false)
     .describe("Retain headers other than transport credentials"),
+  sensitiveValue: z
+    .array(z.string().min(1))
+    .default([])
+    .describe(
+      "Literal value replaced in every retained URL, header and timeline field; repeat as needed",
+    ),
+  sensitiveQueryParameter: z
+    .array(z.string().min(1))
+    .default([])
+    .describe(
+      "Query parameter name whose values in retained URL query strings, not fragments, are replaced everywhere; repeat as needed",
+    ),
 };
 
 export const browserPageInspectionOptions = z.object({

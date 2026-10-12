@@ -17,8 +17,16 @@ import {
 } from "./CdpSessionNetwork.js";
 import { TRANSPORT_CREDENTIAL_HEADERS } from "./network/TransportCredentials.js";
 import { CDP_BROWSER_PROVIDER_IDENTITY } from "./providerIdentities.js";
+import type { SessionRedactor } from "./SessionRedactor.js";
 
 type HarObject = WebSessionNetwork["har"]["log"]["entries"][number];
+
+/** A HAR entry by start time; a WebSocket's also counts its frames. */
+interface SessionEntry {
+  readonly started: number;
+  readonly entry: HarObject;
+  readonly frames?: number;
+}
 
 /** Limitations stated whenever observe_web_session records network evidence. */
 export const SESSION_NETWORK_LIMITATIONS = [
@@ -31,21 +39,25 @@ export const SESSION_NETWORK_LIMITATIONS = [
 interface HarContext {
   readonly options: NonNullable<ObserveWebSessionInput["network"]>;
   readonly allowedOrigins: ReadonlySet<string>;
+  readonly redactor: SessionRedactor;
   readonly coverageStartedAtMs: number;
   credentialHeaders: number;
   outOfScopeUrlHeaders: number;
 }
 
-/** Project recorded traffic into HAR 1.2 evidence and report its size. */
+/** Project recorded traffic into redacted HAR 1.2 evidence and report its size. */
 export const sessionNetworkEvidence = (input: {
   readonly network: CdpSessionNetwork;
   readonly browser: { readonly product: string; readonly revision: string };
   readonly coverageStartedAt: Date;
+  readonly redactor: SessionRedactor;
 }): WebSessionNetwork => {
-  const { network } = input;
+  const { network, redactor } = input;
+  const redactedBefore = redactor.fields;
   const context: HarContext = {
     options: network.context.options,
     allowedOrigins: network.context.allowedOrigins,
+    redactor,
     coverageStartedAtMs: input.coverageStartedAt.getTime(),
     credentialHeaders: 0,
     outOfScopeUrlHeaders: 0,
@@ -54,6 +66,32 @@ export const sessionNetworkEvidence = (input: {
     ...network.exchanges.map((exchange) => exchangeEntry(context, exchange)),
     ...network.sockets.map((socket) => socketEntry(context, socket)),
   ].sort((left, right) => left.started - right.started);
+  // A request URL redaction emptied cannot form an admissible HAR entry.
+  const admissible: SessionEntry[] = [];
+  const omitted: SessionEntry[] = [];
+  for (const item of entries) {
+    const url = cdpStringValue(recordValue(item.entry.request)?.url) ?? "";
+    (URL.canParse(url) ? admissible : omitted).push(item);
+  }
+  const sockets = omitted.filter(({ frames }) => frames !== undefined);
+  for (const [section, count] of [
+    ["network_requests", omitted.length - sockets.length],
+    ["websocket_connections", sockets.length],
+    [
+      "websocket_frames",
+      sockets.reduce((sum, { frames = 0 }) => sum + frames, 0),
+    ],
+  ] as const)
+    if (count > 0)
+      network.context.completeness.exclude(
+        section,
+        "provider_unavailable",
+        count,
+      );
+  if (omitted.length > 0)
+    network.context.limitations.push(
+      `${String(omitted.length)} HAR entries were omitted because every placeholder URL spells a declared sensitive value.`,
+    );
   const har: WebSessionNetwork["har"] = {
     log: {
       version: "1.2",
@@ -62,19 +100,22 @@ export const sessionNetworkEvidence = (input: {
         version: CDP_BROWSER_PROVIDER_IDENTITY.version ?? "unknown",
       },
       browser: { name: input.browser.product, version: input.browser.revision },
-      entries: entries.map(({ entry }) => entry),
+      entries: admissible.map(({ entry }) => entry),
     },
   };
   const harBytes = Buffer.byteLength(JSON.stringify(har));
   return {
     har,
     har_bytes: harBytes,
-    targets: network.targets.map(
-      ({ sessionId: _sessionId, ...target }) => target,
-    ),
+    targets: network.targets.map(({ sessionId: _sessionId, ...target }) => ({
+      ...target,
+      target_id: redactor.text(target.target_id),
+      url: target.url === null ? null : redactor.url(target.url),
+    })),
     redactions: {
       transport_credential_headers: context.credentialHeaders,
       out_of_scope_url_headers: context.outOfScopeUrlHeaders,
+      explicit_value_fields: redactor.fields - redactedBefore,
     },
     coverage_started_at: input.coverageStartedAt.toISOString(),
     prior_activity_available: false,
@@ -84,7 +125,8 @@ export const sessionNetworkEvidence = (input: {
 const exchangeEntry = (
   context: HarContext,
   exchange: RecordedExchange,
-): { readonly started: number; readonly entry: HarObject } => {
+): SessionEntry => {
+  const { redactor } = context;
   const response = exchange.response;
   const httpVersion = harHttpVersion(cdpStringValue(response?.protocol));
   const started = exchange.startedAtMs ?? context.coverageStartedAtMs;
@@ -130,15 +172,20 @@ const exchangeEntry = (
         ...harResponse(context, response, httpVersion, exchange.url),
         content: {
           size: exchange.decodedBytes,
-          mimeType: cdpStringValue(response?.mimeType) ?? "",
+          mimeType: redactor.text(cdpStringValue(response?.mimeType) ?? ""),
         },
-        redirectURL: exchange.redirectUrl ?? "",
+        redirectURL:
+          exchange.redirectUrl === null
+            ? ""
+            : redactor.url(exchange.redirectUrl),
       },
       cache: {},
       timings,
       ...(exchange.error === null ? {} : { _error: exchange.error }),
-      _resourceType: (exchange.resourceType ?? "other").toLowerCase(),
-      _rea_target_id: exchange.target.target_id,
+      _resourceType: redactor.text(
+        (exchange.resourceType ?? "other").toLowerCase(),
+      ),
+      _rea_target_id: redactor.text(exchange.target.target_id),
       ...(comment === "" ? {} : { comment }),
     },
   };
@@ -147,8 +194,9 @@ const exchangeEntry = (
 const socketEntry = (
   context: HarContext,
   socket: RecordedSocket,
-): { readonly started: number; readonly entry: HarObject } => ({
+): SessionEntry => ({
   started: socket.startedAtMs,
+  frames: socket.messages.length,
   entry: {
     startedDateTime: new Date(socket.startedAtMs).toISOString(),
     time: 0,
@@ -165,7 +213,7 @@ const socketEntry = (
     cache: {},
     timings: { send: 0, wait: 0, receive: 0 },
     _resourceType: "websocket",
-    _rea_target_id: socket.target.target_id,
+    _rea_target_id: context.redactor.text(socket.target.target_id),
     _webSocketMessages: socket.messages.map((message) => ({
       ...message,
       data: null,
@@ -178,19 +226,44 @@ const harRequest = (
   method: string,
   rawUrl: string,
   headers: UnknownRecord | undefined,
-) => ({
-  method,
-  url: rawUrl,
-  cookies: [],
-  headers: harHeaders(context, headers, rawUrl),
-  queryString: URL.canParse(rawUrl)
-    ? [...new URL(rawUrl).searchParams].map(([name, value]) => ({
-        name,
-        value,
-      }))
-    : [],
-  headersSize: -1,
-});
+) => {
+  const url = context.redactor.url(rawUrl);
+  return {
+    method: context.redactor.text(method),
+    url,
+    cookies: [],
+    headers: harHeaders(context, headers, rawUrl),
+    queryString: harQueryString(context, rawUrl, url),
+    headersSize: -1,
+  };
+};
+
+/**
+ * The recorded URL's query pairs, so they never reveal what it hides: a
+ * declared value spanning `=` or `&` fails the URL closed and leaves no pairs.
+ * Each name or value that differs from the request's own counts as redacted.
+ * A decoded pair is one level closer to a nested literal, so each name and
+ * value is then redacted as a field of its own.
+ */
+const harQueryString = (
+  context: HarContext,
+  rawUrl: string,
+  url: string,
+): Array<{ name: string; value: string }> => {
+  const pairs = URL.canParse(url) ? [...new URL(url).searchParams] : [];
+  const original = URL.canParse(rawUrl)
+    ? [...new URL(rawUrl).searchParams]
+    : [];
+  original.forEach(([name, value], index) => {
+    const [redactedName, redactedValue] = pairs[index] ?? [];
+    if (name !== "" && name !== redactedName) context.redactor.fields += 1;
+    if (value !== "" && value !== redactedValue) context.redactor.fields += 1;
+  });
+  return pairs.map(([name, value]) => ({
+    name: context.redactor.text(name),
+    value: context.redactor.text(value),
+  }));
+};
 
 const harResponse = (
   context: HarContext,
@@ -199,7 +272,7 @@ const harResponse = (
   requestUrl: string,
 ) => ({
   status: Math.trunc(numberValue(response?.status) ?? 0),
-  statusText: cdpStringValue(response?.statusText) ?? "",
+  statusText: context.redactor.text(cdpStringValue(response?.statusText) ?? ""),
   httpVersion,
   cookies: [],
   headers: harHeaders(context, recordValue(response?.headers), requestUrl),
@@ -222,7 +295,9 @@ const harHeaders = (
     // CDP joins repeated header lines with newlines.
     return value.split("\n").flatMap((line) => {
       const header = headerValue(context, name, line, requestUrl);
-      return header === undefined ? [] : [{ name, value: header }];
+      return header === undefined
+        ? []
+        : [{ name: context.redactor.text(name), value: header }];
     });
   });
 };
@@ -235,7 +310,7 @@ const headerValue = (
   requestUrl: string,
 ): string | undefined => {
   const targets = headerUrlTargets(name, line, requestUrl);
-  if (targets === undefined) return line;
+  if (targets === undefined) return context.redactor.text(line);
   // A URL-valued header without a scopable target cannot be authorized.
   if (
     targets.length === 0 ||
@@ -262,7 +337,9 @@ const headerValue = (
       return undefined;
     value = value.slice(0, start) + stripped + value.slice(start + raw.length);
   }
-  return value;
+  return URL.canParse(value) && targets.length === 1
+    ? context.redactor.url(value)
+    : context.redactor.text(value);
 };
 
 const resolveUrl = (raw: string, base: string): string =>

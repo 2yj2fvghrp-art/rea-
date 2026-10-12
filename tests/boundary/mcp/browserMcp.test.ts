@@ -449,7 +449,7 @@ it("does not attach to a target outside the request's allowed origin scope", asy
   expect(browser.commands).toHaveLength(0);
 });
 
-it("records observe_web_session traffic as HAR Evidence", async () => {
+it("records observe_web_session traffic as HAR Evidence without persisting declared literals", async () => {
   const browser = await startFakeCdpBrowser({
     commandEvents: ({ method, sessionId }, origin) =>
       method === "Network.enable" && sessionId === "session-1"
@@ -494,6 +494,7 @@ it("records observe_web_session traffic as HAR Evidence", async () => {
       target_id: "allowed-page",
       observation_ms: 50,
       network: { header_values: true },
+      sensitive_values: ["FP456"],
     },
   });
 
@@ -501,6 +502,8 @@ it("records observe_web_session traffic as HAR Evidence", async () => {
   const evidence = evidenceFor(result.structuredContent);
   expect(evidence.parameters).toMatchObject({
     network: { header_values: true },
+    sensitive_value_count: 1,
+    sensitive_query_parameters: [],
   });
   expect(result.structuredContent).toMatchObject({
     normalized_result: {
@@ -510,7 +513,9 @@ it("records observe_web_session traffic as HAR Evidence", async () => {
             entries: [
               expect.objectContaining({
                 request: expect.objectContaining({
-                  headers: [{ name: "X-Fingerprint", value: "FP456" }],
+                  headers: [
+                    { name: "X-Fingerprint", value: "[REDACTED:value-1]" },
+                  ],
                   bodySize: -1,
                 }),
               }),
@@ -522,7 +527,144 @@ it("records observe_web_session traffic as HAR Evidence", async () => {
     },
   });
   const serialized = JSON.stringify(result);
+  expect(serialized).not.toContain("FP456");
   expect(serialized).not.toContain("mcp-token");
+});
+
+it("omits Evidence parameters that spell a declared sensitive value", async () => {
+  const browser = await startFakeCdpBrowser();
+  browsers.push(browser);
+  const connected = await connectBrowser();
+
+  const call = (allowed: readonly string[]) =>
+    connected.client.callTool({
+      name: "observe_web_session",
+      arguments: {
+        cdp_endpoint: browser.endpoint,
+        ...(allowed.length === 0 ? {} : { allowed_origins: allowed }),
+        target_id: "allowed-page",
+        observation_ms: 20,
+        network: {},
+        sensitive_values: ["127.0.0.1"],
+      },
+    });
+
+  const explicit = await call([browser.allowedOrigin]);
+  const derived = await call([]);
+
+  expect(evidenceFor(explicit.structuredContent).parameters).toMatchObject({
+    cdp_endpoint: "",
+    allowed_origins: [""],
+    target_id: "allowed-page",
+  });
+  // A host redacted for a declared value never stands in for the real origin.
+  expect(evidenceFor(derived.structuredContent).parameters).toMatchObject({
+    allowed_origins: [],
+  });
+  for (const result of [explicit, derived])
+    expect(JSON.stringify(result)).not.toContain("127.0.0.1");
+});
+
+it("never derives the Evidence origin from a URL whose port is redacted", async () => {
+  const browser = await startFakeCdpBrowser();
+  browsers.push(browser);
+  const connected = await connectBrowser();
+  const { host, hostname, port } = new URL(browser.allowedOrigin);
+
+  const result = await connected.client.callTool({
+    name: "observe_web_session",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      target_id: "allowed-page",
+      observation_ms: 20,
+      network: {},
+      sensitive_values: [port],
+    },
+  });
+
+  // The host is kept and the port emptied, which names no real origin.
+  expect(result.structuredContent).toMatchObject({
+    normalized_result: {
+      target: {
+        initial_url: expect.stringMatching(
+          new RegExp(`^http://${hostname.replaceAll(".", "\\.")}:/`, "u"),
+        ),
+      },
+    },
+  });
+  expect(evidenceFor(result.structuredContent).parameters).toMatchObject({
+    allowed_origins: [],
+  });
+  expect(JSON.stringify(result)).not.toContain(host);
+});
+
+it("says so when a query parameter name spells a declared value", async () => {
+  const browser = await startFakeCdpBrowser();
+  browsers.push(browser);
+  const connected = await connectBrowser();
+
+  const result = await connected.client.callTool({
+    name: "observe_web_session",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      allowed_origins: [browser.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 20,
+      network: {},
+      sensitive_values: ["device"],
+      sensitive_query_parameters: ["device_id"],
+    },
+  });
+
+  expect(evidenceFor(result.structuredContent).parameters).toMatchObject({
+    sensitive_query_parameters: [""],
+  });
+  expect(JSON.stringify(result.structuredContent)).toContain(
+    "A request parameter spells a declared sensitive value and is left empty in the Evidence parameters.",
+  );
+});
+
+it("redacts declared values in browser metadata and the Evidence environment", async () => {
+  const browser = await startFakeCdpBrowser();
+  browsers.push(browser);
+  const connected = await connectBrowser();
+
+  const result = await connected.client.callTool({
+    name: "observe_web_session",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      allowed_origins: [browser.allowedOrigin],
+      target_id: "allowed-page",
+      observation_ms: 20,
+      network: {},
+      // A lone surrogate has no UTF-8 spelling but is still a literal.
+      sensitive_values: ["\ud800", "FakeChrome"],
+    },
+  });
+
+  expect(result.isError).not.toBe(true);
+  expect(evidenceFor(result.structuredContent).environment).toMatchObject({
+    id: "[REDACTED:value-2]/1.0@fake-revision",
+  });
+  expect(JSON.stringify(result)).not.toContain("FakeChrome");
+});
+
+it("describes every observe_web_session redaction counter", async () => {
+  const connected = await connectBrowser();
+
+  const { tools } = await connected.client.listTools();
+  const advertised = JSON.stringify(
+    tools.find(({ name }) => name === "observe_web_session")?.outputSchema,
+  );
+
+  for (const counter of [
+    "transport_credential_headers",
+    "out_of_scope_url_headers",
+    "explicit_value_fields",
+  ])
+    expect(advertised).toMatch(
+      new RegExp(`"${counter}":\\{[^{}]*"description":"[^"]+"`, "u"),
+    );
 });
 
 it("projects legal oversized PNG dimensions as a memory constraint", async () => {

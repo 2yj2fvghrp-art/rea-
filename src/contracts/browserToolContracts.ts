@@ -185,7 +185,7 @@ export const BROWSER_TOOL_CONTRACTS = [
     name: "observe_web_session",
     ...toolContractMetadata("observe_web_session"),
     description:
-      "Arm a CDP observation window of the requested duration while the user operates the page. By default it follows the selected target's current origin; an explicit origin list controls which origins may be retained. Records navigation, redirect, lifecycle, and failure events. With network selected, also records in-scope HTTP requests and WebSocket frames from the selected page, not its workers or out-of-process iframes, across navigations as one HAR 1.2 log for inspect_web_network_capture; REA does not check the log against that tool's 32 MiB input budget or 96 MiB reply limit, which a log dominated by WebSocket frames can exceed below 32 MiB. Headers are retained only when selected, bodies and payloads are not retained, and transport credentials never are.",
+      "Arm a CDP observation window of the requested duration while the user operates the page. By default it follows the selected target's current origin; an explicit origin list controls which origins may be retained. Records navigation, redirect, lifecycle, and failure events. With network selected, also records in-scope HTTP requests and WebSocket frames from the selected page, not its workers or out-of-process iframes, across navigations as one HAR 1.2 log for inspect_web_network_capture; REA does not check the log against that tool's 32 MiB input budget or 96 MiB reply limit, which a log dominated by WebSocket frames can exceed below 32 MiB. Headers are retained only when selected, bodies and payloads are not retained, transport credentials never are, and declared sensitive values are replaced.",
     kind: "browser-provider",
     inputSchema: observeWebSessionInputSchema,
     outputSchema: observationSessionOutputSchema,
@@ -206,6 +206,7 @@ export const BROWSER_TOOL_CONTRACTS = [
           allowed_origins: [origin, "https://api.example.test"],
           observation_ms: 30_000,
           network: { header_values: true },
+          sensitive_query_parameters: ["device_id"],
         },
       },
     ],

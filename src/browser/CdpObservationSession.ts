@@ -21,7 +21,7 @@ import { mainFrameUrl } from "./CdpCaptureDocuments.js";
 import { isMainFrameNavigation } from "./CdpCaptureEventHelpers.js";
 import { cdpTargetEventMatches } from "./CdpTargetEvents.js";
 import { CdpSessionNetwork, type SessionTarget } from "./CdpSessionNetwork.js";
-import { sessionResult } from "./CdpSessionResult.js";
+import { redactedSessionResult } from "./CdpSessionResult.js";
 
 interface ObservationContext {
   readonly connection: CdpConnection;
@@ -120,7 +120,8 @@ export const observeCdpSession = async (
       message: "Browser observation window ended",
       terminal: true,
     });
-    return sessionResult({
+    return redactedSessionResult({
+      request: context.input,
       browser: context.discovery.version,
       targetId: context.target.id,
       capture,
@@ -207,6 +208,12 @@ class TimelineCapture {
 
   get ended(): boolean {
     return this.#endReason !== undefined;
+  }
+
+  *retainedUrls(): Iterable<string> {
+    if (this.initialUrl !== null) yield this.initialUrl;
+    if (this.finalUrl !== null) yield this.finalUrl;
+    for (const event of this.timeline) if (event.url !== null) yield event.url;
   }
 
   ingest(event: CdpEvent): void {
