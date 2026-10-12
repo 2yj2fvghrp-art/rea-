@@ -2,7 +2,7 @@
 name: reverse-engineer-anything
 description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
 metadata:
-  version: "37"
+  version: "39"
 ---
 
 # REA
@@ -67,6 +67,11 @@ explicit path or endpoint and do not need it.
   [historical captures](https://github.com/morluto/rea/blob/main/docs/web-network-captures.md) for the exact upstream
   profile and credential exclusions.
 - User-owned Electron runtime already open: `list_electron_targets`.
+- Explicit local WebAssembly artifact: `inspect_wasm_artifact`. Supply WABT 1.0.42
+  through `REA_WABT_BIN_DIRECTORY`; retain exact byte/tool identity and decoded WAT.
+  Select JavaScript glue and candidate paths explicitly and preserve URL/path
+  ambiguity. No implicit fetch or target execution; WAT is not original source.
+  See the [WASM guide](https://github.com/morluto/rea/blob/main/docs/wasm-artifacts.md).
 - Explicit local EVM bytecode carrier: `inspect_evm_interface` with caller-selected
   `raw` or `hex` encoding. Preserve carrier/decoded digests and treat selectors,
   argument strings and mutability as inferred candidates; this performs no chain
@@ -116,8 +121,14 @@ ask when matches are ambiguous. Never choose an example app on the user's behalf
 In a target-free session, use `open_binary` to bind any archive/package or
 native target whose analysis tool operates on the active target. Do not call an
 unadvertised tool; inspect `binary_session` with `{}` and its
-`result.tool_availability` for availability reasons and remediation. The tool
-list stays complete; availability depends on the operation, target, and host.
+`result.tool_availability` for availability reasons and remediation. Expand each
+group's `names` into entries, inheriting the inventory-level client requirements
+unless the group overrides them. In its closed effect and annotation vocabularies,
+listed flags are true and omitted known flags are false. The grouped name union
+is the complete tool inventory; use `tools/list` for canonical tool schemas.
+Provider candidate facts describe possible providers, while top-level session
+capabilities describe the current route and `analysis_provider_binding` names the
+selected provider. Do not treat those scopes as interchangeable.
 
 ## Work summary-first
 
@@ -140,6 +151,16 @@ once a seed is known, or call `export_evidence_bundle` to write the complete
 session to a selected path. The analysis remains complete in the ledger; avoid
 repeating it merely to request the same oversized response. Complete CLI JSON
 output also streams without a single MCP frame.
+
+When the retained parent ID is unknown, use `get_evidence_bundle` with
+`detail: "summary"` and exact filters for operation, target SHA-256,
+analysis-profile digest or canonical procedure address. Select its returned
+Evidence ID for the next view instead of requesting the complete bundle.
+`retention: "complete-record"` means the whole record is stored; native
+value-flow truncation and unknown metadata remain separate. For an exported
+portable bundle, use `rea inspect-evidence-bundle` with JSON containing `path`,
+`detail: "summary"` and the same `filters`. Reading that file still requires
+validating its full contents within the local memory budget.
 
 A client can also truncate a successful tool result without a REA transport
 error. Treat that preview as incomplete; use the retained parent ID for smaller

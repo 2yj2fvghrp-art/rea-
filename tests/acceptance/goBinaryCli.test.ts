@@ -181,6 +181,27 @@ for (const format of ["elf", "pe", "macho"] as const) {
   }
 }
 
+cliTest("preserves MIPS identity in Go CLI Evidence", async ({ cli }) => {
+  const root = await createTestTempDirectory("rea-go-cli-mips-");
+  const fixture = createGoBinaryFixture();
+  fixture.bytes.writeUInt16LE(8, 18); // ELF EM_MIPS.
+  const path = join(root, "application.elf");
+  await writeFile(path, fixture.bytes);
+  const result = await cli.run({
+    arguments: ["inspect-go-binary", path, "--json"],
+  });
+  expect(result.exitCode, result.stderr).toBe(0);
+  const evidence = toolContract("inspect_go_binary").outputSchema.parse(
+    result.json,
+  );
+  expect(evidence.subject?.architecture).toBe("mips");
+  expect(evidence.normalized_result).toMatchObject({
+    architecture: "mips",
+    bits: 64,
+    byte_order: "little",
+  });
+});
+
 cliTest(
   "reports missing build information as unknown and preserves unsupported carriers distinctly",
   async ({ cli }) => {

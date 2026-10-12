@@ -1,3 +1,4 @@
+import { ghidraSeedReportSchema } from "./GhidraAnalysisSeeds.js";
 import { z } from "zod";
 
 import type { JsonValue } from "../domain/jsonValue.js";
@@ -8,6 +9,7 @@ import {
 } from "./GhidraInventoryValues.js";
 import { GHIDRA_FUNCTION_OPERATIONS } from "./GhidraFunctionValues.js";
 import { ghidraExtensionResultSchema } from "./extensions/GhidraExtensions.js";
+import { GHIDRA_MIPS_SOFT_FLOAT_STORAGE } from "./GhidraMipsProfile.js";
 
 /** Exact methods proved by the bridge handshake after auto-analysis. */
 export const GHIDRA_SESSION_CAPABILITIES = [
@@ -40,6 +42,15 @@ const sessionInfoSchema = z
     analysis_complete: z.boolean(),
     analysis_timed_out: z.boolean(),
     analysis_extensions: z.array(ghidraExtensionResultSchema).optional(),
+    analysis_seeds: ghidraSeedReportSchema.optional(),
+    mips_soft_float_storage: z
+      .object({
+        policy: z.literal(GHIDRA_MIPS_SOFT_FLOAT_STORAGE),
+        functions: z.number().int().nonnegative(),
+        definitions: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
     capabilities: z.array(capabilitySchema),
     target: z
       .object({

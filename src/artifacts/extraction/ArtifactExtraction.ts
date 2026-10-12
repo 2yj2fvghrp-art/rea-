@@ -27,11 +27,14 @@ import {
   type IntegrityContradiction,
 } from "../../domain/artifactGraph.js";
 import { AnalysisUnsupportedTargetError } from "../../domain/analysisErrorCore.js";
-import {
-  type ArtifactResourceOwner,
-  type ArtifactResourceScope,
+import type {
+  ArtifactResourceOwner,
+  ArtifactResourceScope,
 } from "../ArtifactResourceScope.js";
-import type { BinaryTarget } from "../../domain/binaryTargetTypes.js";
+import {
+  isMachOFormat,
+  type BinaryTarget,
+} from "../../domain/binaryTargetTypes.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 import { scanArtifactInventoryInScope } from "../inventory/ArtifactInventory.js";
 import type { ArtifactIntegrityPolicyName } from "../../domain/artifactIntegrityPolicy.js";
@@ -418,7 +421,7 @@ const requireExtractableFormat = async (
   if (
     !directory &&
     format !== "asar" &&
-    format !== "mach-o" &&
+    !isMachOFormat(format) &&
     !isZipFormat(format)
   )
     throw new AnalysisUnsupportedTargetError(

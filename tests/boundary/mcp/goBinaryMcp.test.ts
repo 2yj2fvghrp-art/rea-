@@ -3,11 +3,10 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
-import { z } from "zod";
 import { readAnalysisSnapshot } from "../../../src/application/binary/AnalysisSnapshotFiles.js";
 import { GoBinaryService } from "../../../src/application/go/GoBinaryService.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
-import { toolAvailability } from "../../../src/contracts/toolOutputSchemaPrimitives.js";
+import { expandToolAvailability } from "../../../src/contracts/toolOutputSchemaPrimitives.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { GoBinaryProvider } from "../../../src/go/GoBinaryProvider.js";
 import { createServer } from "../../../src/server/createServer.js";
@@ -48,12 +47,14 @@ const goMcpTest = mcpTest.extend<{
 });
 
 mcpTest(
-  "includes an in-flight Go inspection in the snapshot before closing its session",
+  "retains MIPS identity and in-flight Go inspection in the saved session snapshot",
   async ({ mcp }) => {
     const root = await createTestTempDirectory("rea-go-mcp-close-");
     const path = join(root, "application");
     const snapshotPath = join(root, "analysis.json");
-    await writeFile(path, createGoBinaryFixture().bytes);
+    const fixture = createGoBinaryFixture({ bits: 32, byteOrder: "big" });
+    fixture.bytes.writeUInt16BE(8, 18); // ELF EM_MIPS.
+    await writeFile(path, fixture.bytes);
     const entered = createDeferred<void>();
     const release = createDeferred<void>();
     const closeStarted = createDeferred<void>();
@@ -99,6 +100,12 @@ mcpTest(
       const evidence = toolContract("inspect_go_binary").outputSchema.parse(
         inspected.structuredContent,
       );
+      expect(evidence.subject?.architecture).toBe("mips");
+      expect(evidence.normalized_result).toMatchObject({
+        architecture: "mips",
+        bits: 32,
+        byte_order: "big",
+      });
       const closed = await closing;
       expect(closed.isError, JSON.stringify(closed.content)).not.toBe(true);
       const snapshot = await readAnalysisSnapshot(snapshotPath);
@@ -200,11 +207,11 @@ goMcpTest(
       name: "binary_session",
       arguments: {},
     });
-    const availability = z
-      .object({
-        result: z.object({ tool_availability: z.array(toolAvailability) }),
-      })
-      .parse(status.structuredContent).result.tool_availability;
+    const availability = expandToolAvailability(
+      toolContract("binary_session").outputSchema.parse(
+        status.structuredContent,
+      ).result.tool_availability,
+    );
     expect(availability).toContainEqual(
       expect.objectContaining({
         name: "inspect_go_binary",

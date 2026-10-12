@@ -66,12 +66,38 @@ export interface JavaScriptSemanticAnalysisState {
   readonly callables: JavaScriptSemanticCallable[];
   readonly callableNodesById: Map<string, t.Node>;
   readonly moduleLinks: JavaScriptSemanticModuleLink[];
+  /** Exact calls already represented by binding or dependency links. */
+  readonly linkedRequireCalls: WeakSet<t.CallExpression>;
   readonly moduleLinkBindings: WeakMap<
     JavaScriptSemanticModuleLink,
     JavaScriptSemanticBindingState
   >;
   readonly conditionalInitializers: WeakSet<t.Node>;
 }
+
+/**
+ * Return one unconditional source initializer for a declared lexical binding.
+ * Repeated variable declarations without another initializer do not write it.
+ * This establishes a stable source fact only; it does not prove immutability or
+ * that the declaration has executed at a particular program point.
+ */
+export const semanticStableInitializer = (
+  binding: JavaScriptSemanticBindingState | undefined,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptSemanticBindingState["initializers"][number] | undefined => {
+  const [initializer] = binding?.initializers ?? [];
+  const [definition] = binding?.definitions ?? [];
+  return binding !== undefined &&
+    ((definition?.kind === "variable" &&
+      binding.definitions.every(({ kind }) => kind === "variable")) ||
+      (binding.definitions.length === 1 &&
+        (definition?.kind === "function" || definition?.kind === "class"))) &&
+    binding.initializers.length === 1 &&
+    initializer !== undefined &&
+    !state.conditionalInitializers.has(initializer.node)
+    ? initializer
+    : undefined;
+};
 
 /** Return the active scope from a non-empty construction stack. */
 export const currentSemanticScope = (
@@ -88,6 +114,10 @@ export const semanticScopeId = (
   node: t.Node,
 ): string =>
   `scope:${kind}:${String(node.start ?? -1)}:${String(node.end ?? -1)}`;
+
+/** Create the canonical identity used by one binding in a lexical scope. */
+export const semanticBindingId = (scopeId: string, name: string): string =>
+  `${scopeId}:binding:${encodeURIComponent(name)}`;
 
 /** Resolve one lexical name from the scope containing a node. */
 export const resolveSemanticBindingState = (

@@ -8,9 +8,12 @@ Executable bytes remain unchanged.
 Use [installation](installation.md#ghidra) for supported hosts, prerequisites,
 configuration, startup deadlines, resource controls, and cleanup recovery.
 [Windows P0](windows-ghidra-p0.md) has its own admission and lifecycle boundary;
-[NativeAOT recovery](ghidra-nativeaot.md) is an optional, separately verified
-extension. Check the [release boundary](installation.md#released-package-and-main)
-when using npm.
+[NativeAOT observations](ghidra-nativeaot.md) include a built-in read-only PE
+snapshot parser and a separate optional annotation extension. Check the
+[release boundary](installation.md#released-package-and-main) when using npm.
+
+See [import language and analysis seeds](installation.md#ghidra-import-language-and-analysis-seeds)
+to override the header-detected language or seed analysis.
 
 Provider selection and profile identity follow
 [MCP contracts](mcp-contracts.md#identity-and-discovery). One deep
@@ -62,6 +65,16 @@ unresolved callee or unestablished terminal-flow basis remains explicit. These
 observations qualify the analysis; they do not prove that a no-return flag is
 incorrect or recover excluded code. Analysis profiles version this observation
 contract so older snapshots cannot replay unqualified results.
+
+On non-Windows hosts, the ephemeral import repair clears no-return flags on the
+known returning external ABI names `malloc`, `__tls_get_addr`, `memcpy`, `memset`,
+`strlen`, and `__errno_location`. This relies on their expected ABI behavior;
+external implementations are not inspected. The repair re-disassembles affected
+terminal calls and refits their owning functions, preserving independent function
+entries. If a recovered caller reveals a decoded return, its propagated no-return
+flag and affected callers are repaired in the same pass. Unknown imports and
+genuine no-return imports keep their flags. Analysis profiles version this repair
+so snapshots produced before it are not reused. Windows P0 does not run it.
 
 `npm run verify:ghidra` compiles the versioned C oracle into debug and stripped
 host-native targets (x86-64/AArch64 ELF on Linux or Mach-O on macOS), plus a native

@@ -7,6 +7,7 @@ on:
       - ".github/workflows/real-go-binary.yml"
       - "src/go/**"
       - "src/domain/go/**"
+      - "src/domain/dosMz.ts"
       - "src/application/go/**"
       - "src/contracts/go/**"
       - "src/composition/go.ts"

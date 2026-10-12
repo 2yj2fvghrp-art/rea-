@@ -8,6 +8,7 @@ import {
   AnalysisOutputError,
 } from "../../domain/analysisErrorCore.js";
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
+import { BINARY_ARCHITECTURES } from "../../domain/binaryTargetTypes.js";
 import {
   goBinarySchema,
   inspectGoBinaryInputSchema,
@@ -19,17 +20,13 @@ const OPERATION = "inspect_go_binary";
 const architectureForSubject = (architecture: string) => {
   switch (architecture) {
     case "386":
-    case "x86":
       return "x86";
     case "amd64":
-    case "x86_64":
       return "x86_64";
-    case "arm":
-      return "arm";
-    case "arm64":
-      return "arm64";
     default:
-      return undefined;
+      return BINARY_ARCHITECTURES.find(
+        (supported) => supported === architecture,
+      );
   }
 };
 

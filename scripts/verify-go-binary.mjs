@@ -60,6 +60,7 @@ const targets = [
   ["linux", "386", "elf", 32, "little"],
   ["linux", "arm64", "elf", 64, "little"],
   ["linux", "ppc64", "elf", 64, "big"],
+  ["linux", "mips", "elf", 32, "big"],
   ["windows", "amd64", "pe", 64, "little"],
   ["windows", "386", "pe", 32, "little"],
   ["darwin", "amd64", "macho", 64, "little"],
@@ -313,7 +314,7 @@ async function inspect(mode, path) {
   assert.equal(evidence.subject.local_path, path);
   const report = goBinarySchema.parse(evidence.normalized_result);
   assert.equal(evidence.subject.digest.sha256, report.artifact.sha256);
-  return report;
+  return { evidence, report };
 }
 
 async function verify(path, target, oracle, byteExpected = null) {
@@ -330,9 +331,15 @@ async function verify(path, target, oracle, byteExpected = null) {
     );
   const reports = [];
   for (const mode of ["cli", "mcp"]) {
-    const report = await inspect(mode, path);
+    const { evidence, report } = await inspect(mode, path);
     assert.equal(report.format, target[2]);
     assert.equal(report.architecture, target[1]);
+    assert.equal(
+      evidence.subject.architecture,
+      { amd64: "x86_64", 386: "x86", arm64: "arm64", mips: "mips" }[
+        target[1]
+      ] ?? null,
+    );
     assert.equal(report.bits, target[3]);
     assert.equal(report.byte_order, target[4]);
     assert.equal(report.artifact.path, path);
