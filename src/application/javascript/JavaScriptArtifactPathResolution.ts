@@ -64,6 +64,17 @@ export interface ResolveArtifactPathInput {
   readonly moduleKind?: "import" | "require";
 }
 
+/** Loader selected by a source-level JavaScript module reference. */
+export const moduleKindForJavaScriptReference = (
+  sourcePath: string,
+  referenceKind: "static-import" | "dynamic-import" | "require",
+): "import" | "require" =>
+  referenceKind === "require" ||
+  (referenceKind === "static-import" &&
+    posix.extname(sourcePath).toLowerCase() === ".cts")
+    ? "require"
+    : "import";
+
 const EXTENSIONS = [
   ".js",
   ".cjs",
@@ -188,14 +199,16 @@ const contextualCandidate = (
       : input.declaredPath;
   if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
-    const fileUrl =
-      input.moduleKind === "require" ? undefined : fileUrlPath(declared);
-    if (fileUrl !== undefined) return fileUrl;
+    const fileUrl = fileUrlPath(declared);
+    if (fileUrl !== undefined)
+      return input.moduleKind === "require"
+        ? unresolvedCandidate("external", [
+            "Node CommonJS require specifiers do not resolve file URLs as local artifacts.",
+          ])
+        : fileUrl;
     if (hasScheme(declared))
       return unresolvedCandidate("external", [
-        input.moduleKind === "require" && declared.startsWith("file:")
-          ? "CommonJS require() does not decode file URL strings into local artifact filenames."
-          : "URL and Node builtin schemes are outside static artifact module resolution.",
+        "URL and Node builtin schemes are outside static artifact module resolution.",
       ]);
     if (!declared.startsWith(".") && !declared.startsWith("/"))
       return bareModuleCandidate(input);
