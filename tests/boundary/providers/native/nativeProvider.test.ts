@@ -953,6 +953,38 @@ describe("native macOS provider failures and parsing", () => {
   });
 });
 
+describe("native signature inspection target scope", () => {
+  // codesign evaluates Mach-O code signatures only; on another container its
+  // "not signed" verdict cannot see a format-level signature such as a xar
+  // pkg signature.
+  it.each([
+    {
+      path: "/fixture.pkg",
+      sha256: "0".repeat(64),
+      kind: "archive" as const,
+      format: "pkg" as const,
+    },
+    {
+      ...machoTarget("/fixture.elf"),
+      format: "elf" as const,
+    },
+  ])(
+    "refuses inspect_signature on a $format target without running codesign",
+    async (target) => {
+      const runner = new CountingRunner();
+      const result = await new NativeMacOSProvider({}, runner, "darwin")
+        .createClient(target)
+        .execute("inspect_signature", {});
+      if (result.ok) throw new Error("Expected a non-Mach-O refusal");
+      expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+      expect(projectAnalysisError(result.error)).toMatchObject({
+        code: "capability_unavailable",
+      });
+      expect(runner.calls).toBe(0);
+    },
+  );
+});
+
 class FailingRunner implements NativeCommandRunner {
   constructor(private readonly reason: NativeCommandFailure["reason"]) {}
 
