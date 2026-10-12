@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      DSH_HOME: ${{ runner.temp }}/rea-dsh-profile
+      DSH_HOME: /tmp/rea-dsh-profile
       HUSKY: '0'
     steps:
       - uses: actions/checkout@v4
