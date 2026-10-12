@@ -4,6 +4,7 @@ import { toolContract } from "../../src/contracts/toolContracts.js";
 import { parseEvidence } from "../../src/domain/evidence.js";
 import {
   aotFixtureImage,
+  engineFixtureImage,
   REFERENCE_HASH,
 } from "../../src/flutter/FlutterBuild.fixture.js";
 import {
@@ -19,16 +20,27 @@ cliTest(
   async ({ cli }) => {
     const image = aotFixtureImage();
     Buffer.from("Login\0").copy(image, 0x2300);
+    const engine = engineFixtureImage({
+      notes: Buffer.from(
+        "040000000800000003000000474e55000123456789abcdef",
+        "hex",
+      ),
+      prefix: Buffer.from(
+        "040000000800000003000000474e55001111111111111111",
+        "hex",
+      ),
+      labels: ["Android (test) clang version 9.0.8"],
+    });
     const path = await createFlutterApk("selected target.apk", [
       { path: "lib/arm64-v8a/libapp.so", bytes: image },
       {
         path: "lib/arm64-v8a/libflutter.so",
-        bytes: Buffer.from("Android (test) clang version 9.0.8\0"),
+        bytes: engine,
       },
       { path: "lib/x86_64/libapp.so", bytes: image },
       {
         path: "lib/x86_64/libflutter.so",
-        bytes: Buffer.from("Android (test) clang version 9.0.8\0"),
+        bytes: engine,
       },
     ]);
     const { call } = await connectLocalToolsMcp();
@@ -65,11 +77,26 @@ cliTest(
         expect(evidence.normalized_result).toMatchObject({
           abi: abi ?? "arm64-v8a",
           libapp: {
+            coverage: "complete",
             snapshot_hash: REFERENCE_HASH,
             sha256: createHash("sha256").update(image).digest("hex"),
           },
-          string_pool: { class_like_tokens: expect.arrayContaining(["Login"]) },
+          string_pool: {
+            coverage: "complete",
+            class_like_tokens: expect.arrayContaining(["Login"]),
+          },
         });
+      } else {
+        const identified = toolContract(
+          "identify_flutter_build",
+        ).outputSchema.parse(result.json).normalized_result;
+        expect(identified.coverage).toBe("complete");
+        for (const abi of identified.abis) {
+          expect(abi.libflutter).toMatchObject({
+            build_id: "0123456789abcdef",
+            build_id_candidates: ["0123456789abcdef"],
+          });
+        }
       }
     }
     const duplicate = await createDuplicateFlutterApk();
@@ -88,5 +115,40 @@ cliTest(
         details: { issues: [{ message: expect.stringContaining(duplicate) }] },
       });
     }
+  },
+);
+
+cliTest(
+  "CLI and MCP retain unsupported snapshot kinds as partial evidence",
+  async ({ cli }) => {
+    const image = aotFixtureImage();
+    for (const offset of [0x1000, 0x2000])
+      image.writeBigUInt64LE(4n, offset + 12);
+    const path = await createFlutterApk("unsupported-kind.apk", [
+      { path: "lib/arm64-v8a/libapp.so", bytes: image },
+    ]);
+    const result = await cli.run({
+      arguments: ["inspect-dart-aot", path, "--json"],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const evidence = toolContract("inspect_dart_aot").outputSchema.parse(
+      result.json,
+    );
+    const { call } = await connectLocalToolsMcp();
+    const response = await call("inspect_dart_aot", { path });
+    expect(response.isError, JSON.stringify(response)).not.toBe(true);
+    expect(parseEvidence(response.structuredContent).normalized_result).toEqual(
+      evidence.normalized_result,
+    );
+    expect(evidence.normalized_result).toMatchObject({
+      coverage: "partial",
+      libapp: { coverage: "partial", snapshot_hash: REFERENCE_HASH },
+      string_pool: { coverage: "complete" },
+    });
+    expect(
+      evidence.normalized_result.libapp.sections
+        .filter((section) => section.name.endsWith("Data"))
+        .map((section) => section.kind),
+    ).toEqual([4, 4]);
   },
 );

@@ -28,10 +28,7 @@ interface FlutterCommandSpec {
 export const registerFlutterCommands = (
   cli: CliInstance,
   logger: Logger,
-  environment: Readonly<Record<string, string | undefined>>,
-  provider: FlutterBuildAnalysisPort = createFlutterBuildAnalysisProvider(
-    environment,
-  ),
+  provider: FlutterBuildAnalysisPort = createFlutterBuildAnalysisProvider(),
 ): void => {
   const specs: readonly FlutterCommandSpec[] = [
     {

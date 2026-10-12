@@ -99,7 +99,7 @@ export const createCli = (
   registerManagedCommands(cli, logger, analysis.runProviderAnalysis);
   registerAndroidCommands(cli, logger, environment);
   registerApktoolCommands(cli, logger, environment);
-  registerFlutterCommands(cli, logger, environment);
+  registerFlutterCommands(cli, logger);
   registerJebCommands(cli, logger, environment);
   registerAdbCommands(cli, logger, environment);
   registerFirmwareCommands(cli, logger, environment);

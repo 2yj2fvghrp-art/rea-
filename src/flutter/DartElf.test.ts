@@ -8,8 +8,8 @@ import {
   snapshotSection,
 } from "./FlutterBuild.fixture.js";
 
-const readElfSymbol = (bytes: Buffer, name: string) => {
-  const result = readElfSymbols(bytes, [name]);
+const readElfSymbol = async (bytes: Buffer, name: string) => {
+  const result = await readElfSymbols(bytes, [name]);
   return result.symbols[0] === undefined
     ? { failure: result.failures[0]! }
     : { symbol: result.symbols[0] };
@@ -54,9 +54,9 @@ const strippedImageWithSections = (): Buffer => {
 };
 
 describe("readElfSymbol", () => {
-  it("locates snapshot symbols in a synthetic ELF64 image", () => {
+  it("locates snapshot symbols in a synthetic ELF64 image", async () => {
     const image = imageWithSections();
-    const isolateData = readElfSymbol(image, "_kDartIsolateSnapshotData");
+    const isolateData = await readElfSymbol(image, "_kDartIsolateSnapshotData");
     if ("failure" in isolateData) throw new Error(isolateData.failure.reason);
     expect(isolateData.symbol.offset).toBe(0x800);
     expect(isolateData.symbol.size).toBe(52);
@@ -65,21 +65,21 @@ describe("readElfSymbol", () => {
     expect(header.kind).toBe(3);
   });
 
-  it("refuses a non-ELF image instead of guessing", () => {
-    const result = readElfSymbol(Buffer.from("not an elf at all"), "x");
+  it("refuses a non-ELF image instead of guessing", async () => {
+    const result = await readElfSymbol(Buffer.from("not an elf at all"), "x");
     expect("failure" in result && result.failure.reason).toBe(
       "not an ELF image",
     );
   });
 
-  it("refuses an unknown symbol", () => {
-    const result = readElfSymbol(buildElf64Image([]), "_kDartAbsent");
+  it("refuses an unknown symbol", async () => {
+    const result = await readElfSymbol(buildElf64Image([]), "_kDartAbsent");
     expect("failure" in result).toBe(true);
   });
 
-  it("locates snapshot symbols in a section-stripped ET_DYN image", () => {
+  it("locates snapshot symbols in a section-stripped ET_DYN image", async () => {
     const image = strippedImageWithSections();
-    const isolateData = readElfSymbol(image, "_kDartIsolateSnapshotData");
+    const isolateData = await readElfSymbol(image, "_kDartIsolateSnapshotData");
     if ("failure" in isolateData) throw new Error(isolateData.failure.reason);
     expect(isolateData.symbol.offset).toBe(0x800);
     expect(isolateData.symbol.size).toBe(52);
@@ -88,20 +88,20 @@ describe("readElfSymbol", () => {
     expect(header.kind).toBe(3);
   });
 
-  it("refuses a stripped image whose PT_DYNAMIC carries no symbols", () => {
+  it("refuses a stripped image whose PT_DYNAMIC carries no symbols", async () => {
     // Drop the PT_DYNAMIC program header by leaving only PT_LOAD.
     const image = strippedImageWithSections();
     image.writeUInt16LE(1, 0x38); // e_phnum
-    const result = readElfSymbol(image, "_kDartVmSnapshotData");
+    const result = await readElfSymbol(image, "_kDartVmSnapshotData");
     expect("failure" in result && result.failure.reason).toBe(
       "symbol _kDartVmSnapshotData is not in the dynamic symbol table",
     );
   });
 
-  it("keeps refusing a stripped image that is not ET_DYN", () => {
+  it("keeps refusing a stripped image that is not ET_DYN", async () => {
     const image = buildStrippedElf64Image([]);
     image.writeUInt16LE(1, 0x10); // ET_REL: the dynamic fallback must not apply
-    const result = readElfSymbol(image, "_kDartVmSnapshotData");
+    const result = await readElfSymbol(image, "_kDartVmSnapshotData");
     expect("failure" in result && result.failure.reason).toBe(
       "ELF section header table is missing or out of bounds",
     );
@@ -109,7 +109,7 @@ describe("readElfSymbol", () => {
 
   it.each([false, true])(
     "ignores undefined entries with loadable values (stripped: %s)",
-    (stripped) => {
+    async (stripped) => {
       const image = stripped
         ? strippedImageWithSections()
         : imageWithSections();
@@ -131,12 +131,12 @@ describe("readElfSymbol", () => {
         ...(stripped ? [] : [0x1234]),
       ]) {
         image.writeUInt16LE(sectionIndex, table + 6);
-        expect(readElfSymbol(image, "_kDartVmSnapshotData")).toHaveProperty(
-          "failure",
-        );
-        expect(readElfSymbol(image, "_kDartIsolateSnapshotData")).toMatchObject(
-          { symbol: { offset: 0x800, size: 52 } },
-        );
+        expect(
+          await readElfSymbol(image, "_kDartVmSnapshotData"),
+        ).toHaveProperty("failure");
+        expect(
+          await readElfSymbol(image, "_kDartIsolateSnapshotData"),
+        ).toMatchObject({ symbol: { offset: 0x800, size: 52 } });
       }
     },
   );
@@ -145,7 +145,7 @@ describe("readElfSymbol", () => {
 describe("ELF symbol-table ownership", () => {
   it.each([false, true])(
     "keeps a symbol terminator inside dynstr (stripped: %s)",
-    (stripped) => {
+    async (stripped) => {
       const image = stripped
         ? strippedImageWithSections()
         : imageWithSections();
@@ -157,11 +157,11 @@ describe("ELF symbol-table ownership", () => {
         const shoff = Number(image.readBigUInt64LE(0x28));
         image.writeBigUInt64LE(BigInt(name.length + 1), shoff + 2 * 64 + 0x20);
       }
-      expect(readElfSymbols(image, [name]).symbols).toEqual([]);
+      expect((await readElfSymbols(image, [name])).symbols).toEqual([]);
     },
   );
 
-  it("uses DT_HASH's count when strings precede symbols instead of reading following payload", () => {
+  it("uses DT_HASH's count when strings precede symbols instead of reading following payload", async () => {
     const image = strippedImageWithSections();
     const dynamic = Number(image.readBigUInt64LE(64 + 56 + 8));
     const symbols = Number(image.readBigUInt64LE(dynamic + 8));
@@ -169,7 +169,7 @@ describe("ELF symbol-table ownership", () => {
     image.writeBigUInt64LE(0x300n, dynamic + 8);
     const hash = Number(image.readBigUInt64LE(dynamic + 4 * 16 + 8));
     image.writeUInt32LE(1, hash + 4); // Only the VM entry belongs to dynsym.
-    const result = readElfSymbols(image, [
+    const result = await readElfSymbols(image, [
       "_kDartVmSnapshotData",
       "_kDartIsolateSnapshotData",
     ]);
@@ -182,13 +182,13 @@ describe("ELF symbol-table ownership", () => {
     });
     image.writeBigUInt64LE(0x60000001n, dynamic + 4 * 16); // No recognized count table.
     expect(
-      readElfSymbols(image, ["_kDartVmSnapshotData"]).failures,
+      (await readElfSymbols(image, ["_kDartVmSnapshotData"])).failures,
     ).toContainEqual({
       reason: "Stripped ELF has no DT_HASH or DT_GNU_HASH symbol count",
     });
   });
 
-  it("bounds GNU hash chains and resolves both requested symbols in one inventory", () => {
+  it("bounds GNU hash chains and resolves both requested symbols in one inventory", async () => {
     const image = strippedImageWithSections();
     const dynamic = Number(image.readBigUInt64LE(64 + 56 + 8));
     const hash = Number(image.readBigUInt64LE(dynamic + 4 * 16 + 8));
@@ -201,21 +201,21 @@ describe("ELF symbol-table ownership", () => {
     image.writeUInt32LE(1, hash + 28); // chain terminator; count is 2
     const names = ["_kDartVmSnapshotData", "_kDartIsolateSnapshotData"];
     expect(
-      readElfSymbols(image, names).symbols.map((symbol) => symbol.name),
+      (await readElfSymbols(image, names)).symbols.map((symbol) => symbol.name),
     ).toEqual(names);
     image.writeUInt32LE(0xffffffff, hash + 24);
-    expect(readElfSymbols(image, names).symbols).toEqual([]);
+    expect((await readElfSymbols(image, names)).symbols).toEqual([]);
   });
 });
 
 describe("readSnapshotHeader", () => {
-  it("reads a synthesized data header", () => {
+  it("reads a synthesized data header", async () => {
     const header = readSnapshotHeader(snapshotSection(GALLERY_HASH), 0);
     expect(header.magicValid).toBe(true);
     expect(header.kind).toBe(3);
   });
 
-  it("reports nulls for sections without the data magic", () => {
+  it("reports nulls for sections without the data magic", async () => {
     const header = readSnapshotHeader(Buffer.from([0, 0, 0, 0, 0, 0, 0, 0]), 0);
     expect(header).toEqual({
       magicValid: false,

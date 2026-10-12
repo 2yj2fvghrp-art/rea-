@@ -210,3 +210,58 @@ export const snapshotSection = (hash: string): Buffer =>
     ]),
     Buffer.from(hash, "latin1"),
   ]);
+
+/** A real ELF container declaring GNU note ownership, with an unrelated payload prefix. */
+export const engineFixtureImage = (options: {
+  readonly notes: Buffer;
+  readonly prefix?: Buffer;
+  readonly labels?: readonly string[];
+  readonly bits?: 32 | 64;
+  readonly ownership?: "program" | "section" | "both";
+}): Buffer => {
+  const is64 = options.bits !== 32;
+  const ownership = options.ownership ?? "program";
+  const program = ownership !== "section";
+  const section = ownership !== "program";
+  const header = is64 ? 64 : 52;
+  const phent = is64 ? 56 : 32;
+  const shent = is64 ? 64 : 40;
+  const noteAt = 0x400;
+  const labels = Buffer.from(`\0${(options.labels ?? []).join("\0")}\0`);
+  const image = Buffer.alloc(noteAt + options.notes.length + labels.length);
+  image.writeUInt32LE(0x464c457f);
+  image[4] = is64 ? 2 : 1;
+  image[5] = 1;
+  image[6] = 1;
+  image.writeUInt16LE(3, 0x10);
+  image.writeUInt32LE(1, 0x14);
+  image.writeUInt16LE(header, is64 ? 0x34 : 0x28);
+  const word = (value: number, offset: number): void => {
+    if (is64) image.writeBigUInt64LE(BigInt(value), offset);
+    else image.writeUInt32LE(value, offset);
+  };
+  word(header, is64 ? 0x20 : 0x1c);
+  image.writeUInt16LE(phent, is64 ? 0x36 : 0x2a);
+  image.writeUInt16LE(program ? 2 : 1, is64 ? 0x38 : 0x2c);
+  image.writeUInt32LE(1, header); // PT_LOAD
+  word(image.length, header + (is64 ? 0x20 : 0x10));
+  if (program) {
+    const ph = header + phent;
+    image.writeUInt32LE(4, ph); // PT_NOTE
+    word(noteAt, ph + (is64 ? 8 : 4));
+    word(options.notes.length, ph + (is64 ? 0x20 : 0x10));
+  }
+  if (section) {
+    word(0x100, is64 ? 0x28 : 0x20);
+    image.writeUInt16LE(shent, is64 ? 0x3a : 0x2e);
+    image.writeUInt16LE(2, is64 ? 0x3c : 0x30);
+    const sh = 0x100 + shent;
+    image.writeUInt32LE(7, sh + 4); // SHT_NOTE
+    word(noteAt, sh + (is64 ? 0x18 : 0x10));
+    word(options.notes.length, sh + (is64 ? 0x20 : 0x14));
+  }
+  options.prefix?.copy(image, 0x300, 0, 0x100);
+  options.notes.copy(image, noteAt);
+  labels.copy(image, noteAt + options.notes.length);
+  return image;
+};

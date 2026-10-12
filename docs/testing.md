@@ -697,16 +697,20 @@ version string (expected for a release engine build), and the Android
 clang/LLVM toolchain line; the AOT inspection locates all four snapshot
 symbols through the dynamic symbol table on both ELF64 and ELF32 images,
 validates the data-section headers, agrees with the identification hash,
-and projects a string pool of 756 `package:` and 201 `dart:` URIs from the
-isolate data section; a plain aapt2-built APK reports not-detected with
+and counts 756 `package:` and 201 `dart:` URIs on arm64-v8a and x86_64,
+and 212 / 48 on armeabi-v7a, from each isolate data section. Responses
+retain at most 500 URIs per family and 2000 class-like tokens. Gallery's
+pool projection and overall AOT coverage are partial while its structural
+`libapp.coverage` is complete. A plain aapt2-built APK reports not-detected with
 complete coverage. The suite uses self-contained synthetic ELF images and recorded scanner
 prefixes, with no private local-file dependency. The verifier now compares
 compiled CLI and stdio MCP Evidence on every ABI, including data-header kind
 and declared lengths. Add
 `--expectations scripts/fixtures/flutter-gallery-expectations.json` for the
-documented Gallery APK to assert its pinned digest, hash and exact engine
-labels; exact labels on other APKs remain unverified without an expectations
-file.
+documented Gallery APK to assert its pinned digest, hash, exact engine labels
+and per-ABI URI counts. The verifier requires complete structural snapshot
+coverage, reports bounded pool coverage as partial/unverified, and reports
+exact labels/counts on other APKs unverified without an expectations file.
 See [Flutter build identification](flutter-analysis.md) for boundaries and
 budgets.
 

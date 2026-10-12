@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BuildIdScanner,
   LabeledStringScanner,
   SnapshotHashScanner,
 } from "./FlutterPayloadScan.js";
@@ -92,55 +91,6 @@ it("distinguishes a full candidate set from omitted conflicts", () => {
   scanner.push(realSnapshotSection("f".repeat(32)));
   expect(scanner.result()).toMatchObject({ sources: 66, capped: true });
   expect(scanner.result().candidates).toHaveLength(64);
-});
-
-describe("BuildIdScanner", () => {
-  it("reads a real GNU build-id note", () => {
-    const scanner = new BuildIdScanner();
-    const note = Uint8Array.from([
-      0x04,
-      0x00,
-      0x00,
-      0x00,
-      0x14,
-      0x00,
-      0x00,
-      0x00,
-      0x03,
-      0x00,
-      0x00,
-      0x00,
-      0x47,
-      0x4e,
-      0x55,
-      0x00,
-      ...Array.from({ length: 20 }, (_, index) => index),
-    ]);
-    scanner.push(Uint8Array.from([1, 2, 3]));
-    scanner.push(note);
-    expect(scanner.result()).toBe(
-      Array.from({ length: 20 }, (_, index) => index)
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join(""),
-    );
-  });
-
-  it("reads an 8-byte build-id note from older toolchains", () => {
-    const scanner = new BuildIdScanner();
-    const note = Uint8Array.from([
-      0x04, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
-      0x47, 0x4e, 0x55, 0x00, 0x37, 0x2c, 0xb6, 0x41, 0xf8, 0xbd, 0x80, 0xde,
-    ]);
-    scanner.push(Uint8Array.from([9, 9]));
-    scanner.push(note);
-    expect(scanner.result()).toBe("372cb641f8bd80de");
-  });
-
-  it("reports null when no note exists", () => {
-    const scanner = new BuildIdScanner();
-    scanner.push(Uint8Array.from([0, 0, 0, 0]));
-    expect(scanner.result()).toBeNull();
-  });
 });
 
 describe("LabeledStringScanner", () => {
@@ -256,20 +206,4 @@ describe("LabeledStringScanner", () => {
       toolchainCapped: false,
     });
   });
-});
-
-it("checks each build-id note tail locally among many colliding prefixes", () => {
-  const scanner = new BuildIdScanner();
-  const collisions = Buffer.alloc(64 * 1024);
-  for (let at = 0; at < collisions.length; at += 8) {
-    collisions.writeUInt32LE(4, at);
-    collisions.writeUInt32LE(8, at + 4);
-  }
-  scanner.push(collisions);
-  scanner.push(
-    Buffer.from([
-      4, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 71, 78, 85, 0, 1, 2, 3, 4,
-    ]),
-  );
-  expect(scanner.result()).toBe("01020304");
 });

@@ -30,6 +30,7 @@ const inspectExecution = () =>
       target,
       abi: "arm64-v8a",
       libapp: {
+        coverage: "complete",
         bytes: 24691632,
         sha256: "b".repeat(64),
         snapshot_hash: SNAPSHOT_HASH,
@@ -55,6 +56,7 @@ const inspectExecution = () =>
         ],
       },
       string_pool: {
+        coverage: "complete",
         package_uris: [
           "package:adaptive_breakpoints/src/adaptive_breakpoints.dart",
         ],
@@ -92,6 +94,7 @@ const identifyExecution = () =>
             bytes: 9073432,
             sha256: "c".repeat(64),
             build_id: "e8d907ef7c175ec4313f47111019adc9588c5f61",
+            build_id_candidates: ["e8d907ef7c175ec4313f47111019adc9588c5f61"],
             dart_version: null,
             dart_version_capped: false,
             toolchain_lines: ["Android (5900059) clang version 9.0.8"],

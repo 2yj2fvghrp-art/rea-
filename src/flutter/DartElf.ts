@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   SNAPSHOT_HASH_LENGTH,
   SNAPSHOT_HASH_OFFSET,
@@ -173,10 +174,12 @@ export interface ElfSymbolInventory {
 }
 
 /** Decode the ELF tables once and resolve only the requested definitions. */
-export const readElfSymbols = (
+export const readElfSymbols = async (
   bytes: Buffer,
   symbolNames: readonly string[],
-): ElfSymbolInventory => {
+  signal?: AbortSignal,
+): Promise<ElfSymbolInventory> => {
+  signal?.throwIfAborted();
   const failure = (reason: string): ElfSymbolInventory => ({
     symbols: [],
     failures: [{ reason }],
@@ -198,6 +201,10 @@ export const readElfSymbols = (
   const segments: { vaddr: number; offset: number; filesz: number }[] = [];
   let dynamicSegment: { offset: number; filesz: number } | null = null;
   for (let index = 0; index < e_phnum; index += 1) {
+    if (index % 4096 === 0) {
+      await yieldToEventLoop();
+      signal?.throwIfAborted();
+    }
     const base = e_phoff + index * e_phentsize;
     const type = reader.u32(base);
     if (type !== PT_LOAD && type !== PT_DYNAMIC) continue;
@@ -238,6 +245,10 @@ export const readElfSymbols = (
   }[] = [];
   if (!dynamicFallback) {
     for (let index = 0; index < e_shnum; index += 1) {
+      if (index % 4096 === 0) {
+        await yieldToEventLoop();
+        signal?.throwIfAborted();
+      }
       const header = e_shoff + index * e_shentsize;
       if (reader.u32(header + 4) !== SHT_DYNSYM) continue;
       const offset = is64
@@ -292,6 +303,10 @@ export const readElfSymbols = (
       base + dynamicEntrySize <= dynamicSegment.offset + dynamicSegment.filesz;
       base += dynamicEntrySize
     ) {
+      if ((base - dynamicSegment.offset) % (4096 * dynamicEntrySize) === 0) {
+        await yieldToEventLoop();
+        signal?.throwIfAborted();
+      }
       const tag = is64 ? reader.u64(base) : reader.u32(base);
       const value = is64 ? reader.u64(base + 8) : reader.u32(base + 4);
       if (tag === null || value === null)
@@ -351,6 +366,10 @@ export const readElfSymbols = (
       let last = 0;
       const bucketsAt = at + 16 + bloomWords * (is64 ? 8 : 4);
       for (let index = 0; index < buckets; index += 1) {
+        if (index % 4096 === 0) {
+          await yieldToEventLoop();
+          signal?.throwIfAborted();
+        }
         const value = reader.u32(bucketsAt + index * 4)!;
         if (value !== 0 && value < firstSymbol)
           return failure("DT_GNU_HASH bucket precedes its first symbol");
@@ -360,6 +379,10 @@ export const readElfSymbols = (
       if (last !== 0) {
         let index = last;
         while (true) {
+          if ((index - last) % 4096 === 0) {
+            await yieldToEventLoop();
+            signal?.throwIfAborted();
+          }
           const span = prefixBytes + (index - firstSymbol + 1) * 4;
           if (toOffset(gnu, span) === null)
             return failure("DT_GNU_HASH chain is unterminated");
@@ -385,6 +408,10 @@ export const readElfSymbols = (
   const failures: ElfParseFailure[] = [];
   for (const table of tables) {
     for (let index = 0; index < table.count; index += 1) {
+      if (index % 4096 === 0) {
+        await yieldToEventLoop();
+        signal?.throwIfAborted();
+      }
       const base = table.offset + index * entrySize;
       const nameOffset = reader.u32(base)!;
       const sectionIndex = reader.u16(base + (is64 ? 6 : 14))!;
@@ -467,11 +494,13 @@ export const readSnapshotHeader = (
   // Dart's stored length excludes the four magic bytes and includes the
   // 20-byte fixed header and the version hash. Aligned data may follow it
   // inside the exported symbol, but the serialized snapshot must fit.
+  // Kind 3 is FullAOT in the supported Dart 2.14 layout; enum values change
+  // across SDK versions, so other kinds remain uninterpreted observations.
   const complete =
     headerLength !== null &&
     headerLength >= SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH - 4 &&
     headerLength <= bytes.length - offset - 4 &&
-    kind !== null &&
+    kind === 3 &&
     hash !== null;
   return { magicValid: true, kind, headerLength, hash, complete };
 };

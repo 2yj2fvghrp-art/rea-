@@ -90,7 +90,15 @@ export const flutterResultSchemas = {
             .string()
             .regex(/^[0-9a-f]{8,128}$/u)
             .nullable()
-            .describe("GNU build-id note, when present"),
+            .describe(
+              "The single GNU build ID when ELF note coverage is complete and unambiguous",
+            ),
+          build_id_candidates: z
+            .array(z.string().regex(/^[0-9a-f]{8,128}$/u))
+            .max(64)
+            .describe(
+              "Distinct GNU build IDs observed in ELF-owned note ranges; conflicting IDs remain explicit",
+            ),
           dart_version: z
             .string()
             .nullable()
@@ -115,6 +123,11 @@ export const flutterResultSchemas = {
     }),
     abi: z.string().min(1),
     libapp: z.strictObject({
+      coverage: z
+        .enum(["complete", "partial"])
+        .describe(
+          "Coverage of ELF symbols, independent data headers, AOT kind, extents and agreeing hashes",
+        ),
       bytes: z.number().int().nonnegative(),
       sha256: digestSchema,
       snapshot_hash: z
@@ -139,6 +152,11 @@ export const flutterResultSchemas = {
       ),
     }),
     string_pool: z.strictObject({
+      coverage: z
+        .enum(["complete", "partial"])
+        .describe(
+          "Coverage of the bounded printable-run projection; independent of snapshot header validity",
+        ),
       /** Distinct package: source URIs, sorted, bounded. */
       package_uris: z.array(z.string().min(1)),
       package_uri_count_at_least: z.number().int().nonnegative(),

@@ -272,7 +272,7 @@ export const createServer = (
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
   const flutter =
-    options.flutterAnalysis ?? createFlutterBuildAnalysisProvider(environment);
+    options.flutterAnalysis ?? createFlutterBuildAnalysisProvider();
   const fridaInstrumentation =
     options.fridaInstrumentation ?? new FridaInstrumentationManager();
   const wasmArtifact = wasmArtifactModule.create(

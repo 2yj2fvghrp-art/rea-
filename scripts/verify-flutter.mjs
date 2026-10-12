@@ -15,7 +15,7 @@ if (options.help) {
   process.stdout.write(
     "Usage: npm run verify:flutter -- --apk PATH [--plain-apk PATH] [--expectations JSON]\n" +
       "Checks real APK parsing through compiled CLI and stdio MCP. Optional\n" +
-      "expectations bind exact engine labels and snapshot hash to an APK digest.\n",
+      "expectations bind exact engine labels, URI counts and snapshot hash to an APK digest.\n",
   );
   process.exit(0);
 }
@@ -65,6 +65,9 @@ try {
     hashes.add(abi.libapp.snapshot_hash);
     assert.equal(abi.libflutter.present, true);
     assert.match(abi.libflutter.build_id ?? "", /^(?:[0-9a-f]{2}){4,64}$/u);
+    assert.deepEqual(abi.libflutter.build_id_candidates, [
+      abi.libflutter.build_id,
+    ]);
   }
   assert.equal(hashes.size, 1, "Every ABI must agree on the snapshot hash");
   if (expectations !== null) {
@@ -101,6 +104,17 @@ try {
         ? preferred
         : await run("inspect_dart_aot", { path: apk, abi: abi.abi });
     assert.equal(aot.abi, abi.abi);
+    assert.equal(
+      aot.libapp.coverage,
+      "complete",
+      `Snapshot decoding must be complete on ${abi.abi}`,
+    );
+    assert.equal(aot.coverage, aot.string_pool.coverage);
+    if (aot.coverage !== "complete") {
+      process.stdout.write(
+        `[unverified] ${abi.abi}: full string-pool projection (returned pool is bounded and partial)\n`,
+      );
+    }
     assert.deepEqual(aot.target, identified.target);
     assert.equal(aot.libapp.sha256, abi.libapp.sha256);
     assert.equal(aot.libapp.bytes, abi.libapp.bytes);
@@ -132,6 +146,28 @@ try {
     }
     assert.ok(aot.string_pool.package_uri_count_at_least > 0);
     assert.ok(aot.string_pool.dart_uri_count_at_least > 0);
+    if (expectations?.string_pools !== undefined) {
+      const expected = expectations.string_pools[abi.abi];
+      assert.ok(
+        expected,
+        `Pinned string-pool counts are required on ${abi.abi}`,
+      );
+      assert.equal(
+        aot.string_pool.package_uri_count_at_least,
+        expected.package_uri_count_at_least,
+      );
+      assert.equal(
+        aot.string_pool.dart_uri_count_at_least,
+        expected.dart_uri_count_at_least,
+      );
+      process.stdout.write(
+        `[ok] ${abi.abi}: exact pinned package and Dart URI counts\n`,
+      );
+    } else {
+      process.stdout.write(
+        `[unverified] ${abi.abi}: exact string-pool counts need --expectations JSON\n`,
+      );
+    }
     process.stdout.write(
       `[ok] ${abi.abi}: four symbols, bounded AOT headers, agreeing hashes and string pool\n`,
     );
@@ -165,7 +201,9 @@ try {
     await root.close();
   }
 }
-process.stdout.write("all Flutter CLI/MCP checks passed\n");
+process.stdout.write(
+  "all asserted Flutter CLI/MCP checks passed; unverified facets are reported above\n",
+);
 
 async function run(operation, input) {
   const contract = toolContract(operation);

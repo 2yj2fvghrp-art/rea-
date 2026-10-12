@@ -35,7 +35,12 @@ ABIs alphabetically).
   sections, which carry the `f5f5dcdc` magic — the parsed header kind and
   length (the stored length excludes the four magic bytes). Data headers
   whose declared snapshot length does not fit their symbol retain their
-  observed fields and report partial coverage. A payload without exported snapshot symbols is refused rather
+  observed fields and report partial coverage. Complete structural coverage
+  currently requires kind 3, the FullAOT value in the supported
+  [Dart 2.14 layout](https://github.com/dart-lang/sdk/blob/2.14.0/runtime/vm/snapshot.h).
+  Kind numbers vary across Dart releases; other values are preserved with
+  partial coverage, without guessing their interpretation.
+  A payload without exported snapshot symbols is refused rather
   than guessed at.
 - **The snapshot hash** from the header at the start of each exported data
   symbol. Complete hash coverage requires a valid header from both the VM
@@ -45,8 +50,12 @@ ABIs alphabetically).
   `package:` source URIs (the app's own and its dependencies' Dart files —
   a dependency inventory), `dart:` SDK URIs (which SDK libraries the app
   uses), and identifier-shaped tokens, each bounded with counts and
-  `coverage: "partial"` when truncated. On the reference target this
-  surfaces 756 package URIs and 201 dart URIs.
+  `coverage: "partial"` when truncated. On the reference target this counts
+  756 package URIs and 201 dart URIs on arm64-v8a and x86_64, and 212 / 48
+  on armeabi-v7a, retaining up to 500 of each in the response.
+  `libapp.coverage` describes structural snapshot checks;
+  `string_pool.coverage` describes the bounded projection. Overall coverage
+  is partial when either facet is partial.
 
 ## Interpret the result
 
@@ -65,10 +74,15 @@ ABIs alphabetically).
   false and partial coverage while retaining byte-scanned hashes. This
   header check does not establish valid table contents or exported symbols.
 - **`libflutter` facts** are per-ABI observations: byte size, SHA-256
-  digest, the GNU build-id note, and any _labeled_ strings the build
+  digest, GNU build IDs from ELF-declared `PT_NOTE` / `SHT_NOTE` ranges,
+  and any _labeled_ strings the build
   carries. Release engine builds often strip the `Dart VM version` string —
   absence is reported as `null`, not guessed. Android clang/LLVM toolchain
   lines are reported verbatim as build provenance.
+  `build_id_candidates` preserves distinct IDs. `build_id` is populated only
+  when all declared note ranges were examined and one ID was found;
+  conflicting IDs or malformed/bounded note metadata make coverage partial.
+  Matching bytes outside declared note ranges cannot supply a build ID.
 - Labeled strings must fit their complete grammar. `dart_version_capped`
   and `toolchain_capped` independently report labels omitted by grammar or
   projection bounds; either makes identification coverage partial. Values
@@ -86,13 +100,21 @@ ABIs alphabetically).
   reader closure and snapshot cleanup are retained and retried on `close()`.
   The snapshot is removed only after all owned readers and file descriptors
   close successfully. Copying pins one admitted descriptor and compares its
-  identity, size, mode and timestamps after the copy.
+  identity, size, mode and timestamps after the copy. Source permission
+  failures remain `access_denied`, and source identity changes remain
+  `artifact_changed`. Provider-owned storage failures report a
+  `resource_constraint` with their native I/O cause. Cancellation is checked
+  during copying, metadata/symbol walks, string scanning, and after cleanup.
 - **Bounded reads.** APK snapshots are bounded at 2 GiB, including while
   copying. Identification permits 768 MiB of cumulative library extraction;
   declared sizes are checked before extraction. Library reads are bounded at 256 MiB each and ZIP
   metadata at 8 MiB; the AOT image buffer is allocated at exactly the
   declared size before reading. Exceeded budgets report
   `resource_constraint`.
+- **Engine notes.** Engine libraries are spooled into the owned root. ELF
+  headers, note tables and note payloads share an 8 MiB metadata budget;
+  up to 64 distinct build IDs are retained. Exceeding either bound preserves
+  the candidates already examined and reports partial coverage.
 - **Metadata and candidate capacity.** Both operations refuse duplicate
   relevant library paths. Inventory is limited to 32 ABIs and 1024 bytes per
   relevant library path, independently of compressed size. Identification
@@ -119,12 +141,16 @@ ABIs alphabetically).
 `npm run verify:flutter -- --apk PATH [--plain-apk PATH]` runs both tools
 through compiled CLI and stdio MCP, compares Evidence, and checks every ABI.
 Use `--expectations scripts/fixtures/flutter-gallery-expectations.json` with
-the Gallery 2.9.2 release APK to check exact per-ABI engine labels and the
-snapshot hash against its pinned SHA-256. Other APKs need their own
-expectations file to verify exact engine labels; otherwise that facet is
-reported unverified. The optional plain APK checks negative detection. Record: Flutter Gallery 2.9.2 (112 MB, three
+the Gallery 2.9.2 release APK to check exact per-ABI engine labels,
+URI counts and the snapshot hash against its pinned SHA-256. The verifier
+requires complete structural snapshot coverage on every ABI and explicitly
+reports the bounded pool projection as partial/unverified when truncated.
+Other APKs need their own expectations file to verify exact engine labels
+and URI counts; otherwise those facets are reported unverified.
+The optional plain APK checks negative detection. Record: Flutter Gallery 2.9.2 (112 MB, three
 ABIs) — every ABI reports the same agreeing hash
 `65817c30a78bb44c3dc3771876b6010a` from two snapshot sections, per-ABI
 engine build-ids, no labeled Dart version (as expected for a release
 engine), and the Android clang toolchain line; a plain aapt2-built APK
-reports not-detected with complete coverage. The suite uses self-contained synthetic ELF images and recorded scanner prefixes; it does not read private local files.
+reports not-detected with complete coverage. The suite uses self-contained
+synthetic ELF images and scanner payloads; it does not read private local files.
