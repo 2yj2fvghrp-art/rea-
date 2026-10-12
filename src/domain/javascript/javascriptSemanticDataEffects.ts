@@ -143,9 +143,9 @@ const processConfigurationMember = (
   const object = node.object;
   if (!t.isMemberExpression(object) && !t.isOptionalMemberExpression(object))
     return null;
-  if (!isProcessObject(object.object, state)) return null;
   const family = semanticStaticPropertyName(object.property, object.computed);
   if (family !== "env" && family !== "argv") return null;
+  if (!isProcessObject(object.object, state, family)) return null;
   // `process.env[""]` names an exact (empty) key; only a dynamic key is unknown.
   const key = semanticStaticPropertyKey(node.property, node.computed);
   if (family === "argv" && key !== null && !isArrayIndexKey(key)) return null;

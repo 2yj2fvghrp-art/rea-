@@ -12,6 +12,55 @@ import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 
 const execute = promisify(execFile);
 
+it("preserves earlier and sibling effects without inventing replaced cached-module or process effects", async () => {
+  const root = await createTestTempDirectory("rea-builtin-identity-");
+  await writeFile(
+    join(root, "app.cjs"),
+    `
+    throw new Error('parse only');
+    const a = require('node:fs'); const b = require('fs');
+    b.readFileSync('before.json'); const stream = b.createReadStream('before.json'); stream.destroy();
+    patch(a); b.readFileSync('wrong-after.json');
+    const proc = require('node:process'); proc.env = {}; proc.argv = []; const mode = proc.env.MODE; const arg = proc.argv[2];
+  `,
+  );
+  await writeFile(
+    join(root, "sibling.mjs"),
+    `import fs from 'node:fs'; fs.writeFileSync = custom; fs.readFileSync('sibling.json');`,
+  );
+  const { stdout } = await execute(
+    process.execPath,
+    ["scripts/rea.mjs", "analyze-javascript-application", root, "--json"],
+    { cwd: process.cwd(), maxBuffer: 16 * 1024 * 1024 },
+  );
+  const evidence = parseEvidence(JSON.parse(stdout));
+  const result = javascriptApplicationAnalysisResultSchema.parse(
+    evidence.normalized_result,
+  );
+  expect(
+    result.semantic_graph.nodes
+      .filter(({ kind }) => kind === "config-source")
+      .map(({ properties }) => properties.key)
+      .sort(),
+  ).toEqual(["before.json", "sibling.json"]);
+  expect(
+    result.semantic_graph.nodes.filter(({ kind }) => kind === "resource"),
+  ).toHaveLength(1);
+  expect(
+    result.semantic_graph.relations.filter(
+      ({ relation }) => relation === "releases",
+    ),
+  ).toHaveLength(1);
+  const { client, call } = await connectLocalToolsMcp();
+  const response = await call("analyze_javascript_application", {
+    input_path: root,
+    format: "auto",
+  });
+  expect(response.isError, JSON.stringify(response)).not.toBe(true);
+  expect(response.structuredContent).toEqual(evidence);
+  await client.ping();
+}, 60000);
+
 it("excludes monkey-patched CommonJS effects from CLI and MCP evidence", async () => {
   const root = await createTestTempDirectory("rea-builtin-mutated-");
   await writeFile(

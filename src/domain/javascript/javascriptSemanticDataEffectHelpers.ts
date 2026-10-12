@@ -8,6 +8,7 @@ import {
 } from "./javascriptSemanticPropertyPaths.js";
 
 import { semanticCallableIdForNode } from "./javascriptSemanticProjection.js";
+import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
 import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
@@ -150,7 +151,7 @@ export const builtinDataEffectMethod = (
 ): string | null => {
   if (t.isIdentifier(callee)) {
     const binding = resolveSemanticBindingState(state, callee, callee.name);
-    const path = builtinBindingPath(binding, state, specifiers);
+    const path = builtinBindingPath(binding, state, specifiers, callee);
     return path?.length === 1 ? (path[0] ?? null) : null;
   }
   if (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee))
@@ -163,7 +164,8 @@ export const builtinDataEffectMethod = (
   );
   const method = semanticStaticPropertyName(callee.property, callee.computed);
   return method !== null &&
-    builtinBindingPath(binding, state, specifiers, [method])?.length === 0
+    builtinBindingPath(binding, state, specifiers, callee, [method])?.length ===
+      0
     ? method
     : null;
 };
@@ -172,6 +174,7 @@ const builtinBindingPath = (
   binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
   specifiers: readonly string[],
+  capture: t.Node,
   selectedPath: readonly string[] = [],
   visited: ReadonlySet<string> = new Set(),
 ): readonly string[] | null => {
@@ -185,6 +188,11 @@ const builtinBindingPath = (
     binding.escapedPaths.some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
+        !semanticTopLevelEffectFollowsCapture(
+          capture,
+          node,
+          state.parentsByNode,
+        ) &&
         !originalBuiltinReceiver(node, binding, state, specifiers),
     )
   )
@@ -211,6 +219,7 @@ const builtinBindingPath = (
             source,
             state,
             specifiers,
+            capture,
             current.path,
             ancestors,
           ) === null
@@ -278,7 +287,11 @@ const originalBuiltinReceiver = (
   if (
     provenance.status !== "module" ||
     !specifiers.includes(provenance.origins[0].specifier) ||
-    provenance.origins[0].importedPath.length !== 0
+    !(
+      provenance.origins[0].importedPath.length === 0 ||
+      (receiver.directOrigins.length > 0 &&
+        semanticBuiltinNamespacePath(provenance.origins[0].importedPath))
+    )
   )
     return false;
   const method = semanticStaticPropertyName(callee.property, callee.computed);
@@ -287,18 +300,26 @@ const originalBuiltinReceiver = (
     binding.mutatedPaths.some((path) => affectsBuiltinPath(path, [method]))
   )
     return false;
-  return !node.arguments.some(
-    (argument) =>
-      t.isIdentifier(argument) &&
-      resolveSemanticBindingState(state, argument, argument.name)?.bindingId ===
-        binding.bindingId,
-  );
+  return !node.arguments.some((argument) => {
+    if (!t.isIdentifier(argument)) return false;
+    const passed = resolveSemanticBindingState(state, argument, argument.name);
+    if (passed === undefined) return false;
+    if (passed.bindingId === binding.bindingId) return true;
+    const origin = evaluateSemanticProvenance(passed, state);
+    return (
+      origin.status === "module" &&
+      origin.origins[0].specifier.replace(/^node:/u, "") ===
+        provenance.origins[0].specifier.replace(/^node:/u, "") &&
+      origin.origins[0].importedPath.length === 0
+    );
+  });
 };
 
 /** Recognize global or node:process aliases without accepting shadowing. */
 export const isSemanticProcessObject = (
   node: t.Expression | t.Super,
   state: JavaScriptSemanticAnalysisState,
+  family: "env" | "argv",
 ): boolean => {
   if (!t.isIdentifier(node)) return false;
   const binding = resolveSemanticBindingState(state, node, node.name);
@@ -308,8 +329,9 @@ export const isSemanticProcessObject = (
       !semanticResolutionBlocked(state, node, node.name)
     );
   return (
-    builtinBindingPath(binding, state, ["process", "node:process"])?.length ===
-    0
+    builtinBindingPath(binding, state, ["process", "node:process"], node, [
+      family,
+    ])?.length === 0
   );
 };
 
