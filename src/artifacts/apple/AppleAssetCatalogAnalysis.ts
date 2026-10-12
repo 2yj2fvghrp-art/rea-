@@ -207,7 +207,7 @@ export const collectInterfaceBuilderResourceKeys = (
     const sourcePath = source?.artifact_path;
     const sourceArchiveSha256 = source?.artifact_sha256;
     if (sourcePath == null || sourceArchiveSha256 == null) return [];
-    return Object.entries(node.attributes).flatMap(([field, value]) =>
+    const toReference = (field: string, value: unknown) =>
       RESOURCE_KEY_FIELDS.has(field) &&
       typeof value === "string" &&
       value.length > 0
@@ -220,8 +220,25 @@ export const collectInterfaceBuilderResourceKeys = (
               key: value,
             },
           ]
-        : [],
-    );
+        : [];
+    // NIBArchive resources nest decoded values under nibValues while
+    // keyed-archive resources keep them at the top level; collect both.
+    const nested =
+      typeof node.attributes.nibValues === "object" &&
+      node.attributes.nibValues !== null &&
+      !Array.isArray(node.attributes.nibValues)
+        ? node.attributes.nibValues
+        : null;
+    return [
+      ...Object.entries(node.attributes).flatMap(([field, value]) =>
+        toReference(field, value),
+      ),
+      ...(nested === null
+        ? []
+        : Object.entries(nested).flatMap(([field, value]) =>
+            toReference(field, value),
+          )),
+    ];
   });
 
 const runAssetUtil = async (

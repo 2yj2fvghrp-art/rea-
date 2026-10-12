@@ -118,3 +118,114 @@ describe("Apple asset catalog application workflow", () => {
     );
   });
 });
+
+describe("Apple asset catalog NIBArchive resource keys", () => {
+  const nibFixture = () =>
+    Buffer.from(
+      "TklCQXJjaGl2ZQEAAAAKAAAABAAAADIAAAAEAAAAPgAAAAQAAABgAAAABAAAAHwAAACAgIGBgYGCgoGDg4GGTlNSb290hWltYWdli05TSW1hZ2VOYW1liE5TLmJ5dGVzgAoBAAAAgQoCAAAAggoDAAAAgwiHVG9vbGJhco6ATlNJQk9iamVjdERhdGGLgE5TSW1hZ2VWaWV3h4BOU0ltYWdliIBOU1N0cmluZw==",
+      "base64",
+    );
+
+  const nibBundle = async () => {
+    const bundle = await createTestTempDirectory("rea-asset-catalog-nib-");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(join(resources, "Panel.nib"), nibFixture());
+    return { bundle, resources };
+  };
+
+  it("joins recognized resource-key fields nested under nibValues", () => {
+    expect(
+      collectInterfaceBuilderResourceKeys([
+        {
+          id: "ib:Panel.nib:object:2",
+          kind: "resource",
+          name: "NSImageView",
+          attributes: {
+            customClass: "NSImageView",
+            label: "NSImageView",
+            objectID: "2",
+            nibValues: {
+              NSImageName: "Toolbar",
+              title: "not-an-asset-key",
+              NSImage: 42,
+            },
+          },
+          evidence: [
+            {
+              artifact_path: "Contents/Resources/Panel.nib",
+              artifact_sha256: "e".repeat(64),
+            },
+          ],
+        },
+        {
+          id: "ib:Panel.nib:object:3",
+          kind: "resource",
+          name: "NSButton",
+          attributes: {
+            customClass: "NSButton",
+            label: "NSButton",
+            objectID: "3",
+            nibValues: { title: "not-an-asset-key" },
+          },
+          evidence: [
+            {
+              artifact_path: "Contents/Resources/Panel.nib",
+              artifact_sha256: "e".repeat(64),
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        sourceNodeId: "ib:Panel.nib:object:2",
+        sourcePath: "Contents/Resources/Panel.nib",
+        sourceArchiveSha256: "e".repeat(64),
+        field: "NSImageName",
+        key: "Toolbar",
+      },
+    ]);
+  });
+
+  it("reports a NIBArchive nibValues key as unmatched without a catalog", async () => {
+    const { bundle } = await nibBundle();
+    const unmatched = await analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: bundle,
+      targetSha256: "a".repeat(64),
+      runAssetUtil: () => Promise.resolve("[]"),
+    });
+    expect(unmatched.resource_key_matches).toEqual([
+      expect.objectContaining({
+        field: "NSImageName",
+        key: "Toolbar",
+        status: "unmatched",
+        renditions: [],
+      }),
+    ]);
+  });
+
+  it("matches a NIBArchive nibValues key against a catalog record", async () => {
+    const { bundle, resources } = await nibBundle();
+    await writeFile(join(resources, "Assets.car"), "catalog");
+    const matched = await analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: bundle,
+      targetSha256: "a".repeat(64),
+      runAssetUtil: () =>
+        Promise.resolve(
+          JSON.stringify([
+            { Name: "Toolbar", RenditionName: "toolbar@2x.png" },
+          ]),
+        ),
+    });
+    expect(matched.resource_key_matches).toEqual([
+      expect.objectContaining({
+        field: "NSImageName",
+        key: "Toolbar",
+        status: "matched",
+      }),
+    ]);
+    expect(matched.resource_key_matches[0]?.renditions).toHaveLength(1);
+  });
+});
