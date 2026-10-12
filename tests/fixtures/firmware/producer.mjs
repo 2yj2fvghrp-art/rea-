@@ -105,7 +105,7 @@ if (args.includes("--version")) {
         {
           task: midTask,
           reports: [
-            stat(mid, 0, false),
+            stat(mid, 0, true),
             {
               __typename__: "MultiFileReport",
               id: "gzip-id",
