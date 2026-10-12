@@ -890,6 +890,25 @@ describe("headless IDA reaped worker cleanup", () => {
     });
   });
 
+  it("does not name a worker whose close was confirmed when inventory then fails", async () => {
+    const { producer, client } = await fixture("headless");
+    expect((await client.execute("health", {})).ok).toBe(true);
+    producer.beforeCall = async (name) => {
+      if (name === "idb_list") throw new Error("inventory unavailable");
+    };
+
+    const result = await client.close();
+    expect(result.ok).toBe(false);
+    expect(producer.calls.map(({ name }) => name)).toContain("idb_close");
+    expect(result).toMatchObject({
+      error: {
+        diagnostics: {
+          upstream_sessions: { state: "unverified", sessions: [] },
+        },
+      },
+    });
+  });
+
   it("reports a blocking GUI session by its backend", async () => {
     const { producer, client } = await fixture("headless");
     expect((await client.execute("health", {})).ok).toBe(true);

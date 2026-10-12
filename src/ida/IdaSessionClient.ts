@@ -120,7 +120,7 @@ class IdaCleanupError extends ProviderAdapterError {
                   backend,
                 })),
                 reason:
-                  "Release of the upstream sessions using the private input was not confirmed. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none.",
+                  "Release of the upstream sessions using the private input was not confirmed. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
               },
             }),
       },
@@ -569,14 +569,16 @@ export class IdaSessionClient implements AnalysisClient {
 
   /**
    * Upstream sessions whose release cleanup has not confirmed: the entries
-   * the latest successful inventory found blocking release, else the
-   * requested private worker.
+   * the latest successful inventory found blocking release; else the
+   * requested private worker until its close is confirmed, and then none
+   * known.
    */
   #unreleasedSessions(): readonly UpstreamSession[] | undefined {
     if (this.#blockingSessions !== undefined) return this.#blockingSessions;
-    return this.#openAttempted && this.#workspace !== undefined
-      ? [{ session_id: this.#workspace.sessionId, backend: "worker" }]
-      : undefined;
+    if (!this.#openAttempted || this.#workspace === undefined) return undefined;
+    return this.#databaseCloseCompleted
+      ? []
+      : [{ session_id: this.#workspace.sessionId, backend: "worker" }];
   }
 
   /** Replace blocker evidence from a successful inventory; true when blocked. */
