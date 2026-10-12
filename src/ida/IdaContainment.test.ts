@@ -33,7 +33,7 @@ const SEGMENTS = [
 
 const survey = (segments: JsonValue = SEGMENTS) => ({
   metadata: { path: "/db/target.i64", module: "target", arch: "metapc" },
-  statistics: { total_segments: 4 },
+  statistics: { total_segments: Array.isArray(segments) ? segments.length : 0 },
   segments,
   entrypoints: [],
 });
@@ -266,7 +266,12 @@ describe("headless IDA containment failures", () => {
         },
       ]),
     ],
-    ["a reversed segment", survey([segment(".x", "0x2000", "0x1000")])],
+    [
+      "a reversed segment",
+      survey([
+        { name: ".x", start: "0x2000", end: "0x1000", permissions: "r--" },
+      ]),
+    ],
     [
       "a size that disagrees with the bounds",
       survey([{ ...segment(".x", "0x1000", "0x2000"), size: "0x10" }]),
