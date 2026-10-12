@@ -269,7 +269,7 @@ export class IdaSessionClient implements AnalysisClient {
           ...(runner.relationshipCoverage === undefined
             ? {}
             : { relationshipCoverage: runner.relationshipCoverage }),
-          ...(operation === "xrefs" && runner.referencesTruncated !== undefined
+          ...(runner.referencesTruncated !== undefined
             ? { referencesTruncated: runner.referencesTruncated }
             : {}),
           locations: [
