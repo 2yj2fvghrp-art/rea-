@@ -118,21 +118,22 @@ it("charges measured retained expansion for production transfer shapes", () => {
     graphBytes,
     graphRecords,
   );
-  expect(moduleEstimate).toBe(7_715_344);
-  expect(graphEstimate).toBe(857_628_848);
+  expect(moduleEstimate).toBe(9_607_460);
+  expect(graphEstimate).toBe(1_067_867_100);
   // Calibrated to measured metrology: admitting at this charge completed with
-  // 100k nodes retained and a 1.12 GB parent peak RSS (~4x transfer bytes end
-  // to end, inside the already-halved parent budget). The previous 8x charge
-  // (1,714,012,544 bytes) refused this transfer against the same budget.
-  expect(graphEstimate / graphBytes).toBeGreaterThanOrEqual(4);
-  expect(graphEstimate / graphBytes).toBeLessThan(4.5);
+  // 100k nodes retained and a 1.12 GB parent peak RSS. The 5x charge accounts
+  // for both retention (~2.5-3x) and the seal-time duplicate representation
+  // (~2x while parseElementSteps clones live collections). The previous 8x
+  // charge (1,714,012,544 bytes) refused this transfer against the same budget.
+  expect(graphEstimate / graphBytes).toBeGreaterThanOrEqual(5);
+  expect(graphEstimate / graphBytes).toBeLessThan(5.5);
   expect(moduleEstimate + graphEstimate).toBeLessThanOrEqual(remaining);
   expect(2 * (moduleEstimate + graphEstimate)).toBeGreaterThan(remaining);
 });
 
 it("charges retention monotonically from empty transfers", () => {
   expect(javaScriptTransferRetentionBytes(0, 0)).toBe(0);
-  expect(javaScriptTransferRetentionBytes(1, 0)).toBe(4 + 64 * 0);
+  expect(javaScriptTransferRetentionBytes(1, 0)).toBe(5 + 64 * 0);
   expect(javaScriptTransferRetentionBytes(0, 1)).toBe(64);
   const small = javaScriptTransferRetentionBytes(1024, 10);
   const large = javaScriptTransferRetentionBytes(2048, 20);
