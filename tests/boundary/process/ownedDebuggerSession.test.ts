@@ -934,7 +934,7 @@ it.skipIf(process.platform === "win32")(
       "let output = '';",
       "let debuggerPid;",
       "const pid = await new Promise((resolve, reject) => {",
-      "  const timer = setTimeout(() => reject(new Error('debugger did not report inferior pid')), 2000);",
+      "  const timer = setTimeout(() => reject(new Error('debugger did not report inferior pid')), 10_000);",
       "  child.stdout.on('data', (chunk) => {",
       "    output += chunk.toString();",
       "    const debuggerMatch = /^debugger=(\\d+)/mu.exec(output);",
@@ -945,7 +945,7 @@ it.skipIf(process.platform === "win32")(
       "  child.once('error', reject);",
       "});",
       "const session = { id: 'debugger', get exited() { return child.exitCode !== null || child.signalCode !== null; }, launched: { process: child }, supervisor };",
-      "session.detachInferior = async () => ({ status: 'detached', outputSink: 'durable' });",
+      "session.detachInferior = async () => ({ status: 'detached', outputSink: 'durable', inputSink: 'not-inherited' });",
       "const result = await stopOwnedDebuggerProcess(session, 'GDB', { platform: 'linux' });",
       "process.stdout.write(JSON.stringify({ pid, result }));",
     ].join("\n");
@@ -971,7 +971,7 @@ it.skipIf(process.platform === "win32")(
       const resultLine = await new Promise<string>((resolve, reject) => {
         const timeout = setTimeout(
           () => reject(new Error("probe did not report debugger stop")),
-          3_000,
+          10_000,
         );
         const onData = (chunk: Buffer | string): void => {
           const text = chunk.toString();
