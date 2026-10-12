@@ -52,6 +52,7 @@ import {
 } from "./javascriptSourceParser.js";
 
 import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
+import { semanticImportEqualsSpecifier } from "./javascriptSemanticProjection.js";
 
 /** Parse one JavaScript artifact and recover static structure only. */
 export const analyzeJavaScriptStaticSource = (
@@ -239,7 +240,11 @@ const inspectNode = (
     inspectCall(source, node, findings, bindings);
   } else if (t.isNewExpression(node))
     inspectCall(source, node, findings, bindings);
-  if (
+  if (t.isTSImportEqualsDeclaration(node)) {
+    const specifier = semanticImportEqualsSpecifier(node);
+    if (specifier !== null)
+      addReference(findings, { node, kind: "require", specifier });
+  } else if (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined
   )

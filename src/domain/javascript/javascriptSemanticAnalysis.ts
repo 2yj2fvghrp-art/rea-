@@ -137,8 +137,11 @@ export function* indexJavaScriptBindingsSteps(
 /** Recover semantics from an already parsed JavaScript artifact. */
 export const analyzeParsedJavaScriptSemantics = (
   file: ParsedJavaScriptSource,
+  staticImportResolutionMode: "import" | "require" = "import",
 ): JavaScriptSemanticIr =>
-  completeSemanticSteps(analyzeParsedJavaScriptSemanticsSteps(file));
+  completeSemanticSteps(
+    analyzeParsedJavaScriptSemanticsSteps(file, staticImportResolutionMode),
+  );
 
 /**
  * Recover semantics from a parsed artifact with a yield between analysis
@@ -148,8 +151,9 @@ export const analyzeParsedJavaScriptSemantics = (
  */
 export function* analyzeParsedJavaScriptSemanticsSteps(
   file: ParsedJavaScriptSource,
+  staticImportResolutionMode: "import" | "require" = "import",
 ): Generator<void, JavaScriptSemanticIr> {
-  const state = createState(file.program);
+  const state = createState(file.program, staticImportResolutionMode);
   yield* collectDefinitionsSteps(file.program, state);
   yield* collectSemanticMemberMutationsSteps(file.program, state);
   yield* traverseJavaScriptAstSteps(file.program, {
@@ -162,7 +166,11 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
   yield;
   const callables = collectSemanticReturns(state, parserPartial);
   yield;
-  const moduleLinks = resolveSemanticModuleCallables(state, callables);
+  const moduleLinks = resolveSemanticModuleCallables(
+    state,
+    callables,
+    bindings,
+  );
   const derived = yield* collectJavaScriptDerivedSemanticsSteps(
     file.program,
     state,
@@ -523,7 +531,10 @@ const bindingOrigin = (
     : { ...origin, importedPath: [...origin.importedPath, ...projection] };
 };
 
-const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
+const createState = (
+  program: t.Program,
+  staticImportResolutionMode: "import" | "require" = "import",
+): JavaScriptSemanticAnalysisState => {
   const root: JavaScriptSemanticScopeState = {
     scopeId: semanticScopeId("program", program),
     parentScopeId: null,
@@ -533,6 +544,7 @@ const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
     bindings: new Map(),
   };
   return {
+    staticImportResolutionMode,
     parentsByNode: new WeakMap(),
     scopes: [root],
     scopesById: new Map([[root.scopeId, root]]),
@@ -810,7 +822,7 @@ const bindImportEquals = (
     mutable: false,
     definitionNode: node.id,
     initializer: null,
-    directOrigin: { specifier, importedPath: [] },
+    directOrigin: { specifier, importedPath: [], resolutionMode: "require" },
   });
 };
 
@@ -1195,7 +1207,13 @@ const addBinding = (input: AddBindingInput): void => {
   binding.definitions.push({ kind, location: range(definitionNode) });
   if (initializer !== null)
     binding.initializers.push({ node: initializer, projection });
-  if (directOrigin !== undefined) binding.directOrigins.push(directOrigin);
+  if (directOrigin !== undefined)
+    binding.directOrigins.push(
+      directOrigin.resolutionMode === undefined &&
+        state.staticImportResolutionMode === "require"
+        ? { ...directOrigin, resolutionMode: "require" }
+        : directOrigin,
+    );
   binding.runtimeImport ||= runtimeImport === true;
 };
 
