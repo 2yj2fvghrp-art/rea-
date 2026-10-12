@@ -145,16 +145,20 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
         `The exact HTML resource ${confined} was not found among the selected application files.`,
       ])
     );
-  return resolveCandidate(
-    input,
-    confined,
-    new Set(),
+  const emittedSourceCandidates =
     input.context === "module-specifier" &&
-      input.moduleKind !== undefined &&
-      (input.declaredPath.startsWith(".") || input.declaredPath.startsWith("/"))
+    input.moduleKind !== undefined &&
+    (input.declaredPath.startsWith(".") || input.declaredPath.startsWith("/"))
       ? typescriptEmittedSourceCandidates(input.sourcePath, confined)
-      : [],
-  );
+      : [];
+  if (input.context === "module-specifier" && input.moduleKind === "import")
+    return resolveExactEsmPath(
+      input,
+      confined,
+      "module-url",
+      emittedSourceCandidates,
+    );
+  return resolveCandidate(input, confined, new Set(), emittedSourceCandidates);
 };
 
 const rejectDeclaration = (declared: string): CandidateResolution | null => {
@@ -430,7 +434,7 @@ const resolvePackageDependency = (
     if (typeof fileSubpath !== "string") return fileSubpath;
     const candidate = confineCandidate(`${directory}/${fileSubpath}`);
     if (input.moduleKind === "import" && typeof candidate === "string")
-      return resolveLegacyEsmSubpath(input, candidate);
+      return resolveExactEsmPath(input, candidate, "package-subpath");
     return typeof candidate === "string"
       ? resolveCandidate(input, candidate, new Set())
       : candidate;
@@ -443,19 +447,28 @@ const resolvePackageDependency = (
   );
 };
 
-/** Legacy ESM package subpaths are exact URLs, never extension or directory lookups. */
-const resolveLegacyEsmSubpath = (
+/** ESM URLs name exact files; TypeScript can retain explicit emitted-source counterparts. */
+const resolveExactEsmPath = (
   input: ResolveArtifactPathInput,
   candidate: string,
+  kind: "module-url" | "package-subpath",
+  emittedSourceCandidates: readonly string[] = [],
 ): CandidateResolution => {
-  const file = resolveFileCandidates(input, [candidate]);
+  const file = resolveFileCandidates(input, [
+    candidate,
+    ...emittedSourceCandidates,
+  ]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
   if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
     return unresolvedCandidate("rejected", [
-      `ESM package subpath ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
+      `${kind === "package-subpath" ? "ESM package subpath" : "ES module URL"} ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
     ]);
-  return exactPackageTargetNotFound(candidate, "ESM subpath");
+  return kind === "package-subpath"
+    ? exactPackageTargetNotFound(candidate, "ESM subpath")
+    : unresolvedCandidate("not-found", [
+        `The exact ES module URL ${candidate} was not found in the inventoried artifact container; no extension or directory index lookup was attempted.`,
+      ]);
 };
 
 const resolvePackageExports = (
