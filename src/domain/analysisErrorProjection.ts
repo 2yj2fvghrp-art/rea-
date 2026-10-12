@@ -78,7 +78,9 @@ export const projectAnalysisError = (
     code,
     category: analysisErrorCategory(error),
     message: analysisErrorUserMessage(error),
-    retryable: RETRYABLE_CODES.has(code),
+    retryable:
+      RETRYABLE_CODES.has(code) ||
+      (error instanceof AnalysisCapabilityUnavailableError && error.retryable),
     remediation: {
       action: analysisErrorRemediationAction(error),
     },

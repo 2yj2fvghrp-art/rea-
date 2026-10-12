@@ -735,7 +735,7 @@ export class JavaScriptAnalysisWorker {
           PROVIDER,
           OPERATION,
           cause.message,
-          { cause },
+          { cause, retryable: cause.retryable },
         )
       : new ProviderAdapterError(PROVIDER, OPERATION, {
           cause,

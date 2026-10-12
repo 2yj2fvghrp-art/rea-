@@ -37,10 +37,12 @@ export const privateRuntimeRootCapability = (
 /** Expected failure when a runtime root's privacy boundary is unavailable. */
 export class PrivateRuntimeRootUnavailableError extends Error {
   readonly code = "private-runtime-root-authority-unavailable";
+  readonly retryable: boolean;
 
-  constructor(message: string) {
+  constructor(message: string, retryable = false) {
     super(message);
     this.name = "PrivateRuntimeRootUnavailableError";
+    this.retryable = retryable;
   }
 }
 
@@ -66,7 +68,10 @@ export class PrivateRuntimeRoot {
     const platform = options.platform ?? process.platform;
     const capability = privateRuntimeRootCapability(platform);
     if (!capability.available)
-      throw new PrivateRuntimeRootUnavailableError(capability.reason);
+      throw new PrivateRuntimeRootUnavailableError(
+        capability.reason,
+        "retryable" in capability && capability.retryable === true,
+      );
     if (platform === "win32") {
       const runtime = WindowsPrivateRuntime.create(
         options.parent ?? tmpdir(),
