@@ -58,6 +58,7 @@ interface OriginPropertyWrite {
 }
 interface OriginAttributes {
   readonly configurable?: boolean | undefined;
+  readonly enumerable?: boolean | undefined;
   readonly writable?: boolean | undefined;
   readonly data?: boolean | undefined;
   readonly setter?: boolean | undefined;
@@ -67,6 +68,8 @@ interface OriginProperties {
   readonly definiteKeys: ReadonlySet<string>;
   readonly attributes?: ReadonlyMap<string, OriginAttributes> | undefined;
   readonly complete?: boolean;
+  readonly orderedKeys?: readonly string[] | undefined;
+  readonly interrupted?: ReadonlySet<t.Node> | undefined;
 }
 const originSnapshot = Symbol("mutation origin snapshot");
 type OriginValue = SymbolicValue & {
@@ -90,6 +93,10 @@ interface OriginReference {
   readonly environment: SymbolicEnvironment;
   readonly path: readonly string[];
 }
+interface OriginReceiverWrite {
+  readonly receiver: t.Node;
+  readonly write: PropertyWrite;
+}
 interface SymbolicReturnFlow {
   readonly values: readonly SymbolicValue[];
   readonly fallsThrough: boolean;
@@ -107,6 +114,11 @@ export class JavaScriptSymbolicBindings {
     string,
     Map<number, Map<string | null, PropertyWrite[]>>
   >();
+  readonly #receiverWrites: OriginReceiverWrite[] = [];
+  readonly #objectWrites = new WeakMap<
+    OriginReference[],
+    Map<string | null, OriginPropertyWrite[]>
+  >();
   readonly #environments = new WeakMap<t.Node, SymbolicEnvironment>();
   readonly #cache = new WeakMap<
     SymbolicEnvironment,
@@ -118,7 +130,7 @@ export class JavaScriptSymbolicBindings {
   #originPoint: t.Node | undefined;
   #originPointAfter = false;
   readonly #originReferences = new WeakMap<
-    SymbolicEnvironment,
+    ReadonlyMap<string, SymbolicValue>,
     WeakMap<t.ObjectExpression, OriginReference[]>
   >();
   readonly #originCollectionReferences = new WeakMap<
@@ -187,12 +199,23 @@ export class JavaScriptSymbolicBindings {
           mutation.site,
           mutation,
         );
+      else
+        this.#receiverWrites.push({
+          receiver: mutation.target,
+          write: {
+            path: mutation.path,
+            value: mutation.value ?? mutation.site,
+            site: mutation.site,
+            mutation,
+          },
+        });
     }
     for (const table of this.#bootstrapTables)
       this.#invalidateBootstrapTable(table.tableAliases, table.modules);
     const unresolved = this.unresolved;
     this.#originCache = new WeakMap();
     try {
+      this.#indexReceiverWrites();
       completeSemanticSteps(
         electronIdentity.enrichWritesSteps((target) =>
           this.#atOriginPoint(target, () =>
@@ -316,22 +339,7 @@ export class JavaScriptSymbolicBindings {
         : symbolicUnknown("unresolved module export");
     }
     if (value.kind === "object") {
-      let index = this.#literalPropertyIndex.get(value.node);
-      if (index === undefined) {
-        const properties = new Map<string, t.ObjectMethod | t.ObjectProperty>();
-        index = properties;
-        for (const property of value.node.properties) {
-          const name = t.isSpreadElement(property)
-            ? null
-            : semanticStaticPropertyKey(property.key, property.computed);
-          if (name === null || t.isSpreadElement(property)) {
-            index = null;
-            break;
-          }
-          properties.set(name, property);
-        }
-        this.#literalPropertyIndex.set(value.node, index);
-      }
+      const index = this.#staticLiteralProperties(value.node);
       if (index !== null) {
         const property = index.get(key);
         return property === undefined
@@ -357,6 +365,28 @@ export class JavaScriptSymbolicBindings {
     if (value.kind === "array" && /^\d+$/u.test(key))
       return value.values[Number(key)] ?? symbolicUnknown("missing argument");
     return symbolicUnknown("unresolved property");
+  }
+
+  #staticLiteralProperties(
+    node: t.ObjectExpression,
+  ): ReadonlyMap<string, t.ObjectMethod | t.ObjectProperty> | null {
+    let index = this.#literalPropertyIndex.get(node);
+    if (index === undefined) {
+      const properties = new Map<string, t.ObjectMethod | t.ObjectProperty>();
+      index = properties;
+      for (const property of node.properties) {
+        const name = t.isSpreadElement(property)
+          ? null
+          : semanticStaticPropertyKey(property.key, property.computed);
+        if (name === null || t.isSpreadElement(property)) {
+          index = null;
+          break;
+        }
+        properties.set(name, property);
+      }
+      this.#literalPropertyIndex.set(node, index);
+    }
+    return index;
   }
 
   #objectPropertyValue(
@@ -654,8 +684,12 @@ export class JavaScriptSymbolicBindings {
     }
     if (this.state.conditionalInitializers.has(initializer.node))
       return symbolicUnknown("conditional initializer");
+    const allocation =
+      this.#originCache === undefined
+        ? env
+        : this.#initializerEnvironment(binding.scopeId, env);
     const select = (): SymbolicValue => {
-      let value = this.evaluate(initializer.node, env);
+      let value = this.evaluate(initializer.node, allocation);
       for (const key of initializer.projection) {
         if (key === null) return symbolicUnknown("dynamic destructuring");
         value = this.property(value, String(key));
@@ -668,7 +702,22 @@ export class JavaScriptSymbolicBindings {
         : select();
     return this.#originCache === undefined
       ? value
-      : this.#originObject(value, binding, node, env);
+      : this.#originObject(value, binding, node, allocation);
+  }
+
+  #initializerEnvironment(
+    scopeId: string,
+    environment: SymbolicEnvironment,
+  ): SymbolicEnvironment {
+    let current = environment;
+    while (true) {
+      if (
+        this.#scopeContains(scopeId, current.scopeId) ||
+        current.parent === undefined
+      )
+        return current;
+      current = current.parent;
+    }
   }
 
   #initializerReadPoint(
@@ -1127,10 +1176,10 @@ export class JavaScriptSymbolicBindings {
       }
       return references;
     }
-    let objects = this.#originReferences.get(value.environment);
+    let objects = this.#originReferences.get(value.environment.values);
     if (!objects) {
       objects = new WeakMap();
-      this.#originReferences.set(value.environment, objects);
+      this.#originReferences.set(value.environment.values, objects);
     }
     let references = objects.get(value.node);
     if (!references) {
@@ -1153,7 +1202,7 @@ export class JavaScriptSymbolicBindings {
       !references.some(
         (existing) =>
           existing.binding === reference.binding &&
-          existing.environment === reference.environment &&
+          existing.environment.values === reference.environment.values &&
           existing.path.length === reference.path.length &&
           existing.path.every((key, index) => key === reference.path[index]),
       )
@@ -1168,7 +1217,10 @@ export class JavaScriptSymbolicBindings {
   ): readonly OriginPropertyWrite[] {
     const target = this.#originPoint ?? reference.node;
     const read =
-      this.#functionOwner(target) === this.#functionOwner(reference.node)
+      this.#functionOwner(target) ===
+      this.#functionOwner(
+        reference.binding.initializers[0]?.node ?? reference.node,
+      )
         ? target
         : reference.node;
     const start = this.#initializerReadPoint(
@@ -1212,7 +1264,7 @@ export class JavaScriptSymbolicBindings {
             value.kind === "object"
               ? candidate.kind === "object" &&
                 candidate.node === value.node &&
-                candidate.environment === value.environment
+                candidate.environment.values === value.environment.values
               : candidate.kind === value.kind &&
                 candidate.values === value.values,
           );
@@ -1248,6 +1300,22 @@ export class JavaScriptSymbolicBindings {
           key,
         ))
           merged.push(write);
+      const point = resolver.#originPoint;
+      const boundary = resolver.#originPointAfter ? point?.end : point?.start;
+      const indexed = resolver.#objectWrites.get(references);
+      const owned =
+        key === null
+          ? [...(indexed?.values() ?? [])].flat()
+          : [...(indexed?.get(key) ?? []), ...(indexed?.get(null) ?? [])];
+      for (const write of owned) {
+        if ((write.source.site.end ?? Infinity) > (boundary ?? -Infinity))
+          continue;
+        if (--resolver.#remainingEvaluations < 0) {
+          resolver.truncated = true;
+          break;
+        }
+        merged.push(write);
+      }
       const seen = new Set<PropertyWrite>();
       return merged
         .filter(({ source }) => !seen.has(source) && Boolean(seen.add(source)))
@@ -1515,13 +1583,20 @@ export class JavaScriptSymbolicBindings {
         definiteKeys.add(name);
         attributes.set(name, {
           configurable: true,
+          enumerable: true,
           writable: true,
           data: true,
         });
         if (!excluded.has(name) && (key === null || key === name))
           values.push(this.#originSelectedValue(value, member, name));
       }
-      return { values, definiteKeys, attributes, complete: true };
+      return {
+        values,
+        definiteKeys,
+        attributes,
+        complete: true,
+        orderedKeys: this.#orderOwnKeys([...definiteKeys]),
+      };
     }
     // A known external key is a possible member, but not proof of an own
     // enumerable key when the value is copied by an object spread.
@@ -1539,6 +1614,44 @@ export class JavaScriptSymbolicBindings {
     const definiteKeys = new Set<string>();
     const covered = new Set(excluded);
     const attributes = new Map<string, OriginAttributes>();
+    const indexed = this.#staticLiteralProperties(value.node);
+    if (indexed !== null) {
+      const selected =
+        key === null
+          ? indexed
+          : new Map(indexed.has(key) ? [[key, indexed.get(key)!]] : []);
+      for (const [name, property] of selected) {
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          break;
+        }
+        if (excluded.has(name)) continue;
+        const accessor =
+          t.isObjectMethod(property) && property.kind !== "method";
+        attributes.set(name, {
+          configurable: true,
+          enumerable: true,
+          ...(accessor
+            ? { data: false, setter: property.kind === "set" }
+            : { data: true, writable: true }),
+        });
+        definiteKeys.add(name);
+        values.push(
+          this.#originSelectedValue(
+            value,
+            this.#objectPropertyValue(property, value.environment),
+            name,
+          ),
+        );
+      }
+      return {
+        values,
+        definiteKeys,
+        attributes,
+        complete: true,
+        orderedKeys: this.#orderOwnKeys([...selected.keys()]),
+      };
+    }
     let complete = true;
     for (let index = value.node.properties.length - 1; index >= 0; index -= 1) {
       if (--this.#remainingEvaluations < 0) {
@@ -1550,13 +1663,19 @@ export class JavaScriptSymbolicBindings {
       if (t.isSpreadElement(property)) {
         const result = this.#atOriginPoint(property, () => {
           const spread = this.evaluate(property.argument, value.environment);
-          return this.#originProperties(spread, key, covered, visiting);
+          return this.#originEnumerableProperties(
+            spread,
+            key,
+            covered,
+            visiting,
+          );
         });
         for (const member of result.values) values.push(member);
         complete &&= result.complete === true;
         for (const name of result.definiteKeys) {
           attributes.set(name, {
             configurable: true,
+            enumerable: true,
             writable: true,
             data: true,
           });
@@ -1577,6 +1696,7 @@ export class JavaScriptSymbolicBindings {
             t.isObjectMethod(property) && property.kind !== "method";
           attributes.set(name, {
             configurable: true,
+            enumerable: true,
             ...(accessor
               ? { data: false, setter: property.kind === "set" }
               : { data: true, writable: true }),
@@ -1599,6 +1719,9 @@ export class JavaScriptSymbolicBindings {
       definiteKeys,
       attributes: complete ? attributes : new Map(),
       complete,
+      orderedKeys: complete
+        ? this.#orderOwnKeys(this.members(value))
+        : undefined,
     };
   }
 
@@ -1628,6 +1751,8 @@ export class JavaScriptSymbolicBindings {
           value.configurable === other.configurable
             ? value.configurable
             : undefined,
+        enumerable:
+          value.enumerable === other.enumerable ? value.enumerable : undefined,
         writable:
           value.writable === other.writable ? value.writable : undefined,
         data: value.data === other.data ? value.data : undefined,
@@ -1648,27 +1773,14 @@ export class JavaScriptSymbolicBindings {
       mutation?.operation === "delete" ||
       t.isUnaryExpression(write.source.site, { operator: "delete" });
     const assignment = t.isAssignmentExpression(write.source.site);
-    if (!deleted && !assignment && !mutation?.mayFail) return true;
+    if (!deleted && !assignment && !mutation) return true;
+    if (mutation?.operation === "copy" || mutation?.operation === "descriptors")
+      return true;
     const attributes = key === null ? undefined : prior.attributes?.get(key);
     const absent = this.#originPropertyAbsent(prior, key);
     if (deleted) return absent ? true : attributes?.configurable;
-    if (mutation?.operation === "descriptor") {
-      if (attributes?.configurable === true || absent) return true;
-      if (attributes?.configurable === false) {
-        const configurable = this.#originProperties(
-          write.value,
-          "configurable",
-          new Set(),
-          active,
-        );
-        if (
-          symbolicTruth(symbolicUnion(configurable.values)) === true ||
-          attributes.writable === false
-        )
-          return false;
-      }
-      return undefined;
-    }
+    if (mutation?.operation === "descriptor")
+      return this.#originDescriptorSuccess(write.value, prior, key, active);
     if (mutation?.dispatchTarget) {
       const dispatch = write.dispatchTarget;
       const selected =
@@ -1693,6 +1805,145 @@ export class JavaScriptSymbolicBindings {
     return absent ? true : attributes?.writable;
   }
 
+  #originDescriptorSuccess(
+    descriptor: SymbolicValue,
+    prior: OriginProperties,
+    key: string | null,
+    active: Set<SymbolicValue>,
+  ): boolean | undefined {
+    const attributes = key === null ? undefined : prior.attributes?.get(key);
+    if (
+      attributes?.configurable === true ||
+      this.#originPropertyAbsent(prior, key)
+    )
+      return true;
+    if (attributes?.configurable !== false) return undefined;
+    for (const name of ["configurable", "enumerable"] as const) {
+      const selected = this.#originProperties(
+        descriptor,
+        name,
+        new Set(),
+        active,
+      );
+      if (selected.values.length === 0) continue;
+      const requested = symbolicTruth(symbolicUnion(selected.values));
+      const existing = name === "configurable" ? false : attributes.enumerable;
+      if (
+        requested !== undefined &&
+        existing !== undefined &&
+        requested !== existing
+      )
+        return selected.definiteKeys.has(name) ? false : undefined;
+      if (requested === undefined || existing === undefined) return undefined;
+    }
+    const getter = this.#originProperties(descriptor, "get", new Set(), active);
+    const setter = this.#originProperties(descriptor, "set", new Set(), active);
+    if (attributes.data !== true) return undefined;
+    if (getter.values.length > 0 || setter.values.length > 0)
+      return getter.definiteKeys.has("get") || setter.definiteKeys.has("set")
+        ? false
+        : undefined;
+    // A non-configurable writable data property accepts a new value and may
+    // transition to readonly; unrelated attributes must already be compatible.
+    if (attributes.writable === true) return true;
+    if (attributes.writable !== false) return undefined;
+    const writable = this.#originProperties(
+      descriptor,
+      "writable",
+      new Set(),
+      active,
+    );
+    const writableRequest = symbolicTruth(symbolicUnion(writable.values));
+    if (writableRequest === true)
+      return writable.definiteKeys.has("writable") ? false : undefined;
+    if (writable.values.length > 0 && writableRequest === undefined)
+      return undefined;
+    const value = this.#originProperties(
+      descriptor,
+      "value",
+      new Set(),
+      active,
+    );
+    if (value.values.length === 0) return true;
+    const same = (
+      left: SymbolicValue,
+      right: SymbolicValue,
+    ): boolean | undefined => {
+      if (left.kind === "literal" && right.kind === "literal")
+        return Object.is(left.value, right.value);
+      if (left.kind === "object" && right.kind === "object")
+        return (
+          left.node === right.node &&
+          left.environment.values === right.environment.values
+        );
+      if (left.kind === "external" && right.kind === "external")
+        return left.path.length === right.path.length &&
+          left.path.every((part, index) => part === right.path[index])
+          ? true
+          : undefined;
+      if (left.kind === "unknown" || right.kind === "unknown") return undefined;
+      if (left.kind !== right.kind) return false;
+      return undefined;
+    };
+    let result: boolean | undefined;
+    for (const incoming of value.values)
+      for (const existing of prior.values) {
+        if (--this.#remainingEvaluations < 0) {
+          this.truncated = true;
+          return undefined;
+        }
+        const equal = same(incoming, existing);
+        if (equal === undefined || (result !== undefined && result !== equal))
+          return undefined;
+        result = equal;
+      }
+    return result;
+  }
+
+  #orderOwnKeys(keys: readonly string[]): readonly string[] {
+    const integer = (key: string): boolean =>
+      /^(0|[1-9][0-9]*)$/u.test(key) && Number(key) < 4_294_967_295;
+    return [
+      ...keys
+        .filter(integer)
+        .sort((left, right) => Number(left) - Number(right)),
+      ...keys.filter((key) => !integer(key)),
+    ];
+  }
+
+  #originEnumerableProperties(
+    value: SymbolicValue,
+    key: string | null,
+    excluded: ReadonlySet<string>,
+    active: Set<SymbolicValue>,
+  ): OriginProperties {
+    const all = this.#originProperties(value, key, excluded, active);
+    const hidden = new Set(excluded);
+    for (const [name, attributes] of all.attributes ?? [])
+      if (attributes.enumerable === false) hidden.add(name);
+    const result =
+      hidden.size === excluded.size
+        ? all
+        : this.#originProperties(value, key, hidden, active);
+    const definiteKeys = new Set(
+      [...result.definiteKeys].filter(
+        (name) =>
+          !hidden.has(name) &&
+          result.attributes?.get(name)?.enumerable === true,
+      ),
+    );
+    return {
+      ...result,
+      definiteKeys,
+      orderedKeys: all.orderedKeys?.filter((name) => !hidden.has(name)),
+      complete:
+        result.complete === true &&
+        [...result.definiteKeys].every(
+          (name) => result.attributes?.get(name)?.enumerable !== undefined,
+        ),
+    };
+  }
+
   #originDescriptor(
     descriptor: SymbolicValue,
     key: string | null,
@@ -1711,7 +1962,7 @@ export class JavaScriptSymbolicBindings {
       key === null ? undefined : prior?.attributes?.get(key);
     const fresh = this.#originPropertyAbsent(prior, key);
     const attribute = (
-      name: "configurable" | "writable",
+      name: "configurable" | "writable" | "enumerable",
     ): boolean | undefined => {
       const selected = this.#originProperties(
         descriptor,
@@ -1738,6 +1989,7 @@ export class JavaScriptSymbolicBindings {
     if (key !== null)
       attributes.set(key, {
         configurable: attribute("configurable"),
+        enumerable: attribute("enumerable"),
         writable: attribute("writable"),
         data: knownAccessor
           ? false
@@ -1769,14 +2021,13 @@ export class JavaScriptSymbolicBindings {
     key: string | null,
     excluded: ReadonlySet<string>,
     active: Set<SymbolicValue>,
+    prior: SymbolicValue,
     previous: OriginProperties,
   ): OriginProperties {
     const mutation = write.source.mutation!;
     return this.#atOriginPoint(
       mutation.readAt,
       () => {
-        if (mutation.operation === "copy")
-          return this.#originProperties(write.value, key, excluded, active);
         if (mutation.operation === "descriptor")
           return this.#originDescriptor(
             write.value,
@@ -1784,47 +2035,132 @@ export class JavaScriptSymbolicBindings {
             active,
             previous,
           );
-        const descriptors = this.#originProperties(
-          write.value,
-          key,
-          excluded,
-          active,
-        );
-        const values: SymbolicValue[] = [];
-        const attributes = new Map<string, OriginAttributes>();
-        const definiteKeys = new Set<string>();
-        for (const descriptor of descriptors.values)
-          for (const value of this.#originDescriptor(descriptor, key, active)
-            .values)
-            values.push(value);
-        // Select descriptors by their own proven names; a dynamic selection
-        // preserves possible values without turning possible presence into proof.
-        const names = key === null ? [...descriptors.definiteKeys] : [key];
-        for (const name of names) {
-          const selected = this.#originProperties(
-            write.value,
-            name,
-            excluded,
-            active,
-          );
-          const property = this.#originDescriptor(
-            symbolicUnion(selected.values),
-            name,
-            active,
-            previous,
-          );
-          const selectedAttributes = property.attributes?.get(name);
-          if (selectedAttributes) attributes.set(name, selectedAttributes);
-          if (
-            descriptors.definiteKeys.has(name) &&
-            property.definiteKeys.has(name)
-          )
-            definiteKeys.add(name);
-        }
-        return { values, definiteKeys, attributes };
+        return this.#originBulkProperties(write, prior, key, excluded, active);
       },
       true,
     );
+  }
+
+  #originBulkProperties(
+    write: OriginPropertyWrite,
+    prior: SymbolicValue,
+    key: string | null,
+    excluded: ReadonlySet<string>,
+    active: Set<SymbolicValue>,
+  ): OriginProperties {
+    const mutation = write.source.mutation!;
+    const before = this.#originProperties(prior, null, new Set(), active);
+    const interrupted = new Set(before.interrupted);
+    const values: SymbolicValue[] = [];
+    const definiteKeys = new Set<string>();
+    const attributes = new Map<string, OriginAttributes>();
+    if (interrupted.has(mutation.site))
+      return { values, definiteKeys, attributes, interrupted };
+    const source = this.#originEnumerableProperties(
+      write.value,
+      null,
+      new Set(),
+      active,
+    );
+    const names = [...(source.orderedKeys ?? source.definiteKeys)];
+    if (key !== null && !names.includes(key)) names.push(key);
+    let continuation = source.orderedKeys !== undefined;
+    for (const name of names) {
+      if (--this.#remainingEvaluations < 0) {
+        this.truncated = true;
+        break;
+      }
+      const selected = this.#originEnumerableProperties(
+        write.value,
+        name,
+        new Set(),
+        active,
+      );
+      if (selected.values.length === 0) continue;
+      const previous = this.#originProperties(prior, name, new Set(), active);
+      const value = symbolicUnion(selected.values);
+      const fieldWrite: OriginPropertyWrite = {
+        ...write,
+        path: [name],
+        value,
+        source: {
+          ...write.source,
+          mutation: {
+            ...mutation,
+            operation: mutation.operation === "copy" ? "value" : "descriptor",
+            path: [name],
+          },
+        },
+      };
+      const success = this.#originWriteSuccess(
+        fieldWrite,
+        previous,
+        name,
+        active,
+      );
+      if (success === false) {
+        if (
+          source.orderedKeys !== undefined &&
+          selected.definiteKeys.has(name)
+        ) {
+          interrupted.add(mutation.site);
+          break;
+        }
+        continuation = false;
+        continue;
+      }
+      const replacement =
+        mutation.operation === "copy"
+          ? selected
+          : this.#originDescriptor(value, name, active, previous);
+      if (!excluded.has(name) && (key === null || name === key)) {
+        for (const member of replacement.values) values.push(member);
+        const descriptor =
+          mutation.operation === "copy"
+            ? (previous.attributes?.get(name) ?? {
+                configurable: true,
+                enumerable: true,
+                writable: true,
+                data: true,
+              })
+            : replacement.attributes?.get(name);
+        if (descriptor) attributes.set(name, descriptor);
+        if (
+          continuation &&
+          success === true &&
+          selected.definiteKeys.has(name) &&
+          replacement.definiteKeys.has(name)
+        )
+          definiteKeys.add(name);
+      }
+      if (success !== true || !selected.definiteKeys.has(name))
+        continuation = false;
+    }
+    // Opaque keys can still select a known possible source value. They do not
+    // prove a committed overwrite or a position before a possible failure.
+    if (key === null && source.orderedKeys === undefined) {
+      const unknown = this.#originEnumerableProperties(
+        write.value,
+        null,
+        new Set([...excluded, ...names]),
+        active,
+      );
+      for (const value of unknown.values) {
+        if (mutation.operation === "copy") values.push(value);
+        else
+          for (const member of this.#originDescriptor(value, null, active)
+            .values)
+            values.push(member);
+      }
+    }
+    return {
+      values,
+      definiteKeys,
+      attributes,
+      interrupted,
+      complete: source.complete === true,
+      orderedKeys: source.orderedKeys,
+    };
   }
 
   #originSnapshotProperties(
@@ -1854,7 +2190,33 @@ export class JavaScriptSymbolicBindings {
       return this.#originProperties(snapshot.base, key, excluded, active);
     const prior: OriginValue = {
       ...snapshot.base,
-      [originSnapshot]: { base: snapshot.base, writes, end: end - 1 },
+      [originSnapshot]: {
+        base: snapshot.base,
+        writes,
+        ...(snapshot.selectWrites === undefined
+          ? { end: end - 1 }
+          : {
+              selectWrites: (
+                selected: string | null,
+              ): readonly OriginPropertyWrite[] => {
+                if (selected === key) return writes.slice(0, end - 1);
+                const candidates = snapshot.selectWrites!(selected);
+                const index = candidates.findIndex(
+                  (candidate) => candidate.source === write!.source,
+                );
+                return index >= 0
+                  ? candidates.slice(0, index)
+                  : candidates.filter(
+                      (candidate) =>
+                        (candidate.source.site.end ?? 0) <
+                          (write!.source.site.end ?? 0) ||
+                        (candidate.source.site.end === write!.source.site.end &&
+                          (candidate.source.site.start ?? 0) >
+                            (write!.source.site.start ?? 0)),
+                    );
+              },
+            }),
+      },
     };
     const head = write.path[0];
     let definite = write.definite;
@@ -1896,6 +2258,12 @@ export class JavaScriptSymbolicBindings {
     if (success === false)
       return this.#originProperties(prior, key, excluded, active);
     if (success === undefined) definite = false;
+    // Selected values prove this write's outcome. Aggregate reads also need
+    // the other own keys and descriptors, independently of that selection.
+    const metadata =
+      key === null && head !== null
+        ? this.#originProperties(prior, null, new Set(), active)
+        : previous;
     if (
       mutation &&
       ["copy", "descriptor", "descriptors"].includes(mutation.operation)
@@ -1905,13 +2273,14 @@ export class JavaScriptSymbolicBindings {
         key,
         excluded,
         active,
+        prior,
         previous,
       );
       const blocked = new Set(excluded);
       if (definite)
         for (const name of replacement.definiteKeys) blocked.add(name);
       const earlier = this.#originProperties(prior, key, blocked, active);
-      const attributes = new Map(previous.attributes);
+      const attributes = new Map(metadata.attributes);
       for (const name of replacement.definiteKeys) {
         const priorAttributes = previous.attributes?.get(name);
         attributes.set(
@@ -1919,6 +2288,7 @@ export class JavaScriptSymbolicBindings {
           mutation.operation === "copy"
             ? (priorAttributes ?? {
                 configurable: true,
+                enumerable: true,
                 writable: true,
                 data: true,
               })
@@ -1931,10 +2301,20 @@ export class JavaScriptSymbolicBindings {
         attributes: definite
           ? attributes
           : this.#commonOriginAttributes(
-              previous.attributes ?? new Map(),
+              metadata.attributes ?? new Map(),
               attributes,
             ),
-        complete: previous.complete === true && head !== null,
+        complete: metadata.complete === true && replacement.complete !== false,
+        orderedKeys:
+          metadata.orderedKeys && (head !== null || replacement.orderedKeys)
+            ? this.#orderOwnKeys([
+                ...new Set([
+                  ...metadata.orderedKeys,
+                  ...(replacement.orderedKeys ?? [head!]),
+                ]),
+              ])
+            : undefined,
+        interrupted: replacement.interrupted ?? metadata.interrupted,
         values: [...earlier.values, ...replacement.values],
         definiteKeys: new Set([
           ...earlier.definiteKeys,
@@ -1955,7 +2335,7 @@ export class JavaScriptSymbolicBindings {
       if (removed) definiteKeys.delete(head!);
       else if (definite) definiteKeys.add(head!);
     } else if (removed) definiteKeys.clear();
-    const attributes = new Map(previous.attributes);
+    const attributes = new Map(metadata.attributes);
     if (head !== null) {
       if (removed) attributes.delete(head!);
       else
@@ -1963,6 +2343,7 @@ export class JavaScriptSymbolicBindings {
           head!,
           previous.attributes?.get(head!) ?? {
             configurable: true,
+            enumerable: true,
             writable: true,
             data: true,
           },
@@ -1972,10 +2353,19 @@ export class JavaScriptSymbolicBindings {
       attributes: definite
         ? attributes
         : this.#commonOriginAttributes(
-            previous.attributes ?? new Map(),
+            metadata.attributes ?? new Map(),
             attributes,
           ),
-      complete: previous.complete === true && head !== null,
+      complete: metadata.complete === true && head !== null,
+      orderedKeys:
+        metadata.orderedKeys && head !== null && definite
+          ? this.#orderOwnKeys(
+              removed
+                ? metadata.orderedKeys.filter((name) => name !== head)
+                : [...new Set([...metadata.orderedKeys, head!])],
+            )
+          : undefined,
+      interrupted: metadata.interrupted,
       values: removed
         ? earlier.values
         : [
@@ -2077,6 +2467,59 @@ export class JavaScriptSymbolicBindings {
         );
     }
     if (t.isIdentifier(root)) this.#addWrite(root, path, value, site);
+    else {
+      const leaf = unwrapJavaScriptExpression(target).node;
+      if (t.isMemberExpression(leaf) || t.isOptionalMemberExpression(leaf))
+        this.#receiverWrites.push({
+          receiver: leaf.object,
+          write: {
+            path: [path.at(-1) ?? null],
+            value,
+            site,
+          },
+        });
+    }
+  }
+
+  #indexReceiverWrites(): void {
+    const pending = [...this.#receiverWrites].sort(
+      (left, right) => (left.receiver.end ?? 0) - (right.receiver.end ?? 0),
+    );
+    for (const { receiver, write } of pending) {
+      if (!t.isProgram(this.#functionOwner(write.site))) continue;
+      if (--this.#remainingEvaluations < 0) {
+        this.truncated = true;
+        break;
+      }
+      this.#atOriginPoint(
+        receiver,
+        () => {
+          const environment = this.environmentAt(receiver);
+          const value = this.evaluate(receiver, environment);
+          const variants = symbolicVariants(value);
+          for (const object of variants) {
+            if (
+              object.kind !== "object" &&
+              object.kind !== "record" &&
+              object.kind !== "array"
+            )
+              continue;
+            const references = this.#references(object);
+            const index = this.#objectWrites.get(references) ?? new Map();
+            const key = write.path[0] ?? null;
+            const writes = index.get(key) ?? [];
+            const effect = this.#originWrite(write, environment);
+            writes.push({
+              ...effect,
+              definite: effect.definite && variants.length === 1,
+            });
+            index.set(key, writes);
+            this.#objectWrites.set(references, index);
+          }
+        },
+        true,
+      );
+    }
   }
 
   #addWrite(

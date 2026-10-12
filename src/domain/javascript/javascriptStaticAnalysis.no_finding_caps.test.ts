@@ -43,6 +43,8 @@ describe("JavaScript static analysis findings", () => {
     ["box", true],
     ["box.slot", false],
     ["box.slot", true],
+    ["get().slot", false],
+    ["get().slot", true],
   ])(
     "retains Electron findings after many writes to %s (selected slot: %s)",
     (receiver, mutateElectron) => {
@@ -52,7 +54,7 @@ describe("JavaScript static analysis findings", () => {
       );
       const analysis = analyzeJavaScriptStaticSource(
         [
-          'const e=require("electron"); const box={slot:{}};',
+          'const e=require("electron"); const box={slot:{}}; const get=()=>box;',
           ...(mutateElectron ? [`${receiver}.ipc=e.ipcMain;`] : []),
           ...writes,
           ...(mutateElectron ? [`delete ${receiver}.ipc.on;`] : []),

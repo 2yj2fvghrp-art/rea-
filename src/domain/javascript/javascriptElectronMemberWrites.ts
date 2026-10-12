@@ -67,7 +67,6 @@ export interface JavaScriptIntrinsicMutation {
     | "identity";
   readonly readAt: t.Node;
   readonly returnsTarget: boolean;
-  readonly mayFail: boolean;
   readonly dispatchTarget?: t.Node;
   readonly definite: boolean;
 }
@@ -101,7 +100,6 @@ const intrinsicMutationEffects = (
       operation,
       readAt,
       returnsTarget: owner === "Object",
-      mayFail: owner === "Reflect",
       ...(owner === "Reflect" &&
       method === "set" &&
       args.length >= 4 &&
