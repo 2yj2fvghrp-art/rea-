@@ -17,6 +17,7 @@ import {
   argumentValue,
   calleeName,
   chunkRuntime,
+  factoryExportsName,
   factoryRequireName,
   moduleFactory,
   modulePropertyName,
@@ -235,7 +236,10 @@ const recoverBundlerModule = (
   if (key.startsWith("[computed@") || key.startsWith("[unknown@"))
     accumulator.unknownFindings += 1;
   const fingerprint = fingerprintJavaScriptAst(factory);
-  const exportsValue = collectJavaScriptExports(factory);
+  const exportsValue = collectJavaScriptExports(
+    factory,
+    factoryExportsName(factory),
+  );
   const requireName = factoryRequireName(factory);
   const asyncChunks = collectBundlerAsyncChunkKeys(factory, requireName);
   if (typeof factory.start === "number" && typeof factory.end === "number") {

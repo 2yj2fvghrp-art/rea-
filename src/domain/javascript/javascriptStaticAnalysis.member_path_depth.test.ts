@@ -76,3 +76,31 @@ it("recognizes a bundler runtime through nested member names", () => {
     modules: [expect.objectContaining({ exports: ["ok"] })],
   });
 });
+
+it("collects exports through renamed bundler exports parameters", () => {
+  const source = `(globalThis.webpackChunkRenamed = globalThis.webpackChunkRenamed || []).push([["main"], {
+    1: function(module, __webpack_exports__, __webpack_require__) {
+      __webpack_require__.d(__webpack_exports__, { alpha: () => 1 });
+    },
+    2: function(m, e, r) { r.d(e, { beta: () => 2 }); },
+    3: function(module, exports, __webpack_require__) {
+      __webpack_require__.d(exports, { gamma: () => 3 });
+    },
+    4: function(module, __webpack_exports__, __webpack_require__) {
+      Object.defineProperty(__webpack_exports__, "delta", { enumerable: true, value: 4 });
+    },
+    5: function(module, __webpack_exports__, __webpack_require__) {
+      const other = {}; __webpack_require__.d(other, { unrelated: () => 1 });
+    }
+  }]);`;
+  const analysis = analyzeJavaScriptStaticSource(source);
+  const modules = analysis.bundler_registrations[0]?.modules ?? [];
+  const byKey = Object.fromEntries(
+    modules.map((m) => [m.module_key, m.exports]),
+  );
+  expect(byKey["1"]).toEqual(["alpha"]);
+  expect(byKey["2"]).toEqual(["beta"]);
+  expect(byKey["3"]).toEqual(["gamma"]);
+  expect(byKey["4"]).toEqual(["delta"]);
+  expect(byKey["5"]).toEqual([]);
+});
