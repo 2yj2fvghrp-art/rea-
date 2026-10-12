@@ -64,8 +64,7 @@ if (args.includes("--version")) {
     if (
       mode !== "missing-file" &&
       mode !== "depth-reentry" &&
-      mode !== "depth-orphan" &&
-      mode !== "nested-unknown"
+      mode !== "depth-orphan"
     )
       await writeFile(child, mode === "budget" ? Buffer.alloc(10000) : content);
     if (mode === "link") await symlink("/etc/passwd", join(output, "escape"));
