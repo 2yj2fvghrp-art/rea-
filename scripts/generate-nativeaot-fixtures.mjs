@@ -4,7 +4,10 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildNativeAotFixture } from "./lib/nativeaot-build.mjs";
+import {
+  buildNativeAotFixture,
+  nativeAotCommandError,
+} from "./lib/nativeaot-build.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 if (process.arch !== "x64" || !["linux", "win32"].includes(process.platform))
@@ -41,9 +44,7 @@ const run = (command, args) => {
     maxBuffer: 8 * 1024 * 1024,
   });
   if (result.error || result.status !== 0)
-    throw new Error(
-      `NativeAOT fixture lane requires/action failed ${command} ${args[0]}: ${result.error?.message ?? `exit ${result.status}`}\n${result.stdout ?? ""}${result.stderr ?? ""}`,
-    );
+    throw nativeAotCommandError(command, args[0], result);
   return result.stdout;
 };
 const dotnet = process.env.REA_NATIVEAOT_DOTNET ?? "dotnet";

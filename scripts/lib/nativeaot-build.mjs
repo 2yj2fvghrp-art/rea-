@@ -43,3 +43,13 @@ export async function buildNativeAotFixture(run, options) {
     join(output, "symbols"),
   ]);
 }
+
+/** Sanitize child diagnostics before any retry, cause chain, or uncaught output. */
+export function nativeAotCommandError(command, operation, result) {
+  const diagnostic = `NativeAOT fixture lane requires/action failed ${command} ${operation}: ${result.error?.message ?? `exit ${result.status}`}\n${result.stdout ?? ""}${result.stderr ?? ""}`;
+  // Only URL authority userinfo is authentication; preserve host, path, query,
+  // and unrelated diagnostic values. Never retain the raw result as a cause.
+  return new Error(
+    diagnostic.replace(/\b(https?:\/\/)[^\\\s/?#]*@/giu, "$1[redacted]@"),
+  );
+}

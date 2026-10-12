@@ -7,3 +7,14 @@ export function buildNativeAotFixture(
     output: string;
   },
 ): Promise<void>;
+
+export function nativeAotCommandError(
+  command: string,
+  operation: string,
+  result: {
+    error?: { message: string };
+    status: number | null;
+    stdout?: string | null;
+    stderr?: string | null;
+  },
+): Error;
