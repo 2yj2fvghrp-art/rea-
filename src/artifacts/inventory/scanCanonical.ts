@@ -40,7 +40,7 @@ import {
   hashStableRootArtifact,
   hashStableRootArtifactHandle,
 } from "./hashStableRootArtifact.js";
-import { createReader, inventoryLimitations } from "./reader.js";
+import { createReader, inventoryCoverage } from "./reader.js";
 import {
   scanReader,
   type PendingIntegrityContradiction,
@@ -268,6 +268,7 @@ const buildInventorySnapshot = async (
     orderedOccurrences,
     orderedEdges,
   });
+  const traversal = inventoryCoverage(rootFormat, reader);
   return {
     manifest,
     nodes: orderedNodes,
@@ -275,9 +276,15 @@ const buildInventorySnapshot = async (
     edges: orderedEdges,
     provenance: reader?.provenance() ?? [],
     integrity_contradictions: integrityContradictions,
+    coverage: {
+      ...traversal.coverage,
+      status:
+        input.caseCollisionLimitation === undefined
+          ? traversal.coverage.status
+          : "unknown",
+    },
     limitations: buildLimitations(
-      rootFormat,
-      reader,
+      traversal.limitations,
       integrityContradictions,
       input.caseCollisionLimitation,
     ),
@@ -395,12 +402,11 @@ const buildManifest = ({
   });
 
 const buildLimitations = (
-  rootFormat: ArtifactOccurrence["artifact_format"],
-  reader: ArtifactReader | undefined,
+  scopeLimitations: readonly string[],
   integrityContradictions: readonly IntegrityContradiction[],
   caseCollisionLimitation: string | undefined,
 ): string[] => [
-  ...inventoryLimitations(rootFormat, reader),
+  ...scopeLimitations,
   ...(caseCollisionLimitation === undefined ? [] : [caseCollisionLimitation]),
   ...(integrityContradictions.length === 0
     ? []

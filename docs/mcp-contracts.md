@@ -21,12 +21,22 @@ directly to `compare_functions`, and `inspect_artifact` Evidence to
 `compare_artifacts`. Use `get_evidence_bundle` when the task needs broader
 retained session history or an explicit bundle for transfer.
 
-Artifact comparison measures the recorded inventory graph. A fully observed
-root with no child container entries can be `unchanged`; its scope notice stays
-in `limitations` without creating a coverage gap. Content and executable metadata
-changes still produce root deltas. Missing graph members yield `truncated`, and
-unavailable child observations yield `unknown`. Static artifact equality does
-not establish unchanged runtime behavior.
+Artifact inventories declare `coverage.scope` (`root` or `container-entries`)
+and `coverage.status` (`complete` or `unknown`) independently of diagnostic
+wording. Comparison requires matching scopes, complete graph members and complete
+traversal coverage before concluding equality. A fully observed root without
+container children can be `unchanged`; its scope notice stays in `limitations`
+without creating a gap. Content and executable metadata changes still produce
+root deltas. Missing graph members yield `truncated`; unknown traversal coverage
+or unavailable occurrence hashes retain uncertainty. Integrity mismatches remain
+contradictions. Static artifact equality does not establish unchanged runtime
+behavior.
+
+The coverage field is optional when reading older retained Evidence. The owning
+inventory parser recognizes historical REA scope notices for compatibility;
+unfamiliar legacy limitations remain conservative. Typed records do not derive
+coverage from limitation text. Pages from one inventory must carry the same
+coverage declaration.
 
 Tool execution failures return `isError: true` and the complete canonical
 `{ "error": ... }` diagnostic as JSON in text `content`. Read that diagnostic

@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect } from "vitest";
 
-import { artifactInventoryResultSchema } from "../../../src/domain/artifactGraph.js";
+import {
+  artifactInventoryResultSchema,
+  type ArtifactInventoryResult,
+} from "../../../src/domain/artifactGraph.js";
 import { artifactInspectionResultSchema } from "../../../src/domain/artifactInspection.js";
 import {
   createEvidence,
@@ -27,6 +30,101 @@ const inventoryEvidence = (input: unknown): Evidence => {
     )?.evidence;
   if (inventory === undefined) throw new Error("Expected inventory Evidence");
   return parseEvidence(inventory);
+};
+
+const assertCoverageControls = async ({
+  left,
+  right,
+  inventory,
+  compare,
+}: {
+  left: Evidence;
+  right: Evidence;
+  inventory: ArtifactInventoryResult;
+  compare: (left: Evidence, right: Evidence) => Promise<Evidence>;
+}) => {
+  // Authenticated derived controls isolate missing members and genuine coverage
+  // gaps; they do not claim that the complete plist producer omitted children.
+  const derive = (result: unknown) =>
+    createEvidence(
+      {
+        path: right.subject?.local_path ?? "",
+        sha256: inventory.manifest.root_sha256,
+        format: "plist",
+      },
+      right.provider,
+      {
+        operation: "inventory_artifact",
+        parameters: {},
+        result: jsonValueSchema.parse(result),
+        confidence: "derived",
+        authority: "shipped-artifact",
+      },
+    );
+  const partial = await compare(left, derive({ ...inventory, nodes: [] }));
+  expect(partial.normalized_result).toMatchObject({
+    status: "truncated",
+    summary: { unchanged: 0, unknown: 1 },
+  });
+  const reworded = await compare(
+    left,
+    derive({
+      ...inventory,
+      coverage: { scope: "root", status: "complete" },
+      limitations: ["Root bytes observed; no container children are modeled."],
+    }),
+  );
+  expect(reworded.normalized_result).toMatchObject({
+    status: "unchanged",
+    summary: { unchanged: 1, unknown: 0 },
+    limitations: expect.arrayContaining([
+      "Right: Root bytes observed; no container children are modeled.",
+    ]),
+  });
+  const gap = await compare(
+    left,
+    derive({
+      ...inventory,
+      coverage: { scope: "root", status: "unknown" },
+      limitations: [],
+    }),
+  );
+  expect(gap.normalized_result).toMatchObject({
+    status: "unknown",
+    summary: { unchanged: 0, unknown: 1 },
+  });
+  const differentScope = await compare(
+    left,
+    derive({
+      ...inventory,
+      coverage: { scope: "container-entries", status: "complete" },
+    }),
+  );
+  expect(differentScope.normalized_result).toMatchObject({
+    status: "unknown",
+    limitations: expect.arrayContaining(["Artifact inventory scopes differ."]),
+  });
+
+  const { coverage, ...legacy } = inventory;
+  expect(coverage).toBeDefined();
+  const retained = await compare(left, derive(legacy));
+  expect(retained.normalized_result).toMatchObject({
+    status: "unchanged",
+    summary: { unchanged: 1, unknown: 0 },
+  });
+  for (const limitation of [
+    "Child inventory is unavailable.",
+    "Missing child observations; 1 integrity contradiction(s) were recorded.",
+  ]) {
+    const unfamiliarLegacy = await compare(
+      left,
+      derive({ ...legacy, limitations: [limitation] }),
+    );
+    expect(unfamiliarLegacy.normalized_result).toMatchObject({
+      status: "unknown",
+      summary: { unchanged: 0, unknown: 1 },
+    });
+  }
 };
 
 cliTest(
@@ -61,6 +159,7 @@ cliTest(
     const inventory = artifactInventoryResultSchema.parse(
       right.normalized_result,
     );
+    expect(inventory.coverage).toEqual({ scope: "root", status: "complete" });
     expect(inventory.manifest).toMatchObject({
       root_format: "plist",
       node_count: 1,
@@ -127,43 +226,7 @@ cliTest(
       changes: [],
     });
 
-    // Authenticated derived controls isolate missing members and genuine coverage
-    // gaps; they do not claim that the complete plist producer omitted children.
-    const derive = (result: unknown) =>
-      createEvidence(
-        {
-          path: rightPath,
-          sha256: inventory.manifest.root_sha256,
-          format: "plist",
-        },
-        right.provider,
-        {
-          operation: "inventory_artifact",
-          parameters: {},
-          result: jsonValueSchema.parse(result),
-          confidence: "derived",
-          authority: "shipped-artifact",
-        },
-      );
-    const partial = await compare(left, derive({ ...inventory, nodes: [] }));
-    expect(partial.normalized_result).toMatchObject({
-      status: "truncated",
-      summary: { unchanged: 0, unknown: 1 },
-    });
-    const gap = await compare(
-      left,
-      derive({
-        ...inventory,
-        limitations: [
-          ...inventory.limitations,
-          "Child inventory is unavailable.",
-        ],
-      }),
-    );
-    expect(gap.normalized_result).toMatchObject({
-      status: "unknown",
-      summary: { unchanged: 0, unknown: 1 },
-    });
+    await assertCoverageControls({ left, right, inventory, compare });
   },
   30_000,
 );

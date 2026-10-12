@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 
-/** A fully observed root has no child occurrences in the inventory's modeled scope. */
-export const ARTIFACT_NO_CHILD_ENTRIES_LIMITATION =
-  "Artifact has no child container entries.";
-
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 const artifactIdSchema = prefixedDigestSchema("art");
 const occurrenceIdSchema = prefixedDigestSchema("occ");
@@ -192,6 +188,15 @@ export const artifactGraphManifestSchema = z.object({
   edge_count: z.number().int().min(0),
 });
 
+/** Producer-owned traversal coverage; content certainty remains on each occurrence. */
+export const artifactInventoryCoverageSchema = z.strictObject({
+  scope: z.enum(["root", "container-entries"]),
+  status: z.enum(["complete", "unknown"]),
+});
+export type ArtifactInventoryCoverage = z.infer<
+  typeof artifactInventoryCoverageSchema
+>;
+
 /** Complete inventory observation containing the stable artifact graph. */
 export const artifactInventoryResultSchema = z.object({
   manifest: artifactGraphManifestSchema,
@@ -200,8 +205,19 @@ export const artifactInventoryResultSchema = z.object({
   edges: z.array(artifactEdgeSchema),
   provenance: z.array(artifactCommandSchema),
   integrity_contradictions: z.array(integrityContradictionSchema).default([]),
+  // Omitted by older retained Evidence; the inventory parser owns its compatibility policy.
+  coverage: artifactInventoryCoverageSchema.optional(),
   limitations: z.array(z.string()),
 });
+
+/** Current producers always declare coverage; historical Evidence inputs may omit it. */
+export const artifactInventoryOutputSchema =
+  artifactInventoryResultSchema.safeExtend({
+    coverage: artifactInventoryCoverageSchema,
+  });
+export type ArtifactInventoryOutput = z.infer<
+  typeof artifactInventoryOutputSchema
+>;
 
 /** One safely materialized artifact beneath caller-approved output root. */
 const extractedArtifactSchema = z.object({
