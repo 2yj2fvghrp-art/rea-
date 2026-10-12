@@ -388,6 +388,7 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 export interface JavaScriptElectronIdentity {
   readonly bindings: ReadonlyMap<number, readonly string[]>;
   readonly intactExport: (path: readonly (string | null)[]) => boolean;
+  readonly exportPath: (root: t.Node) => readonly string[] | undefined;
 }
 
 export function* indexJavaScriptElectronIdentitySteps(
@@ -465,7 +466,7 @@ export function* indexJavaScriptElectronIdentitySteps(
         facts.set(root.start ?? -1, exported);
     },
   });
-  return { bindings: facts, intactExport };
+  return { bindings: facts, intactExport, exportPath: rootExport };
 }
 
 // Read import and require origins directly; general value evaluation is

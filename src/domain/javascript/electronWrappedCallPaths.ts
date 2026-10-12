@@ -54,7 +54,7 @@ export const collectElectronWrappedCallPaths = (
   // Bounds repeated interprocedural expansion independently of bundle bytes.
   // Exhaustion is reported as unknown coverage, never as a negative finding.
   let remainingVisits = 1_000_000;
-  const resolver = new JavaScriptSymbolicBindings(state, program);
+  const resolver = new JavaScriptSymbolicBindings(state, program, identity);
   const paths: ElectronCallPath[] = [];
   const seen = new Set<string>();
   const step = (
@@ -74,7 +74,7 @@ export const collectElectronWrappedCallPaths = (
   const condition = (
     context: PathContext,
     node: t.Node,
-    positive: boolean | "nullish" = true,
+    positive: boolean | "nullish" | "not-nullish" = true,
   ): PathContext => {
     const expression = source
       .slice(node.start ?? 0, node.end ?? 0)
@@ -87,14 +87,33 @@ export const collectElectronWrappedCallPaths = (
           expression:
             positive === "nullish"
               ? `(${expression}) === null || (${expression}) === undefined`
-              : positive
-                ? expression
-                : `!(${expression})`,
+              : positive === "not-nullish"
+                ? `(${expression}) !== null && (${expression}) !== undefined`
+                : positive
+                  ? expression
+                  : `!(${expression})`,
           location: range(node),
         },
       ],
     };
   };
+  const metadataContext = (
+    context: PathContext,
+    value: SymbolicValue,
+  ): PathContext | null => {
+    if (value.conditionUnresolved) {
+      accumulator.unknownFindings += 1;
+      return null;
+    }
+    return (
+      value.conditions?.reduce(
+        (current, branch) => condition(current, branch.node, branch.positive),
+        context,
+      ) ?? context
+    );
+  };
+  const hasConditions = (value: SymbolicValue): boolean =>
+    symbolicVariants(value).some((variant) => variant.conditions?.length);
   const emit = (
     context: PathContext,
     node: t.Node,
@@ -120,14 +139,19 @@ export const collectElectronWrappedCallPaths = (
     fn: SymbolicFunction,
     args: readonly SymbolicValue[],
     context: PathContext,
+    invocationNode: t.Node,
   ): void => {
     if (context.active.has(fn.node)) return;
+    if (fn.conditionUnresolved === true) {
+      accumulator.unknownFindings += 1;
+      return;
+    }
     const name =
       (t.isFunctionExpression(fn.node) || t.isFunctionDeclaration(fn.node)) &&
       fn.node.id
         ? fn.node.id.name
         : "closure";
-    walk(fn.node.body, resolver.bind(fn, args), {
+    walk(fn.node.body, resolver.bind(fn, args, invocationNode), {
       ...context,
       steps: [
         ...context.steps,
@@ -149,14 +173,32 @@ export const collectElectronWrappedCallPaths = (
     args: readonly SymbolicValue[],
     context: PathContext,
     endpoint: string,
+    guardedDispatch: boolean,
   ): void => {
     const first = args[0];
-    if (first?.kind !== "literal" || typeof first.value !== "string") return;
+    if (first?.kind !== "literal" || typeof first.value !== "string") {
+      accumulator.unknownFindings += 1;
+      return;
+    }
+    const channelContext = metadataContext(context, first);
+    if (!channelContext) return;
+    const handlerValue = args[1] ?? symbolicUnknown("missing handler");
+    const handlerContext = metadataContext(channelContext, handlerValue);
+    if (!handlerContext) return;
     const channel = first.value;
-    const location = range(context.entryNode);
-    const handlers = symbolicVariants(
-      args[1] ?? symbolicUnknown("missing handler"),
-    );
+    const location = range(node);
+    const invocationLocation =
+      JSON.stringify(range(context.entryNode)) === JSON.stringify(location)
+        ? undefined
+        : range(context.entryNode);
+    const findingContext = {
+      module_key: null,
+      location,
+      ...(invocationLocation === undefined
+        ? {}
+        : { invocation_location: invocationLocation }),
+    };
+    const handlers = symbolicVariants(handlerValue);
     // A channel registration must not acquire one arbitrary handler from a union.
     // Keep the unresolved registration so it still competes with other handlers.
     const fn =
@@ -172,8 +214,7 @@ export const collectElectronWrappedCallPaths = (
             channel_expression: null,
             handler_kind: null,
             handler_location: null,
-            module_key: null,
-            location,
+            ...findingContext,
           }
         : fn
           ? {
@@ -182,8 +223,7 @@ export const collectElectronWrappedCallPaths = (
               channel_expression: null,
               handler_kind: "inline-function",
               handler_location: range(fn.node),
-              module_key: null,
-              location,
+              ...findingContext,
             }
           : handlerNode
             ? {
@@ -192,8 +232,7 @@ export const collectElectronWrappedCallPaths = (
                 channel_expression: null,
                 handler_kind: "dynamic-expression",
                 handler_location: range(handlerNode),
-                module_key: null,
-                location,
+                ...findingContext,
               }
             : {
                 ...descriptor,
@@ -201,28 +240,33 @@ export const collectElectronWrappedCallPaths = (
                 channel_expression: null,
                 handler_kind: "missing",
                 handler_location: null,
-                module_key: null,
-                location,
+                ...findingContext,
               };
+    // A fully observed transmission stays one source fact when its callback is
+    // traced. Registrations retain invocation identity because handlers compete.
     const duplicate = accumulator.ipc.some(
       ({ value }) =>
         value.side === finding.side &&
         value.operation === finding.operation &&
         value.channel === channel &&
-        [JSON.stringify(location), JSON.stringify(range(node))].includes(
-          JSON.stringify(value.location),
-        ),
+        JSON.stringify(value.location) === JSON.stringify(location) &&
+        ((value.resolution_basis === undefined &&
+          (value.mode === "send" || value.mode === "invoke")) ||
+          JSON.stringify(value.invocation_location) ===
+            JSON.stringify(invocationLocation)),
     );
-    if (!duplicate) {
+    const findingGuarded =
+      context.conditions.length > 0 || hasConditions(first) || guardedDispatch;
+    if (!duplicate && !findingGuarded) {
       accumulator.ipc.push({
-        offset: context.entryNode.start ?? -1,
+        offset: node.start ?? -1,
         value: { ...finding, resolution_basis: "wrapper-substitution" },
       });
       if (descriptor.mode !== "send" && descriptor.mode !== "invoke" && !fn)
         accumulator.unknownFindings += 1;
-    }
+    } else if (findingGuarded) accumulator.unknownFindings += 1;
     if (descriptor.mode === "send" || descriptor.mode === "invoke") {
-      emit(context, node, endpoint, channel);
+      emit(channelContext, node, endpoint, channel);
       return;
     }
     if (descriptor.side === "main" && fn)
@@ -233,23 +277,29 @@ export const collectElectronWrappedCallPaths = (
           symbolicUnknown("IPC payload"),
         ],
         {
-          ...context,
+          ...handlerContext,
           entryKind: "ipc-handler",
           entry: channel,
           channel,
           steps: [...context.steps, step(node, "ipc", endpoint)],
         },
+        node,
       );
   };
   const bridge = (
     node: t.CallExpression | t.OptionalCallExpression,
     args: readonly SymbolicValue[],
     context: PathContext,
+    guardedDispatch: boolean,
   ): void => {
     const key = args[0];
     const object = args[1];
-    if (key?.kind !== "literal" || typeof key.value !== "string" || !object)
+    if (key?.kind !== "literal" || typeof key.value !== "string" || !object) {
+      accumulator.unknownFindings += 1;
       return;
+    }
+    const keyContext = metadataContext(context, key);
+    if (!keyContext || !metadataContext(keyContext, object)) return;
     const members = [...resolver.members(object)].sort();
     const location = range(node);
     const existing = accumulator.contextBridgeApis.find(
@@ -268,14 +318,27 @@ export const collectElectronWrappedCallPaths = (
       module_key: null,
       location,
     };
-    if (existing)
-      existing.value.members.length === 0 &&
+    // This report shape has no predicate field, so a guarded world or object
+    // cannot be recorded as an unconditional exposure fact.
+    const guardedKey = hasConditions(key);
+    const guardedObject = hasConditions(object);
+    const guarded =
+      context.conditions.length > 0 ||
+      guardedKey ||
+      guardedObject ||
+      guardedDispatch;
+    if (guarded) accumulator.unknownFindings += 1;
+    // Existing entries are raw syntax observations and remain valid even when
+    // symbolic substitution can only describe this call under a predicate.
+    if (!guarded && existing)
+      (existing.value.api_status !== "object-literal" ||
+        existing.value.unknown_members > 0) &&
         accumulator.contextBridgeApis.splice(
           accumulator.contextBridgeApis.indexOf(existing),
           1,
           { offset: node.start ?? -1, value: finding },
         );
-    else
+    else if (!guarded)
       accumulator.contextBridgeApis.push({
         offset: node.start ?? -1,
         value: finding,
@@ -284,11 +347,13 @@ export const collectElectronWrappedCallPaths = (
       const value = resolver.property(object, name);
       for (const fn of symbolicVariants(value))
         if (fn.kind === "function") {
+          const memberContext = metadataContext(keyContext, fn);
+          if (!memberContext) continue;
           functionBody(
             fn,
             fn.node.params.map(() => symbolicUnknown("public API argument")),
             {
-              ...context,
+              ...memberContext,
               entryNode: node,
               entryKind: "bridge-member",
               entry: `${key.value}.${name}`,
@@ -296,6 +361,7 @@ export const collectElectronWrappedCallPaths = (
               steps: [step(node, "exposure", `${key.value}.${name}`)],
               active: new Set(),
             },
+            node,
           );
         }
     }
@@ -308,27 +374,45 @@ export const collectElectronWrappedCallPaths = (
     const value = resolver.evaluate(node.callee, env);
     const args = resolver.arguments(node, env);
     for (const callee of symbolicVariants(value)) {
+      const branchContext = metadataContext(context, callee);
+      if (!branchContext) continue;
       if (callee.kind === "function") {
-        functionBody(callee, args, {
-          ...context,
-          steps: [...context.steps, step(node, "call", callLabel(node.callee))],
-        });
+        functionBody(
+          callee,
+          args,
+          {
+            ...branchContext,
+            steps: [
+              ...branchContext.steps,
+              step(node, "call", callLabel(node.callee)),
+            ],
+          },
+          node,
+        );
       } else if (callee.kind === "external") {
         const path = callee.path;
         const endpoint = path.join(".");
         if (identity.intactExport(path)) {
           const descriptor = ipcDescriptor(path.slice(1));
-          if (descriptor) ipc(node, descriptor, args, context, endpoint);
+          if (descriptor)
+            ipc(
+              node,
+              descriptor,
+              args,
+              branchContext,
+              endpoint,
+              hasConditions(callee),
+            );
           else if (
             path.slice(1).join(".") === "contextBridge.exposeInMainWorld"
           )
-            bridge(node, args, context);
-          else if (path[1] === "clipboard") emit(context, node, endpoint);
+            bridge(node, args, branchContext, hasConditions(callee));
+          else if (path[1] === "clipboard") emit(branchContext, node, endpoint);
         } else if (
           (path[0] === "navigator" && path[1] === "clipboard") ||
           (path[0] === "ipc-event" && path[1] === "sender")
         )
-          emit(context, node, endpoint);
+          emit(branchContext, node, endpoint);
       }
     }
   };
@@ -459,5 +543,6 @@ export const collectElectronWrappedCallPaths = (
     accumulator.unknownFindings += 1;
     accumulator.electronCallPathLimitReached = true;
   }
+  if (resolver.unresolved) accumulator.unknownFindings += 1;
   return paths;
 };
