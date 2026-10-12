@@ -834,3 +834,75 @@ describe("Electron containers populated after initialization", () => {
     ]);
   });
 });
+
+describe("Electron container assignment completion order", () => {
+  it.each([
+    ["box.ipc=(box.ipc=e.ipcMain,{});", false],
+    ["box.ipc=(box.ipc={},e.ipcMain);", true],
+  ] as const)("uses the final committed slot value: %s", (write, mutated) => {
+    const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron"); const box={};
+      ${write}
+      delete box.ipc.on;
+      e.ipcMain.on("selected",event=>event.sender.copy());
+      e.ipcMain.handle("untouched",event=>event.sender.copy());
+    `);
+    expect(electron.ipc.map(({ channel }) => channel)).toEqual(
+      mutated ? ["untouched"] : ["selected", "untouched"],
+    );
+  });
+});
+
+describe("Electron mutations through captured nested objects", () => {
+  it.each([
+    [
+      "member alias",
+      "const alias=box.inner;",
+      "box.inner.ipc=e.ipcMain;",
+      "alias.ipc",
+      true,
+    ],
+    [
+      "reverse member alias",
+      "const alias=box.inner;",
+      "alias.ipc=e.ipcMain;",
+      "box.inner.ipc",
+      true,
+    ],
+    [
+      "destructured object",
+      "const {inner}=box;",
+      "box.inner.ipc=e.ipcMain;",
+      "inner.ipc",
+      true,
+    ],
+    [
+      "stored object",
+      "const saved={inner:box.inner};",
+      "box.inner.ipc=e.ipcMain;",
+      "saved.inner.ipc",
+      true,
+    ],
+    [
+      "replaced parent slot",
+      "const alias=box.inner;",
+      "box.inner={}; box.inner.ipc=e.ipcMain;",
+      "alias.ipc",
+      false,
+    ],
+  ] as const)(
+    "preserves the captured object's identity: %s",
+    (_name, capture, write, receiver, mutated) => {
+      const { electron } = analyzeJavaScriptStaticSource(`
+      const e=require("electron"); const box={inner:{ipc:{}}};
+      ${capture} ${write}
+      delete ${receiver}.on;
+      e.ipcMain.on("selected",event=>event.sender.copy());
+      e.ipcMain.handle("untouched",event=>event.sender.copy());
+    `);
+      expect(electron.ipc.map(({ channel }) => channel)).toEqual(
+        mutated ? ["untouched"] : ["selected", "untouched"],
+      );
+    },
+  );
+});

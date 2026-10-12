@@ -574,3 +574,50 @@ it.each([
     { kind: "external", path: ["electron", "ipcMain", "handle"] },
   ]);
 });
+
+it.each([
+  ["member", "const ipc=box.ipc;", "{}", "e.ipcMain", "external"],
+  ["member", "const ipc=box.ipc;", "e.ipcMain", "{}", "unknown"],
+  ["destructuring", "const {ipc}=box;", "{}", "e.ipcMain", "external"],
+  ["destructuring", "const {ipc}=box;", "e.ipcMain", "{}", "unknown"],
+])(
+  "preserves a %s capture of %s before replacing %s with %s",
+  (_name, capture, initial, replacement, kind) => {
+    const values = inspectedValues(`
+      const e=require("electron");
+      const box={ipc:${initial}};
+      ${capture}
+      box.ipc=${replacement};
+      delete ipc.on;
+      inspect(e.ipcMain.on);
+      inspect(e.ipcMain.handle);
+    `);
+    expect(values).toEqual([
+      kind === "unknown"
+        ? expect.objectContaining({ kind: "unknown" })
+        : { kind: "external", path: ["electron", "ipcMain", "on"] },
+      { kind: "external", path: ["electron", "ipcMain", "handle"] },
+    ]);
+  },
+);
+
+it.each([
+  ["a direct object alias", `const part={}; const captured=part;`],
+  [
+    "a captured member object",
+    `const part={}; const box={part}; const captured=box.part;`,
+  ],
+])("keeps later internal writes visible through %s", (_name, capture) => {
+  const values = inspectedValues(`
+    const e=require("electron");
+    ${capture}
+    part.ipc=e.ipcMain;
+    delete captured.ipc.on;
+    inspect(e.ipcMain.on);
+    inspect(e.ipcMain.handle);
+  `);
+  expect(values).toEqual([
+    expect.objectContaining({ kind: "unknown" }),
+    { kind: "external", path: ["electron", "ipcMain", "handle"] },
+  ]);
+});

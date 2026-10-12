@@ -63,8 +63,19 @@ type OriginValue = SymbolicValue & {
     readonly base: SymbolicValue;
     readonly writes: readonly OriginPropertyWrite[];
     readonly end?: number;
+    readonly reference?: true;
   };
 };
+type OriginObjectValue = Extract<
+  SymbolicValue,
+  { kind: "object" | "record" | "array" }
+>;
+interface OriginReference {
+  readonly binding: JavaScriptSemanticBindingState;
+  readonly node: t.Identifier;
+  readonly environment: SymbolicEnvironment;
+  readonly path: readonly string[];
+}
 interface SymbolicReturnFlow {
   readonly values: readonly SymbolicValue[];
   readonly fallsThrough: boolean;
@@ -83,6 +94,15 @@ export class JavaScriptSymbolicBindings {
     | WeakMap<SymbolicEnvironment, WeakMap<t.Node, SymbolicValue>>
     | undefined;
   #originPoint: t.Node | undefined;
+  #originPointAfter = false;
+  readonly #originReferences = new WeakMap<
+    SymbolicEnvironment,
+    WeakMap<t.ObjectExpression, OriginReference[]>
+  >();
+  readonly #originCollectionReferences = new WeakMap<
+    object,
+    OriginReference[]
+  >();
   readonly #active = new Set<t.Node>();
   readonly #activeFunctions = new Set<t.Function>();
   readonly #exportAliases = new Map<string, string>();
@@ -472,9 +492,12 @@ export class JavaScriptSymbolicBindings {
     if (t.isIdentifier(node)) return this.#identifier(node, env);
     if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
       const key = semanticStaticPropertyKey(node.property, node.computed);
-      return key === null
-        ? symbolicUnknown("dynamic member")
-        : this.property(this.evaluate(node.object, env), key);
+      if (key === null) return symbolicUnknown("dynamic member");
+      const select = (): SymbolicValue =>
+        this.property(this.evaluate(node.object, env), key);
+      return this.#originCache === undefined
+        ? select()
+        : this.#atOriginPoint(node.object, select, true);
     }
     if (t.isSequenceExpression(node))
       return this.evaluate(node.expressions.at(-1), env);
@@ -594,11 +617,18 @@ export class JavaScriptSymbolicBindings {
     }
     if (this.state.conditionalInitializers.has(initializer.node))
       return symbolicUnknown("conditional initializer");
-    let value = this.evaluate(initializer.node, env);
-    for (const key of initializer.projection) {
-      if (key === null) return symbolicUnknown("dynamic destructuring");
-      value = this.property(value, String(key));
-    }
+    const select = (): SymbolicValue => {
+      let value = this.evaluate(initializer.node, env);
+      for (const key of initializer.projection) {
+        if (key === null) return symbolicUnknown("dynamic destructuring");
+        value = this.property(value, String(key));
+      }
+      return value;
+    };
+    const value =
+      this.#originCache !== undefined && initializer.projection.length > 0
+        ? this.#atOriginPoint(initializer.node, select, true)
+        : select();
     return this.#originCache === undefined
       ? value
       : this.#originObject(value, binding, node, env);
@@ -970,16 +1000,23 @@ export class JavaScriptSymbolicBindings {
     }
   }
 
-  #atOriginPoint<Value>(point: t.Node, read: () => Value): Value {
+  #atOriginPoint<Value>(
+    point: t.Node,
+    read: () => Value,
+    after = false,
+  ): Value {
     const cache = this.#originCache;
     const previous = this.#originPoint;
+    const previousAfter = this.#originPointAfter;
     this.#originCache = new WeakMap();
     this.#originPoint = point;
+    this.#originPointAfter = after;
     try {
       return read();
     } finally {
       this.#originCache = cache;
       this.#originPoint = previous;
+      this.#originPointAfter = previousAfter;
     }
   }
 
@@ -990,69 +1027,172 @@ export class JavaScriptSymbolicBindings {
     return current;
   }
 
+  // Slot reads capture values; object references retain the indexed writes to
+  // that exact object, even after a container stops pointing to it.
   #originObject(
     value: SymbolicValue,
     binding: JavaScriptSemanticBindingState,
-    node: t.Node,
+    node: t.Identifier,
     environment: SymbolicEnvironment,
   ): SymbolicValue {
-    if (
-      !symbolicVariants(value).some((variant) =>
-        ["object", "record", "array"].includes(variant.kind),
-      )
-    )
-      return value;
-    const target = this.#originPoint ?? node;
-    const read =
-      this.#functionOwner(target) === this.#functionOwner(node) ? target : node;
-    const point = this.#initializerReadPoint(
-      binding.scopeId,
-      environment,
-      read,
-    );
-    if (point === undefined) return value;
-    const owner = this.#functionOwner(read);
-    let retained: readonly OriginPropertyWrite[] | undefined;
-    const readWrites = (): readonly OriginPropertyWrite[] =>
-      (retained ??= this.#originWrites(
-        binding.bindingId,
-        point,
-        owner,
-        environment,
-      ));
     return symbolicUnion(
       symbolicVariants(value).map((variant) => {
-        if (!["object", "record", "array"].includes(variant.kind))
+        if (
+          variant.kind !== "object" &&
+          variant.kind !== "record" &&
+          variant.kind !== "array"
+        )
           return variant;
-        const snapshot = (variant as OriginValue)[originSnapshot];
-        let retainedWrites: readonly OriginPropertyWrite[] | undefined;
-        return {
-          ...variant,
-          [originSnapshot]: {
-            base: snapshot?.base ?? variant,
-            get writes(): readonly OriginPropertyWrite[] {
-              if (retainedWrites !== undefined) return retainedWrites;
-              const merged = [
-                ...(snapshot?.writes.slice(0, snapshot.end) ?? []),
-                ...readWrites(),
-              ];
-              const seen = new Set<PropertyWrite>();
-              retainedWrites = merged
-                .filter(
-                  ({ source }) =>
-                    !seen.has(source) && Boolean(seen.add(source)),
-                )
-                .sort(
-                  (left, right) =>
-                    (left.source.site.start ?? 0) -
-                    (right.source.site.start ?? 0),
-                );
-              return retainedWrites;
-            },
-          },
-        };
+        this.#retainOriginReference(variant, {
+          binding,
+          node,
+          environment,
+          path: [],
+        });
+        return this.#originReferenceValue(variant);
       }),
     );
+  }
+
+  #references(value: OriginObjectValue): OriginReference[] {
+    if (value.kind !== "object") {
+      let references = this.#originCollectionReferences.get(value.values);
+      if (!references) {
+        references = [];
+        this.#originCollectionReferences.set(value.values, references);
+      }
+      return references;
+    }
+    let objects = this.#originReferences.get(value.environment);
+    if (!objects) {
+      objects = new WeakMap();
+      this.#originReferences.set(value.environment, objects);
+    }
+    let references = objects.get(value.node);
+    if (!references) {
+      references = [];
+      objects.set(value.node, references);
+    }
+    return references;
+  }
+
+  #retainOriginReference(
+    value: OriginObjectValue,
+    reference: OriginReference,
+  ): void {
+    if (--this.#remainingEvaluations < 0) {
+      this.truncated = true;
+      return;
+    }
+    const references = this.#references(value);
+    if (
+      !references.some(
+        (existing) =>
+          existing.binding === reference.binding &&
+          existing.environment === reference.environment &&
+          existing.path.length === reference.path.length &&
+          existing.path.every((key, index) => key === reference.path[index]),
+      )
+    )
+      references.push(reference);
+  }
+
+  #originReferenceWrites(
+    value: OriginObjectValue,
+    reference: OriginReference,
+  ): readonly OriginPropertyWrite[] {
+    const target = this.#originPoint ?? reference.node;
+    const read =
+      this.#functionOwner(target) === this.#functionOwner(reference.node)
+        ? target
+        : reference.node;
+    const start = this.#initializerReadPoint(
+      reference.binding.scopeId,
+      reference.environment,
+      read,
+    );
+    const point =
+      this.#originPointAfter && read === target && start === target.start
+        ? (target.end ?? undefined)
+        : start;
+    if (point === undefined) return [];
+    const writes = this.#originWrites(
+      reference.binding.bindingId,
+      point,
+      this.#functionOwner(read),
+      reference.environment,
+    );
+    if (reference.path.length === 0) return writes;
+    const projected: OriginPropertyWrite[] = [];
+    for (const write of writes) {
+      if (
+        write.path.length <= reference.path.length ||
+        !reference.path.every(
+          (key, index) =>
+            write.path[index] === null || write.path[index] === key,
+        )
+      )
+        continue;
+      // A later replacement of an ancestor slot must not retarget a captured
+      // reference. Compare the selected object before this write commits.
+      const matches = this.#atOriginPoint(write.source.site, () => {
+        let selected = this.evaluate(reference.node, reference.environment);
+        for (const key of reference.path)
+          selected = this.property(selected, key);
+        return symbolicVariants(selected).some((candidate) =>
+          value.kind === "object"
+            ? candidate.kind === "object" &&
+              candidate.node === value.node &&
+              candidate.environment === value.environment
+            : candidate.kind === value.kind &&
+              candidate.values === value.values,
+        );
+      });
+      if (matches)
+        projected.push({
+          ...write,
+          path: write.path.slice(reference.path.length),
+          definite:
+            write.definite &&
+            write.path
+              .slice(0, reference.path.length)
+              .every((key) => key !== null),
+        });
+    }
+    return projected;
+  }
+
+  #originReferenceValue(value: OriginObjectValue): SymbolicValue {
+    const snapshot = (value as OriginValue)[originSnapshot];
+    if (snapshot?.reference) return value;
+    const references = this.#references(value);
+    const resolver = this;
+    return {
+      ...value,
+      [originSnapshot]: {
+        reference: true,
+        base: snapshot?.base ?? value,
+        get writes(): readonly OriginPropertyWrite[] {
+          const merged = [...(snapshot?.writes.slice(0, snapshot.end) ?? [])];
+          for (const reference of [...references])
+            for (const write of resolver.#originReferenceWrites(
+              value,
+              reference,
+            ))
+              merged.push(write);
+          const seen = new Set<PropertyWrite>();
+          return merged
+            .filter(
+              ({ source }) => !seen.has(source) && Boolean(seen.add(source)),
+            )
+            .sort(
+              (left, right) =>
+                (left.source.site.end ?? 0) - (right.source.site.end ?? 0) ||
+                (right.source.site.start ?? 0) - (left.source.site.start ?? 0),
+            );
+        },
+      },
+    } as OriginValue;
   }
 
   #originWrites(
@@ -1141,6 +1281,40 @@ export class JavaScriptSymbolicBindings {
 
   /** Possible selected values for mutation provenance, never exact read proof. */
   #originProperties(
+    value: SymbolicValue,
+    key: string | null,
+    excluded: ReadonlySet<string> = new Set(),
+    active = new Set<SymbolicValue>(),
+  ): OriginProperties {
+    const result = this.#readOriginProperties(value, key, excluded, active);
+    if (
+      (value.kind !== "object" &&
+        value.kind !== "record" &&
+        value.kind !== "array") ||
+      key === null
+    )
+      return result;
+    const references = [...this.#references(value)];
+    return {
+      ...result,
+      values: result.values.map((member) => {
+        if (
+          member.kind !== "object" &&
+          member.kind !== "record" &&
+          member.kind !== "array"
+        )
+          return member;
+        for (const reference of references)
+          this.#retainOriginReference(member, {
+            ...reference,
+            path: [...reference.path, key],
+          });
+        return this.#originReferenceValue(member);
+      }),
+    };
+  }
+
+  #readOriginProperties(
     value: SymbolicValue,
     key: string | null,
     excluded: ReadonlySet<string> = new Set(),
