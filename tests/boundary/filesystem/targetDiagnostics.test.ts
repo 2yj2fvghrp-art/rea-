@@ -560,6 +560,76 @@ describe("debug companion fixture admission", () => {
 });
 
 describe("debug companion universal slice selection", () => {
+  it("honors a UUID-less first slice over a UUID-bearing same-family sibling", async () => {
+    const directory = await createTestTempDirectory("rea-dsym-nouuid-");
+    const target = join(directory, "target.macho");
+    // Container: first x86_64-family slice without LC_UUID, then a sibling
+    // with one. The import is the first slice; the sibling must not match.
+    const filler = Buffer.alloc(28 + 8);
+    filler.writeUInt32LE(0xfeedface, 0);
+    filler.writeUInt32LE(0x01000007, 4);
+    filler.writeUInt32LE(1, 16);
+    filler.writeUInt32LE(8, 20);
+    filler.writeUInt32LE(0x29, 28);
+    filler.writeUInt32LE(8, 32);
+    const siblingUuid = "55555555-5555-5555-5555-555555555555";
+    const siblingBytes = Buffer.alloc(28 + 24);
+    siblingBytes.writeUInt32LE(0xfeedface, 0);
+    siblingBytes.writeUInt32LE(0x01000007, 4);
+    siblingBytes.writeUInt32LE(1, 16);
+    siblingBytes.writeUInt32LE(24, 20);
+    siblingBytes.writeUInt32LE(0x1b, 28);
+    siblingBytes.writeUInt32LE(24, 32);
+    Buffer.from(siblingUuid.replace(/-/gu, ""), "hex").copy(siblingBytes, 36);
+    const headerSize = 8 + 2 * 20;
+    const container = Buffer.alloc(
+      headerSize + filler.length + siblingBytes.length,
+    );
+    container.writeUInt32BE(0xcafebabe, 0);
+    container.writeUInt32BE(2, 4);
+    container.writeInt32BE(0x01000007, 8);
+    container.writeUInt32BE(headerSize, 8 + 8);
+    container.writeUInt32BE(filler.length, 8 + 12);
+    container.writeInt32BE(0x01000008, 8 + 20);
+    container.writeUInt32BE(headerSize + filler.length, 8 + 20 + 8);
+    container.writeUInt32BE(siblingBytes.length, 8 + 20 + 12);
+    filler.copy(container, headerSize);
+    siblingBytes.copy(container, headerSize + filler.length);
+    await writeFile(target, container);
+    const { readMachoFileUuidEntries } =
+      await import("../../../src/application/DebugCompanionAdmission.js");
+    const { open } = await import("node:fs/promises");
+    const handle = await open(target, "r");
+    try {
+      const entries = await readMachoFileUuidEntries(handle, container.length);
+      expect(entries).toEqual({
+        ok: true,
+        value: [
+          { cpuType: 0x01000007, uuid: null },
+          { cpuType: 0x01000008, uuid: siblingUuid },
+        ],
+      });
+    } finally {
+      await handle.close();
+    }
+    // A valid bundle whose only member carries the sibling's UUID: the
+    // import is the UUID-less first slice, so admission must still refuse.
+    const bundle = join(directory, "sibling-only.dSYM");
+    const dwarfDirectory = join(bundle, "Contents", "Resources", "DWARF");
+    const mkdir = (await import("node:fs/promises")).mkdir;
+    await mkdir(dwarfDirectory, { recursive: true });
+    await writeFile(join(dwarfDirectory, "member"), siblingBytes);
+    const result = await parseBinaryTarget(target, {
+      dsymPath: bundle,
+      hostArchitecture: "x64",
+    });
+    if (result.ok) throw new Error("uuid-less target admitted a companion");
+    const projected = projectAnalysisError(result.error);
+    expect(projected.details).toMatchObject({
+      constraint: "debug_companion_rejected",
+      reason: expect.stringContaining("declares no LC_UUID"),
+    });
+  });
   it.skipIf(!onDarwin || process.arch !== "arm64")(
     "rejects a companion that matches only the unselected universal slice",
     async () => {

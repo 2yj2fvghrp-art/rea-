@@ -17,6 +17,15 @@ import {
   type MachOUuidEntry,
 } from "../domain/machoDebugCompanion.js";
 
+/**
+ * Per-slice UUID observation: null marks a slice that declared no LC_UUID,
+ * so family selection can honor the earlier slice instead of skipping it.
+ */
+export interface SliceUuidEntry {
+  readonly cpuType: number;
+  readonly uuid: string | null;
+}
+
 /** Bound on the bytes read to walk Mach-O headers and load commands. */
 const HEADER_READ_LIMIT = 64 * 1024;
 
@@ -97,13 +106,27 @@ const readUuidRegion = async (
 };
 
 /**
+ * Aggregate bytes one admission may spend walking Mach-O command regions
+ * across every target slice and member candidate.
+ */
+const TRAVERSAL_BUDGET_BYTES = 64 * 1024 * 1024;
+
+/**
  * Read every LC_UUID of a Mach-O file with its declaring cputype: a thin
- * image from its start, or each slice of a universal container from its table.
+ * image from its start, or each slice of a universal container from its
+ * table (a UUID-less slice keeps its place as a null entry). Cancellation
+ * and the aggregate traversal budget are honored between slices.
  */
 export const readMachoFileUuidEntries = async (
   handle: FileHandle,
   fileSize: number,
-): Promise<Result<MachOUuidEntry[], string>> => {
+  options: {
+    readonly signal?: AbortSignal;
+    readonly traversalBudgetBytes?: number;
+  } = {},
+): Promise<Result<SliceUuidEntry[], string>> => {
+  const budget = options.traversalBudgetBytes ?? TRAVERSAL_BUDGET_BYTES;
+  let spent = 0;
   const prefix = await readUuidRegion(handle, 0, fileSize);
   if (!prefix.ok) return prefix;
   const magic = prefix.value.length >= 4 ? prefix.value.readUInt32BE(0) : 0;
@@ -125,8 +148,9 @@ export const readMachoFileUuidEntries = async (
   const entrySize = wide ? 32 : 20;
   if (count > 128 || 8 + count * entrySize > prefix.value.length)
     return err("the universal Mach-O container table is truncated");
-  const entries: MachOUuidEntry[] = [];
+  const entries: SliceUuidEntry[] = [];
   for (let index = 0; index < count; index += 1) {
+    throwIfCancelled(options.signal);
     const entry = 8 + index * entrySize;
     const cpuType = big
       ? prefix.value.readInt32BE(entry)
@@ -147,11 +171,16 @@ export const readMachoFileUuidEntries = async (
       : read32(entry + 12);
     if (sliceOffset > fileSize || sliceSize > fileSize - sliceOffset)
       return err("a universal Mach-O slice is out of file bounds");
+    spent += Math.min(sliceSize, 16 * 1024 * 1024);
+    if (spent > budget)
+      return err("the Mach-O traversal exceeds the supported aggregate budget");
     const slice = await readUuidRegion(handle, sliceOffset, sliceSize);
     if (!slice.ok) return slice;
     const read = readMachoUuidEntries(slice.value);
     if (!read.ok) return read;
-    for (const item of read.value) entries.push({ cpuType, uuid: item.uuid });
+    // A slice without any LC_UUID keeps its place so first-of-family
+    // selection cannot skip past it to a sibling.
+    entries.push({ cpuType, uuid: read.value[0]?.uuid ?? null });
   }
   return ok(entries);
 };
@@ -245,23 +274,21 @@ export const admitDebugCompanion = async (input: {
   const targetEntries = await readMachoFileUuidEntries(
     input.targetHandle,
     input.targetSize,
+    (signal === undefined ? {} : { signal }),
   );
   if (!targetEntries.ok) return err({ reason: targetEntries.error });
   // Mirror the target parser's FAT selection: the first slice of each CPU
-  // family is the one REA imports, so only that slice's UUID can admit a
-  // companion (a same-family sibling such as x86_64h is not the import).
+  // family is the one REA imports — including when that slice declares no
+  // LC_UUID, in which case a same-family sibling cannot lend its UUID.
   const selectedCpuTypes = CPU_TYPES[input.architecture];
   const importedFamilies = new Set<number>();
-  const selectedUuids = targetEntries.value
-    .filter(({ cpuType }) => {
-      const family = selectedCpuTypes.find(
-        (candidate) => candidate === cpuType,
-      );
-      if (family === undefined || importedFamilies.has(family)) return false;
-      importedFamilies.add(family);
-      return true;
-    })
-    .map(({ uuid }) => uuid);
+  const selectedUuids: string[] = [];
+  for (const { cpuType, uuid } of targetEntries.value) {
+    const family = selectedCpuTypes.find((candidate) => candidate === cpuType);
+    if (family === undefined || importedFamilies.has(family)) continue;
+    importedFamilies.add(family);
+    if (uuid !== null) selectedUuids.push(uuid);
+  }
   if (selectedUuids.length === 0)
     return err({
       reason: `the target image declares no LC_UUID for the selected ${input.architecture} slice`,
@@ -283,11 +310,14 @@ export const admitDebugCompanion = async (input: {
       const memberEntries = await readMachoFileUuidEntries(
         memberHandle,
         initial.size,
+        (signal === undefined ? {} : { signal }),
       );
       if (!memberEntries.ok) continue;
       const matched = debugCompanionMatches({
         executableUuids: selectedUuids,
-        companionUuids: memberEntries.value.map(({ uuid }) => uuid),
+        companionUuids: memberEntries.value
+          .map(({ uuid }) => uuid)
+          .filter((uuid): uuid is string => uuid !== null),
       });
       if (!matched.ok) continue;
       const memberSha256 = await digestOpenHandle(
