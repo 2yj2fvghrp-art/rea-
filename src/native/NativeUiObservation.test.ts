@@ -93,8 +93,8 @@ describe("native UI screenshot validation", () => {
   it("rejects a PNG whose IHDR type only matches after ASCII folding", async () => {
     const bytes = Buffer.from(validPng);
     const type = bytes.subarray(12, 16);
-    expect(type.toString("ascii")).toBe("IHDR");
     type[0] = (type[0] ?? 0) | 0x80;
+    expect(type.toString("ascii")).toBe("IHDR");
     const screenshot = {
       mime_type: "image/png",
       base64: bytes.toString("base64"),
