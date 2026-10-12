@@ -190,6 +190,55 @@ const mcp = async (cliDossier) => {
       const result = await call(name, args);
       observe(result);
     }
+    if (config.mode === "headless") {
+      const documents = observe(await call("list_documents", {}));
+      assert.equal(documents.length, 1);
+      const resolveAt = async (address) =>
+        observe(await call("resolve_containing_procedure", { address }));
+      const interior = `0x${(BigInt(dossier.procedure.address) + 1n).toString(16)}`;
+      for (const queried of [dossier.procedure.address, interior]) {
+        const containing = await resolveAt(queried);
+        assert.equal(containing.found, true);
+        assert.equal(containing.procedure.address, dossier.procedure.address);
+        assert.equal(containing.procedure.name, dossier.procedure.name);
+      }
+      const unmapped = await resolveAt("0x1");
+      assert.equal(unmapped.found, false);
+      assert.equal(unmapped.reason, "outside_segments");
+      const strings = observe(await call("list_strings", {}));
+      if (strings.length > 0) {
+        const mapped = await resolveAt(strings[0].address);
+        assert.equal(mapped.found, false);
+        assert.equal(mapped.reason, "not_in_procedure");
+      }
+      const context = await client.callTool({
+        name: "inspect_address_context",
+        arguments: { address: dossier.procedure.address },
+      });
+      assert.notEqual(context.isError, true);
+      const contextResult = context.structuredContent.result;
+      assert.equal(contextResult.document, documents[0]);
+      assert.equal(contextResult.procedure.state, "available");
+      assert.equal(
+        contextResult.procedure.value.procedure.address,
+        dossier.procedure.address,
+      );
+      if (strings.length > 0) {
+        const traced = await client.callTool({
+          name: "trace_feature",
+          arguments: { query: strings[0].value },
+        });
+        assert.notEqual(traced.isError, true);
+        const trace = traced.structuredContent.normalized_result;
+        assert.ok(
+          trace.matches.some(({ address }) => address === strings[0].address),
+        );
+        assert.equal(typeof trace.truncated, "boolean");
+      }
+      report.checks.push(
+        "headless containing procedures, the admitted program as the document, address context, and feature tracing",
+      );
+    }
     if (values["second-procedure"] !== undefined) {
       const secondAddress = observe(
         await call("procedure_address", {
