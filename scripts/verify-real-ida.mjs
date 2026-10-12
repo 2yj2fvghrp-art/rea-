@@ -57,6 +57,14 @@ const [
 const registration = readIdaConfiguration(process.env.REA_IDA_MCP_CONFIG);
 if (!registration.ok) throw registration.error;
 const config = registration.value;
+if (
+  config.protocol === "native" &&
+  (values["second-procedure"] === undefined ||
+    values["second-marker"] === undefined)
+)
+  throw new Error(
+    "Native IDA verification requires --second-procedure and --second-marker to verify distinct-function switching; see docs/ida-provider.md.",
+  );
 const environment = Object.fromEntries(
   Object.entries({
     ...process.env,

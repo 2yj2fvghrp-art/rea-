@@ -65,6 +65,38 @@ const identity = (fn: IdaFunction) => ({
   classification: null,
   body: unknownBody,
 });
+interface IdaRelationships {
+  readonly items: ReturnType<typeof identity>[];
+  readonly coverage: RelationshipCoverage;
+}
+
+const combinedRelationshipCoverage = (
+  callers: RelationshipCoverage,
+  callees: RelationshipCoverage,
+): RelationshipCoverage => {
+  const coverage = [callers, callees];
+  const diagnostics = [
+    ...new Set(
+      coverage.flatMap((item) =>
+        "diagnostics" in item ? item.diagnostics : [],
+      ),
+    ),
+  ];
+  const details = diagnostics.length > 0 ? { diagnostics } : {};
+  const unknown = coverage.filter((item) => item.status === "unknown");
+  if (unknown.length > 0)
+    return {
+      status: "unknown",
+      reason: [...new Set(unknown.map((item) => item.reason))].join(" "),
+      ...details,
+    };
+  const limitations = coverage.flatMap((item) =>
+    item.status === "partial" ? item.limitations : [],
+  );
+  return limitations.length > 0
+    ? { status: "partial", limitations, ...details }
+    : { status: "complete", ...details };
+};
 /** The only lookup answers upstream reports for a name or address that is not a function. */
 const MISSING_PROCEDURE_ANSWERS: ReadonlySet<string> = new Set([
   "Not found",
@@ -221,7 +253,7 @@ export class IdaOperationRunner {
   private async addCallGraphCallees(
     fn: IdaFunction,
     result: Map<string, ReturnType<typeof identity>>,
-  ): Promise<void> {
+  ): Promise<RelationshipCoverage> {
     const graph =
       this.options.callGraphAvailable === false
         ? unavailableCallGraph("the upstream server does not advertise it")
@@ -229,11 +261,11 @@ export class IdaOperationRunner {
             (tool, args) => this.call(tool, args),
             fn.address,
           );
-    this.relationshipCoverage = graph.coverage;
     this.limitations.push(...graph.limitations);
     for (const callee of graph.callees)
       if (!result.has(callee.address))
         result.set(callee.address, identity({ ...callee, size: "unknown" }));
+    return graph.coverage;
   }
 
   async strings(
@@ -398,12 +430,16 @@ export class IdaOperationRunner {
   async relationships(
     fn: IdaFunction,
     direction: "callers" | "callees",
-  ): Promise<ReturnType<typeof identity>[]> {
+  ): Promise<IdaRelationships> {
     const queries: string[] = [];
     const result = new Map<string, ReturnType<typeof identity>>();
+    let coverage: RelationshipCoverage = {
+      status: "unknown",
+      reason: "The legacy relationship response does not report coverage.",
+    };
     if (this.readsCallGraph(direction)) {
-      await this.addCallGraphCallees(fn, result);
-      return [...result.values()];
+      coverage = await this.addCallGraphCallees(fn, result);
+      return { items: [...result.values()], coverage };
     }
     if (this.protocol === "legacy") {
       const value = await this.call(
@@ -423,11 +459,14 @@ export class IdaOperationRunner {
       this.limitations.push(
         "Upstream xrefs classify references as code or data, without proving call edges. Direct callers are unavailable in this profile.",
       );
-      this.relationshipCoverage = {
-        status: "unknown",
-        reason: "Upstream xrefs do not establish direct caller relationships.",
+      return {
+        items: [],
+        coverage: {
+          status: "unknown",
+          reason:
+            "Upstream xrefs do not establish direct caller relationships.",
+        },
       };
-      return [];
     } else {
       const page = (
         this.protocol === "native" ? nativeCalleesSchema : modernCalleesSchema
@@ -442,7 +481,7 @@ export class IdaOperationRunner {
         this.limitations.push(
           "Upstream callees capped results at 500; additional callees remain unknown.",
         );
-      this.relationshipCoverage =
+      coverage =
         page.more === true
           ? {
               status: "partial",
@@ -486,12 +525,7 @@ export class IdaOperationRunner {
         result.set(resolved.address, resolved);
       }
     }
-    if (this.relationshipCoverage === undefined)
-      this.relationshipCoverage = {
-        status: "unknown",
-        reason: "The legacy relationship response does not report coverage.",
-      };
-    return [...result.values()];
+    return { items: [...result.values()], coverage };
   }
 
   async run(
@@ -546,17 +580,18 @@ export class IdaOperationRunner {
       case "procedure_assembly":
         return lines(await this.assembly(fn)).join("\n");
       case "procedure_callers":
-        if (this.protocol !== "legacy")
+      case "procedure_callees": {
+        if (operation === "procedure_callers" && this.protocol !== "legacy")
           throw new AnalysisProtocolError(
             "This IDA MCP profile cannot distinguish direct callers from other code references.",
           );
-        return (await this.relationships(fn, "callers")).map(
-          ({ address }) => address,
+        const relationships = await this.relationships(
+          fn,
+          operation === "procedure_callers" ? "callers" : "callees",
         );
-      case "procedure_callees":
-        return (await this.relationships(fn, "callees")).map(
-          ({ address }) => address,
-        );
+        this.relationshipCoverage = relationships.coverage;
+        return relationships.items.map(({ address }) => address);
+      }
       case "read_function_instructions":
         return functionInstructionWindowSchema.parse({
           procedure: identity(fn),
@@ -597,6 +632,10 @@ export class IdaOperationRunner {
     const pseudocode = await this.pseudocode(fn);
     const callers = await this.relationships(fn, "callers");
     const callees = await this.relationships(fn, "callees");
+    this.relationshipCoverage = combinedRelationshipCoverage(
+      callers.coverage,
+      callees.coverage,
+    );
     const signature =
       asm.return_type == null || asm.arguments == null
         ? null
@@ -606,8 +645,8 @@ export class IdaOperationRunner {
       pseudocode: pseudocode ?? "",
       assembly: lines(asm),
       comments: [],
-      callers,
-      callees,
+      callers: callers.items,
+      callees: callees.items,
       incoming_references: [],
       outgoing_references: [],
       referenced_strings: [],

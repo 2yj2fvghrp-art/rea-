@@ -196,6 +196,52 @@ describe("native IDA attached protocol", () => {
 });
 
 describe("native IDA provider observations", () => {
+  it.each([false, true])(
+    "keeps unknown callers in dossier coverage when callee truncation is %s",
+    async (more) => {
+      const { client, producer } = await fixture();
+      const original = producer.overrideCall;
+      producer.overrideCall = (name, args) =>
+        name === "callees"
+          ? [
+              {
+                callees: [{ addr: "0x2000", name: "puts", type: "external" }],
+                more,
+                error: null,
+              },
+            ]
+          : original?.(name, args);
+      try {
+        const direct = await client.execute("procedure_callees", {
+          procedure: "main",
+        });
+        if (!direct.ok) throw direct.error;
+        expect(direct.value.relationshipCoverage).toMatchObject({
+          status: more ? "partial" : "complete",
+        });
+        const dossier = await client.execute("analyze_function", {
+          procedure: "main",
+        });
+        if (!dossier.ok) throw dossier.error;
+        expect(dossier.value.relationshipCoverage).toEqual({
+          status: "unknown",
+          reason:
+            "Upstream xrefs do not establish direct caller relationships.",
+        });
+        expect(dossier.value.result).toMatchObject({
+          callers: [],
+          callees: [{ address: "0x2000", name: "puts" }],
+        });
+        if (more)
+          expect(dossier.value.limitations).toContain(
+            "Upstream callees capped results at 500; additional callees remain unknown.",
+          );
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
   it("retains native tool provenance, reads recorded metadata, and closes only its connection", async () => {
     const { client, producer, resources } = await fixture();
     for (const operation of [
