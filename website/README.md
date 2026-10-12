@@ -35,7 +35,11 @@ Keep the virtual environment active when preparing assets. CairoSVG needs the
 native Cairo library; the sharing card uses DejaVu Sans. On Debian or Ubuntu,
 install them with `sudo apt-get install libcairo2 fonts-dejavu-core`. On an
 Apple Silicon Mac, enter an ARM shell first with `arch -arm64 zsh`. Install
-the ARM build with `/opt/homebrew/bin/brew install cairo pkg-config`. A plain
+the ARM build with `/opt/homebrew/bin/brew install cairo pkg-config`. Install
+the sharing-card font with `/opt/homebrew/bin/brew install --cask font-dejavu`.
+The card in `public/assets/social-card.svg` requests DejaVu Sans, so Cairo output
+uses a fallback font without it. Verify with `fc-match "DejaVu Sans"`. The result
+should name DejaVu. A plain
 `brew` call can select the Intel brew when `/usr/local/bin` comes first or the
 terminal runs under Rosetta. Check that
 `/opt/homebrew/lib/libcairo.dylib` reports `arm64`. An old Intel build in
