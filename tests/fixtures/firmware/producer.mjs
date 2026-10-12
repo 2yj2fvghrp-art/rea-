@@ -66,7 +66,9 @@ if (args.includes("--version")) {
     if (mode === "link") await symlink("/etc/passwd", join(output, "escape"));
     const childHash = createHash("sha256").update(content).digest("hex");
     const depth =
-      mode === "depth" ? Number(args[args.indexOf("--depth") + 1]) : 1;
+      mode === "depth" || mode === "depth-reentry"
+        ? Number(args[args.indexOf("--depth") + 1])
+        : 1;
     const stat = (path, size, isDir = false) => ({
       __typename__: "StatReport",
       path,
