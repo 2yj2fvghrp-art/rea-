@@ -95,6 +95,8 @@ const observe = (input) => {
   assert.equal(evidence.analysis_profile.parameters.cache_policy, "live");
   assert.equal(evidence.analysis_profile.parameters.engine_version, null);
   assert.ok(evidence.limitations.length > 0);
+  if (config.protocol === "native" && evidence.operation === "analyze_function")
+    assert.equal(evidence.relationship_coverage?.status, "unknown");
   assert.ok(
     evidence.locations.some((location) => location.kind === "artifact-path"),
   );

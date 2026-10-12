@@ -17,7 +17,11 @@ The public [IDA fixture](../../tests/conformance/ida/inventory.c) contains
 two exported functions with distinct bodies. Production CLI/MCP verification
 checks matching function Evidence, assembly, a unique second-function marker,
 return to the first function, original-input identity, invalid requests, and
-connection cleanup. It preserves the attached GUI database.
+connection cleanup. Native verification requires the second procedure and its
+unique marker; missing, incomplete and empty arguments are rejected before
+connecting. Dossier relationship coverage remains unknown when direct callers
+are unavailable, while standalone callee coverage retains its own observed state.
+It preserves the attached GUI database.
 
 The real application was a digest-verified, unchanged copy of Windows
 `whoami.exe`: 94,208 bytes, 243 recognized functions, and 314 upstream
