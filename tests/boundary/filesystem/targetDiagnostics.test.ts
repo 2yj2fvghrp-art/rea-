@@ -59,6 +59,7 @@ describe("target route diagnostics", () => {
     const projected = projectAnalysisError(result.error);
     expect(projected).toMatchObject({
       code: "target_unavailable",
+      category: "unsupported_target",
       details: {
         path: await realpath(path),
         constraint: "webassembly_module_header",

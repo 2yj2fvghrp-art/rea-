@@ -108,6 +108,13 @@ export const analysisErrorCategory = (
   if (error instanceof BrowserObservationError)
     return error.userCategory ?? browserErrorCategory(error.reason);
   if (
+    // A WebAssembly module is an unsupported native target, not a missing
+    // engine; clients branching on the category must see the refusal.
+    error instanceof BinaryTargetError &&
+    error.constraint === "webassembly_module_header"
+  )
+    return "unsupported_target";
+  if (
     error instanceof HopperRemoteError &&
     error.diagnosticType === "invalid_request"
   )
