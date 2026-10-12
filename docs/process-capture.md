@@ -429,5 +429,39 @@ that directory: it outlives each run, so the first compilation into a new
 directory pays a cold-cache build and later runs reuse it. An absent or empty
 value keeps the shared default.
 
-This setting controls the Swift/Clang module cache. It does not establish
-containment of `xcrun`'s tool-lookup cache or all compiler writes.
+`xcrun` also maintains a separate tool-lookup cache. Its `--no-cache` option
+refreshes entries and does not guarantee a write-free lookup. To avoid that
+lookup while compiling REA's helper, set `REA_DARWIN_SWIFTC_PATH` to the absolute
+path of an installed `swiftc` and `SDKROOT` to the absolute path of a compatible
+macOS SDK. REA invokes that compiler directly with `-sdk` and the selected SDK;
+an unset or empty compiler setting keeps the normal `xcrun swiftc` path. A
+missing or relative SDK/compiler path fails with an actionable prerequisite
+error before compilation. An incompatible installation reports the compiler's
+bounded diagnostics; REA does not repair or replace the toolchain.
+
+For example, select paths from your existing Xcode or Command Line Tools
+installation **before** entering an enforced write boundary:
+
+```sh
+export REA_DARWIN_SWIFTC_PATH="$(xcrun --find swiftc)"
+export SDKROOT="$(xcrun --show-sdk-path)"
+export REA_DARWIN_MODULE_CACHE_PATH="$PWD/rea-cache/modules"
+export TMPDIR="$PWD/rea-cache/tmp"
+mkdir -p "$TMPDIR"
+rea analyze-javascript-application ./fixture --artifact-format directory
+```
+
+Keep the selected compiler and SDK paired. Permit REA's evidence/output paths
+and its temporary directory as well as the caller-owned module cache. REA does
+not create a sandbox or claim that these settings contain every write made by
+arbitrary toolchains or analysis providers. They bypass REA's `xcrun` lookup
+and select the helper's Swift/Clang cache without disabling ownership checks.
+The caller-owned cache survives cancellation and cleanup; per-run compiler
+intermediates and the compiled helper remain REA-owned temporary files.
+
+The boundary must also permit process-table inspection. On macOS, `/bin/ps`
+is setuid and a blanket sandbox may reject its launch with `spawn EPERM`.
+REA then preserves ownership uncertainty and can report `cleanup_incomplete`;
+it does not disable verification to continue. A sandbox that explicitly allows
+this read-only process inspector is a separate prerequisite from the compiler
+and cache settings.
