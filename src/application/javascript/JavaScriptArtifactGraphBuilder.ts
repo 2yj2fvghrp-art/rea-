@@ -1,3 +1,4 @@
+import { ELECTRON_IDENTITY_LIMITATION } from "../../domain/javascript/javascriptElectronMemberWrites.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 import {
   createJavaScriptApplicationGraph,
@@ -107,19 +108,33 @@ function* buildJavaScriptArtifactGraphInputSteps(
   yield;
   addJavaScriptArtifactFiles(context);
   yield;
-  const packageRoots = addJavaScriptPackageNodes(context);
+  // Raw observations remain on the file nodes. Only admitted expansions feed
+  // the relationship builders, including their Electron and bundler callers.
+  const projectionContext = {
+    ...context,
+    analysis: {
+      ...analysis,
+      files: analysis.files.map((file) =>
+        file.application_projection_failure === undefined
+          ? file
+          : { ...file, javascript: null, semantic: null },
+      ),
+    },
+  };
+  const packageRoots = addJavaScriptPackageNodes(projectionContext);
   yield;
-  addJavaScriptSourceModules(context);
+  addJavaScriptSourceModules(projectionContext);
   yield;
-  const bundlerLimitations = addJavaScriptBundlerNodes(context);
+  const bundlerLimitations = addJavaScriptBundlerNodes(projectionContext);
   const relationshipOmissions =
-    yield* addJavaScriptModuleRelationshipsSteps(context);
-  const findingLimitations = yield* addJavaScriptStaticFindingsSteps(context);
-  addElectronBoundaries(context);
+    yield* addJavaScriptModuleRelationshipsSteps(projectionContext);
+  const findingLimitations =
+    yield* addJavaScriptStaticFindingsSteps(projectionContext);
+  addElectronBoundaries(projectionContext);
   yield;
-  addJavaScriptHtmlRoles(context);
+  addJavaScriptHtmlRoles(projectionContext);
   yield;
-  addJavaScriptSourceMapOriginals(context);
+  addJavaScriptSourceMapOriginals(projectionContext);
   yield;
   const coverage = graphCoverage(context);
   return {
@@ -153,14 +168,35 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
       javascript !== null && javascript.parse_status === "partial",
   );
   const unknownGap =
+    (context.fileSet.source_selection?.unselected_files ?? 0) > 0 ||
+    context.analysis.files.some(
+      ({ analysis_failure, application_projection_failure }) =>
+        analysis_failure !== undefined ||
+        application_projection_failure !== undefined,
+    ) ||
     context.analysis.parse_failures > 0 ||
     context.fileSet.invalid_utf8_files > 0 ||
     sourceMapPolicyGap ||
     malformedStructuredData ||
     partialJavaScript;
-  if (resourceLimits.length > 0)
+  const executionLimits = context.analysis.files.flatMap(
+    ({ analysis_failure, application_projection_failure }) =>
+      [analysis_failure, application_projection_failure].flatMap((failure) =>
+        failure === undefined
+          ? []
+          : javaScriptAnalysisCoverageLimits(failure.limits),
+      ),
+  );
+  if (resourceLimits.length > 0 || executionLimits.length > 0)
     return partialApplicationCoverage(
-      semanticResourceLimitCoverage(resourceLimits),
+      [
+        ...new Map(
+          [
+            ...semanticResourceLimitCoverage(resourceLimits),
+            ...executionLimits,
+          ].map((limit) => [JSON.stringify(limit), limit]),
+        ).values(),
+      ],
       null,
     );
   if (unknownGap) return partialApplicationCoverage([], null);
@@ -209,6 +245,11 @@ const graphLimitations = (
   );
   return [
     ...context.analysis.limitations,
+    ...(context.fileSet.source_selection === undefined
+      ? []
+      : [
+          `Caller-selected source analysis leaves ${String(context.fileSet.source_selection.unselected_files)} inventoried files outside analysis scope. Inventory identity covers the complete artifact; relationships through unselected sources remain unknown.`,
+        ]),
     ...context.snapshot.integrity_contradictions.map(
       ({ logical_path: path }) =>
         `Artifact integrity metadata contradicts observed bytes at ${path}; the observed bytes are untrusted.`,
@@ -221,6 +262,11 @@ const graphLimitations = (
     "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
     "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code.",
     "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+    ...(context.analysis.files.some(({ javascript }) =>
+      javascript?.limitations.includes(ELECTRON_IDENTITY_LIMITATION),
+    )
+      ? [ELECTRON_IDENTITY_LIMITATION]
+      : []),
     ...(electronFindings === 0
       ? []
       : [
@@ -260,3 +306,4 @@ const graphLimitations = (
         ]),
   ];
 };
+import { javaScriptAnalysisCoverageLimits } from "../../domain/javascript/javascriptAnalysisResourceControls.js";
