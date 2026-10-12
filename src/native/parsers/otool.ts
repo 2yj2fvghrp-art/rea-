@@ -359,9 +359,11 @@ const parseFields = (block: string): Record<string, string | number | null> => {
 
 const parseField = (rawLine: string): readonly [string, string] | undefined => {
   const line = rawLine.trim();
-  // A dylib-use command with no flags still has an empty options row, and
+  // A dylib-use command with no flags still has an empty options row.
+  // Segment and section names are fixed char[16] fields that may be all NUL;
   // MH_OBJECT files put their sections in a segment with an empty segname.
-  if (line === "options" || line === "segname") return [line, ""];
+  if (line === "options" || line === "segname" || line === "sectname")
+    return [line, ""];
   // Match time stamp as a whole without swallowing `name stamp plugin.dylib`.
   const match = /^((?:time stamp)|\S+(?:\s+version)?)\s+(.+)$/u.exec(line);
   return match?.[1] === undefined || match[2] === undefined
@@ -413,7 +415,7 @@ const parseSections = (block: string): ParsedSection[] =>
         requireUniqueField(sectionBlock, key);
       return {
         segment: nonEmptyName(stringField(fields, "segname")),
-        name: stringField(fields, "sectname") ?? "unknown",
+        name: nonEmptyName(stringField(fields, "sectname")),
         address: hexField(fields, "addr"),
         size: numberField(fields, "size"),
         file_offset: numberField(fields, "offset"),

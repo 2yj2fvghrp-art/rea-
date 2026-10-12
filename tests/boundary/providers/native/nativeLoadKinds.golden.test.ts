@@ -146,6 +146,14 @@ it("retains the unnamed segment of a Mach-O object file", () => {
   expect(load.segments).toMatchObject([
     { name: "unknown", sections: [{ segment: "__TEXT", name: "__text" }] },
   ]);
+  // An all-NUL section name is printed the same way and stays "unknown".
+  expect(
+    parseOtoolLoadCommands(
+      withOtoolMachHeader(
+        objectSegment.replace("  sectname __text", "  sectname "),
+      ),
+    ).segments,
+  ).toMatchObject([{ sections: [{ segment: "__TEXT", name: "unknown" }] }]);
   expect(() =>
     parseOtoolLoadCommands(
       withOtoolMachHeader(
