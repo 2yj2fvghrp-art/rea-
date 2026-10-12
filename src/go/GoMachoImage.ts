@@ -79,10 +79,12 @@ export const readGoMachoImage = (bytes: Buffer): GoBinaryContainer => {
           "malformed",
           "Mach-O section table exceeds its segment command",
         );
-      const mapping = {
-        ...(fileSize === 0n || unmapped
+      const fileRange =
+        fileSize === 0n
           ? { offset: 0, size: 0 }
-          : reader.fileRange(fileOffset, fileSize, "Mach-O segment")),
+          : reader.fileRange(fileOffset, fileSize, "Mach-O segment");
+      const mapping = {
+        ...(unmapped ? { offset: 0, size: 0 } : fileRange),
         address,
       };
       const name = fixedName(

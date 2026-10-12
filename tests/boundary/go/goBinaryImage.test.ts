@@ -478,6 +478,19 @@ it("does not map an unmapped Mach-O segment's file bytes at its address", () => 
   );
 });
 
+it("refuses an unmapped Mach-O segment whose file bytes run past the end", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  addLegacyMapping(fixture.bytes, "macho", {
+    address: 0x20000n,
+    fileOffset: 3072,
+    fileSize: 2048,
+    memorySize: 0,
+  });
+  expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
+    /outside the file/,
+  );
+});
+
 it.each(["elf", "pe", "macho"] as const)(
   "refuses file aliases overlapping only part of a zero-filled %s module header",
   (format) => {
