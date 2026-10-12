@@ -74,6 +74,7 @@ const EXTENSIONS = [
   ".html",
   ".node",
 ];
+const COMMONJS_EXTENSIONS = [".js", ".json", ".node"];
 
 // A private URL namespace for logical artifact paths, including root packages.
 // Encode inventory segments so filename punctuation remains literal in the base.
@@ -275,7 +276,10 @@ const bareModuleCandidate = (
     if (request.dependencyExportsEligible && metadata.kind !== "absent")
       return resolvePackageDependency(input, candidate, request, metadata);
     if (request.packageSubpath === ".") {
-      const direct = resolveFileCandidates(input, fileCandidates(candidate));
+      const direct = resolveFileCandidates(
+        input,
+        fileCandidates(candidate, input.moduleKind),
+      );
       if (direct !== null) return direct;
     }
     if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
@@ -417,8 +421,10 @@ const resolvePackageDependency = (
   if (rawExports === undefined) {
     if (subpath === ".")
       return (
-        resolveFileCandidates(input, fileCandidates(directory)) ??
-        resolveDirectory(input, directory, metadata, new Set())
+        resolveFileCandidates(
+          input,
+          fileCandidates(directory, input.moduleKind),
+        ) ?? resolveDirectory(input, directory, metadata, new Set())
       );
     // Resolve legacy ESM subpaths as URLs: suffixes identify the loaded module
     // but do not belong to its filesystem path. Keep the declared specifier on
@@ -753,7 +759,7 @@ const resolveCandidate = (
   emittedSourceCandidates: readonly string[] = [],
 ): CandidateResolution =>
   resolveFileCandidates(input, [
-    ...fileCandidates(candidate),
+    ...fileCandidates(candidate, input.moduleKind),
     ...emittedSourceCandidates,
   ]) ??
   resolveDirectory(
@@ -771,8 +777,10 @@ const resolveDirectory = (
 ): CandidateResolution => {
   if (metadata.kind === "absent")
     return (
-      resolveFileCandidates(input, indexCandidates(directory)) ??
-      notFoundCandidate()
+      resolveFileCandidates(
+        input,
+        indexCandidates(directory, input.moduleKind),
+      ) ?? notFoundCandidate()
     );
   if (metadata.kind === "unavailable")
     return unresolvedCandidate("unavailable", [metadata.limitation]);
@@ -787,8 +795,10 @@ const resolveDirectory = (
   const entry = preferred.find((value) => value !== undefined);
   if (entry === undefined)
     return (
-      resolveFileCandidates(input, indexCandidates(directory)) ??
-      notFoundCandidate()
+      resolveFileCandidates(
+        input,
+        indexCandidates(directory, input.moduleKind),
+      ) ?? notFoundCandidate()
     );
   if (typeof entry !== "string" || entry.length === 0)
     return unresolvedCandidate("unavailable", [
@@ -809,9 +819,10 @@ const resolveDirectory = (
   if (typeof confined !== "string") return confined;
   const selected =
     resolveFileCandidates(entryInput, [
-      ...fileCandidates(confined),
-      ...indexCandidates(confined),
-    ]) ?? resolveFileCandidates(input, indexCandidates(directory));
+      ...fileCandidates(confined, input.moduleKind),
+      ...indexCandidates(confined, input.moduleKind),
+    ]) ??
+    resolveFileCandidates(input, indexCandidates(directory, input.moduleKind));
   if (selected !== null) return selected;
   return resolveCandidate(
     entryInput,
@@ -837,13 +848,29 @@ const resolveFileCandidates = (
   return null;
 };
 
-const fileCandidates = (candidate: string): readonly string[] => [
+/** Default Node require probes only these suffixes; artifact inference is broader. */
+const candidateExtensions = (
+  moduleKind: ResolveArtifactPathInput["moduleKind"],
+): readonly string[] =>
+  moduleKind === "require" ? COMMONJS_EXTENSIONS : EXTENSIONS;
+
+const fileCandidates = (
+  candidate: string,
+  moduleKind?: ResolveArtifactPathInput["moduleKind"],
+): readonly string[] => [
   candidate,
-  ...EXTENSIONS.map((extension) => `${candidate}${extension}`),
+  ...candidateExtensions(moduleKind).map(
+    (extension) => `${candidate}${extension}`,
+  ),
 ];
 
-const indexCandidates = (candidate: string): readonly string[] =>
-  EXTENSIONS.map((extension) => posix.join(candidate, `index${extension}`));
+const indexCandidates = (
+  candidate: string,
+  moduleKind?: ResolveArtifactPathInput["moduleKind"],
+): readonly string[] =>
+  candidateExtensions(moduleKind).map((extension) =>
+    posix.join(candidate, `index${extension}`),
+  );
 
 type PackageTargetBlockCause = "null" | "empty-array";
 

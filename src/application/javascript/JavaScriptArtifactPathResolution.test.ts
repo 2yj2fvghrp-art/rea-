@@ -674,7 +674,7 @@ describe("package subpath legacy lookup and metadata failures", () => {
         "root",
         '{"main":"./index.cjs"}',
       ),
-      file("app/node_modules/fixture/direct.cjs", "root"),
+      file("app/node_modules/fixture/direct.js", "root"),
       file("app/node_modules/fixture/folder/index.js", "root"),
     ]);
 
@@ -688,7 +688,7 @@ describe("package subpath legacy lookup and metadata failures", () => {
       }),
     ).toMatchObject({
       resolution_status: "resolved",
-      resolved_path: "app/node_modules/fixture/direct.cjs",
+      resolved_path: "app/node_modules/fixture/direct.js",
     });
     expect(
       resolve({
