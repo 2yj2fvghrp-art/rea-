@@ -196,7 +196,9 @@ function compilerMappingsAtPhysicalPositions(site, mapUrl) {
   const expected = [];
   const prefixLength = site.generated.indexOf(site.leafCode);
   assert.ok(prefixLength >= 0);
-  eachMapping(new TraceMap(site.leafMap, mapUrl), (mapping) => {
+  const leaf = new TraceMap(site.leafMap, mapUrl);
+  assert.equal(leaf.sources.length, 1, "Compiler fixture has one declaration");
+  eachMapping(leaf, (mapping) => {
     if (
       mapping.source === null ||
       mapping.originalLine === null ||
@@ -213,6 +215,8 @@ function compilerMappingsAtPhysicalPositions(site, mapUrl) {
       .slice(0, prefixLength + leafOffset)
       .split("\n");
     expected.push({
+      source_index: 0,
+      declaration_index: 0,
       generated_line: physical.length,
       generated_column: physical.at(-1).length,
       source: mapping.source,

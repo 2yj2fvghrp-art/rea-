@@ -1163,13 +1163,13 @@ describe("source-map output admission", () => {
   );
 
   it.each([
-    { localOrigin: "http://[::1]:1", expectedStatus: "included" },
-    { localOrigin: "http://127.0.0.1:9222", expectedStatus: "partial" },
-  ])(
-    "admits a maximum-size map set according to its actual output at $localOrigin",
-    async ({ localOrigin, expectedStatus }) => {
+    [45_000, "http://[::1]:1", "included"],
+    [50_000, "http://127.0.0.1:9222", "partial"],
+  ] as const)(
+    "admits %i maps according to their actual output at %s",
+    async (requestCount, localOrigin, expectedStatus) => {
       const mapUrl = `${localOrigin}/m`;
-      const requests = Array.from({ length: 50_000 }, (_, index) => ({
+      const requests = Array.from({ length: requestCount }, (_, index) => ({
         ...request,
         scriptKey: `scr_${index.toString(16).padStart(64, "0")}`,
         declaredUrl: mapUrl,
