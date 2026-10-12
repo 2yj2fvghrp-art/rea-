@@ -785,18 +785,18 @@ export class JavaScriptAnalysisWorker {
   ): Promise<ProviderCleanupError | undefined> {
     if (this.#supervisor !== undefined) {
       const supervisor = this.#supervisor;
-      try {
-        const stdin = supervisor.launch.process.stdin;
-        if (stdin !== undefined && stdin !== null && !stdin.destroyed) {
-          stdin.on("error", () => {});
-          stdin.end();
-        }
-      } catch {
-        // Cooperative protocol stdin may already be closed or broken.
-      }
       const stopped = await supervisor.stop();
       supervisor.launch.process.stdout?.off("data", this.#onStdout);
       if (stopped.status === "incomplete") {
+        try {
+          const stdin = supervisor.launch.process.stdin;
+          if (stdin !== undefined && stdin !== null && !stdin.destroyed) {
+            stdin.on("error", () => {});
+            stdin.end();
+          }
+        } catch {
+          // Cooperative protocol stdin may already be closed or broken.
+        }
         this.#resetState();
         pendingCleanup.add(this);
         return this.#cleanupError(stopped.reason, original);
