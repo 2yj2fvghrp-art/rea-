@@ -7,6 +7,7 @@ import { spawn } from "@lydell/node-pty";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { CLIENT_LOCATION_ENVIRONMENT } from "../../fixtures/clientEnvironment.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const execute = promisify(execFile);
@@ -303,6 +304,18 @@ describe("non-interactive setup in a terminal", () => {
     });
   }, 60_000);
 
+  it("shows manual setup instructions for a dry run without file changes", async () => {
+    await withTerminalSetup(
+      ["--dry-run", "--client", "grok_bot", "--skill=false"],
+      ({ output, exitCode }) => {
+        expect(exitCode).toBe(0);
+        expect(output).toContain("No changes planned for the selected scope.");
+        expect(output).toContain("Grok Bot keeps connectors");
+        expect(output).not.toContain("--client <name>");
+      },
+    );
+  }, 60_000);
+
   it("summarizes an approved setup", async () => {
     await withTerminalSetup(
       ["--yes", "--client", "codex", "--skill=false"],
@@ -323,6 +336,13 @@ interface TerminalSetupRun {
   readonly home: string;
 }
 
+/** Drop the developer's client locations so setup resolves only the temporary home. */
+const isolatedClientEnvironment = (): NodeJS.ProcessEnv => {
+  const environment = { ...process.env };
+  for (const name of CLIENT_LOCATION_ENVIRONMENT) delete environment[name];
+  return environment;
+};
+
 /** Run the public setup command under a real pseudo-terminal in an isolated home. */
 const withTerminalSetup = async (
   args: readonly string[],
@@ -341,7 +361,7 @@ const withTerminalSetup = async (
         {
           cwd: process.cwd(),
           env: {
-            ...process.env,
+            ...isolatedClientEnvironment(),
             HOME: home,
             USERPROFILE: home,
             XDG_CONFIG_HOME: join(home, ".config"),

@@ -105,8 +105,11 @@ export const renderTerminalSetupSummary = (
   } else {
     renderPreflight(result.plannedActions, "Planned changes (dry run)");
   }
+  if (result.remediation !== undefined) writeLine(`!  ${result.remediation}`);
   outro(
-    "Dry run: no changes were made. Run the same command without --dry-run to apply.",
+    result.plannedActions.length === 0
+      ? "Dry run: no changes were made."
+      : "Dry run: no changes were made. Run the same command without --dry-run to apply.",
     promptStreams,
   );
 };
