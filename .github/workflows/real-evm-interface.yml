@@ -47,3 +47,5 @@ jobs:
         run: npm run verify:evm:interface
       - name: Verify content-hash-free and CBOR-free owned compiler artifacts
         run: npm run verify:solidity:metadata
+      - name: Verify exact compiler artifacts through public CLI and MCP
+        run: npm run verify:solc:artifacts

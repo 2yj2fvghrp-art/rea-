@@ -151,7 +151,14 @@ explicit path or endpoint and do not need it.
   ambiguity. No implicit fetch or target execution; WAT is not original source.
   See the [WASM guide](https://github.com/morluto/rea/blob/main/docs/wasm-artifacts.md).
 - Explicit local EVM bytecode carrier: `inspect_evm_interface` with caller-selected
-  `raw` or `hex` encoding. Preserve carrier/decoded digests and treat selectors,
+  `raw` or `hex` encoding, or an `encoding` object with `kind: "solc-json"`
+  and exact `source_unit`, `contract_name`, and `bytecode_kind` (`creation` or
+  `deployed`). The CLI uses positional `solc-json` plus selection flags. Preserve
+  compiler pointers/ranges, diagnostics and
+  link/immutable references. Never substitute unresolved library addresses or
+  select by basename. Unlinked/absent objects retain compiler evidence with
+  unavailable inference and unknown candidate coverage; unavailable decoded hex
+  cannot be paged as empty text. Preserve carrier/decoded digests and treat selectors,
   argument strings and mutability as inferred candidates; this performs no chain
   lookup or target execution. For the complete inferred interface without hex or
   duplicate stdout, discover support and select `detail: "summary"`; complete
