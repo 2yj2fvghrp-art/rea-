@@ -7,11 +7,14 @@ import { PROMPT_CONTRACTS } from "./contracts/promptContracts.js";
 import { TOOL_CONTRACTS } from "./contracts/toolContracts.js";
 import type { ToolContract } from "./contracts/toolContractTypes.js";
 import { CLI_COMMAND_NAMES } from "./cliCommandNames.js";
+import { compareUnicodeCodePoints } from "./domain/unicodeCodePointOrder.js";
 
 const sortByName = (
   contracts: readonly ToolContract[],
 ): readonly ToolContract[] =>
-  [...contracts].sort((left, right) => left.name.localeCompare(right.name));
+  [...contracts].sort((left, right) =>
+    compareUnicodeCodePoints(left.name, right.name),
+  );
 
 const sortedToolContracts = sortByName(TOOL_CONTRACTS);
 
@@ -50,7 +53,7 @@ const promptCatalog = PROMPT_CONTRACTS.map((contract) => ({
   description: contract.description,
   arguments: contract.arguments,
   steps: contract.steps,
-})).sort((left, right) => left.name.localeCompare(right.name));
+})).sort((left, right) => compareUnicodeCodePoints(left.name, right.name));
 
 const digest = (value: unknown): string => {
   const encoded = canonicalize(value);
@@ -91,18 +94,4 @@ export const CATALOG_IDENTITY = {
   get digests() {
     return (catalogDigests ??= createCatalogDigests());
   },
-  tools: sortedToolContracts.map(
-    ({ name, kind, effects, returnsTargetContent, annotations }) => ({
-      name,
-      surface: kind,
-      effects: { ...effects },
-      returns_target_content: returnsTargetContent,
-      annotations: {
-        read_only: annotations.readOnlyHint ?? false,
-        destructive: annotations.destructiveHint ?? false,
-        idempotent: annotations.idempotentHint ?? false,
-        open_world: annotations.openWorldHint ?? true,
-      },
-    }),
-  ),
 } as const;

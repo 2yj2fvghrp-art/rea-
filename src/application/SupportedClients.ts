@@ -6,6 +6,7 @@ import {
   HermesClientPathError,
   resolveHermesClientHome,
 } from "./HermesClientHome.js";
+import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 /** One supported client configuration location. */
 export interface SetupClient {
@@ -25,6 +26,8 @@ export interface SetupClient {
   };
   /** Unresolved path evidence only; consumers must not perform I/O on it. */
   readonly configPathError?: string;
+  /** Same-scope fallback ZCode stops loading after its first native server. */
+  readonly zcodeFallbackPath?: string;
   readonly markerPath?: string;
   readonly format?:
     | "json"
@@ -37,6 +40,8 @@ export interface SetupClient {
     | "omp"
     | "pi"
     | "hermes"
+    | "zcode"
+    | "dsh"
     | "unsupported";
 }
 
@@ -62,6 +67,7 @@ interface ClientDefinition {
   readonly configPath: ClientPath;
   readonly markerPath: ClientPath;
   readonly format: NonNullable<SetupClient["format"]>;
+  readonly zcodeFallbackPath?: (context: ClientPathContext) => string;
   readonly skillPath?: ClientPath;
   readonly configPaths?: (context: ClientPathContext) => readonly string[];
   readonly geminiSettings?: (
@@ -127,6 +133,12 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
 
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
+
+const dshHomeDirectory = ({ home, env }: ClientPathContext): string =>
+  env.DSH_HOME ?? join(home, ".dsh");
+
+const dshPatchDirectory = (context: ClientPathContext): string =>
+  join(dshHomeDirectory(context), "cordis.patch.yml");
 
 const hermesDirectory = ({ home, platform, env }: ClientPathContext): string =>
   resolveHermesClientHome(home, platform, env);
@@ -492,6 +504,27 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "hermes",
   },
   {
+    name: "zcode",
+    zcodeFallbackPath: ({ home }: ClientPathContext) =>
+      join(home, ".agents", "mcp.json"),
+    displayName: "ZCode",
+    configPath: [".zcode", "cli", "config.json"],
+    markerPath: [".zcode", "cli"],
+    skillPath: [".zcode", "skills"],
+    format: "zcode",
+  },
+  {
+    name: "dsh",
+    displayName: "DeepSeek Harness",
+    // The home Cordis patch applies to every profile; the skill directory is
+    // shared agent storage Harness discovers.
+    skillPath: ({ home, env }: ClientPathContext) =>
+      join(env.DSH_AGENTS_HOME ?? join(home, ".agents"), "skills"),
+    configPath: dshPatchDirectory,
+    markerPath: dshHomeDirectory,
+    format: "dsh",
+  },
+  {
     name: "grok_bot",
     displayName: "Grok Bot",
     configPath: grokBotDirectory,
@@ -571,6 +604,9 @@ export const supportedClients = (
                 ...new Set([...definition.configPaths(context), configPath]),
               ],
             }),
+        ...(definition.zcodeFallbackPath === undefined
+          ? {}
+          : { zcodeFallbackPath: definition.zcodeFallbackPath(context) }),
         markerPath: marker.value,
         format: definition.format,
       };
@@ -642,6 +678,6 @@ export const clientSkillDirectories = (
       });
   }
   return [...destinations.values()].sort((left, right) =>
-    left.directory.localeCompare(right.directory),
+    compareUnicodeCodePoints(left.directory, right.directory),
   );
 };

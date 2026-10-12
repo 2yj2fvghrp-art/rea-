@@ -6,6 +6,7 @@ import spawn from "cross-spawn";
 import { lt, valid } from "semver";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
+import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { safeParseJson } from "../domain/safeJson.js";
 import {
@@ -18,6 +19,7 @@ import {
   type UpdateOutput,
 } from "./Update.js";
 import { planIntegrationMaintenance } from "./UpdateMaintenance.js";
+import { withoutPackageRunnerIdentity } from "./ClientRegistrationIdentity.js";
 
 /** npm filesystem queries used to identify the installation being updated. */
 export interface NpmInstallationHost {
@@ -45,9 +47,8 @@ export const runUpdateCommand = (
       resolveResult(err("No executable supplied."));
       return;
     }
-    const environment = { ...selectedEnvironment };
-    // A fresh installed entry point must not inherit npx's invocation identity.
-    delete environment.npm_command;
+    // A fresh installed entry point must not inherit a package runner's invocation identity.
+    const environment = withoutPackageRunnerIdentity(selectedEnvironment);
     const child = spawn(executable, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: environment,
@@ -141,19 +142,21 @@ const nonemptyEnvironment = (value: string | undefined): string | undefined =>
  * Bun's global project directory for the selected environment, in Bun's precedence:
  * BUN_INSTALL_GLOBAL_DIR, then $BUN_INSTALL/install/global, then
  * $XDG_CACHE_HOME/.bun/install/global, then ~/.bun/install/global.
+ * Resolve against the caller's cwd before reusing the path as a subprocess cwd.
  */
 export const bunGlobalDirectory = (
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform,
 ): string => {
   const explicit = nonemptyEnvironment(environment.BUN_INSTALL_GLOBAL_DIR);
-  if (explicit !== undefined) return explicit;
+  if (explicit !== undefined) return resolve(explicit);
   const installRoot = nonemptyEnvironment(environment.BUN_INSTALL);
-  if (installRoot !== undefined) return join(installRoot, "install", "global");
+  if (installRoot !== undefined)
+    return resolve(installRoot, "install", "global");
   const cacheRoot =
     nonemptyEnvironment(environment.XDG_CACHE_HOME) ??
     homeDirectoryFromEnvironment(environment, platform);
-  return join(cacheRoot, ".bun", "install", "global");
+  return resolve(cacheRoot, ".bun", "install", "global");
 };
 
 /**
@@ -290,74 +293,86 @@ export const systemUpdateHost = (
   packageRoot = fileURLToPath(new URL("../..", import.meta.url)),
   home: string | undefined = undefined,
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
-): UpdateHost => ({
-  installation: async () =>
-    (await detectBunInstallation(
-      packageRoot,
-      bunGlobalDirectory(environment, process.platform),
-      { canonicalPath: realpath, isFile },
-    )) ??
-    detectNpmInstallation(packageRoot, {
-      canonicalPath: realpath,
-      globalRoot: () =>
-        requireCommandOutput(["npm", "root", "--global"], environment),
-      globalPrefix: () =>
-        requireCommandOutput(["npm", "prefix", "--global"], environment),
-    }),
-  latestVersion: async (installation) => {
-    const context = packageManagerContext(installation, environment);
-    if (installation?.manager === "bun") {
-      const version = await runUpdateCommand(
-        ["bun", "--version"],
+): UpdateHost => {
+  const resources = new ArtifactResourceScope();
+  return {
+    installation: async () =>
+      (await detectBunInstallation(
+        packageRoot,
+        bunGlobalDirectory(environment, process.platform),
+        { canonicalPath: realpath, isFile },
+      )) ??
+      detectNpmInstallation(packageRoot, {
+        canonicalPath: realpath,
+        globalRoot: () =>
+          requireCommandOutput(["npm", "root", "--global"], environment),
+        globalPrefix: () =>
+          requireCommandOutput(["npm", "prefix", "--global"], environment),
+      }),
+    latestVersion: async (installation) => {
+      const context = packageManagerContext(installation, environment);
+      if (installation?.manager === "bun") {
+        const version = await runUpdateCommand(
+          ["bun", "--version"],
+          context.environment,
+          "structured",
+          context.workingDirectory,
+        );
+        if (!version.ok)
+          return err({ kind: "unavailable", detail: version.error });
+        const bunVersion = valid(version.value);
+        // bun info was introduced in 1.2.17; older releases reserve the command.
+        if (bunVersion === null || lt(bunVersion, "1.2.17"))
+          return err({
+            kind: "unsupported-package-manager",
+            detail: `REA updates for Bun global installations require Bun 1.2.17 or later; bun --version returned ${JSON.stringify(version.value)}. Upgrade Bun manually, then rerun rea update.`,
+          });
+      }
+      return npmReleaseLookup(
+        await runUpdateCommand(
+          installation?.manager === "bun"
+            ? BUN_LATEST_VERSION_COMMAND
+            : npmLatestVersionCommand(installation),
+          context.environment,
+          "structured",
+          context.workingDirectory,
+        ),
+      );
+    },
+    installVersion: async (installation, version, output) => {
+      const context = packageManagerContext(installation, environment);
+      const result = await runUpdateCommand(
+        updateInstallCommand(installation, version),
         context.environment,
-        "structured",
+        output,
         context.workingDirectory,
       );
-      if (!version.ok)
-        return err({ kind: "unavailable", detail: version.error });
-      const bunVersion = valid(version.value);
-      // bun info was introduced in 1.2.17; older releases reserve the command.
-      if (bunVersion === null || lt(bunVersion, "1.2.17"))
-        return err({
-          kind: "unsupported-package-manager",
-          detail: `REA updates for Bun global installations require Bun 1.2.17 or later; bun --version returned ${JSON.stringify(version.value)}. Upgrade Bun manually, then rerun rea update.`,
-        });
-    }
-    return npmReleaseLookup(
-      await runUpdateCommand(
-        installation?.manager === "bun"
-          ? BUN_LATEST_VERSION_COMMAND
-          : npmLatestVersionCommand(installation),
-        context.environment,
-        "structured",
-        context.workingDirectory,
+      return result.ok ? ok(undefined) : result;
+    },
+    installedVersion: (installation) =>
+      runUpdateCommand(
+        [
+          process.execPath,
+          join(installation.packageRoot, "scripts", "rea.mjs"),
+          "--version",
+        ],
+        environment,
       ),
-    );
-  },
-  installVersion: async (installation, version, output) => {
-    const context = packageManagerContext(installation, environment);
-    const result = await runUpdateCommand(
-      updateInstallCommand(installation, version),
-      context.environment,
-      output,
-      context.workingDirectory,
-    );
-    return result.ok ? ok(undefined) : result;
-  },
-  installedVersion: (installation) =>
-    runUpdateCommand(
-      [
-        process.execPath,
+    planMaintenance: (installation) =>
+      planIntegrationMaintenance(
+        home ?? homeDirectoryFromEnvironment(environment, process.platform),
         join(installation.packageRoot, "scripts", "rea.mjs"),
-        "--version",
-      ],
-      environment,
-    ),
-  planMaintenance: (installation) =>
-    planIntegrationMaintenance(
-      home ?? homeDirectoryFromEnvironment(environment, process.platform),
-      join(installation.packageRoot, "scripts", "rea.mjs"),
-      environment,
-      (command) => runUpdateCommand(command, environment),
-    ),
-});
+        environment,
+        (command) => runUpdateCommand(command, environment),
+        resources,
+      ),
+    close: async () => {
+      try {
+        await resources.close();
+        return undefined;
+      } catch (cause: unknown) {
+        return `Update resource cleanup failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+      }
+    },
+  };
+};

@@ -22,6 +22,7 @@ import {
 } from "../../domain/analysisView/analysisView.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
 import { err, ok, type Result } from "../../domain/result.js";
+import { WebNetworkApiSurfaceAccumulator } from "../../domain/analysisView/WebNetworkApiSurfaceAccumulator.js";
 
 /** Authenticate a selected-view request and project already completed Evidence. */
 export const inspectAnalysisView = (
@@ -41,11 +42,25 @@ export const inspectAnalysisView = (
   return inspectAnalysisViewValidated(parsed.data, lookup);
 };
 
-/** Project a view from input already parsed by a trusted adapter. */
+/** Authenticate borrowed inline Evidence after adapter envelope validation. */
 export const inspectAnalysisViewValidated = (
   input: InspectAnalysisViewInput,
   lookup?: EvidenceLookup,
 ): Result<Evidence, AnalysisError> => {
+  const inline = input.source.kind === "inline" ? input.source.evidence : null;
+  const inlineCapture =
+    typeof inline === "object" &&
+    inline !== null &&
+    Object.getOwnPropertyDescriptor(inline, "operation")?.value ===
+      "inspect_web_network_capture";
+  const accumulator =
+    input.view.kind === "api-surface" || inlineCapture
+      ? new WebNetworkApiSurfaceAccumulator()
+      : undefined;
+  if (input.source.kind === "inline" && accumulator !== undefined) {
+    const admitted = accumulator.admitInlineEvidence(input.source.evidence);
+    if (!admitted.ok) return admitted;
+  }
   const resolved = resolveAnalysisViewSource(input.source, lookup);
   if (!resolved.ok) return resolved;
   const parent = resolved.value;
@@ -54,7 +69,9 @@ export const inspectAnalysisViewValidated = (
       evidenceId: parent.evidence_id,
       operation: parent.operation,
       normalizedResult: parent.normalized_result,
+      subject: parent.subject,
       limitations: parent.limitations,
+      parameters: parent.parameters,
       artifact:
         parent.subject === null
           ? null
@@ -64,6 +81,7 @@ export const inspectAnalysisViewValidated = (
             },
     },
     input.view,
+    accumulator,
   );
   if (!projected.ok) return projected;
   if (
@@ -176,7 +194,11 @@ const createAnalysisViewEvidence = (
     },
     result: jsonValueSchema.parse(result),
     rawResult: null,
-    confidence: "derived",
+    confidence:
+      // Paging follows the full grouping, so any templated group makes every page inferred.
+      result.kind === "api-surface" && result.templated_groups > 0
+        ? "inferred"
+        : "derived",
     authority: parent.authority,
     limitations: result.limitations,
     locations: [

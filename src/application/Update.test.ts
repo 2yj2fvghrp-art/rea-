@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,6 +18,7 @@ import {
   type NpmInstallationHost,
 } from "./UpdateRuntime.js";
 import type { IntegrationMaintenance } from "./UpdateMaintenance.js";
+import { isUpdateFailure } from "./UpdateFailure.js";
 
 class FakeUpdateHost implements UpdateHost {
   release: Result<string, ReleaseLookupFailure> = ok("3.3.0");
@@ -37,6 +38,7 @@ class FakeUpdateHost implements UpdateHost {
   verifiedInstallation: UpdateInstallation | undefined;
   maintenanceInspected = false;
   output: UpdateOutput | undefined;
+  cleanupFailure: string | undefined;
 
   installation = (): Promise<UpdateInstallation | undefined> => {
     this.installationInspected = true;
@@ -63,6 +65,8 @@ class FakeUpdateHost implements UpdateHost {
     this.maintenanceInspected = true;
     return Promise.resolve(this.maintenance);
   };
+  close = (): Promise<string | undefined> =>
+    Promise.resolve(this.cleanupFailure);
 }
 
 describe("REA update", () => {
@@ -77,6 +81,20 @@ describe("REA update", () => {
     expect(host.installationInspected).toBe(true);
     expect(host.installedVersions).toEqual([]);
     expect(host.maintenanceInspected).toBe(false);
+  });
+
+  it("preserves update status while marking incomplete resource cleanup as failure", async () => {
+    const host = new FakeUpdateHost();
+    host.cleanupFailure = "Regular file remains open: /fixture/skill/SKILL.md";
+
+    const result = await runUpdate("3.3.0", host);
+
+    expect(result).toMatchObject({
+      status: "current",
+      currentVersion: "3.3.0",
+      cleanupFailure: host.cleanupFailure,
+    });
+    expect(isUpdateFailure(result)).toBe(true);
   });
 
   it("reports an unknown current installation honestly", async () => {
@@ -413,17 +431,17 @@ describe("Bun installation ownership", () => {
   it("follows Bun's global directory precedence", () => {
     const home = { HOME: "/home/user" };
     expect(bunGlobalDirectory(home, "linux")).toBe(
-      join("/home/user", ".bun", "install", "global"),
+      resolve("/home/user", ".bun", "install", "global"),
     );
     expect(
       bunGlobalDirectory({ ...home, XDG_CACHE_HOME: "/cache" }, "linux"),
-    ).toBe(join("/cache", ".bun", "install", "global"));
+    ).toBe(resolve("/cache", ".bun", "install", "global"));
     expect(
       bunGlobalDirectory(
         { ...home, XDG_CACHE_HOME: "/cache", BUN_INSTALL: "/opt/bun" },
         "linux",
       ),
-    ).toBe(join("/opt/bun", "install", "global"));
+    ).toBe(resolve("/opt/bun", "install", "global"));
     expect(
       bunGlobalDirectory(
         {
@@ -433,12 +451,22 @@ describe("Bun installation ownership", () => {
         },
         "linux",
       ),
-    ).toBe("/srv/bun-global");
+    ).toBe(resolve("/srv/bun-global"));
+    const profile = resolve("profile");
     expect(
       bunGlobalDirectory(
-        { USERPROFILE: "C:\\Users\\user", HOME: "/c/Users/user" },
+        { USERPROFILE: profile, HOME: resolve("other-home") },
         "win32",
       ),
-    ).toBe(join("C:\\Users\\user", ".bun", "install", "global"));
+    ).toBe(join(profile, ".bun", "install", "global"));
+  });
+
+  it("resolves relative installation and cache roots before appending the global layout", () => {
+    expect(bunGlobalDirectory({ BUN_INSTALL: "bun" }, "linux")).toBe(
+      resolve("bun", "install", "global"),
+    );
+    expect(bunGlobalDirectory({ XDG_CACHE_HOME: "cache" }, "linux")).toBe(
+      resolve("cache", ".bun", "install", "global"),
+    );
   });
 });
