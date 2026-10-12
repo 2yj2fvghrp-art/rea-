@@ -52,7 +52,18 @@ def main():
     parser.add_argument('--authority', choices=['static', 'browser'], default='static')
     parser.add_argument('--capture-tool-context', action='store_true',
                         help='Retain owned tool/usage items; excludes account/ambient state')
+    parser.add_argument('--guide-enabled-tools', action='store_true',
+                        help='Opt-in exact-name discovery guidance for selected REA tools')
     args = parser.parse_args()
+    if args.guide_enabled_tools and args.enabled_tools is None:
+        parser.error('--guide-enabled-tools requires --enabled-tools')
+    enabled_tools = None
+    if args.enabled_tools:
+        enabled_tools = json.loads(args.enabled_tools.read_text())
+        if not isinstance(enabled_tools, list) or not all(isinstance(name, str) and name for name in enabled_tools) or len(enabled_tools) != len(set(enabled_tools)):
+            raise ValueError('enabled-tools must be a unique list of exact tool names')
+    if args.guide_enabled_tools and not enabled_tools:
+        parser.error('--guide-enabled-tools requires a nonempty selected tool list')
     def terminate(signum, _frame):
         # The outer resource scope terminates descendants together. Ensure the
         # runner's copied credentials are also removed on a resource abort.
@@ -134,11 +145,14 @@ def main():
             'possible and select the requested normalized_result fields before returning '
             'intermediate output to model context. Keep real Evidence IDs and limitations.'
         )
-    enabled_tools = None
-    if args.enabled_tools:
-        enabled_tools = json.loads(args.enabled_tools.read_text())
-        if not isinstance(enabled_tools, list) or not all(isinstance(name, str) and name for name in enabled_tools) or len(enabled_tools) != len(set(enabled_tools)):
-            raise ValueError('enabled-tools must be a unique list of exact tool names')
+    if args.guide_enabled_tools:
+        instruction += (
+            ' Configured REA tool function names for this trial: '
+            + json.dumps(['mcp__rea__' + name for name in enabled_tools])
+            + '. For discovery select only these exact names from ALL_TOOLS and '
+            'return only their metadata. Preserve the original analyst question, '
+            'dependency order and source Evidence.'
+        )
     quote = json.dumps
     config = '\n'.join([
         'approval_policy = "never"', 'sandbox_mode = "read-only"',
@@ -188,6 +202,7 @@ def main():
         (args.output / 'trial-settings.json').write_text(json.dumps({
             'mode': args.mode, 'model': args.model, 'reasoning': args.reasoning,
             'capture_tool_context': args.capture_tool_context,
+            'guide_enabled_tools': args.guide_enabled_tools,
             'driver_commit': subprocess.check_output(
                 ['git', 'rev-parse', 'HEAD'], cwd=driver_repository, text=True).strip(),
             'runtime_revision': args.revision,

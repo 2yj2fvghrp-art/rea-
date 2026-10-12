@@ -66,6 +66,10 @@ class ContextCaptureTests(unittest.TestCase):
             self.assertEqual(receipt['retained_events'], 1)
         with self.assertRaises(ValueError):
             selected_event({'type': 'token_usage_record', 'payload': {'usage': {'input_tokens': True}}})
+        with self.assertRaises(ValueError):
+            selected_event({'type': {'environment': 'unexpected'}, 'payload': {}})
+        with self.assertRaises(ValueError):
+            selected_event({'type': 'response_item', 'timestamp': {'environment': 'unexpected'}, 'payload': {}})
 
     def test_capture_failure_still_removes_trial_credentials_and_profile(self):
         spec = importlib.util.spec_from_file_location('agent_trial', Path(__file__).with_name('agent-trial.py'))
@@ -123,6 +127,21 @@ class ContextCaptureTests(unittest.TestCase):
             self.assertEqual(receipt['status'], 'partial')
             self.assertEqual(receipt['errors'][0]['reason'], 'not_an_owned_regular_file')
             self.assertEqual((foreign / 'rollout.jsonl').read_text(), 'private marker')
+
+    def test_guidance_requires_selected_tools_before_acquiring_a_profile(self):
+        spec = importlib.util.spec_from_file_location('agent_trial', Path(__file__).with_name('agent-trial.py'))
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'trial'
+            arguments = ['agent-trial.py', '--runtime-root', str(root), '--revision', 'fixture',
+                         '--prompt', str(root / 'question'), '--output', str(output), '--guide-enabled-tools']
+            with patch.object(sys, 'argv', arguments), patch.object(sys, 'stderr', io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    agent.main()
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse(output.exists())
 
 
 if __name__ == '__main__':

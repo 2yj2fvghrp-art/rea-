@@ -82,9 +82,54 @@ memory, 3 GiB early-stop, no swap and task/host safeguards. Final physical count
 remain unknown when transient cgroups disappear; this instrumentation does not
 repair that measurement limitation.
 
-The four focused Python tests run through the existing CI `test:python` gate.
+The focused Python tests run through the existing CI `test:python` gate.
 They cover account/ambient exclusion while preserving caller data, malformed and
 missing records, foreign symlinks, and capture failure without copied-credential
 leakage. The cleanup test simulates a CLI and establishes only cleanup semantics;
-it is not real-model/provider evidence. New paired live capture and narrowly
-guided discovery experiments remain to be measured before a recommendation.
+it is not real-model/provider evidence.
+
+## An explicit discovery-guidance experiment
+
+`--guide-enabled-tools` is another opt-in experiment flag. It requires a nonempty
+`--enabled-tools` list and adds the exact corresponding `mcp__rea__...` function
+names to the temporary developer instructions, requesting only exact-name
+metadata discovery. It preserves the analyst question, operation order, tool
+selection and provider inputs. The default instruction is unchanged. Missing or
+invalid selected tools fail before creating an output/profile. The test gate
+also verifies the new prerequisite without acquiring a profile.
+
+Compare guided and unguided runs on the **same** frozen REA runtime with matching
+capture mode and requested facts. A smaller discovery response or additional
+hint is not itself a task/token success: grade answers, count all response usage,
+preserve failed/truncated runs and repeat both orders before recommending this
+guidance. This is a caller-side experiment, not a new REA tool or provider preset.
+
+## First committed capture pair
+
+Checkpoint `9ebdcc458c399b9bdecaaca2ef47422888231181` runs the unchanged question
+against frozen control `ae8051302b5834322fa00cfa31c968ae74ab6ed9` and candidate
+`8bc1601ca51e417ca472d90ea0367e9418a1a0f2`, both with capture enabled and no tool
+guidance. Both captures succeed with 10 retained events, unchanged source bytes,
+removed profiles, two successful MCP calls and passing selected factual checks.
+Full grader gates remain false because final physical resource counters are
+unavailable; factual subsets do not override that limitation.
+
+| Side              |  Input | Cached | Uncached | Output | Wall seconds |
+| ----------------- | -----: | -----: | -------: | -----: | -----------: |
+| Complete control  | 52,656 | 27,136 |   25,520 |  2,015 |       57.736 |
+| Summary candidate | 56,655 | 29,184 |   27,471 |  1,534 |       55.055 |
+
+Both clients make two executor calls and three response-usage observations.
+First they print broad discovered metadata, with truncation. Then each executor
+sequentially performs both MCP operations, preserving selected-target dependency
+order. The control prints a 2,086-byte output value; the candidate prints 22,770
+bytes. Their discovery output values are 41,723 and 41,675 bytes. These are
+recorded serialized values and remain distinct from raw MCP envelopes, billed
+tokens and exact submitted requests. Both requested modes are `direct`; the
+actual executor use is separately observed.
+
+The candidate's smaller raw metadata reply does not result in a smaller printed
+client value in this pair. Candidate input/uncached tokens remain higher. The
+observed projection and round counts are useful constraints for the next
+experiment; this one pair does not attribute all usage differences to either
+formatting or discovery, or establish a reliable speedup.

@@ -23,6 +23,10 @@ def selected_event(event):
     """Select observed items; these are not the exact submitted model request."""
     if not isinstance(event, dict) or not isinstance(event.get('payload'), dict):
         raise ValueError('Expected an event object with an object payload')
+    if not isinstance(event.get('type'), str):
+        raise ValueError('Expected an event type string')
+    if event.get('timestamp') is not None and not isinstance(event['timestamp'], str):
+        raise ValueError('Expected a timestamp string or omission')
     payload = event['payload']
     kind = event.get('type')
     if kind == 'response_item' and payload.get('type') in [
