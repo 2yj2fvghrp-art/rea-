@@ -1,11 +1,14 @@
+import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { createEvidence, type Evidence } from "../../domain/evidence.js";
 import { jsonObjectSchema, jsonValueSchema } from "../../domain/jsonValue.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import {
+  AnalysisAccessDeniedError,
   AnalysisCancelledError,
   AnalysisCapabilityUnavailableError,
+  AnalysisInputError,
 } from "../../domain/analysisErrorCore.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import type {
@@ -22,9 +25,15 @@ import type {
 /** Shared CLI/MCP workflows for Frida's device and instrumentation operations. */
 export class FridaInstrumentationService {
   readonly #provider: FridaInstrumentationPort;
+  readonly #readScriptFile: (path: string) => Promise<string>;
 
-  constructor(provider: FridaInstrumentationPort) {
+  constructor(
+    provider: FridaInstrumentationPort,
+    readScriptFile: (path: string) => Promise<string> = (path) =>
+      readFile(path, "utf8"),
+  ) {
     this.#provider = provider;
+    this.#readScriptFile = readScriptFile;
   }
 
   listDevices(remote?: FridaRemoteConnection) {
@@ -40,7 +49,10 @@ export class FridaInstrumentationService {
   }
 
   async #startSession(
-    input: StartFridaSessionInput,
+    input: StartFridaSessionInput & {
+      readonly source?: FridaScriptSource;
+      readonly durationMs?: number;
+    },
     signal: AbortSignal | undefined,
     operation: string,
   ) {
@@ -163,8 +175,17 @@ export class FridaInstrumentationService {
       AnalysisError
     >
   > {
+    // A caller-selected file must exist before REA touches any device or
+    // target; a paused spawn is resumed on cleanup, so a missing file would
+    // otherwise run the target without instrumentation.
+    const source = await this.#readScriptSource(
+      "instrument_with_frida",
+      input.source,
+    );
+    if (!source.ok) return source;
+    const sessionInput = { ...input, source: source.value };
     const started = await this.#startSession(
-      input,
+      sessionInput,
       signal,
       "instrument_with_frida",
     );
@@ -173,18 +194,18 @@ export class FridaInstrumentationService {
       return this.#cancelSession(
         "instrument_with_frida",
         started.value,
-        input,
+        sessionInput,
         signal.reason,
       );
     const loaded = await this.#provider.loadScript(
       started.value.sessionId,
-      input.source,
+      source.value,
     );
     if (signal?.aborted)
       return this.#cancelSession(
         "instrument_with_frida",
         started.value,
-        input,
+        sessionInput,
         signal.reason,
         loaded.ok ? loaded.value : undefined,
       );
@@ -208,7 +229,7 @@ export class FridaInstrumentationService {
         return this.#cancelSession(
           "instrument_with_frida",
           started.value,
-          input,
+          sessionInput,
           signal.reason,
           loaded.value,
         );
@@ -233,7 +254,7 @@ export class FridaInstrumentationService {
       return this.#cancelSession(
         "instrument_with_frida",
         started.value,
-        input,
+        sessionInput,
         cause,
         loaded.value,
       );
@@ -242,7 +263,7 @@ export class FridaInstrumentationService {
       return this.#cancelSession(
         "instrument_with_frida",
         started.value,
-        input,
+        sessionInput,
         signal.reason,
         loaded.value,
       );
@@ -265,7 +286,11 @@ export class FridaInstrumentationService {
         source_sha256: loaded.value.sourceSha256,
         cleanup_error: cleanupError,
       },
-      fridaParameters(started.value.sessionId, input, started.value.deviceId),
+      fridaParameters(
+        started.value.sessionId,
+        sessionInput,
+        started.value.deviceId,
+      ),
     );
     return ok({
       evidence,
@@ -279,6 +304,32 @@ export class FridaInstrumentationService {
 
   closeAll(): Promise<void> {
     return this.#provider.closeAll();
+  }
+
+  /** Read a caller-selected script file before any Frida side effect. */
+  async #readScriptSource(
+    operation: string,
+    source: FridaScriptSource,
+  ): Promise<Result<FridaScriptSource, AnalysisError>> {
+    if (source.sourceKind !== "file") return ok(source);
+    try {
+      return ok({
+        sourceKind: "inline",
+        source: await this.#readScriptFile(source.path),
+      });
+    } catch (cause: unknown) {
+      return err(
+        cause instanceof Error &&
+          "code" in cause &&
+          (cause.code === "EACCES" || cause.code === "EPERM")
+          ? new AnalysisAccessDeniedError(operation, source.path, cause.code, {
+              cause,
+            })
+          : new AnalysisInputError(operation, { cause }, [
+              { path: ["path"], reason: "invalid_value", message: source.path },
+            ]),
+      );
+    }
   }
 }
 

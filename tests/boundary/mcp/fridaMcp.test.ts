@@ -2,6 +2,9 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import type { AnySchema } from "ajv";
 import { expect, it, onTestFinished } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { FridaInstrumentationPort } from "../../../src/application/frida/FridaInstrumentationPort.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
@@ -260,6 +263,67 @@ it("advertises Frida MCP schemas and keeps remote credentials out of results", a
   expect(validateOneShot(oneShot.structuredContent)).toBe(true);
 
   await expectFridaToolsAvailable(client);
+});
+
+it("rejects a missing source file before any Frida session effect", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rea-frida-mcp-preflight-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const missing = join(root, "missing-script.js");
+  const calls: string[] = [];
+  const session = createTestBinarySession(() => {
+    throw new Error("Binary provider must not start");
+  });
+  const server = createServer(
+    { kind: "session", session },
+    {
+      fridaInstrumentation: createFridaTestProvider({
+        async startSession() {
+          calls.push("start");
+          return {
+            ok: true,
+            value: {
+              sessionId: "00000000-0000-4000-8000-000000000001",
+              deviceId: "remote-device",
+              target: "fixture",
+              pid: 10,
+              mode: "attach" as const,
+              state: "running" as const,
+            },
+          };
+        },
+      }),
+    },
+  );
+  const client = new Client({ name: "frida-preflight", version: "1" });
+  onTestFinished(async () => {
+    await client.close();
+    await server.close();
+    await session.close();
+  });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({
+    name: "instrument_with_frida",
+    arguments: {
+      mode: "attach",
+      pid: 10,
+      source_kind: "file",
+      path: missing,
+      duration_ms: 1,
+    },
+  });
+  expect(result.isError).toBe(true);
+  const firstContent = (result.content as { text: string }[] | undefined)?.[0];
+  if (firstContent === undefined) throw new Error("Expected MCP error content");
+  const envelope = JSON.parse(firstContent.text) as {
+    error?: { code?: string; details?: { issues?: { message?: string }[] } };
+  };
+  expect(envelope.error?.code).toBe("invalid_request");
+  expect(envelope.error?.details?.issues?.[0]?.message).toBe(missing);
+  expect(calls).toEqual([]);
 });
 
 it("reports Frida tools as unavailable after the optional binding fails to load", async () => {

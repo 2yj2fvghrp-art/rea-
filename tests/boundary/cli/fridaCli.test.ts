@@ -1,4 +1,7 @@
-import { expect, it } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createCli } from "../../../src/cli.js";
 import type { FridaInstrumentationPort } from "../../../src/application/frida/FridaInstrumentationPort.js";
@@ -203,6 +206,80 @@ it("awaits failed startup cleanup and retains the primary error if cleanup still
     expect(stdout).toContain("attach failed after spawn");
     if (cleanupFails) expect(stdout).toContain("primary_error");
   }
+});
+
+it("rejects a missing --script-file before any Frida device or target effect", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rea-frida-cli-preflight-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const missing = join(root, "missing-script.js");
+  const calls: string[] = [];
+  const provider: FridaInstrumentationPort = new FridaInstrumentationManager();
+  provider.startSession = async () => {
+    calls.push("start");
+    return {
+      ok: true,
+      value: {
+        sessionId: "00000000-0000-4000-8000-000000000001",
+        deviceId: "local",
+        target: "fixture",
+        pid: 10,
+        mode: "spawn" as const,
+        state: "paused" as const,
+      },
+    };
+  };
+  provider.loadScript = async () => {
+    calls.push("load");
+    return {
+      ok: true,
+      value: {
+        scriptId: "00000000-0000-4000-8000-000000000002",
+        sourceKind: "inline" as const,
+        sourcePath: null,
+        sourceSha256: "a".repeat(64),
+        messages: [],
+        messagesTruncated: false,
+      },
+    };
+  };
+  provider.closeSession = async () => {
+    calls.push("close");
+    return { ok: true, value: { targetResumeObserved: false } };
+  };
+  provider.closeAll = async () => {
+    calls.push("cleanup");
+  };
+  let stdout = "";
+  await createCli({}, undefined, provider).serve(
+    [
+      "instrument-with-frida",
+      "spawn",
+      "/tmp/fixture",
+      "--script-file",
+      missing,
+      "--duration-ms",
+      "1",
+      "--json",
+    ],
+    {
+      env: {},
+      exit: () => {},
+      stdout: (text) => {
+        stdout += text;
+      },
+    },
+  );
+  expect(process.exitCode).toBe(1);
+  const output: unknown = JSON.parse(stdout);
+  expect(output).toMatchObject({
+    code: "invalid_request",
+    details: {
+      issues: [{ path: ["path"], reason: "invalid_value", message: missing }],
+    },
+  });
+  // The CLI always releases the shared provider on exit; the point is that no
+  // session was started, no script was loaded, and no per-session cleanup ran.
+  expect(calls).toEqual(["cleanup"]);
 });
 
 it("preserves observed devices when CLI provider cleanup fails", async () => {

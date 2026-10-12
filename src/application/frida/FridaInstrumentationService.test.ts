@@ -1,4 +1,8 @@
-import { expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { expect, it, onTestFinished } from "vitest";
 
 import type { FridaInstrumentationPort } from "./FridaInstrumentationPort.js";
 import { FridaInstrumentationService } from "./FridaInstrumentationService.js";
@@ -155,6 +159,128 @@ it("does not resume a spawned target when cancellation arrives during script loa
   expect(closes).toBe(1);
 });
 
+it("rejects a missing script file before any device or target effect", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rea-frida-preflight-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  let starts = 0;
+  let loads = 0;
+  let closes = 0;
+  let resumes = 0;
+  const service = new FridaInstrumentationService(
+    createProvider({
+      async startSession() {
+        starts += 1;
+        return { ok: true, value: createSession() };
+      },
+      async loadScript() {
+        loads += 1;
+        return { ok: true, value: createScriptObservation() };
+      },
+      async resumeSession() {
+        resumes += 1;
+        return { ok: true, value: null };
+      },
+      async closeSession() {
+        closes += 1;
+        return { ok: true, value: { targetResumeObserved: false } };
+      },
+    }),
+  );
+
+  const missing = join(root, "missing-script.js");
+  const result = await service.instrument({
+    mode: "spawn",
+    deviceId: "local",
+    program: "/tmp/fixture",
+    source: { sourceKind: "file", path: missing },
+    durationMs: 1,
+  });
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error._tag).toBe("AnalysisInputError");
+    expect(result.error).toMatchObject({
+      issues: [{ path: ["path"], reason: "invalid_value", message: missing }],
+    });
+  }
+  expect(starts).toBe(0);
+  expect(loads).toBe(0);
+  expect(resumes).toBe(0);
+  expect(closes).toBe(0);
+});
+
+it("reads a selected script file once before starting the session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rea-frida-preflight-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const scriptPath = join(root, "probe.js");
+  await writeFile(scriptPath, "send('from-file');", "utf8");
+  const calls: string[] = [];
+  const service = new FridaInstrumentationService(
+    createProvider({
+      async startSession() {
+        calls.push("start");
+        return { ok: true, value: createSession() };
+      },
+      async loadScript(_sessionId, source) {
+        calls.push("load");
+        expect(source).toEqual({
+          sourceKind: "inline",
+          source: "send('from-file');",
+        });
+        return { ok: true, value: createScriptObservation() };
+      },
+      async resumeSession() {
+        calls.push("resume");
+        return { ok: true, value: null };
+      },
+      async closeSession() {
+        calls.push("close");
+        return { ok: true, value: { targetResumeObserved: false } };
+      },
+    }),
+  );
+
+  const result = await service.instrument({
+    mode: "spawn",
+    deviceId: "local",
+    program: "/tmp/fixture",
+    source: { sourceKind: "file", path: scriptPath },
+    durationMs: 1,
+  });
+
+  expect(result.ok).toBe(true);
+  expect(calls).toEqual(["start", "load", "resume", "close"]);
+});
+
+it("maps an unreadable script file to access_denied before any session effect", async () => {
+  let starts = 0;
+  const denied = "C:\\restricted\\denied.js";
+  const service = new FridaInstrumentationService(
+    createProvider({
+      async startSession() {
+        starts += 1;
+        return { ok: true, value: createSession() };
+      },
+    }),
+    () =>
+      Promise.reject(Object.assign(new Error("denied"), { code: "EACCES" })),
+  );
+
+  const result = await service.instrument({
+    mode: "attach",
+    deviceId: "local",
+    pid: 10,
+    source: { sourceKind: "file", path: denied },
+    durationMs: 1,
+  });
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error._tag).toBe("AnalysisAccessDeniedError");
+    expect(result.error.message).toContain(denied);
+  }
+  expect(starts).toBe(0);
+});
 it("reports the spawned session when cancellation arrives during resume", async () => {
   const controller = new AbortController();
   let closes = 0;
