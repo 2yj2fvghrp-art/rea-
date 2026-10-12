@@ -506,12 +506,7 @@ const removeManagedSkills = async (
 ): Promise<UninstallItem> => {
   const results = await Promise.all(
     skillDestinations(home, undefined, environment, platform).map(
-      ({ client, path }) =>
-        removeManagedSkill(
-          path,
-          client === "claude_code" ? "Claude Code skill" : "skill",
-          fileSystem,
-        ),
+      ({ client, path }) => removeManagedSkill(path, client, fileSystem),
     ),
   );
   const failed = results.find(({ status }) => status === "failed");
