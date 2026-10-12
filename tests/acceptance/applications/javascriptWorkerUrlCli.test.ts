@@ -67,6 +67,15 @@ cliTest(
         specifier: "./percent%2520worker.js",
         resolved: "nested/percent%20worker.js",
       },
+      ...["?value=", "#value="].map((suffix, index) => {
+        const specifier = `./worker.js${suffix}%2F%2E%5C%00%FF\\\0`;
+        return {
+          source: `nested/suffix-${index}.mjs`,
+          expression: `new Worker(new URL(${JSON.stringify(specifier)}, import.meta.url));`,
+          specifier,
+          resolved: "nested/worker.js",
+        };
+      }),
       {
         source: "bundled/entry.mjs",
         expression:

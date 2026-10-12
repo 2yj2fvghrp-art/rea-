@@ -1,6 +1,6 @@
 import * as t from "@babel/types";
 
-import { htmlUrlText } from "../artifactPathSyntax.js";
+import { htmlUrlText, stripQueryAndFragment } from "../artifactPathSyntax.js";
 import { sanitizeEndpointCandidate } from "../browserObservation.js";
 import {
   addFindingOnce,
@@ -121,13 +121,12 @@ const workerUrlSpecifier = (
   )
     return undefined;
   const specifier = stringValue(node.arguments[0]);
-  // Keep URL forms requiring additional normalization or the source-file base
-  // explicit as expressions until their resolution semantics are supported.
-  return specifier !== undefined &&
-    specifier.length > 0 &&
-    htmlUrlText(specifier) === specifier &&
-    !specifier.startsWith("?") &&
-    !specifier.startsWith("#")
+  if (specifier === undefined) return undefined;
+  const pathname = stripQueryAndFragment(specifier);
+  // Keep paths requiring normalization or the source-file base explicit as
+  // expressions. Normalization confined to a URL suffix does not change its file.
+  return pathname.length > 0 &&
+    stripQueryAndFragment(htmlUrlText(specifier)) === pathname
     ? specifier
     : undefined;
 };

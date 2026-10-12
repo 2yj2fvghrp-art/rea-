@@ -145,8 +145,6 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
     input.declaredPath.startsWith("#")
   )
     return resolvePackageImportAlias(input, input.declaredPath);
-  const rejected = rejectDeclaration(input.declaredPath);
-  if (rejected !== null) return rejected;
   const candidate = contextualCandidate(input);
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
@@ -193,10 +191,14 @@ const contextualCandidate = (
   input: ResolveArtifactPathInput,
 ): string | CandidateResolution => {
   const { context } = input;
+  // URL suffixes are evidence, not pathname bytes. Admit only the path while
+  // retaining the complete declaration on the resolution result.
   let declared =
-    context === "html-reference" || context === "url-reference"
+    context === "url-reference"
       ? stripQueryAndFragment(input.declaredPath)
       : input.declaredPath;
+  const rejected = rejectDeclaration(declared);
+  if (rejected !== null) return rejected;
   if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
     const fileUrl = fileUrlPath(declared);
@@ -854,8 +856,6 @@ const resolveDirectory = (
     files: input.files,
     ...(input.moduleKind === undefined ? {} : { moduleKind: input.moduleKind }),
   };
-  const rejected = rejectDeclaration(entryInput.declaredPath);
-  if (rejected !== null) return rejected;
   const candidate = contextualCandidate(entryInput);
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
