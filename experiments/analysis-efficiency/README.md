@@ -522,3 +522,19 @@ inherited search paths preserve selected facts and source identities, but the
 comparator rejects matching settings with only `provider_search_path_sha256`
 different. The original records and failed/accepted replies stay in private lab
 receipts; no environment value is copied into them.
+
+### Resource-counter closeout qualification
+
+The experimental wrapper now attempts a final cgroup event read before waiting
+or cleanup. Disappeared/incomplete counters or still-owned descendants make
+`resource_counters_verified` false; last observations remain available separately.
+The model grader treats missing final counters as unverified, never as zero,
+and any recorded soft/hard/task-limit event prevents an unrestricted resource
+pass. Lightweight parser probes cover missing/incomplete and nonzero counters;
+an actual short command confirms disappearance is reported as unknown. Regrading
+one already-correct SQLite model answer preserves its facts but rejects the old
+receipt's absent final resource counters. Earlier receipts record last-sampled
+observations, not verified final counters. Their bytes, facts and token reports
+remain original observations; resource-qualified performance conclusions need
+this additional closeout evidence. No analyzer/build/schema/package behavior is
+changed, so unrelated verification is not repeated for this research-driver fix.

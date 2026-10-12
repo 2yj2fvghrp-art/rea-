@@ -235,8 +235,18 @@ def main():
     scopes = [json.loads(line) for line in args.resource_log.read_text().splitlines() if line.startswith('{')]
     scope = next(value for value in reversed(scopes) if 'resource_scope' in value)
     checks['no_resource_abort'] = scope['abort'] is None
-    events = scope['resource_events_last_observed']
-    checks['no_observed_oom_or_task_limit'] = all(events.get('memory.events', {}).get(k, 0) == 0 for k in ['max', 'oom', 'oom_kill']) and events.get('pids.events', {}).get('max', 0) == 0
+    events = scope.get('resource_events_final')
+    checks['resource_counters_verified'] = scope.get('resource_counters_verified') is True
+    checks['no_observed_oom_or_task_limit'] = (
+        isinstance(events, dict)
+        and all(events.get('memory.events', {}).get(k) == 0 for k in ['max', 'oom', 'oom_kill'])
+        and events.get('pids.events', {}).get('max') == 0
+    )
+    checks['no_resource_limit_event'] = (
+        checks['resource_counters_verified']
+        and checks['no_observed_oom_or_task_limit']
+        and events['memory.events'].get('high') == 0
+    )
     report = {
         'domain': domain, 'checks': checks, 'all_selected_checks_pass': all(checks.values()),
         'differences': differences, 'tool_errors': tool_errors, 'summary': summary,

@@ -26,6 +26,24 @@ def scope_has_processes(group):
         return False
 
 
+def final_resource_events(group):
+    """An exited transient cgroup may disappear; missing counters are unknown."""
+    if group is None:
+        return None
+    try:
+        result = {name: dict((key, int(value)) for key, value in
+                            (line.split() for line in (group / name).read_text().splitlines()))
+                  for name in ['memory.events', 'pids.events']}
+    except (OSError, ValueError):
+        return None
+    required = {'memory.events': ['high', 'max', 'oom', 'oom_kill'],
+                'pids.events': ['max']}
+    if not all(all(key in result[name] for key in keys)
+               for name, keys in required.items()):
+        return None
+    return result
+
+
 def stop_owned_scope(unit, process, group):
     subprocess.run(['systemctl', '--user', 'stop', '--no-block', unit],
                    check=False, timeout=5)
@@ -72,6 +90,7 @@ def main():
     events = {}
     cpu_stats = {}
     abort = None
+    final_events = None
     started = time.monotonic()
     try:
         group = None
@@ -110,12 +129,15 @@ def main():
                 stop_owned_scope(unit, process, group)
                 break
             time.sleep(0.1)
+        # Read while the owned group still exists, before wait/cleanup can remove it.
+        final_events = final_resource_events(group)
         code = process.wait()
     except BaseException:
         stop_owned_scope(unit, process, group)
         raise
     finally:
         if scope_has_processes(group):
+            final_events = None
             stop_owned_scope(unit, process, group)
         print(json.dumps({
             'resource_scope': unit, 'peak_cgroup_bytes_sampled': peak,
@@ -125,6 +147,8 @@ def main():
             'cpu_affinity': [cpu],
             'task_ceiling': options.task_ceiling, 'peak_tasks_sampled': peak_tasks,
             'resource_events_last_observed': events,
+            'resource_events_final': final_events,
+            'resource_counters_verified': final_events is not None,
             'cpu_stat_last_observed': cpu_stats,
         }), file=sys.stderr)
     raise SystemExit(125 if abort else code)
