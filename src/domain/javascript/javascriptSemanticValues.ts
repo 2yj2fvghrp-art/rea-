@@ -1,6 +1,11 @@
 import * as t from "@babel/types";
 
 import {
+  SemanticDependencyProofs,
+  type SemanticDependencyProof,
+} from "./javascriptSemanticDependencies.js";
+
+import {
   semanticCapturePosition,
   semanticEscapeFollowsCapture,
   semanticBindingPrecedesCapture,
@@ -53,7 +58,7 @@ import {
 
 interface MemoizedEvaluation<T> {
   readonly value: T;
-  readonly dependencies: ReadonlySet<string>;
+  readonly dependencies: SemanticDependencyProof;
 }
 
 /** Provenance lives for one query; live values belong to the effects-aware state. */
@@ -62,13 +67,27 @@ interface EvaluationMemo {
     string,
     Map<number, MemoizedEvaluation<JavaScriptBindingProvenance>>
   >;
-  readonly dependencyFrames: Set<string>[];
+  readonly dependencyFrames: { proof: SemanticDependencyProof }[];
+  readonly dependencies: SemanticDependencyProofs;
 }
 
-const createEvaluationMemo = (): EvaluationMemo => ({
-  provenance: new Map(),
-  dependencyFrames: [],
-});
+// Indexing owns stable binding identities; effects invalidate values, not this
+// identity-only layout. No query result or dependency closure is retained here.
+const dependencyProofsByState = new WeakMap<
+  JavaScriptSemanticAnalysisState,
+  SemanticDependencyProofs
+>();
+
+const createEvaluationMemo = (
+  state: JavaScriptSemanticAnalysisState,
+): EvaluationMemo => {
+  let dependencies = dependencyProofsByState.get(state);
+  if (dependencies === undefined) {
+    dependencies = new SemanticDependencyProofs(state.bindingsById.keys());
+    dependencyProofsByState.set(state, dependencies);
+  }
+  return { provenance: new Map(), dependencyFrames: [], dependencies };
+};
 
 interface EvaluationContext {
   readonly state: JavaScriptSemanticAnalysisState;
@@ -170,7 +189,7 @@ export const evaluateSemanticBinding = (
     expressionDepth: 0,
     primitiveBindingValues: primitiveBindingValuesFor(state),
     dependence: { lowest: CALLER_INDEPENDENT },
-    memo: createEvaluationMemo(),
+    memo: createEvaluationMemo(state),
   });
 
 /** Evaluate an inert expression, optionally at an earlier reference capture. */
@@ -185,7 +204,7 @@ export const evaluateSemanticExpression = (
     expressionDepth: 0,
     primitiveBindingValues: primitiveBindingValuesFor(state),
     dependence: { lowest: CALLER_INDEPENDENT },
-    memo: createEvaluationMemo(),
+    memo: createEvaluationMemo(state),
   };
   return evaluateExpression(
     node,
@@ -206,7 +225,7 @@ export const evaluateSemanticProvenance = (
     expressionDepth: 0,
     primitiveBindingValues: primitiveBindingValuesFor(state),
     dependence: { lowest: CALLER_INDEPENDENT },
-    memo: createEvaluationMemo(),
+    memo: createEvaluationMemo(state),
   });
 
 const readMemoizedEvaluation = <T>(
@@ -215,29 +234,43 @@ const readMemoizedEvaluation = <T>(
 ): T | undefined => {
   if (
     entry === undefined ||
-    [...entry.dependencies].some((id) => context.bindings.has(id))
+    context.memo.dependencies.intersects(entry.dependencies, context.bindings)
   )
     return undefined;
-  const parent = context.memo.dependencyFrames.at(-1);
-  if (parent !== undefined)
-    for (const dependency of entry.dependencies) parent.add(dependency);
+  retainDependencyProof(entry.dependencies, context);
   return entry.value;
 };
+
+const retainDependencyProof = (
+  proof: SemanticDependencyProof,
+  context: EvaluationContext,
+): void => {
+  const parent = context.memo.dependencyFrames.at(-1);
+  if (parent !== undefined)
+    parent.proof = context.memo.dependencies.union(parent.proof, proof);
+};
+
+const recordBindingDependency = (
+  binding: JavaScriptSemanticBindingState,
+  context: EvaluationContext,
+): void =>
+  retainDependencyProof(
+    context.memo.dependencies.binding(binding.bindingId),
+    context,
+  );
 
 const collectEvaluationDependencies = <T>(
   binding: JavaScriptSemanticBindingState,
   context: EvaluationContext,
   evaluate: () => T,
 ): MemoizedEvaluation<T> => {
-  const dependencies = new Set([binding.bindingId]);
-  context.memo.dependencyFrames.push(dependencies);
+  const frame = { proof: context.memo.dependencies.binding(binding.bindingId) };
+  context.memo.dependencyFrames.push(frame);
   try {
-    return { value: evaluate(), dependencies };
+    return { value: evaluate(), dependencies: frame.proof };
   } finally {
     context.memo.dependencyFrames.pop();
-    const parent = context.memo.dependencyFrames.at(-1);
-    if (parent !== undefined)
-      for (const dependency of dependencies) parent.add(dependency);
+    retainDependencyProof(frame.proof, context);
   }
 };
 
@@ -245,7 +278,7 @@ const evaluateBinding = (
   binding: JavaScriptSemanticBindingState,
   context: EvaluationContext,
 ): JavaScriptSemanticValue => {
-  context.memo.dependencyFrames.at(-1)?.add(binding.bindingId);
+  recordBindingDependency(binding, context);
   const cycleHead = context.bindings.get(binding.bindingId);
   if (cycleHead !== undefined) {
     context.dependence.lowest = Math.min(context.dependence.lowest, cycleHead);
@@ -716,7 +749,7 @@ const provenanceForBinding = (
   binding: JavaScriptSemanticBindingState,
   context: EvaluationContext,
 ): JavaScriptBindingProvenance => {
-  context.memo.dependencyFrames.at(-1)?.add(binding.bindingId);
+  recordBindingDependency(binding, context);
   const cycleHead = context.bindings.get(binding.bindingId);
   if (cycleHead !== undefined) {
     context.dependence.lowest = Math.min(context.dependence.lowest, cycleHead);
