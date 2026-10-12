@@ -191,7 +191,7 @@ export class FridaInstrumentationService {
     if (!loaded.ok) {
       const closed = await this.#provider.closeSession(started.value.sessionId);
       return closed.ok
-        ? err(withRecoveredCleanup(loaded.error))
+        ? err(withRecoveredFridaCleanup(loaded.error))
         : err(
             withCleanupFailure(
               loaded.error,
@@ -351,7 +351,10 @@ const withCleanupFailure = (
     },
   );
 
-const withRecoveredCleanup = (error: AnalysisError): AnalysisError =>
+/** Preserve the original Frida failure after its owner confirms cleanup. */
+export const withRecoveredFridaCleanup = (
+  error: AnalysisError,
+): AnalysisError =>
   error instanceof AnalysisCapabilityUnavailableError && error.cleanupIncomplete
     ? new AnalysisCapabilityUnavailableError(
         error.providerId,
@@ -359,6 +362,12 @@ const withRecoveredCleanup = (error: AnalysisError): AnalysisError =>
         error.reason,
         {
           cause: error.cause,
+          ...(error.capturedOutput === undefined
+            ? {}
+            : { capturedOutput: error.capturedOutput }),
+          ...(error.partialObservation === undefined
+            ? {}
+            : { partialObservation: error.partialObservation }),
           ...(error.userMessage === undefined
             ? {}
             : { userMessage: error.userMessage }),

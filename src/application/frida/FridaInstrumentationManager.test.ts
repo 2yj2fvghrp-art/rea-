@@ -202,6 +202,108 @@ const startLocalAttachedSession = async (
 
 // eslint-disable-next-line max-lines-per-function -- related manager lifecycle cases share the same focused fake provider.
 describe("FridaInstrumentationManager", () => {
+  it("retains a failed startup's spawn and remote lease until cleanup succeeds", async () => {
+    const bindings = new FakeDeviceManager();
+    bindings.device.attach = async () => {
+      throw new Error("attach failed after spawn");
+    };
+    bindings.device.resumeFailureCount = 2;
+    const manager = new FridaInstrumentationManager({
+      deviceManager: bindings,
+    });
+
+    const started = await manager.startSession({
+      mode: "spawn",
+      remote: { address: "127.0.0.1:27042" },
+      program: "/tmp/fixture",
+    });
+    if (started.ok) throw new Error("Attach unexpectedly succeeded");
+    expect(started.error.cleanupIncomplete).toBe(true);
+    expect(bindings.device.resumed).toEqual([]);
+    expect(bindings.removedRemote).toEqual([]);
+
+    await expect(manager.closeAll()).rejects.toThrow("cleanup was incomplete");
+    expect(bindings.device.resumed).toEqual([]);
+    expect(bindings.removedRemote).toEqual([]);
+
+    // A lookup could now select a different device with the same PID. Cleanup
+    // must use the original provider handle, not select the target again.
+    const replacement = new FakeDevice();
+    bindings.getDeviceById = async () => replacement;
+    bindings.addRemoteDevice = async () => replacement;
+    await Promise.all([manager.closeAll(), manager.closeAll()]);
+    expect(bindings.device.resumed).toEqual([512]);
+    expect(replacement.resumed).toEqual([]);
+    expect(bindings.removedRemote).toEqual(["127.0.0.1:27042"]);
+    await manager.closeAll();
+    expect(bindings.device.resumed).toEqual([512]);
+    expect(bindings.removedRemote).toEqual(["127.0.0.1:27042"]);
+  });
+
+  it("retains an acquired session when startup fails before registration", async () => {
+    const bindings = new FakeDeviceManager();
+    bindings.device.session.detached.connect = () => {
+      throw new Error("detached signal registration failed");
+    };
+    bindings.device.session.detachFailureCount = 1;
+    const manager = new FridaInstrumentationManager({
+      deviceManager: bindings,
+    });
+    const started = await manager.startSession({
+      mode: "spawn",
+      deviceId: "local",
+      program: "/tmp/fixture",
+    });
+    if (started.ok)
+      throw new Error("Signal registration unexpectedly succeeded");
+    expect(started.error.cleanupIncomplete).toBe(true);
+    expect(bindings.device.session.isDetached()).toBe(false);
+    expect(bindings.device.resumed).toEqual([]);
+
+    await manager.closeAll();
+    expect(bindings.device.session.isDetached()).toBe(true);
+    expect(bindings.device.resumed).toEqual([512]);
+  });
+
+  it("does not release another session's remote lease when retrying failed startup removal", async () => {
+    const bindings = new FakeDeviceManager();
+    bindings.device.attach = async () => {
+      throw new Error("attach failed");
+    };
+    bindings.removeRemoteFailureCount = 1;
+    const remote = { address: "127.0.0.1:27042" };
+    const manager = new FridaInstrumentationManager({
+      deviceManager: bindings,
+    });
+    const failed = await manager.startSession({
+      mode: "spawn",
+      remote,
+      program: "/tmp/fixture",
+    });
+    if (failed.ok) throw new Error("Attach unexpectedly succeeded");
+    expect(failed.error.cleanupIncomplete).toBe(true);
+    expect(bindings.device.resumed).toEqual([512]);
+
+    bindings.device.attach = async () => bindings.device.session;
+    const active = await manager.startSession({
+      mode: "attach",
+      remote,
+      pid: 512,
+    });
+    if (!active.ok) throw active.error;
+    const removedWhileSessionAttached: boolean[] = [];
+    const remove = bindings.removeRemoteDevice.bind(bindings);
+    bindings.removeRemoteDevice = async (address) => {
+      removedWhileSessionAttached.push(!bindings.device.session.isDetached());
+      await remove(address);
+    };
+
+    await manager.closeAll();
+    expect(removedWhileSessionAttached).toEqual([false]);
+    expect(bindings.removedRemote).toEqual([remote.address]);
+    expect(bindings.device.resumed).toEqual([512]);
+  });
+
   it("loads instrumentation before resuming a spawned target", async () => {
     const bindings = new FakeDeviceManager();
     const manager = new FridaInstrumentationManager({

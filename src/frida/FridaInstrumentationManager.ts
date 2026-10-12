@@ -57,13 +57,23 @@ interface ManagedScript {
   released: boolean;
 }
 
-interface ManagedSession {
-  readonly id: string;
-  readonly device: Device;
+interface ManagedRemoteConnection {
   readonly deviceManager: DeviceManager;
   readonly remote: FridaRemoteConnection | undefined;
   remoteReferenceHeld: boolean;
   remoteRemovalPending: boolean;
+}
+
+interface PendingStartupCleanup extends ManagedRemoteConnection {
+  readonly id: string;
+  readonly device: Device;
+  spawnedPid: number | undefined;
+  session: Session | undefined;
+}
+
+interface ManagedSession extends ManagedRemoteConnection {
+  readonly id: string;
+  readonly device: Device;
   readonly session: Session;
   readonly target: string;
   readonly pid: number;
@@ -86,6 +96,7 @@ export interface FridaInstrumentationManagerOptions {
 /** Owns Frida sessions and their scripts without owning target process lifetime. */
 export class FridaInstrumentationManager implements FridaInstrumentationPort {
   readonly #sessions = new Map<string, ManagedSession>();
+  readonly #pendingStartups = new Set<PendingStartupCleanup>();
   readonly #sessionQueues = new Map<string, Promise<void>>();
   readonly #sessionClosures = new Map<
     string,
@@ -227,6 +238,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     let device: Device | undefined;
     let remoteHeld = false;
     let spawnedPid: number | undefined;
+    let session: Session | undefined;
     try {
       manager = await this.#getDeviceManager();
       device = await this.#selectDevice(manager, input);
@@ -247,7 +259,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         spawnedPid = pid;
         target = input.program;
       }
-      const session = await device.attach(pid);
+      session = await device.attach(pid);
       const id = randomUUID();
       const managed: ManagedSession = {
         id,
@@ -275,24 +287,26 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       this.#sessions.set(id, managed);
       return ok(sessionObservation(managed));
     } catch (cause: unknown) {
-      const cleanupFailures: string[] = [];
-      if (spawnedPid !== undefined && device !== undefined) {
-        try {
-          await device.resume(spawnedPid);
-        } catch (cleanupCause: unknown) {
-          cleanupFailures.push(
-            `Unable to resume spawned target: ${sanitizeError(cleanupCause, input.remote)}`,
-          );
-        }
-      }
-      if (manager !== undefined && remoteHeld && input.remote !== undefined) {
-        try {
-          await this.#releaseRemote(manager, input.remote.address);
-        } catch (cleanupCause: unknown) {
-          cleanupFailures.push(
-            `Unable to close remote connection: ${sanitizeError(cleanupCause, input.remote)}`,
-          );
-        }
+      let cleanupFailures: readonly string[] = [];
+      if (
+        manager !== undefined &&
+        device !== undefined &&
+        (spawnedPid !== undefined || session !== undefined || remoteHeld)
+      ) {
+        const pending: PendingStartupCleanup = {
+          id: randomUUID(),
+          device,
+          deviceManager: manager,
+          remote: input.remote,
+          remoteReferenceHeld: remoteHeld,
+          remoteRemovalPending: false,
+          spawnedPid,
+          session,
+        };
+        // Keep the original provider handles until every acquired resource is
+        // released, including failures before a session can be registered.
+        this.#pendingStartups.add(pending);
+        cleanupFailures = await this.#cleanupStartup(pending);
       }
       return err(
         providerError(
@@ -580,21 +594,8 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       managed.scripts.size === 0 &&
       !managed.resumeAfterDetachPending
     ) {
-      const releaseReference = managed.remoteReferenceHeld;
-      managed.remoteReferenceHeld = false;
-      try {
-        await this.#releaseRemote(
-          managed.deviceManager,
-          managed.remote.address,
-          releaseReference,
-        );
-        managed.remoteRemovalPending = false;
-      } catch (cause: unknown) {
-        managed.remoteRemovalPending = true;
-        failures.push(
-          `Unable to close remote Frida connection: ${sanitizeError(cause, managed.remote)}`,
-        );
-      }
+      const failure = await this.#releaseManagedRemote(managed);
+      if (failure !== undefined) failures.push(failure);
     }
     if (failures.length > 0)
       return err(
@@ -615,14 +616,22 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   }
 
   async closeAll(): Promise<void> {
+    const startupFailures = (
+      await Promise.all(
+        [...this.#pendingStartups].map((pending) =>
+          this.#cleanupStartup(pending),
+        ),
+      )
+    ).flat();
     const results = await Promise.all(
       [...this.#sessions.keys()].map((sessionId) =>
         this.closeSession(sessionId),
       ),
     );
-    const failures = results.flatMap((result) =>
-      result.ok ? [] : [result.error.message],
-    );
+    const failures = [
+      ...startupFailures,
+      ...results.flatMap((result) => (result.ok ? [] : [result.error.message])),
+    ];
     const manager = this.#deviceManager;
     if (manager !== undefined) {
       for (const [address, reference] of this.#remoteDevices) {
@@ -641,6 +650,60 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         failures,
         "Frida session cleanup was incomplete",
       );
+  }
+
+  #cleanupStartup(pending: PendingStartupCleanup): Promise<readonly string[]> {
+    return this.#withSessionLock(pending.id, async () => {
+      if (!this.#pendingStartups.has(pending)) return [];
+      if (pending.session !== undefined) {
+        try {
+          if (!pending.session.isDetached()) await pending.session.detach();
+          pending.session = undefined;
+        } catch (cause: unknown) {
+          return [
+            `Unable to detach Frida session: ${sanitizeError(cause, pending.remote)}`,
+          ];
+        }
+      }
+      if (pending.spawnedPid !== undefined) {
+        try {
+          await pending.device.resume(pending.spawnedPid);
+          pending.spawnedPid = undefined;
+        } catch (cause: unknown) {
+          return [
+            `Unable to resume spawned target: ${sanitizeError(cause, pending.remote)}`,
+          ];
+        }
+      }
+      const remoteFailure = await this.#releaseManagedRemote(pending);
+      if (remoteFailure !== undefined) return [remoteFailure];
+      this.#pendingStartups.delete(pending);
+      return [];
+    });
+  }
+
+  async #releaseManagedRemote(
+    managed: ManagedRemoteConnection,
+  ): Promise<string | undefined> {
+    if (
+      managed.remote === undefined ||
+      (!managed.remoteReferenceHeld && !managed.remoteRemovalPending)
+    )
+      return undefined;
+    const releaseReference = managed.remoteReferenceHeld;
+    managed.remoteReferenceHeld = false;
+    try {
+      await this.#releaseRemote(
+        managed.deviceManager,
+        managed.remote.address,
+        releaseReference,
+      );
+      managed.remoteRemovalPending = false;
+      return undefined;
+    } catch (cause: unknown) {
+      managed.remoteRemovalPending = true;
+      return `Unable to close remote Frida connection: ${sanitizeError(cause, managed.remote)}`;
+    }
   }
 
   async #withSessionLock<Value>(

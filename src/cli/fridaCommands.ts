@@ -1,6 +1,9 @@
 import { z } from "incur";
 
-import { FridaInstrumentationService } from "../application/frida/FridaInstrumentationService.js";
+import {
+  FridaInstrumentationService,
+  withRecoveredFridaCleanup,
+} from "../application/frida/FridaInstrumentationService.js";
 import type {
   FridaInstrumentationPort,
   FridaRemoteConnection,
@@ -10,6 +13,11 @@ import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
+import { err, type Result } from "../domain/result.js";
 import { FRIDA_KEEPALIVE_INTERVAL_DESCRIPTION } from "../contracts/fridaToolContracts.js";
 import { isValidFridaRemoteAddress } from "../contracts/fridaRemoteAddress.js";
 import type { Logger } from "pino";
@@ -23,6 +31,35 @@ export const registerFridaCommands = (
   provider: FridaInstrumentationPort = new FridaInstrumentationManager(),
 ): void => {
   const service = new FridaInstrumentationService(provider);
+  // CLI calls own a disposable provider; MCP retains its shared provider until
+  // server shutdown. Await cleanup here, including failed startup resources.
+  const withProviderCleanup = async <Value>(
+    operation: () => Promise<Result<Value, AnalysisError>>,
+  ): Promise<Result<Value, AnalysisError>> => {
+    const result = await operation();
+    try {
+      await provider.closeAll();
+    } catch (cause: unknown) {
+      const cleanup = new ProviderCleanupError(
+        "frida",
+        ["Frida sessions or connections"],
+        result.ok
+          ? { partial_observation: jsonValueSchema.parse(result.value) }
+          : {},
+        { cause, operation: "frida_cleanup" },
+      );
+      return err(
+        result.ok
+          ? cleanup
+          : analysisErrorWithCleanupFailure(
+              result.error,
+              cleanup,
+              "frida_cleanup",
+            ),
+      );
+    }
+    return result.ok ? result : err(withRecoveredFridaCleanup(result.error));
+  };
   const remoteOptions = z.object({
     remoteAddress: z
       .string()
@@ -80,7 +117,9 @@ export const registerFridaCommands = (
     ),
     run: ({ options }) =>
       logCliCommand(logger, CLI_COMMANDS.listFridaDevices, async () => {
-        const result = await service.listDevices(remoteFrom(options));
+        const result = await withProviderCleanup(() =>
+          service.listDevices(remoteFrom(options)),
+        );
         return result.ok
           ? {
               devices: result.value.devices,
@@ -112,10 +151,12 @@ export const registerFridaCommands = (
     run: ({ options }) =>
       logCliCommand(logger, CLI_COMMANDS.listFridaProcesses, async () => {
         const remote = remoteFrom(options);
-        const result = await service.listProcesses(
-          remote === undefined
-            ? { deviceId: options.deviceId ?? "local" }
-            : { remote },
+        const result = await withProviderCleanup(() =>
+          service.listProcesses(
+            remote === undefined
+              ? { deviceId: options.deviceId ?? "local" }
+              : { remote },
+          ),
         );
         return result.ok
           ? {
@@ -209,16 +250,18 @@ export const registerFridaCommands = (
             return projectAnalysisError(
               new AnalysisInputError(CLI_COMMANDS.instrumentWithFrida),
             );
-          const result = await service.instrument(
-            {
-              ...targetInput,
-              source:
-                options.scriptFile === undefined
-                  ? { sourceKind: "inline", source: options.script ?? "" }
-                  : { sourceKind: "file", path: options.scriptFile },
-              durationMs: options.durationMs,
-            },
-            signal,
+          const result = await withProviderCleanup(() =>
+            service.instrument(
+              {
+                ...targetInput,
+                source:
+                  options.scriptFile === undefined
+                    ? { sourceKind: "inline", source: options.script ?? "" }
+                    : { sourceKind: "file", path: options.scriptFile },
+                durationMs: options.durationMs,
+              },
+              signal,
+            ),
           );
           if (!result.ok) return projectAnalysisError(result.error);
           if (result.value.cleanupError !== null) process.exitCode = 1;

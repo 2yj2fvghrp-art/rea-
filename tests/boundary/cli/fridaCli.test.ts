@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 
 import { createCli } from "../../../src/cli.js";
 import type { FridaInstrumentationPort } from "../../../src/application/frida/FridaInstrumentationPort.js";
+import { AnalysisCapabilityUnavailableError } from "../../../src/domain/analysisErrorCore.js";
+import { FridaInstrumentationManager } from "../../../src/frida/FridaInstrumentationManager.js";
 
 it("maps one-shot Frida CLI target, script, duration, and remote options", async () => {
   const calls: unknown[] = [];
@@ -147,4 +149,88 @@ it("maps one-shot Frida CLI target, script, duration, and remote options", async
   expect(exitCode).not.toBe(0);
   expect(calls).toHaveLength(3);
   expect(stdout).not.toContain("synthetic-secret-token");
+});
+
+it("awaits failed startup cleanup and retains the primary error if cleanup still fails", async () => {
+  for (const cleanupFails of [false, true]) {
+    const calls: string[] = [];
+    const provider: FridaInstrumentationPort =
+      new FridaInstrumentationManager();
+    provider.startSession = async () => {
+      calls.push("start");
+      return {
+        ok: false,
+        error: new AnalysisCapabilityUnavailableError(
+          "frida",
+          "start_frida_session",
+          "attach failed after spawn",
+          {
+            cleanup: {
+              reason: "first resume failed",
+              resources: ["paused spawn"],
+            },
+          },
+        ),
+      };
+    };
+    provider.closeAll = async () => {
+      calls.push("cleanup");
+      if (cleanupFails) throw new Error("resume still failed");
+    };
+    let stdout = "";
+    await createCli({}, undefined, provider).serve(
+      [
+        "instrument-with-frida",
+        "spawn",
+        "/tmp/fixture",
+        "--script",
+        "send('ready')",
+        "--json",
+      ],
+      {
+        env: {},
+        exit: () => {},
+        stdout: (text) => {
+          stdout += text;
+        },
+      },
+    );
+    expect(calls).toEqual(["start", "cleanup"]);
+    const output: unknown = JSON.parse(stdout);
+    expect(output).toMatchObject({
+      code: cleanupFails ? "cleanup_incomplete" : "capability_unavailable",
+    });
+    expect(stdout).toContain("attach failed after spawn");
+    if (cleanupFails) expect(stdout).toContain("primary_error");
+  }
+});
+
+it("preserves observed devices when CLI provider cleanup fails", async () => {
+  const provider: FridaInstrumentationPort = new FridaInstrumentationManager();
+  const devices = [
+    { deviceId: "remote-device", name: "selected endpoint", type: "remote" },
+  ];
+  provider.listDevices = async () => ({
+    ok: true,
+    value: { devices, cleanupError: null },
+  });
+  provider.closeAll = async () => {
+    throw new Error("remote removal failed");
+  };
+  let stdout = "";
+  await createCli({}, undefined, provider).serve(
+    ["list-frida-devices", "--json"],
+    {
+      env: {},
+      exit: () => {},
+      stdout: (text) => {
+        stdout += text;
+      },
+    },
+  );
+  const output: unknown = JSON.parse(stdout);
+  expect(output).toMatchObject({
+    code: "cleanup_incomplete",
+    details: { diagnostics: { partial_observation: { devices } } },
+  });
 });
