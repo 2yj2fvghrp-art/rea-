@@ -244,8 +244,12 @@ user-level `~/.kimi-code/mcp.json`, or `$KIMI_CODE_HOME/mcp.json` when that
 variable is nonempty (a nonempty value is used as-is, and an empty value
 selects the default). Setup writes only the user scope: a project's
 `.kimi-code/mcp.json`, and a project-root `.mcp.json`, can override a
-same-name user entry, so check those files when the user registration is
-aligned but unavailable in a project. Kimi Code discovers personal skills in
+same-name user entry. Kimi Code's built-in `/mcp-config` skill documents
+these three scopes — user-global `mcp.json`, project-root `.mcp.json` as
+the Claude-compatible file located via the nearest `.git`, and
+project-local `.kimi-code/mcp.json` — with later scopes overriding
+earlier ones on name collision. Check those files when the user
+registration is aligned but unavailable in a project. Kimi Code discovers personal skills in
 `~/.agents/skills`, where setup installs the bundled workflow.
 
 A Kimi Code registration is written with
