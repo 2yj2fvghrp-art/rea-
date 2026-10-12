@@ -162,6 +162,8 @@ export const measureNativeEntry = async ({
         throw new Error(
           "The shipped DOS load image was not independently verified",
         );
+      if (loadImage.target_sha256 !== inputSha)
+        throw new Error("The DOS load image belongs to a different target");
       loadImageEvidenceId = imageEvidence.evidence_id;
       seed = loadImage.entry.linear_address;
     }

@@ -15,15 +15,17 @@ const generate = `
 import {measureNativeEntry} from './experiments/analysis-efficiency/native-entry.mjs';
 const sha='0'.repeat(64);
 const duplicate=process.argv[1]==='duplicate';
-const dos=process.argv[1]==='dos';
+const stale=process.argv[1]==='stale-dos';
+const dos=process.argv[1]==='dos'||stale;
 const dossier={procedure:{address:'0x1000'},pseudocode:'return;',callers:[],callees:[]};
 class ToolFailure extends Error {}
 const build=async digit=>{
   const parent='ev_'+digit.repeat(63)+'0';
   let ordinal=0;
   const call=async(name,args)=>{
+    if(stale)process.stdout.write(name+'\\n');
     if(name==='open_binary'||name==='close_binary')return {};
-    if(name==='inspect_native_load_image')return {evidence_id:'ev_'+digit.repeat(63)+'6',normalized_result:{status:'verified',entry:{linear_address:'0x1000'}}};
+    if(name==='inspect_native_load_image')return {evidence_id:'ev_'+digit.repeat(63)+'6',normalized_result:{status:'verified',target_sha256:stale?'f'.repeat(64):sha,entry:{linear_address:'0x1000'}}};
     if(name==='resolve_containing_procedure')return {evidence_id:parent,normalized_result:{found:true}};
     if(name==='analyze_function')return {evidence_id:parent,subject:{digest:{sha256:sha}},normalized_result:dossier};
     const id='ev_'+digit.repeat(63)+(duplicate?1:++ordinal);
@@ -49,6 +51,22 @@ it("retains the DOS load-image source for its facts and derived entry seed", asy
     entry_address: "0x1000",
     load_image: { status: "verified", entry: { linear_address: "0x1000" } },
     evidence_ids: { native_load_image: "ev_" + "1".repeat(63) + "6" },
+  });
+});
+
+it("rejects a stale DOS load image before using its entry and closes the session", async () => {
+  await expect(
+    execute(process.execPath, [
+      "--input-type=module",
+      "-e",
+      generate,
+      "stale-dos",
+    ]),
+  ).rejects.toMatchObject({
+    stdout: "open_binary\ninspect_native_load_image\nclose_binary\n",
+    stderr: expect.stringContaining(
+      "The DOS load image belongs to a different target",
+    ),
   });
 });
 

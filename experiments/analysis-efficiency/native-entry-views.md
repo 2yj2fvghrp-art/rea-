@@ -151,6 +151,9 @@ fingerprints are not treated as a comparable current driver.
 The reviewed `entry-views` answer separates selected facet facts from run-specific
 references: `evidence_ids.retained_views` retains each facet's original view and
 parent ID, while `retained_views` holds its item, coverage, limitations and unknowns.
+DOS load-image facts retain their source ID and must match the selected carrier
+digest before their entry address can be used; a stale result closes the session
+without querying a procedure.
 The comparator preserves both runs' reference maps and compares the facts. Existing
 `entry`/`entry-and-main` answers keep their ID arrays. Historical SDK receipts above
 retain their original pre-review representation; no replies or measurements were
