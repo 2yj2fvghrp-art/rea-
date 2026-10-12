@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
+import { encodeNibArchiveFixture } from "./NibArchive.fixture.js";
 import { ArtifactReaderFailure } from "../ArtifactReader.js";
 import {
   analyzeAppleAssetCatalogs,
@@ -22,6 +24,13 @@ describe("Apple asset catalog application workflow", () => {
             imageName: "Toolbar",
             title: "not-an-asset-key",
             image: 42,
+            nibValues: {
+              title: "not-an-asset-key",
+              imageName: { value: "not-a-scalar" },
+              image: 42,
+              assetName: "",
+              nested: { NSImageName: "not-a-direct-field" },
+            },
           },
           evidence: [
             {
@@ -118,3 +127,52 @@ describe("Apple asset catalog application workflow", () => {
     );
   });
 });
+
+it.each([1, 2])(
+  "joins NIBArchive keys against %i supplied assetutil renditions",
+  async (count) => {
+    const bundle = await createTestTempDirectory("rea-asset-nib-join-");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    const archive = encodeNibArchiveFixture({
+      classes: ["NSIBObjectData", "NSImageView", "NSImage", "NSString"],
+      objects: [
+        { classIndex: 0, values: { NSRoot: { ref: 1 } } },
+        { classIndex: 1, values: { image: { ref: 2 } } },
+        { classIndex: 2, values: { NSImageName: { ref: 3 } } },
+        { classIndex: 3, values: { "NS.bytes": "Toolbar" } },
+      ],
+    });
+    await writeFile(join(resources, "Panel.nib"), archive);
+    await writeFile(join(resources, "Assets.car"), "inert catalog fixture");
+    // Supplied metadata tests the post-engine join; it does not establish native catalog validity.
+    const result = await analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: bundle,
+      targetSha256: "a".repeat(64),
+      runAssetUtil: () =>
+        Promise.resolve(
+          JSON.stringify(
+            Array.from({ length: count }, (_, index) => ({
+              Name: "Toolbar",
+              RenditionName: `toolbar-${String(index)}.png`,
+            })),
+          ),
+        ),
+    });
+    expect(result.resource_key_matches).toHaveLength(1);
+    expect(result.resource_key_matches[0]).toMatchObject({
+      field: "NSImageName",
+      key: "Toolbar",
+      status: count === 1 ? "matched" : "ambiguous",
+      source_path: "Contents/Resources/Panel.nib",
+      source_archive_sha256: createHash("sha256").update(archive).digest("hex"),
+      renditions: Array.from({ length: count }, (_, index) =>
+        expect.objectContaining({
+          record_index: index,
+          rendition_name: `toolbar-${String(index)}.png`,
+        }),
+      ),
+    });
+  },
+);
