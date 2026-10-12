@@ -524,6 +524,29 @@ describe("trace_feature requirements", () => {
     ).toMatchObject({ available: true, reason: "available" });
   });
 
+  it.each(["search_strings", "search_procedures"])(
+    "is unavailable without %s",
+    (missing) => {
+      const operations = [
+        "search_strings",
+        "search_procedures",
+        "xrefs",
+        "resolve_containing_procedure",
+      ].filter((operation) => operation !== missing);
+
+      expect(
+        entry(
+          "trace_feature",
+          status({
+            open: true,
+            kind: "executable",
+            capabilities: capabilities(operations),
+          }),
+        ),
+      ).toMatchObject({ available: false, reason: "provider_missing" });
+    },
+  );
+
   it("is unavailable when only the list operations exist", () => {
     expect(
       entry(

@@ -317,6 +317,25 @@ describe("native IDA provider observations", () => {
     ).toBe(true);
   });
 
+  it("does not admit the headless-only containment and document operations", async () => {
+    const { client, producer } = await fixture();
+    for (const [operation, parameters] of [
+      ["resolve_containing_procedure", { address: "0x1000" }],
+      ["list_documents", {}],
+    ] as const) {
+      const result = await client.execute(operation, parameters);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    }
+    expect(
+      producer.calls.some(({ name }) => name === "lookup_funcs"),
+      "nothing is dispatched upstream",
+    ).toBe(false);
+    await client.close();
+  });
+
   it("rejects unavailable or mismatched recorded input hashes and database switches", async () => {
     const { client, producer, target } = await fixture();
     for (const hash of ["unavailable", "a".repeat(64)]) {

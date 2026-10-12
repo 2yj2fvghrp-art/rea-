@@ -28,8 +28,11 @@ const SEGMENTS = [
   segment(".text", "0x1000", "0x2000"),
   segment(".data", "0x2000", "0x3000"),
   segment(".far", "0x5000", "0x6000"),
-  segment(".huge", "0x20000000000000", "0x20000000000010"),
+  segment(".huge", "0x20000000000001", "0x20000000000002"),
 ];
+
+/** The same segments in an order a scan may not rely on. */
+const UNSORTED = [SEGMENTS[3], SEGMENTS[1], SEGMENTS[2], SEGMENTS[0]];
 
 const survey = (segments: JsonValue = SEGMENTS) => ({
   metadata: { path: "/db/target.i64", module: "target", arch: "metapc" },
@@ -60,13 +63,22 @@ interface Upstream {
   readonly survey?: JsonValue;
   readonly tools?: readonly string[];
   readonly surveyFailure?: "error" | "preview";
+  /** A distinct source alias of the admitted target, as for an app bundle. */
+  readonly sourcePath?: string;
+  /** Report a different input from the second health read on. */
+  readonly identityChangesAfterOperation?: boolean;
 }
 
 const session = async (
   upstream: Upstream = {},
   mode: "headless" | "attached" = "headless",
 ) => {
-  const { root, target } = await createIdaTarget("x86_64");
+  const created = await createIdaTarget("x86_64");
+  const { root } = created;
+  const target =
+    upstream.sourcePath === undefined
+      ? created.target
+      : { ...created.target, sourcePath: upstream.sourcePath };
   roots.push(root);
   const producer = new RecordingIdaMcp(target, mode);
   if (upstream.tools !== undefined) producer.tools = upstream.tools;
@@ -83,7 +95,20 @@ const session = async (
         _meta: { ida_mcp: { output_truncated: true } },
       });
   };
+  let healthReads = 0;
   producer.overrideCall = (name, args) => {
+    if (name === "server_health" && upstream.identityChangesAfterOperation) {
+      healthReads += 1;
+      if (healthReads === 2)
+        return {
+          status: "ok",
+          input_path: "/different/target.elf",
+          idb_path: "/different/target.elf.i64",
+          module: "target.elf",
+          imagebase: "0x1000",
+          auto_analysis_ready: true,
+        };
+    }
     if (name === "lookup_funcs") {
       const queries = Array.isArray(args.queries) ? args.queries : [];
       return queries.map((query) =>
@@ -126,7 +151,6 @@ describe("IDA containment capabilities", () => {
   it("declares both operations for the headless profile only", () => {
     const declared = (mode: "attached" | "headless", native = false) =>
       idaCapabilities(mode, false, native)
-        .filter(({ available }) => available)
         .map(({ operation }) => operation)
         .filter(
           (operation) =>
@@ -134,6 +158,16 @@ describe("IDA containment capabilities", () => {
             operation === "list_documents",
         );
 
+    expect(
+      idaCapabilities("headless", false)
+        .filter(
+          ({ operation }) =>
+            operation === "resolve_containing_procedure" ||
+            operation === "list_documents",
+        )
+        .map(({ available }) => available),
+      "both are declared available, not merely listed",
+    ).toEqual([true, true]);
     expect(declared("headless")).toEqual([
       "resolve_containing_procedure",
       "list_documents",
@@ -216,10 +250,19 @@ describe("headless IDA containing procedure", () => {
     ["one below a segment start", "0xfff", "outside_segments"],
     ["the last byte of a segment", "0x5fff", "not_in_procedure"],
     ["above every segment", "0x6000", "outside_segments"],
-    ["inside a segment above 2^53", "0x20000000000001", "not_in_procedure"],
+    [
+      "inside a one-byte segment above 2^53",
+      "0x20000000000001",
+      "not_in_procedure",
+    ],
+    [
+      "one below that segment, which a rounded number cannot tell apart",
+      "0x20000000000000",
+      "outside_segments",
+    ],
     [
       "at the exclusive end of that segment",
-      "0x20000000000010",
+      "0x20000000000002",
       "outside_segments",
     ],
   ] as const)(
@@ -254,6 +297,7 @@ describe("headless IDA containment failures", () => {
   it.each([
     ["no segments field", { metadata: {}, statistics: {} }],
     ["segments that are null", survey(null)],
+    ["an empty segment list", survey([])],
     [
       "a row with a malformed address",
       survey([
@@ -420,6 +464,46 @@ describe("headless IDA containment lookup failures", () => {
     }
   });
 
+  it("does not depend on the order of the surveyed segments", async () => {
+    const { client } = await session({ survey: survey(UNSORTED) });
+    try {
+      const inside = await containing(client, "0x1000");
+      const gap = await containing(client, "0x4000");
+
+      if (!inside.ok) throw inside.error;
+      if (!gap.ok) throw gap.error;
+      expect(inside.value.result).toMatchObject({ reason: "not_in_procedure" });
+      expect(gap.value.result).toMatchObject({ reason: "outside_segments" });
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("retains the completed replies when the survey is rejected", async () => {
+    const { client } = await session({
+      survey: survey([
+        { name: ".x", start: "0x2000", end: "0x1000", permissions: "r--" },
+      ]),
+    });
+    try {
+      const result = await containing(client, "0x4000");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error.partialObservation).toMatchObject({
+          normalized_result: {
+            status: "partial",
+            observations: [
+              expect.objectContaining({ tool: "lookup_funcs" }),
+              expect.objectContaining({ tool: "survey_binary" }),
+            ],
+          },
+        });
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
   it("rejects an address that is not hexadecimal and a document that is not the admitted target", async () => {
     const { client, producer } = await session();
     try {
@@ -444,6 +528,57 @@ describe("headless IDA containment lookup failures", () => {
 });
 
 describe("headless IDA document identity", () => {
+  it("lists the admitted path, not its source alias or the private copy", async () => {
+    const { client, target, producer } = await session({
+      sourcePath: "/Applications/Fixture.app",
+    });
+    try {
+      const result = await client.execute("list_documents", {});
+
+      if (!result.ok) throw result.error;
+      expect(result.value.result).toEqual([target.path]);
+      expect(
+        producer.calls.filter(({ name }) => name === "server_health"),
+        "the target identity is checked before and after the local answer",
+      ).toHaveLength(2);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("fails when the target identity changes during the operation", async () => {
+    const { client } = await session({ identityChangesAfterOperation: true });
+    try {
+      const result = await client.execute("list_documents", {});
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain("identity changed");
+      }
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
+  it("stops without dispatching when the request is already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { client, producer } = await session();
+    try {
+      const result = await client.execute(
+        "list_documents",
+        {},
+        { signal: controller.signal },
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error._tag).toBe("AnalysisCancelledError");
+      expect(producer.calls).toEqual([]);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
   it("lists exactly the admitted program", async () => {
     const { client, target } = await session();
     try {
