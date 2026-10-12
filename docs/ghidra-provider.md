@@ -67,7 +67,12 @@ rea decompile <path> <observed-procedure-address> --provider ghidra --json
 The load-image result preserves source-file indexes, file offsets, address
 spaces, and inclusive mapping ranges. Follow the mapping for the selected
 source file and region; adding `image_base` to an arbitrary file offset is not
-valid. Uninitialized regions may have no file backing. ELF mappings are observed
+valid. For a linear byte-addressed, file-backed mapping, a file offset `F` in
+`[mapping.file_offset, mapping.file_offset + mapping.length)` maps to
+`mapping.start + (F - mapping.file_offset)` in the reported `address_space`.
+If several mappings cover the same file offset, keep those candidates distinct
+and select the procedure from the observed inventory. Uninitialized regions may
+have no file backing. ELF mappings are observed
 without independent format-specific load-image verification, as the result's
 status and limitations state.
 
