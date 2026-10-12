@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import {
   GhidraHeadlessLauncher,
@@ -9,6 +9,10 @@ import {
   type GhidraLaunchSession,
 } from "./GhidraLauncher.js";
 import { bindGhidraSessionFailure } from "./GhidraSessionError.js";
+
+// The POSIX `bin/java` fixture cannot execute on Windows (extensionless sh script
+// handed to execFile), so these tests only run on POSIX hosts.
+const it = test.skipIf(process.platform === "win32");
 
 /** Projection bound per launcher-command stream asserted by the tests. */
 const EXPECTED_OUTPUT_BOUND_BYTES = 8 * 1024;
