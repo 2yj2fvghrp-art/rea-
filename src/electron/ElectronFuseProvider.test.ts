@@ -1,0 +1,279 @@
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
+import {
+  elfFuseImage,
+  FUSE_SENTINEL,
+  OBSIDIAN_FUSE_BYTES,
+  peFuseImage,
+  sentinelFreeMacho,
+  thinFuseImage,
+  thinMacho,
+  truncatedFuseImage,
+  twoSentinelElf,
+  universalFuseImage,
+} from "../../tests/fixtures/electron/fuseImage.js";
+import { ELECTRON_FUSE_STATE_BYTES } from "../domain/electron/electronFuses.js";
+import { ElectronFuseProvider } from "./ElectronFuseProvider.js";
+import { readElectronFuseImage } from "./ElectronFuseReader.js";
+
+const provider = new ElectronFuseProvider();
+
+const inspect = async (path: string) => {
+  const result = await provider.inspect({ path });
+  if (!result.ok) throw result.error;
+  return result.value;
+};
+
+describe("Electron fuse wire reading", () => {
+  it("reads thin Mach-O, universal Mach-O, PE, and ELF wires", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-");
+    const thin = thinFuseImage(OBSIDIAN_FUSE_BYTES);
+    const universal = universalFuseImage();
+    const pe = peFuseImage(OBSIDIAN_FUSE_BYTES);
+    const elf = elfFuseImage([
+      ELECTRON_FUSE_STATE_BYTES.enabled,
+      ELECTRON_FUSE_STATE_BYTES.removed,
+      0x99,
+    ]);
+    await writeFile(join(root, "thin"), thin.bytes);
+    await writeFile(join(root, "universal"), universal.bytes);
+    await writeFile(join(root, "app.exe"), pe.bytes);
+    await writeFile(join(root, "app.elf"), elf.bytes);
+
+    const thinReport = await inspect(join(root, "thin"));
+    expect(thinReport.artifact).toMatchObject({
+      format: "mach-o",
+      bytes: thin.bytes.length,
+    });
+    expect(thinReport.slices).toMatchObject([
+      {
+        architecture: "arm64",
+        sentinel_count: 1,
+        sentinels: [
+          {
+            sentinel_offset: thin.sentinelOffset,
+            wire_version: 1,
+            declared_length: 8,
+            complete: true,
+          },
+        ],
+      },
+    ]);
+    expect(
+      thinReport.slices[0]?.sentinels[0]?.fuses.map((fuse) => fuse.state),
+    ).toEqual([
+      "disabled",
+      "enabled",
+      "disabled",
+      "disabled",
+      "disabled",
+      "disabled",
+      "disabled",
+      "enabled",
+    ]);
+
+    const universalReport = await inspect(join(root, "universal"));
+    expect(universalReport.artifact.format).toBe("mach-o-universal");
+    expect(universalReport.slices).toMatchObject([
+      {
+        file_offset: universal.left.fileOffset,
+        architecture: "x86_64",
+        sentinels: [{ sentinel_offset: universal.left.sentinelOffset }],
+      },
+      {
+        file_offset: universal.right.fileOffset,
+        architecture: "arm64",
+        sentinels: [{ sentinel_offset: universal.right.sentinelOffset }],
+      },
+    ]);
+    expect(
+      universalReport.runtime_implications.filter(
+        (item) => item.subject === "node_cli_inspect_arguments",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        slice_index: 0,
+        outcome: "not_honored",
+        sentinel_offset: universal.left.sentinelOffset,
+      }),
+      expect.objectContaining({
+        slice_index: 1,
+        outcome: "honored",
+        sentinel_offset: universal.right.sentinelOffset,
+      }),
+    ]);
+
+    const peReport = await inspect(join(root, "app.exe"));
+    expect(peReport.artifact.format).toBe("pe");
+    expect(peReport.slices[0]?.sentinels[0]?.sentinel_offset).toBe(
+      pe.sentinelOffset,
+    );
+    const elfReport = await inspect(join(root, "app.elf"));
+    expect(elfReport.slices[0]?.sentinels[0]?.fuses).toMatchObject([
+      { name: "RunAsNode", state: "enabled", raw_byte: 0x31 },
+      { name: "EnableCookieEncryption", state: "removed", raw_byte: 0x72 },
+      {
+        name: "EnableNodeOptionsEnvironmentVariable",
+        state: "unknown",
+        raw_byte: 0x99,
+      },
+    ]);
+    expect(elfReport.runtime_implications).toEqual([
+      expect.objectContaining({
+        subject: "electron_run_as_node",
+        outcome: "honored",
+      }),
+    ]);
+  });
+
+  it("keeps a truncated wire, duplicate sentinels, and a missing sentinel", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-partial-");
+    await writeFile(join(root, "truncated"), truncatedFuseImage());
+    const duplicated = twoSentinelElf();
+    await writeFile(join(root, "duplicated"), duplicated.bytes);
+    await writeFile(join(root, "empty"), sentinelFreeMacho());
+
+    const truncated = await inspect(join(root, "truncated"));
+    expect(truncated.slices[0]?.sentinels[0]).toMatchObject({
+      wire_version: 1,
+      declared_length: 4,
+      complete: false,
+      fuses: [{ index: 0, state: "enabled", raw_byte: 0x31 }],
+    });
+    expect(truncated.limitations.join(" ")).toContain("truncated");
+
+    const duplicates = await inspect(join(root, "duplicated"));
+    expect(duplicates.slices[0]?.sentinel_count).toBe(2);
+    expect(
+      duplicates.slices[0]?.sentinels.map((item) => item.sentinel_offset),
+    ).toEqual([...duplicated.offsets]);
+    expect(duplicates.limitations.join(" ")).toContain("none is selected");
+
+    const missing = await inspect(join(root, "empty"));
+    expect(missing.slices[0]?.sentinel_count).toBe(0);
+    expect(missing.runtime_implications).toEqual([]);
+    expect(missing.limitations.join(" ")).toContain("unknown, not disabled");
+  });
+});
+
+describe("Electron fuse path and container admission", () => {
+  it("finds a sentinel that crosses a read window", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-window-");
+    const image = thinFuseImage(OBSIDIAN_FUSE_BYTES);
+    const path = join(root, "window");
+    await writeFile(path, image.bytes);
+    const read = await readElectronFuseImage(path, { chunkBytes: 20 });
+    expect(read.slices[0]?.sentinels[0]?.sentinel_offset).toBe(
+      image.sentinelOffset,
+    );
+    expect(read.slices[0]?.sentinels[0]?.fuses).toHaveLength(8);
+  });
+
+  it("resolves an app bundle and a framework symlink inside the bundle", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-app-");
+    const image = thinFuseImage(OBSIDIAN_FUSE_BYTES);
+    const app = join(root, "Fixture.app");
+    const versions = join(
+      app,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+      "Versions",
+    );
+    await mkdir(join(versions, "A"), { recursive: true });
+    const binary = join(versions, "A", "Electron Framework");
+    await writeFile(binary, image.bytes);
+    await symlink("A", join(versions, "Current"));
+    await symlink(
+      "Versions/Current/Electron Framework",
+      join(versions, "..", "Electron Framework"),
+    );
+
+    const fromApp = await inspect(app);
+    expect(fromApp.artifact.selected_path).toBe(app);
+    expect(fromApp.artifact.resolved_path).toBe(binary);
+    expect(fromApp.slices[0]?.sentinel_count).toBe(1);
+
+    const link = join(versions, "..", "Electron Framework");
+    const fromLink = await inspect(link);
+    expect(fromLink.artifact.resolved_path).toBe(binary);
+    expect(fromLink.artifact.sha256).toBe(fromApp.artifact.sha256);
+  });
+
+  it("refuses a framework symlink that leaves the bundle", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-escape-");
+    const versions = join(
+      root,
+      "Fixture.app",
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+      "Versions",
+    );
+    await mkdir(versions, { recursive: true });
+    await symlink("/etc", join(versions, "Current"));
+    const result = await provider.inspect({
+      path: join(root, "Fixture.app"),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisInputError",
+      issues: [
+        expect.objectContaining({
+          path: ["path"],
+          message: expect.stringContaining("escapes"),
+        }),
+      ],
+    });
+  });
+
+  it("rejects an unrecognized container and a big-endian Mach-O image", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-reject-");
+    const text = join(root, "notes.txt");
+    const bigEndian = join(root, "big");
+    const java = join(root, "Main.class");
+    await writeFile(text, "This is not an executable container.");
+    const header = Buffer.alloc(32);
+    header.writeUInt32BE(0xfeedfacf, 0);
+    await writeFile(bigEndian, header);
+    await writeFile(
+      java,
+      Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x37]),
+    );
+    for (const path of [text, bigEndian, java]) {
+      const result = await provider.inspect({ path });
+      expect(result.ok, path).toBe(false);
+      if (!result.ok)
+        expect(result.error._tag).toBe("AnalysisUnsupportedTargetError");
+    }
+  });
+
+  it("does not invent a sentinel from bytes that only straddle two slices", async () => {
+    const root = await createTestTempDirectory("rea-electron-fuses-span-");
+    const left = thinMacho(0x01000007, Buffer.alloc(16));
+    const right = thinMacho(0x0100000c, Buffer.alloc(16));
+    const overhang = 10;
+    FUSE_SENTINEL.copy(left, left.length - overhang);
+    const gap = Buffer.alloc(FUSE_SENTINEL.length - overhang);
+    FUSE_SENTINEL.copy(gap, 0, overhang);
+    const tableEnd = 48;
+    const rightOffset = tableEnd + left.length + gap.length;
+    const table = Buffer.alloc(tableEnd);
+    table.writeUInt32BE(0xcafebabe, 0);
+    table.writeUInt32BE(2, 4);
+    table.writeUInt32BE(0x01000007, 8);
+    table.writeUInt32BE(tableEnd, 16);
+    table.writeUInt32BE(left.length, 20);
+    table.writeUInt32BE(0x0100000c, 28);
+    table.writeUInt32BE(rightOffset, 36);
+    table.writeUInt32BE(right.length, 40);
+    const path = join(root, "split");
+    await writeFile(path, Buffer.concat([table, left, gap, right]));
+    const report = await inspect(path);
+    expect(report.slices.map((item) => item.sentinel_count)).toEqual([0, 0]);
+  });
+});
