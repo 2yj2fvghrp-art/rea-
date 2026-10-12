@@ -527,6 +527,25 @@ it("reports UTF-8 byte counts in total_bytes for non-ASCII logcat output", async
   expect(result.total_bytes).toBe(72);
 });
 
+it("counts raw captured bytes in total_bytes for malformed UTF-8 logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "shell" ]; then
+  printf '%b' '08-10 13:00:00.000 I/Tag( 1): A\\377B\\n'
+  exit 0
+fi
+printf 'unexpected arguments: %s\\n' "$@"
+exit 1`,
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  // 30-byte prefix + "A" + one raw 0xff byte + "B" + LF = 34 captured bytes.
+  // Re-encoding the decoded U+FFFD replacement would report 36.
+  expect(result.total_bytes).toBe(34);
+});
+
 it("projects package details from dumpsys package output", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
