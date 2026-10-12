@@ -7,6 +7,7 @@ import type {
   ManagedMemberInspection,
   ManagedParseIssue,
 } from "../domain/managed/managedArtifact.js";
+import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
 import type {
   ManagedMetadataLayout,
   MetadataTableLayout,
@@ -57,6 +58,8 @@ export interface MemberCore {
   readonly token: string;
   readonly name: string;
   readonly declaringType: string | null;
+  /** Fields and methods by table; member references by decoded signature. */
+  readonly kind: ManagedSignature["kind"];
 }
 
 export interface ParsedInstruction {
@@ -594,6 +597,61 @@ const callingConvention = (value: number): string => {
   ].filter((flag) => flag !== null);
   const name = CALLING_CONVENTION_NAMES.get(base) ?? `unknown:${String(base)}`;
   return flags.length === 0 ? name : `${name} ${flags.join(" ")}`;
+};
+
+/**
+ * Decode a whole TypeSpec blob, or a MethodSpec instantiation (GENERICINST,
+ * argument count, Types), with the member-signature grammar. Returns the
+ * rendered types, or null for a well-formed form the grammar does not
+ * support. A malformed blob throws invalid-blob under the owning row.
+ */
+export const specSignature = (
+  layout: ManagedMetadataLayout,
+  blob: Buffer,
+  owner: {
+    readonly form: "type" | "instantiation";
+    readonly scope: string;
+    readonly offset: number;
+  },
+): readonly string[] | null => {
+  const budget = managedDecodeBudget(layout);
+  // Rendering is transient, so charge it as member signatures are charged.
+  budget.admitTransient(blob.length * 256, owner.offset);
+  try {
+    let cursor = 0;
+    let count = 1;
+    if (owner.form === "instantiation") {
+      if (blob[0] !== 0x0a)
+        malformedSignature("MethodSpec instantiation is not GENERICINST", 0);
+      const header = readCompressed(blob, 1);
+      if (header.value === 0)
+        malformedSignature("MethodSpec instantiation has no type arguments", 1);
+      count = header.value;
+      cursor = header.next;
+    }
+    const types: string[] = [];
+    // Each Type consumes at least one byte, so a false count fails on truncation.
+    for (let index = 0; index < count; index += 1) {
+      const type = readTypeSignature(blob, cursor, "type");
+      types.push(type.value);
+      cursor = type.next;
+    }
+    if (cursor !== blob.length)
+      malformedSignature("Trailing signature data", cursor);
+    return types;
+  } catch (cause: unknown) {
+    if (!(cause instanceof ManagedReaderFailure)) throw cause;
+    if (cause.issue.code === "unsupported-signature") return null;
+    if (cause.issue.code !== "invalid-blob") throw cause;
+    throw managedFailure(
+      "invalid-blob",
+      owner.scope,
+      cause.issue.detail,
+      owner.offset,
+    );
+  } finally {
+    budget.releaseTransient();
+  }
 };
 
 export const signature = (

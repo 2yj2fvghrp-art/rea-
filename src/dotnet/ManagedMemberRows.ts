@@ -9,6 +9,7 @@ import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
   signature,
+  specSignature,
   type ManagedCallEdge,
   type ManagedExportedType,
   type ManagedField,
@@ -80,6 +81,7 @@ export const parseFields = (
         token,
         name,
         declaringType: declared?.fullName ?? null,
+        kind: "field",
       });
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
@@ -228,15 +230,21 @@ export const parseMemberRefs = (
         layout.rowCounts,
       );
       const parentName = typeName(parentToken);
+      const decoded = budgetedSignature(sig, layout);
       refs.push({
         token,
         row_offset: cursor.start,
         parent_token: parentToken,
         parent_name: parentName,
         name,
-        signature: budgetedSignature(sig, layout),
+        signature: decoded,
       });
-      core.set(token, { token, name, declaringType: parentName });
+      core.set(token, {
+        token,
+        name,
+        declaringType: parentName,
+        kind: decoded.kind,
+      });
     }, issues);
   }
   return { refs, core, issues };
@@ -291,6 +299,7 @@ export const parseMethods = ({
         token,
         name,
         declaringType: declared?.fullName ?? null,
+        kind: "method",
       });
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
@@ -339,34 +348,66 @@ export const edgeTargets = (
 } => {
   const members = new Map(cores.flatMap((core) => [...core]));
   const issues: ManagedParseIssue[] = [];
+  const seen = new Set<string>();
   for (const method of methods)
     for (const { operand } of method.body.anchors) {
-      if (operand?.startsWith("0x2b") !== true || members.has(operand))
-        continue;
+      if (operand?.startsWith("0x2b") !== true || seen.has(operand)) continue;
+      seen.add(operand);
       readManagedValue(() => {
+        const scope = `metadata.MethodSpec:${operand}`;
         const cursor = metadataRowCursor(
           bytes,
           layout,
           0x2b,
           Number.parseInt(operand.slice(4), 16),
         );
+        const methodRaw = cursor.readIndex(
+          layout.codedIndexSize("MethodDefOrRef"),
+        );
+        const instantiation = cursor.readIndex(layout.blobIndexSize);
+        const methodReason = metadataCodedTokenInvalidReason(
+          methodRaw,
+          1,
+          [6, 10],
+          layout.rowCounts,
+        );
+        if (methodReason !== null || methodRaw === 0)
+          issues.push({
+            code: "invalid-row",
+            scope,
+            offset: cursor.start,
+            detail:
+              methodReason === null
+                ? "MethodSpec method coded index 0x0 is null, but the Method column must reference a row"
+                : `MethodSpec method coded index 0x${methodRaw.toString(16)} is invalid: ${methodReason}`,
+          });
         const generic = metadataCodedToken(
-          cursor.readIndex(layout.codedIndexSize("MethodDefOrRef")),
+          methodRaw,
           1,
           [6, 10],
           layout.rowCounts,
         );
         const target = generic === null ? undefined : members.get(generic);
+        // A readable Method column stays a fact even if the instantiation is not.
         if (target !== undefined)
           members.set(operand, { ...target, token: operand });
+        specSignature(
+          layout,
+          readMetadataBlob(bytes, layout, instantiation, layout.blob.size),
+          { form: "instantiation", scope, offset: cursor.start },
+        );
       }, issues);
     }
   return { members, issues };
 };
 
-const TARGET_TABLES = new Map<string, ReadonlySet<string>>([
-  ["method", new Set(["0x06", "0x0a", "0x2b"])],
-  ["field", new Set(["0x04", "0x0a"])],
+/**
+ * Member kinds each operand kind may name. A MemberRef whose signature does
+ * not decode keeps its name on calls, as before, but is never named a field.
+ */
+const NAMEABLE_KINDS = new Map<string, ReadonlySet<MemberCore["kind"]>>([
+  ["method", new Set(["method", "unknown"])],
+  ["field", new Set(["field"])],
 ]);
 
 const targetKind = (token: string): ManagedCallEdge["target_kind"] =>
@@ -377,6 +418,19 @@ const targetKind = (token: string): ManagedCallEdge["target_kind"] =>
       : token.startsWith("0x2b")
         ? "method-spec"
         : "unknown";
+
+/** The member an operand names, if the operand kind can name that member's kind. */
+const namedTarget = (
+  members: ReadonlyMap<string, MemberCore>,
+  operandKind: string,
+  operand: string,
+): MemberCore | undefined => {
+  const member = members.get(operand);
+  return member !== undefined &&
+    NAMEABLE_KINDS.get(operandKind)?.has(member.kind) === true
+    ? member
+    : undefined;
+};
 
 export const edges = (
   methods: readonly ManagedMethod[],
@@ -402,12 +456,7 @@ export const edges = (
       if (anchor.opcode === "ldtoken") continue;
       const { operand } = anchor;
       if (operand === null) continue;
-      // A token from a table the operand kind cannot name stays unnamed.
-      const target = TARGET_TABLES.get(anchor.operand_kind)?.has(
-        operand.slice(0, 4),
-      )
-        ? members.get(operand)
-        : undefined;
+      const target = namedTarget(members, anchor.operand_kind, operand);
       if (anchor.operand_kind === "method") {
         // Each derived record is admitted before the graph grows further.
         callEdges.push(

@@ -30,8 +30,11 @@ interface ManagedPeFixtureOptions {
   readonly assemblyRowCount?: number;
   readonly memberRefParentRaw?: number;
   readonly memberRefName?: string;
+  readonly memberRefSignature?: Buffer;
   /** Raw MethodDefOrRef coded values, one MethodSpec row each. */
   readonly methodSpecMethods?: readonly number[];
+  /** Instantiation blob shared by every MethodSpec row. */
+  readonly methodSpecInstantiation?: Buffer;
   /** TypeSpec signature blobs, one TypeSpec row each. */
   readonly typeSpecSignatures?: readonly Buffer[];
   readonly mvid?: Buffer;
@@ -836,22 +839,27 @@ const fixtureMetadataRows = ({
   return rows;
 };
 
-/** Blob indexes for optional TypeSpec and MethodSpec rows; defaults leave the heap unchanged. */
-const specBlobIndexes = (
+/** Blob indexes for the MemberRef and optional spec rows; defaults leave the heap unchanged. */
+const referenceBlobIndexes = (
   blobs: BlobHeap,
   options: ManagedPeFixtureOptions,
 ): Pick<
   FixtureMetadataRowContext["indexes"],
-  "typeSpecSignatures" | "methodSpecInstantiation"
+  "constructorSignature" | "typeSpecSignatures" | "methodSpecInstantiation"
 > => ({
+  constructorSignature: blobs.add(
+    options.memberRefSignature ?? Buffer.from([0x20, 0x01, 0x01, 0x0e]),
+  ),
   typeSpecSignatures: (options.typeSpecSignatures ?? []).map((signature) =>
     blobs.add(signature),
   ),
-  // GENERICINST with one string type argument.
+  // Defaults to GENERICINST with one string type argument.
   methodSpecInstantiation:
     options.methodSpecMethods === undefined
       ? 0
-      : blobs.add(Buffer.from([0x0a, 0x01, 0x0e])),
+      : blobs.add(
+          options.methodSpecInstantiation ?? Buffer.from([0x0a, 0x01, 0x0e]),
+        ),
 });
 
 const buildManagedFixtureMetadata = (
@@ -899,8 +907,7 @@ const buildManagedFixtureMetadata = (
   const methodSignature = blobs.add(
     options.methodSignature ?? Buffer.from([0x00, 0x00, 0x01]),
   );
-  const constructorSignature = blobs.add(Buffer.from([0x20, 0x01, 0x01, 0x0e]));
-  const specBlobs = specBlobIndexes(blobs, options);
+  const referenceBlobs = referenceBlobIndexes(blobs, options);
   const attributeBlob = blobs.add(
     fixedStringAttributeBlob(
       options.targetFramework === null
@@ -933,9 +940,8 @@ const buildManagedFixtureMetadata = (
       tokenBlob,
       fieldSignature,
       methodSignature,
-      constructorSignature,
       attributeBlob,
-      ...specBlobs,
+      ...referenceBlobs,
     },
     heapSizes: { strings: stringSize, blobs: blobSize, guids: guidSize },
   });

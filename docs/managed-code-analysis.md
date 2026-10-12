@@ -99,10 +99,13 @@ assembly. Older member Evidence without `selection` remains readable.
 target. TypeDef and TypeRef names use the namespace-qualified `full_name`
 form, and nested types keep bare names. A generic-instantiation TypeSpec
 parent names its generic type, such as ``System.Collections.Generic.List`1``.
-Other TypeSpec forms, ModuleRef and MethodDef parents, and unreadable rows stay
+Other well-formed TypeSpec forms and ModuleRef or MethodDef parents stay
 `null`. A `method-spec` call edge reports the name and declaring type of the
-generic method it instantiates. Older member Evidence without these fields
-reads them as `null`: unknown.
+generic method it instantiates. A field access is named only by a field or a
+field-signature MemberRef. TypeSpec and MethodSpec blobs are decoded with the
+member-signature grammar; malformed rows and blobs stay `null` and make
+coverage partial, while a readable MethodSpec method column keeps its name.
+Older member Evidence without these fields reads them as `null`: unknown.
 
 ## Analysis objective
 

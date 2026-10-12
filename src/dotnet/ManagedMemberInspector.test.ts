@@ -212,33 +212,90 @@ describe("managed edge target declaring types", () => {
     expect(array.coverage).toEqual({ state: "complete", issues: [] });
   });
 
-  it("keeps self-referential and out-of-range generic TypeSpec parents unknown", () => {
-    const cyclic = memberRefOnTypeSpec(
-      Buffer.from([0x15, 0x12, (1 << 2) | 2, 0x01, 0x0e]),
-    );
-    expect(cyclic.member_refs[0]?.parent_name).toBeNull();
+  it.each([
+    [
+      "names a TypeSpec as its generic type",
+      [0x15, 0x12, (1 << 2) | 2, 0x01, 0x0e],
+      "invalid-blob",
+      "metadata.TypeSpec:0x1b000001",
+    ],
+    [
+      "has no type arguments",
+      [0x15, 0x12, (1 << 2) | 1],
+      "invalid-blob",
+      "metadata.TypeSpec:0x1b000001",
+    ],
+    [
+      "names a missing TypeRef",
+      [0x15, 0x12, (9 << 2) | 1, 0x01, 0x0e],
+      "invalid-row",
+      "metadata.TypeRef",
+    ],
+    [
+      "names a missing TypeDef",
+      [0x15, 0x12, (9 << 2) | 0, 0x01, 0x0e],
+      "invalid-row",
+      "metadata.TypeDef",
+    ],
+  ])(
+    "reports a generic TypeSpec parent that %s and leaves it unknown",
+    (_case, signature, code, scope) => {
+      const result = memberRefOnTypeSpec(Buffer.from(signature));
 
-    const missing = memberRefOnTypeSpec(
-      Buffer.from([0x15, 0x12, (9 << 2) | 1, 0x01, 0x0e]),
-    );
-    expect(missing.member_refs[0]?.parent_name).toBeNull();
-    expect(missing.coverage).toMatchObject({
-      state: "partial",
-      issues: [{ code: "invalid-row", scope: "metadata.TypeRef" }],
+      expect(result.member_refs[0]?.parent_name).toBeNull();
+      expect(result.coverage).toMatchObject({
+        state: "partial",
+        issues: [{ code, scope }],
+      });
+    },
+  );
+
+  it("keeps a readable MethodSpec method beside a malformed instantiation", () => {
+    const result = inspect({
+      methodSpecMethods: [(1 << 1) | 1, (9 << 1) | 1],
+      methodSpecInstantiation: Buffer.from([0x0a, 0x00]),
+      ilBody: tokenBody([
+        [call, 0x2b00_0001],
+        [call, 0x2b00_0002],
+      ]),
     });
+
+    expect(
+      result.call_edges.map(({ target_name, target_declaring_type }) => [
+        target_name,
+        target_declaring_type,
+      ]),
+    ).toEqual([
+      [".ctor", attribute],
+      [null, null],
+    ]);
+    expect(result.coverage.state).toBe("partial");
+    expect(
+      result.coverage.issues.map(({ code, scope }) => [code, scope]),
+    ).toEqual([
+      ["invalid-blob", "metadata.MethodSpec:0x2b000001"],
+      ["invalid-row", "metadata.MethodSpec:0x2b000002"],
+      ["invalid-blob", "metadata.MethodSpec:0x2b000002"],
+    ]);
   });
 
-  it("names external field accesses and leaves mismatched operand tables unnamed", () => {
+  it("names field MemberRefs as fields and leaves mismatched member kinds unnamed", () => {
     const result = inspect({
       memberRefName: "Empty",
+      // FIELD string
+      memberRefSignature: Buffer.from([0x06, 0x0e]),
       ilBody: tokenBody([
         [ldsfld, 0x0a00_0001],
         [call, 0x0400_0001],
       ]),
     });
+    const methodRef = inspect({ ilBody: tokenBody([[ldsfld, 0x0a00_0001]]) });
 
     expect(result.field_accesses).toMatchObject([
       { field_name: "Empty", field_declaring_type: attribute },
+    ]);
+    expect(methodRef.field_accesses).toMatchObject([
+      { field_name: null, field_declaring_type: null },
     ]);
     expect(result.call_edges).toMatchObject([
       {
