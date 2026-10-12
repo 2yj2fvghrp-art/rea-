@@ -828,7 +828,8 @@ compiler). It builds
 `tests/conformance/c/pie-address-context.c` as a PIE ELF without executing it.
 The compiled CLI and real stdio MCP workflow must expose the measured image
 base, retain segment address spaces, agree on the overview, reject the original
-ELF entry with actionable guidance, and decompile the observed loaded entry.
+ELF entry with actionable guidance, and execute the suggested CLI search and
+load-image commands before decompiling the discovered loaded entry.
 The verifier compares mapped bytes with the source file and checks source
 identity, session preservation after failed lookup, owned runtime cleanup, and
 verified empty process lineage. This lane does not establish Windows or macOS

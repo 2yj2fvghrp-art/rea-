@@ -1840,8 +1840,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
             // Numeric selectors remain analysis addresses; never reinterpret them as file offsets.
             throw new RequestFailure("not_found", "No procedure exists at the requested address: " + value +
                 "; Ghidra image base: " + canonicalAddress(currentProgram.getImageBase()) +
-                ". Use an analysis address from list_procedures; binary_overview reports the loaded image base. " +
-                "inspect_native_load_image reports source-file mappings; file offsets are not procedure addresses.");
+                ". Choose an observed analysis address. CLI: rea search <path> . --kind procedures --mode regex --provider ghidra --json; " +
+                "MCP: list_procedures. Inspect the loaded base and source mappings with CLI rea analyze <path> --provider ghidra --json " +
+                "and rea inspect-native-load-image <path> --provider ghidra --json, or MCP binary_overview and inspect_native_load_image. " +
+                "Repeat the original target options; file offsets are not procedure addresses.");
         return function;
     }
 

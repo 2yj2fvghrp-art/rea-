@@ -158,10 +158,38 @@ try {
   const error = JSON.parse(cliFailure.stdout);
   assert.equal(error.code, "invalid_request");
   assert.ok(JSON.stringify(error).includes(`Ghidra image base: ${base}`));
-  assert.ok(JSON.stringify(error).includes("list_procedures"));
-  assert.ok(JSON.stringify(error).includes("inspect_native_load_image"));
+  for (const command of [
+    "rea search <path> . --kind procedures --mode regex",
+    "rea analyze <path>",
+    "rea inspect-native-load-image <path>",
+  ])
+    assert.ok(JSON.stringify(error).includes(command));
+  const cliProcedures = parseEvidence(
+    JSON.parse(
+      (
+        await cli([
+          "search",
+          path,
+          ".",
+          "--kind",
+          "procedures",
+          "--mode",
+          "regex",
+        ])
+      ).stdout,
+    ),
+  );
+  const cliEntry = cliProcedures.normalized_result.find(
+    (item) => item.value === "rea_pie_entry",
+  );
+  assert.ok(cliEntry);
+  assert.equal(cliEntry.address, entry.address);
+  const cliImage = parseEvidence(
+    JSON.parse((await cli(["inspect-native-load-image", path])).stdout),
+  );
+  assert.equal(cliImage.normalized_result.observations.image_base, base);
   const cliPseudo = parseEvidence(
-    JSON.parse((await cli(["decompile", path, entry.address])).stdout),
+    JSON.parse((await cli(["decompile", path, cliEntry.address])).stdout),
   );
   assert.match(cliPseudo.normalized_result, /rea_pie_add/u);
   assert.deepEqual(await readFile(path), bytes);
@@ -177,6 +205,7 @@ try {
     observed_image_base: base,
     cli_mcp_overview_parity: true,
     failed_lookup_guidance: true,
+    cli_recovery_commands: true,
     loaded_decompilation: true,
     source_unchanged: true,
     runtime_cleanup: "complete",
