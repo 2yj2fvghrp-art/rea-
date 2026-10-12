@@ -137,6 +137,7 @@ describe("MCP compact input schema profile", () => {
       "build_reconstruction_obligation_ledger",
       "capture_browser_scenario",
       "compare_application_versions",
+      "compare_process_captures",
       "compare_web_captures",
       "evaluate_reconstruction_coverage",
       "project_managed_application_graph",

@@ -3,8 +3,8 @@ import { expect, it } from "vitest";
 import {
   analyzeParsedJavaScriptSemantics,
   analyzeParsedJavaScriptSemanticsSteps,
-  classifyParsedJavaScriptElectronBindings,
-  classifyParsedJavaScriptElectronBindingsSteps,
+  classifyParsedJavaScriptElectronIdentity,
+  classifyParsedJavaScriptElectronIdentitySteps,
   classifyParsedJavaScriptOpenReceivers,
   classifyParsedJavaScriptOpenReceiversSteps,
 } from "./javascriptSemanticAnalysis.js";
@@ -120,15 +120,15 @@ new NativeWindow();
   ]);
   expect(openStep.value).toEqual(classifyParsedJavaScriptOpenReceivers(parsed));
 
-  const electronSteps = classifyParsedJavaScriptElectronBindingsSteps(parsed);
+  const electronSteps = classifyParsedJavaScriptElectronIdentitySteps(parsed);
   let electronStep = electronSteps.next();
   expect(electronStep.done).toBe(false);
   while (electronStep.done !== true) electronStep = electronSteps.next();
-  expect([...electronStep.value]).toEqual([
+  expect([...electronStep.value.bindings]).toEqual([
     [text.lastIndexOf("NativeWindow()"), ["BrowserWindow"]],
   ]);
-  expect(electronStep.value).toEqual(
-    classifyParsedJavaScriptElectronBindings(parsed),
+  expect(electronStep.value.bindings).toEqual(
+    classifyParsedJavaScriptElectronIdentity(parsed).bindings,
   );
 });
 
@@ -184,7 +184,9 @@ conditionalAlias.handle("conditional-alias:ping", () => "local");
   const parsed = parseJavaScriptSource(text, "aliases.js");
   if (parsed === null) throw new Error("Expected parsed source");
 
-  expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toEqual([
+  expect([
+    ...classifyParsedJavaScriptElectronIdentity(parsed).bindings,
+  ]).toEqual([
     [text.indexOf("Win({"), ["BrowserWindow"]],
     [text.indexOf("bridge.exposeInMainWorld"), ["contextBridge"]],
     [text.indexOf('ipc.handle("main:ping"'), ["ipcMain"]],

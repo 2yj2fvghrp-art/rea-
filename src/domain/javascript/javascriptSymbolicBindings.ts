@@ -50,6 +50,10 @@ export class JavaScriptSymbolicBindings {
   readonly #moduleBindings = new Set<string>();
   readonly #replacements = new Map<string, t.Node>();
   readonly #propertyActive = new WeakMap<object, Set<string>>();
+  readonly #literalProperties = new WeakMap<
+    t.ObjectExpression,
+    ReadonlyMap<string, t.ObjectProperty | t.ObjectMethod> | null
+  >();
   readonly #mutated = new Set<string>();
   readonly #namespaceOwners = new Map<string, t.Function>();
   readonly #unsafeExports = new Set<string>();
@@ -177,7 +181,7 @@ export class JavaScriptSymbolicBindings {
         : symbolicUnknown("unresolved module export");
     }
     if (value.kind === "object") {
-      for (const p of [...value.node.properties].reverse()) {
+      for (const p of this.#propertyCandidates(value.node, key)) {
         if (t.isSpreadElement(p)) {
           const spread = this.evaluate(p.argument, value.environment);
           const found = this.property(spread, key);
@@ -201,6 +205,33 @@ export class JavaScriptSymbolicBindings {
     if (value.kind === "array" && /^\d+$/u.test(key))
       return value.values[Number(key)] ?? symbolicUnknown("missing argument");
     return symbolicUnknown("unresolved property");
+  }
+
+  #propertyCandidates(
+    node: t.ObjectExpression,
+    key: string,
+  ): readonly (t.ObjectProperty | t.ObjectMethod | t.SpreadElement)[] {
+    let properties = this.#literalProperties.get(node);
+    if (properties === undefined) {
+      const indexed = new Map<string, t.ObjectProperty | t.ObjectMethod>();
+      properties = indexed;
+      for (const property of node.properties) {
+        const name = t.isSpreadElement(property)
+          ? null
+          : semanticStaticPropertyKey(property.key, property.computed);
+        if (name === null || t.isSpreadElement(property)) {
+          properties = null;
+          break;
+        }
+        indexed.set(name, property);
+      }
+      this.#literalProperties.set(node, properties);
+    }
+    // Spreads and dynamic keys retain ordered overwrite interpretation. Static
+    // literals can select their last definition once, even for very large APIs.
+    if (properties === null) return [...node.properties].reverse();
+    const property = properties.get(key);
+    return property === undefined ? [] : [property];
   }
 
   members(

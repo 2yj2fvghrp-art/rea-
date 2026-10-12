@@ -39,7 +39,7 @@ import {
 } from "./javascriptStaticAnalysisState.js";
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
 import {
-  classifyParsedJavaScriptElectronBindingsSteps,
+  classifyParsedJavaScriptElectronIdentitySteps,
   indexJavaScriptBindingsSteps,
   classifyParsedJavaScriptRpcClientRootsSteps,
   classifyParsedJavaScriptOpenReceivers,
@@ -83,14 +83,14 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
-  const electronBindings =
-    yield* classifyParsedJavaScriptElectronBindingsSteps(file);
+  const electronIdentity =
+    yield* classifyParsedJavaScriptElectronIdentitySteps(file);
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
   yield* traverseStaticSourceSteps(file, {
     source,
     accumulator,
     ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
-    electronBindings,
+    electronBindings: electronIdentity.bindings,
     rpcScan: createJavaScriptRpcScan(source, clientRoots),
   });
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
@@ -99,6 +99,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     bindings,
     source,
     accumulator,
+    electronIdentity,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
   return finalizeStaticAnalysis(source, file, accumulator);
