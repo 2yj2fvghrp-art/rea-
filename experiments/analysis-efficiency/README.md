@@ -2,8 +2,18 @@
 
 Tracks the experiments for [#2016](https://github.com/morluto/rea/issues/2016).
 The production CLI/MCP contracts and defaults remain the compatibility baseline.
-Downloaded artifacts, runtime copies, exported Evidence, transcripts and raw
-measurements belong outside the checkout.
+Downloaded artifacts, runtime copies, exported Evidence, transcripts and detailed
+JSON measurements belong outside the checkout. This document keeps the measured
+findings, verification scope and revision references; the scripts and `corpus.json`
+keep the reproduction inputs. Generated `results/` is ignored.
+
+The 12 detailed checkpoint receipts were archived byte-for-byte before removal
+from the final PR tree. The archive `review-receipts-00d51e0fc-20261012` is in the
+private experiment lab outside the checkout; its `archive-index.json` records
+source revision, filenames, sizes and SHA-256.
+Raw producer replies, model transcripts and exported Evidence remain in the same
+private lab. These local files are not required to build or use REA. Historical
+checkpoint commits retain their original receipts; no history was rewritten.
 
 ## Optimization priorities and gradual migration
 
@@ -174,7 +184,7 @@ plugin loading, or broad plugin SDK is enabled by this experiment.
 
 ## Obsidian delivery checkpoint
 
-The [recorded pairs](results/obsidian-20261012.json) compare frozen baseline
+The two recorded pairs compare frozen baseline
 `42b0ed12` and candidate `f1106181` in complete → summary and summary → complete
 order using the same runner source, bytes and provider settings. Both preserve
 every selected fact and the atomic inventory Evidence ID.
@@ -197,7 +207,7 @@ introducing an engine database cache or an external plugin protocol.
 
 ## Task-scoped analyzer experiment
 
-[The recorded jq pair](results/jq-presets-20261012.json) explicitly disables
+The recorded jq pair explicitly disables
 `Decompiler Switch Analysis` through the existing `REA_GHIDRA_DISABLED_ANALYZERS`
 setting and compares it with the unchanged Ghidra default. Both use the same
 frozen runtime and real jq bytes, one CPU, a fresh ephemeral database and the
@@ -245,7 +255,7 @@ and cleanup are graded separately from static artifact analysis.
 
 ## Real artifact compatibility checkpoint
 
-[Six frozen baseline/pilot pairs](results/real-artifacts-20261012.json) exercise
+Six frozen baseline/pilot pairs exercise
 Obsidian, NewPipe, ShareX, OpenWrt, SQLite WASM and published historical WETH code
 through public MCP tools. All selected facts agree under the stated comparison
 rules. Obsidian complete delivery and atomic inventory Evidence identity remain
@@ -265,7 +275,7 @@ for IDA, Hopper, macOS, Windows or Harmony.
 
 ## Same-question model and selected-source follow-up
 
-[Two actual SQLite model trials](results/model-wasm-20261012.json) preserve all
+Two actual SQLite model trials preserve all
 12 requested facts. The question, developer instruction, provider settings and
 tool allowlist hashes match. A description-only follow-up supplies the exact
 summary kind and its fields. Calls change from 42 to 3, workflow time from
@@ -274,7 +284,7 @@ follow-up reads no unnecessary WAT pages. Both keep the original completed
 analysis's transport error and authenticate the retained source/view identities.
 This is one stochastic model pair, not a statistical or general causal claim.
 
-[The selected JavaScript pair](results/obsidian-selected-20261012.json) preserves
+The selected JavaScript pair preserves
 all 24 observed `main.js` module identities and the exact two-source selection.
 The strict comparison initially differs on parent budget values derived from
 observed heap availability; both values and paths remain recorded separately.
@@ -283,7 +293,7 @@ counts, statistics and Electron observations agree. Coverage remains partial,
 with 36 unselected relevant files and 384 semantic unknowns. These static facts
 do not establish runtime behavior. The comparator does not rewrite Evidence.
 
-[Ten real CLI trial reviews](results/model-domains-20261012.json) cover native,
+Ten real CLI trial reviews cover native,
 managed, Android, firmware, Electron/JavaScript, WASM, EVM and browser tasks.
 The selected JavaScript model preserves core facts and partial coverage but
 omits full budget/family provenance. The browser producer captures complete
@@ -300,7 +310,7 @@ request. This follow-up performs no additional REA bug fixes.
 
 ## Nonempty managed boundaries and final verification
 
-[A second shipped managed library](results/sharex-helpers-20261012.json) checks
+A second shipped managed library checks
 11 ModuleRefs, 147 PInvoke declarations and 225 native implementations from
 ShareX HelpersLib 19.0.2. All complete normalized artifact and native-boundary
 fields match between baseline and pilot, including source Evidence identities.
@@ -310,7 +320,7 @@ dependencies. The curated receipt keeps identities, coverage, all ModuleRefs,
 the first three PInvoke records and digests of the complete boundary payloads.
 Full producer tables and comparison inputs stay in the private lab outputs.
 
-[Verification receipts](results/verification-20261012.json) include 42 real
+The earlier verification includes 42 real
 WABT CLI/MCP cases and the complete real SQLite CLI JSON: the unchanged default
 returns the same original source Evidence ID, normalized result and raw result
 as the baseline exported MCP record. Source bytes are unchanged. The seven-file
@@ -323,7 +333,7 @@ provider/platform coverage is implied.
 
 ## Actual old Evidence migration
 
-[The migration receipt](results/migration-20261012.json) imports the original
+The migration experiment imports the original
 baseline SQLite Evidence bundle into the pilot runtime, reads a typed summary
 and four export forms, and exports the retained bundle again. The complete old
 WASM record is deeply equal after import/export, with its original authenticated
@@ -351,7 +361,7 @@ python3 experiments/analysis-efficiency/resource-run.py -- \
 
 ## PR integration verification
 
-[The separate PR receipt](results/pr-readiness-20261012.json) pins runtime
+The separate post-integration verification pins runtime
 `0eb42a1eb8ab17aed04240174cb77612e733a1d8`, integrated with main
 `c22111eca2c4bc84a084f12711f405b3e7422a40`. Conflict resolution preserves main's
 HAR API-surface views, portable capture admission, exact layout/JavaScript
@@ -362,7 +372,7 @@ Build, the complete `check` static gate and generated documentation checks pass.
 Twelve focused files pass 123 assertions, including the presentation test run
 separately with its original deadline. Actual package creation, private-prefix
 installation and 42 real WABT CLI/MCP cases pass. No package is published.
-The complete generic package verifier and full `check:pr` remain CI/review scope.
+The complete generic package verifier and full local `check:pr` were not run.
 
 Genuine old SQLite/Obsidian Evidence migration passes again with WABT unavailable.
 A fresh public SDK cohort preserves the original Obsidian default result size
@@ -374,11 +384,14 @@ this PR's catalog contribution. One cohort is not a latency distribution.
 
 Recorded integration scopes have no OOM/OOM-kill or hard-limit abort. The full
 source-check scope reports three `memory.high` events near its 3 GiB soft
-threshold; these observations remain in the receipt. Heavy lanes stay serial
-with the existing CPU, memory and no-swap controls. No further REA bug repairs
+threshold. The subsequent cold pre-push type/lint scope reports 37 such events,
+with 3,221,155,840 sampled peak bytes and no hard-limit/OOM event. Heavy lanes stay
+serial with the existing CPU, memory and no-swap controls. No further REA bug repairs
 are included; separate local findings remain for team follow-up.
 
-[CI attribution](results/ci-attribution-20261012.json) separates two PR-related
+## CI attribution
+
+Review of the actual main and PR job logs separates two PR-related
 description/test mismatches from pre-existing main failures. The complete-graph
 wording check now accepts capitalization changes; the existing effects audit
 records why returning WASM execution/network metadata is not foreign execution.
@@ -388,3 +401,47 @@ packaged-completion checks; the affected implementation and fixture files are
 byte-identical here. Those failures remain unchanged for team review at the
 maintainer's request. CI failures are not all infrastructure faults, and the
 failed CI gate is not presented as passed.
+
+| Failure                                  | Main `c22111eca`                                                                         | Reviewed PR `8d6f7eb1c`                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Empty prompt completion after open       | [main shard](https://github.com/morluto/rea/actions/runs/38224038323/job/114727940506)   | [PR shard](https://github.com/morluto/rea/actions/runs/38228724531/job/114742955092)   |
+| Packaged prompt completion, Darwin arm64 | [main package](https://github.com/morluto/rea/actions/runs/38224038323/job/114728030045) | [PR package](https://github.com/morluto/rea/actions/runs/38228724531/job/114743092314) |
+| Packaged prompt completion, Darwin x64   | [main package](https://github.com/morluto/rea/actions/runs/38224038323/job/114728029923) | [PR package](https://github.com/morluto/rea/actions/runs/38228724531/job/114743092079) |
+
+`src/server/promptCompletion.ts`, `src/application/binary/BinarySession.ts`,
+`tests/boundary/mcp/promptCompletion.test.ts` and
+`scripts/verify-package-prompts.mjs` are byte-identical to that main revision.
+Main commit `07b36c148946f46b99a4ce04e55726e97d0ee03a` introduces ready-provider-only
+completion; the failing fixtures expect populated completion immediately after
+opening. Whether those expectations or the readiness behavior should change is
+left for team review. Commit `00d51e0fcd1d1bba60bf56281725e82d525a27ae`
+synchronizes only the two PR-related description checks.
+
+## Frozen runtime references
+
+These revisions identify different experiment stages; model measurements were
+not rerun or relabeled as post-integration measurements.
+
+| Stage                                          | Source revision                            |
+| ---------------------------------------------- | ------------------------------------------ |
+| Original baseline                              | `42b0ed126df7d5b908ac369715378d5e519051b7` |
+| Inventory delivery pairs                       | `f110618184e99f89fa776bc5e59703a61baa7c57` |
+| Initial WASM pilot                             | `0002caa07ffd7319672a21ce901dbfbc55e21aac` |
+| Exact WASM summary guidance                    | `259e99dd906290189217cf0fb1a19769bcf87101` |
+| Main-integrated package/migration verification | `0eb42a1eb8ab17aed04240174cb77612e733a1d8` |
+
+The baseline runtime file-table SHA-256 is
+`3a1765a6fec0031db0b288112d4db9bc0dd503c9c3aa0946f07ce57f7673ab4b`;
+the integrated runtime file-table SHA-256 is
+`e99d3bdc851822b77e7d5bfaa9b60c57e7b99bd66e27a739bdea2e9300560d5f`.
+The integrated lockfile SHA-256 is
+`0a55042141899a442a39dce3d49755c65a861f86d1930bd4f9c6d89cd53f5eba`.
+Actual old migration inputs have SHA-256
+`e1ff3d28801436bcc11693f79cc847a4f31234f49d88449f9e0d77215c3765fc`
+(SQLite bundle) and
+`7cecd07012bb79f3afad2ea9e70357e056e9eab48c1aa13bbbd310cdcb43eb9f`
+(Obsidian complete inspection reply). The source WASM identity
+`ev_16b9f6e0fcefcab9603f14fd5e63ea00c4749accd94fef4a4e9fbb260d2e0140`
+and atomic inventory identity
+`ev_22c17e52489f3ec0e7298a62da37bd985dbbec202d7208a0bb1c20d863790aed`
+remain unchanged after the recorded import/view/export workflows.
