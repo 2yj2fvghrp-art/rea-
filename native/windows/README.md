@@ -71,10 +71,12 @@ without this lane reports Windows native controls as unavailable.
 - Only the suspended child's default file owner is normalized. Caller token
   privileges and ownership remain unchanged. Caller process priority is
   preserved in the child, and caller CPU affinity whenever both occupy the same
-  single processor group. Windows assigns each new process to a group of its own
-  choosing and rejects a mask whose processors belong to another group, so a
-  child placed elsewhere keeps that group's default affinity instead of failing
-  the spawn. Environment names are sorted and deduplicated using Windows
+  processor group. Windows chooses a new process's group itself and rejects a
+  mask belonging to another group, so a child placed elsewhere keeps that
+  group's default when the caller asked for no bound of its own. A caller
+  deliberately pinned to fewer processors than its group holds is a constraint
+  such a child cannot express, and is refused rather than widened to that
+  group's default. Environment names are sorted and deduplicated using Windows
   ordinal comparison, preserving their native Unicode semantics and
   caller-selected values.
 - Cleanup walks locked directory objects, removes files by handle, and unlinks
