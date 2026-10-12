@@ -62,7 +62,7 @@ export const parseExecutableHeader = (
   )
     return parseElf(bytes, fileSize);
   if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a)
-    return parseMz(bytes, fileSize);
+    return parseMzHeader(bytes, fileSize);
   if (bytes.length < 8) return err("truncated or unsupported binary header");
   const magic = bytes.readUInt32BE(0);
   if ([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(magic))
@@ -212,11 +212,12 @@ const parseElf = (
   });
 };
 
-const parseMz = (
+/** Parse MZ metadata while preserving an optional separately observed signature. */
+export const parseMzHeader = (
   bytes: Buffer,
   fileSize: number,
+  windowsHeader = mzWindowsHeader(bytes, fileSize),
 ): Result<ExecutableMetadata, string> => {
-  const windowsHeader = mzWindowsHeader(bytes);
   if (windowsHeader?.kind === "declared") {
     const { offset } = windowsHeader;
     if (offset < 64 || offset > bytes.length - 24)
@@ -226,7 +227,7 @@ const parseMz = (
       return err(`unsupported ${signature} executable in MZ image`);
     return parsePeRecord(bytes.subarray(offset));
   }
-  const parsed = parseDosMzHeader(bytes, fileSize);
+  const parsed = parseDosMzHeader(bytes, fileSize, windowsHeader);
   return parsed.ok
     ? ok({
         format: "dos-mz",

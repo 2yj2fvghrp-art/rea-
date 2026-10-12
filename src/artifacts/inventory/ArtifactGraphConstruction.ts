@@ -450,7 +450,7 @@ export const classifyArtifactBytes = (
       prefix.length < Math.min(fileSize, 64)
     )
       return "unknown";
-    const windowsHeader = mzWindowsHeader(prefix);
+    const windowsHeader = mzWindowsHeader(prefix, fileSize);
     if (windowsHeader?.kind === "declared") {
       const windowsOffset = windowsHeader.offset;
       if (
@@ -462,14 +462,7 @@ export const classifyArtifactBytes = (
       )
         return "pe";
     } else {
-      if (
-        windowsHeader?.kind === "candidate" &&
-        windowsHeader.offset >= 64 &&
-        windowsHeader.offset > prefix.length - 4 &&
-        windowsHeader.offset <= fileSize - 4
-      )
-        return "unknown";
-      if (parseDosMzHeader(prefix, fileSize).ok) return "dos-mz";
+      if (parseDosMzHeader(prefix, fileSize, windowsHeader).ok) return "dos-mz";
     }
     return "unknown";
   }

@@ -12,6 +12,12 @@ export interface DosMzHeader {
   readonly entryOffset: number;
 }
 
+/** A Windows declaration or an in-file PE signature still awaiting observation. */
+export type MzWindowsHeader = {
+  readonly offset: number;
+  readonly kind: "declared" | "candidate";
+} | null;
+
 /**
  * Locate a Windows new-header declaration or a possible PE pointer in a short
  * DOS stub. Short headers need an observed PE signature because their bytes at
@@ -20,10 +26,8 @@ export interface DosMzHeader {
  */
 export const mzWindowsHeader = (
   bytes: Buffer,
-): {
-  readonly offset: number;
-  readonly kind: "declared" | "candidate";
-} | null => {
+  fileSize = bytes.length,
+): MzWindowsHeader => {
   if (bytes.length < 64) return null;
   const headerBytes = bytes.readUInt16LE(8) * 16;
   const relocationCount = bytes.readUInt16LE(6);
@@ -41,10 +45,10 @@ export const mzWindowsHeader = (
   const observedPe =
     offset >= 64 &&
     bytes.subarray(offset, offset + 4).equals(Buffer.from("PE\0\0"));
-  return {
-    offset,
-    kind: shortHeader && !observedPe ? "candidate" : "declared",
-  };
+  if (!shortHeader || observedPe) return { offset, kind: "declared" };
+  return offset >= 64 && offset > bytes.length - 4 && offset <= fileSize - 4
+    ? { offset, kind: "candidate" }
+    : null;
 };
 
 /**
@@ -55,12 +59,15 @@ export const mzWindowsHeader = (
 export const parseDosMzHeader = (
   bytes: Buffer,
   fileSize = bytes.length,
+  windowsHeader = mzWindowsHeader(bytes, fileSize),
 ): Result<DosMzHeader, string> => {
   if (bytes.length < 28 || bytes.toString("ascii", 0, 2) !== "MZ")
     return err("invalid or truncated DOS MZ header");
   if (!Number.isSafeInteger(fileSize) || fileSize < bytes.length)
     return err("invalid DOS MZ file length");
-  if (mzWindowsHeader(bytes)?.kind === "declared")
+  if (windowsHeader?.kind === "candidate")
+    return err("unobserved Windows executable signature in MZ image");
+  if (windowsHeader?.kind === "declared")
     return err("MZ declares a Windows new header; it is not a DOS-only image");
   const lastPageBytes = bytes.readUInt16LE(2);
   const pages = bytes.readUInt16LE(4);
