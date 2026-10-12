@@ -207,8 +207,18 @@ export class FridaInstrumentationService {
       AnalysisError
     >
   > {
-    // Reject an unreadable script file before any attach or spawn effect.
+    const cancelled = () =>
+      err(
+        new AnalysisCancelledError(
+          "instrument_with_frida",
+          signal?.reason === undefined ? {} : { cause: signal.reason },
+        ),
+      );
+    if (signal?.aborted) return cancelled();
+    // Reject an unreadable script file before any attach or spawn effect;
+    // cancellation that arrives during the check still wins.
     const unreadable = await unreadableScriptFile(input.source);
+    if (signal?.aborted) return cancelled();
     if (unreadable !== undefined) return err(unreadable);
     const started = await this.#startSession(
       input,

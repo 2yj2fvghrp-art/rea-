@@ -142,6 +142,29 @@ it.each([
   },
 );
 
+it("reports cancellation before checking a file script source", async () => {
+  const service = new FridaInstrumentationService(createProvider());
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled before call"));
+
+  const result = await service.instrument(
+    {
+      mode: "spawn",
+      deviceId: "local",
+      program: "/tmp/fixture",
+      source: {
+        sourceKind: "file",
+        path: join(tmpdir(), "rea-missing-frida-script.js"),
+      },
+      durationMs: 1,
+    },
+    controller.signal,
+  );
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error._tag).toBe("AnalysisCancelledError");
+});
+
 it("does not resume a spawned target when cancellation arrives during script loading", async () => {
   const controller = new AbortController();
   let resumes = 0;
