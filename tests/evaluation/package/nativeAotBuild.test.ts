@@ -31,16 +31,32 @@ it("restores the exact publish target before compiling without network restore",
   }
 });
 
-it("recovers from a timed-out restore before publishing", async () => {
-  const timeout = Object.assign(new Error("dotnet restore ETIMEDOUT"), {
-    code: "ETIMEDOUT",
-  });
+it("retries without logging credential-bearing restore diagnostics", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  const timeout = Object.assign(
+    new Error(
+      "dotnet restore ETIMEDOUT https://fixture-user:fixture-password@feed.invalid/v3/index.json",
+    ),
+    {
+      code: "ETIMEDOUT",
+    },
+  );
   const run = vi
     .fn<(command: string, args: string[]) => void>()
     .mockImplementationOnce(() => {
       throw timeout;
     });
-  await buildNativeAotFixture(run, options);
+  try {
+    await buildNativeAotFixture(run, options);
+    expect(
+      logged.mock.calls.flat().every((value) => typeof value === "string"),
+    ).toBe(true);
+    expect(logged.mock.calls.flat().join("\n")).not.toContain(
+      "fixture-password",
+    );
+  } finally {
+    logged.mockRestore();
+  }
   expect(run.mock.calls.map((call) => call[1][0])).toEqual([
     "restore",
     "restore",

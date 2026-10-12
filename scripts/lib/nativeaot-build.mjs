@@ -27,7 +27,10 @@ export async function buildNativeAotFixture(run, options) {
             cause,
           },
         );
-      console.error(cause);
+      // Child diagnostics can contain authenticated feed URLs; keep retry logs static.
+      console.error(
+        "NativeAOT dependency restore failed; retrying in 1 second",
+      );
       await delay(1_000);
     }
   }
