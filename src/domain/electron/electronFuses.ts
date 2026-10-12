@@ -164,7 +164,6 @@ export const inspectElectronFusesInputSchema = z.strictObject({
 });
 
 export type ElectronFuseState = z.infer<typeof fuseStateSchema>;
-export type ElectronFuse = z.infer<typeof electronFuseSchema>;
 export type ElectronFuseSentinel = z.infer<typeof electronFuseSentinelSchema>;
 export type ElectronFuseSlice = z.infer<typeof electronFuseSliceSchema>;
 export type ElectronFuseImplication = z.infer<
