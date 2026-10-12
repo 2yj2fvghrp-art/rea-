@@ -1320,9 +1320,13 @@ describe("reference truncation forwarding", () => {
           calls.push(operation);
           return Promise.resolve(
             resultOk(
-              createAnalysisExecution(["0x2000"], identity, (referencesTruncated === undefined
+              createAnalysisExecution(
+                ["0x2000"],
+                identity,
+                referencesTruncated === undefined
                   ? {}
-                  : { referencesTruncated })),
+                  : { referencesTruncated },
+              ),
             ),
           );
         },
