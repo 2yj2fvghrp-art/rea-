@@ -2,7 +2,11 @@
 
 `decode_signal_recording` answers what a selected protocol decoder observes in
 an existing recording. It uses caller-supplied **sigrok-cli 0.7.2** with
-libsigrokdecode. It does not acquire samples or communicate with hardware.
+libsigrokdecode on **Linux**. util-linux `prlimit` is required (default
+`/usr/bin/prlimit`, overridable with absolute `REA_SIGROK_PRLIMIT_COMMAND`).
+The limiter sets soft and hard address-space limits before the decoder starts.
+macOS and Windows are refused because this adapter cannot enforce that limit on
+those hosts. It does not acquire samples or communicate with hardware.
 
 ```sh
 export REA_SIGROK_COMMAND=/absolute/path/to/sigrok-cli
@@ -41,7 +45,7 @@ binary payload. Empty output does not establish absence of traffic. Warnings
 remain visible even when sigrok exits zero.
 
 REA decodes a private, read-only copy of the recording, verifies that copy and
-the selected executable after decoding, and removes the workspace after owned
+the selected executable and resource limiter after decoding, and removes the workspace after owned
 process cleanup. Failed cleanup retains ownership for retry. The source file is
 never passed to sigrok. Caller-supplied tools and their libraries/decoder modules
 are trusted, and hashes identify bytes rather than publisher authenticity.
@@ -49,7 +53,12 @@ are trusted, and hashes identify bytes rather than publisher authenticity.
 The input copy is bounded at 32 MiB before reading, each command has a 30-second
 deadline, and combined stdout/stderr is bounded at 4 MiB during collection.
 Oversized output fails rather than becoming truncated success. These limits do
-not constrain the decoder's heap or archive expansion and are not an OS sandbox.
+not form an OS sandbox. Before execution, `prlimit` enforces **1 GiB address
+space per process**, **64 MiB per file**, **30 CPU seconds** and no core dumps.
+Both soft and hard limits are inherited, so decoder allocations and compressed
+recording expansion cannot exceed the per-process address-space cap. These are
+not aggregate process-memory or filesystem quotas. The selected limiter is
+trusted and its path, digest and arguments are retained in Evidence.
 
 ## Verification
 
@@ -62,7 +71,10 @@ The verifier synthesizes a 9600-baud 8N1 UART VCD carrying `REA`, then checks
 actual CLI/MCP parity, advertised schemas, stored Evidence, source hashes,
 annotation filtering/autodetection, invalid decoder/input failures and cleanup.
 An optional positional REA entrypoint verifies an installed package.
-The local real-tool run covers macOS arm64, sigrok-cli 0.7.2, libsigrok 0.5.2 and
-libsigrokdecode 0.5.3. Other formats/decoders, Windows, and physical acquisition
-are not verified by this lane. The separate CI lane exercises Ubuntu's sigrok
-package; its result must be checked before claiming Linux verification.
+The real-tool lane requires Linux, sigrok-cli 0.7.2 and libsigrokdecode. A separate
+kernel-limit regression checks the inherited soft/hard limits and verifies an
+oversized allocation is refused before it can consume memory. Other formats,
+decoders and physical acquisition are not established by the UART fixture.
+The workflow result must be checked before claiming a specific Linux build
+verified. The earlier macOS tool check does not establish the current bounded
+integration, which deliberately refuses unsupported hosts.

@@ -387,7 +387,7 @@ const workflowAvailabilityFor = ({
       : {
           reason: "provider_missing",
           remediation:
-            "Supply sigrok-cli 0.7.2 via absolute REA_SIGROK_COMMAND. No active binary target or hardware is required; the tool is checked at execution.",
+            "On Linux, supply sigrok-cli 0.7.2 via absolute REA_SIGROK_COMMAND and util-linux prlimit (REA_SIGROK_PRLIMIT_COMMAND, default /usr/bin/prlimit). No active binary target or hardware is required; the tool is checked at execution.",
         };
   if (name === "inspect_wasm_artifact")
     return policy.wasmArtifactEnabled === true

@@ -13,6 +13,10 @@ import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 
+if (process.platform !== "linux")
+  throw new Error(
+    "Real signal verification requires Linux with util-linux prlimit.",
+  );
 if (!isAbsolute(process.env.REA_SIGROK_COMMAND ?? ""))
   throw new Error(
     "Supply an absolute REA_SIGROK_COMMAND for sigrok-cli 0.7.2.",
@@ -99,6 +103,10 @@ try {
       createHash("sha256").update(source).digest("hex"),
     );
     assert.equal(report.hardware_acquisition, "not-performed");
+    assert.equal(report.limits.address_space_bytes, 1073741824);
+    assert.ok(
+      report.resource_limiter.arguments.includes("--as=1073741824:1073741824"),
+    );
     assert.equal(report.diagnostics, "");
     const flags = Object.entries(input)
       .filter(([key]) => key !== "path")

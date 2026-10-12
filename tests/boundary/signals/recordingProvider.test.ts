@@ -29,7 +29,11 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
   let calls = 0;
   let mayClean = !failCleanup;
   const provider = new SigrokRecordingProvider(
-    { ...process.env, REA_SIGROK_COMMAND: process.execPath },
+    {
+      ...process.env,
+      REA_SIGROK_COMMAND: process.execPath,
+      REA_SIGROK_PRLIMIT_COMMAND: process.execPath,
+    },
     async (input) => {
       calls++;
       const spawned = await spawnOwnedProviderProcess({
@@ -43,10 +47,14 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
       return spawned;
     },
     async () => {
+      if (mode === "workspace-full")
+        throw Object.assign(new Error("fixture disk full"), { code: "ENOSPC" });
       const root = await PrivateRuntimeRoot.create({
         parent: directory,
         prefix: "decoder-",
       });
+      if (mode === "snapshot-write-failure")
+        await writeFile(join(root.path, "recording"), "already exists");
       return {
         path: root.path,
         close: async () => {
@@ -55,6 +63,7 @@ else { if(readFileSync('recording', 'utf8') !== 'recording bytes') throw Error('
         },
       };
     },
+    "linux",
   );
   onTestFinished(async () => {
     mayClean = true;
@@ -181,5 +190,59 @@ it("retains a completed observation when cancellation arrives at the service bou
   expect(result.error.partialObservation).toMatchObject({
     operation: "decode_signal_recording",
     normalized_result: { annotations_text: "10-20 uart-1: 42\n" },
+  });
+});
+
+it.each([
+  ["workspace-full", "AnalysisResourceConstraintError"],
+  ["snapshot-write-failure", "ProviderAdapterError"],
+])(
+  "reports %s against the private workspace, not the selected input",
+  async (mode, tag) => {
+    const f = await fixture(mode);
+    const result = await f.service.decode({ path: f.path, decoders: "uart" });
+    if (result.ok) throw new Error("Expected workspace failure");
+    expect(result.error._tag).toBe(tag);
+    if (result.error._tag === "ProviderAdapterError")
+      expect(result.error).toMatchObject({
+        diagnostics: {
+          stage: "workspace",
+          system_code: "EEXIST",
+        },
+      });
+    if (result.error._tag === "AnalysisResourceConstraintError")
+      expect(result.error).toMatchObject({
+        reportedLimits: {
+          system_code: "ENOSPC",
+        },
+      });
+    expect(f.calls()).toBe(mode === "workspace-full" ? 0 : 1);
+    expect(
+      (await readdir(f.directory)).filter((name) =>
+        name.startsWith("decoder-"),
+      ),
+    ).toEqual([]);
+  },
+);
+
+it("refuses unsupported hosts before launching or allocating a workspace", async () => {
+  const provider = new SigrokRecordingProvider(
+    { REA_SIGROK_COMMAND: process.execPath },
+    async () => {
+      throw new Error("Must not launch");
+    },
+    async () => {
+      throw new Error("Must not allocate");
+    },
+    "darwin",
+  );
+  const result = await new SignalRecordingService(provider).decode({
+    path: "/recording.vcd",
+    decoders: "uart",
+  });
+  if (result.ok) throw new Error("Expected host refusal");
+  expect(result.error).toMatchObject({
+    _tag: "AnalysisCapabilityUnavailableError",
+    reason: expect.stringContaining("Linux"),
   });
 });

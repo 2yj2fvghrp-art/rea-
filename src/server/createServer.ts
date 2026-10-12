@@ -153,7 +153,8 @@ const installSessionToolAvailability = (
     optionalFeatures: {
       signalRecordingEnabled:
         options.signalRecording !== undefined ||
-        isAbsolute(environment.REA_SIGROK_COMMAND ?? ""),
+        (process.platform === "linux" &&
+          isAbsolute(environment.REA_SIGROK_COMMAND ?? "")),
       wasmArtifactEnabled:
         options.wasmArtifact !== undefined ||
         isAbsolute(environment.REA_WABT_BIN_DIRECTORY ?? ""),

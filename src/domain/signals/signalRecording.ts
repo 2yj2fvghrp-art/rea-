@@ -45,10 +45,18 @@ export const signalRecordingSchema = z.strictObject({
     version_banner: z.string(),
     arguments: z.array(z.string()),
   }),
+  resource_limiter: z.strictObject({
+    path: z.string(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    arguments: z.array(z.string()),
+  }),
   limits: z.strictObject({
     input_bytes: z.number().int().positive(),
     output_bytes: z.number().int().positive(),
     command_timeout_ms: z.number().int().positive(),
+    address_space_bytes: z.number().int().positive(),
+    file_bytes: z.number().int().positive(),
+    cpu_seconds: z.number().int().positive(),
   }),
   hardware_acquisition: z.literal("not-performed"),
 });

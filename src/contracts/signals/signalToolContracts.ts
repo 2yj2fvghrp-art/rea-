@@ -11,7 +11,7 @@ export const SIGNAL_TOOL_CONTRACTS = [
     ...toolContractMetadata("decode_signal_recording"),
     kind: "artifact-provider",
     description:
-      "Decode a caller-selected local logic/signal recording with sigrok-cli 0.7.2. Supply the decoder stack, channel assignments and options explicitly; optionally select input format and annotation classes. Returns verbatim annotations with sample-number ranges, stderr, source digest and tool identity inline. Configure absolute REA_SIGROK_COMMAND. File-only analysis; no hardware acquisition or device communication. Empty output does not prove absence of traffic.",
+      "Decode a caller-selected local logic/signal recording on Linux with sigrok-cli 0.7.2 and util-linux prlimit enforcing per-process memory limits. Supply the decoder stack, channel assignments and options explicitly; optionally select input format and annotation classes. Returns verbatim annotations with sample-number ranges, stderr, source digest and tool identity inline. Configure absolute REA_SIGROK_COMMAND. File-only analysis; no hardware acquisition or device communication. Empty output does not prove absence of traffic.",
     inputSchema: decodeSignalRecordingInputSchema,
     outputSchema: evidenceResultOf(signalRecordingSchema),
     examples: [
