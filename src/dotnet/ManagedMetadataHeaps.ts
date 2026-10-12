@@ -235,6 +235,9 @@ export const readMetadataUserString = (
       start,
     );
   const units = (decoded.length - 1) / 2;
+  // The terminal flag byte is not validated. Toolchains disagree with
+  // ECMA-335 II.24.2.4 (Mono leaves it 0 for ' and -, Roslyn sets it for any
+  // unit >= 0x80) and the runtime never reads it.
   // JSON spends at most six bytes per UTF-16 code unit, the same bound as UTF-8 bytes.
   managedDecodeBudget(layout).reserveString(units, start);
   return {

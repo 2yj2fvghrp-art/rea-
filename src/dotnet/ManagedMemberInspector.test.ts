@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { inspectManagedMembersBytes } from "./ManagedMemberInspector.js";
-import { ManagedDecodeBudget } from "./ManagedDecodeBudget.js";
-import { edges } from "./ManagedMemberRows.js";
+import {
+  ManagedDecodeBudget,
+  managedDecodeBudget,
+} from "./ManagedDecodeBudget.js";
+import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
+import { edges, parseUserStrings } from "./ManagedMemberRows.js";
 import { signature, type ManagedMethod } from "./ManagedMemberInspectorCore.js";
 import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
 import { managedMemberInspectionSchema } from "../domain/managed/managedArtifact.js";
@@ -316,8 +320,10 @@ describe("managed user strings", () => {
     expect(result.user_strings).toEqual([]);
   });
 
-  it("keeps the method and reports partial coverage when #US is absent", () => {
-    const result = inspect({ ilBody: ldstrBody(["0x70000001"]) });
+  it("reports a missing #US stream once and keeps the method", () => {
+    const result = inspect({
+      ilBody: ldstrBody(["0x70000001", "0x70000005", "0x70000001"]),
+    });
 
     expect(result.methods).toHaveLength(1);
     expect(result.user_strings).toEqual([]);
@@ -326,12 +332,33 @@ describe("managed user strings", () => {
       issues: [
         {
           code: "missing-stream",
-          scope: "metadata.#US:0x70000001",
+          scope: "metadata.#US",
           offset: null,
-          detail: "ldstr references #US, but the metadata has no #US stream",
+          detail:
+            "2 distinct ldstr operand(s) reference #US, but the metadata has no #US stream",
         },
       ],
     });
+  });
+
+  it("admits ldstr tokens before collecting them", () => {
+    const layout = { userStrings: null } as unknown as ManagedMetadataLayout;
+    // Leave 1 KiB of the 64 MiB budget: too little for 100 distinct tokens.
+    managedDecodeBudget(layout).reserve(64 * 1024 * 1024 - 1024, null);
+    const method = {
+      body: {
+        anchors: Array.from({ length: 100 }, (_, index) => ({
+          il_offset: index * 5,
+          opcode: "ldstr",
+          operand_kind: "string",
+          operand: `0x70${(index + 1).toString(16).padStart(6, "0")}`,
+        })),
+      },
+    } as unknown as ManagedMethod;
+
+    expect(() => parseUserStrings(Buffer.alloc(0), layout, [method])).toThrow(
+      ManagedReaderFailure,
+    );
   });
 
   it("retains readable literals beside malformed #US items", () => {
