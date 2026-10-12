@@ -37,6 +37,8 @@ interface ManagedPeFixtureOptions {
   readonly methodSpecInstantiation?: Buffer;
   /** TypeSpec signature blobs, one TypeSpec row each. */
   readonly typeSpecSignatures?: readonly Buffer[];
+  /** Raw ResolutionScope coded value of the TypeRef row; null by default. */
+  readonly typeRefScopeRaw?: number;
   readonly mvid?: Buffer;
   readonly pinvoke?: {
     readonly importName?: string;
@@ -182,10 +184,10 @@ const typeRefRow = (
   name: number,
   namespace: number,
   stringSize: MetadataIndexSize,
-  resolutionScopeSize: MetadataIndexSize,
+  resolutionScope: Buffer,
 ): Buffer =>
   Buffer.concat([
-    metadataIndex(0, resolutionScopeSize),
+    resolutionScope,
     metadataIndex(name, stringSize),
     metadataIndex(namespace, stringSize),
   ]);
@@ -716,7 +718,7 @@ const fixtureMetadataRows = ({
           indexes.attributeName,
           indexes.attributeNamespace,
           heapSizes.strings,
-          widths.resolutionScope,
+          metadataIndex(options.typeRefScopeRaw ?? 0, widths.resolutionScope),
         ),
       ],
     ],

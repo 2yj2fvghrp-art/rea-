@@ -263,6 +263,18 @@ describe("managed edge target declaring types", () => {
     });
   });
 
+  it("keeps a TypeRef name beside an invalid resolution scope", () => {
+    // AssemblyRef 9 does not exist.
+    const result = inspect({ typeRefScopeRaw: (9 << 2) | 2 });
+
+    expect(result.member_refs[0]?.parent_name).toBe(attribute);
+    expect(result.call_edges[0]?.target_declaring_type).toBe(attribute);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [{ code: "invalid-row", scope: "metadata.TypeRef:0x01000001" }],
+    });
+  });
+
   it("names field MemberRefs as fields and leaves mismatched member kinds unnamed", () => {
     const result = inspect({
       memberRefName: "Empty",
@@ -352,6 +364,13 @@ describe("managed MethodSpec call targets", () => {
     [
       "a field reference",
       { memberRefSignature: Buffer.from([0x06, 0x0e]) },
+      Buffer.from([0x0a, 0x01, 0x0e]),
+      "does not have a decodable method signature",
+    ],
+    [
+      "a property signature",
+      // PROPERTY | GENERIC, one generic parameter, no parameters, void.
+      { memberRefSignature: Buffer.from([0x18, 0x01, 0x00, 0x01]) },
       Buffer.from([0x0a, 0x01, 0x0e]),
       "does not have a decodable method signature",
     ],
@@ -921,6 +940,16 @@ it.each([
   ["void array element", [0x1d, 0x01]],
 ])("reports a %s as malformed", (_name, type) => {
   expect(signature(Buffer.from([0x06, ...type]))).toMatchObject({
+    kind: "unknown",
+    parse_status: "malformed",
+  });
+});
+
+it.each([
+  ["a property header", [0x08, 0x00, 0x08]],
+  ["an explicit-this header without has-this", [0x40, 0x00, 0x01]],
+])("reports %s as a malformed member signature", (_name, blob) => {
+  expect(signature(Buffer.from(blob))).toMatchObject({
     kind: "unknown",
     parse_status: "malformed",
   });

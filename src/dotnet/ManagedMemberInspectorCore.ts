@@ -338,6 +338,18 @@ interface MethodSignatureHeader {
   readonly next: number;
 }
 
+// A method signature, whether a member's or one FNPTR carries, uses managed
+// DEFAULT/VARARG or the unmanaged C, STDCALL, THISCALL, FASTCALL, and
+// UNMANAGED conventions that compilers emit for unmanaged function pointers.
+// FIELD, LOCAL_SIG, PROPERTY, and GENERICINST headers are not method
+// signatures.
+const METHOD_CALLING_CONVENTIONS = new Set([0, 1, 2, 3, 4, 5, 9]);
+
+/**
+ * Read a method signature's calling convention and counts. A header that is
+ * not a method signature, sets the reserved bit, or sets EXPLICITTHIS without
+ * HASTHIS is malformed, so no caller consumes its counts.
+ */
 const readMethodSignatureHeader = (
   blob: Buffer,
   offset: number,
@@ -345,6 +357,15 @@ const readMethodSignatureHeader = (
   const first = blob[offset];
   if (first === undefined)
     return malformedSignature("truncated method signature", offset);
+  if (
+    !METHOD_CALLING_CONVENTIONS.has(first & 0x0f) ||
+    (first & 0x80) !== 0 ||
+    ((first & 0x40) !== 0 && (first & 0x20) === 0)
+  )
+    return malformedSignature(
+      `calling convention 0x${first.toString(16)} does not head a method signature`,
+      offset,
+    );
   let next = offset + 1;
   let genericParameterCount: number | null = null;
   if ((first & 0x10) !== 0) {
@@ -362,12 +383,6 @@ const readMethodSignatureHeader = (
 };
 
 const MAX_ARRAY_RANK = 32;
-
-// FNPTR carries a method signature: managed DEFAULT/VARARG, or the unmanaged
-// C, STDCALL, THISCALL, FASTCALL, and UNMANAGED conventions that compilers
-// emit for unmanaged function pointers. FIELD, LOCAL_SIG, PROPERTY, and
-// GENERICINST headers are not method signatures.
-const FUNCTION_POINTER_CONVENTIONS = new Set([0, 1, 2, 3, 4, 5, 9]);
 
 const arrayShape = (
   blob: Buffer,
@@ -523,15 +538,6 @@ const readTypeSignature = (
       cursor = argumentCount.next;
     } else if (kind === 0x1b) {
       const header = readMethodSignatureHeader(blob, cursor + 1);
-      if (
-        !FUNCTION_POINTER_CONVENTIONS.has(header.first & 0x0f) ||
-        (header.first & 0x80) !== 0 ||
-        ((header.first & 0x40) !== 0 && (header.first & 0x20) === 0)
-      )
-        return malformedSignature(
-          `function pointer calling convention 0x${header.first.toString(16)} does not head a method signature`,
-          cursor + 1,
-        );
       const convention = callingConvention(header.first);
       const head =
         header.genericParameterCount === null
@@ -659,10 +665,9 @@ export const specSignature = (
 
 /**
  * Generic parameter count a method signature declares, 0 when it is not
- * generic, or null when the blob is a field signature or does not decode.
+ * generic, or null when the blob is not a method signature header.
  */
 export const methodGenericArity = (blob: Buffer): number | null => {
-  if (((blob[0] ?? 0) & 0x0f) === 6) return null;
   try {
     return readMethodSignatureHeader(blob, 0).genericParameterCount ?? 0;
   } catch (cause: unknown) {

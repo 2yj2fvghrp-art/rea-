@@ -10,6 +10,7 @@ import {
   type ManagedMetadataLayout,
 } from "./ManagedMetadataLayout.js";
 import {
+  metadataCodedTokenInvalidReason,
   metadataRowCursor,
   metadataToken,
   readMetadataBlob,
@@ -21,7 +22,8 @@ import { managedFailure, readManagedValue } from "./ManagedReaderFailure.js";
  * Name the type a TypeDef, TypeRef, or generic-instantiation TypeSpec token
  * denotes, in the namespace-qualified form TypeDef `full_name` uses, once per
  * token. Other decoded TypeSpecs stay null: the type is unknown. Malformed or
- * unsupported rows and blobs are reported to `issues` and also stay null.
+ * unsupported rows and blobs are reported to `issues` and also stay null,
+ * except that a TypeRef with an invalid ResolutionScope keeps its readable name.
  */
 export const typeNameLookup = (
   bytes: Buffer,
@@ -36,7 +38,21 @@ export const typeNameLookup = (
       return ranges[row - 1]?.fullName ?? null;
     }
     const cursor = metadataRowCursor(bytes, layout, 1, row);
-    cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
+    const scopeRaw = cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
+    // A null scope is legal: the type resolves through ExportedType.
+    const scopeReason = metadataCodedTokenInvalidReason(
+      scopeRaw,
+      2,
+      [0, 26, 35, 1],
+      layout.rowCounts,
+    );
+    if (scopeReason !== null)
+      issues.push({
+        code: "invalid-row",
+        scope: `metadata.TypeRef:${metadataToken(1, row)}`,
+        offset: cursor.start,
+        detail: `TypeRef ResolutionScope coded index 0x${scopeRaw.toString(16)} is invalid: ${scopeReason}`,
+      });
     const name = cursor.readIndex(layout.stringIndexSize);
     const namespace = cursor.readIndex(layout.stringIndexSize);
     return fullName(
