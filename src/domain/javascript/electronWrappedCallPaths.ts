@@ -291,10 +291,16 @@ export const collectElectronWrappedCallPaths = (
     args: readonly SymbolicValue[],
     context: PathContext,
     guardedDispatch: boolean,
+    isolated: boolean,
   ): void => {
-    const key = args[0];
-    const object = args[1];
+    const key = args[isolated ? 1 : 0];
+    const object = args[isolated ? 2 : 1];
     if (key?.kind !== "literal" || typeof key.value !== "string" || !object) {
+      accumulator.unknownFindings += 1;
+      return;
+    }
+    const worldId = isolated ? args[0] : undefined;
+    if (isolated && worldId?.kind !== "literal") {
       accumulator.unknownFindings += 1;
       return;
     }
@@ -307,8 +313,19 @@ export const collectElectronWrappedCallPaths = (
         JSON.stringify(value.location) === JSON.stringify(location),
     );
     const finding = {
-      world: "main" as const,
-      world_id: null,
+      world: isolated ? ("isolated" as const) : ("main" as const),
+      world_id:
+        worldId?.kind === "literal" &&
+        (typeof worldId.value === "string" ||
+          typeof worldId.value === "number" ||
+          typeof worldId.value === "boolean" ||
+          worldId.value === null)
+          ? {
+              status: "literal" as const,
+              value: worldId.value as string | number | boolean | null,
+              expression: null,
+            }
+          : null,
       api_key: key.value,
       api_key_expression: null,
       api_status: "dynamic" as const,
@@ -406,8 +423,13 @@ export const collectElectronWrappedCallPaths = (
           else if (
             path.slice(1).join(".") === "contextBridge.exposeInMainWorld"
           )
-            bridge(node, args, branchContext, hasConditions(callee));
-          else if (path[1] === "clipboard") emit(branchContext, node, endpoint);
+            bridge(node, args, branchContext, hasConditions(callee), false);
+          else if (
+            path.slice(1).join(".") === "contextBridge.exposeInIsolatedWorld"
+          ) {
+            bridge(node, args, branchContext, hasConditions(callee), true);
+          } else if (path[1] === "clipboard")
+            emit(branchContext, node, endpoint);
         } else if (
           (path[0] === "navigator" && path[1] === "clipboard") ||
           (path[0] === "ipc-event" && path[1] === "sender")
@@ -488,7 +510,16 @@ export const collectElectronWrappedCallPaths = (
     enter: (node) => {
       if (!t.isCallExpression(node) && !t.isOptionalCallExpression(node))
         return;
-      if (!t.isStringLiteral(node.arguments[0])) return;
+      // exposeInIsolatedWorld takes a numeric worldId before its string key;
+      // all other matched calls start with a string literal.
+      if (
+        !t.isStringLiteral(node.arguments[0]) &&
+        !(
+          t.isNumericLiteral(node.arguments[0]) &&
+          t.isStringLiteral(node.arguments[1])
+        )
+      )
+        return;
       const env = resolver.environmentAt(node);
       let context: PathContext = {
         entryNode: node,
