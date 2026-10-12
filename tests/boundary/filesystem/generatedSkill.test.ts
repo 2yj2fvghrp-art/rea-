@@ -132,17 +132,31 @@ it("keeps an authored command pinned to the packaged version", async () => {
 });
 
 it.each([
-  ["SKILL.md", "rea-agents@latest"],
-  ["SKILL.md", "rea-agents@6.1.0"],
-  ["references/guide.md", "rea-agents@latest"],
+  ["SKILL.md", "npx -y rea-agents@latest doctor", "rea-agents@latest"],
+  ["SKILL.md", "npx -y rea-agents@6.1.0 doctor", "rea-agents@6.1.0"],
+  [
+    "references/guide.md",
+    "npx -y rea-agents@latest doctor",
+    "rea-agents@latest",
+  ],
+  ["SKILL.md", "npx -y rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "npx --yes rea-agents doctor", "rea-agents"],
+  ["references/guide.md", "npm exec --package=rea-agents -- rea", "rea-agents"],
+  ["SKILL.md", "npm exec -p rea-agents rea doctor", "rea-agents"],
+  ["SKILL.md", "npm exec -- rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "npm exec --package=rea-agents@next -- rea", "rea-agents@next"],
+  ["SKILL.md", "pnpm dlx rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "yarn dlx rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "bunx rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "npm install --global rea-agents", "rea-agents"],
 ])(
-  "rejects a floating or stale package specifier in authored %s (%s)",
-  async (relativePath, specifier) => {
+  "rejects an unpinned package reference in authored %s (%s)",
+  async (relativePath, command, specifier) => {
     const f = await fixture();
     const path = join(f.sourceRoot, relativePath);
     await writeFile(
       path,
-      `${await readFile(path, "utf8")}Run \`npx -y ${specifier} doctor\`.\n`,
+      `${await readFile(path, "utf8")}Run \`${command}\`.\n`,
     );
     await expect(f.generate()).rejects.toMatchObject({
       stderr: expect.stringContaining(
@@ -151,6 +165,20 @@ it.each([
     });
   },
 );
+
+it.each([
+  "Run `npx -y rea-agents@6.2.0 doctor --json`.",
+  "Run `npm exec --package=rea-agents@6.2.0 -- rea doctor`.",
+  "```bash\nbunx rea-agents@6.2.0 doctor\n```",
+  "Install `npm install --global rea-agents@6.2.0` when allowed.",
+  "The rea-agents package ships the `rea` CLI; use npx with the rea-agents package only when allowed.",
+])("accepts a pinned or prose package mention: %s", async (line) => {
+  const f = await fixture();
+  const path = join(f.sourceRoot, "references/guide.md");
+  await writeFile(path, `${await readFile(path, "utf8")}${line}\n`);
+  await f.generate();
+  await f.generate("--check");
+});
 
 it("rejects catalog-dependent metadata in the authored source", async () => {
   const f = await fixture();
