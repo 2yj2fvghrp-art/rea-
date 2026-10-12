@@ -315,6 +315,14 @@ describe("parsePmPathOutput unsafe device paths", () => {
       ["U+2066 left-to-right isolate", "\u2066"],
       ["U+E000 private-use character", "\ue000"],
       ["a lone surrogate", "\ud800"],
+      ["U+034F combining grapheme joiner", "\u034f"],
+      ["U+115F Hangul choseong filler", "\u115f"],
+      ["U+3164 Hangul filler", "\u3164"],
+      ["U+FFA0 halfwidth Hangul filler", "\uffa0"],
+      ["U+180B Mongolian free variation selector", "\u180b"],
+      ["U+E0001 language tag", "\u{e0001}"],
+      ["U+FDD0 noncharacter", "\ufdd0"],
+      ["U+FFFF noncharacter", "\uffff"],
     ].flatMap(([name, char]) => [
       [
         `${name!} in a directory segment`,
@@ -443,39 +451,6 @@ describe("findAliasedPackagePaths", () => {
     });
   });
 
-  it("folds Unicode normalisation and compatibility forms", () => {
-    const composed = {
-      device_path: "/data/app/x/caf\u00e9.apk",
-      file_name: "caf\u00e9.apk",
-      role: "unknown",
-    } as const;
-    const decomposed = {
-      device_path: "/data/app/y/cafe\u0301.apk",
-      file_name: "cafe\u0301.apk",
-      role: "unknown",
-    } as const;
-    const ligature = {
-      device_path: "/data/app/z/\ufb01le.apk",
-      file_name: "\ufb01le.apk",
-      role: "unknown",
-    } as const;
-    const plain = {
-      device_path: "/data/app/z/FILE.apk",
-      file_name: "FILE.apk",
-      role: "unknown",
-    } as const;
-    expect(findAliasedPackagePaths([composed, decomposed])).toEqual({
-      first: composed,
-      second: decomposed,
-      reason: "normalization_alias",
-    });
-    expect(findAliasedPackagePaths([ligature, plain])).toEqual({
-      first: ligature,
-      second: plain,
-      reason: "normalization_alias",
-    });
-  });
-
   it("leaves exact repeats to the pull loop's overwrite guard", () => {
     expect(
       findAliasedPackagePaths(
@@ -494,6 +469,16 @@ describe("displayDevicePath", () => {
       '"/data/app/x/base.apk\\u{85} "',
     );
   });
+
+  it.each(["\u034f", "\u115f", "\u3164", "\uffa0", "\u180b", "\u{e0001}"])(
+    "escapes the default-ignorable %j so it cannot hide in prose",
+    (char) => {
+      const escaped = `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`;
+      const rendered = displayDevicePath(`/data/a${char}/base.apk`);
+      expect(rendered).toBe(`"/data/a${escaped}/base.apk"`);
+      expect(rendered).not.toContain(char);
+    },
+  );
 
   it("leaves ordinary paths and non-ASCII letters readable", () => {
     expect(displayDevicePath("/data/app/caf\u00e9/base.apk")).toBe(

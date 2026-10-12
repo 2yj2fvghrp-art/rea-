@@ -226,27 +226,39 @@ const SAFE_HOST_APK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/u;
  * Whitespace and invisible or non-text code points anywhere in a device path:
  * `\s`, control characters (`Cc`), format controls (`Cf`: bidi overrides and
  * isolates such as U+202E and U+2066, zero-width characters such as U+200B,
- * and the U+FEFF byte-order mark), lone surrogates (`Cs`), and private-use
- * code points (`Co`). Package Manager never emits them, and each one makes
- * the retained path differ from what a trimmed or terminal-rendered copy
- * shows, or lets a renderer reorder the path. This is the only check applied
- * to directory segments, which REA never writes on the host; the final
- * segment must also match the ASCII-only {@link SAFE_HOST_APK_FILE_NAME},
- * like the portable-segment rule in `webScriptExportPlan.ts`.
+ * the U+FEFF byte-order mark, and tag characters such as U+E0001), lone
+ * surrogates (`Cs`), private-use code points (`Co`), every
+ * `Default_Ignorable_Code_Point` (including the non-`Cf` invisibles U+034F
+ * COMBINING GRAPHEME JOINER, the Hangul fillers U+115F, U+3164, and U+FFA0,
+ * and the variation selectors such as U+180B), and every
+ * `Noncharacter_Code_Point` (U+FDD0-U+FDEF and each plane's U+xFFFE/U+xFFFF).
+ * Both properties are stable across Unicode versions, unlike the unassigned
+ * (`Cn`) set, so the same listing is refused the same way on every runtime.
+ * Package Manager never emits these, and each one makes the retained path
+ * differ from what a trimmed or terminal-rendered copy shows, or lets a
+ * renderer reorder the path. This is the only check applied to directory
+ * segments, which REA never writes on the host; the final segment must also
+ * match the ASCII-only {@link SAFE_HOST_APK_FILE_NAME}, like the
+ * portable-segment rule in `webScriptExportPlan.ts`.
  */
-const DEVICE_PATH_INVISIBLE_OR_CONTROL = /[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}]/u;
+const DEVICE_PATH_INVISIBLE_OR_CONTROL =
+  /[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u;
 
 /**
  * Quote a raw device path for caller-facing prose. JSON quoting escapes C0
- * controls; every other control, format, surrogate, private-use, or non-space
- * separator code point is escaped as `\u{...}` so a bidi override cannot
- * reorder the rendered message. Structured details keep the raw path.
+ * controls; every other control, format, surrogate, private-use, unassigned
+ * or noncharacter, non-space separator, or default-ignorable code point (such
+ * as U+034F or U+3164) is escaped as `\u{...}` so a bidi override cannot
+ * reorder the rendered message and an invisible character cannot hide in it.
+ * Structured details keep the raw path.
  */
 export const displayDevicePath = (devicePath: string): string =>
-  JSON.stringify(devicePath).replace(/[\p{C}\p{Z}]/gu, (char) =>
-    char === " "
-      ? char
-      : `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`,
+  JSON.stringify(devicePath).replace(
+    /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}]/gu,
+    (char) =>
+      char === " "
+        ? char
+        : `\\u{${char.codePointAt(0)!.toString(16).toUpperCase()}}`,
   );
 
 /** Stable reason a device-reported APK path cannot be used on the host. */
@@ -275,27 +287,28 @@ const unsafeDevicePathReason = (
 
 /**
  * Host-independent collision key for a pulled APK file name. Case-insensitive
- * destinations (Windows, default macOS volumes) and normalising filesystems
- * resolve names that differ only by case or Unicode normalisation to one file,
- * so the key folds both. The fold is applied on every host on purpose: the
- * same listing must be refused the same way wherever REA runs, so the evidence
- * stays reproducible instead of depending on the destination filesystem.
+ * destinations (Windows, default macOS volumes) resolve names that differ only
+ * by case to one file, so the key folds case. {@link parsePmPathOutput} admits
+ * only ASCII {@link SAFE_HOST_APK_FILE_NAME} names, for which Unicode
+ * normalisation is the identity, so an ASCII case fold is the complete key.
+ * The fold is applied on every host on purpose: the same listing must be
+ * refused the same way wherever REA runs, so the evidence stays reproducible
+ * instead of depending on the destination filesystem.
  */
-const hostFileNameKey = (fileName: string): string =>
-  fileName.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+const hostFileNameKey = (fileName: string): string => fileName.toLowerCase();
 
 /** Two `pm path` entries whose distinct file names would alias one host file. */
 export interface AdbAliasedPackagePaths {
   readonly first: AdbPackagePathEntry;
   readonly second: AdbPackagePathEntry;
-  /** `case_fold_alias` when the names differ only by case, otherwise by normalisation. */
-  readonly reason: "case_fold_alias" | "normalization_alias";
+  /** The names differ only by ASCII case. */
+  readonly reason: "case_fold_alias";
 }
 
 /**
  * Find the first pair of entries whose file names differ as strings but are
- * equal under case folding or NFC/NFKC normalisation. Exact repeats are not
- * aliases: the pull loop already refuses to overwrite those by string identity.
+ * equal under ASCII case folding. Exact repeats are not aliases: the pull loop
+ * already refuses to overwrite those by string identity.
  */
 export const findAliasedPackagePaths = (
   paths: readonly AdbPackagePathEntry[],
@@ -309,14 +322,7 @@ export const findAliasedPackagePaths = (
       continue;
     }
     if (earlier.file_name !== entry.file_name)
-      return {
-        first: earlier,
-        second: entry,
-        reason:
-          earlier.file_name.toLowerCase() === entry.file_name.toLowerCase()
-            ? "case_fold_alias"
-            : "normalization_alias",
-      };
+      return { first: earlier, second: entry, reason: "case_fold_alias" };
   }
   return undefined;
 };

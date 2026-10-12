@@ -494,8 +494,14 @@ it.each([
   ["U+200B", "\u200b"],
   ["U+FEFF", "\ufeff"],
   ["U+2066", "\u2066"],
+  ["U+034F", "\u034f"],
+  ["U+115F", "\u115f"],
+  ["U+3164", "\u3164"],
+  ["U+FFA0", "\uffa0"],
+  ["U+180B", "\u180b"],
+  ["U+E0001", "\u{e0001}"],
 ])(
-  "refuses %s format controls in directory and file names before any filesystem effect",
+  "refuses %s format controls and default-ignorables in directory and file names before any filesystem effect",
   async (_, char) => {
     const inDirectory = `/data/${char}ppa/x/base.apk`;
     const inFileName = `/data/app/x/split${char}_a.apk`;

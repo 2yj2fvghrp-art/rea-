@@ -370,7 +370,7 @@ const aliasedPackagePathsError = (
 ): AnalysisOutputError =>
   new AnalysisOutputError(operation, "aliased_device_paths", {
     capturedOutput,
-    userMessage: `pm path for ${packageName} reported APK paths whose file names collide on case-insensitive or normalising host filesystems: ${displayDevicePath(aliased.first.device_path)} and ${displayDevicePath(aliased.second.device_path)} (${aliased.reason}). No APK was pulled.`,
+    userMessage: `pm path for ${packageName} reported APK paths whose file names collide on case-insensitive host filesystems: ${displayDevicePath(aliased.first.device_path)} and ${displayDevicePath(aliased.second.device_path)} (${aliased.reason}). No APK was pulled.`,
     remediationAction: PM_PATH_REFUSAL_REMEDIATION,
     diagnostics: {
       package_name: packageName,
@@ -1233,9 +1233,8 @@ export class AdbProvider {
           capturedOutput,
         ),
       );
-    // Names that differ only by case or Unicode normalisation resolve to one
-    // file on case-insensitive or normalising destinations, so the second pull
-    // would replace bytes already digested for the first. Refuse the listing on
+    // Names that differ only by case resolve to one file on case-insensitive
+    // destinations, so the second pull would replace bytes already digested for the first. Refuse the listing on
     // every host, before any filesystem effect, so the outcome is reproducible.
     const aliased = findAliasedPackagePaths(parsed.paths);
     if (aliased !== undefined)
