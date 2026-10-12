@@ -409,7 +409,7 @@ const inspectEvmTarget = async () => {
       throw new Error(
         "Retained verification requires supported selected summary",
       );
-    const bundle = await call("get_evidence_bundle", {});
+    const bundle = (await call("get_evidence_bundle", {})).result;
     const parent = bundle.records.find(
       (record) => record.evidence_id === result.parent_evidence_id,
     );
