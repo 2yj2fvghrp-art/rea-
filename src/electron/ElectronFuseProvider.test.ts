@@ -347,3 +347,63 @@ describe("Electron fuse path and container admission", () => {
     expect(report.slices.map((item) => item.sentinel_count)).toEqual([0, 0]);
   });
 });
+
+describe("direct Electron Framework binary selection", () => {
+  const frameworkFixture = async (prefix: string) => {
+    const root = await createTestTempDirectory(prefix);
+    const app = join(root, "Fixture.app");
+    const framework = join(
+      app,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+    );
+    await mkdir(join(framework, "Versions"), { recursive: true });
+    return { app, framework };
+  };
+
+  it("resolves a binary selected through Versions/Current to its target", async () => {
+    const { framework } = await frameworkFixture("rea-electron-fuses-direct-");
+    await mkdir(join(framework, "Versions", "A"), { recursive: true });
+    const binary = join(framework, "Versions", "A", "Electron Framework");
+    await writeFile(binary, thinFuseImage(OBSIDIAN_FUSE_BYTES).bytes);
+    await symlink("A", join(framework, "Versions", "Current"));
+
+    const selected = join(
+      framework,
+      "Versions",
+      "Current",
+      "Electron Framework",
+    );
+    const report = await inspect(selected);
+    expect(report.artifact.selected_path).toBe(selected);
+    expect(report.artifact.resolved_path).toBe(binary);
+  });
+
+  it("rejects a binary selected through a Versions/Current link that leaves the framework", async () => {
+    const { app, framework } = await frameworkFixture(
+      "rea-electron-fuses-direct-escape-",
+    );
+    await mkdir(join(app, "Contents", "Other"), { recursive: true });
+    await writeFile(
+      join(app, "Contents", "Other", "Electron Framework"),
+      elfFuseImage([ELECTRON_FUSE_STATE_BYTES.enabled]).bytes,
+    );
+    await symlink("../../../Other", join(framework, "Versions", "Current"));
+
+    const result = await provider.inspect({
+      path: join(framework, "Versions", "Current", "Electron Framework"),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      _tag: "AnalysisInputError",
+      issues: [
+        expect.objectContaining({
+          path: ["path"],
+          message: expect.stringContaining("escapes"),
+        }),
+      ],
+    });
+  });
+});

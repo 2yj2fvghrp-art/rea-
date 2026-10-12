@@ -43,7 +43,16 @@ export const resolveElectronFuseTarget = async (
       selectedPath,
       resolvedPath: await resolveFrameworkSymlink(selectedPath, signal),
     };
-  if (metadata.isFile()) return { selectedPath, resolvedPath: selectedPath };
+  if (metadata.isFile())
+    return {
+      selectedPath,
+      // `lstat` follows intermediate links such as `Versions/Current`, so a
+      // file inside the framework is re-walked from the framework root.
+      resolvedPath:
+        frameworkRootOf(selectedPath) === null
+          ? selectedPath
+          : await resolveFrameworkSymlink(selectedPath, signal),
+    };
   if (!metadata.isDirectory())
     throw new ElectronFusePathFailure(
       "invalid_format",
