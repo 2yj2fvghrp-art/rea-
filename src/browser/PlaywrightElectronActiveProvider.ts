@@ -356,14 +356,31 @@ export const cleanupElectronProcesses = async (
 const canonicalPaths = async (
   input: ElectronActiveObservationInput,
 ): Promise<ElectronPaths> => {
-  const [executable, application] = await Promise.all([
-    realpath(input.executable_path),
-    realpath(input.application_path),
-  ]);
+  const executable = await realpath(input.executable_path).catch(
+    (cause: unknown) => {
+      throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+        detail: `Electron executable path does not resolve: ${input.executable_path}`,
+        cause,
+      });
+    },
+  );
+  const application = await realpath(input.application_path).catch(
+    (cause: unknown) => {
+      throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+        detail: `Electron application path does not resolve: ${input.application_path}`,
+        cause,
+      });
+    },
+  );
   const root =
     input.application_root === undefined
       ? dirname(application)
-      : await realpath(input.application_root);
+      : await realpath(input.application_root).catch((cause: unknown) => {
+          throw new BrowserObservationError(OPERATION, "target_not_allowed", {
+            detail: `Electron application root path does not resolve: ${input.application_root}`,
+            cause,
+          });
+        });
   return { executable, application, root };
 };
 

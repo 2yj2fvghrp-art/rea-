@@ -23,15 +23,31 @@ type CanonicalElectronActiveObservationInput =
 const canonicalizeInput = async (
   input: ElectronActiveObservationInput,
 ): Promise<Result<CanonicalElectronActiveObservationInput, AnalysisError>> => {
+  const resolvePath = async (
+    field: "executable_path" | "application_path" | "application_root",
+    path: string,
+  ): Promise<string> => {
+    try {
+      return await realpath(path);
+    } catch (cause: unknown) {
+      throw new AnalysisInputError(OPERATION, { cause }, [
+        {
+          path: [field],
+          reason: "invalid_value",
+          message: `The ${field} does not resolve to an existing path: ${path}`,
+        },
+      ]);
+    }
+  };
   try {
     const [executablePath, applicationPath] = await Promise.all([
-      realpath(input.executable_path),
-      realpath(input.application_path),
+      resolvePath("executable_path", input.executable_path),
+      resolvePath("application_path", input.application_path),
     ]);
     const applicationRoot =
       input.application_root === undefined
         ? dirname(applicationPath)
-        : await realpath(input.application_root);
+        : await resolvePath("application_root", input.application_root);
     return {
       ok: true,
       value: {
@@ -42,6 +58,7 @@ const canonicalizeInput = async (
       },
     };
   } catch (cause: unknown) {
+    if (cause instanceof AnalysisInputError) return err(cause);
     return err(
       new AnalysisInputError(OPERATION, { cause }, [
         {
