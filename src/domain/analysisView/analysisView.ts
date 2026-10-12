@@ -29,6 +29,11 @@ import {
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import { projectBinaryLayoutView } from "./binaryLayoutView.js";
 import { projectJavaScriptApplicationView } from "./javascriptApplicationView.js";
+import {
+  projectWebNetworkApiSurfaceView,
+  apiSurfaceFields,
+  apiSurfaceViewSchema,
+} from "./webNetworkApiSurfaceView.js";
 import { projectNativeFunctionView } from "./nativeFunctionView.js";
 import { projectArtifactInventoryView } from "./artifactInventoryView.js";
 import {
@@ -37,6 +42,7 @@ import {
   wasmViewItemSchema,
   wasmSummarySchema,
 } from "./wasmArtifactView.js";
+import type { WebNetworkApiSurfaceAccumulator } from "./WebNetworkApiSurfaceAccumulator.js";
 
 /** Public name of the selected-view workflow. */
 export const INSPECT_ANALYSIS_VIEW_OPERATION = "inspect_analysis_view" as const;
@@ -148,9 +154,17 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   nativeViewSchema,
   inventoryViewSchema,
   wasmViewRequestSchema,
+  apiSurfaceViewSchema,
 ]);
 
-/** Inline Evidence or an exact same-session retained reference. */
+// The application owns admission and authenticated Evidence parsing. SDK and
+// CLI envelope parsing must borrow this unknown value rather than clone it
+// before admission. Advertise the owning Evidence contract in both dialects.
+const inlineEvidenceInputSchema = z.unknown().nonoptional();
+inlineEvidenceInputSchema._zod.processJSONSchema =
+  evidenceSchema._zod.processJSONSchema;
+
+/** Unauthenticated inline input or an exact same-session retained reference. */
 export const analysisViewSourceSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("retained-evidence"),
@@ -158,7 +172,7 @@ export const analysisViewSourceSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("inline"),
-    evidence: evidenceSchema,
+    evidence: inlineEvidenceInputSchema,
   }),
 ]);
 
@@ -267,6 +281,20 @@ const summaryViewResultBase = {
   ...viewResultBase,
 } as const;
 
+/** Summary `inspect_binary_layout` detail returns; no other view kind. */
+export const binaryLayoutSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  summary: layoutSummarySchema,
+  parent_operation: z.literal("inspect_binary_layout"),
+});
+
+/** Summary `analyze_javascript_application` detail returns; no other view kind. */
+export const javascriptApplicationSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  summary: javascriptSummarySchema,
+  parent_operation: z.literal("analyze_javascript_application"),
+});
+
 /** Exact summary carrier for artifact inspection's optional delivery contract. */
 export const artifactInventorySummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
@@ -276,6 +304,17 @@ export const artifactInventorySummaryViewResultSchema = z.strictObject({
 
 /** Projected facts for one selected view of retained analysis Evidence. */
 export const analysisViewResultSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...viewResultBase,
+    ...apiSurfaceFields,
+    kind: z.literal("api-surface"),
+    parent_operation: z.literal("inspect_web_network_capture"),
+    view: apiSurfaceViewSchema,
+    artifact: z.strictObject({
+      path: z.string(),
+      sha256: digestSchema.nullable(),
+    }),
+  }),
   z.strictObject({
     ...summaryViewResultBase,
     summary: z.union([
@@ -348,6 +387,8 @@ export interface AnalysisViewParent {
   readonly normalizedResult: unknown;
   readonly limitations: readonly string[];
   readonly artifact?: { readonly path: string; readonly sha256: string } | null;
+  /** Parent Evidence parameters, when the parent operation records them. */
+  readonly parameters?: unknown;
 }
 
 /** Construct a typed input failure for one selected-view constraint. */
@@ -358,6 +399,10 @@ export const analysisViewInputError = (
 
 /** View payload before the content digest is attached. */
 export type UnsignedAnalysisView =
+  | Omit<
+      Extract<AnalysisViewResult, { readonly kind: "api-surface" }>,
+      "view_digest"
+    >
   | Omit<
       Extract<AnalysisViewResult, { readonly kind: "summary" }>,
       "view_digest"
@@ -418,7 +463,7 @@ const unsupportedParent = (
   new AnalysisUnsupportedTargetError(
     INSPECT_ANALYSIS_VIEW_OPERATION,
     parentArtifactPath(parent),
-    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, or WASM Evidence.`,
+    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, WASM, or web network capture Evidence.`,
   );
 
 const parentArtifactPath = (parent: AnalysisViewParent): string => {
@@ -446,6 +491,7 @@ const parentArtifactPath = (parent: AnalysisViewParent): string => {
 export const projectAnalysisView = (
   parent: AnalysisViewParent,
   view: AnalysisViewRequest,
+  apiSurfaceAccumulator?: WebNetworkApiSurfaceAccumulator,
 ): Result<AnalysisViewResult, AnalysisError> => {
   const digest = parentDigest(parent.evidenceId);
   if (!digestSchema.safeParse(digest).success)
@@ -458,6 +504,17 @@ export const projectAnalysisView = (
         },
       ]),
     );
+  if (
+    view.kind === "api-surface" ||
+    parent.operation === "inspect_web_network_capture"
+  ) {
+    const projected = projectWebNetworkApiSurfaceView(
+      parent,
+      view,
+      apiSurfaceAccumulator,
+    );
+    return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
+  }
   if (parent.operation === "inspect_binary_layout") {
     const layout = binaryLayoutSchema.safeParse(parent.normalizedResult);
     if (!layout.success)
