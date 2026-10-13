@@ -565,7 +565,7 @@ const webMcpDimension = (
         ...result,
         status: "unknown",
         reason:
-          "Consequential annotations were not recorded in at least one legacy capture.",
+          "Consequential annotations were not recorded or were invalid in at least one capture.",
       }
     : result;
 };
