@@ -82,12 +82,11 @@ const configurationCheck = (
   // The failure kind is tagged at the configuration boundary; project its
   // remediation and classification here instead of reinterpreting the
   // phase/setting evidence. Every failed check keeps a remediation.
-  const outcome = projectJadxFailureOutcome(
+  const kind =
     availability.status === "unavailable"
       ? asFailureKind(availability.diagnostics["failure_kind"])
-      : null,
-    configured,
-  );
+      : null;
+  const outcome = projectJadxFailureOutcome(kind, configured);
   return {
     name: "configuration",
     ok: false,
@@ -98,6 +97,9 @@ const configurationCheck = (
         : availability.reason,
     remediation: outcome.remediation,
     classification: outcome.classification,
+    ...(kind === "java_probe" && availability.status === "unavailable"
+      ? { details: probeDetails(availability.diagnostics) }
+      : {}),
   };
 };
 
@@ -107,3 +109,32 @@ const asFailureKind = (value: JsonValue | undefined): JadxFailureKind | null =>
   (JADX_FAILURE_KINDS as readonly string[]).includes(value)
     ? (value as JadxFailureKind)
     : null;
+
+/**
+ * Project bounded Java probe metadata for the doctor report. The full
+ * stdout/stderr can reach the 1 MiB probe budget, so only the bounded
+ * outcome metadata is carried; the message already references the retained
+ * output.
+ */
+const probeDetails = (
+  diagnostics: Readonly<Record<string, JsonValue>>,
+): Record<string, JsonValue> => {
+  const details: Record<string, JsonValue> = {};
+  for (const key of [
+    "java_executable",
+    "failure",
+    "output_truncated",
+    "exit_code",
+    "process_error_code",
+    "signal",
+    "killed",
+    "output_limit_bytes",
+    "deadline_ms",
+    "jdk_compiler",
+    "java_major",
+  ] as const) {
+    const value = diagnostics[key];
+    if (value !== undefined) details[key] = value;
+  }
+  return details;
+};

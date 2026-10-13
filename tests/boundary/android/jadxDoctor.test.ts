@@ -357,3 +357,40 @@ it("classifies Windows native ownership failures as unsupported host", async () 
     });
   }
 });
+
+it("classifies malformed JAVA_HOME as configuration drift", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-javahome-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: "relative/path",
+  });
+
+  expect(inspection.checks[0]?.code).toBe("open_options_invalid");
+  expect(inspection.checks[0]?.classification).toBe("config_drift");
+});
+
+it("preserves Java probe diagnostics in doctor output", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-probe-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  await writeJadxJarInventory(jar);
+  const javaHome = join(root, "fake-jdk-unparseable");
+  const bin = join(javaHome, "bin");
+  const java = join(bin, "java");
+  await mkdir(bin, { recursive: true });
+  // Emits jdk.compiler but no parseable java.base version.
+  await writeFile(java, `#!/bin/sh\nprintf 'jdk.compiler@21\\n'\n`);
+  await chmod(java, 0o700);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.checks[0]?.code).toBe("version_unresolved");
+  expect(inspection.checks[0]?.details).toMatchObject({
+    java_executable: expect.any(String),
+  });
+});

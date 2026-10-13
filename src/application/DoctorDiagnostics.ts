@@ -280,6 +280,7 @@ const providerDoctorChecks = (
     ...(candidate.remediation === null
       ? {}
       : { remediation: candidate.remediation }),
+    ...(candidate.details === undefined ? {} : { details: candidate.details }),
   }));
 
 const unsupportedHopperRemediation = (configured: boolean): string =>

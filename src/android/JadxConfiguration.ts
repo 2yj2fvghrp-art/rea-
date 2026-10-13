@@ -52,6 +52,7 @@ type ConfigurationFailureCode =
 export type JadxFailureKind =
   | "windows_native_ownership"
   | "java_runtime"
+  | "java_home"
   | "jvm_options"
   | "jar"
   | "java_probe"
@@ -61,6 +62,7 @@ export type JadxFailureKind =
 export const JADX_FAILURE_KINDS: readonly JadxFailureKind[] = [
   "windows_native_ownership",
   "java_runtime",
+  "java_home",
   "jvm_options",
   "jar",
   "java_probe",
@@ -92,6 +94,11 @@ export const projectJadxFailureOutcome = (
       return {
         remediation: JADX_JAVA_RUNTIME_REMEDIATION,
         classification: "missing_dependency",
+      };
+    case "java_home":
+      return {
+        remediation: JADX_JAVA_RUNTIME_REMEDIATION,
+        classification: drift,
       };
     case "jvm_options":
       return {
@@ -405,7 +412,7 @@ const resolveJava = async (
     "open_options_invalid",
     "JAVA_HOME must select an existing JDK by absolute path; omit it to use java on PATH.",
     { java_home: environment.JAVA_HOME },
-    "java_runtime",
+    "java_home",
   );
 };
 
