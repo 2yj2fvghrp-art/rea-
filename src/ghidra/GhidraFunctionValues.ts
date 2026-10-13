@@ -306,6 +306,15 @@ const ghidraFunctionDossier = functionDossierSchema
   })
   .strict()
   .superRefine((value, context) => {
+    if (
+      (value.swift_string_literals === undefined) !==
+      (value.swift_string_literal_omissions === undefined)
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Ghidra dossier must record Swift literals and their omissions together",
+      });
     const addresses = [
       value.procedure.address,
       ...value.comments.map(({ address }) => address),
@@ -321,6 +330,14 @@ const ghidraFunctionDossier = functionDossierSchema
         address,
         source_address,
       ]),
+      ...(value.swift_string_literals ?? []).flatMap(
+        ({ address, source_address }) =>
+          address === null ? [source_address] : [address, source_address],
+      ),
+      ...(value.swift_string_literal_omissions ?? []).flatMap(
+        ({ address, source_address }) =>
+          address === null ? [source_address] : [address, source_address],
+      ),
       ...value.basic_blocks.flatMap(({ start, end, successors }) => [
         start,
         end,
@@ -405,6 +422,8 @@ const functionBoundaryObservationOperations: ReadonlySet<GhidraFunctionOperation
   new Set([
     "analyze_function",
     "procedure_assembly",
+    "procedure_callees",
+    "procedure_callers",
     "procedure_info",
     "procedure_pseudo_code",
     "read_function_instructions",
