@@ -142,7 +142,9 @@ export const registerReverseEngineeringTools = (
           const result = await logToolExecution(logger, rizin.name, () =>
             service.executeRizinCommand(input, {
               signal: context.mcpReq.signal,
-              onLaunched: invalidateSnapshotForExternalMutation,
+              ...(invalidateSnapshotForExternalMutation === undefined
+                ? {}
+                : { onLaunched: invalidateSnapshotForExternalMutation }),
             }),
           );
           if (!result.ok)

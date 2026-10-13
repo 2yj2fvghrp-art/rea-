@@ -189,7 +189,10 @@ export class ReverseEngineeringService {
       );
     const input = parsed.data;
     const command = (signal?: AbortSignal) =>
-      this.#commands.objdump(input, { signal, timeoutMs: DEFAULT_TIMEOUT_MS });
+      this.#commands.objdump(input, {
+        ...(signal === undefined ? {} : { signal }),
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      });
     return this.#observe(
       "inspect_with_objdump",
       command,
@@ -213,7 +216,10 @@ export class ReverseEngineeringService {
       );
     const input = parsed.data;
     const command = (signal?: AbortSignal) =>
-      this.#commands.rizin(input, { signal, timeoutMs: DEFAULT_TIMEOUT_MS });
+      this.#commands.rizin(input, {
+        ...(signal === undefined ? {} : { signal }),
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      });
     return this.#observe(
       "execute_rizin_command",
       command,
@@ -353,11 +359,11 @@ export class ReverseEngineeringService {
           ...this.#environment,
           ...profile.environmentOverrides,
         },
-        signal,
+        ...(signal === undefined ? {} : { signal }),
         timeout: DEFAULT_TIMEOUT_MS,
         stopSignal: "SIGTERM",
         maxBuffer: MAX_COMBINED_OUTPUT_BYTES,
-        onLaunched,
+        ...(onLaunched === undefined ? {} : { onLaunched }),
       });
       // Injected runners may only report completion, which also proves dispatch.
       onLaunched?.();
