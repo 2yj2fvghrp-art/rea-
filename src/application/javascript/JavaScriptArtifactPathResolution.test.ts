@@ -2372,7 +2372,7 @@ describe("exact HTML resource resolution", () => {
 });
 
 describe("exact Electron runtime entrypoint resolution", () => {
-  it("accepts an exact extensionless Electron URL resource", () => {
+  it("requires a protocol for Electron URL resources", () => {
     const files = fileMap([
       file("app/main.cjs", "root"),
       file("app/renderer", "root"),
@@ -2381,6 +2381,19 @@ describe("exact Electron runtime entrypoint resolution", () => {
     expect(
       resolve({
         declaredPath: "./renderer",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        exactUrlResource: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "unavailable",
+      resolved_path: null,
+      limitations: [expect.stringContaining("requires a URL protocol")],
+    });
+    expect(
+      resolve({
+        declaredPath: "file:///app/renderer",
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,

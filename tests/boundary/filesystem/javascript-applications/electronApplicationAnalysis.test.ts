@@ -209,7 +209,7 @@ utilityProcess.fork("./service.js");
     roles.map((role) => [role.observations[0]?.properties.declared_path, role]),
   );
 
-  expect(result.electron_summary.resolved_utility_entrypoints).toBe(1);
+  expect(result.electron_summary.resolved_utility_entrypoints).toBe(2);
   for (const [declaredPath, candidatePath] of [
     ["./entry", "entry"],
     ["preload", "preload"],
@@ -259,8 +259,8 @@ utilityProcess.fork("./service.js");
       expect.objectContaining({
         properties: expect.objectContaining({
           declared_path: "./worker",
-          resolved_path: null,
-          resolution_status: "not-found",
+          resolved_path: "worker.js",
+          resolution_status: "resolved",
         }),
       }),
       expect.objectContaining({
@@ -306,22 +306,23 @@ const expectSuffixOnlyRenderersUnresolved = (graph: ApplicationGraph): void => {
       resolved_path: "renderer/index.html",
       resolution_status: "resolved",
     });
-  expect(renderers.get("./renderer/other.html?theme=dark#home")?.observations[0]?.properties)
-    .toMatchObject({
-      resolved_path: "renderer/other.html",
-      resolution_status: "resolved",
-    });
-  expect(renderers.get("renderer/bare.html")?.observations[0]?.properties)
-    .toMatchObject({
-      resolved_path: "renderer/bare.html",
-      resolution_status: "resolved",
-    });
-  for (const declaredPath of ["#home", ""]) {
+  for (const declaredPath of [
+    "./renderer/other.html?theme=dark#home",
+    "renderer/bare.html",
+    "./renderer/missing.html",
+    "#home",
+    "",
+  ]) {
     const renderer = renderers.get(declaredPath);
     expect(renderer?.observations[0]?.properties).toMatchObject({
       resolved_path: null,
       resolution_status: "unavailable",
     });
+    expect(renderer?.observations[0]?.properties.limitations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("requires a URL protocol"),
+      ]),
+    );
     expect(
       graph.edges.some(
         (edge) =>
@@ -342,7 +343,6 @@ const expectExactRendererPaths = (graph: ApplicationGraph): void => {
       ]),
   );
   for (const [declaredPath, candidatePath] of [
-    ["./renderer/missing.html", "renderer/missing.html"],
     ["./renderer/page", "renderer/page"],
   ]) {
     const renderer = renderers.get(declaredPath);

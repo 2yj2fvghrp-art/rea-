@@ -270,13 +270,17 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
 const resolveExactUrlResource = (
   input: ResolveArtifactPathInput,
 ): CandidateResolution => {
-  // loadURL values are URL references, even when they look like bare package
-  // specifiers or begin with a fragment. Resolve their URL path before module
-  // aliases and package lookup can reinterpret the declaration.
-  const urlInput = /^file:/iu.test(input.declaredPath)
-    ? input
-    : { ...input, context: "url-reference" as const };
-  const urlContextCandidate = contextualCandidate(urlInput);
+  // Electron loadURL requires a protocol. A scheme-less string is not relative
+  // to the calling script; filesystem paths belong to loadFile.
+  if (!hasScheme(input.declaredPath))
+    return unresolvedCandidate("unavailable", [
+      "Electron loadURL requires a URL protocol; relative filesystem paths belong to loadFile.",
+    ]);
+  if (!/^file:/iu.test(input.declaredPath))
+    return unresolvedCandidate("external", [
+      "Only file URLs can be mapped to selected local application artifacts.",
+    ]);
+  const urlContextCandidate = contextualCandidate(input);
   if (typeof urlContextCandidate !== "string") return urlContextCandidate;
   const confined = confineCandidate(urlContextCandidate);
   if (typeof confined !== "string") return confined;
