@@ -528,6 +528,17 @@ it("rejects CommonJS require after the wrapper module replaces its delegate", ()
   expect(ir.configurationOperations).toEqual([]);
 });
 
+it.each([
+  `module.require.extra = true; const fs = require('fs'); fs.readFileSync('kept');`,
+  `const owner = module; owner.require = () => ({}); const fs = require('fs'); fs.readFileSync('wrong');`,
+  `Object.defineProperty(module, 'require', {value: () => ({})}); const fs = require('fs'); fs.readFileSync('wrong');`,
+])("tracks only actual wrapper require replacements: %s", (source) => {
+  const ir = analyzeJavaScriptSemantics(source);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(
+    source.includes("extra") ? ["kept"] : [],
+  );
+});
+
 it("preserves a saved promises object after deleting its parent export", () => {
   const ir =
     analyzeJavaScriptSemantics(`const fs = require('fs'); const fsp = fs.promises;
@@ -555,6 +566,32 @@ it("recognizes nested ESM namespace receivers as original built-ins", () => {
     "first",
     "second",
   ]);
+});
+
+it("keeps intact fs/promises identity after deleting the fs.promises slot", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const fs=require('fs'); delete fs.promises;
+    const fsp=require('fs/promises'); const handle=fsp.open('kept'); handle.close();`);
+  expect(
+    ir.resourceOperations.map(({ kind, method }) => ({ kind, method })),
+  ).toEqual([
+    { kind: "acquire", method: "open" },
+    { kind: "release", method: "close" },
+  ]);
+});
+
+it("does not let own fs probe calls hide later builtin reads", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `const fs=require('fs'); fs.existsSync('probe'); fs.readFileSync('kept');`,
+  );
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
+it("resolves nested ESM default namespace methods", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `import * as ns from 'node:fs'; ns.default.readFileSync('kept');`,
+  );
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
 });
 
 it("tracks process objects passed through qualified global references", () => {

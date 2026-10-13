@@ -14,6 +14,7 @@ import {
 import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
+import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
 
 interface JavaScriptRequireOrigin {
   readonly origin: JavaScriptModuleOrigin;
@@ -36,7 +37,30 @@ const writesModuleRequire = (
 ): readonly t.Node[] => {
   const cached = moduleRequireWrites.get(state);
   if (cached !== undefined) return cached;
+  // Interop invocation resolution may ask for require provenance while this
+  // index is being built. Publish a temporary empty result to break that cycle.
+  moduleRequireWrites.set(state, []);
   const writes: t.Node[] = [];
+  const interop = createSemanticModuleInterop(state);
+  const isModuleObject = (
+    node: t.Node,
+    visited = new Set<string>(),
+  ): boolean => {
+    const value = unwrapJavaScriptExpression(node).node;
+    if (t.isIdentifier(value, { name: "module" }))
+      return (
+        resolveSemanticBindingState(state, value, "module") === undefined &&
+        !semanticResolutionBlocked(state, value, "module")
+      );
+    if (!t.isIdentifier(value)) return false;
+    const binding = resolveSemanticBindingState(state, value, value.name);
+    if (binding === undefined || visited.has(binding.bindingId)) return false;
+    const next = new Set(visited).add(binding.bindingId);
+    return (
+      binding.initializers.length > 0 &&
+      binding.initializers.every(({ node: init }) => isModuleObject(init, next))
+    );
+  };
   const pending: t.Node[] = [state.program];
   while (pending.length > 0) {
     const node = pending.pop();
@@ -57,12 +81,70 @@ const writesModuleRequire = (
         root = root.object;
       }
       if (
+        members.length === 1 &&
         members[0] === "require" &&
-        t.isIdentifier(root, { name: "module" }) &&
-        resolveSemanticBindingState(state, root, "module") === undefined &&
-        !semanticResolutionBlocked(state, root, "module")
+        isModuleObject(root)
       )
         writes.push(node);
+    }
+    if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+      const invocation = interop.intrinsicInvocation(node);
+      const owner =
+        invocation?.path?.length === 3 ? invocation.path[1] : undefined;
+      const method = invocation?.path?.at(-1);
+      const args = invocation?.arguments;
+      if (
+        (owner === "Object" || owner === "Reflect") &&
+        method === "defineProperty" &&
+        isModuleObject(args?.[0] ?? t.nullLiteral())
+      ) {
+        const key = interop.staticString(args?.[1]);
+        if (key === "require" || key === undefined) writes.push(node);
+      } else if (
+        owner === "Object" &&
+        method === "defineProperties" &&
+        isModuleObject(args?.[0] ?? t.nullLiteral())
+      ) {
+        const descriptors = args?.[1];
+        if (
+          !t.isObjectExpression(descriptors) ||
+          descriptors.properties.some(
+            (property) =>
+              t.isSpreadElement(property) ||
+              (t.isObjectProperty(property) &&
+                semanticStaticPropertyKey(property.key, property.computed) ===
+                  "require"),
+          )
+        )
+          writes.push(node);
+      } else if (
+        owner === "Object" &&
+        method === "assign" &&
+        args?.some((arg) => isModuleObject(arg))
+      ) {
+        const target = args?.[0];
+        if (target !== undefined && isModuleObject(target)) {
+          const sourceHasRequire = args
+            ?.slice(1)
+            .some(
+              (arg) =>
+                t.isObjectExpression(arg) &&
+                arg.properties.some(
+                  (property) =>
+                    t.isObjectProperty(property) &&
+                    semanticStaticPropertyKey(
+                      property.key,
+                      property.computed,
+                    ) === "require",
+                ),
+            );
+          if (
+            sourceHasRequire ||
+            args?.slice(1).some((arg) => !t.isObjectExpression(arg))
+          )
+            writes.push(node);
+        }
+      }
     }
     for (const key of t.VISITOR_KEYS[node.type] ?? []) {
       const value = (node as unknown as Record<string, unknown>)[key];
@@ -220,8 +302,9 @@ export const semanticRequireExportsIdentity = <Key>(
   path: readonly Key[],
 ): { readonly specifier: string; readonly path: readonly (Key | string)[] } => {
   const name = specifier.replace(/^node:/u, "");
-  return name === "fs/promises"
-    ? { specifier: "fs", path: ["promises", ...path] }
+  if (name === "fs/promises") return { specifier: name, path };
+  return name === "fs" && path[0] === "promises" && path.length > 1
+    ? { specifier: "fs/promises", path: path.slice(1) }
     : { specifier: name, path };
 };
 

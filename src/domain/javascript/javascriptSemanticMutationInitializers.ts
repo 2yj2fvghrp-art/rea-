@@ -323,7 +323,7 @@ const selectInitializers = (
   atRead = false,
 ): Pick<
   JavaScriptSemanticBindingState,
-  "initializers" | "referenceInitializers"
+  "initializers" | "referenceInitializers" | "directOrigins"
 > => {
   if (position === null) return binding;
   const origins = [

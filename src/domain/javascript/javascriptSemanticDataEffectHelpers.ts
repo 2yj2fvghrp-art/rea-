@@ -188,7 +188,26 @@ export const builtinDataEffectMethod = (
   }
   if (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee))
     return null;
-  if (!t.isIdentifier(callee.object)) return null;
+  if (!t.isIdentifier(callee.object)) {
+    const method = semanticStaticPropertyKey(callee.property, callee.computed);
+    const source = semanticExpressionModuleOrigin(callee.object, state);
+    if (method === null || source === undefined) return null;
+    const origin = builtinNamespaceOrigin(source);
+    return origin.importedPath.length === 0 &&
+      specifiers.some(
+        (specifier) => specifier.replace(/^node:/u, "") === origin.specifier,
+      ) &&
+      !requiredModuleChanged(
+        origin.specifier,
+        [...origin.importedPath, method],
+        callee,
+        state,
+        true,
+        callee.object,
+      )
+      ? method
+      : null;
+  }
   const binding = resolveSemanticBindingState(
     state,
     callee.object,
@@ -460,6 +479,7 @@ const BUILTIN_RECEIVER_METHODS: Readonly<Record<string, ReadonlySet<string>>> =
       "writeFileSync",
       "close",
       "closeSync",
+      "existsSync",
       ...BUILTIN_RESOURCE_METHODS.fs,
     ]),
     "fs/promises": new Set([
@@ -617,29 +637,21 @@ const computeOriginalBuiltinReceiver = (
   const receiver = t.isIdentifier(callee.object)
     ? resolveSemanticBindingState(state, callee.object, callee.object.name)
     : undefined;
-  const evaluatedReceiver =
-    receiver === undefined &&
-    (t.isMemberExpression(callee.object) ||
-      t.isOptionalMemberExpression(callee.object))
-      ? evaluateSemanticExpression(callee.object, state)
-      : undefined;
   const provenance =
-    evaluatedReceiver?.status === "module"
-      ? evaluatedReceiver
-      : receiver === undefined
-        ? undefined
-        : evaluateSemanticProvenance(receiver, state);
+    receiver === undefined
+      ? undefined
+      : evaluateSemanticProvenance(receiver, state);
   const sourceOrigin =
     provenance?.status === "module"
       ? provenance.origins[0]
-      : (semanticRequireOrigin(callee.object, state)?.origin ??
+      : (semanticExpressionModuleOrigin(callee.object, state) ??
+        semanticRequireOrigin(callee.object, state)?.origin ??
         semanticGlobalProcessOrigin(callee.object, state));
   if (sourceOrigin === undefined) return false;
   const origin = builtinNamespaceOrigin(sourceOrigin);
   if (origin.importedPath.length !== 0) return false;
   const method = semanticStaticPropertyKey(callee.property, callee.computed);
-  const identity = semanticRequireExportsIdentity(sourceOrigin.specifier, [
-    ...sourceOrigin.importedPath,
+  const identity = semanticRequireExportsIdentity(origin.specifier, [
     method ?? "",
   ]);
   if (
@@ -673,12 +685,37 @@ const computeOriginalBuiltinReceiver = (
   });
 };
 
+const semanticExpressionModuleOrigin = (
+  expression: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+  visited = new Set<string>(),
+): JavaScriptModuleOrigin | undefined => {
+  const node = unwrapJavaScriptExpression(expression).node;
+  const required = semanticRequireOrigin(node, state);
+  if (required !== undefined) return required.origin;
+  if (t.isIdentifier(node)) {
+    const binding = resolveSemanticBindingState(state, node, node.name);
+    if (binding === undefined || visited.has(binding.bindingId))
+      return undefined;
+    const provenance = evaluateSemanticProvenance(binding, state);
+    return provenance.status === "module" ? provenance.origins[0] : undefined;
+  }
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    const base = semanticExpressionModuleOrigin(node.object, state, visited);
+    const key = semanticStaticPropertyKey(node.property, node.computed);
+    return base === undefined || key === null
+      ? undefined
+      : { ...base, importedPath: [...base.importedPath, key] };
+  }
+  return undefined;
+};
+
 /** Recognize global or node:process aliases without accepting shadowing. */
 export const isSemanticProcessObject = (
   node: t.Expression | t.Super,
   state: JavaScriptSemanticAnalysisState,
   family: "env" | "argv",
-  key?: string,
+  key?: string | null,
 ): boolean => {
   if (!t.isIdentifier(node)) return false;
   const binding = resolveSemanticBindingState(state, node, node.name);
