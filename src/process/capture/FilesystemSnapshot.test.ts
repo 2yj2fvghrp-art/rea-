@@ -37,6 +37,27 @@ const countOpenDescriptorsFor = async (path: string): Promise<number> => {
   return matches.filter(Boolean).length;
 };
 
+it.skipIf(process.platform === "win32")(
+  "omits a captured regular file replaced by a symlink",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-snapshot-symlink-"));
+    const selected = join(directory, "selected");
+    const replacement = join(directory, "replacement");
+    try {
+      await writeFile(selected, "captured bytes");
+      await writeFile(replacement, "unselected bytes");
+      const expected = await lstat(selected);
+      await rm(selected);
+      await symlink(replacement, selected);
+      const outcome = await hashFile(selected, expected, 1_000);
+      expect(outcome.state).toBe("omitted");
+      expect(outcome).not.toHaveProperty("sha256");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 it("does not hash a replacement file using the earlier path metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rea-snapshot-identity-"));
   const path = join(directory, "observed-file");

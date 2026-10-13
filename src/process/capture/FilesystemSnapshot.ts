@@ -138,10 +138,13 @@ export const hashFile = async (
     }
     const after = await handle.stat();
     signal?.throwIfAborted();
-    if (
-      !hasSameFileState(stats, after) ||
-      (!noFollowAvailable && !hasSameFileState(after, await lstat(path)))
-    )
+    let unchanged = hasSameFileState(stats, after);
+    if (unchanged && !noFollowAvailable) {
+      const namedAfter = await lstat(path);
+      signal?.throwIfAborted();
+      unchanged = hasSameFileState(after, namedAfter);
+    }
+    if (!unchanged)
       return {
         state: "omitted",
         reason: "file_changed_or_short_read",

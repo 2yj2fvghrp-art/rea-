@@ -1,13 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  chmod,
-  lstat,
-  mkdir,
-  open,
-  realpath,
-  rm,
-  rmdir,
-} from "node:fs/promises";
+import { chmod, mkdir, open, realpath, rm, rmdir } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import {
   createConnection,
@@ -222,9 +214,16 @@ const ensureLeaseDirectory = async (directory: string): Promise<void> => {
     }
   } catch (cause: unknown) {
     if (cause instanceof HopperStartError) throw cause;
+    const accessDenied =
+      process.getuid !== undefined &&
+      cause instanceof Error &&
+      "code" in cause &&
+      cause.code === "EACCES";
     throw new HopperStartError({
       cause,
-      userMessage: "REA could not inspect its private Hopper lease directory.",
+      userMessage: accessDenied
+        ? `REA could not access its Hopper lease directory at ${JSON.stringify(directory)}. Check its ownership and parent-directory access. For a directory you own, restore owner-only read, write, and search permissions (0700), then retry.`
+        : "REA could not inspect its private Hopper lease directory.",
     });
   } finally {
     await handle?.close();
