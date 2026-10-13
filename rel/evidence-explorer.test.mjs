@@ -79,7 +79,7 @@ test("read-only CLI emits JSON and DOT from a saved local file", () => {
   assert.equal(readEvidence(file).edges.length, 2);
   const executable = fileURLToPath(new URL("./evidence-explorer.mjs", import.meta.url));
   const run = (...args) => spawnSync(process.execPath, [executable, file, ...args], { encoding: "utf8" });
-  const json = run("--find", "cli.mjs", "--json");
+  const json = run("--find", "search.mjs", "--json");
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).matching, 1);
   assert.match(run("--dot").stdout, /digraph REL/);

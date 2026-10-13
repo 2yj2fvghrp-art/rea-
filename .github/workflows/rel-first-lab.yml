@@ -37,6 +37,8 @@ jobs:
         run: npm run build:cached
       - name: Test beginner visual lab and loopback-only server
         run: node --test rel/lab-server.test.mjs
+      - name: Validate saved Evidence Explorer and its source-linked graph outputs
+        run: node --test rel/evidence-explorer.test.mjs
       - name: Verify actual Codex-facing MCP server discovery
         run: node --test rel/codex-mcp.test.mjs
       - name: Verify REL intake classification and execution boundaries

@@ -13,11 +13,10 @@ import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
 const execFileAsync = promisify(execFile);
 
-it
-  .runIf(process.platform === "linux")
-  .each(["demo helper", "alternate launcher"])(
-  "rejects a reparented %s without signaling it",
-  async (mode, context) => {
+for (const mode of ["demo helper", "alternate launcher"]) {
+  it.runIf(process.platform === "linux")(
+    "rejects a reparented " + mode + " without signaling it",
+    async (context) => {
     const runId = randomUUID();
     const childCode =
       "process.title = 'Xvfb'; setInterval(() => {}, 1000); process.send('ready');";
@@ -127,5 +126,6 @@ it
         expect(cleanup.cleaned, JSON.stringify(cleanup)).toBe(true);
       }
     }
-  },
-);
+    },
+  );
+}
