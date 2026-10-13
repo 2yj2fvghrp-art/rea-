@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { spawn } from "@lydell/node-pty";
+import { decode as decodeToon } from "@toon-format/toon";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { parse as parseYaml } from "yaml";
 
 import { CLIENT_LOCATION_ENVIRONMENT } from "../../fixtures/clientEnvironment.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -411,7 +411,7 @@ describe("non-interactive setup in a terminal", () => {
       },
     );
     expect(stderr).toBe("");
-    expect(parseYaml(stdout)).toMatchObject({
+    expect(decodeToon(stdout)).toMatchObject({
       status: "planned",
       appliedActions: [],
     });
