@@ -1,5 +1,6 @@
 [
   { "code": "en", "name": "English", "readme": "README.md", "dir": "ltr" },
+  { "code": "hi", "name": "हिन्दी", "readme": "README_hi.md", "dir": "ltr" },
   {
     "code": "zh-CN",
     "name": "简体中文",

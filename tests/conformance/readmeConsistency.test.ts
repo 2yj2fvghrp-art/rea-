@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PRODUCT_IDENTITY } from "../../src/identity.js";
 
 const translatedReadmes = [
+  "README_hi.md",
   "README_zh.md",
   "README_zh-TW.md",
   "README_ja.md",
