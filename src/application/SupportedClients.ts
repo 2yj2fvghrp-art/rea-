@@ -49,7 +49,6 @@ export interface SetupClient {
     | "hermes"
     | "zcode"
     | "dsh"
-    | "devin"
     | "unsupported";
 }
 
@@ -540,7 +539,7 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     configPath: ({ home, platform, env }: ClientPathContext) =>
       join(devinDirectory({ home, platform, env }), "mcp_config.json"),
     markerPath: devinDirectory,
-    format: "devin",
+    format: "json",
   },
   {
     name: "opencode",
