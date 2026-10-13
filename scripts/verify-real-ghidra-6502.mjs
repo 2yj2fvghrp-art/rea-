@@ -379,14 +379,14 @@ try {
   } finally {
     await transport.close();
   }
-  // Preserve the owned workspace if connection cleanup fails.
-  await rm(workspace, { recursive: true, force: true });
 }
 const verifierRun = await completeVerifierRun(run);
 if (process.platform !== "win32") {
   assert.equal(verifierRun.process_lineage.status, "verified");
   assert.deepEqual(verifierRun.process_lineage.descendants, []);
 }
+// Keep the workspace for diagnosis unless verification and cleanup both pass.
+await rm(workspace, { recursive: true, force: true });
 process.stdout.write(
   JSON.stringify({ verifier_run: verifierRun, ...report }) + "\n",
 );
