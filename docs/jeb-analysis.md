@@ -34,3 +34,32 @@ All four are read-only with respect to the target file; only `open_jeb_project` 
 - An unreachable endpoint is a provider-availability failure with recovery guidance; REA does not retry or spawn the engine.
 
 Real-engine verification lives in the JEB lane described in [testing.md](testing.md); mock transport tests do not establish real-engine compatibility.
+
+## Connect an agent once
+
+Add the endpoint to the **REA** MCP entry's environment:
+
+```json
+{
+  "mcpServers": {
+    "rea": {
+      "command": "npx",
+      "args": ["-y", "rea-agents@<version-with-jeb>", "mcp"],
+      "env": {
+        "REA_JEB_MCP_URL": "http://127.0.0.1:8425/mcp"
+      }
+    }
+  }
+}
+```
+
+Use a package version that actually includes this adapter; repository main can be ahead of the npm release. After reconnecting, call:
+
+```json
+{"name":"inspect_jeb_client","arguments":{}}
+{"name":"open_jeb_project","arguments":{"path":"/artifact/path/on/the/engine/host"}}
+{"name":"list_jeb_units","arguments":{"index":0,"count":50}}
+{"name":"decompile_jeb_item","arguments":{"item_address":"0x1000","item_kind":"method"}}
+```
+
+For guided registration, set `REA_JEB_MCP_URL` before `rea setup --client <client>`. Setup includes that endpoint reference in its reviewed plan and preserves it after approval. `rea doctor --provider jeb --json` validates the endpoint without starting JEB and explicitly leaves engine availability and project binding for analysis.

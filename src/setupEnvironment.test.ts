@@ -81,15 +81,23 @@ it("plans setup and uninstall against selected home and client overrides", async
 it("composes provider diagnostics from selected configuration rather than ambient configuration", async () => {
   vi.stubEnv("GHIDRA_INSTALL_DIR", "/ambient/ghidra");
   vi.stubEnv("REA_IDA_MCP_CONFIG", "/ambient/ida.json");
+  vi.stubEnv("REA_JEB_MCP_URL", "http://127.0.0.1:9999/mcp");
   const host = createSystemDoctorHost({
     GHIDRA_INSTALL_DIR: "/selected/ghidra",
     REA_IDA_MCP_CONFIG: "/selected/ida.json",
+    REA_JEB_MCP_URL: "http://127.0.0.1:8425/mcp",
   });
   const inspections = await host.providerInspections?.();
   expect(inspections?.find(({ id }) => id === "ghidra")?.configured).toBe(true);
+  expect(inspections?.find(({ id }) => id === "jeb")).toMatchObject({
+    configured: true,
+    available: true,
+  });
   expect(JSON.stringify(inspections)).toContain("/selected/ghidra");
   expect(JSON.stringify(inspections)).toContain("/selected/ida.json");
+  expect(JSON.stringify(inspections)).toContain("http://127.0.0.1:8425/mcp");
   expect(JSON.stringify(inspections)).not.toContain("/ambient/");
+  expect(JSON.stringify(inspections)).not.toContain("127.0.0.1:9999");
 });
 
 it("passes only selected environment to updater subprocesses and drops npm invocation identity", async () => {
