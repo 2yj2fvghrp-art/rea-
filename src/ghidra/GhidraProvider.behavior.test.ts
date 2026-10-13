@@ -2186,3 +2186,105 @@ describe("Ghidra disabled analyzer options", () => {
     }
   });
 });
+
+describe("Ghidra queries after the owned provider is lost", () => {
+  const lostProviderSession = async (
+    state: "exited" | "unreachable" | "idle",
+    failureKind: "process" | "protocol" | "remote" = "process",
+    answeredBeforeLoss = true,
+  ) => {
+    let calls = 0;
+    const ghidra = provider(installationHost(), () => ({
+      start: async () =>
+        err(new GhidraSessionError("start", "startup is not exercised")),
+      callTool: async () => {
+        calls += 1;
+        if (answeredBeforeLoss && calls === 1) return ok(null);
+        return err(
+          new GhidraSessionError(
+            failureKind,
+            "Ghidra bridge socket closed",
+            { failure_kind: failureKind },
+            failureKind === "remote" ? { remoteCode: "internal" } : {},
+          ),
+        );
+      },
+      close: async () => ok(null),
+      operationHealthSnapshot: () =>
+        state === "idle"
+          ? undefined
+          : {
+              state,
+              stage: null,
+              retryAction: "restart_provider",
+              exitCode: state === "exited" ? 137 : null,
+              requests: [],
+            },
+    }));
+    const target = executableTarget("elf", "x86_64");
+    const profile = await ghidra.resolveAnalysisProfile(target);
+    if (!profile.ok || profile.value.profile === null)
+      throw new Error("Expected Ghidra analysis profile");
+    const client = ghidra.createClient(target, profile.value.profile);
+    // The first bridge reply only establishes that the provider was running.
+    if (answeredBeforeLoss) await client.execute("list_documents", {});
+    return client;
+  };
+
+  it("tells the caller to reopen the target when Ghidra exited", async () => {
+    const client = await lostProviderSession("exited");
+    const result = await client.execute("list_documents", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const projected = projectAnalysisError(result.error);
+    expect(projected).toMatchObject({
+      code: "execution_failure",
+      retryable: false,
+      details: { provider_id: "ghidra", operation: "list_documents" },
+    });
+    expect(projected.message).toContain("exited with code 137");
+    expect(projected.message).toContain("Call open_binary");
+    expect(projected.remediation.action).toContain("Call open_binary");
+    expect(projected.remediation.action).not.toContain("rea doctor");
+  });
+
+  it("tells the caller to reopen the target when the bridge became unreachable", async () => {
+    const client = await lostProviderSession("unreachable", "protocol");
+    const result = await client.execute("list_procedures", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const projected = projectAnalysisError(result.error);
+    expect(projected.message).toContain("became unreachable");
+    expect(projected.remediation.action).toContain("Call open_binary");
+  });
+
+  it("keeps installation guidance when Ghidra dies before it ever answered", async () => {
+    const client = await lostProviderSession("exited", "process", false);
+    const result = await client.execute("list_documents", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const projected = projectAnalysisError(result.error);
+    expect(projected.message).not.toContain("Call open_binary");
+    expect(projected.remediation.action).toContain("rea doctor");
+  });
+
+  it("keeps the generic failure when the provider is not known to be lost", async () => {
+    const client = await lostProviderSession("idle");
+    const result = await client.execute("list_documents", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error).remediation.action).toContain(
+      "rea doctor",
+    );
+  });
+
+  it("does not reinterpret a bridge-reported failure as a lost provider", async () => {
+    const client = await lostProviderSession("exited", "remote");
+    const result = await client.execute("list_documents", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error).message).not.toContain(
+      "Call open_binary",
+    );
+  });
+});

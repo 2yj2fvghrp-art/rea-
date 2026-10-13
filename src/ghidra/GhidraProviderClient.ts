@@ -36,6 +36,10 @@ import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { EvidenceLocation } from "../domain/evidence.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
+import {
+  providerRetryAction,
+  type ProviderOperationHealth,
+} from "../domain/providerOperationHealth.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { Logger } from "pino";
 import { GhidraClient } from "./GhidraClient.js";
@@ -742,6 +746,11 @@ export const createGhidraProviderClient = (input: {
       ],
     });
   };
+  // A provider that never finished startup is not "lost": startup crashes keep
+  // their installation guidance.
+  let providerStarted = false;
+  const lostProviderHealth = () =>
+    providerStarted ? client.operationHealthSnapshot?.() : undefined;
   const inventoryExecution = (
     operation: "list_documents" | "list_procedures",
     called: Result<JsonValue, GhidraSessionError>,
@@ -752,6 +761,7 @@ export const createGhidraProviderClient = (input: {
           operation,
           called.error,
           config.ghidraStartupTimeoutMs,
+          lostProviderHealth(),
         ),
       );
     const parsed = parseGhidraInventoryResult(operation, called.value);
@@ -775,12 +785,14 @@ export const createGhidraProviderClient = (input: {
         );
       if (operation === "health") {
         const started = await client.start(options?.signal, options?.progress);
+        if (started.ok) providerStarted = true;
         if (!started.ok)
           return err(
             projectSessionError(
               operation,
               started.error,
               config.ghidraStartupTimeoutMs,
+              lostProviderHealth(),
             ),
           );
         const failed = await checkSessionObservations(operation, started.value);
@@ -803,12 +815,14 @@ export const createGhidraProviderClient = (input: {
         softFloat
       ) {
         const started = await client.start(options?.signal, options?.progress);
+        if (started.ok) providerStarted = true;
         if (!started.ok)
           return err(
             projectSessionError(
               operation,
               started.error,
               config.ghidraStartupTimeoutMs,
+              lostProviderHealth(),
             ),
           );
         const failed = await checkSessionObservations(operation, started.value);
@@ -820,6 +834,7 @@ export const createGhidraProviderClient = (input: {
           ? {}
           : { progress: options.progress }),
       });
+      if (called.ok) providerStarted = true;
       if (operation === "list_documents" || operation === "list_procedures")
         return inventoryExecution(operation, called);
       if (!called.ok)
@@ -828,6 +843,7 @@ export const createGhidraProviderClient = (input: {
             operation,
             called.error,
             config.ghidraStartupTimeoutMs,
+            lostProviderHealth(),
           ),
         );
       let normalized: JsonValue;
@@ -858,6 +874,7 @@ export const createGhidraProviderClient = (input: {
                   operation,
                   started.error,
                   config.ghidraStartupTimeoutMs,
+                  lostProviderHealth(),
                 ),
               );
             const derived = await nativeAotOwner.derive(
@@ -920,6 +937,7 @@ export const createGhidraProviderClient = (input: {
               operation,
               failure,
               config.ghidraStartupTimeoutMs,
+              lostProviderHealth(),
             ),
           nativeAotResult: derived,
           signal: options?.signal,
@@ -1022,11 +1040,13 @@ const projectSessionError = (
   operation: AnalysisOperation,
   failure: GhidraSessionError,
   startupTimeoutMs: number,
+  health?: ProviderOperationHealth,
 ): AnalysisError => {
   const primary = projectPrimarySessionError(
     operation,
     failure,
     startupTimeoutMs,
+    health,
   );
   return failure.cleanupFailure === undefined
     ? primary
@@ -1041,6 +1061,7 @@ const projectPrimarySessionError = (
   operation: AnalysisOperation,
   failure: GhidraSessionError,
   startupTimeoutMs: number,
+  health?: ProviderOperationHealth,
 ): AnalysisError => {
   const context = { cause: failure, diagnostics: failure.diagnostics };
   if (failure.cause instanceof AnalysisAccessDeniedError)
@@ -1107,5 +1128,35 @@ const projectPrimarySessionError = (
       failure.message,
       context,
     );
+  const exited = exitedProviderMessage(operation, failure, health);
+  if (exited !== undefined)
+    return new ProviderAdapterError("ghidra", operation, {
+      ...context,
+      userMessage: exited,
+    });
   return new ProviderAdapterError("ghidra", operation, context);
+};
+
+/**
+ * A transport failure on a Ghidra process that REA already observed as exited
+ * or unreachable is a lost provider, not an installation fault: the target can
+ * be reopened in the same session without changing the request.
+ */
+const exitedProviderMessage = (
+  operation: AnalysisOperation,
+  failure: GhidraSessionError,
+  health: ProviderOperationHealth | undefined,
+): string | undefined => {
+  if (failure.kind !== "process" && failure.kind !== "protocol")
+    return undefined;
+  if (
+    health === undefined ||
+    providerRetryAction(health.state) !== "restart_provider"
+  )
+    return undefined;
+  const observed =
+    health.state === "exited"
+      ? `exited${health.exitCode === null ? "" : ` with code ${String(health.exitCode)}`}`
+      : "became unreachable";
+  return `The Ghidra provider for this session ${observed} before ${operation} could complete. Call open_binary for the same target to start a new Ghidra session, then retry; session-only annotations from the previous provider are not retained.`;
 };
