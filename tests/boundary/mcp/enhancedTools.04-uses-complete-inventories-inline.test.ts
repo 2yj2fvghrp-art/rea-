@@ -330,9 +330,9 @@ describe("overview document identity through MCP", () => {
       code: "capability_unavailable",
       details: {
         provider_id: "fixture",
-        operation: "current_document",
+        operation: "list_documents",
         reason: expect.stringContaining(
-          "provider does not declare document selection (current_document or list_documents)",
+          "provider lacks document selection",
         ),
       },
     });

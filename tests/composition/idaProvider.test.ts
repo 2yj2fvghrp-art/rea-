@@ -190,9 +190,9 @@ describe("IDA binary_overview execution", () => {
       error: {
         _tag: "AnalysisCapabilityUnavailableError",
         providerId: "ida",
-        operation: "current_document",
+        operation: "list_documents",
         message: expect.stringContaining(
-          "provider does not declare document selection (current_document or list_documents)",
+          "This integration admits read-only analysis operations only.",
         ),
       },
     });
