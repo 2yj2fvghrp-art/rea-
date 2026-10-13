@@ -229,6 +229,8 @@ describe("recordless legacy MIPS32 admission", () => {
   it.each([
     [{ flags: 0x50000021 }, "n32"],
     [{ flags: 0x50000041 }, "EF_MIPS_ABI_ON32"],
+    [{ flags: 0x50000101 }, "EF_MIPS_32BITMODE"],
+    [{ flags: 0x70000101 }, "EF_MIPS_32BITMODE"],
     [
       { flags: 0x50001001 },
       "EF_MIPS_ARCH_32R2 for headers that declare an ABI",
@@ -341,6 +343,15 @@ const session = async (
 };
 
 describe("MIPS16 shared-image profile", () => {
+  it("refuses a legacy endian pin committed for a different target", async () => {
+    const { counts, client } = await session(
+      target({ flags: 0x50000001, abiFlags: null, byteOrder: "big" }),
+      undefined,
+      target({ flags: 0x50000001, abiFlags: null, byteOrder: "little" }),
+    );
+    expect((await client.execute("health", {})).ok).toBe(false);
+    expect(counts.starts).toBe(0);
+  });
   const shared = (change: Partial<MipsElfMetadata> = {}) =>
     target({
       type: 3,

@@ -229,6 +229,14 @@ try {
           ),
           "Legacy o32 assumption limitation missing from retained Evidence",
         );
+        assert.ok(
+          snapshot.evidence_bundle.records.some((record) =>
+            parseEvidence(record).limitations.some((item) =>
+              item.includes("Floating-point ABI semantics are unverified"),
+            ),
+          ),
+          "Legacy floating-point uncertainty missing from retained Evidence",
+        );
         await call("open_binary", {
           path: fixture.path,
           provider_id: "ghidra",

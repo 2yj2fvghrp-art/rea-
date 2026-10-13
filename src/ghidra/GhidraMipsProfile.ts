@@ -15,11 +15,12 @@ const isGhidraMips16SharedTarget = (target: BinaryTarget): boolean =>
   target.mips.type === MIPS_ET_DYN &&
   (target.mips.flags & 0x0f000000) === MIPS16_HEADER_ASE;
 
-/** Generic MIPS32 permits per-function ISA_MODE; a global 16e processor does not. */
-export const ghidraMipsSharedLanguageOverride = (
+/** Derive the verified MIPS32 import pin from this target's observed byte order. */
+export const ghidraMipsLanguageOverride = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  isGhidraMips16SharedTarget(target) && target.architecture === "mips"
+  (isGhidraMips16SharedTarget(target) || isLegacyMipsAdmission(target)) &&
+  target.architecture === "mips"
     ? {
         languageId: `MIPS:${target.mips.byteOrder === "little" ? "LE" : "BE"}:32:default`,
         compilerSpecId: "default",
@@ -53,6 +54,7 @@ export const isLegacyMipsAdmission = (target: BinaryTarget): boolean => {
     // EF_MIPS_ABI_ON32 (bit 0x40) declares the old n32 ABI; it is not an
     // unspecified-ABI header and must not inherit the o32 assumption.
     (flags & 0x40) === 0 &&
+    (flags & 0x100) === 0 &&
     // Undefined means the record was not inspected; only an inspected
     // absence establishes the recordless legacy admission. An inspection
     // that could not examine every declaration source stays unknown.
@@ -91,6 +93,8 @@ export const ghidraMipsUnsupportedReason = (
     (metadata.flags & 0x20) === 0 &&
     metadata.abiFlags === null;
   if (recordlessShape) {
+    if ((metadata.flags & 0x100) !== 0)
+      return "EF_MIPS_32BITMODE declares code for a 64-bit processor in 32-bit mode; it is outside the recordless MIPS32 admission.";
     if ((metadata.flags & 0x40) !== 0)
       return "EF_MIPS_ABI_ON32 declares the n32 ABI; recordless headers carrying it are outside the recordless legacy admission.";
     if ((metadata.flags & 0x00000200) !== 0)
@@ -247,13 +251,12 @@ export const ghidraMipsProfileParameters = (
   // A deliberate caller-selected language wins over the legacy pin; the pin
   // exists because header auto-selection misselects a 64-bit language.
   const legacy = isLegacyMipsAdmission(target);
+  const language = ghidraMipsLanguageOverride(target);
   const pinnedLanguage =
-    legacy && languageOverride === undefined
+    legacy && languageOverride === undefined && language !== undefined
       ? {
-          language_id: `MIPS:${
-            target.mips.byteOrder === "little" ? "LE" : "BE"
-          }:32:default`,
-          compiler_spec_id: "default",
+          language_id: language.languageId,
+          compiler_spec_id: language.compilerSpecId,
           language_selection: "provider-pinned-v1",
         }
       : {};

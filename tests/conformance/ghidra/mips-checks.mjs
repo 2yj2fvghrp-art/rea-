@@ -236,6 +236,11 @@ export async function inspectLegacyMipsReadelf(path, byteOrder) {
     symbols: parsed,
     command,
     version: version.stdout.split("\n")[0],
+    raw: {
+      header: header.stdout,
+      abi: abi.stdout,
+      symbols: symbols.stdout,
+    },
   };
 }
 export function assertMipsLoadedImage(observations, byteOrder, sha256) {
