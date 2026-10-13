@@ -126,7 +126,9 @@ npm run verify:web:http3 -- /absolute/evidence/run-1 --inspect-existing
 Acceptance for the current run:
 
 - Every positive native record reports HTTP/3, UDP, ALPN h3 and successful TLS
-  timestamps on both legs. Endpoint handshakes independently observe QUIC v1.
+  timestamps on both legs. Connection IDs, producer TLS labels, exact TLS setup
+  timestamps and connection errors match the UUID-matched producer observation
+  on each leg. Endpoint handshakes independently observe QUIC v1.
 - Native flow UUIDs remain distinct. Three endpoint streams share a connection
   on each leg. Origin dispatch reverses completed receipt. Client and capture
   ordering is observed, while association is verified independent of their order.
@@ -174,4 +176,5 @@ node --test scripts/lib/http3-verifier-lifecycle.test.mjs
 
 These cover different QUIC stream completion orders, stale success reports,
 multiple failed closes, separately owned process groups and partially acquired
-resources. They test verifier semantics; they do not add HTTP/3 provider coverage.
+resources, plus producer TLS fact mismatches on both legs. They test verifier
+semantics; they do not add HTTP/3 provider coverage.

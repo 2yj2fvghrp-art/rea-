@@ -101,8 +101,13 @@ export function verifyNormalRecords(normal, manifest, finalProducer) {
       );
     }
     // Native UUIDs must be retained as UUIDs; the producer exports no stream mapping.
-    assert.equal(record.reported.client_conn.id, producer.client_conn.id);
-    assert.equal(record.reported.server_conn.id, producer.server_conn.id);
+    for (const side of ["client_conn", "server_conn"])
+      for (const key of ["id", "tls_version", "timestamp_tls_setup", "error"])
+        assert.equal(
+          record.reported[side][key],
+          producer[side][key],
+          `${side}.${key} differs from producer observation ${producer.id}`,
+        );
     binaryEqual(record, "/request/content", manifest.requests[name].body);
     binaryEqual(record, "/response/content", manifest.responses[name].body);
     const pseudo = {
