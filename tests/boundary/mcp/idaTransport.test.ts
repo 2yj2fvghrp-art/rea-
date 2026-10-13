@@ -28,6 +28,8 @@ const fixture = async ({
   native = false,
   toolResult,
   toolStatus = 200,
+  toolContentType = "application/json",
+  toolResponseBody,
   configurationHeaders = { Authorization: "Bearer transport-fixture-secret" },
 }: {
   readonly redirectUrl?: string;
@@ -35,6 +37,8 @@ const fixture = async ({
   readonly native?: boolean;
   readonly toolResult?: JsonValue;
   readonly toolStatus?: number;
+  readonly toolContentType?: string;
+  readonly toolResponseBody?: string;
   readonly configurationHeaders?: Readonly<Record<string, string>>;
 } = {}) => {
   const methods: string[] = [];
@@ -118,9 +122,14 @@ const fixture = async ({
                   }
                 : { content: [], structuredContent: { observed: true } };
     response.writeHead(input.method === "tools/call" ? toolStatus : 200, {
-      "Content-Type": "application/json",
+      "Content-Type":
+        input.method === "tools/call" ? toolContentType : "application/json",
     });
-    response.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, result }));
+    response.end(
+      input.method === "tools/call" && toolResponseBody !== undefined
+        ? toolResponseBody
+        : JSON.stringify({ jsonrpc: "2.0", id: input.id, result }),
+    );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanups.push(
@@ -439,5 +448,150 @@ it.each<{
       expect(failure.message).not.toContain(
         JSON.stringify(payload).slice(1, -1),
       );
+  },
+);
+
+it.each<{
+  label: string;
+  headers: Readonly<Record<string, string>>;
+  credential: string;
+  wire: string;
+  toolContentType: string;
+}>([
+  {
+    label: "Go-style HTML escapes",
+    toolContentType: "application/problem+json; charset=utf-8",
+    headers: { Cookie: "session=<secret>&/fixture" },
+    credential: "<secret>&/fixture",
+    wire: String.raw`\u003csecret\u003e\u0026/fixture`,
+  },
+  {
+    label: "fully escaped ASCII with mixed hex case and solidus",
+    toolContentType: "application/json",
+    headers: { Authorization: "Token aBz/secret" },
+    credential: "aBz/secret",
+    wire: String.raw`\u0061\u0042\u007A\/\u0073\u0065\u0063\u0072\u0065\u0074`,
+  },
+  {
+    label: "Latin-1 auth-param Unicode and solidus escapes",
+    toolContentType: "application/json",
+    headers: { Authorization: 'Digest response="café/secret"' },
+    credential: "café/secret",
+    wire: String.raw`caf\u00E9\/secret`,
+  },
+])(
+  "redacts $label in SDK HTTP failures without rewriting unrelated wire evidence",
+  async ({ headers, credential, wire, toolContentType }) => {
+    const prefix = '{\n  "reason": "Rejected ';
+    const suffix =
+      String.raw`", "numeric": 9007199254740993, "duplicate": "first", "duplicate": "second", "context": "\u003cpublic\u003e\/asset", "symbol": "\ud83d\uDE00"` +
+      "\n}\n";
+    const toolResponseBody = prefix + wire + suffix;
+    expect(JSON.parse(toolResponseBody)).toMatchObject({
+      reason: "Rejected " + credential,
+    });
+    const { connection } = await fixture({
+      toolStatus: 500,
+      toolContentType,
+      configurationHeaders: headers,
+      toolResponseBody,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+    if (!(failure instanceof Error))
+      throw new Error("Expected the SDK to reject the HTTP failure");
+    expect(failure.message).toContain(
+      prefix + "[redacted transport credential]" + suffix,
+    );
+    expect(failure.message).not.toContain(wire);
+  },
+);
+
+it.each([
+  {
+    label: "unquoted escaped body",
+    credential: "<token>",
+    wire: String.raw`\u003ctoken\u003e`,
+    toolResponseBody: String.raw`\u003ctoken\u003e`,
+    safeBody: "[redacted transport credential]",
+  },
+  {
+    label: "quoted escaped array entry before invalid JSON",
+    credential: "<s>",
+    wire: String.raw`\u003cs\u003e`,
+    toolResponseBody: String.raw`["\u003cs\u003e",x]`,
+    safeBody: '["[redacted transport credential]",x]',
+  },
+])(
+  "redacts $label from malformed successful HTTP JSON responses",
+  async ({ credential, wire, toolResponseBody, safeBody }) => {
+    const { connection } = await fixture({
+      configurationHeaders: { Cookie: "token=" + credential },
+      toolResponseBody,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+    if (!(failure instanceof Error))
+      throw new Error("Expected the SDK to reject malformed JSON");
+    expect(failure.message).toContain(safeBody);
+    expect(failure.message).toMatch(/malformed.*HTTP.*JSON/iu);
+    expect(failure.message).not.toContain(toolResponseBody);
+    expect(failure.message).not.toContain(wire);
+    expect(failure.message).not.toContain(credential);
+  },
+);
+
+it("redacts complete opaque authentication values containing quotes from plain HTTP error bodies", async () => {
+  const credential = 'prefix"quoted"suffix';
+  const header = "Custom " + credential;
+  const context = "/caller/input?cursor=visible API_KEY=caller-evidence";
+  const { connection } = await fixture({
+    toolStatus: 500,
+    toolContentType: "text/plain",
+    configurationHeaders: { Authorization: header },
+    toolResponseBody:
+      "Rejected " + header + " / " + credential + " at " + context,
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+  if (!(failure instanceof Error))
+    throw new Error("Expected the SDK to reject the HTTP failure");
+  expect(failure.message).toContain(
+    "Rejected [redacted transport credential] / [redacted transport credential] at " +
+      context,
+  );
+  expect(failure.message).not.toContain(credential);
+});
+
+it.each(["Rejected ", ""])(
+  "redacts quoted literal credentials from text/plain HTTP failures with prefix %j",
+  async (prefix) => {
+    const credential = String.raw`folder\tmp`;
+    const { connection } = await fixture({
+      toolStatus: 500,
+      toolContentType: "text/plain",
+      configurationHeaders: { Authorization: "Custom " + credential },
+      toolResponseBody: prefix + '"' + credential + '"',
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+    if (!(failure instanceof Error))
+      throw new Error("Expected the SDK to reject the HTTP failure");
+    expect(failure.message).toContain(
+      prefix + '"[redacted transport credential]"',
+    );
+    expect(failure.message).not.toContain(credential);
   },
 );

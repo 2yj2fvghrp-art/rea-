@@ -16,7 +16,7 @@ describe("IDA diagnostic credential redaction", () => {
         headers: Object.fromEntries(reversed ? entries.reverse() : entries),
         mode: "attached",
         timeoutMs: 1000,
-      });
+      }).text;
       expect(
         redact(
           "Bearer fixture / fixture / bAsIc fixture-long.$[token] / fixture-long.$[token] / session=fixture-long.$[token]; marker=redacted /caller/input?token=visible API_KEY=visible caller-selected-evidence",
@@ -36,7 +36,7 @@ describe("IDA diagnostic credential redaction", () => {
       },
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     expect(
       redact(
         "raw=\r\n \tBearer fixture-secret \t\r\n; wire=Bearer fixture-secret; token=fixture-secret; proxy=Basic proxy-secret; bare=proxy-secret; cookie=session=cookie-secret",
@@ -55,7 +55,7 @@ describe("IDA diagnostic credential redaction", () => {
       },
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     const message = "Failed at /caller/input \t with ordinary whitespace";
     expect(redact(message)).toBe(message);
   });
@@ -65,7 +65,7 @@ describe("IDA diagnostic credential redaction", () => {
       headers: { Authorization: "Bearer alpha", Cookie: "redacted" },
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     expect(redact("alpha redacted")).toBe(
       "[redacted transport credential] [redacted transport credential]",
     );
@@ -149,21 +149,21 @@ it.each(credentialCases)(
       headers,
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     expect(redact(message)).toBe(expected);
   },
 );
 
 it("redacts full configured malformed headers without guessing their internal values", () => {
   const header = 'Digest broken="unterminated, second=visible';
-  const redact = createIdaDiagnosticRedactor({
+  const redactor = createIdaDiagnosticRedactor({
     url: "http://127.0.0.1:12345/mcp",
     headers: { Authorization: header },
     mode: "attached",
     timeoutMs: 1000,
   });
-  expect(redact(header)).toBe("[redacted transport credential]");
-  expect(redact(JSON.stringify(header))).toBe(
+  expect(redactor.text(header)).toBe("[redacted transport credential]");
+  expect(redactor.json(JSON.stringify(header))).toBe(
     '"[redacted transport credential]"',
   );
 });

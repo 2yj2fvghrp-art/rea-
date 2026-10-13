@@ -9,7 +9,7 @@ describe("upstream IDA tool result decoding", () => {
       headers: { Authorization: "Bearer fixture-secret" },
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     const evidence = "Caller-selected fixture-secret evidence";
     expect(
       decodeIdaToolResult(
@@ -39,7 +39,7 @@ describe("upstream IDA tool result decoding", () => {
       headers: { Authorization: "Bearer fixture-secret" },
       mode: "attached",
       timeoutMs: 1000,
-    });
+    }).text;
     expect(() =>
       decodeIdaToolResult(
         {

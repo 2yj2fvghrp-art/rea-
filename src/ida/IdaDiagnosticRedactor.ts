@@ -1,3 +1,7 @@
+import {
+  IDA_REDACTION_MARKER,
+  redactIdaJsonDiagnostic,
+} from "./IdaJsonDiagnostic.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 
 /** RFC 9110 credentials: any scheme, followed by opaque data or auth-params. */
@@ -48,7 +52,10 @@ const cookiePayloads = (header: string): readonly string[] =>
 /** Own configured credential interpretation for all IDA error diagnostics. */
 export const createIdaDiagnosticRedactor = (
   config: IdaConfiguration,
-): ((message: string) => string) => {
+): Readonly<{
+  text(message: string): string;
+  json(message: string, options?: Readonly<{ malformed?: boolean }>): string;
+}> => {
   const headers = "headers" in config ? Object.entries(config.headers) : [];
   const values = headers.flatMap(([name, value]) => {
     if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
@@ -64,24 +71,28 @@ export const createIdaDiagnosticRedactor = (
         : authorizationPayloads(normalized)),
     ];
   });
-  // SDK HTTP failures include raw JSON response bodies in their error messages.
-  // Include that concrete wire spelling as well as decoded producer text.
-  const secrets = [
-    ...new Set(
-      values
-        .filter((value) => value.length > 0)
-        .flatMap((value) => [value, JSON.stringify(value).slice(1, -1)]),
-    ),
-  ].sort((left, right) => right.length - left.length);
-  if (secrets.length === 0) return (message) => message;
+  const secrets = [...new Set(values.filter((value) => value.length > 0))].sort(
+    (left, right) => right.length - left.length,
+  );
+  if (secrets.length === 0)
+    return { text: (message) => message, json: (message) => message };
   const pattern = new RegExp(
     secrets
       .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
       .join("|"),
     "gu",
   );
-  // One pass over the original text keeps overlapping values and the
-  // replacement marker independent of header iteration order.
-  return (message) =>
-    message.replace(pattern, "[redacted transport credential]");
+  return {
+    text: (message) => message.replace(pattern, IDA_REDACTION_MARKER),
+    json: (message, options) =>
+      redactIdaJsonDiagnostic(
+        message,
+        (value) =>
+          [...value.matchAll(pattern)].map((match) => ({
+            start: match.index,
+            end: match.index + match[0].length,
+          })),
+        options,
+      ),
+  };
 };

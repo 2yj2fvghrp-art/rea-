@@ -35,7 +35,7 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
     timeoutMs: 1000,
     workspaceRoot: root,
   };
-  const redact = createIdaDiagnosticRedactor(config);
+  const redact = createIdaDiagnosticRedactor(config).text;
   producer.beforeCall = async (name) => {
     if (name === "decompile")
       decodeIdaToolResult(
