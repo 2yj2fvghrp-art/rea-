@@ -495,6 +495,12 @@ export class CdpWorkerCapture {
         this.context.operation,
         "protocol_error",
       );
+    const owner = this.#sessions.get(sessionId);
+    if (owner !== undefined && owner !== worker)
+      throw new BrowserObservationError(
+        this.context.operation,
+        "protocol_error",
+      );
     if (worker.sessionId === sessionId) return;
     if (worker.sessionId !== undefined)
       throw new BrowserObservationError(

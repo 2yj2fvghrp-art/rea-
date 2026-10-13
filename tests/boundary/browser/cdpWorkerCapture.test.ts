@@ -3,6 +3,9 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { createBrowserEvidence } from "../../../src/application/BrowserEvidence.js";
+import { parseRuntimeCaptures } from "../../../src/domain/javascript/javascriptRuntimeReconciliationCaptureParsing.js";
+import { projectRuntimeCaptures } from "../../../src/domain/javascript/javascriptRuntimeReconciliationRuntime.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
@@ -773,3 +776,44 @@ it.each([-32_000, -32_601])(
     );
   },
 );
+
+it("rejects one session ID assigned to two workers", async () => {
+  const { provider, input } = await fixture({
+    commandResult: (command) =>
+      command.method === "Target.attachToTarget" &&
+      command.params.targetId === "shared"
+        ? { sessionId: "worker-own" }
+        : undefined,
+  });
+  const result = await provider.inspectPage({
+    ...input,
+    worker_target_ids: ["shared"],
+  });
+  expect(result).toMatchObject({
+    ok: false,
+    error: { reason: "protocol_error" },
+  });
+});
+
+it("reconciliation retains unknown workers without asserting page containment", async () => {
+  const { provider, input } = await fixture();
+  const result = await provider.inspectPage(input);
+  if (!result.ok) throw result.error;
+  const evidence = createBrowserEvidence(
+    "inspect_web_page",
+    input,
+    result.value,
+    provider.identity(),
+  );
+  const projected = projectRuntimeCaptures(parseRuntimeCaptures([evidence]));
+  for (const worker of projected.entities.filter(({ kind }) => kind === "worker")) {
+    expect(
+      projected.edges.some(
+        ({ target_node_id }) => target_node_id === worker.node.node_id,
+      ),
+    ).toBe(worker.runtimeKey === "own");
+    expect(worker.node.observations[0]?.properties).toMatchObject({
+      ownership: worker.runtimeKey === "own" ? "page_related" : "unknown",
+    });
+  }
+});

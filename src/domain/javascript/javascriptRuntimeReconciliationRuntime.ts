@@ -22,6 +22,7 @@ export interface RuntimeReconciliationEntity {
   };
   readonly frameKey: string | null;
   readonly sourceSha256: string | null;
+  readonly owningPageTargetId: string | null;
   readonly staticKind: "renderer" | "javascript" | "worker" | "service-worker";
 }
 
@@ -210,6 +211,17 @@ const workerEntities = (
       location,
       staticKind: serviceWorker ? "service-worker" : "worker",
       sourceSha256: null,
+      owningPageTargetId:
+        "observation" in worker && worker.observation !== undefined
+          ? worker.observation.ownership === "unknown"
+            ? null
+            : worker.observation.page_target_id
+          : worker.opener_target_id === capture.inspection.target.target_id ||
+              capture.inspection.frames.some(
+                ({ frame_id }) => frame_id === worker.parent_frame_id,
+              )
+            ? capture.inspection.target.target_id
+            : null,
       label: location.value,
       properties: {
         runtime_type: worker.type,
@@ -217,6 +229,12 @@ const workerEntities = (
         attached: worker.attached,
         opener_target_id: worker.opener_target_id,
         parent_frame_id: worker.parent_frame_id,
+        ...("observation" in worker && worker.observation !== undefined
+          ? {
+              ownership: worker.observation.ownership,
+              page_target_id: worker.observation.page_target_id,
+            }
+          : {}),
       },
       section: "workers",
     });
@@ -232,6 +250,7 @@ interface RuntimeEntityInput {
   readonly location: RuntimeReconciliationEntity["location"];
   readonly staticKind: RuntimeReconciliationEntity["staticKind"];
   readonly sourceSha256: string | null;
+  readonly owningPageTargetId?: string | null;
   readonly label: string;
   readonly properties: Readonly<Record<string, JsonValue>>;
   readonly section: "target" | "frames" | "scripts" | "workers";
@@ -249,6 +268,10 @@ const runtimeEntity = (
   location: input.location,
   frameKey: input.frameKey,
   sourceSha256: input.sourceSha256,
+  owningPageTargetId:
+    input.owningPageTargetId === undefined
+      ? capture.inspection.target.target_id
+      : input.owningPageTargetId,
   staticKind: input.staticKind,
   node: createJavaScriptApplicationNode({
     kind: input.nodeKind,
@@ -338,6 +361,8 @@ const runtimeEdges = (
   );
   return local.flatMap((entity) => {
     if (entity === target) return [];
+    if (entity.owningPageTargetId !== capture.inspection.target.target_id)
+      return [];
     const parent =
       (entity.kind === "script" || entity.kind === "worker") &&
       entity.frameKey !== null
