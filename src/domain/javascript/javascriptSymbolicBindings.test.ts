@@ -413,6 +413,17 @@ it.each([
   expect(inspectOne(source)).toEqual(expected);
 });
 
+it("leaves object properties unresolved after a write through an alias", () => {
+  const value = inspectOne(`
+    const object = { channel: "seed" };
+    object.channel = "early";
+    const alias = object;
+    alias.channel = "late";
+    inspect(object.channel);
+  `);
+  expect(value).toMatchObject({ kind: "unknown" });
+});
+
 it("propagates branch guards through object properties and function calls", () => {
   const inspected = inspectedValues(`
     const direct = flag

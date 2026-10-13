@@ -131,6 +131,8 @@ export class JavaScriptSymbolicBindings {
   readonly #unsafeExports = new Set<string>();
   readonly #aliasComponents: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #arrayAliasComponents = new WeakSet<ReadonlySet<string>>();
+  readonly #objectLiteralBindings = new Set<string>();
+  readonly #objectAliasComponents = new WeakSet<ReadonlySet<string>>();
   readonly #invalidatedAliasComponents = new WeakSet<ReadonlySet<string>>();
   readonly #bootstrapTables: Array<{
     readonly tableAliases: ReadonlySet<string>;
@@ -174,6 +176,16 @@ export class JavaScriptSymbolicBindings {
     this.#aliasComponents = javascriptBindingAliasComponents(state);
     for (const binding of state.bindingsById.values()) {
       const aliases = this.#aliasComponents.get(binding.bindingId);
+      const hasObjectLiteralInitializer = binding.initializers.some(
+        (initializer) =>
+          t.isObjectExpression(
+            unwrapJavaScriptExpression(initializer.node).node,
+          ),
+      );
+      if (hasObjectLiteralInitializer) {
+        this.#objectLiteralBindings.add(binding.bindingId);
+        if (aliases !== undefined) this.#objectAliasComponents.add(aliases);
+      }
       if (
         aliases !== undefined &&
         binding.initializers.some((initializer) =>
@@ -442,8 +454,11 @@ export class JavaScriptSymbolicBindings {
         if (property !== undefined)
           return this.#objectPropertyValue(property, value.environment);
         if (key === "__proto__") {
-          const setter = [...value.node.properties].reverse().find(isJavaScriptPrototypeSetter);
-          if (setter !== undefined && !t.isSpreadElement(setter)) return this.#objectPropertyValue(setter, value.environment);
+          const setter = [...value.node.properties]
+            .reverse()
+            .find(isJavaScriptPrototypeSetter);
+          if (setter !== undefined && !t.isSpreadElement(setter))
+            return this.#objectPropertyValue(setter, value.environment);
         }
         // A closed literal without the key reads `undefined` unless a write
         // may add it or the key names an inherited or prototype member.
@@ -1768,6 +1783,13 @@ export class JavaScriptSymbolicBindings {
       : undefined;
   }
 
+  #objectAliasComponent(bindingId: string): ReadonlySet<string> | undefined {
+    const aliases = this.#aliasComponents.get(bindingId);
+    return aliases !== undefined && this.#objectAliasComponents.has(aliases)
+      ? aliases
+      : undefined;
+  }
+
   #invalidateAliases(aliases: ReadonlySet<string>): void {
     if (this.#invalidatedAliasComponents.has(aliases)) return;
     this.#invalidatedAliasComponents.add(aliases);
@@ -1961,6 +1983,15 @@ export class JavaScriptSymbolicBindings {
         ? undefined
         : this.#arrayAliasComponent(binding.bindingId);
     if (arrayAliases !== undefined) this.#invalidateAliases(arrayAliases);
+    const objectAliases =
+      path.length === 0
+        ? undefined
+        : this.#objectAliasComponent(binding.bindingId);
+    if (
+      objectAliases !== undefined &&
+      !this.#objectLiteralBindings.has(binding.bindingId)
+    )
+      this.#invalidateAliases(objectAliases);
     const alias = this.#exportAliases.get(binding.bindingId);
     if (this.#moduleBindings.has(binding.bindingId) && path[0] !== "exports")
       return;
@@ -2004,7 +2035,8 @@ const rangeKey = ({ start, end }: JavaScriptSourceRange): string =>
   `${String(start.line)}:${String(start.column)}-${String(end.line)}:${String(end.column)}`;
 
 const ARRAY_INDEX = /^(?:0|[1-9]\d*)$/u;
-const isOwnArrayIndex = (key: string): boolean => ARRAY_INDEX.test(key) && Number(key) < 0xffffffff;
+const isOwnArrayIndex = (key: string): boolean =>
+  ARRAY_INDEX.test(key) && Number(key) < 0xffffffff;
 
 /** Model the `Object` builtins that read own enumerable keys of an exact object. */
 const objectBuiltin = (
