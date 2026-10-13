@@ -141,6 +141,7 @@ const registerSharedReverseEngineeringEdgeCasesPart2 = (): void => {
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
+      .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "verified-cleanup" });
     await stop(); // The owned-command runner's first cleanup attempt failed.
     const cleanupOwner = { stop } as unknown as ProviderProcessSupervisor;
@@ -189,13 +190,19 @@ const registerSharedReverseEngineeringEdgeCasesPart2 = (): void => {
       });
       expect(stop).toHaveBeenCalledTimes(2);
       expect(runOwned).toHaveBeenCalledTimes(1);
+      const retried = await service.retryCleanup("execute_rizin_command");
+      expect(retried.ok).toBe(false);
+      if (!retried.ok && !blocked.ok) expect(retried.error).toBe(blocked.error);
       await expect(service.close()).rejects.toMatchObject({
         cleanupIncomplete: true,
         cleanup: { reason: "still running", resources: ["run-id", "pid:42"] },
       });
-      expect(stop).toHaveBeenCalledTimes(3);
-      await service.close();
       expect(stop).toHaveBeenCalledTimes(4);
+      await service.close();
+      expect(stop).toHaveBeenCalledTimes(5);
+      if (!result.ok) expect(result.error.cleanupIncomplete).toBe(false);
+      if (!blocked.ok) expect(blocked.error.cleanupIncomplete).toBe(false);
+      if (!retried.ok) expect(retried.error.cleanupIncomplete).toBe(false);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

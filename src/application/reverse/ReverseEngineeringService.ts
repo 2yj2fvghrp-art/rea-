@@ -76,6 +76,10 @@ export type ReverseEngineeringServiceRuntimeOptions = Omit<
   "commands" | "environment"
 >;
 
+type CleanupRetryOperation =
+  | ReverseEngineeringOperation
+  | "reverse_engineering_cleanup";
+
 /** Shared application workflow for caller-selected local analysis commands. */
 export class ReverseEngineeringService {
   readonly #environment: Readonly<NodeJS.ProcessEnv>;
@@ -88,6 +92,8 @@ export class ReverseEngineeringService {
     {
       readonly observation: AnalysisCleanupObservation;
       readonly failures: Set<AnalysisError>;
+      // At most one admission error per finite operation and retained owner.
+      readonly retryFailures: Map<CleanupRetryOperation, AnalysisError>;
     }
   >();
   readonly #activeOperations = new Map<
@@ -108,6 +114,8 @@ export class ReverseEngineeringService {
           this.#pendingCleanup.set(owner, {
             observation: cleanup,
             failures: this.#pendingCleanup.get(owner)?.failures ?? new Set(),
+            retryFailures:
+              this.#pendingCleanup.get(owner)?.retryFailures ?? new Map(),
           }),
       );
     this.#digest = options.digest ?? digestFile;
@@ -116,7 +124,7 @@ export class ReverseEngineeringService {
 
   /** Ask retained process owners to settle cleanup before admitting more work. */
   async retryCleanup(
-    operation = "reverse_engineering_cleanup",
+    operation: CleanupRetryOperation = "reverse_engineering_cleanup",
   ): Promise<Result<null, AnalysisError>> {
     let failure: AnalysisError | undefined;
     for (const [owner, retained] of this.#pendingCleanup) {
@@ -137,16 +145,22 @@ export class ReverseEngineeringService {
         this.#pendingCleanup.set(owner, {
           observation,
           failures: retained.failures,
+          retryFailures: retained.retryFailures,
         });
         if (failure === undefined) {
-          failure = new AnalysisOutputError(
-            operation,
-            "A previous provider process still requires cleanup.",
-            { cleanup: observation },
-          );
+          failure =
+            retained.retryFailures.get(operation) ??
+            new AnalysisOutputError(
+              operation,
+              "A previous provider process still requires cleanup.",
+              { cleanup: observation },
+            );
+          retained.retryFailures.set(operation, failure);
         }
       } else {
         for (const previous of retained.failures) previous.resolveCleanup();
+        for (const previous of retained.retryFailures.values())
+          previous.resolveCleanup();
         this.#pendingCleanup.delete(owner);
       }
     }
