@@ -2,6 +2,10 @@
 export function verifyGhidraPrototypeDiagnostics(options: {
   readonly installation: { readonly analyzeHeadlessPath: string };
   readonly entrypoint?: string;
+  readonly buildFixture?: (options: {
+    readonly object: string;
+    readonly target: string;
+  }) => Promise<void>;
 }): Promise<unknown>;
 
 /** Retain the public transport and workspace when binary cleanup is incomplete. */

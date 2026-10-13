@@ -350,8 +350,8 @@ public final class ReaGhidraPrototypeDiagnostics {
         Address address = start;
         for (int count = 0; count < EPILOGUE_INSTRUCTIONS && address != null && visited.add(address); count++) {
             monitor.checkCancelled();
-            Function entry = program.getFunctionManager().getFunctionAt(address);
-            if (entry != null && !entry.equals(function)) return null; // A separate entry can be a tail call.
+            Function owner = program.getFunctionManager().getFunctionContaining(address);
+            if (owner != null && !owner.equals(function)) return null; // A separate function can own an interior epilogue.
             Instruction item = program.getListing().getInstructionAt(address);
             if (item == null) return null;
             if (isReturn(item)) return item;

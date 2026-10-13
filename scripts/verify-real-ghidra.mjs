@@ -100,6 +100,14 @@ const lane = crossFormat
     ? "AArch64 jump-table"
     : "host-format";
 const toolchain = new Map([[compiler, "host fixture compiler"]]);
+if (
+  process.platform === "linux" &&
+  process.arch === "x64" &&
+  !aarch64JumpTableOnly
+) {
+  toolchain.set(process.env.REA_AS ?? "as", "GNU assembler");
+  toolchain.set(process.env.REA_LD ?? "ld", "GNU linker");
+}
 if (crossFormat || aarch64JumpTableOnly)
   toolchain.set(clang, "cross-format clang compiler");
 if (crossFormat) {
@@ -113,7 +121,19 @@ const crossTarget = crossFormat
     : `${expectedNativeTarget.format}/${expectedNativeTarget.architecture}`;
 for (const [command, role] of toolchain) {
   try {
-    await exec(command, [command === lldLink ? "/?" : "--version"]);
+    const result = await exec(command, [
+      command === lldLink ? "/?" : "--version",
+    ]);
+    if (
+      role === "GNU assembler" &&
+      !/GNU assembler/iu.test(`${result.stdout}\n${result.stderr}`)
+    )
+      throw new Error("The configured assembler is not GNU as");
+    if (
+      role === "GNU linker" &&
+      !/GNU ld/iu.test(`${result.stdout}\n${result.stderr}`)
+    )
+      throw new Error("The configured linker is not GNU ld");
   } catch (cause) {
     throw new Error(
       `Ghidra ${lane} verification cannot run for target ${crossTarget}: required ${role} '${command}' is unavailable or failed its preflight.`,
