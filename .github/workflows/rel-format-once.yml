@@ -1,0 +1,41 @@
+name: REL one-time format stabilization
+on:
+  push:
+    branches:
+      - rel/first-lab-foundations
+    paths:
+      - .github/workflows/rel-format-once.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: rel/first-lab-foundations
+          persist-credentials: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+        env:
+          HUSKY: "0"
+      - name: Format only touched REL and known baseline test files
+        run: >
+          npx oxfmt
+          rel/evidence-explorer.mjs
+          rel/evidence-explorer.test.mjs
+          rel/EVIDENCE_EXPLORER.md
+          tests/process-global/cleanLinuxHopperRuntime.test.ts
+          tests/boundary/javascript/javascriptSourceAnalysisWorker.test.ts
+      - name: Commit formatter output if necessary
+        run: |
+          git diff --check
+          git add -- rel/evidence-explorer.mjs rel/evidence-explorer.test.mjs rel/EVIDENCE_EXPLORER.md tests/process-global/cleanLinuxHopperRuntime.test.ts tests/boundary/javascript/javascriptSourceAnalysisWorker.test.ts
+          if ! git diff --cached --quiet; then
+            git -c user.name='REL CI formatter' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(rel): apply repository formatter to evidence explorer and tests'
+            git push origin HEAD:rel/first-lab-foundations
+          fi
