@@ -62,8 +62,11 @@ assert.equal(first.retryable,true);
 assert.match(first.reason,/Delete owned object by handle failed.*Win32 5/s);
 const [name,...extra]=readdirSync(temp);assert.ok(name);assert.equal(extra.length,0);
 const path=join(temp,name);const identity=statSync(path,{bigint:true});
-assert.throws(()=>renameSync(path,path+'-replacement'));
-assert.equal(statSync(path,{bigint:true}).ino,identity.ino);
+// This private directory permits rename while its retained handle still owns
+// cleanup. Recovery must follow the object identity after its path changes.
+const replacement=path+'-replacement';renameSync(path,replacement);
+assert.equal(statSync(replacement,{bigint:true}).ino,identity.ino);
+assert.equal(readdirSync(temp).length,1);
 if(process.argv[2]!=='teardown'){
  const second=systemWindowsNativeAuthority();assert.equal(second.available,true);
  assert.equal(readdirSync(temp).length,0);
