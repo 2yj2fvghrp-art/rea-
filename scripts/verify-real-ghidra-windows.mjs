@@ -21,14 +21,18 @@ import { SUPPORTED_GHIDRA_VERSION } from "../dist/ghidra/GhidraInstallationPolic
 import { GhidraHeadlessLauncher } from "../dist/ghidra/GhidraLauncher.js";
 import { GHIDRA_PROVIDER_IDENTITY } from "../dist/ghidra/GhidraProviderCapabilities.js";
 import { windowsP0Capabilities } from "../dist/ghidra/GhidraProviderCapabilities.js";
-import { GHIDRA_SESSION_CAPABILITIES } from "../dist/ghidra/GhidraSessionValues.js";
+import {
+  GHIDRA_MUTATING_OPERATIONS,
+  GHIDRA_SESSION_CAPABILITIES,
+} from "../dist/ghidra/GhidraSessionValues.js";
 import { parseBinaryTarget } from "../dist/application/BinaryTargetResolver.js";
 import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 import { verifyGhidraCompactReferences } from "./lib/real-ghidra-compact-references.mjs";
+import { verifyGhidraFileOffsets } from "./lib/real-ghidra-file-offsets.mjs";
 
 const verifierRun = createVerifierRun();
 const SESSION_CAPABILITIES = GHIDRA_SESSION_CAPABILITIES.filter(
-  (name) => name !== "annotate_native_function",
+  (name) => !GHIDRA_MUTATING_OPERATIONS.has(name),
 );
 
 if (process.platform !== "win32" || process.arch !== "x64")
@@ -236,10 +240,8 @@ try {
 
   const expected = [
     ...GHIDRA_INVENTORY_OPERATIONS,
-    ...GHIDRA_FUNCTION_OPERATIONS.filter(
-      (name) => name !== "annotate_native_function",
-    ),
-  ];
+    ...GHIDRA_FUNCTION_OPERATIONS,
+  ].filter((name) => !GHIDRA_MUTATING_OPERATIONS.has(name));
   if (
     observed.size !== expected.length ||
     expected.some((operation) => !observed.has(operation))
@@ -299,6 +301,11 @@ try {
 }
 if (report === undefined)
   throw new Error("Windows Ghidra report was not produced");
+report.file_offsets = await verifyGhidraFileOffsets(
+  targetPath,
+  resolve(root, "scripts", "rea.mjs"),
+  architecture === "x86" ? "0x401010" : "0x140001010",
+);
 process.stdout.write(
   `${JSON.stringify({ verifier_run: await completeVerifierRun(verifierRun), ...report })}\n`,
 );

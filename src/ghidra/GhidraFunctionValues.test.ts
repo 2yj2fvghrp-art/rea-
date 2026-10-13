@@ -42,6 +42,30 @@ const parseFunctionValueFixture = (
 };
 
 describe("Ghidra function-analysis result values", () => {
+  it("preserves file-offset resolution in Evidence locations and rejects inexact offsets", () => {
+    const selection = {
+      file_offset: 0x210,
+      mapped_address: "0x140001010",
+      procedure_address: "0x140001010",
+    };
+    const wire = { value: "return 42;", limitations: [], selection };
+    expect(parseGhidraFunctionResult("procedure_assembly", wire)).toMatchObject(
+      { ok: false, error: { _tag: "AnalysisOutputError" } },
+    );
+    const parsed = parseGhidraFunctionResult("procedure_pseudo_code", wire);
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value.locations).toEqual([
+      { kind: "file-offset", offset: 0x210 },
+      { kind: "address", address: "0x140001010" },
+      { kind: "address", address: "0x140001010" },
+    ]);
+    expect(
+      parseGhidraFunctionResult("procedure_pseudo_code", {
+        ...wire,
+        selection: { ...selection, file_offset: Number.MAX_SAFE_INTEGER + 1 },
+      }),
+    ).toMatchObject({ ok: false, error: { _tag: "AnalysisOutputError" } });
+  });
   it.each([...observationOperations])(
     "requires the function-observation limitations envelope for %s",
     (operation) => {
@@ -172,6 +196,45 @@ describe("Ghidra function-analysis result values", () => {
 });
 
 describe("Ghidra compact reference provenance", () => {
+  it("distinguishes incoming references, examined emptiness and unavailable coverage at data addresses", () => {
+    const instruction = {
+      ...compactInstruction(),
+      address: "ram:00402000",
+      status: "data",
+      procedure: null,
+    };
+    const reference = {
+      ...compactReference(),
+      source_address: "ram:00401000",
+      target_address: instruction.address,
+      type: "WRITE",
+      call: false,
+      data: true,
+      write: true,
+    };
+    for (const incoming of [
+      {},
+      { incoming_references: null },
+      { incoming_references: [] },
+      { incoming_references: [reference] },
+      { incoming_references: [{ ...reference, primary: null, source: null }] },
+    ]) {
+      const expected = { ...instruction, ...incoming };
+      const parsed = parseFunctionValueFixture(
+        "inspect_native_instruction",
+        expected,
+      );
+      if (!parsed.ok) throw parsed.error;
+      expect(parsed.value).toEqual(expected);
+    }
+    expect(
+      parseFunctionValueFixture("inspect_native_instruction", {
+        ...instruction,
+        incoming_references: [{ ...reference, primary: "false" }],
+      }),
+    ).toMatchObject({ ok: false, error: { _tag: "AnalysisOutputError" } });
+  });
+
   const operations = [
     ["inspect_native_instruction", compactInstruction],
     ["resolve_native_call_targets", compactCallTargets],

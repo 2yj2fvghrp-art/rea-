@@ -1,25 +1,10 @@
-import ghidra.app.script.GhidraScript;
-import ghidra.framework.options.Options;
-import ghidra.framework.options.OptionType;
-import ghidra.program.model.listing.Program;
+import java.util.Map;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.app.util.headless.HeadlessScript;
 
-/**
- * Disable the named auto-analyzers before default auto-analysis.
- *
- * <p>Fails closed. Ghidra's {@code GhidraScript.setAnalysisOption} only logs an
- * error for a name the program does not recognize and silently skips a value it
- * cannot apply, so a typo would let the real analyzer run while the analysis
- * profile still records it as disabled. This script validates every requested
- * name against the program's registered analyzer options, reads each option
- * back as disabled, and aborts (by throwing) before auto-analysis and bridge
- * startup when any name is unknown or cannot be applied.
- */
-public final class ReaGhidraAnalysisOptions extends GhidraScript {
+/** Disable the named auto-analyzers before default auto-analysis. */
+public final class ReaGhidraAnalysisOptions extends HeadlessScript {
     @Override
     public void run() throws Exception {
         String[] arguments = getScriptArgs();
@@ -27,37 +12,27 @@ public final class ReaGhidraAnalysisOptions extends GhidraScript {
             throw new IllegalArgumentException(
                 "ReaGhidraAnalysisOptions requires one comma-separated analyzer-name argument");
         }
-        Set<String> names = new LinkedHashSet<>();
-        for (String raw : arguments[0].split(",")) {
-            String name = raw.trim();
-            if (!name.isEmpty()) {
-                names.add(name);
-            }
-        }
-        Options analysisOptions = currentProgram.getOptions(Program.ANALYSIS_PROPERTIES);
-        List<String> unknown = new ArrayList<>();
-        List<String> unapplied = new ArrayList<>();
-        for (String name : names) {
+        String[] names = arguments[0].split(",");
+        AutoAnalysisManager analysis = AutoAnalysisManager.getAnalysisManager(currentProgram);
+        Map<String, String> options = getCurrentAnalysisOptionsAndValues(currentProgram);
+        for (String requestedName : names) {
             monitor.checkCancelled();
-            // A registered analyzer's enable flag is a boolean option stored
-            // under the analyzer's exact name; anything else is not a name
-            // this script can disable.
-            if (!analysisOptions.contains(name)
-                || analysisOptions.getType(name) != OptionType.BOOLEAN_TYPE) {
-                unknown.add(name);
-                continue;
-            }
-            setAnalysisOption(currentProgram, name, "false");
-            if (analysisOptions.getBoolean(name, true)) {
-                unapplied.add(name);
+            String name = requestedName.trim();
+            if (analysis.getAnalyzer(name) == null || !options.containsKey(name)) {
+                throw new IllegalArgumentException("Unknown Ghidra analyzer for this program: " + name);
             }
         }
-        if (!unknown.isEmpty() || !unapplied.isEmpty()) {
-            throw new IllegalArgumentException(
-                "ReaGhidraAnalysisOptions refused to continue with analyzers that are"
-                    + " unknown or still enabled; use exact registered analyzer names."
-                    + (unknown.isEmpty() ? "" : " unknown=" + unknown)
-                    + (unapplied.isEmpty() ? "" : " notApplied=" + unapplied));
+        for (String requestedName : names) {
+            monitor.checkCancelled();
+            setAnalysisOption(currentProgram, requestedName.trim(), "false");
+        }
+        options = getCurrentAnalysisOptionsAndValues(currentProgram);
+        for (String requestedName : names) {
+            monitor.checkCancelled();
+            String name = requestedName.trim();
+            if (!"false".equals(options.get(name))) {
+                throw new IllegalStateException("Ghidra analyzer remained enabled: " + name);
+            }
         }
     }
 }

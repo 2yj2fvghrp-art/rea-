@@ -113,6 +113,39 @@ describe("Ghidra COM loader", () => {
   });
 });
 
+describe("Ghidra raw-binary loader", () => {
+  it("loads caller-supplied architecture and entry before auto-analysis", () => {
+    const arguments_ = ghidraHeadlessArguments({
+      projectRoot: "/tmp/project",
+      targetPath: "/tmp/ecu.bin",
+      bridgeScriptPath: "/package/bridge/ReaGhidraBridge.java",
+      descriptorPath: "/tmp/session.json",
+      ghidraLogPath: "/tmp/ghidra.log",
+      scriptLogPath: "/tmp/script.log",
+      rawBinary: {
+        languageId: "ARM:LE:32:v7",
+        compilerSpecId: "default",
+        baseAddr: "0x8000000",
+      },
+    });
+    expectOptions(arguments_, [
+      ["-loader", "BinaryLoader"],
+      ["-loader-baseAddr", "0x8000000"],
+      ["-processor", "ARM:LE:32:v7"],
+      ["-cspec", "default"],
+    ]);
+    const prepare = arguments_.indexOf("-preScript");
+    expect(arguments_[prepare + 1]).toBe(
+      join("/package/bridge", "ReaGhidraPrepareRaw.java"),
+    );
+    expect(arguments_[prepare + 2]).toBe("ARM:LE:32:v7");
+    expect(arguments_[prepare + 3]).toBe("0x8000000");
+    expect(prepare).toBeLessThan(arguments_.indexOf("-postScript"));
+    expect(arguments_).toContain("-readOnly");
+    expect(arguments_).toContain("-deleteProject");
+  });
+});
+
 describe("Ghidra headless launcher", () => {
   it("forces the admitted real-mode language and loader for DOS MZ", () => {
     const arguments_ = ghidraHeadlessArguments({
@@ -157,6 +190,45 @@ describe("Ghidra headless launcher", () => {
     expect(arguments_[bridge + 1]).toBe("/tmp/session.json");
     expect(arguments_).toContain("-readOnly");
     expect(arguments_).toContain("-deleteProject");
+  });
+  it("remaps soft-float storage after the no-return fix and before the bridge", () => {
+    const base = {
+      platform: "linux" as const,
+      projectRoot: "/tmp/project",
+      targetPath: "/tmp/target",
+      bridgeScriptPath: "/package/bridge/ReaGhidraBridge.java",
+      descriptorPath: "/tmp/session.json",
+      ghidraLogPath: "/tmp/ghidra.log",
+      scriptLogPath: "/tmp/script.log",
+    };
+    const soft = "/package/bridge/ReaGhidraMipsSoftFloat.java";
+    expect(ghidraHeadlessArguments(base)).not.toContain(soft);
+    const arguments_ = ghidraHeadlessArguments({
+      ...base,
+      mipsSoftFloat: true,
+    });
+    expect(arguments_[arguments_.indexOf(soft) - 1]).toBe("-postScript");
+    expect(
+      arguments_.indexOf("/package/bridge/ReaGhidraNoReturnFix.java"),
+    ).toBeLessThan(arguments_.indexOf(soft));
+    expect(arguments_.indexOf(soft)).toBeLessThan(
+      arguments_.indexOf("/package/bridge/ReaGhidraBridge.java"),
+    );
+    for (const conflict of [
+      { psp: true as const },
+      { dosMz: true as const },
+      { dosCom: true as const },
+      {
+        rawBinary: {
+          languageId: "x86:LE:32:default",
+          compilerSpecId: "default",
+          baseAddr: "0x1000",
+        },
+      },
+    ])
+      expect(() =>
+        ghidraHeadlessArguments({ ...base, mipsSoftFloat: true, ...conflict }),
+      ).toThrow(/generic MIPS ELF/u);
   });
 });
 
@@ -206,6 +278,20 @@ describe("Ghidra configured import language and seeds", () => {
         languageOverride: { languageId: "x86:LE:32:default" },
       }),
     ).toThrow(/cannot be combined with a DOS import/u);
+  });
+
+  it("never combines a configured language with a raw-binary import", () => {
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...base,
+        languageOverride: { languageId: "x86:LE:32:default" },
+        rawBinary: {
+          languageId: "ARM:LE:32:v7",
+          compilerSpecId: "default",
+          baseAddr: "0x8000000",
+        },
+      }),
+    ).toThrow(/cannot be combined with a raw-binary import/u);
   });
 
   it.each(["darwin", "win32"] as const)(

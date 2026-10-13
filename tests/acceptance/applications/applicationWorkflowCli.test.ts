@@ -18,6 +18,7 @@ import {
   SOURCE_TO_BUNDLE_COMPARISON_EXAMPLE,
 } from "../../../src/contracts/javascript/javascriptApplicationWorkflowExamples.js";
 import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import {
   javascriptApplicationAnalysisResultSchema,
   type JavaScriptApplicationAnalysisResult,
@@ -1116,7 +1117,7 @@ describe("application workflow CLI copy boundaries", () => {
         };
       }`,
     ];
-    const [left, right] = await analyzeCliSources(root, sources);
+    const [left, right] = await analyzeComparisonSources(root, sources);
     const inputPath = join(root, "comparison.json");
     await writeFile(
       inputPath,
@@ -1208,7 +1209,12 @@ describe("application workflow CLI and MCP capture lifetimes", () => {
         ...Object.fromEntries(fields.map((field) => [field, "UPDATED"])),
       })}; }`,
     ];
-    const [left, right] = await analyzeCliSources(root, sources);
+    // Retain a complete CLI analysis-to-comparison journey alongside MCP parity.
+    const [left, right] = await Promise.all(
+      (await writeComparisonSources(root, sources)).map((applicationRoot) =>
+        runCli(["analyze-javascript-application", applicationRoot, "--json"]),
+      ),
+    );
     // Execute the authored fixtures independently of static analysis.
     for (const [index, value] of ["TOKEN", "UPDATED"].entries()) {
       const { stdout } = await execute(process.execPath, [
@@ -1267,7 +1273,7 @@ describe("application workflow CLI export Evidence", () => {
       }`,
       'export default async function make() { return { kind: "record", extra: 1 }; }',
     ];
-    const [left, right] = await analyzeCliSources(root, sources);
+    const [left, right] = await analyzeComparisonSources(root, sources);
     const compared = await runCli([
       "compare-javascript-export-shapes",
       JSON.stringify({
@@ -1491,22 +1497,93 @@ const compareThroughStdioMcp = async (
   return response.structuredContent;
 };
 
-const analyzeCliSources = (
+const writeComparisonSources = (
   root: string,
   sources: readonly string[],
-): Promise<unknown[]> =>
+): Promise<string[]> =>
   Promise.all(
     sources.map(async (source, index) => {
       const applicationRoot = join(root, String(index));
       await mkdir(applicationRoot);
       await writeFile(join(applicationRoot, "parser.mjs"), source);
-      return runCli([
-        "analyze-javascript-application",
-        applicationRoot,
-        "--json",
-      ]);
+      return applicationRoot;
     }),
   );
+
+// Produce comparison inputs through the shared stateless stdio workflow;
+// each consumer still executes the real CLI with its own authored sources.
+const analyzeComparisonSources = async (
+  root: string,
+  sources: readonly string[],
+): Promise<unknown[]> => {
+  const client = await connectedMcpClient();
+  return Promise.all(
+    (await writeComparisonSources(root, sources)).map(
+      async (applicationRoot) => {
+        const response = await client.callTool({
+          name: "analyze_javascript_application",
+          arguments: { input_path: applicationRoot },
+        });
+        expect(response.isError).not.toBe(true);
+        return response.structuredContent;
+      },
+    ),
+  );
+};
+
+it("retains bundled isolated-world contextBridge APIs through dedicated and generic CLI routes", async () => {
+  const root = await createTestTempDirectory(
+    "rea-context-bridge-isolated-cli-",
+  );
+  await writeFile(
+    join(root, "preload.js"),
+    `(() => {
+      const modules = {
+        2(module) { module.exports = require("electron"); },
+        5(module, exports, load) {
+          const electron = load(2);
+          electron.contextBridge.exposeInIsolatedWorld(1001, "isolatedApi", { ping: true });
+        },
+      };
+      function load(id) {
+        const module = { exports: {} };
+        modules[id].call(module.exports, module, module.exports, load);
+        return module.exports;
+      }
+      load(5);
+    })();`,
+  );
+
+  for (const arguments_ of [
+    ["analyze-javascript-application", root, "--json"],
+    ["analyze", root, "--format", "json"],
+  ]) {
+    const result = javascriptApplicationAnalysisResultSchema.parse(
+      parseEvidence(await runCli(arguments_)).normalized_result,
+    );
+    expect(result.summary.context_bridge_apis).toBe(1);
+    const bridge = result.graph.nodes.find(
+      ({ kind }) => kind === "context-bridge-api",
+    );
+    expect(bridge?.observations).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          world: "isolated",
+          world_id: { status: "literal", value: 1001, expression: null },
+          api_key: "isolatedApi",
+          members: ["ping"],
+          resolution_basis: "wrapper-substitution",
+        }),
+        evidence: expect.objectContaining({
+          location: expect.objectContaining({
+            available: true,
+            value: expect.objectContaining({ source: "preload.js" }),
+          }),
+        }),
+      }),
+    );
+  }
+});
 
 const runCli = async (
   arguments_: readonly string[],
