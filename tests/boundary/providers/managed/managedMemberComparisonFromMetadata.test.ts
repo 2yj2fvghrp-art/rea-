@@ -861,7 +861,7 @@ describe("managed member comparison of unresolved and held identities", () => {
   });
 });
 
-describe("managed member comparison of ownerless members", () => {
+describe("managed member comparison of ownerless structural competitors", () => {
   it("keeps structural competitors of an ownerless method ambiguous in both directions", () => {
     const base = inspect(
       buildManagedPeFixture(),
@@ -908,7 +908,9 @@ describe("managed member comparison of ownerless members", () => {
       expect(result.summary).toMatchObject({ added: 0, removed: 0 });
     }
   });
+});
 
+describe("managed member comparison of ownerless members", () => {
   it("keeps an ownerless member ambiguous beside a resolved copy, as main does", () => {
     const base = inspect(buildManagedPeFixture(), "/tmp/ownerless-copy.dll");
     const [method] = base.result.methods;
