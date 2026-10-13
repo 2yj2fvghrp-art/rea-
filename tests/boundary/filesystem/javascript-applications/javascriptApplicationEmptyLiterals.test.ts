@@ -9,7 +9,10 @@ import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js
 import { javascriptApplicationAnalysisResultSchema } from "../../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { matchJavaScriptApplicationVersions } from "../../../../src/domain/javascript/javascriptApplicationVersionKeys.js";
 import { findApplicationFeatureSeeds } from "../../../../src/domain/javascript/javascriptFeatureSeed.js";
-import { traceApplicationFeatureInputSchema } from "../../../../src/domain/javascript/javascriptFeatureTraceSchemas.js";
+import {
+  applicationFeatureSeedSchema,
+  traceApplicationFeatureInputSchema,
+} from "../../../../src/domain/javascript/javascriptFeatureTraceSchemas.js";
 import { analyzeJavaScriptApplication } from "../../../support/javascriptApplicationScope.js";
 
 const analyzeSource = async (
@@ -100,11 +103,14 @@ it("keeps bridge entry paths stable through worker validation and API seed match
   );
   expect(semanticPathIds).toEqual(applicationPathIds);
 
-  const matches = findApplicationFeatureSeeds(output.graph.nodes, {
-    kind: "api",
-    value: "desktop.nested.write",
-    entry_path: ["desktop", "nested.write"],
-  });
+  const matches = findApplicationFeatureSeeds(
+    output.graph.nodes,
+    applicationFeatureSeedSchema.parse({
+      kind: "api",
+      value: "desktop.nested.write",
+      entry_path: ["desktop", "nested.write"],
+    }),
+  );
   expect(matches).toHaveLength(1);
   expect(
     output.graph.nodes
@@ -116,10 +122,13 @@ it("keeps bridge entry paths stable through worker validation and API seed match
       ),
   ).toBe(true);
   expect(
-    findApplicationFeatureSeeds(output.graph.nodes, {
-      kind: "api",
-      value: "desktop.nested.write",
-    }),
+    findApplicationFeatureSeeds(
+      output.graph.nodes,
+      applicationFeatureSeedSchema.parse({
+        kind: "api",
+        value: "desktop.nested.write",
+      }),
+    ),
   ).toHaveLength(2);
 });
 
