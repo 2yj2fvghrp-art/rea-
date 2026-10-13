@@ -3,13 +3,18 @@ import {
   assertFeatureTrace,
   findMappedNonFunction,
 } from "./lib/ida-feature-trace.mjs";
+import {
+  assertNoNewIdaWorkspaces,
+  snapshotIdaWorkspaces,
+} from "./lib/ida-verifier-workspaces.mjs";
 import { requireMcpToolError } from "./lib/mcp-verifier-results.mjs";
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, writeFile } from "node:fs/promises";
+import { access, realpath, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
@@ -46,6 +51,7 @@ const packageRoot = resolve(
   values["package-root"] ?? fileURLToPath(new URL("..", import.meta.url)),
 );
 const target = resolve(values.target);
+const admittedDocument = await realpath(target);
 const entry = join(packageRoot, "scripts", "rea.mjs");
 const importBuilt = (path) =>
   import(pathToFileURL(join(packageRoot, "dist", path)).href);
@@ -98,6 +104,10 @@ const expectedXref =
 let phase = "target admission";
 const workspaces = new Set();
 const databases = new Set();
+let cliOverviewResult;
+let mcpOverview;
+let procedureInventoryCount;
+let stringInventoryCount;
 const digest = async () => {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(target)) hash.update(chunk);
@@ -125,6 +135,70 @@ const observe = (input) => {
   }
   report.observations.push(evidence);
   return evidence.normalized_result;
+};
+const verifyOverview = (input, surface) => {
+  const evidence = evidenceSchema.parse(input);
+  assert.equal(evidence.operation, "binary_overview");
+  assert.equal(evidence.provider.id, "rea-workflow");
+  assert.equal(evidence.provider.version, "1");
+  assert.equal(evidence.raw_result, null);
+  assert.equal(evidence.analysis_profile?.provider.id, "rea-workflow");
+  const upstream =
+    evidence.analysis_profile?.parameters.upstream_analysis_profile;
+  assert.ok(upstream && typeof upstream === "object");
+  assert.equal(upstream.provider.id, "ida");
+  assert.equal(upstream.provider.version, "1");
+  assert.equal(upstream.parameters.cache_policy, "live");
+  assert.equal(upstream.parameters.engine_version, null);
+  report.observations.push(evidence);
+  const overview = evidence.normalized_result;
+  assert.equal(evidence.subject?.local_path, admittedDocument);
+  assert.equal(overview.document, admittedDocument);
+  assert.equal(typeof overview.procedure_count, "number");
+  assert.equal(typeof overview.string_count, "number");
+  for (const omitted of ["segments", "segment_count", "image_base"])
+    assert.equal(Object.hasOwn(overview, omitted), false);
+  report.checks.push(
+    `${surface} binary overview identifies the admitted program, reports procedure/string counts, and omits unobserved segment fields`,
+  );
+  return overview;
+};
+const cliOverview = async () => {
+  phase = "production CLI binary overview";
+  const workspaceRoot = config.workspaceRoot ?? tmpdir();
+  const before =
+    config.mode === "headless"
+      ? await snapshotIdaWorkspaces(workspaceRoot)
+      : undefined;
+  let commandResult;
+  let commandFailure;
+  try {
+    commandResult = await promisify(execFile)(
+      process.execPath,
+      [entry, "analyze", target, "--json"],
+      {
+        env: environment,
+        timeout: config.timeoutMs * 3,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+  } catch (cause) {
+    commandFailure = cause;
+  }
+  if (before !== undefined) {
+    phase = "production CLI binary overview cleanup";
+    const after = await snapshotIdaWorkspaces(workspaceRoot);
+    assertNoNewIdaWorkspaces(before, after);
+    report.checks.push(
+      "no new headless IDA workspace remained after the separate CLI overview run",
+    );
+    phase = "production CLI binary overview";
+  }
+  if (commandFailure !== undefined) throw commandFailure;
+  cliOverviewResult = verifyOverview(
+    JSON.parse(commandResult.stdout),
+    `${config.mode} CLI`,
+  );
 };
 const cli = async () => {
   phase = "production CLI function analysis";
@@ -187,6 +261,10 @@ const mcp = async (cliDossier) => {
     assert.equal(dossier.pseudocode, cliDossier.pseudocode);
     assert.deepEqual(dossier.assembly, cliDossier.assembly);
     assert.equal(analyzed.operation, "analyze_function");
+    mcpOverview = verifyOverview(
+      await call("binary_overview", {}),
+      `${config.mode} MCP`,
+    );
     for (const [name, args] of [
       ["list_procedures", {}],
       ["list_strings", {}],
@@ -222,6 +300,8 @@ const mcp = async (cliDossier) => {
             ),
             `${name} omitted the resolved procedure.`,
           );
+          if (name === "list_procedures")
+            procedureInventoryCount = value.length;
           break;
         case "procedure_address":
           assert.equal(value, dossier.procedure.address);
@@ -248,6 +328,7 @@ const mcp = async (cliDossier) => {
           break;
         case "list_strings":
         case "search_strings":
+          if (name === "list_strings") stringInventoryCount = value.length;
           if (values["expected-string"] !== undefined)
             assert.ok(
               value.some((item) =>
@@ -265,10 +346,13 @@ const mcp = async (cliDossier) => {
           break;
       }
     }
+    const documents = observe(await call("list_documents", {}));
+    assert.equal(documents.length, 1);
+    assert.equal(basename(documents[0]), basename(target));
+    report.checks.push(
+      `${config.mode} lists exactly the admitted public program as its document`,
+    );
     if (config.mode === "headless") {
-      const documents = observe(await call("list_documents", {}));
-      assert.equal(documents.length, 1);
-      assert.equal(basename(documents[0]), basename(target));
       assert.ok(
         !workspaces.has(dirname(documents[0])),
         "list_documents reported the private workspace copy.",
@@ -419,7 +503,29 @@ const cleanup = async () => {
 };
 try {
   const before = await digest();
+  await cliOverview();
   await mcp(await cli());
+  assert.equal(typeof procedureInventoryCount, "number");
+  assert.equal(typeof stringInventoryCount, "number");
+  phase = "CLI/MCP binary overview inventory comparison";
+  for (const [surface, overview] of [
+    ["CLI", cliOverviewResult],
+    ["MCP", mcpOverview],
+  ]) {
+    assert.equal(
+      overview.procedure_count,
+      procedureInventoryCount,
+      `${surface} binary overview disagrees with the complete procedure inventory`,
+    );
+    assert.equal(
+      overview.string_count,
+      stringInventoryCount,
+      `${surface} binary overview disagrees with the complete string inventory`,
+    );
+  }
+  report.checks.push(
+    "CLI and MCP overview totals match the real procedure and string inventories",
+  );
   await cleanup();
   assert.equal(await digest(), before);
   report.checks.push("original binary unchanged and never executed");
