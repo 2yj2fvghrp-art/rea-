@@ -327,25 +327,46 @@ try {
         /Reparse path component is unsupported/u,
       );
       await call("close_binary");
-      await assert.rejects(
-        exec(
-          process.execPath,
-          [
-            entrypoint,
-            "inspect-native-load-image",
-            linkedPath,
-            "--target-format",
-            "raw-binary",
-            "--architecture",
-            "6502",
-            "--entry-point",
-            "0x8001",
-            "--provider",
-            "ghidra",
-            "--json",
-          ],
-          { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
+      const snapshotPath = join(workspace, "direct-snapshot.json");
+      const cliArgs = (selectedPath) => [
+        entrypoint,
+        "analyze",
+        selectedPath,
+        "--target-format",
+        "raw-binary",
+        "--architecture",
+        "6502",
+        "--entry-point",
+        "0x8001",
+        "--provider",
+        "ghidra",
+        "--snapshot",
+        snapshotPath,
+        "--json",
+      ];
+      const saved = await exec(process.execPath, cliArgs(path), {
+        env,
+        timeout: 240000,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      assert.equal(
+        evidence(JSON.parse(saved.stdout), sha256).operation,
+        "binary_overview",
+      );
+      const savedSnapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+      assert.ok(
+        savedSnapshot.workflow_entries.some(
+          ({ operation }) => operation === "binary_overview",
         ),
+      );
+      assert.deepEqual(await readdir(runtime), []);
+      // Replaying a matching snapshot must still reach native path admission.
+      await assert.rejects(
+        exec(process.execPath, cliArgs(linkedPath), {
+          env,
+          timeout: 240000,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
         (cause) => {
           assert.match(
             cause.stdout + cause.stderr,
@@ -356,7 +377,7 @@ try {
       );
       assert.deepEqual(await readFile(path), bytes);
       assert.deepEqual(await readdir(runtime), []);
-      windowsReparseAdmission = "cli-mcp-rejected";
+      windowsReparseAdmission = "cli-snapshot-mcp-rejected";
     } finally {
       await unlink(junction);
     }

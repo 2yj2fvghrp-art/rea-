@@ -397,7 +397,9 @@ describe("snapshot output cleanup lifecycle", () => {
   });
 });
 
-const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
+const verifyWindowsSnapshotAdmission = async (
+  selectedPath: "direct" | "junction",
+): Promise<void> => {
   const fixture = await createSnapshotReplayFixture(
     "rea-direct-snapshot-junction-",
   );
@@ -405,9 +407,16 @@ const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
   await writeFile(rawPath, Buffer.from("a92a60", "hex"));
   const linked = join(dirname(fixture.path), "linked");
   const linkedPath = join(linked, basename(rawPath));
+  const identity = { ...GHIDRA_PROVIDER_IDENTITY, version: "12.1.4" };
+  const profile = createAnalysisProfile(identity, {
+    fixture: true,
+  });
   const baseProvider = fixture.createProvider({
+    identity,
+    profile,
     supportedOperations: ["search_strings"],
   });
+  let rejectAdmission = false;
   const provider: AnalysisProvider = {
     ...baseProvider,
     createClient: (target, profile, context) => {
@@ -415,9 +424,9 @@ const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
       return {
         ...client,
         execute: (operation, parameters, options) =>
-          target.sourcePath === linkedPath
+          rejectAdmission && operation === "search_strings"
             ? Promise.resolve(
-                err(new ProviderAdapterError("snapshot-fixture", operation)),
+                err(new ProviderAdapterError("ghidra", operation)),
               )
             : client.execute(operation, parameters, options),
       };
@@ -440,10 +449,12 @@ const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
   );
   expect(first).toMatchObject({ operation: "search_strings" });
   expect(fixture.starts).toHaveLength(1);
-  await symlink(dirname(fixture.path), linked, "junction");
+  if (selectedPath === "junction")
+    await symlink(dirname(fixture.path), linked, "junction");
+  rejectAdmission = true;
   const second = await runDirectAnalysis(
     dependencies,
-    linkedPath,
+    selectedPath === "junction" ? linkedPath : rawPath,
     "search_strings",
     arguments_,
     options,
@@ -458,7 +469,11 @@ const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
 describe("direct analysis composed snapshot replay", () => {
   it.skipIf(process.platform !== "win32")(
     "does not replay a CLI snapshot through a Windows junction",
-    verifyWindowsJunctionSnapshotAdmission,
+    () => verifyWindowsSnapshotAdmission("junction"),
+  );
+  it.skipIf(process.platform !== "win32")(
+    "does not replay a CLI snapshot before native admission on a canonical path",
+    () => verifyWindowsSnapshotAdmission("direct"),
   );
 
   it.each([
@@ -580,7 +595,7 @@ describe("Ghidra composed workflow snapshot replay", () => {
     { tool: "inspect_native_api", arguments: { procedure: "0x1000" } },
     { tool: "trace_feature", arguments: { query: "fixture" } },
   ] as const)(
-    "persists and replays $tool with production Ghidra capability policies",
+    "persists $tool with production Ghidra capability policies",
     async ({ tool, arguments: parameters }) => {
       const fixture = await createSnapshotReplayFixture("rea-ghidra-workflow-");
       const profile = createAnalysisProfile(
@@ -618,8 +633,14 @@ describe("Ghidra composed workflow snapshot replay", () => {
         { snapshotPath: fixture.snapshotPath },
       );
       expect(replay).toEqual(first);
-      expect(fixture.starts).toHaveLength(1);
-      expect(fixture.calls).toEqual(initialCalls);
+      if (process.platform === "win32") {
+        // The first provider call in a new CLI session admits its source.
+        expect(fixture.starts).toHaveLength(2);
+        expect(fixture.calls.length).toBeGreaterThan(initialCalls.length);
+      } else {
+        expect(fixture.starts).toHaveLength(1);
+        expect(fixture.calls).toEqual(initialCalls);
+      }
     },
   );
 });
