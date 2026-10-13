@@ -6,11 +6,13 @@ on:
     paths:
       - "integrations/deepseek-harness/**"
       - ".github/workflows/dsh-bundle.yml"
+      - "knip.json"
   pull_request:
     branches: [main]
     paths:
       - "integrations/deepseek-harness/**"
       - ".github/workflows/dsh-bundle.yml"
+      - "knip.json"
   workflow_dispatch:
 
 concurrency:
