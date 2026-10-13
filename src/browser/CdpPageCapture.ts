@@ -17,8 +17,10 @@ import {
   captureFrames,
   captureResources,
   type CapturedResource,
+  type DomCapture,
   mainFrameUrl,
 } from "./CdpCaptureDocuments.js";
+import { capturedSvgNodeKind } from "./CdpCaptureDomSvg.js";
 import {
   allowedSanitizedUrl,
   delayWithCancellation,
@@ -52,7 +54,7 @@ interface CaptureState {
 interface CapturedSections {
   readonly attachedUrl: string;
   readonly frames: WebPageInspection["frames"];
-  readonly dom: ReturnType<typeof captureDom>;
+  readonly dom: DomCapture;
   readonly accessibility: ReturnType<typeof captureAccessibility>;
   readonly scripts: WebPageInspection["scripts"];
   readonly resources: WebPageInspection["resources"];
@@ -260,9 +262,7 @@ const authorizeObservationWindow = async (
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
 };
 
-const capturePageDom = async (
-  state: CaptureState,
-): Promise<ReturnType<typeof captureDom>> => {
+const capturePageDom = async (state: CaptureState): Promise<DomCapture> => {
   const { context, allowedOrigins } = state;
   const result = await context.connection.send(
     "DOMSnapshot.captureSnapshot",
@@ -274,12 +274,43 @@ const capturePageDom = async (
     context.sessionId,
     context.signal,
   );
-  return captureDom(
+  const capture = captureDom(
     result,
     allowedOrigins,
     context.input,
     state.events.completeness,
   );
+  let step = capture.next();
+  let descriptionUnavailable = false;
+  while (!step.done) {
+    const query = step.value;
+    let svgElement: boolean | undefined;
+    if (!descriptionUnavailable) {
+      try {
+        svgElement = capturedSvgNodeKind(
+          query,
+          await context.connection.send(
+            "DOM.describeNode",
+            { backendNodeId: query.backendNodeId, depth: 0 },
+            context.sessionId,
+            context.signal,
+          ),
+        );
+      } catch (cause: unknown) {
+        // A detached node can disappear between snapshot and description.
+        // Preserve partial metadata, but propagate transport/cancellation errors.
+        if (!(cause instanceof CdpCommandRejection)) throw cause;
+        if (cause.code === -32_601) descriptionUnavailable = true;
+        else if (cause.code !== -32_000) throw cause;
+      }
+    }
+    step = capture.next(svgElement);
+  }
+  if (step.value.unresolvedSvgNodes > 0)
+    state.limitations.push(
+      `SVG identity was unavailable for ${String(step.value.unresolvedSvgNodes)} snapshotted XLink candidate nodes; their URL destinations remain unknown.`,
+    );
+  return step.value;
 };
 
 const normalizedInspection = (

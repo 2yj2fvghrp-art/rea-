@@ -45,18 +45,38 @@ const pageHtml = `<!doctype html><title>x</title>
   <image id="img" xlink:href="/xl-image" />
   <use id="use" xlink:href="/xl-use" />
   <a id="out" xlink:href="https://cdn.example.test/out"><text>out</text></a>
-  <desc>
+  <a id="move-desc" xlink:href="/xl-moved-desc"><text>move desc</text></a>
+  <a id="move-title" xlink:href="/xl-moved-title"><text>move title</text></a>
+  <desc id="desc-container">
     <a xlink:href="/xl-html-desc">not an SVG link</a>
     <a href="/html-desc">HTML link</a>
     <svg><a xlink:href="/xl-nested-desc"><text>nested</text></a></svg>
   </desc>
-  <title>
+  <title id="title-container">
     <a xlink:href="/xl-html-title">not an SVG link</a>
     <a href="/html-title">HTML link</a>
     <svg><a xlink:href="/xl-nested-title"><text>nested</text></a></svg>
   </title>
 </svg>
 <a id="html" xlink:href="/xl-html">html</a>
+<script>
+for (const kind of ['desc', 'title']) {
+  const container = document.getElementById(kind + '-container');
+  container.append(document.getElementById('move-' + kind));
+  for (const nested of [false, true]) {
+    const anchor = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+    anchor.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href',
+      '/xl-created-' + (nested ? 'nested-' : '') + kind);
+    const parent = nested
+      ? container.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'))
+      : container;
+    parent.append(anchor);
+  }
+  const math = document.createElementNS('http://www.w3.org/1998/Math/MathML', 'a');
+  math.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '/xl-math-' + kind);
+  container.append(math);
+}
+</script>
 `;
 
 it.skipIf(chromeExecutable === undefined)(
@@ -158,6 +178,12 @@ it.skipIf(chromeExecutable === undefined)(
             "/html-title",
             "/xl-nested-desc",
             "/xl-nested-title",
+            "/xl-moved-desc",
+            "/xl-moved-title",
+            "/xl-created-desc",
+            "/xl-created-title",
+            "/xl-created-nested-desc",
+            "/xl-created-nested-title",
           ].map((path) =>
             expect.objectContaining({
               attribute: "href",
@@ -171,11 +197,12 @@ it.skipIf(chromeExecutable === undefined)(
         urls.some(
           (url) =>
             url.url?.includes("/xl-html") === true ||
+            url.url?.includes("/xl-math") === true ||
             url.url?.endsWith("/xlink-loses") === true,
         ),
       ).toBe(false);
       expect(urls.every((url) => url.attribute === "href")).toBe(true);
-      expect(urls).toHaveLength(9);
+      expect(urls).toHaveLength(15);
     } finally {
       child.kill("SIGTERM");
       if (!(await waitForExit(child, 2_000))) child.kill("SIGKILL");

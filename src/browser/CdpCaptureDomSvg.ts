@@ -1,8 +1,7 @@
-import { numberValue } from "./CdpCaptureValues.js";
+import { numberValue, recordValue } from "./CdpCaptureValues.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
-const HTML_INTEGRATION_POINTS = new Set(["foreignObject", "desc", "title"]);
 
 interface DomSnapshotNodes {
   readonly nodeTypes: readonly number[];
@@ -19,10 +18,33 @@ interface XmlSvgLink {
 
 interface DocumentSvgAncestry {
   readonly xml: boolean;
-  readonly nodes: DomSnapshotNodes;
-  readonly svgContexts: Map<number, boolean>;
   readonly xmlLinks: Map<number, XmlSvgLink>;
 }
+
+export interface DomSvgNodeQuery {
+  readonly backendNodeId: number;
+  readonly nodeName: string;
+}
+
+/** Bind the browser's SVG flag to the exact snapshotted element. */
+export const capturedSvgNodeKind = (
+  query: DomSvgNodeQuery,
+  result: unknown,
+): boolean | undefined => {
+  const node = recordValue(recordValue(result)?.node);
+  if (
+    node?.backendNodeId !== query.backendNodeId ||
+    node.nodeName !== query.nodeName ||
+    node.nodeType !== 1
+  )
+    return undefined;
+  // CDP omits isSVG for non-SVG nodes. Other values are malformed, not false.
+  return node.isSVG === undefined
+    ? false
+    : typeof node.isSVG === "boolean"
+      ? node.isSVG
+      : undefined;
+};
 
 interface DomSvgLink {
   readonly svgElement: boolean;
@@ -80,8 +102,6 @@ export const createDocumentSvgAncestry = (
   const xml = xmlDocument(nodes);
   return {
     xml,
-    nodes,
-    svgContexts: new Map(),
     xmlLinks: xml ? resolveXmlElements(nodes) : new Map(),
   };
 };
@@ -92,11 +112,7 @@ export const domSvgLink = (
 ): DomSvgLink => {
   if (!ancestry.xml) {
     return {
-      svgElement: elementInSvgContext(
-        index,
-        ancestry.nodes,
-        ancestry.svgContexts,
-      ),
+      svgElement: false,
       xmlDocument: false,
       xlinkHref: undefined,
     };
@@ -107,47 +123,6 @@ export const domSvgLink = (
     xmlDocument: true,
     xlinkHref: resolved.xlinkHref,
   };
-};
-
-// Chrome's HTML parser records SVG local names (`svg`, `foreignObject`).
-// Children of SVG HTML integration points use HTML rules until a nested `svg`.
-const elementInSvgContext = (
-  index: number,
-  nodes: DomSnapshotNodes,
-  contexts: Map<number, boolean>,
-): boolean => {
-  let current = index;
-  const seen = new Set<number>();
-  let inSvg = false;
-  while (
-    current >= 0 &&
-    current < nodes.nodeNames.length &&
-    !seen.has(current)
-  ) {
-    const cached = contexts.get(current);
-    if (cached !== undefined) {
-      inSvg = cached;
-      break;
-    }
-    seen.add(current);
-    if (stringAt(nodes.strings, nodes.nodeNames[current]) === "svg") {
-      inSvg = true;
-      break;
-    }
-    const parent = Math.trunc(nodes.parents[current] ?? -1);
-    if (parent < 0 || parent === current) break;
-    if (
-      HTML_INTEGRATION_POINTS.has(
-        stringAt(nodes.strings, nodes.nodeNames[parent]),
-      )
-    )
-      break;
-    current = parent;
-  }
-  // Cache the entire examined chain, including forward references and cycles,
-  // so shared ancestors are examined once per document.
-  for (const node of seen) contexts.set(node, inSvg);
-  return inSvg;
 };
 
 interface NamespaceRestore {
