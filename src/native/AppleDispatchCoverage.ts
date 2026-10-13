@@ -103,22 +103,18 @@ export const pushDispatchCoverage = (input: {
       ({ decode }) => decode?.status === "decoded",
     ).length,
   });
+  const relativePointerReasons = [
+    ...(truncated || objcClassListScanTruncated ? ["max_records_reached"] : []),
+    ...(result.relative_pointers.some(
+      (item) => item.decode.status !== "decoded",
+    )
+      ? ["relative_pointer_targets_unresolved"]
+      : []),
+  ];
   result.coverage.push({
     facet: "binary_relative_pointers",
-    status:
-      truncated ||
-      objcClassListScanTruncated ||
-      result.relative_pointers.some((item) => item.decode.status !== "decoded")
-        ? "partial"
-        : "complete",
-    reason:
-      truncated || objcClassListScanTruncated
-        ? "max_records_reached"
-        : result.relative_pointers.some(
-              (item) => item.decode.status !== "decoded",
-            )
-          ? "relative_pointer_targets_unresolved"
-          : null,
+    status: relativePointerReasons.length > 0 ? "partial" : "complete",
+    reason: relativePointerReasons.join("; ") || null,
     examined: result.relative_pointers.length,
     decoded: result.relative_pointers.filter(
       (item) => item.decode.status === "decoded",
