@@ -23,6 +23,12 @@
 
 <code>npx rea-agents setup</code>
 
+> [!IMPORTANT]
+> Get REA from [morluto/rea](https://github.com/morluto/rea),
+> [rea.tools](https://rea.tools/), or the [rea-agents npm package](https://www.npmjs.com/package/rea-agents).
+> Follow the installation and release links from these official sources. A similar
+> repository name or copied README does not establish that a download is official.
+
 <br />
 
 <img src="../assets/rea-hopper-analysis.png" alt="Το REA ξεκινά τη γέφυρα ανάλυσής του μέσα στο Hopper κατά την εξέταση ενός δυαδικού αρχείου με κώδικα μηχανής" width="1200" />
@@ -137,6 +143,7 @@ npx rea-agents@latest setup
 | Δυαδικά αρχεία με κώδικα μηχανής       | Ψευδοκώδικα, κώδικα assembly, συμβολοσειρές, σύμβολα, κλήσεις και αναφορές                                                  | Hopper, Ghidra ή IDA· [ανάλυση κώδικα μηχανής](https://rea.tools/guides/native/)                                                    |
 | Δομή ELF χωρίς εκτέλεση                | Ενότητες, τμήματα, αρχικά σύμβολα/εγγραφές μετεγκατάστασης και ενδείξεις πιθανών μέτρων προστασίας από στατική ανάλυση      | pwntools που παρέχει ο χρήστης σε Linux x64· [διαγνωστικά δυαδικών αρχείων](../binary-diagnostics.md)                               |
 | Δυαδικά αρχεία Go                      | Ενσωματωμένη έκδοση μεταγλωττιστή, modules, αντικαταστάσεις και ρυθμίσεις μεταγλώττισης                                     | Ενσωματωμένη στατική εξέταση ELF/PE/thin Mach-O· δεν απαιτείται εγκατάσταση του Go                                                  |
+| Rust binaries                          | Embedded cargo-auditable crate names, versions, sources and dependency edges                                                | Built-in static ELF/PE/thin Mach-O inspection; [Rust binaries](../rust-binaries.md)                                                 |
 | Αρχείο WASM                            | Έλεγχο εγκυρότητας, ενότητες, ακριβείς μορφές εισαγωγών/εξαγωγών σε WAT και αποκωδικοποιημένο WAT                           | WABT 1.0.42 που παρέχει ο χρήστης· `inspect_wasm_artifact`                                                                          |
 | Bytecode EVM                           | Selectors επιλογής συνάρτησης, μετατοπίσεις σε bytes, εκτιμώμενα ορίσματα και δυνατότητα μεταβολής της κατάστασης           | Τοπική είσοδος σε ακατέργαστα bytes ή δεκαεξαδική μορφή σε Linux x64· [οδηγός EVM χωρίς εκτέλεση](../evm-bytecode.md)               |
 | Βάσεις δεδομένων SQLite                | Πίνακες, στήλες, ευρετήρια, όψεις, triggers και επιλεγμένες γραμμές κανονικών πινάκων                                       | Τοπικό στιγμιότυπο βάσης δεδομένων/WAL· Node.js 24.x >=24.15 ή 26+ με εγγενή όρια SQLite                                            |
@@ -156,6 +163,11 @@ npx rea-agents@latest setup
 | Καταγεγραμμένα λογικά σήματα           | Σχολιασμούς αποκωδικοποιητή, εύρη δειγμάτων και διαγνωστικά                                                                 | Linux: sigrok-cli 0.7.2 + prlimit· [καταγραφές σημάτων](../signal-recordings.md)                                                    |
 | Πακέτα και πόροι                       | Καταλόγους αρχείων, ψηφιακά αποτυπώματα, plists, δομή bundles της Apple και εξαγόμενους πόρους                              | [Οδηγός αρχείων και JavaScript](../javascript-artifact-reconstruction.md), [εφαρμογές Apple](../apple-application-analysis.md)      |
 | Συμπεριφορά διεργασιών                 | Έξοδο τερματικού, αλληλεπιδράσεις, παρατηρήσεις τερματισμού και συστήματος αρχείων, καθώς και συγκρίσεις εκτελέσεων         | Linux/macOS με εγγενές PTY· [καταγραφή διεργασιών](../process-capture.md)                                                           |
+
+For offline native-binary inspection, REA also supports caller-supplied GNU
+objdump and Rizin. See the [reverse-engineering tools guide](../reverse-engineering-tools.md)
+for provider setup, CLI commands, and Evidence limitations. REA does not install
+or update either provider.
 
 Η στατική εξέταση JavaScript και .NET διαβάζει τα αρχεία που παρέχονται χωρίς να εκτελεί την εφαρμογή. Η καταγραφή κατά την εκτέλεση εκτελεί τον επιλεγμένο στόχο ή αλληλεπιδρά μαζί του με τα δικαιώματα του χρήστη σου. Κάθε σχετικός οδηγός περιγράφει τις επιπτώσεις της.
 
