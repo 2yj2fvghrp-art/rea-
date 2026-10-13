@@ -1,3 +1,4 @@
+import { parseGhidraJavaProperties } from "./GhidraJavaProperties.js";
 import {
   GHIDRA_SEED_SCRIPT,
   snapshotGhidraAnalysisSeeds,
@@ -725,15 +726,6 @@ const ghidraRuntimePaths = (runtimeRoot: string) => ({
   scriptLogPath: join(runtimeRoot, "script.log"),
 });
 
-const ghidraPropertyValue = (
-  properties: string,
-  key: string,
-): string | undefined =>
-  new RegExp(
-    `^\\s*${key.replaceAll(".", "\\.")}\\s*=\\s*(.+?)\\s*$`,
-    "mu",
-  ).exec(properties)?.[1];
-
 /**
  * Ghidra's launch support resolves its JDK before the headless run and then
  * persists that choice under `<config>/ghidra/<release directory>`. Inside
@@ -749,10 +741,12 @@ const ghidraConfigReleaseDirectory = async (
   try {
     const properties = await readFile(
       join(installRoot, "Ghidra", "application.properties"),
-      "utf8",
+      "latin1",
     );
-    const version = ghidraPropertyValue(properties, "application.version");
-    const release = ghidraPropertyValue(properties, "application.release.name");
+    const parsed = parseGhidraJavaProperties(properties);
+    if (!parsed.ok) return basename(installRoot);
+    const version = parsed.value.get("application.version");
+    const release = parsed.value.get("application.release.name");
     return version === undefined ||
       release === undefined ||
       release.length === 0
