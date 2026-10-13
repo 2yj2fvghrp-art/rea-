@@ -123,14 +123,51 @@ it("keeps caller cancellation classified without reporting an exhausted budget",
   }
 });
 
+// Probe from issue #2760 review: both the abort timer and the clamped polling
+// timer can fire early at the same monotonic instant. The full-budget wait must
+// stay pending until the absolute deadline expires.
+it("keeps a full-budget wait pending when both timers fire early", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let monotonic = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => monotonic);
+  const caller = new AbortController();
+  const deadline = new ProviderStartupDeadline(40, caller.signal);
+  let outcome: string | undefined;
+  const pending = deadline.wait(500).then((result) => {
+    outcome = result;
+    return result;
+  });
+  try {
+    monotonic = 39;
+    await vi.advanceTimersByTimeAsync(40);
+    expect(deadline.signal.aborted).toBe(false);
+    expect(deadline.remainingMs()).toBe(1);
+    expect(outcome).toBeUndefined(); // currently "elapsed"
+    monotonic = 40;
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toBe("aborted");
+    expect(deadline.remainingMs()).toBe(0);
+  } finally {
+    caller.abort();
+    deadline.dispose();
+    vi.useRealTimers();
+  }
+});
+
 it("releases the timer and listener on dispose with a pending wait", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let monotonic = 0;
   vi.spyOn(performance, "now").mockImplementation(() => monotonic);
-  const deadline = new ProviderStartupDeadline(40);
+  const caller = new AbortController();
+  const deadline = new ProviderStartupDeadline(40, caller.signal);
   try {
     const pending = deadline.wait(500);
     deadline.dispose();
+    // The external abort listener is removed: caller cancellation after
+    // dispose must not abort the deadline or classify it as cancelled.
+    caller.abort(new Error("caller stopped startup"));
+    expect(deadline.signal.aborted).toBe(false);
+    expect(deadline.interruption).toBeUndefined();
     monotonic = 100;
     await vi.advanceTimersByTimeAsync(100);
     expect(deadline.signal.aborted).toBe(false);

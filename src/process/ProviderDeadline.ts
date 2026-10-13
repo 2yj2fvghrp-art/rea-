@@ -82,20 +82,42 @@ export class ProviderStartupDeadline {
     return Math.max(0, Math.ceil(this.#deadlineAt - performance.now()));
   }
 
-  /** Wait for at most one polling interval under the shared deadline signal. */
+  /**
+   * Wait for at most one polling interval under the shared deadline signal.
+   *
+   * The wait targets the earlier of the requested polling interval and the
+   * absolute deadline. Node timers can fire up to ~1ms early, and both the
+   * deadline timer and the clamped polling timer may fire early at the same
+   * monotonic instant. If a polling timer reports elapsed before the target,
+   * the wait continues for the residual bounded time instead of resolving —
+   * the full-budget contract ("aborted" at deadline expiry) holds even when
+   * every timer in the chain is delivered early.
+   */
   wait(milliseconds: number): Promise<AbortableWaitResult> {
-    const budget = this.remainingMs();
-    return waitForAbortableDelay(
-      Math.min(milliseconds, budget),
-      this.signal,
-    ).then((result) => {
-      // A wait clamped to the full budget can resolve at the deadline before
-      // the re-armed abort timer fires. Report the expired deadline as an
-      // abort so polling stops at the boundary instead of reporting "elapsed".
-      if (result === "elapsed" && performance.now() >= this.#deadlineAt)
-        return "aborted";
-      return result;
-    });
+    const startedAt = performance.now();
+    // Absolute target: the earlier of the requested polling interval and the
+    // absolute monotonic deadline.
+    const targetAt = Math.min(startedAt + milliseconds, this.#deadlineAt);
+    const poll = (): Promise<AbortableWaitResult> => {
+      const budget = this.remainingMs();
+      const residual = Math.max(0, targetAt - performance.now());
+      return waitForAbortableDelay(
+        Math.min(residual, budget),
+        this.signal,
+      ).then((result) => {
+        if (result === "aborted") return "aborted";
+        const now = performance.now();
+        // The monotonic deadline expired: a full-budget wait resolves as an
+        // abort so polling stops at the boundary.
+        if (now >= this.#deadlineAt) return "aborted";
+        // The polling interval elapsed without expiring the deadline.
+        if (now >= targetAt) return "elapsed";
+        // A timer fired before the absolute target; keep waiting for the
+        // residual time. The residual strictly decreases, so this converges.
+        return poll();
+      });
+    };
+    return poll();
   }
 
   /** Release the deadline timer and external abort listener. */
