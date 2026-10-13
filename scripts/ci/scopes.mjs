@@ -66,6 +66,8 @@ export const SCOPES = {
     "tests/boundary/filesystem/javascript-applications/javascriptArtifactReconstruction.test.ts",
     "tests/conformance/providers/ghidra/windowsCapabilities.test.ts",
     "src/ghidra/GhidraInstallation.test.ts",
+    "src/ghidra/GhidraLauncher.ts",
+    "src/ghidra/GhidraJavaLaunch.ts",
     "tests/boundary/filesystem/ghidraJavaProbe.test.ts",
     "tests/boundary/providers/ghidra/ghidraTransport.test.ts",
     "tests/boundary/providers/ghidra/ghidraTargetSnapshot.test.ts",

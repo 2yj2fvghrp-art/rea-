@@ -310,6 +310,14 @@ it.each([
     { code: true, runtime: true, package: true, apple: false, evm: false },
   ],
   [
+    "src/ghidra/GhidraLauncher.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "src/ghidra/GhidraJavaLaunch.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
     ".agents/skills/reverse-engineer-anything/SKILL.md",
     { code: true, runtime: true, docs: true, package: false, evm: false },
   ],
