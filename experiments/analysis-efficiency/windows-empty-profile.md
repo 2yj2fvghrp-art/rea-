@@ -47,6 +47,10 @@ failure through the public setup dry run. Adding it to the Windows curated lane
 makes that regression execute on the affected platform. No duplicate startup
 test was retained. Nine related tests passed, including the existing MCP doctor
 and curated-lane path checks; Linux passing alone does not prove Windows behavior.
+Review caught a missing package-scope registration for the newly listed test;
+the original CI shard failed that ownership invariant. The path is now also
+registered in `scripts/ci/scopes.mjs`, and all 84 scope checks plus the two
+curated-path checks pass. Runtime source and its tested digest are unchanged.
 
 ## Efficiency and resource limits
 
