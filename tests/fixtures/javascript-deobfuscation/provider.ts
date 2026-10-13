@@ -1,5 +1,5 @@
 import { access, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 
@@ -23,7 +23,9 @@ export const deobfuscationFixture = async (
   await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
   const configuredLimiter =
     environment.REA_JAVASCRIPT_PRLIMIT_COMMAND ?? "/usr/bin/prlimit";
-  const limiterBytes = await readFile(configuredLimiter);
+  const limiterBytes = isAbsolute(configuredLimiter)
+    ? await readFile(configuredLimiter)
+    : undefined;
   const launches: { cwd: string | undefined; pid: number | undefined }[] = [];
   const engineSnapshots: { path: string; bytes: Buffer }[] = [];
   const provider = createJavaScriptDeobfuscationProvider(
@@ -35,6 +37,8 @@ export const deobfuscationFixture = async (
         throw new Error("js-redox fixture launch omitted engine path");
       if (mode === "replace-limiter-before-launch")
         await writeFile(configuredLimiter, "replacement executable");
+      if (limiterBytes === undefined)
+        throw new Error("fixture launched with an invalid limiter selection");
       expect(options.command).toBe(join(options.cwd!, "prlimit"));
       expect(await readFile(options.command)).toEqual(limiterBytes);
       const limits = await readLinuxResourceLimits({

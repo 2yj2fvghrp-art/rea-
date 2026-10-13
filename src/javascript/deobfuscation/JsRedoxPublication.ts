@@ -8,6 +8,7 @@ import {
 } from "../../application/AnalysisProvider.js";
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
 import { javascriptDeobfuscationResultSchema } from "../../domain/javascript/javascriptDeobfuscation.js";
+import { jsonObjectSchema } from "../../domain/jsonValue.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
 import type { ProviderProcessSnapshot } from "../../process/ProviderProcess.js";
 import {
@@ -166,7 +167,6 @@ const buildResult = (
   input: Parameters<typeof publishJsRedox>[0],
   files: PublishedFiles,
 ) => {
-  const aliases = input.report.static_alias_installer_calls;
   return javascriptDeobfuscationResultSchema.parse({
     source: {
       path: input.sourcePath,
@@ -174,45 +174,14 @@ const buildResult = (
       bytes: input.source.bytes.length,
       published_copy: files.source,
     },
-    engine: {
-      id: JS_REDOX_PROVIDER_IDENTITY.id,
-      version: input.version,
-      executable: {
-        path: input.engine.configuredCommand,
-        resolved_path: input.engine.command,
-        sha256: input.engine.sha256,
-        bytes: input.engine.bytes,
-      },
-      audited_source_revision: JS_REDOX_RELEASE.revision,
-      executed_source_revision: null,
-    },
     options: { max_iterations: input.maxIterations },
     status:
       input.output.sha256 === input.source.sha256 ? "unchanged" : "changed",
     output: files.output,
     report: files.report,
     manifest: files.manifest,
-    diagnostics: files.diagnostics,
-    proof: {
-      schema: input.report.schema,
-      iterations: input.report.iterations,
-      transforms: input.report.transforms,
-      arithmetic_state_proofs: input.report.arithmetic_state_proofs.length,
-      static_alias_installer_calls: {
-        total: aliases.length,
-        forwarding_installer_proven: aliases.filter(
-          ({ forwarding_installer_proven }) => forwarding_installer_proven,
-        ).length,
-        semantics_proven: aliases.filter(
-          ({ semantics_proven }) => semantics_proven,
-        ).length,
-      },
-      analysis_source_sha256: input.report.analysis_source_sha256,
-      safe_static_only: input.report.safe_static_only,
-      presentation_formatted: input.report.presentation_formatted,
-      runtime_semantics_preserved_by_design:
-        input.report.runtime_semantics_preserved_by_design,
-    },
+    diagnostics: jsonObjectSchema.parse(files.diagnostics),
+    proof: jsonObjectSchema.parse(input.report),
     analysis_input: {
       input_path: join(input.tree.outputRoot, "deobfuscated"),
       format: "directory",
@@ -235,7 +204,7 @@ const publishCommandDiagnostics = async (
     ...(await writePublished(
       tree,
       `diagnostics/${name}.stdout.txt`,
-      Buffer.from(snapshot.stdout.text),
+      snapshot.stdout.rawBytes ?? Buffer.from(snapshot.stdout.text),
       signal,
     )),
     observed_bytes: snapshot.stdout.observedBytes,
@@ -244,7 +213,7 @@ const publishCommandDiagnostics = async (
     ...(await writePublished(
       tree,
       `diagnostics/${name}.stderr.txt`,
-      Buffer.from(snapshot.stderr.text),
+      snapshot.stderr.rawBytes ?? Buffer.from(snapshot.stderr.text),
       signal,
     )),
     observed_bytes: snapshot.stderr.observedBytes,

@@ -69,21 +69,19 @@ export class JavaScriptDeobfuscationService {
       );
     if (
       result.data.source.path !== parsed.data.path ||
+      result.data.source.published_copy.sha256 !== result.data.source.sha256 ||
+      result.data.source.published_copy.bytes !== result.data.source.bytes ||
       execution.value.subject.path !== result.data.source.path ||
       execution.value.subject.sha256 !== result.data.source.sha256 ||
       result.data.options.max_iterations !== parsed.data.max_iterations ||
-      result.data.proof.iterations > parsed.data.max_iterations ||
-      result.data.proof.analysis_source_sha256 !== result.data.output.sha256 ||
       (result.data.status === "unchanged") !==
         (result.data.source.sha256 === result.data.output.sha256) ||
-      execution.value.provider.id !== result.data.engine.id ||
-      execution.value.provider.version !== result.data.engine.version ||
       execution.value.subject.format !== "javascript"
     )
       return err(
         new AnalysisOutputError(
           OPERATION,
-          "Deobfuscation source, output status, proof digest, engine identity, or iteration bound disagrees with its Evidence binding",
+          "Deobfuscation source, published copy, output status, or iteration bound disagrees with its Evidence binding",
         ),
       );
     return ok(

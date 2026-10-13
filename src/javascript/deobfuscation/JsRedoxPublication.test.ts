@@ -19,7 +19,12 @@ it("retains six MiB of worker diagnostics as files while keeping Evidence projec
     exitCode: 0,
     signal: null,
     stdout: { text, bytes: text.length, observedBytes: text.length },
-    stderr: { text: "", bytes: 0, observedBytes: 0 },
+    stderr: {
+      text: "�",
+      rawBytes: Buffer.from([0xff]),
+      bytes: 1,
+      observedBytes: 1,
+    },
   };
   try {
     const execution = await publishJsRedox({
@@ -60,18 +65,18 @@ it("retains six MiB of worker diagnostics as files while keeping Evidence projec
     await tree.commit();
     const result = javascriptDeobfuscationResultSchema.parse(execution.result);
     expect(Buffer.byteLength(JSON.stringify(execution))).toBeLessThan(20_000);
-    expect(result.engine.executable).toMatchObject({
-      path: "/selected/engine",
-      resolved_path: "/canonical/engine",
-    });
-    expect(result.diagnostics?.execution.stdout).toMatchObject({
+    expect(result.diagnostics?.execution).toBeDefined();
+    const manifest = JSON.parse(await readFile(result.manifest.path, "utf8"));
+    expect(manifest.diagnostics.execution.stdout).toMatchObject({
       bytes: text.length,
       observed_bytes: text.length,
     });
     await expect(
-      readFile(result.diagnostics!.execution.stdout.path, "utf8"),
+      readFile(manifest.diagnostics.execution.stdout.path, "utf8"),
     ).resolves.toBe(text);
-    const manifest = JSON.parse(await readFile(result.manifest.path, "utf8"));
+    await expect(
+      readFile(manifest.diagnostics.execution.stderr.path),
+    ).resolves.toEqual(Buffer.from([0xff]));
     expect(manifest.diagnostics.execution.stdout.sha256).toBe(
       createHash("sha256").update(text).digest("hex"),
     );

@@ -121,10 +121,7 @@ it
       const result = javascriptDeobfuscationResultSchema.parse(
         response.value.normalized_result,
       );
-      expect(result.engine.executable).toMatchObject({
-        path: selected,
-        resolved_path: canonical,
-      });
+      expect(result.status).toBe("unchanged");
       expect(
         JSON.parse(await readFile(result.manifest.path, "utf8")).engine,
       ).toMatchObject({ path: selected, resolved_path: canonical });
@@ -149,9 +146,10 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     const result = javascriptDeobfuscationResultSchema.parse(
       response.value.normalized_result,
     );
-    expect(result.diagnostics?.execution.stdout.bytes).toBe(6 * 1024 * 1024);
+    const manifest = JSON.parse(await readFile(result.manifest.path, "utf8"));
+    expect(manifest.diagnostics.execution.stdout.bytes).toBe(6 * 1024 * 1024);
     expect(
-      await readFile(result.diagnostics!.execution.stdout.path, "utf8"),
+      await readFile(manifest.diagnostics.execution.stdout.path, "utf8"),
     ).toBe("x".repeat(6 * 1024 * 1024));
     await assertDeobfuscationCleanup(fixture.launches);
   },

@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { access, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
+import { performance } from "node:perf_hooks";
 
 import type { AnalysisExecution } from "../../application/AnalysisProvider.js";
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
@@ -76,7 +77,7 @@ export const executeJsRedox = async (input: {
     mode: 0o600,
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
-  const deadlineAt = Date.now() + JS_REDOX_LIMITS.timeoutMs;
+  const deadlineAt = performance.now() + JS_REDOX_LIMITS.timeoutMs;
   const runWithinDeadline = (command: string, arguments_: readonly string[]) =>
     input.run({
       command,
@@ -250,7 +251,7 @@ const snapshotEngine = async (
 };
 
 const remainingTimeoutMs = (deadlineAt: number): number => {
-  const remaining = deadlineAt - Date.now();
+  const remaining = deadlineAt - performance.now();
   if (remaining <= 0)
     throw new AnalysisTimeoutError(OPERATION, JS_REDOX_LIMITS.timeoutMs);
   return Math.max(1, remaining);

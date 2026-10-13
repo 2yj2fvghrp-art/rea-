@@ -14,33 +14,12 @@ const provider = {
 } as const;
 const result = (): JavaScriptDeobfuscationResult => ({
   source: { ...file, published_copy: file },
-  engine: {
-    id: provider.id,
-    version: provider.version,
-    executable: file,
-    audited_source_revision: "revision",
-    executed_source_revision: null,
-  },
   options: { max_iterations: 16 },
   status: "unchanged",
   output: file,
   report: file,
   manifest: file,
-  proof: {
-    schema: "js-safe-deobfuscate/v1",
-    iterations: 1,
-    transforms: {},
-    arithmetic_state_proofs: 0,
-    static_alias_installer_calls: {
-      total: 0,
-      forwarding_installer_proven: 0,
-      semantics_proven: 0,
-    },
-    analysis_source_sha256: file.sha256,
-    safe_static_only: true,
-    presentation_formatted: false,
-    runtime_semantics_preserved_by_design: true,
-  },
+  proof: { report: "provider-owned proof summary" },
   analysis_input: {
     input_path: "/tmp/output/deobfuscated",
     format: "directory",
@@ -57,7 +36,6 @@ describe("JavaScript deobfuscation workflow", () => {
       returned.status = status;
       if (status === "unchanged") {
         returned.output = { ...returned.output, sha256: "b".repeat(64) };
-        returned.proof.analysis_source_sha256 = returned.output.sha256;
       }
       const service = new JavaScriptDeobfuscationService({
         deobfuscate: async () =>
@@ -79,15 +57,11 @@ describe("JavaScript deobfuscation workflow", () => {
       expect(response.error._tag).toBe("AnalysisOutputError");
     },
   );
-  it.each([
-    [64, 64],
-    [1, 2],
-  ])(
-    "rejects provider options=%s and proof iterations=%s for a requested bound of one",
-    async (maximum, iterations) => {
+  it.each([64, 15])(
+    "rejects provider options=%s for a requested bound of one",
+    async (maximum) => {
       const returned = result();
       returned.options.max_iterations = maximum;
-      returned.proof.iterations = iterations;
       const service = new JavaScriptDeobfuscationService({
         deobfuscate: async () =>
           ok(
@@ -106,6 +80,34 @@ describe("JavaScript deobfuscation workflow", () => {
         max_iterations: 1,
       });
       if (response.ok) throw new Error("expected iteration binding rejection");
+      expect(response.error._tag).toBe("AnalysisOutputError");
+    },
+  );
+  it.each([
+    { ...file, sha256: "b".repeat(64) },
+    { ...file, bytes: file.bytes + 1 },
+  ])(
+    "rejects a published source copy with mismatched metadata",
+    async (copy) => {
+      const returned = result();
+      returned.source.published_copy = copy;
+      const service = new JavaScriptDeobfuscationService({
+        deobfuscate: async () =>
+          ok(
+            createAnalysisExecution(returned, provider, {
+              subject: {
+                path: file.path,
+                sha256: file.sha256,
+                format: "javascript",
+              },
+            }),
+          ),
+      });
+      const response = await service.deobfuscate({
+        path: file.path,
+        output_directory: "/tmp/out",
+      });
+      if (response.ok) throw new Error("expected published source mismatch");
       expect(response.error._tag).toBe("AnalysisOutputError");
     },
   );
