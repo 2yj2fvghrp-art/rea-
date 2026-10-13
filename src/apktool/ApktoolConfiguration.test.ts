@@ -322,3 +322,61 @@ it.each(["EXE", ".CMD\\..\\outside.exe", ".CMD\0"])(
     expect(lookup.stat).not.toHaveBeenCalled();
   },
 );
+
+it("cancels a pending filesystem lookup and owns its eventual rejection", async () => {
+  const controller = new AbortController();
+  let started!: () => void;
+  let rejectLookup!: (cause: Error) => void;
+  const pendingStat = new Promise((_resolve, reject) => {
+    rejectLookup = reject;
+  });
+  const observed = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  lookup.stat.mockImplementation(() => {
+    started();
+    return pendingStat;
+  });
+  const pending = resolveApktoolCommand(
+    {
+      PATH: "C:\\Tools",
+      PATHEXT: ".CMD",
+      NODEFAULTCURRENTDIRECTORYINEXEPATH: "1",
+    },
+    "win32",
+    controller.signal,
+  );
+  await observed;
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({
+    _tag: "AnalysisCancelledError",
+  });
+  rejectLookup(new Error("filesystem completed after cancellation"));
+  await Promise.resolve();
+  expect(lookup.stat).toHaveBeenCalledTimes(1);
+});
+
+it("bounds the entire pending PATH lookup by the selection deadline", async () => {
+  vi.useFakeTimers();
+  try {
+    lookup.stat.mockReturnValue(new Promise(() => {}));
+    const failure = expect(
+      resolveApktoolCommand(
+        {
+          PATH: "C:\\Tools",
+          PATHEXT: ".CMD",
+          NODEFAULTCURRENTDIRECTORYINEXEPATH: "1",
+        },
+        "win32",
+      ),
+    ).rejects.toMatchObject({
+      _tag: "AnalysisTimeoutError",
+      timeoutMs: 20_000,
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await failure;
+    expect(lookup.stat).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});

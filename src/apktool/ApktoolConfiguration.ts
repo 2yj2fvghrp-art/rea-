@@ -1,7 +1,12 @@
-import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisTimeoutError,
+} from "../domain/analysisErrorCore.js";
 import { isAbsolute, win32 } from "node:path";
 import { stat } from "node:fs/promises";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
+import { ABORTED, waitForAbortable } from "../process/AbortablePromise.js";
+import { ProviderStartupDeadline } from "../process/ProviderDeadline.js";
 
 import {
   execFileOutput,
@@ -76,41 +81,58 @@ export const resolveApktoolCommand = async (
     .filter((directory) => directory !== "");
   if (selectedEnvironment.NODEFAULTCURRENTDIRECTORYINEXEPATH === undefined)
     directories.unshift(process.cwd());
-  for (const entry of directories) {
-    const directory =
-      entry.startsWith('"') && entry.endsWith('"') ? entry.slice(1, -1) : entry;
-    for (const extension of extensions) {
-      if (signal?.aborted === true)
-        throw new AnalysisCancelledError("inspect_apktool_client");
-      const candidate = win32.resolve(directory, `apktool${extension}`);
-      try {
-        const metadata = await stat(candidate);
-        if (signal?.aborted === true)
-          throw new AnalysisCancelledError("inspect_apktool_client");
-        if (metadata.isFile())
-          return { command: candidate, commandSource: "path" };
-      } catch (cause: unknown) {
-        if (signal?.aborted === true)
-          throw new AnalysisCancelledError("inspect_apktool_client", { cause });
-        const code =
-          typeof cause === "object" && cause !== null
-            ? Reflect.get(cause, "code")
-            : undefined;
-        if (code === "ENOENT" || code === "ENOTDIR") continue;
-        throw new ApktoolConfigurationFailure(
-          "command_unresolved",
-          `The PATH-selected apktool launcher could not be inspected: ${candidate}`,
-          {
-            selected_command: "apktool",
-            command_source: "path",
-            candidate_path: candidate,
-            ...(typeof code === "string" ? { filesystem_error: code } : {}),
-          },
-          { cause },
-        );
+  // A single deadline owns the whole PATH search, including filesystem waits.
+  const deadline = new ProviderStartupDeadline(VERSION_TIMEOUT_MS, signal);
+  const lookupInterruption = () =>
+    deadline.interruption === "cancelled"
+      ? new AnalysisCancelledError("inspect_apktool_client")
+      : new AnalysisTimeoutError("inspect_apktool_client", VERSION_TIMEOUT_MS, {
+          userMessage:
+            "Timed out while inspecting the Windows PATH for apktool.",
+        });
+  try {
+    for (const entry of directories) {
+      const directory =
+        entry.startsWith('"') && entry.endsWith('"')
+          ? entry.slice(1, -1)
+          : entry;
+      for (const extension of extensions) {
+        if (deadline.interruption !== undefined) throw lookupInterruption();
+        const candidate = win32.resolve(directory, `apktool${extension}`);
+        try {
+          const metadata = await waitForAbortable(
+            stat(candidate),
+            deadline.signal,
+          );
+          if (metadata === ABORTED || deadline.interruption !== undefined)
+            throw lookupInterruption();
+          if (metadata.isFile())
+            return { command: candidate, commandSource: "path" };
+        } catch (cause: unknown) {
+          if (deadline.interruption !== undefined) throw lookupInterruption();
+          const code =
+            typeof cause === "object" && cause !== null
+              ? Reflect.get(cause, "code")
+              : undefined;
+          if (code === "ENOENT" || code === "ENOTDIR") continue;
+          throw new ApktoolConfigurationFailure(
+            "command_unresolved",
+            `The PATH-selected apktool launcher could not be inspected: ${candidate}`,
+            {
+              selected_command: "apktool",
+              command_source: "path",
+              candidate_path: candidate,
+              ...(typeof code === "string" ? { filesystem_error: code } : {}),
+            },
+            { cause },
+          );
+        }
       }
     }
+  } finally {
+    deadline.dispose();
   }
+
   throw new ApktoolConfigurationFailure(
     "command_missing",
     "The apktool launcher was not found on the selected Windows PATH/PATHEXT",
