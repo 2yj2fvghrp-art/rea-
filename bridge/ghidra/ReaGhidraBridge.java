@@ -3348,6 +3348,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
         List<Instruction> history = new ArrayList<>();
         Instruction windowFirst = null;
         Instruction windowSecond = null;
+        // Target eligibility is function-invariant; computing it once avoids a
+        // language-ID split and format lookup per three-instruction window.
+        boolean win32SehTarget = isWin32SehTarget();
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
             noReturnCallLimitation(instruction, limitations);
@@ -3357,7 +3360,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
             }
             if (windowFirst != null && windowSecond != null) {
                 sehHandlerLimitation(
-                        windowFirst, windowSecond, instruction, history, function, limitations);
+                        windowFirst, windowSecond, instruction, history, function, limitations,
+                        win32SehTarget);
             }
             windowFirst = windowSecond;
             windowSecond = instruction;
@@ -3366,10 +3370,11 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     /**
-     * Reports Borland/Delphi SEH handler registrations whose handler address
-     * falls outside the function's analyzed body. Ghidra only reaches the
-     * handler through the SEH chain, so callees, strings, and references below
-     * silently omit the handler region unless the reader is warned.
+     * Reports Win32 SEH handler registrations (inferred Borland/Delphi
+     * codegen) whose handler address falls outside the function's analyzed
+     * body. Ghidra only reaches the handler through the SEH chain, so
+     * callees, strings, and references below silently omit the handler region
+     * unless the reader is warned.
      */
     private void sehHandlerLimitation(
             Instruction pushImmediate,
@@ -3377,13 +3382,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Instruction moveSegment,
             List<Instruction> history,
             Function function,
-            List<String> limitations) throws Exception {
-        Address handler = sehHandlerAddress(pushImmediate, pushSegment, moveSegment, history);
+            List<String> limitations,
+            boolean win32SehTarget) throws Exception {
+        Address handler = sehHandlerAddress(
+            pushImmediate, pushSegment, moveSegment, history, win32SehTarget);
         if (handler == null || function.getBody().contains(handler)) {
             return;
         }
         limitations.add(
-            "Ghidra Listing shows a Borland/Delphi SEH frame registration at "
+            "Ghidra Listing shows a Win32 SEH frame registration (inferred Borland/Delphi codegen) at "
                 + canonicalAddress(pushImmediate.getAddress())
                 + " (push "
                 + canonicalAddress(handler)
@@ -3393,16 +3400,18 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     /**
-     * Matches the Borland/Delphi SEH prologue triple {@code push imm32;
-     * push fs:[slot]; mov fs:[slot], esp} and returns the registered handler
-     * address, or null when the three instructions do not form the pattern.
+     * Matches the Win32 SEH prologue triple {@code push imm32;
+     * push fs:[slot]; mov fs:[slot], esp} — the Borland/Delphi codegen idiom —
+     * and returns the registered handler address, or null when the three
+     * instructions do not form the pattern.
      * The pattern is defined for 32-bit x86 protected mode (FS:[0] chains the
      * Win32 thread-information block), so anything else — including 16-bit
      * x86, where an operand-size prefix still yields a 32-bit immediate — is
      * reported as no registration. The triple must be address-consecutive and
      * chain the FS:[0] exception-list head: a literal zero in any spelling
      * Ghidra renders ({@code fs:[0]}, {@code fs:[0x0]}) or a register proven
-     * zero by a preceding {@code xor reg,reg} with no intervening writer. Any
+     * zero by a preceding {@code xor reg,reg} with no intervening writer on
+     * a singly-entered straight-line path. Any
      * other slot (for example the FS:[0x18] TEB self-pointer) is not an SEH
      * registration; anything looser is reported as no registration rather than
      * risk a misleading handler warning.
@@ -3414,8 +3423,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Instruction pushImmediate,
             Instruction pushSegment,
             Instruction moveSegment,
-            List<Instruction> history) {
-        if (!isWin32SehTarget()
+            List<Instruction> history,
+            boolean win32SehTarget) {
+        if (!win32SehTarget
                 || !isPushMnemonic(pushImmediate)
                 || pushImmediate.getNumOperands() != 1
                 || !isFsSegmentPush(pushSegment)
@@ -3467,7 +3477,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     /**
-     * Reports whether the analyzed program can carry a Borland/Delphi SEH
+     * Reports whether the analyzed program can carry a Win32 SEH
      * registration: 32-bit x86 code in a Portable Executable, where FS:[0]
      * chains the Win32 thread-information block. Ghidra language IDs carry the
      * address size as the third colon-separated field (for example {@code
@@ -3512,7 +3522,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * itself, so only the instructions before it are examined. Anything else —
      * including the FS:[0x18] TEB self-pointer — is not an SEH registration.
      */
-    private static boolean isFsZeroSlot(String slot, List<Instruction> history) {
+    private boolean isFsZeroSlot(String slot, List<Instruction> history) {
         if (!slot.startsWith("fs:[") || !slot.endsWith("]") || slot.length() <= 5) {
             return false;
         }
@@ -3530,8 +3540,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * the register holds zero when the triple executes. Scanning stops at any
      * control-flow instruction — address order is not execution order, so a
      * branch between the xor and the triple means the xor may never have run.
+     * The triple must also be singly entered: an incoming flow edge to the
+     * triple from outside the straight-line path (a branch into it, a loop
+     * back-edge) means the xor may have been bypassed on the triple's actual
+     * path, so the register is not proven zero.
      */
-    private static boolean isZeroedByXor(List<Instruction> history, String register) {
+    private boolean isZeroedByXor(List<Instruction> history, String register) {
         String target = normalizedRegister(register);
         for (int index = history.size() - 4; index >= 0; index -= 1) {
             Instruction candidate = history.get(index);
@@ -3550,9 +3564,29 @@ public final class ReaGhidraBridge extends HeadlessScript {
             if (!writes) {
                 continue;
             }
-            return isXorSelf(candidate, target);
+            return isXorSelf(candidate, target) && tripleSingleEntry(history);
         }
         return false;
+    }
+
+    /**
+     * Reports whether the prologue triple at the history tail is entered only
+     * through straight-line flow. Ghidra records explicit flow edges
+     * (branches, calls) as references but not the implicit fall-through from
+     * the previous instruction, so any incoming flow reference to the
+     * triple's first address is a second entry that can bypass the zeroing
+     * xor — the same single-entry idiom the jump-table recovery below relies
+     * on.
+     */
+    private boolean tripleSingleEntry(List<Instruction> history) {
+        Address tripleStart = history.get(history.size() - 3).getAddress();
+        for (Reference reference :
+                currentProgram.getReferenceManager().getReferencesTo(tripleStart)) {
+            if (reference.getReferenceType().isFlow()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isXorSelf(Instruction instruction, String register) {

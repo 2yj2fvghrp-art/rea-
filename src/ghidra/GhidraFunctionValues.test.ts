@@ -136,7 +136,7 @@ describe("Ghidra function-analysis result values", () => {
       error: { _tag: "AnalysisOutputError" },
     });
     const limitation =
-      "Ghidra Listing shows a Borland/Delphi SEH frame registration at 0x401000 (push 0x402000 followed by fs-segment stack chaining); the handler 0x402000 lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.";
+      "Ghidra Listing shows a Win32 SEH frame registration (inferred Borland/Delphi codegen) at 0x401000 (push 0x402000 followed by fs-segment stack chaining); the handler 0x402000 lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.";
     expect(
       parseGhidraFunctionResult("procedure_references", {
         value: output,
