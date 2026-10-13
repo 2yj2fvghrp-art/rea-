@@ -1,9 +1,5 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import {
-  parse as parseYaml,
-  parseDocument as parseYamlDocument,
-  stringify as stringifyYaml,
-} from "yaml";
+import { stringify as stringifyYaml } from "yaml";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -12,6 +8,10 @@ import {
   editDshDocument,
   dshClientRegistrationEntry,
 } from "./DshCordisPatch.js";
+import {
+  editHermesConfigurationYaml,
+  parseHermesConfigurationYaml,
+} from "./HermesConfigurationYaml.js";
 import {
   applyEdits,
   findNodeAtLocation,
@@ -86,6 +86,7 @@ export const clientConfigurationServersKey = (
     case "hermes":
       return "mcp_servers";
     case "opencode":
+    case "zcode":
       return "mcp";
     case "vscode":
       return "servers";
@@ -106,16 +107,24 @@ const parseDocument = (
   format: ClientConfigurationFormat,
 ): Record<string, unknown> => {
   if (format === "toml" || format === "grok")
-    return objectSchema.parse(parseToml(text));
+    return requireObject(parseToml(text), "The configuration root");
   // Pi loads `mcp.json` with a strict `JSON.parse` and no BOM tolerance, so
   // comments, trailing commas, a BOM, or an empty existing file must be
   // rejected instead of registering into a document Pi cannot load.
-  if (format === "pi") return objectSchema.parse(JSON.parse(text));
+  if (format === "pi")
+    return requireObject(JSON.parse(text), "The configuration root");
   // An empty file, which some clients create before any server is added,
   // holds no settings to preserve.
   if (isEmptyClientConfigurationText(text)) return {};
   // Hermes stores MCP servers in `mcp_servers` inside a YAML document.
-  if (format === "hermes") return objectSchema.parse(parseYaml(text));
+  if (format === "hermes")
+    return requireObject(
+      parseHermesConfigurationYaml(text),
+      "The configuration root",
+    );
+  // ZCode loads nonempty native files with strict JSON.parse.
+  if (format === "zcode")
+    return requireObject(JSON.parse(text), "The configuration root");
   const errors: ParseError[] = [];
   // Accept a UTF-8 BOM without shifting diagnostics or editing the original text.
   const jsonText = text.startsWith("\uFEFF") ? ` ${text.slice(1)}` : text;
@@ -125,7 +134,39 @@ const parseDocument = (
     throw new SyntaxError(
       `Invalid JSON/JSONC at offset ${firstError.offset}: ${printParseErrorCode(firstError.error)}`,
     );
-  return objectSchema.parse(document);
+  return requireObject(document, "The configuration root");
+};
+
+/** A parsed configuration whose structure, not its syntax, cannot hold MCP servers. */
+export class ClientConfigurationShapeError extends TypeError {}
+
+/** Validate and copy own properties, excluding non-record YAML values and parser-injected prototypes. */
+const requireObject = (
+  value: unknown,
+  description: string,
+): Record<string, unknown> => {
+  const parsed = objectSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new ClientConfigurationShapeError(`${description} must be an object`, {
+    cause: parsed.error,
+  });
+};
+
+/** ZCode reads the same-scope fallback as strict JSON with a mcpServers table. */
+export const parseZcodeFallbackConfiguration = (
+  text: string,
+): ClientConfigurationDocument => {
+  const document = requireObject(JSON.parse(text), "ZCode fallback root");
+  return {
+    document,
+    servers:
+      document.mcpServers === undefined
+        ? {}
+        : requireObject(document.mcpServers, "ZCode fallback mcpServers"),
+    serversPath: ["mcpServers"],
+    dialect: "json",
+    legacyServers: {},
+  };
 };
 
 /** Members of OpenCode V2's `mcp` object that are not server names. */
@@ -143,7 +184,23 @@ export const parseClientConfiguration = (
   const document = parseDocument(text, format);
   const serversKey = clientConfigurationServersKey(format);
   const value = document[serversKey];
-  const servers = value === undefined ? {} : objectSchema.parse(value);
+  const servers =
+    value === undefined ? {} : requireObject(value, `"${serversKey}"`);
+  // ZCode reads stdio servers from the nested `mcp.servers` table of
+  // `~/.zcode/cli/config.json`; entries carry `command`, `args`, and `env`.
+  if (format === "zcode") {
+    const nested = servers.servers;
+    return {
+      document,
+      servers:
+        nested === undefined
+          ? {}
+          : requireObject(nested, `"${serversKey}.servers"`),
+      serversPath: [serversKey, "servers"],
+      dialect: format,
+      legacyServers: {},
+    };
+  }
   const native = servers.servers;
   // A V1 server named `servers` has a string `type` discriminator; the V2
   // table may instead hold a server object named `type`.
@@ -164,7 +221,7 @@ export const parseClientConfiguration = (
     };
   return {
     document,
-    servers: objectSchema.parse(native),
+    servers: requireObject(native, `"${serversKey}.servers"`),
     serversPath: [serversKey, "servers"],
     dialect: "opencode_v2",
     legacyServers: Object.fromEntries(
@@ -203,8 +260,16 @@ export const withClientServers = (
       : editDshDocument(parsed);
   const [key = "", nested] = parsed.serversPath;
   if (nested === undefined) return { ...parsed.document, [key]: servers };
-  const outer = { ...objectSchema.parse(parsed.document[key]) };
-  if (removeLegacy !== undefined && !OPENCODE_V2_MCP_SETTINGS.has(removeLegacy))
+  // A fresh document may not hold the outer table yet (for example a new
+  // ZCode `config.json` without an `mcp` object), so treat absence as empty.
+  const outerValue = parsed.document[key];
+  const outer =
+    outerValue === undefined ? {} : { ...objectSchema.parse(outerValue) };
+  if (
+    parsed.dialect === "opencode_v2" &&
+    removeLegacy !== undefined &&
+    !OPENCODE_V2_MCP_SETTINGS.has(removeLegacy)
+  )
     delete outer[removeLegacy];
   return { ...parsed.document, [key]: { ...outer, [nested]: servers } };
 };
@@ -1357,12 +1422,11 @@ const serializeHermesConfiguration = (
     typeof servers === "object" && servers !== null
       ? (servers as Record<string, unknown>)[PRODUCT_IDENTITY.mcpServerKey]
       : undefined;
-  const yamlDocument = parseYamlDocument(originalText);
-  if (entry === undefined)
-    yamlDocument.deleteIn([serversKey, PRODUCT_IDENTITY.mcpServerKey]);
-  else yamlDocument.setIn([serversKey, PRODUCT_IDENTITY.mcpServerKey], entry);
-  // Editing REA must not reflow unrelated user prompts or other YAML scalars.
-  return yamlDocument.toString({ lineWidth: 0 });
+  return editHermesConfigurationYaml(
+    originalText,
+    [serversKey, PRODUCT_IDENTITY.mcpServerKey],
+    entry,
+  );
 };
 
 /** Build the stdio entry shape expected by one client's configuration dialect. */
