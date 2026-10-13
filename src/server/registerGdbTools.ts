@@ -1,12 +1,16 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { Logger } from "pino";
 
+import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
 import type { GdbSessionManager } from "../gdb/GdbSessionManager.js";
 import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
 import { toolContract } from "../contracts/toolContracts.js";
 import { evidenceSchema } from "../domain/evidence.js";
 import { err } from "../domain/result.js";
-import { AnalysisInputError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisInputError,
+  AnalysisOutputError,
+} from "../domain/analysisErrorCore.js";
 import { logToolExecution } from "./toolLogging.js";
 import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import type { ToolResultDelivery } from "./toolResult.js";
@@ -18,6 +22,10 @@ export const registerGdbTools = (
   logger: Logger,
   delivery: ToolResultDelivery,
   recordEvidence?: EvidenceWriter["recordEvidence"],
+  session?: Pick<
+    BinarySessionPort,
+    "withAdmittedExternalMutation" | "activeTarget"
+  >,
 ): void => {
   const start = toolContract("start_gdb_session");
   const consoleContract = toolContract("gdb_console");
@@ -59,9 +67,40 @@ export const registerGdbTools = (
     consoleContract.name,
     toolRegistrationOptions(consoleContract),
     async (input, context: ServerContext) => {
-      const result = await logToolExecution(logger, consoleContract.name, () =>
-        manager.execute(input.session_id, input.command, context.mcpReq.signal),
-      );
+      const execute = () =>
+        logToolExecution(logger, consoleContract.name, () =>
+          manager.execute(
+            input.session_id,
+            input.command,
+            context.mcpReq.signal,
+          ),
+        );
+      const admitted =
+        session === undefined
+          ? undefined
+          : await session.withAdmittedExternalMutation(
+              session.activeTarget()?.path,
+              context.mcpReq.signal,
+              execute,
+              (value, cause) =>
+                new AnalysisOutputError(
+                  consoleContract.name,
+                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
+                  {
+                    cause,
+                    partialObservation: value.ok
+                      ? value.value.evidence
+                      : value.error.partialObservation,
+                  },
+                ),
+              consoleContract.name,
+            );
+      const result =
+        admitted === undefined
+          ? await execute()
+          : admitted.ok
+            ? admitted.value
+            : err(admitted.error);
       if (!result.ok) {
         const partial = result.error.partialObservation;
         const parsed = evidenceSchema.safeParse(partial);

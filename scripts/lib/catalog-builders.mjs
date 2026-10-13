@@ -56,6 +56,11 @@ export const toolFamilyCatalog = (sources) => {
       contracts: sources.androidContracts.ANDROID_TOOL_CONTRACTS,
     },
     {
+      id: "pcap",
+      surface: "pcap-provider",
+      contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
+    },
+    {
       id: "flutter",
       surface: "flutter-provider",
       contracts: sources.flutterContracts.FLUTTER_TOOL_CONTRACTS,
@@ -273,6 +278,10 @@ export const providerCatalog = (sources) => {
       contracts: sources.androidContracts.ANDROID_TOOL_CONTRACTS,
     },
     {
+      identity: sources.pcapProvider.PCAP_PROVIDER_IDENTITY,
+      contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.flutterProvider.FLUTTER_PROVIDER_IDENTITY,
       contracts: sources.flutterContracts.FLUTTER_TOOL_CONTRACTS,
     },
@@ -290,6 +299,11 @@ export const providerCatalog = (sources) => {
     },
     {
       identity: sources.webNetworkCaptureProvider.HAR_CAPTURE_PROVIDER_IDENTITY,
+      contracts:
+        sources.webNetworkCaptureContracts.WEB_NETWORK_CAPTURE_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.webNetworkCaptureProvider.SAZ_CAPTURE_PROVIDER_IDENTITY,
       contracts:
         sources.webNetworkCaptureContracts.WEB_NETWORK_CAPTURE_TOOL_CONTRACTS,
     },

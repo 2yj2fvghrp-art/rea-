@@ -29,11 +29,14 @@ export const registerReverseEngineeringTools = (
   withAdmittedAnalysis?: WithAdmittedAnalysis,
   invalidateSnapshotForExternalMutation?: () => void,
   withAdmittedExternalMutation?: <Value>(
-    path: string,
+    path: string | undefined,
     signal: AbortSignal | undefined,
-    operation: () => Promise<Value>,
-    rebindFailure: (value: Value, error: AnalysisError) => AnalysisError,
-  ) => Promise<Result<Value, AnalysisError>>,
+    operation: () => Promise<Result<Value, AnalysisError>>,
+    rebindFailure: (
+      value: Result<Value, AnalysisError>,
+      error: AnalysisError,
+    ) => AnalysisError,
+  ) => Promise<Result<Result<Value, AnalysisError>, AnalysisError>>,
 ): void => {
   const objdump = toolContract("inspect_with_objdump");
   const rizin = toolContract("execute_rizin_command");

@@ -717,7 +717,7 @@ process.stdin.on("data", (chunk) => {
     if (line.includes("auto-load off")) process.stdout.write(match[1] + "^done\\n");
     else if (line.includes("inferior-tty-set")) process.stdout.write(match[1] + "^done\\n");
     else if (line.includes("inferior-tty-show")) process.stdout.write(match[1] + "^done,inferior_tty_terminal=\\\"" + tty + "\\\"\\n");
-    else if (line.includes("list-thread-groups")) process.stdout.write(match[1] + "^done,groups=[{id=\\\"i1\\\"}]\\n");
+    else if (line.includes("list-thread-groups")) process.stdout.write(match[1] + "^done,groups=[{id=\\\"i1\\\",pid=\\\"123\\\"}]\\n");
     else if (line.includes("interpreter-exec")) { tty = "/tmp/changed-by-abbreviated-alias"; process.stdout.write(match[1] + "^done\\n"); }
     else if (line.includes("target-detach")) { import("node:fs/promises").then((fs) => fs.writeFile(${JSON.stringify(detachPath)}, "detached")); process.stdout.write(match[1] + "^done\\n"); }
   }
@@ -987,9 +987,56 @@ setTimeout(() => process.exit(0), 250);
     expect(cancelled.ok).toBe(false);
     if (!cancelled.ok) {
       expect(cancelled.error._tag).toBe("AnalysisCancelledError");
+      expect(cancelled.error.partialObservation).toMatchObject({
+        limitations: expect.arrayContaining([
+          expect.stringContaining(
+            "Shutdown of the owned GDB process was requested",
+          ),
+        ]),
+      });
       expect(cancelled.error.cleanup?.reason).toContain(
         "simulated debugger cleanup failure",
       );
     }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "closes inactive GDB inferiors without requesting detach or a TTY",
+  async () => {
+    directory = await mkdtemp(join(tmpdir(), "rea-gdb-inactive-inferior-"));
+    const provider = join(directory, "fake-gdb-inactive.mjs");
+    await writeFile(
+      provider,
+      `#!${process.execPath}
+process.stdout.write("(gdb)\\n");
+process.stdin.setEncoding("utf8");
+let input = "";
+process.stdin.on("data", chunk => {
+  input += chunk;
+  for (;;) {
+    const end = input.indexOf("\\n");
+    if (end < 0) break;
+    const line = input.slice(0, end); input = input.slice(end + 1);
+    const token = /^(\\d+)/.exec(line)?.[1]; if (!token) continue;
+    if (line.includes("list-thread-groups")) process.stdout.write(token + '^done,groups=[{id="i1",type="process",executable="/inactive"}]\\n');
+    else if (line.includes("gdb-exit")) { process.stdout.write(token + "^exit\\n"); process.exit(0); }
+    else process.stdout.write(token + "^done\\n");
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    const manager = new GdbSessionManager({
+      environment: { REA_GDB_COMMAND: provider },
+    });
+    managers.push(manager);
+    const started = await expectGdbSessionStarted(manager);
+    await expect(
+      manager.close(started.value.session_id),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { target_state: "none_observed" },
+    });
   },
 );

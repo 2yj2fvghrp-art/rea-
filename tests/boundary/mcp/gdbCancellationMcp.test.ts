@@ -5,9 +5,14 @@ import { join } from "node:path";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import {
+  createBinarySessionTargets,
+  createCacheProvider,
+  createTestBinarySession,
+} from "../../fixtures/binarySession.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { AnalysisTimeoutError } from "../../../src/domain/analysisErrorCore.js";
 import { createEvidence } from "../../../src/domain/evidence.js";
@@ -401,5 +406,66 @@ it("records partial GDB startup Evidence from an MCP start error", async () => {
     });
   } finally {
     await Promise.allSettled([client.close(), server.close()]);
+  }
+});
+
+it("rebinds the active binary after an unrestricted GDB console command", async () => {
+  const [target] = await createBinarySessionTargets();
+  const session = createTestBinarySession(createCacheProvider([]));
+  expect((await session.open(target)).ok).toBe(true);
+  const before = session.activeTarget()?.sha256;
+  const manager = new GdbSessionManager();
+  const result = {
+    command: "shell mutate selected file",
+    mi: "1^done",
+    records: ["1^done"],
+    console: "",
+    target: "",
+    log: "",
+    output_truncated: false,
+    completion_status: "complete" as const,
+  };
+  const evidence = createEvidence(
+    undefined,
+    { id: "gnu.gdb", name: "GNU GDB", version: null },
+    {
+      predicateType: "rea.debugger.console-observation",
+      operation: "gdb_console",
+      parameters: {},
+      result,
+      rawResult: result,
+      subjectUnavailableReason: "Fixture debugger has no inferior.",
+    },
+  );
+  vi.spyOn(manager, "execute").mockImplementation(async () => {
+    await writeFile(target, "updated by debugger shell");
+    return ok({ result, evidence });
+  });
+  const server = new McpServer({ name: "gdb-mutation", version: "1" });
+  registerGdbTools(
+    server,
+    manager,
+    silentLogger,
+    createToolResultDelivery(undefined),
+    undefined,
+    session,
+  );
+  const client = new Client({ name: "gdb-mutation", version: "1" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: "gdb_console",
+      arguments: {
+        session_id: "00000000-0000-4000-8000-000000000001",
+        command: "shell mutate selected file",
+      },
+    });
+    expect(response.isError).not.toBe(true);
+    expect(session.activeTarget()?.sha256).not.toBe(before);
+  } finally {
+    await Promise.allSettled([client.close(), server.close(), session.close()]);
   }
 });
