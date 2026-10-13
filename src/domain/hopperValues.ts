@@ -119,9 +119,9 @@ export const functionBodySchema = z.discriminatedUnion("available", [
     })
     .superRefine((body, context) => {
       let total = 0n;
-      const bounds = new Map<string, { start: bigint; end: bigint }>();
-      const closedSpaces = new Set<string>();
-      let previousSpace: string | null = null;
+      const bounds = new Map<string | null, { start: bigint; end: bigint }>();
+      const closedSpaces = new Set<string | null>();
+      let previousSpace: string | null | undefined;
       for (const range of body.ranges) {
         const start = addressCoordinate(range.start);
         const end = addressCoordinate(range.end);
@@ -137,7 +137,7 @@ export const functionBodySchema = z.discriminatedUnion("available", [
           });
           return;
         }
-        if (previousSpace !== null && previousSpace !== start.space)
+        if (previousSpace !== undefined && previousSpace !== start.space)
           closedSpaces.add(previousSpace);
         const previous = bounds.get(start.space);
         if (

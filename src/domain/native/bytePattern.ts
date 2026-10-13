@@ -78,7 +78,8 @@ const coverageBlock = z
     )
       context.addIssue({
         code: "custom",
-        message: "Byte coverage must equal its inclusive address range in one space",
+        message:
+          "Byte coverage must equal its inclusive address range in one space",
       });
   });
 
