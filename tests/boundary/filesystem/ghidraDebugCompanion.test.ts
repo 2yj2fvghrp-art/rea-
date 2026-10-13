@@ -11,11 +11,19 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import { AnalysisArtifactChangedError } from "../../../src/domain/analysisErrorCore.js";
 
-import { readMachoFileUuidEntries } from "../../../src/application/DebugCompanionAdmission.js";
+import {
+  admitDebugCompanion,
+  readMachoFileUuidEntries,
+} from "../../../src/application/DebugCompanionAdmission.js";
+import {
+  GhidraFileCopyCleanupFailure,
+  withGhidraFileCopy,
+} from "../../../src/ghidra/GhidraFileCopy.js";
+import type { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
 import { stageGhidraDebugCompanion } from "../../../src/ghidra/GhidraDebugCompanion.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
@@ -230,3 +238,112 @@ it.each([
     }
   },
 );
+
+it("retains a failed staging close and its primary outcome for startup cleanup", async () => {
+  const fixture = await stagingFixture();
+  const owners = new Set<OwnedFileHandle>();
+  const primary = new Error("copy refused");
+  const observed: unknown = await withGhidraFileCopy(
+    fixture.companion.memberPath,
+    join(fixture.runtime, "copy"),
+    async (source) => {
+      vi.spyOn(source, "close").mockRejectedValueOnce(new Error("close EIO"));
+      throw primary;
+    },
+    owners,
+  ).catch((cause: unknown) => cause);
+  if (!(observed instanceof GhidraFileCopyCleanupFailure))
+    throw new Error("Expected retained owner");
+  expect(observed.primaryCause).toBe(primary);
+  expect(observed.owners).toHaveLength(1);
+  expect(owners.has(observed.owners[0]!.owner)).toBe(true);
+  await observed.owners[0]!.owner.close();
+});
+
+const uuidImage = (uuid: string, suffix = "") => {
+  const bytes = Buffer.alloc(56 + Buffer.byteLength(suffix));
+  bytes.writeUInt32LE(0xfeedfacf, 0);
+  bytes.writeUInt32LE(0x01000007, 4);
+  bytes.writeUInt32LE(2, 12);
+  bytes.writeUInt32LE(1, 16);
+  bytes.writeUInt32LE(24, 20);
+  bytes.writeUInt32LE(0x1b, 32);
+  bytes.writeUInt32LE(24, 36);
+  Buffer.from(uuid.replaceAll("-", ""), "hex").copy(bytes, 40);
+  bytes.write(suffix, 56);
+  return bytes;
+};
+const admissionFixture = async (
+  targetUuid = "11111111-2222-3333-4444-555555555555",
+) => {
+  const root = await createTestTempDirectory("rea-dsym-identity-");
+  const dsymPath = join(root, "selected.dSYM");
+  const directory = join(dsymPath, "Contents", "Resources", "DWARF");
+  await mkdir(directory, { recursive: true });
+  const target = join(root, "target");
+  await writeFile(target, uuidImage(targetUuid));
+  await writeFile(
+    join(directory, "member"),
+    uuidImage("11111111-2222-3333-4444-555555555555"),
+  );
+  const admit = async () => {
+    const targetHandle = await open(target, "r");
+    try {
+      return await admitDebugCompanion({
+        dsymPath,
+        targetHandle,
+        targetSize: 56,
+        architecture: "x86_64",
+      });
+    } finally {
+      await targetHandle.close();
+    }
+  };
+  return { directory, admit };
+};
+it("rejects different matching members and admits byte-identical duplicates", async () => {
+  const fixture = await admissionFixture();
+  const duplicate = join(fixture.directory, "another");
+  await writeFile(
+    duplicate,
+    uuidImage("11111111-2222-3333-4444-555555555555", "different DWARF"),
+  );
+  expect(await fixture.admit()).toMatchObject({
+    ok: false,
+    error: { reason: expect.stringContaining("conflicting DWARF") },
+  });
+  await writeFile(duplicate, uuidImage("11111111-2222-3333-4444-555555555555"));
+  expect(await fixture.admit()).toMatchObject({ ok: true });
+});
+it("skips an oversized nonmatching member but refuses an oversized matching member", async () => {
+  const fixture = await admissionFixture();
+  const oversized = join(fixture.directory, "a-first-noise");
+  await writeFile(oversized, uuidImage("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+  const noise = await open(oversized, "r+");
+  try {
+    await noise.truncate(1024 * 1024 * 1024 + 1);
+  } finally {
+    await noise.close();
+  }
+  expect(await fixture.admit()).toMatchObject({ ok: true });
+  await writeFile(oversized, uuidImage("11111111-2222-3333-4444-555555555555"));
+  const matching = await open(oversized, "r+");
+  try {
+    await matching.truncate(1024 * 1024 * 1024 + 1);
+  } finally {
+    await matching.close();
+  }
+  expect(await fixture.admit()).toMatchObject({
+    ok: false,
+    error: { reason: expect.stringContaining("exceeds the supported size") },
+  });
+});
+it("reports a placeholder target UUID before inspecting companion matches", async () => {
+  const fixture = await admissionFixture(
+    "00000000-0000-0000-0000-000000000000",
+  );
+  expect(await fixture.admit()).toMatchObject({
+    ok: false,
+    error: { reason: expect.stringContaining("no usable LC_UUID") },
+  });
+});

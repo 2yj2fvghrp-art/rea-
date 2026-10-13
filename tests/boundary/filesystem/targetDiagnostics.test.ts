@@ -544,7 +544,7 @@ describe("debug companion fixture admission", () => {
       );
       // Replace the only matching member so enumeration order cannot bypass the size check.
       const huge = join(dwarfDirectory, "pair");
-      await writeFile(huge, Buffer.alloc(64));
+      // Preserve the real member UUID while growing its sparse extent.
       // A sparse file reports a size beyond the budget without occupying it.
       const truncate = (await import("node:fs/promises")).truncate;
       await truncate(huge, 1024 * 1024 * 1024 + 1);
@@ -656,7 +656,7 @@ describe("debug companion universal slice selection", () => {
     const projected = projectAnalysisError(result.error);
     expect(projected.details).toMatchObject({
       constraint: "debug_companion_rejected",
-      reason: expect.stringContaining("declares no LC_UUID"),
+      reason: expect.stringContaining("declares no usable LC_UUID"),
     });
   });
   it.skipIf(!onDarwin || process.arch !== "arm64")(

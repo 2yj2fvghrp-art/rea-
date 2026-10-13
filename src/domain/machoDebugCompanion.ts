@@ -1,3 +1,4 @@
+import { validMachOLoadCommandSize } from "./apple/machoLoadCommand.js";
 import { err, ok, type Result } from "./result.js";
 
 const LC_UUID = 0x1b;
@@ -79,7 +80,7 @@ export function* machoUuidReads(
       return err(`Mach-O load command ${String(index)} is truncated`);
     const command = read32(commandHeader, 0);
     const size = read32(commandHeader, 4);
-    if (size < 8 || size > commandsEnd - cursor)
+    if (!validMachOLoadCommandSize(size, commandsEnd - cursor, wide))
       return err(`Mach-O load command ${String(index)} has an invalid size`);
     if (command === LC_UUID) {
       if (size < 8 + UUID_BYTES)
@@ -208,16 +209,18 @@ export const readMachoUuids = (bytes: Buffer): Result<string[], string> => {
  */
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
+/** A zero UUID is a recorded placeholder rather than a matching identity. */
+export const usableMachOUuid = (uuid: string | null): uuid is string =>
+  uuid !== null && uuid !== ZERO_UUID;
+
 export const debugCompanionMatches = (input: {
   readonly executableUuids: readonly string[];
   readonly companionUuids: readonly string[];
 }): Result<{ readonly uuid: string }, string> => {
-  const executable = input.executableUuids.filter((uuid) => uuid !== ZERO_UUID);
+  const executable = input.executableUuids.filter(usableMachOUuid);
   if (executable.length === 0)
     return err("the executable declares no LC_UUID to match against");
-  const companions = new Set(
-    input.companionUuids.filter((uuid) => uuid !== ZERO_UUID),
-  );
+  const companions = new Set(input.companionUuids.filter(usableMachOUuid));
   for (const uuid of executable) if (companions.has(uuid)) return ok({ uuid });
   return err(
     "the debug companion's UUID does not match the executable's LC_UUID",

@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { extname, isAbsolute, resolve } from "node:path";
 
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { BinaryTargetError } from "../domain/configurationErrors.js";
 import {
   RegularFileChangedError,
@@ -283,6 +284,13 @@ export const parseBinaryTarget = async (
       },
     );
   } catch (cause: unknown) {
+    if (cause instanceof ArtifactReaderFailure)
+      return err(
+        new BinaryTargetError(candidate, cause.message, {
+          cause,
+          ...(cause.cleanup === undefined ? {} : { cleanup: cause.cleanup }),
+        }),
+      );
     if (cause instanceof RegularFileCleanupFailure)
       return err(
         new BinaryTargetError(

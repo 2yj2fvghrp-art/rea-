@@ -27,6 +27,7 @@ import type {
 import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
 import {
   debugCompanionMatches,
+  usableMachOUuid,
   machoUuidReads,
   type MachOImageUuid,
 } from "../domain/machoDebugCompanion.js";
@@ -410,13 +411,14 @@ export const admitDebugCompanion = async (input: {
     const family = selectedCpuTypes.find((candidate) => candidate === cpuType);
     if (family === undefined || importedFamilies.has(family)) continue;
     importedFamilies.add(family);
-    if (uuid !== null) selectedUuids.push(uuid);
+    if (usableMachOUuid(uuid)) selectedUuids.push(uuid);
   }
   if (selectedUuids.length === 0)
     return err({
-      reason: `the target image declares no LC_UUID for the selected ${input.architecture} slice`,
+      reason: `the target image declares no usable LC_UUID for the selected ${input.architecture} slice`,
     });
-  for (const memberPath of memberPaths) {
+  let admitted: MachODebugCompanion | undefined;
+  for (const memberPath of memberPaths.sort()) {
     throwIfCancelled(signal);
     try {
       const candidate = await withRegularFile<
@@ -424,10 +426,6 @@ export const admitDebugCompanion = async (input: {
       >(
         memberPath,
         async (memberHandle, initial) => {
-          if (initial.size > MEMBER_SIZE_LIMIT_BYTES)
-            return err({
-              reason: `dsym DWARF member exceeds the supported size: ${memberPath}`,
-            });
           const memberEntries = await readMachoFileUuidEntries(
             memberHandle,
             initial.size,
@@ -444,6 +442,11 @@ export const admitDebugCompanion = async (input: {
               .filter((uuid): uuid is string => uuid !== null),
           });
           if (!matched.ok) return ok(null);
+          if (initial.size > MEMBER_SIZE_LIMIT_BYTES)
+            return err({
+              reason: `dsym DWARF member exceeds the supported size: ${memberPath}`,
+            });
+
           const memberSha256 = await digestOpenHandle(
             memberHandle,
             initial,
@@ -467,7 +470,18 @@ export const admitDebugCompanion = async (input: {
         },
       );
       if (!candidate.ok) return candidate;
-      if (candidate.value !== null) return ok(candidate.value);
+      if (candidate.value !== null) {
+        if (
+          admitted !== undefined &&
+          (admitted.memberSha256 !== candidate.value.memberSha256 ||
+            admitted.memberSizeBytes !== candidate.value.memberSizeBytes)
+        )
+          return err({
+            reason:
+              "dsym_path contains conflicting DWARF members for the selected target UUID",
+          });
+        admitted ??= candidate.value;
+      }
     } catch (cause: unknown) {
       // This exception carries the exact handle owner and the original read
       // outcome. Never downgrade it to a skipped member or lose close authority.
@@ -489,6 +503,7 @@ export const admitDebugCompanion = async (input: {
       throw cause;
     }
   }
+  if (admitted !== undefined) return ok(admitted);
   return err({
     reason:
       "dsym_path contains no Mach-O DWARF member whose LC_UUID matches the selected target slice",

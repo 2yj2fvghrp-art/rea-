@@ -315,3 +315,28 @@ describe("debug companion UUID matching", () => {
     ).toEqual({ ok: true, value: { uuid } });
   });
 });
+
+it.each([false, true])(
+  "rejects unaligned commands before a UUID (wide=%s)",
+  (wide) => {
+    const header = wide ? 32 : 28;
+    const opaque = wide ? 12 : 10;
+    const bytes = Buffer.alloc(header + opaque + 24);
+    bytes.writeUInt32LE(wide ? 0xfeedfacf : 0xfeedface, 0);
+    bytes.writeUInt32LE(wide ? 0x01000007 : 7, 4);
+    bytes.writeUInt32LE(2, 16);
+    bytes.writeUInt32LE(opaque + 24, 20);
+    bytes.writeUInt32LE(0x77777777, header);
+    bytes.writeUInt32LE(opaque, header + 4);
+    bytes.writeUInt32LE(0x1b, header + opaque);
+    bytes.writeUInt32LE(24, header + opaque + 4);
+    uuidBytes("11111111-2222-3333-4444-555555555555").copy(
+      bytes,
+      header + opaque + 8,
+    );
+    expect(readMachoUuids(bytes)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("invalid size"),
+    });
+  },
+);
