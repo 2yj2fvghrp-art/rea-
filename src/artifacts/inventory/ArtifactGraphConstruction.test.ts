@@ -29,10 +29,6 @@ describe("bounded FAT inventory classification", () => {
 
   it.each([
     ["empty table", (bytes: Buffer) => bytes.writeUInt32BE(0, 4)],
-    [
-      "unavailable table",
-      (bytes: Buffer) => bytes.writeUInt32BE(0xffffffff, 4),
-    ],
     ["slice overlapping table", (bytes: Buffer) => bytes.writeUInt32BE(0, 16)],
     ["empty slice", (bytes: Buffer) => bytes.writeUInt32BE(0, 20)],
     [
@@ -47,6 +43,15 @@ describe("bounded FAT inventory classification", () => {
     expect(classifyArtifactContent("native", bytes)).toEqual({
       kind: "unknown",
       format: "unknown",
+    });
+  });
+
+  it("does not infer Mach-O from an out-of-bounds architecture count", () => {
+    const bytes = fat();
+    bytes.writeUInt32BE(0xffffffff, 4);
+    expect(classifyArtifactContent("native", bytes)).toEqual({
+      kind: "resource",
+      format: "file",
     });
   });
 
@@ -73,12 +78,16 @@ describe("bounded FAT inventory classification", () => {
     });
   });
 
-  it("does not make inventory format depend on supported CPU types", () => {
+  it("requires observed slice magic for an unknown CPU type", () => {
     const cpu = { type: 0x12345678, subtype: 0 };
     const bytes = Buffer.from(fatImage([{ cpu, bytes: machoImage({ cpu }) }]));
     expect(
       classifyArtifactContent("native", bytes.subarray(0, 28), bytes.length),
-    ).toEqual({ kind: "executable", format: "mach-o-universal" });
+    ).toEqual({ kind: "unknown", format: "unknown" });
+    expect(classifyArtifactContent("native", bytes)).toEqual({
+      kind: "executable",
+      format: "mach-o-universal",
+    });
   });
 
   it.each([NaN, Infinity, -1, 8.5, Number.MAX_SAFE_INTEGER + 1, 27])(
