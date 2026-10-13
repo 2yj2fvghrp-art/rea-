@@ -79,11 +79,16 @@ const fatBody = (il: Buffer) => {
     .methods[0]?.body;
 };
 
-/** Body bytes supplied verbatim; a tiny header is read from the first byte. */
-const tinyBody = (ilBody: Buffer) => {
-  const bytes = buildManagedPeFixture({ ilBody });
-  return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes))
-    .methods[0]?.body;
+/** Build a tiny method body whose declared IL extent matches its supplied bytes. */
+const tinyBody = (il: readonly number[]) => {
+  const bytes = buildManagedPeFixture({
+    ilBody: Buffer.from([(il.length << 2) | 0x02, ...il]),
+  });
+  const inspection = inspectManagedMembersBytes(
+    bytes,
+    managedPeFixtureTarget(bytes),
+  );
+  return { body: inspection.methods[0]?.body, coverage: inspection.coverage };
 };
 
 describe("managed CIL decoding", () => {
@@ -241,18 +246,36 @@ describe("managed CIL decoding", () => {
 });
 
 describe("managed operand extent diagnostics", () => {
-  it("names the truncated instruction instead of the Buffer read failure", () => {
-    // A tiny header of 0x06 declares a single IL byte, so ldc.i4 has no
-    // operand room and its 4-byte read would leave the method body.
-    expect(tinyBody(Buffer.from([0x06, 0x20]))).toMatchObject({
-      status: "malformed",
-      header_format: "tiny",
-      il_size: 1,
-      decoded_instruction_count: 0,
-      normalized_il_sha256: null,
-      issue: "Instruction ldc.i4 at IL offset 0 leaves method body",
-    });
-  });
+  it.each([
+    [[0x20], 0, "Instruction ldc.i4 at IL offset 0 leaves method body"],
+    [
+      [0x00, 0x20, 0x01],
+      1,
+      "Instruction ldc.i4 at IL offset 1 leaves method body",
+    ],
+    [[0x2b], 0, "Instruction br.s at IL offset 0 leaves method body"],
+    [[0x45, 0x02], 0, "Instruction switch at IL offset 0 leaves method body"],
+    [
+      [0xfe, 0x09, 0x00],
+      0,
+      "Instruction ldarg at IL offset 0 leaves method body",
+    ],
+    [[0x00, 0xfe], 1, "Two-byte CIL opcode at IL offset 1 leaves method body"],
+  ] as const)(
+    "reports the instruction and IL offset for tiny IL %j",
+    (il, decoded, issue) => {
+      const { body, coverage } = tinyBody(il);
+      expect(body).toMatchObject({
+        status: "malformed",
+        header_format: "tiny",
+        il_size: il.length,
+        decoded_instruction_count: decoded,
+        normalized_il_sha256: null,
+        issue,
+      });
+      expect(coverage.state).toBe("partial");
+    },
+  );
 
   it.each([
     ["short variable", Buffer.from([0x0e]), "ldarg.s"],
@@ -715,43 +738,5 @@ describe("managed exception section decoding", () => {
       exception_regions: [],
       issue,
     });
-  });
-});
-
-describe("managed CIL truncated operands", () => {
-  const tinyBody = (il: readonly number[]) => {
-    const bytes = buildManagedPeFixture({
-      ilBody: Buffer.from([(il.length << 2) | 0x02, ...il]),
-    });
-    const inspection = inspectManagedMembersBytes(
-      bytes,
-      managedPeFixtureTarget(bytes),
-    );
-    return { body: inspection.methods[0]?.body, coverage: inspection.coverage };
-  };
-
-  it.each([
-    [[0x20], 0, "Instruction ldc.i4 at IL offset 0 leaves method body"],
-    [
-      [0x00, 0x20, 0x01],
-      1,
-      "Instruction ldc.i4 at IL offset 1 leaves method body",
-    ],
-    [[0x2b], 0, "Instruction br.s at IL offset 0 leaves method body"],
-    [[0x45, 0x02], 0, "Instruction switch at IL offset 0 leaves method body"],
-    [
-      [0xfe, 0x09, 0x00],
-      0,
-      "Instruction ldarg at IL offset 0 leaves method body",
-    ],
-    [[0x00, 0xfe], 1, "Two-byte CIL opcode at IL offset 1 leaves method body"],
-  ])("names the instruction and IL offset for IL %j", (il, decoded, issue) => {
-    const { body, coverage } = tinyBody(il);
-    expect(body).toMatchObject({
-      status: "malformed",
-      decoded_instruction_count: decoded,
-      issue,
-    });
-    expect(coverage.state).toBe("partial");
   });
 });
