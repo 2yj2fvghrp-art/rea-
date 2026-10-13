@@ -15,6 +15,26 @@ describe("ghidraPeCodeViewLimitations", () => {
     expect(ghidraPeCodeViewLimitations(elfTarget)).toEqual([]);
   });
 
+  it("does not claim CodeView symbols were unapplied when the session loaded a PDB", () => {
+    const peTarget: BinaryTarget = {
+      path: "/test/file.exe",
+      sha256: "abc",
+      kind: "executable",
+      architecture: "x86_64",
+      availableArchitectures: ["x86_64"],
+      executableRole: "application",
+      managed: false,
+      format: "pe",
+      codeView: {
+        pdbPath: "C:\\symbols.pdb",
+        pdbFileName: "symbols.pdb",
+        guid: "12345678-1234-1234-1234-123456789abc",
+        age: 1,
+      },
+    };
+    expect(ghidraPeCodeViewLimitations(peTarget, true)).toEqual([]);
+  });
+
   it("returns empty limitations for PE target without codeView", () => {
     const peTarget: BinaryTarget = {
       path: "/test/file.exe",
