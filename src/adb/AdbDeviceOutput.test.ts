@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  displayDevicePath,
   parseAdbDevicesOutput,
   parseGetpropOutput,
   parsePackageListOutput,
@@ -294,4 +295,13 @@ describe("parsePmPathOutput", () => {
       parsePmPathOutput(" package:/data/app/pkg/base.apk \n").unparsedLines,
     ).toEqual([" package:/data/app/pkg/base.apk "]);
   });
+});
+
+it("bounds display expansion while keeping the parsed rejected path intact", () => {
+  const devicePath = `/data/${"\0".repeat(60_000)}/base.apk`;
+  expect(displayDevicePath(devicePath).length).toBeLessThan(1100);
+  expect(displayDevicePath(devicePath)).toContain("(excerpt)");
+  expect(parsePmPathOutput(`package:${devicePath}\n`).rejectedPaths).toEqual([
+    { device_path: devicePath, reason: "unsupported_character" },
+  ]);
 });

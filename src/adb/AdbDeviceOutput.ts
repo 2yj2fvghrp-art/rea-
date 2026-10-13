@@ -200,14 +200,22 @@ export const parsePackageListOutput = (
  * cannot reorder the rendered message and an invisible character cannot hide
  * in it. Structured details keep the raw path.
  */
-export const displayDevicePath = (devicePath: string): string =>
-  JSON.stringify(devicePath).replace(
+export const displayDevicePath = (devicePath: string): string => {
+  // Limit source characters before quoting: each can expand into several
+  // displayed characters. Complete source values stay in structured diagnostics.
+  let excerpt = "";
+  let count = 0;
+  for (const character of devicePath) {
+    if (count === 160) break;
+    excerpt += character;
+    count += 1;
+  }
+  const quoted = JSON.stringify(excerpt).replace(
     /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu,
-    (character) =>
-      character === " "
-        ? character
-        : `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`,
+    (character) => character === " " ? character : `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`,
   );
+  return excerpt.length === devicePath.length ? quoted : `${quoted} (excerpt)`;
+};
 
 /** One APK of an installed package exactly as `pm path` reports it. */
 export interface AdbPackagePathEntry {

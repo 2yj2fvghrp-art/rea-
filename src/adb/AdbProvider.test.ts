@@ -468,7 +468,11 @@ exit 1`,
     Buffer.from([0xff]),
     Buffer.from("/base.apk\n"),
   ]);
-  expect(result.error.message).toContain("not valid UTF-8");
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    code: "unreadable_output",
+    message: expect.stringContaining("not valid UTF-8"),
+    details: { reason: "invalid_utf8", diagnostics: { stdout_encoding: "base64" } },
+  });
   expect(result.error.capturedOutput?.stdout).toBe(
     `base64:${bytes.toString("base64")}`,
   );

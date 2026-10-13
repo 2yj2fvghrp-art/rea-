@@ -1320,10 +1320,11 @@ export class AdbProvider {
       }).decode(paths.value.stdout);
     } catch (cause: unknown) {
       return err(
-        new AnalysisProtocolError(
-          "pm path output is not valid UTF-8; captured stdout preserves the original bytes as base64",
-          {
+        new AnalysisOutputError(operation, "invalid_utf8", {
             cause,
+            userMessage: "pm path output is not valid UTF-8. No APK was pulled; captured stdout preserves the original bytes as base64.",
+            remediationAction: "Inspect details.captured_output.stdout as base64 bytes and correct the device's pm path response or adb transport encoding before retrying. REA does not replace malformed path bytes.",
+            diagnostics: { package_name: packageName, expected_encoding: "UTF-8", stdout_encoding: "base64" },
             capturedOutput: {
               stdout: `base64:${paths.value.stdout.toString("base64")}`,
               stderr: paths.value.stderr.toString("utf8"),
