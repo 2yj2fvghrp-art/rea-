@@ -729,9 +729,10 @@ const ghidraPropertyValue = (
   properties: string,
   key: string,
 ): string | undefined =>
-  new RegExp(`^\\s*${key.replaceAll(".", "\\.")}\\s*=\\s*(.+?)\\s*$`, "mu").exec(
-    properties,
-  )?.[1];
+  new RegExp(
+    `^\\s*${key.replaceAll(".", "\\.")}\\s*=\\s*(.+?)\\s*$`,
+    "mu",
+  ).exec(properties)?.[1];
 
 /**
  * Ghidra's launch support resolves its JDK before the headless run and then
@@ -752,7 +753,9 @@ const ghidraConfigReleaseDirectory = async (
     );
     const version = ghidraPropertyValue(properties, "application.version");
     const release = ghidraPropertyValue(properties, "application.release.name");
-    return version === undefined || release === undefined || release.length === 0
+    return version === undefined ||
+      release === undefined ||
+      release.length === 0
       ? basename(installRoot)
       : `ghidra_${version}_${release}`;
   } catch (cause: unknown) {
