@@ -7,9 +7,12 @@ import { PWNTOOLS_LIMITS } from "../native/pwntools/PwntoolsRelease.js";
 /** Positive decimal safe integer input budget override. */
 export const pwntoolsMaxInputBytesSchema = z
   .string()
-  .regex(/^[1-9]\d*$/u, "must be a positive decimal integer")
-  .transform(Number)
-  .pipe(z.number().int().safe().min(1));
+  .refine(
+    (val) => val === "" || /^[1-9]\d*$/u.test(val),
+    "must be a positive decimal integer",
+  )
+  .transform((val) => (val === "" ? undefined : Number(val)))
+  .pipe(z.number().int().safe().min(1).optional());
 
 const budgetConstraint =
   "REA_PWNTOOLS_MAX_INPUT_BYTES must be a positive decimal safe integer.";
@@ -21,7 +24,7 @@ export const parsePwntoolsMaxInputBytes = (
   if (value === undefined || value === "")
     return ok(PWNTOOLS_LIMITS.inputBytes);
   const parsed = pwntoolsMaxInputBytesSchema.safeParse(value);
-  return parsed.success
+  return parsed.success && parsed.data !== undefined
     ? ok(parsed.data)
     : err(
         new ConfigurationError(budgetConstraint, {
