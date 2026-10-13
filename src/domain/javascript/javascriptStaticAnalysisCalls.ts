@@ -12,7 +12,7 @@ import {
   argumentValue,
   calleeName,
   endpointArgument as endpointArgumentHelper,
-  isImportMetaUrl,
+  isFileIdentity,
   prefixedArgument,
   range,
   rangeForOffsets,
@@ -262,23 +262,50 @@ const isShadowedRequireCallee = (
   if (binding === undefined) return false;
   // A bundle factory whose loader parameter is named `require` (e.g.
   // webpack's `(module, exports, require)`) is the recovered module loader,
-  // not a shadow. Only a binding that still holds the loader parameter
-  // qualifies: a hoisted `function`/`class` or initialized variable
-  // declaration in the same scope replaces the parameter for the whole body,
-  // so a merged binding is a local shadow, not the loader. A nested binding
-  // with the same name resolves to a different scope and stays shadowed.
-  // Assignments keep the current positional behavior; they do not prove the
-  // loader is gone at this call.
+  // not a shadow — while the binding still holds the loader parameter. A
+  // hoisted `function`/`class` or initialized variable declaration in the
+  // same scope replaces the parameter for the whole body, so a merged binding
+  // with those is a local shadow, not the loader; an uninitialized `var`
+  // redeclaration hoists without touching the parameter value, so it stays
+  // loader-retaining. A nested binding with the same name resolves to a
+  // different scope and stays shadowed. A write that takes effect before the
+  // call replaces the loader for that call, so the call is shadowed; a later
+  // write leaves earlier calls on the loader.
   if (
     module?.requireName === "require" &&
     module.loaderScopeId !== null &&
     binding.scopeId === module.loaderScopeId &&
-    binding.definitions.every(
-      ({ kind }) => kind === "parameter" || kind === "assignment",
-    )
+    isLoaderRetainingParameterBinding(binding)
   )
-    return false;
+    return requireWriteShadowsCall(
+      requireWriteFacts(binding, bindings),
+      node,
+      bindings,
+    );
   return !isRetainedRequireLoader(binding, node, bindings);
+};
+
+/**
+ * The loader parameter still holds the loader when every definition is the
+ * parameter itself, a plain assignment, or an uninitialized `var`
+ * redeclaration — `var require;` hoists without touching the parameter value.
+ * A declaration initializer would have replaced the parameter at declaration,
+ * so the initializer list must hold exactly the assignment expressions.
+ */
+const isLoaderRetainingParameterBinding = (
+  binding: JavaScriptSemanticBindingState,
+): boolean => {
+  const assignmentCount = binding.definitions.filter(
+    ({ kind }) => kind === "assignment",
+  ).length;
+  return (
+    binding.definitions.every(
+      ({ kind, declarationKind }) =>
+        kind === "parameter" ||
+        kind === "assignment" ||
+        (kind === "variable" && declarationKind === "var"),
+    ) && binding.initializers.length === assignmentCount
+  );
 };
 
 const isRetainedRequireLoader = (
@@ -291,8 +318,11 @@ const isRetainedRequireLoader = (
 
 /**
  * `const require = createRequire(import.meta.url)` aliases the ESM loader.
- * Erased TypeScript syntax around the initializer (e.g. `as NodeRequire`)
- * is unwrapped before matching, mirroring the reference-source classifier.
+ * The argument only selects the resolution base — `createRequire` returns a
+ * loader for any file identity, so `__filename` and
+ * `fileURLToPath(import.meta.url)` spellings qualify too. Erased TypeScript
+ * syntax around the initializer (e.g. `as NodeRequire`) is unwrapped before
+ * matching, mirroring the reference-source classifier.
  */
 const isDirectCreateRequireBinding = (
   binding: JavaScriptSemanticBindingState,
@@ -306,7 +336,12 @@ const isDirectCreateRequireBinding = (
   if (initializer.projection.length > 0) return false;
   const init = unwrapJavaScriptExpression(initializer.node).node;
   if (!t.isCallExpression(init)) return false;
-  if (!isImportMetaUrl(init.arguments[0])) return false;
+  const createRequireArgument = init.arguments[0];
+  if (
+    createRequireArgument === undefined ||
+    !isFileIdentity(unwrapJavaScriptExpression(createRequireArgument).node)
+  )
+    return false;
   return isCreateRequireCallee(
     unwrapJavaScriptExpression(init.callee).node,
     state,
@@ -315,10 +350,12 @@ const isDirectCreateRequireBinding = (
 
 /**
  * Match `createRequire` by its imported origin rather than one call spelling:
- * the named import (`createRequire(...)`) and the namespace form
- * (`ns.createRequire(...)` where `ns` is `import * as ns from "node:module"`).
- * Named ESM exports and module namespace objects are read-only, so their
- * identity is stable; default imports can be replaced and stay excluded.
+ * the named import (`createRequire(...)`), the namespace form
+ * (`ns.createRequire(...)` where `ns` is `import * as ns from "node:module"`),
+ * and the default-import form (`mod.createRequire(...)` where `mod` is
+ * `import mod from "node:module"`). ESM import bindings are read-only, so
+ * each form's identity is stable — including the default export, which is the
+ * builtin module object itself.
  */
 const isCreateRequireCallee = (
   callee: t.Node,
@@ -347,20 +384,31 @@ const isCreateRequireCallee = (
       return false;
     const object = unwrapJavaScriptExpression(callee.object).node;
     if (!t.isIdentifier(object)) return false;
-    const objectBinding = resolveSemanticBindingState(
-      state,
-      object,
-      object.name,
-    );
-    const [origin] = objectBinding?.directOrigins ?? [];
-    return (
-      objectBinding?.runtimeImport === true &&
-      origin !== undefined &&
-      (origin.specifier === "node:module" || origin.specifier === "module") &&
-      origin.importedPath.length === 0
+    return isNodeModuleObjectBinding(
+      resolveSemanticBindingState(state, object, object.name),
     );
   }
   return false;
+};
+
+/**
+ * The builtin module object behind `import * as ns from "node:module"` or
+ * `import mod from "node:module"`. ESM import bindings are read-only, so the
+ * object's identity is stable in both forms — including the default export,
+ * which is the builtin module object itself.
+ */
+const isNodeModuleObjectBinding = (
+  binding: JavaScriptSemanticBindingState | undefined,
+): boolean => {
+  const [origin] = binding?.directOrigins ?? [];
+  return (
+    binding?.runtimeImport === true &&
+    origin !== undefined &&
+    (origin.specifier === "node:module" || origin.specifier === "module") &&
+    (origin.importedPath.length === 0 ||
+      (origin.importedPath.length === 1 &&
+        origin.importedPath[0] === "default"))
+  );
 };
 
 /**
@@ -368,13 +416,6 @@ const isCreateRequireCallee = (
  * a later write replaces it. Only `var` qualifies: a block-scoped `let`
  * declaration never receives the wrapper loader, so `let require;` followed
  * by a call cannot be a module load.
- *
- * Write handling accounts for evaluation order. A write takes effect when its
- * assignment expression finishes evaluating, so a call inside the write's own
- * right-hand side (e.g. `require = require("./dep.cjs")`) still sees the
- * loader. A write inside a function body only shadows calls in that same
- * body: source order cannot establish when the body runs relative to an
- * outer call. A call at or after an effective write is shadowed.
  */
 const isUninitializedTopLevelVarRequire = (
   binding: JavaScriptSemanticBindingState,
@@ -383,14 +424,7 @@ const isUninitializedTopLevelVarRequire = (
 ): boolean => {
   const facts = retainedRequireFacts(binding, state);
   if (!facts.declarationsOk) return false;
-  const { line, column } = range(node).start;
-  const callFunction = nearestFunctionNode(node, state);
-  return !facts.writes.some(
-    (write) =>
-      (write.endLine < line ||
-        (write.endLine === line && write.endColumn <= column)) &&
-      (write.functionNode === null || write.functionNode === callFunction),
-  );
+  return !requireWriteShadowsCall(facts.writes, node, state);
 };
 
 interface RequireWriteFact {
@@ -450,9 +484,21 @@ const computeRetainedRequireFacts = (
     ) &&
     state.scopesById.get(binding.scopeId)?.kind === "program";
   if (!declarationsOk) return { declarationsOk, writes: [] };
-  // Each assignment pushes exactly one initializer holding the full
-  // assignment expression, in definition order, so the i-th assignment pairs
-  // with initializers[i].
+  return { declarationsOk: true, writes: requireWriteFacts(binding, state) };
+};
+
+/**
+ * Positional write facts for a binding whose value flows only through plain
+ * assignments. Each assignment pushes exactly one initializer (the
+ * right-hand side for plain `=`, the full expression otherwise), in
+ * definition order, so the i-th assignment pairs with initializers[i].
+ * Callers must ensure no declaration initializer is present
+ * (initializers.length === assignment count) before calling.
+ */
+const requireWriteFacts = (
+  binding: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+): readonly RequireWriteFact[] => {
   let assignmentIndex = 0;
   const writes: RequireWriteFact[] = [];
   for (const definition of binding.definitions) {
@@ -476,19 +522,45 @@ const computeRetainedRequireFacts = (
       functionNode: nearestFunctionNode(initializer.node, state),
     });
   }
-  return { declarationsOk: true, writes };
+  return writes;
 };
 
 /**
- * Nearest enclosing function of a node, or null at program top level. An
- * incomplete parent chain falls back to null, which keeps the previous
- * positional behavior for that write or call.
+ * A call at or after an effective write in the same function scope no longer
+ * sees the loader. A write takes effect when its assignment expression
+ * finishes evaluating, so a call inside the write's own right-hand side
+ * (e.g. `require = require("./dep.cjs")`) still sees the loader. A write
+ * inside a function body only shadows calls in that same body: source order
+ * cannot establish when the body runs relative to an outer call.
+ */
+const requireWriteShadowsCall = (
+  writes: readonly RequireWriteFact[],
+  node: JavaScriptCallLike,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const { line, column } = range(node).start;
+  const callFunction = nearestFunctionNode(node, state);
+  return writes.some(
+    (write) =>
+      (write.endLine < line ||
+        (write.endLine === line && write.endColumn <= column)) &&
+      (write.functionNode === null || write.functionNode === callFunction),
+  );
+};
+
+/**
+ * Nearest enclosing function of a node, or null at program top level. The
+ * walk starts at the node's parent: a write whose right-hand side is itself
+ * a function (e.g. `require = () => "local"`) still takes effect in the
+ * enclosing body, not inside the assigned function. An incomplete parent
+ * chain falls back to null, which keeps the previous positional behavior for
+ * that write or call.
  */
 const nearestFunctionNode = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): t.Node | null => {
-  let current: t.Node | undefined = node;
+  let current: t.Node | undefined = state.parentsByNode.get(node);
   while (current !== undefined) {
     if (t.isFunction(current)) return current;
     current = state.parentsByNode.get(current);

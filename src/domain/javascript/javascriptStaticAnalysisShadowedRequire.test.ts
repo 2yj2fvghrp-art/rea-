@@ -56,6 +56,14 @@ const shadowedCases = [
     `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { function require() { return "local"; } require("ghost"); } }]);`,
   ],
   [
+    "factory loader parameter replaced by an initialized var redeclaration",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { var require = () => "local"; require("./ghost.cjs"); } }]);`,
+  ],
+  [
+    "factory loader parameter reassigned before the call",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require = () => "local"; require("./ghost.cjs"); } }]);`,
+  ],
+  [
     "destructured missing property of createRequire",
     `import { createRequire } from "node:module";\nconst { missing: require } = createRequire(import.meta.url);\nrequire?.("./ghost.cjs");`,
   ],
@@ -126,6 +134,26 @@ const loaderCases = [
     "bundle factory loader call next to a nested shadow",
     `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require("dep"); function inner(require) { return require("./nested.cjs"); } } }]);`,
     ["dep"],
+  ],
+  [
+    "factory loader parameter with an uninitialized var redeclaration",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { var require; require("dep"); } }]);`,
+    ["dep"],
+  ],
+  [
+    "factory loader parameter call before its reassignment",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require("dep"); require = () => "local"; } }]);`,
+    ["dep"],
+  ],
+  [
+    "default-import createRequire binding",
+    `import module from "node:module";\nconst require = module.createRequire(import.meta.url);\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "createRequire with fileURLToPath(import.meta.url)",
+    `import { createRequire } from "node:module";\nimport { fileURLToPath } from "node:url";\nconst require = createRequire(fileURLToPath(import.meta.url));\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
   ],
   [
     "namespace createRequire binding",
