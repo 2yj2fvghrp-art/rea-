@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { expect } from "vitest";
 
@@ -9,11 +7,9 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js";
 
-const execute = promisify(execFile);
-
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "retains configuration sources consumed by member access through %s",
-  async (surface, { cli }) => {
+  async (surface, { cli, processes }) => {
     const root = await createTestTempDirectory("rea-config-reads-");
     await writeFixtureFiles(root, {
       "entry.mjs": [
@@ -28,11 +24,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "console.log(JSON.stringify([length, endpoint, argumentLength, mode, optional, control, local.env.FAKE.length]));",
       ].join("\n"),
     });
-    const control = await execute(
+    const control = await processes.run(
       process.execPath,
       [join(root, "entry.mjs"), "abc", " mode "],
-      { env: { REA_ENDPOINT: "endpoint" } },
+      { env: { REA_ENDPOINT: "endpoint" }, timeoutMs: 15_000 },
     );
+    expect(control.exitCode, control.stderr).toBe(0);
     expect(JSON.parse(control.stdout)).toEqual([
       8,
       "endpoint",
@@ -57,5 +54,25 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["environment", "REA_MISSING"],
     ]);
     expect(sources.every((node) => node.properties.value === null)).toBe(true);
+    const endpoint = graph.nodes.find(
+      (node) => node.kind === "binding" && node.label === "endpoint",
+    );
+    expect(endpoint).toBeDefined();
+    for (const source of sources) {
+      const bindingTargets = graph.relations
+        .filter((relation) => relation.source_node_id === source.node_id)
+        .flatMap((relation) =>
+          graph.nodes.filter(
+            (node) =>
+              node.node_id === relation.target_node_id &&
+              node.kind === "binding",
+          ),
+        );
+      expect(bindingTargets.map((node) => node.node_id)).toEqual(
+        source.identity.source_range?.start.line === 2
+          ? [endpoint?.node_id]
+          : [],
+      );
+    }
   },
 );
