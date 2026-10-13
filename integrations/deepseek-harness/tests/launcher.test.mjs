@@ -111,6 +111,20 @@ test("forwards the caller's supported Ghidra heap controls", () =>
     });
   }));
 
+test("forwards the caller's pwntools input-size limit", () =>
+  withFixture((launcher) => {
+    const result = resolveReaLauncher({
+      env: {
+        REA_DSH_ENTRYPOINT: launcher,
+        REA_PWNTOOLS_MAX_INPUT_BYTES: "67108864",
+      },
+    });
+    assert.deepEqual(result.env, {
+      REA_PWNTOOLS_MAX_INPUT_BYTES: "67108864",
+      REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
+    });
+  }));
+
 test("the Cordis adapter provides its owned service", () =>
   withFixture((launcher) => {
     const previous = process.env.REA_DSH_ENTRYPOINT;

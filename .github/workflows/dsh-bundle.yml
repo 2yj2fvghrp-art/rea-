@@ -158,13 +158,19 @@ jobs:
           RELEASE_PRESENT: ${{ steps.release-version.outputs.present }}
         run: |
           if [ "$RELEASE_PRESENT" = true ]; then
+            # Verify every existing asset before uploading any missing one so
+            # a later mismatch cannot leave a partial checksum/archive pair.
             for asset in release-artifacts/*; do
               name="$(basename "$asset")"
               if jq -e --arg name "$name" 'any(.[0].assets[]; .name == $name)' "$RUNNER_TEMP/dsh-release.json" >/dev/null; then
                 mkdir -p "$RUNNER_TEMP/dsh-existing"
                 gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$RUNNER_TEMP/dsh-existing"
                 cmp "$asset" "$RUNNER_TEMP/dsh-existing/$name"
-              else
+              fi
+            done
+            for asset in release-artifacts/*; do
+              name="$(basename "$asset")"
+              if ! jq -e --arg name "$name" 'any(.[0].assets[]; .name == $name)' "$RUNNER_TEMP/dsh-release.json" >/dev/null; then
                 gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
               fi
             done
