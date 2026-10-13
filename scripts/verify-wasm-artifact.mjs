@@ -81,10 +81,18 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const run = createVerifierRun();
 const root = await PrivateRuntimeRoot.create({ prefix: "rea-wabt-verifier-" });
 const client = new Client({ name: "wabt-artifact-verifier", version: "1" });
+// The default response budget matches the client's default receive buffer.
+const { REA_MCP_MAX_RESPONSE_BYTES: _responseBudget, ...mcpEnvironment } =
+  environment;
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [entrypoint, "mcp"],
-  env: { ...environment, TMPDIR: root.path, TMP: root.path, TEMP: root.path },
+  env: {
+    ...mcpEnvironment,
+    TMPDIR: root.path,
+    TMP: root.path,
+    TEMP: root.path,
+  },
   stderr: "pipe",
 });
 let cases = 0;
