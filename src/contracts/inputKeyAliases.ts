@@ -71,11 +71,9 @@ export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
   return withAdvertisedJsonSchema(canonical, "input", () => (options) => {
     const projected = accepted["~standard"].jsonSchema.input(options);
     const alternatives = Array.isArray(projected.anyOf) ? projected.anyOf : [];
+    const selectorDescriptions: string[] = [];
     const invalidSelections = Object.entries(aliases).flatMap(
       ([alias, key]) => {
-        const conflicts: Record<string, unknown>[] = [
-          { required: [key, alias] },
-        ];
         const selectorRequired =
           alternatives.length > 0 &&
           alternatives.every(
@@ -87,6 +85,14 @@ export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
               (branch.required.includes(key) ||
                 branch.required.includes(alias)),
           );
+        selectorDescriptions.push(
+          selectorRequired
+            ? `Supply one spelling for ${key}: ${key} or ${alias}.`
+            : `Supply at most one spelling for ${key}: ${key} or ${alias}; both may be omitted.`,
+        );
+        const conflicts: Record<string, unknown>[] = [
+          { required: [key, alias] },
+        ];
         if (selectorRequired)
           conflicts.push({
             not: { anyOf: [{ required: [key] }, { required: [alias] }] },
@@ -105,9 +111,8 @@ export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
       not: { anyOf: invalidSelections },
       description: [
         schema.description,
-        `Supply one spelling for each input: ${Object.entries(aliases)
-          .map(([alias, key]) => `${key} or ${alias}`)
-          .join("; ")}. Supplying both spellings is invalid.`,
+        ...selectorDescriptions,
+        "Supplying both spellings is invalid.",
       ]
         .filter((text) => text !== undefined)
         .join(" "),

@@ -95,6 +95,18 @@ describe("named compatible input contracts", () => {
       comment: "exact",
     });
   });
+  it("describes optional compatibility selectors without requiring a filter", () => {
+    const optionalSearch = compatibleToolInputSchema(
+      z.strictObject({ pattern: z.string().default("") }),
+    );
+    const projected = optionalSearch["~standard"].jsonSchema.input({
+      target: "draft-2020-12",
+    });
+    expect(projected.description).toContain("at most one spelling");
+    expect(projected.description).toContain("both may be omitted");
+    expect(projected.description).not.toContain("Supply one spelling");
+    expect(optionalSearch.parse({})).toEqual({ pattern: "" });
+  });
   it("parses canonical field transforms exactly once for each spelling", () => {
     const schema = compatibleToolInputSchema(
       z.strictObject({
