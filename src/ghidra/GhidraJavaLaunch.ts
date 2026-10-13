@@ -6,6 +6,9 @@ import {
   type ExecFileOutputFailure,
 } from "../process/ExecFileOutput.js";
 
+/** Bound each configuration-helper stream before retention and redaction. */
+export const GHIDRA_LAUNCH_SUPPORT_CAPTURE_BYTES = 64 * 1024;
+
 type LaunchSupportPhase = "-envvars" | "-vmargs";
 type LaunchSupportOutcome = Omit<
   ExecFileOutputFailure,
@@ -41,11 +44,13 @@ export const ghidraJavaLaunch = async (options: {
   readonly platform: NodeJS.Platform;
   readonly analyzeHeadlessPath: string;
   readonly javaHome: string;
+  readonly javaVmName?: string;
   readonly homeRoot: string;
   readonly tempRoot: string;
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
   readonly signal?: AbortSignal;
+  readonly onStderr: (mode: "-envvars" | "-vmargs", stderr: string) => void;
 }): Promise<{
   readonly command: string;
   readonly arguments: readonly string[];
@@ -60,6 +65,13 @@ export const ghidraJavaLaunch = async (options: {
   ];
   const supportArguments = [
     ...isolatedProperties,
+    // Only identified HotSpot VMs have these unified-logging semantics. OpenJ9
+    // uses different -Xlog behavior; missing VM identity must stay unknown.
+    ...(/^(?:OpenJDK|Java HotSpot\(TM\)) (?:64-Bit )?(?:Server|Client|Zero) VM$/u.test(
+      options.javaVmName ?? "",
+    )
+      ? ["-Xlog:disable", "-Xlog:all=warning:stderr"]
+      : []),
     "-cp",
     join(supportRoot, "LaunchSupport.jar"),
     "LaunchSupport",
@@ -72,6 +84,7 @@ export const ghidraJavaLaunch = async (options: {
     try {
       return await execFileOutput(command, [...supportArguments, phase], {
         env: environment,
+        maxBuffer: GHIDRA_LAUNCH_SUPPORT_CAPTURE_BYTES,
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
     } catch (cause: unknown) {
@@ -79,6 +92,7 @@ export const ghidraJavaLaunch = async (options: {
     }
   };
   const configuredEnvironment = await supportOutput("-envvars");
+  options.onStderr("-envvars", configuredEnvironment.stderr);
   for (const line of configuredEnvironment.stdout.split(/\r?\n/u)) {
     if (line === "") continue;
     const separator = line.indexOf("=");
@@ -93,6 +107,7 @@ export const ghidraJavaLaunch = async (options: {
       environment[key] = line.slice(separator + 1);
   }
   const configuredArguments = await supportOutput("-vmargs");
+  options.onStderr("-vmargs", configuredArguments.stderr);
   const vmArguments = configuredArguments.stdout
     .split(/\r?\n/u)
     .filter((line) => line !== "");

@@ -200,3 +200,27 @@ it("retains capture truncation separately from diagnostic output bounds", () => 
     },
   });
 });
+
+it("retains known cancellation output while final termination remains unknown", () => {
+  const cause = Object.assign(new Error("The operation was aborted"), {
+    code: "ABORT_ERR",
+    stdout: "captured stdout",
+    stderr: "captured stderr",
+    killed: true,
+  });
+  const failure = bindGhidraSessionFailure(() => ({}))(
+    "cancelled",
+    "LaunchSupport cancelled",
+    new GhidraLaunchSupportError("-envvars", cause),
+  );
+  expect(failure.diagnostics).toMatchObject({
+    failure_cause: {
+      command_outcome: {
+        stdout: "captured stdout",
+        stderr: "captured stderr",
+        killed: null,
+        outputTruncated: null,
+      },
+    },
+  });
+});

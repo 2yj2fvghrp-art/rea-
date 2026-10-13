@@ -14,7 +14,10 @@ import {
   createAnalysisProfile,
   type AnalysisProfileCommitment,
 } from "../domain/analysisProfile.js";
-import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import {
+  isMachOFormat,
+  type BinaryTarget,
+} from "../domain/binaryTargetTypes.js";
 import {
   jsonObjectSchema,
   jsonValueSchema,
@@ -63,6 +66,7 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "arm",
   "arm64",
   "mips",
+  "riscv",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless import. */
@@ -164,7 +168,10 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         reason: mipsReason,
         diagnostics,
       };
-    if (target.format === "mach-o" && target.availableArchitectures.length > 1)
+    if (
+      isMachOFormat(target.format) &&
+      target.availableArchitectures.length > 1
+    )
       return {
         status: "unsupported",
         code: "architecture_unsupported",
