@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
 
@@ -95,11 +95,10 @@ describe("retained headless IDA connection in a long-lived host", () => {
       timeoutMs: 5000,
       workspaceRoot,
     };
-    const client = new IdaSessionClient(
-      config,
-      target,
-      createIdaMcpConnection(config, process.env),
-    );
+    const connection = createIdaMcpConnection(config, process.env);
+    // Close the supervisor even when an assertion fails before cleanup does.
+    onTestFinished(() => connection.close().catch(() => undefined));
+    const client = new IdaSessionClient(config, target, connection);
 
     expect((await client.execute("health", {})).ok).toBe(true);
     const failed = await client.close();
