@@ -15,6 +15,12 @@ const LOOKBACK_DAYS = 14;
 const MAX_LOOKBACK_DAYS = 30;
 const MAX_TOTAL_TIME_MS = 60_000;
 const SHA_PATTERN = /^[0-9a-f]{40}$/iu;
+const COMPLETED_CATEGORIES = new Map([
+  ["failure", "completed_failure"],
+  ["timed_out", "completed_failure"],
+  ["cancelled", "completed_canceled"],
+  ["success", "completed_success"],
+]);
 
 /** Read workflow/PR state and conservatively distinguish absent CI from unknown. */
 export async function collectPrCiHealth({
@@ -217,6 +223,16 @@ export function classifyPrCi({
   const evidence = [...runs, ...ambiguousRuns];
   if (pull.mergeable === false)
     return result("merge_conflict", "github_reports_merge_conflict", evidence);
+  // The newest collected run is not proven current until pagination completes:
+  // an older-created run outside this snapshot may have been retried recently.
+  if (!runsComplete)
+    return result(
+      evidence.length > 0 ? "unknown" : "deferred",
+      evidence.length > 0
+        ? "workflow_run_inventory_incomplete"
+        : "lookup_inventory_incomplete",
+      evidence,
+    );
   const selection = newestRun(runs);
   if (!selection.known)
     return result("unknown", "workflow_run_order_unknown", evidence);
@@ -244,26 +260,17 @@ export function classifyPrCi({
         `workflow_${run.status}`,
         evidence,
       );
-    if (run.status === "completed") {
-      if (run.conclusion === "failure" || run.conclusion === "timed_out")
-        return result(
-          "completed_failure",
-          `workflow_${run.conclusion}`,
-          evidence,
-        );
-      if (run.conclusion === "cancelled")
-        return result("completed_canceled", "workflow_cancelled", evidence);
-      if (run.conclusion === "success")
-        return result("completed_success", "workflow_succeeded", evidence);
+    if (run.status === "completed")
       return result(
-        "completed_other",
-        `workflow_${run.conclusion ?? "unknown_conclusion"}`,
+        COMPLETED_CATEGORIES.get(run.conclusion) ?? "completed_other",
+        run.conclusion === "success"
+          ? "workflow_succeeded"
+          : `workflow_${run.conclusion ?? "unknown_conclusion"}`,
         evidence,
       );
-    }
     return result("unknown", "workflow_status_unrecognized", evidence);
   }
-  if (!runsComplete || !pullRequestInventoryComplete)
+  if (!pullRequestInventoryComplete)
     return result("deferred", "lookup_inventory_incomplete", []);
   if (pull.mergeable !== true)
     return result("unknown", "pull_request_mergeability_unknown", []);

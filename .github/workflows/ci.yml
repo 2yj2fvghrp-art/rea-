@@ -379,7 +379,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         if: >-
           !cancelled() && needs.changes.outputs.code == 'true' &&
-          (needs.test-shard.result == 'success' || needs.test-shard.result == 'failure')
+          (needs.test-shard.result == 'success' || needs.test-shard.result == 'failure' ||
+           (needs.changes.outputs.tier == 'fast' &&
+            (needs.test-source.result == 'success' || needs.test-source.result == 'failure')))
         with:
           path: .vitest/blob
           pattern: vitest-report-*
@@ -407,7 +409,8 @@ jobs:
         if: >-
           !cancelled() && needs.changes.outputs.code == 'true' &&
           needs.changes.outputs.tier == 'fast' &&
-          (needs.test-shard.result == 'success' || needs.test-shard.result == 'failure')
+          (needs.test-shard.result == 'success' || needs.test-shard.result == 'failure' ||
+           needs.test-source.result == 'success' || needs.test-source.result == 'failure')
         run: >-
           npm exec -- vitest --merge-reports
           --reporter=default
@@ -419,7 +422,9 @@ jobs:
       - name: Summarize slowest test files
         if: needs.changes.outputs.code == 'true' && !cancelled() && hashFiles('test-timings.json') != ''
         env:
-          SHARD_RESULT: ${{ needs.test-shard.result == 'success' && (needs.changes.outputs.tier != 'fast' || needs.test-source.result == 'success') && 'success' || 'failure' }}
+          SHARD_RESULT: ${{ needs.test-shard.result }}
+          SOURCE_REQUIRED: ${{ needs.changes.outputs.tier == 'fast' }}
+          SOURCE_RESULT: ${{ needs.test-source.result }}
           MERGE_RESULT: ${{ needs.changes.outputs.tier == 'full' && steps.merge.outcome || steps.merge-fast.outcome }}
           CI_VERIFY_TEST_INVENTORY: "true"
           CI_TEST_SELECTION: ${{ needs.changes.outputs.test_selection }}

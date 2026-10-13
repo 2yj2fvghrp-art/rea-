@@ -43,6 +43,11 @@ it("classifies workflow states without confusing absent, pending, and completed 
       run({ status: "completed", conclusion: "cancelled" }),
     ],
     ["completed_success", run({ status: "completed", conclusion: "success" })],
+    ["completed_other", run({ status: "completed", conclusion: "neutral" })],
+    [
+      "completed_other",
+      run({ status: "completed", conclusion: "constructor" }),
+    ],
   ] as const;
   for (const [category, evidence] of cases) {
     expect(
@@ -98,6 +103,39 @@ it("requires complete inventories, known mergeability, and immutable head identi
     "unknown",
   );
 });
+
+it.each([
+  { status: "completed", conclusion: "success" },
+  { status: "completed", conclusion: "failure" },
+  { status: "completed", conclusion: "cancelled" },
+  { status: "in_progress", conclusion: null },
+  { status: "waiting", conclusion: null },
+  { status: "completed", conclusion: "startup_failure" },
+])(
+  "retains observed $status/$conclusion as evidence without claiming current state from a partial scan",
+  (state) => {
+    const observed = run({ ...state, run_attempt: 1 });
+    const result = classifyPrCi({
+      pull: validPull(),
+      runs: [{ run: observed, basis: "event_pr_number_and_head_sha" }],
+      runsComplete: false,
+      pullRequestInventoryComplete: true,
+      ambiguousRuns: [],
+    });
+    expect(result).toMatchObject({
+      category: "unknown",
+      reason: "workflow_run_inventory_incomplete",
+      runs: [
+        {
+          id: 77,
+          attempt: 1,
+          status: state.status,
+          conclusion: state.conclusion,
+        },
+      ],
+    });
+  },
+);
 
 it("accepts event PR/head evidence for merge-SHA runs and refuses ambiguous branch identities", () => {
   const pull = validPull();
@@ -293,42 +331,55 @@ it("counts older open PRs when deciding whether a branch/ref fallback is unique"
   });
 });
 
-it("defers missing classification when run pagination reaches its page cap", async () => {
-  const pull = rawPull(62, { mergeable: true });
-  const apiRequest: NonNullable<
-    Parameters<typeof collectPrCiHealth>[0]["apiRequest"]
-  > = async (_method, endpoint) => {
-    if (endpoint.includes("/pulls?")) return [pull];
-    const page = Number(
-      new URL(`https://fixture.invalid/${endpoint}`).searchParams.get("page"),
-    );
-    return {
-      workflow_runs: Array.from({ length: 100 }, (_item, index) =>
-        run({
-          id: page * 100 + index,
-          head_branch: "different-branch",
-          head_repository: { id: 999 },
-          pull_requests: [],
-        }),
-      ),
+it.each([false, true])(
+  "keeps page-capped scans uncertain (observed success: %s)",
+  async (observedSuccess) => {
+    const pull = rawPull(62, { mergeable: true });
+    const apiRequest: NonNullable<
+      Parameters<typeof collectPrCiHealth>[0]["apiRequest"]
+    > = async (_method, endpoint) => {
+      if (endpoint.includes("/pulls?")) return [pull];
+      const page = Number(
+        new URL(`https://fixture.invalid/${endpoint}`).searchParams.get("page"),
+      );
+      return {
+        workflow_runs: Array.from({ length: 100 }, (_item, index) =>
+          observedSuccess && page === 1 && index === 0
+            ? run({
+                run_attempt: 1,
+                pull_requests: [
+                  { number: 62, head: { sha: headSha, repo: { id: 73 } } },
+                ],
+              })
+            : run({
+                id: page * 100 + index,
+                head_branch: "different-branch",
+                head_repository: { id: 999 },
+                pull_requests: [],
+              }),
+        ),
+      };
     };
-  };
-  const report = await collectPrCiHealth({
-    repository: "owner/rea",
-    repositoryId: 11,
-    defaultBranch: "main",
-    now: observedAt,
-    apiRequest,
-  });
-  expect(report.scan.workflowRunPages).toBe(5);
-  expect(report.scan.workflowRunInventoryComplete).toBe(false);
-  const firstPull = report.pullRequests[0];
-  if (firstPull === undefined) throw new Error("fixture PR was not scanned");
-  expect(firstPull.ci).toMatchObject({
-    category: "deferred",
-    reason: "lookup_inventory_incomplete",
-  });
-});
+    const report = await collectPrCiHealth({
+      repository: "owner/rea",
+      repositoryId: 11,
+      defaultBranch: "main",
+      now: observedAt,
+      apiRequest,
+    });
+    expect(report.scan.workflowRunPages).toBe(5);
+    expect(report.scan.workflowRunInventoryComplete).toBe(false);
+    const firstPull = report.pullRequests[0];
+    if (firstPull === undefined) throw new Error("fixture PR was not scanned");
+    expect(firstPull.ci).toMatchObject({
+      category: observedSuccess ? "unknown" : "deferred",
+      reason: observedSuccess
+        ? "workflow_run_inventory_incomplete"
+        : "lookup_inventory_incomplete",
+    });
+    expect(firstPull.ci.runs).toHaveLength(observedSuccess ? 1 : 0);
+  },
+);
 
 it("keeps the result unknown when the head changes between API snapshots", async () => {
   const apiRequest: NonNullable<
