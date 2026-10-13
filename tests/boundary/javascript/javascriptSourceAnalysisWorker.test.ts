@@ -423,4 +423,41 @@ const expectNativeTypeSelections = async (
     "",
     null,
   ]);
+  for (const text of [
+    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
+    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
+    'type Native = import("native-mode/addon.node", {with: {"resolution-mode": "import", type: "json"}}).NativeMode;',
+  ]) {
+    const result = await worker.analyze(source("invalid.cts", text), 100);
+    if (!result.ok) throw result.error.error;
+    expect(
+      result.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([{ module_kind: "compiler-dependent" }]);
+  }
+  const dynamic = await worker.analyze(
+    source(
+      "dynamic.mts",
+      'type Native = (typeof import("native-mode/addon.node"))[`Native${string}`];',
+    ),
+    100,
+  );
+  if (!dynamic.ok) throw dynamic.error.error;
+  expect(dynamic.value.javascript.electron.native_addon_bindings).toMatchObject(
+    [{ members: [], dynamic_member_access: true }],
+  );
+  const segments = await worker.analyze(
+    source(
+      "segments.mts",
+      [
+        'type Nested = import("native-mode/addon.node").A.B;',
+        'type Literal = (typeof import("native-mode/addon.node"))["A.B"];',
+      ].join("\n"),
+    ),
+    100,
+  );
+  if (!segments.ok) throw segments.error.error;
+  expect(segments.value.module?.moduleLinks).toMatchObject([
+    { importedName: "A.B", importedPath: ["A", "B"] },
+    { importedName: "A.B", importedPath: ["A.B"] },
+  ]);
 };

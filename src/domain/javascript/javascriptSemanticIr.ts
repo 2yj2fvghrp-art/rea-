@@ -407,6 +407,8 @@ export interface JavaScriptSemanticModuleLink {
     | "commonjs-export";
   readonly specifier: string | null;
   readonly importedName: string | null;
+  /** Exact inline type-selection segments; importedName is display text for these requests. */
+  readonly importedPath?: readonly string[];
   readonly localName: string | null;
   readonly exportedName: string | null;
   readonly callableId: string | null;
