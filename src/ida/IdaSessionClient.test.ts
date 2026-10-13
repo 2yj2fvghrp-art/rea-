@@ -16,6 +16,18 @@ afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
+/** A failed close whose diagnostic names exactly these unverified sessions. */
+const reportsSessions = (...sessions: readonly object[]) => ({
+  error: {
+    diagnostics: { upstream_sessions: { state: "unverified", sessions } },
+  },
+});
+const LIVE_PEER = {
+  session_id: "unrelated-live-peer",
+  backend: "worker",
+  owned: false,
+} as const;
+
 const fixture = async (
   mode: "attached" | "headless" = "attached",
   timeoutMs = 1000,
@@ -797,18 +809,13 @@ describe("headless IDA session ownership and cleanup", () => {
     const result = await client.close();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            state: "unverified",
-            sessions: [
-              { session_id: sessionId, backend: "worker", owned: null },
-            ],
-          },
-        },
-      },
-    });
+    expect(result).toMatchObject(
+      reportsSessions({
+        session_id: sessionId,
+        backend: "worker",
+        owned: null,
+      }),
+    );
     expect(
       (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
     ).toBe(true);
@@ -857,21 +864,7 @@ describe("headless IDA reaped worker cleanup", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
     // The released session must not be named as the remaining worker.
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            sessions: [
-              {
-                session_id: "unrelated-live-peer",
-                backend: "worker",
-                owned: false,
-              },
-            ],
-          },
-        },
-      },
-    });
+    expect(result).toMatchObject(reportsSessions(LIVE_PEER));
     expect(producer.closes).toBe(0);
     expect(
       (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
@@ -883,21 +876,7 @@ describe("headless IDA reaped worker cleanup", () => {
     };
     const retried = await client.close();
     expect(retried.ok).toBe(false);
-    expect(retried).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            sessions: [
-              {
-                session_id: "unrelated-live-peer",
-                backend: "worker",
-                owned: false,
-              },
-            ],
-          },
-        },
-      },
-    });
+    expect(retried).toMatchObject(reportsSessions(LIVE_PEER));
   });
 
   it("retries independent inventory verification after an absent-session response", async () => {
@@ -983,13 +962,7 @@ describe("headless IDA cleanup diagnostics", () => {
     const result = await client.close();
     expect(result.ok).toBe(false);
     expect(producer.calls.map(({ name }) => name)).toContain("idb_close");
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: { state: "unverified", sessions: [] },
-        },
-      },
-    });
+    expect(result).toMatchObject(reportsSessions());
   });
 
   it("keeps peers seen beside the requested worker when its close fails", async () => {
@@ -1008,22 +981,12 @@ describe("headless IDA cleanup diagnostics", () => {
 
     const result = await client.close();
     expect(result.ok).toBe(false);
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            sessions: [
-              { session_id: requested, backend: "worker", owned: true },
-              {
-                session_id: "unrelated-live-peer",
-                backend: "worker",
-                owned: false,
-              },
-            ],
-          },
-        },
-      },
-    });
+    expect(result).toMatchObject(
+      reportsSessions(
+        { session_id: requested, backend: "worker", owned: true },
+        LIVE_PEER,
+      ),
+    );
   });
 
   it("drops the requested worker from blockers once its close is confirmed", async () => {
@@ -1054,21 +1017,7 @@ describe("headless IDA cleanup diagnostics", () => {
 
     const result = await client.close();
     expect(result.ok).toBe(false);
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            sessions: [
-              {
-                session_id: "unrelated-live-peer",
-                backend: "worker",
-                owned: false,
-              },
-            ],
-          },
-        },
-      },
-    });
+    expect(result).toMatchObject(reportsSessions(LIVE_PEER));
   });
 
   it("reports a blocking GUI session by its backend", async () => {
@@ -1095,15 +1044,9 @@ describe("headless IDA cleanup diagnostics", () => {
 
     const result = await client.close();
     expect(result.ok).toBe(false);
-    expect(result).toMatchObject({
-      error: {
-        diagnostics: {
-          upstream_sessions: {
-            sessions: [{ session_id: "", backend: "gui", owned: false }],
-          },
-        },
-      },
-    });
+    expect(result).toMatchObject(
+      reportsSessions({ session_id: "", backend: "gui", owned: false }),
+    );
   });
 });
 
