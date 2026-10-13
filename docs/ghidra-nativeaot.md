@@ -75,8 +75,9 @@ carries related type, interface, slot, and target observations. Generated
 address identities do not claim original managed names. The parser does not
 merge frozen literals into Ghidra's database string inventory: read them from
 `metadata_recovery.frozen_strings`, not `search_strings`. Slot targets come
-from the parser report; a `read_bytes` of a slot in the rehydrated region
-returns no bytes. Follow slot targets with `analyze_function` and ordinary
+from the parser report; on Windows P0 without the adapter, a `read_bytes` of
+a slot in the rehydrated region returns no bytes. The Linux adapter route
+verifies a complete slot read and its target. Follow slot targets with `analyze_function` and ordinary
 cross-references.
 
 The built-in CLI path uses a MethodTable address returned by the parser or
