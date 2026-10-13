@@ -320,7 +320,15 @@ describe("Ghidra existing project configuration", () => {
     if (result.ok) return;
     expect(projectAnalysisError(result.error)).toMatchObject({
       code: "configuration_invalid",
-      details: { settings: [{ setting, constraint: expect.any(String) }] },
+      details: {
+        settings: [
+          {
+            setting,
+            constraint:
+              "REA_GHIDRA_EXISTING_PROJECT and REA_GHIDRA_EXISTING_PROGRAM must be set together",
+          },
+        ],
+      },
     });
   });
 

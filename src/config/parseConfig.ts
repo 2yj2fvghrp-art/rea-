@@ -78,9 +78,7 @@ export const parseConfig = (
                 ? "REA_GHIDRA_EXISTING_PROJECT"
                 : "REA_GHIDRA_EXISTING_PROGRAM",
             constraint:
-              existingProjectPath === undefined
-                ? "requires REA_GHIDRA_EXISTING_PROGRAM"
-                : "requires REA_GHIDRA_EXISTING_PROJECT",
+              "REA_GHIDRA_EXISTING_PROJECT and REA_GHIDRA_EXISTING_PROGRAM must be set together",
           },
         ],
       }),
