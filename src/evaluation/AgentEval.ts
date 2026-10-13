@@ -136,7 +136,10 @@ export const evaluateAgentTranscript = (
   } = {},
 ): AgentMetrics => {
   const reaCalls = transcript.calls
-    .filter(({ server }) => server?.toLowerCase() === "rea")
+    .filter(
+      ({ server, legacyCodexRouting }) =>
+        server?.toLowerCase() === "rea" || legacyCodexRouting === true,
+    )
     .map(measuredCall);
   const repeatedCallCount = countRepeatedCalls(reaCalls);
   const inputValidationFailureCount = reaCalls.filter(

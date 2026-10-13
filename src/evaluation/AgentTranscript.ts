@@ -15,6 +15,8 @@ export interface AgentToolResult {
 export interface AgentToolCall {
   readonly id: string | null;
   readonly server: string | null;
+  /** Explicit completed legacy Codex grammar identifies routing, not the result server. */
+  readonly legacyCodexRouting?: true;
   readonly tool: string;
   readonly arguments: unknown;
   /** The client reported a completed call whose retained result is consistent. */
@@ -162,9 +164,16 @@ const codexCall = (
 ): AgentToolCall | undefined => {
   const item = codexItem(event);
   if (item?.type !== "mcp_tool_call") return undefined;
+  const terminal = item.status === "completed" || item.status === "failed";
+  if (
+    event.type === "item.completed"
+      ? item.status !== undefined && !terminal
+      : !terminal
+  )
+    return undefined;
   const tool = textValue(item.tool) ?? textValue(item.name);
   if (tool === undefined) return undefined;
-  const consistent =
+  const identityConsistent =
     (item.server === undefined ||
       item.server_name === undefined ||
       item.server === item.server_name) &&
@@ -173,8 +182,9 @@ const codexCall = (
       item.tool === item.name) &&
     (item.arguments === undefined ||
       item.input === undefined ||
-      sameValue(item.arguments, item.input)) &&
-    consistentAliases(item, "result", "output");
+      sameValue(item.arguments, item.input));
+  if (!identityConsistent) return undefined;
+  const resultConsistent = consistentAliases(item, "result", "output");
   const server = item.server ?? item.server_name;
   const argumentsValue = jsonValueSchema.safeParse(
     item.arguments !== undefined
@@ -200,10 +210,15 @@ const codexCall = (
     server: textValue(item.server) ?? textValue(item.server_name) ?? null,
     tool,
     arguments: argumentsValue.data,
-    delivered: consistent && completed && clientError === undefined,
+    ...(item.status === "completed" &&
+    item.server === undefined &&
+    item.server_name === undefined
+      ? { legacyCodexRouting: true as const }
+      : {}),
+    delivered: resultConsistent && completed && clientError === undefined,
     clientFailed: item.status === "failed" || !absent(item.error),
     clientError,
-    result: consistent ? mcpResult(resultValue) : undefined,
+    result: resultConsistent ? mcpResult(resultValue) : undefined,
   };
 };
 

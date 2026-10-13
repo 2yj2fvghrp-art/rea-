@@ -336,3 +336,32 @@ it("does not count an unidentified MCP server as a REA workflow", () => {
   expect(metrics.correctFirstTool).toBe(false);
   expect(metrics.requiredToolSubsequenceMet).toBe(false);
 });
+
+it("retains completed legacy Codex routing without authenticating its Evidence", () => {
+  const transcript = parseCodexEvents([
+    {
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        status: "completed",
+        tool: "analyze_javascript_application",
+        arguments: {},
+        result: { structuredContent: evidence },
+      },
+    },
+    { type: "item.completed", item: { type: "agent_message", text: answer } },
+  ]);
+  const metrics = evaluateAgentTranscript(
+    transcript,
+    "analyze_javascript_application",
+    {
+      requireEvidence: true,
+    },
+  );
+  expect(metrics.naturalUse).toBe(true);
+  expect(metrics.correctFirstTool).toBe(true);
+  expect(metrics.reaCalls[0]?.server).toBeNull();
+  expect(metrics.evidenceIds).toEqual([]);
+  expect(metrics.finalCitesEvidence).toBe(false);
+  expect(metrics.answerHeuristicsMet).toBe(false);
+});
