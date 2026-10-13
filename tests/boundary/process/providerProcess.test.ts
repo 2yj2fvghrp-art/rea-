@@ -1,6 +1,7 @@
-import { access, stat } from "node:fs/promises";
+import { access, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -17,7 +18,7 @@ import {
   spawnOwnedProviderProcess,
   type ProviderProcessDiagnostic,
 } from "../../../src/process/ProviderProcess.js";
-import { WINDOWS_NATIVE_AUTHORITY_UNAVAILABLE_REASON } from "../../../src/process/WindowsAuthority.js";
+import * as nativeLoader from "../../../src/windows/WindowsNativeLoader.js";
 import {
   spawnProviderProcessFixture,
   stopProviderProcessFixture,
@@ -57,7 +58,8 @@ describe("provider process runtime and wait primitives", () => {
       parent: tmpdir(),
       prefix: "rea-provider-test-",
     });
-    expect((await stat(runtime.path)).mode & 0o777).toBe(0o700);
+    expect((await stat(runtime.path)).mode & 0o077).toBe(0);
+    await writeFile(join(runtime.path, "owned-scratch"), "fixture");
 
     const first = runtime.close();
     const second = runtime.close();
@@ -69,12 +71,25 @@ describe("provider process runtime and wait primitives", () => {
   });
 
   it("fails closed for a Windows runtime root without native DACL authority", async () => {
-    await expect(
-      PrivateRuntimeRoot.create({ platform: "win32" }),
-    ).rejects.toMatchObject({
-      code: "private-runtime-root-authority-unavailable",
-      message: WINDOWS_NATIVE_AUTHORITY_UNAVAILABLE_REASON,
-    });
+    const authority = vi
+      .spyOn(nativeLoader, "systemWindowsNativeAuthority")
+      .mockReturnValue({
+        available: false,
+        failureStage: "self-test",
+        reason: "Native DACL self-test failed with Win32 error 145",
+        retryable: true,
+      });
+    try {
+      await expect(
+        PrivateRuntimeRoot.create({ platform: "win32" }),
+      ).rejects.toMatchObject({
+        code: "private-runtime-root-authority-unavailable",
+        message: "Native DACL self-test failed with Win32 error 145",
+        retryable: true,
+      });
+    } finally {
+      authority.mockRestore();
+    }
   });
 
   it("classifies external cancellation during startup", async () => {

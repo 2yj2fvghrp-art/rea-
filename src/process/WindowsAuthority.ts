@@ -14,6 +14,7 @@ export type WindowsNativeCapability =
       readonly available: false;
       readonly reason: string;
       readonly proof: "not-proven" | "not-applicable";
+      readonly retryable?: true;
     };
 
 /** Security controls required before REA may claim Windows isolation. */
@@ -41,6 +42,7 @@ export type WindowsNativeReadiness =
         | "unsupported_host"
         | "runtime_missing"
         | "runtime_unavailable";
+      readonly retryable?: true;
       readonly remediation: string;
       readonly proof: "not-proven" | "not-applicable";
     };
@@ -65,6 +67,7 @@ export const inspectWindowsNativeReadiness = (
     available: false,
     failureStage,
     reason: loaded.reason,
+    ...(loaded.retryable === true ? { retryable: true as const } : {}),
     proof: "not-proven",
     code:
       failureStage === "host"
@@ -97,6 +100,7 @@ export const windowsNativeCapabilities = (
         available: false,
         reason: readiness.reason,
         proof: readiness.proof,
+        ...(readiness.retryable === true ? { retryable: true as const } : {}),
       } as const);
   return {
     job_object_process_ownership: capability,
