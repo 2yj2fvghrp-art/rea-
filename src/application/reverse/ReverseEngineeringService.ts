@@ -120,7 +120,6 @@ export class ReverseEngineeringService {
         this.#pendingCleanup.set(owner, { observation, failures: retained.failures });
         if (failure === undefined) {
           failure = new AnalysisOutputError(operation, "A previous provider process still requires cleanup.", { cleanup: observation });
-          retained.failures.add(failure);
         }
       } else {
         for (const previous of retained.failures) previous.resolveCleanup();
