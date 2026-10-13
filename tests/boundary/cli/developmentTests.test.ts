@@ -93,14 +93,42 @@ describe("development test runner exact selection", () => {
         testCommand(root, "focused", "src/VALUE.test.ts"),
       ).rejects.toMatchObject({
         code: 1,
-        stderr: expect.stringContaining(
-          "Selected test files were not discovered",
-        ),
+        stderr: expect.stringContaining("ENOENT"),
       });
       return;
     }
     await testCommand(root, "focused", "src/VALUE.test.ts");
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+
+  it("matches Unicode-normalized aliases by filesystem identity", async () => {
+    const root = await fixture();
+    const composed = "caf\u00e9.test.ts";
+    const decomposed = composed.normalize("NFD");
+    await writeFile(
+      join(root, "src", composed),
+      'import { it } from "vitest"; it("checks the selected Unicode path", () => {});\n',
+    );
+    const selected = join(root, "src", decomposed);
+    try {
+      await lstat(selected);
+    } catch (cause) {
+      if (
+        !(cause instanceof Error) ||
+        !("code" in cause) ||
+        cause.code !== "ENOENT"
+      )
+        throw cause;
+      await expect(
+        testCommand(root, "focused", `src/${decomposed}`),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining("ENOENT"),
+      });
+      return;
+    }
+    const result = await testCommand(root, "focused", `src/${decomposed}`);
+    expect(result.stdout).toContain("1 passed");
   });
 
   it.each(["local", "focused"])(

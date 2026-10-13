@@ -1,4 +1,4 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, realpath, stat } from "node:fs/promises";
 import { parse, relative, resolve, sep } from "node:path";
 
 import { createVitest, parseCLI } from "vitest/node";
@@ -32,6 +32,7 @@ try {
     }
     const selected = new Set();
     const missing = [];
+    let discoveredByIdentity;
     for (const path of filter) {
       const absolute = resolve(path);
       let matches = discovered.get(absolute) ?? [];
@@ -45,11 +46,30 @@ try {
           }
           throw cause;
         }
-        const canonical = await realpath(absolute);
-        for (const [candidate, specifications] of discovered) {
-          // Case-fold only to find candidates. realpath confirms whether this
-          // filesystem resolves the selected spelling to the discovered entry.
-          if (candidate.toLowerCase() !== absolute.toLowerCase()) continue;
+        const [canonical, selectedIdentity] = await Promise.all([
+          realpath(absolute),
+          stat(absolute, { bigint: true }),
+        ]);
+        if (discoveredByIdentity === undefined) {
+          discoveredByIdentity = new Map();
+          for (const [candidate, specifications] of discovered) {
+            try {
+              const entry = await stat(candidate, { bigint: true });
+              const identity = `${entry.dev}:${entry.ino}`;
+              const entries = discoveredByIdentity.get(identity) ?? [];
+              entries.push([candidate, specifications]);
+              discoveredByIdentity.set(identity, entries);
+            } catch (cause) {
+              if (cause?.code === "ENOENT" || cause?.code === "ENOTDIR")
+                continue;
+              throw cause;
+            }
+          }
+        }
+        const identity = `${selectedIdentity.dev}:${selectedIdentity.ino}`;
+        for (const [candidate, specifications] of discoveredByIdentity.get(
+          identity,
+        ) ?? []) {
           try {
             await lstat(candidate);
           } catch (cause) {
