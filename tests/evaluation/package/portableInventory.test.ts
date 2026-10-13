@@ -25,14 +25,42 @@ it("rejects an unlisted nested dependency", async () => {
   await mkdir(stale, { recursive: true });
   await writeFile(join(stale, "index.js"), "stale dependency");
   await expect(verifyPortableInventory(root, files)).rejects.toThrow(
+    "unlisted directory",
+  );
+});
+
+it("rejects an unlisted file inside a listed directory", async () => {
+  const { root, files } = await fixture();
+  await writeFile(join(root, "runtime/stale.dll"), "stale native dependency");
+  await expect(verifyPortableInventory(root, files)).rejects.toThrow(
     "exact regular-file set",
+  );
+});
+
+it("rejects an empty nested package directory that can shadow a locked dependency", async () => {
+  const { root, files } = await fixture();
+  const listed = ["app/node_modules/a/index.js", "app/node_modules/b/index.js"];
+  for (const path of listed) {
+    const parts = path.split("/");
+    await mkdir(join(root, ...parts.slice(0, -1)), { recursive: true });
+    await writeFile(join(root, path), "controlled dependency");
+  }
+  const inventory = [...files, ...listed.map((path) => ({ path }))];
+  await expect(
+    verifyPortableInventory(root, inventory),
+  ).resolves.toBeUndefined();
+  await mkdir(join(root, "app/node_modules/a/node_modules/b"), {
+    recursive: true,
+  });
+  await expect(verifyPortableInventory(root, inventory)).rejects.toThrow(
+    "unlisted directory",
   );
 });
 
 it("rejects an omitted runtime and duplicate inventory entries", async () => {
   const { root, files } = await fixture();
   await expect(verifyPortableInventory(root, [])).rejects.toThrow(
-    "exact regular-file set",
+    "unlisted directory: runtime",
   );
   await expect(
     verifyPortableInventory(root, [...files, ...files]),
