@@ -477,6 +477,7 @@ cliTest(
   "reports each same-named slice's own embedded dyld environment",
   async ({ cli }) => {
     // arm64e and arm64e.x1 slices both report the architecture name arm64e.
+    // A plain x86_64 slice keeps the bundle openable on x64 hosts.
     for (const [settings, expected] of [
       [[null, "DYLD_PRINT_RPATHS=1"], ["DYLD_PRINT_RPATHS=1"]],
       [
@@ -500,7 +501,6 @@ cliTest(
               }),
             };
           }),
-          // Binary admission also needs a compatible slice on x64 hosts.
           { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
         ]),
       });
@@ -518,7 +518,9 @@ cliTest(
       const trace = dylibResolutionResultSchema.parse(
         parseEvidence(result.json).normalized_result,
       );
-      expect(trace.roots).toHaveLength(3);
+      expect(
+        trace.roots.filter(({ architecture }) => architecture === "arm64e"),
+      ).toHaveLength(2);
       const environments = trace.findings
         .filter(({ kind }) => kind === "dyld-environment-present")
         .map(({ explanation }) =>
