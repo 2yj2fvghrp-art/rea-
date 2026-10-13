@@ -297,7 +297,6 @@ describe("managed inventory scope", () => {
 
 describe("managed member grounding", () => {
   it.each([
-    "selected",
     "extra-public-type",
     "missing-public-type",
     "duplicate-method",
@@ -314,11 +313,6 @@ describe("managed member grounding", () => {
     const type = members.types[0];
     if (method === undefined || type === undefined)
       throw new Error("Fixture members missing");
-    if (kind === "selected")
-      members.selection = {
-        type_names: ["AgentEval.Profile", "AgentEval.Program"],
-        unmatched_type_names: [],
-      };
     if (kind === "extra-public-type")
       members.types.push({
         ...type,

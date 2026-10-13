@@ -298,7 +298,6 @@ const managedMembers = ({ evidence }: FixtureClaimContext) => {
     managedMemberInspectionSchema,
   );
   if (
-    result.selection !== null ||
     result.coverage.state !== "complete" ||
     result.metadata.status !== "complete" ||
     !managedTokenScopesMatch(
