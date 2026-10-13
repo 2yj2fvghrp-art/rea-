@@ -220,3 +220,33 @@ it("shares static task snapshots only after validation using the npm cache owner
     steps.findIndex((step) => step.run === "npm run test:python"),
   );
 });
+
+it("bounds the rolling static snapshot with Turbo age and size eviction", async () => {
+  const turbo = z
+    .object({
+      cacheMaxAge: z.string(),
+      cacheMaxSize: z.string(),
+      tasks: z.record(
+        z.string(),
+        z.object({ inputs: z.array(z.unknown()).optional() }),
+      ),
+    })
+    .parse(JSON.parse(await readFile(join(repository, "turbo.json"), "utf8")));
+  // The static job restores the previous snapshot by prefix and saves the
+  // whole .turbo/cache directory again. Without local eviction every main
+  // commit carries all historical entries into a new immutable GitHub cache,
+  // growing transfers toward the 10 GB repository limit.
+  expect(turbo.cacheMaxAge).toMatch(/^[1-9]\d*(s|m|h|d|w)$/u);
+  expect(turbo.cacheMaxAge).not.toBe("0");
+  const size = /^(\d+(?:\.\d+)?)(MB|GB|TB)$/iu.exec(turbo.cacheMaxSize);
+  expect(size, "cacheMaxSize must use an explicit MB/GB/TB budget").not.toBe(
+    null,
+  );
+  const value = Number(size?.[1] ?? "0");
+  const unit = (size?.[2] ?? "MB").toUpperCase();
+  const megabytes =
+    unit === "TB" ? value * 1024 * 1024 : unit === "GB" ? value * 1024 : value;
+  expect(megabytes).toBeGreaterThan(0);
+  expect(megabytes).toBeLessThanOrEqual(1024);
+  expect(turbo.tasks["knip"]?.inputs).toContain("vitest.config.ts");
+});

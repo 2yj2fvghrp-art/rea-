@@ -224,6 +224,10 @@ it("invalidates checker task hashes for Node, ignore, and VitePress config chang
   await writeFile(join(root, ".gitignore"), ".cache/\n");
   await writeFile(join(root, ".jscpd.json"), "{}\n");
   await writeFile(join(root, "docs/.vitepress/config.ts"), "export {};\n");
+  await writeFile(
+    join(root, "vitest.config.ts"),
+    'import { CiTestSequencer } from "./tests/ciTestSequencer.js";\nexport const sequencer = CiTestSequencer;\n',
+  );
   await writeFile(join(root, "src/input.ts"), "export {};\n");
   await writeFile(join(root, "tests/input.ts"), "export {};\n");
 
@@ -271,4 +275,16 @@ it("invalidates checker task hashes for Node, ignore, and VitePress config chang
     taskHash(root, "knip", cache),
     "knip must hash its configured VitePress entry",
   ).not.toBe(initial.get("knip"));
+  await writeFile(join(root, "docs/.vitepress/config.ts"), "export {};\n");
+
+  await writeFile(join(root, "vitest.config.ts"), "export {};\n");
+  expect(
+    taskHash(root, "knip", cache),
+    "knip must hash vitest.config.ts so unused sequencer imports invalidate the cache",
+  ).not.toBe(initial.get("knip"));
+  for (const task of ["jscpd", "metadata:check", "scan:todos"])
+    expect(
+      taskHash(root, task, cache),
+      `${task} must ignore vitest.config.ts`,
+    ).toBe(initial.get(task));
 });
