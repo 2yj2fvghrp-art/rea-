@@ -28,11 +28,12 @@ const moduleName = (source: RecoveryInputSnapshot, single: boolean): string => {
 /**
  * Allocate the complete output layout before any producer can overwrite a selected input's output.
  * Inputs published under their own relative path keep it; renamed inputs take aliases on collision,
- * so an import of a selected file still resolves to that file's recovered output.
+ * so an import of a selected file still resolves to that file's recovered output. An aliased module
+ * no longer sits where imports of it or from it resolve.
  */
 export const moduleNames = (
   sources: readonly RecoveryInputSnapshot[],
-): readonly string[] => {
+): readonly { readonly name: string; readonly aliased: boolean }[] => {
   const desired = sources.map((source) =>
     moduleName(source, sources.length === 1),
   );
@@ -42,7 +43,7 @@ export const moduleNames = (
     .map((_, index) => index)
     .sort((left, right) => renamed(left) - renamed(right));
   const allocated = new Set<string>();
-  const names: string[] = [];
+  const names: { name: string; aliased: boolean }[] = [];
   const overlaps = (left: string, right: string): boolean =>
     left === right ||
     left.startsWith(`${right}/`) ||
@@ -64,7 +65,26 @@ export const moduleNames = (
       candidate = `__rea_recovered_${String(index + 1)}_${String(suffix)}/${basename(name)}`;
     }
     allocated.add(candidate);
-    names[index] = candidate;
+    names[index] = { name: candidate, aliased: candidate !== name };
   }
   return names;
 };
+
+/** Aliased modules are published, but the combined tree is not offered as analysis input. */
+export const aliasWarnings = (
+  sources: readonly RecoveryInputSnapshot[],
+  names: ReturnType<typeof moduleNames>,
+) =>
+  sources.flatMap((source, index) => {
+    const allocated = names[index];
+    return allocated?.aliased === true
+      ? [
+          {
+            filename: allocated.name,
+            kind: "module-alias",
+            is_error: false,
+            message: `${JSON.stringify(source.relative_path)} was published as ${JSON.stringify(allocated.name)} because its JavaScript name collides with another selected input; relative imports of and from it no longer resolve as in the original layout, so analysis_input is null`,
+          },
+        ]
+      : [];
+  });

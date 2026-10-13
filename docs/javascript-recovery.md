@@ -79,7 +79,11 @@ classic scripts keep their top-level names. A file is published only when
 jsbeautify exits 0 and, when deobfuscating, its stderr reports both generated
 output re-parse checks (phases 19.6 and 21.5); otherwise the file is listed in
 `warnings` with kind `validity-gate` and the status is `partial`. Re-parsing
-proves syntax, not behaviour. `reports/phases.log` keeps any stderr of
+proves syntax, not behaviour. When a renamed input would take another selected
+input's name (for example `bundle` and `bundle.js`), it is published under
+`__rea_recovered_<n>_<k>/` and listed in `warnings` with kind `module-alias`;
+`analysis_input` is then `null`, because relative imports of and from that
+module would resolve to different files than in the original layout. `reports/phases.log` keeps any stderr of
 `jsbeautify --version`, the phase summary per file, or the complete stderr and
 stdout of a file that failed the gate; `reports/provenance.json` keeps the selected resource
 limiter, the exact arguments and gate verdicts. Inline Evidence keeps only the parsed version.

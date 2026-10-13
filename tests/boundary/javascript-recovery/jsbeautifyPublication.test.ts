@@ -301,3 +301,26 @@ it("records the selected resource limiter in recovery provenance", async () => {
     resource_limiter: "/fixture/prlimit",
   });
 });
+
+it("does not offer the module tree as analysis input when a module was aliased", async () => {
+  const evidence = await recover(["main.cjs", "bundle", "bundle.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  const aliased = result.modules.find((module) =>
+    module.provenance.original_path.endsWith("/bundle"),
+  );
+  expect(result.modules).toHaveLength(3);
+  expect(result.status).toBe("complete");
+  expect(result.failed).toBe(0);
+  expect(result.analysis_input).toBeNull();
+  expect(result.warnings).toEqual([
+    expect.objectContaining({
+      filename: aliased?.reported_filename,
+      kind: "module-alias",
+      is_error: false,
+    }),
+  ]);
+  expect(result.warnings[0]?.message).toContain('"bundle"');
+});

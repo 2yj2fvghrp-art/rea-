@@ -18,7 +18,7 @@ import {
   runRecoveryCommand,
 } from "./RecoveryCommand.js";
 import type { RecoveryEngine, RecoveryWorkspace } from "./RecoveryEngine.js";
-import { moduleNames } from "./JsBeautifyModuleNames.js";
+import { aliasWarnings, moduleNames } from "./JsBeautifyModuleNames.js";
 import {
   fingerprintRecoveryFile,
   readRecoveryFile,
@@ -246,7 +246,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       ...selected,
       published_copy: await write(`inputs/${relative_path}`, snapshot),
     });
-    const name = names[sourceIndex];
+    const name = names[sourceIndex]?.name;
     if (name === undefined)
       throw new AnalysisOutputError(OPERATION, "Missing allocated module name");
     const output = join(root, "modules", name);
@@ -316,6 +316,9 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       },
     });
   }
+  const failed = warnings.length;
+  const aliases = aliasWarnings(sources, names);
+  warnings.push(...aliases);
   const [source, ...additionalSources] = published;
   if (source === undefined)
     throw new AnalysisOutputError(OPERATION, "Recovery selected no input");
@@ -346,8 +349,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       extraction_mode: input.extraction_mode,
       rewrite_level: input.rewrite_level,
     },
-    status:
-      warnings.length === 0 ? ("complete" as const) : ("partial" as const),
+    status: failed === 0 ? ("complete" as const) : ("partial" as const),
     detected_formats: [...formats],
     reported_safety:
       modules.length === 0
@@ -360,13 +362,13 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       : "jsbeautify",
     reported_format: "per-file",
     total: sources.length,
-    failed: warnings.length,
+    failed,
     modules,
     warnings,
     report,
     provenance,
     analysis_input:
-      modules.length === 0
+      modules.length === 0 || aliases.length !== 0
         ? null
         : {
             input_path: join(tree.outputRoot, "modules"),
