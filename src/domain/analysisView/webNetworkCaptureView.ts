@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import type { JsonValue } from "../jsonValue.js";
-import { parseRecordedTransportUrl } from "../recordedTransportUrl.js";
 import { err, ok, type Result } from "../result.js";
 import {
   webNetworkCaptureRecordSchema,
@@ -77,9 +76,10 @@ const HEADLINE_FIELDS = [
 // each value has its field's well-formed shape, which also bounds the
 // serialized size of every record (at most ~4 KiB for an escape-heavy path).
 // The path must be origin or asterisk form without control characters and
-// without credentials under the recorded transport-URL interpretation, since
-// an absolute or ambiguous spelling may carry userinfo the native redaction
-// does not recognise; host and authority never carry a userinfo marker.
+// without any "@": native redaction misses absolute and ambiguous spellings,
+// and URL parsing can fail before it recognises their userinfo, so a preview
+// fails closed on the marker every userinfo needs. Host and authority never
+// carry a userinfo marker either.
 // Target fields come only from the request and the status only from the
 // response, and integer slots require the producer's own integer type.
 // Excluded values stay in complete record pages.
@@ -149,8 +149,11 @@ const mitmproxyHeadline = (
         typeof value === "string" &&
         value.length <= MITMPROXY_PATH_MAX_LENGTH &&
         !hasControl(value, false) &&
-        (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
-        parseRecordedTransportUrl(value).credentials === null
+        !value.includes("@") &&
+        (value === "*" ||
+          (value.startsWith("/") &&
+            !value.startsWith("//") &&
+            !value.startsWith("/\\")))
       );
     default:
       return false;

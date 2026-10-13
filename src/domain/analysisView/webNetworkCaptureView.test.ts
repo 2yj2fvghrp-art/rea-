@@ -336,6 +336,12 @@ it.each([
     "mitmproxy",
     "/\\user:password@example.test/a",
   ],
+  [
+    "a slash-backslash reference with an unparseable port",
+    "mitmproxy",
+    "/\\user:password@example.test:65536/a",
+  ],
+  ["a path with an at-sign", "mitmproxy", "/users/password@example"],
   ["a slash-tab reference", "mitmproxy", "/\t/user:password@example.test/a"],
   ["an oversized path", "mitmproxy", `/${"password".repeat(1024)}`],
   ["a nested path value", "mitmproxy", { content: "password ".repeat(64) }],
