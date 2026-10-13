@@ -21,7 +21,10 @@ import {
   staticInferenceEvidence,
   unavailableAstEvidence,
 } from "./JavaScriptArtifactGraphEvidence.js";
-import type { ArtifactPathResolution } from "./JavaScriptArtifactPathResolution.js";
+import {
+  artifactPathResolutionProperties,
+  type ArtifactPathResolution,
+} from "./JavaScriptArtifactPathResolution.js";
 
 /** Mutable graph-construction state scoped to one reconstruction. */
 export interface JavaScriptArtifactGraphContext {
@@ -270,6 +273,7 @@ export const createElectronRoleNode = (
           resolved_path: input.resolution.resolved_path,
           resolution_status: input.resolution.resolution_status,
           limitations: input.resolution.limitations,
+          ...artifactPathResolutionProperties(input.resolution),
           mechanism: input.mechanism,
         },
         evidence: staticInferenceEvidence({
