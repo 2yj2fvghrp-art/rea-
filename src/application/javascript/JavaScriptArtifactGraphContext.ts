@@ -4,11 +4,16 @@ import { compositeKey } from "../../domain/unicodeCodePointOrder.js";
 import {
   completeApplicationCoverage,
   partialApplicationCoverage,
+  truncatedApplicationCoverage,
   type ApplicationGraphEvidence,
 } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import type { ApplicationNode } from "../../domain/javascript/javascriptApplicationGraphSchemas.js";
 import type { JavaScriptSourceRange } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
-import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
+import type {
+  JavaScriptHtmlInlineScriptsObservation,
+  JavaScriptModuleArtifactAnalysis,
+} from "./JavaScriptArtifactAnalysisTypes.js";
+import { HTML_INLINE_SCRIPT_LOCATION_LIMIT } from "../../domain/javascript/htmlArtifactReferences.js";
 import type {
   JavaScriptArtifactFile,
   JavaScriptArtifactFileSet,
@@ -103,7 +108,28 @@ export interface UnavailableParseInput {
   readonly limitation: string;
   readonly failure?: JsonValue;
   readonly limits?: JavaScriptArtifactGraphCoverage["limits"];
+  /** Items a named limit dropped from this gap's own record, when known. */
+  readonly omittedCount?: number;
+  /** Structured details of the gap, such as the exact omitted locations. */
+  readonly details?: Readonly<Record<string, JsonValue>>;
 }
+
+/** The per-file bound on retained inline HTML script locations. */
+export const HTML_INLINE_SCRIPT_LOCATION_COVERAGE_LIMIT = {
+  name: "html_inline_script_locations_per_file",
+  value: HTML_INLINE_SCRIPT_LOCATION_LIMIT,
+  unit: "items",
+} as const;
+
+/** Count inline HTML script locations dropped by the per-file bound. */
+export const omittedHtmlInlineScriptLocations = (
+  files: readonly JavaScriptHtmlInlineScriptsObservation[],
+): number =>
+  files.reduce(
+    (omitted, { script_count, scripts }) =>
+      omitted + script_count - scripts.length,
+    0,
+  );
 
 /** Add a direct artifact-containment edge. */
 export const addArtifactContainsEdge = (
@@ -186,6 +212,8 @@ export const addUnavailableStaticParseScope = (
       {
         label: `${input.file.path} parse scope`,
         properties: {
+          // Details come first so they cannot replace the gap's own fields.
+          ...input.details,
           path: input.file.path,
           operation: input.operation,
           limitation: input.limitation,
@@ -197,7 +225,13 @@ export const addUnavailableStaticParseScope = (
           sha256: input.file.sha256,
           path: input.file.path,
           operation: input.operation,
-          coverage: partialApplicationCoverage(input.limits ?? [], null),
+          coverage:
+            input.omittedCount !== undefined && input.omittedCount > 0
+              ? truncatedApplicationCoverage(
+                  input.limits ?? [],
+                  input.omittedCount,
+                )
+              : partialApplicationCoverage(input.limits ?? [], null),
           limitation: input.limitation,
         }),
       },
