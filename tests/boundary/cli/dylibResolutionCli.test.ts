@@ -518,6 +518,8 @@ cliTest(
           app,
           "--root",
           "Contents/MacOS/App",
+          "--architecture",
+          "arm64e",
           "--json",
         ],
         environment: ENVIRONMENT,
@@ -526,9 +528,7 @@ cliTest(
       const trace = dylibResolutionResultSchema.parse(
         parseEvidence(result.json).normalized_result,
       );
-      expect(
-        trace.roots.filter(({ architecture }) => architecture === "arm64e"),
-      ).toHaveLength(2);
+      expect(trace.roots).toHaveLength(2);
       const environments = trace.findings
         .filter(({ kind }) => kind === "dyld-environment-present")
         .map(({ explanation }) =>

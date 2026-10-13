@@ -138,7 +138,7 @@ export const resolveGhidraAnalysisProfile = async (
               ? "disabled-windows-p0"
               : "returning-imports-decoded-return-v2",
           process_launch: PROCESS_LAUNCH,
-          load_image_evidence: "independent-raw-mapping-context-v2",
+          load_image_evidence: "independent-raw-mapping-context-v4",
           jump_table_evidence: "typed-case-default-blocks-v1",
           decompiler_jump_loads: true,
           loader: "BinaryLoader",
