@@ -101,8 +101,16 @@ so a successful HTTP request cannot masquerade as an HTTP/3 success.
 ## Acceptance and evidence
 
 Each execution creates `verifications/<run-UUID>/` with its own diagnostics.
-`verification-latest.json` changes atomically from `running` to `passed` or
-`failed`. Only a successful attempt writes its own `verification.json`, after
+`verification-latest.json` belongs to the most recently registered attempt and
+changes atomically from `running` to `passed` or `failed`. Registration and
+the ownership check/replacement use the same SQLite transaction lock. An older
+attempt finishing later keeps its own reports without replacing the marker.
+The `.verification-lock.sqlite` pathname must remain in place while attempts
+may run; SQLite releases the lock on connection close or process death.
+Lock acquisition waits for the current owner without a timeout or lease
+stealing. The verifier has per-command deadlines, but no overall run deadline;
+a live stalled lock owner can therefore delay publication until it exits.
+Only a successful attempt writes its own `verification.json`, after
 all cleanup and input-integrity checks. `result.json` also records failures and
 the original error separately from cleanup errors. Older successes remain in
 identified history; a legacy root `verification.json` is archived before a rerun.

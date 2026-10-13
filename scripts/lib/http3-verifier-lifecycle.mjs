@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { setTimeout } from "node:timers/promises";
 import { cleanupOwnedProcessGroup } from "../../dist/process/ProcessOwnership.js";
 import { observeOwnedProcessGroups } from "../../dist/process/ProcessOwnershipObservation.js";
 
@@ -28,25 +30,53 @@ async function latest(root, report) {
   await rename(temporary, join(root, "verification-latest.json"));
 }
 
+async function withLatestLock(root, action) {
+  // Keep this pathname stable: removing it could split concurrent lock owners.
+  // SQLite releases its OS-backed lock when the connection/process closes.
+  const database = new DatabaseSync(join(root, ".verification-lock.sqlite"));
+  try {
+    for (;;) {
+      try {
+        database.exec("BEGIN EXCLUSIVE");
+        break;
+      } catch (error) {
+        if (
+          error.code !== "ERR_SQLITE_ERROR" ||
+          (error.errcode !== 5 && error.errcode !== 6)
+        )
+          throw error;
+        // Yield while another process (or async operation here) owns the lock.
+        // A synchronous busy timeout would block that operation's fs callbacks.
+        await setTimeout(10);
+      }
+    }
+    return await action();
+  } finally {
+    database.close();
+  }
+}
+
 export async function prepareAttempt(root, inspectExisting, run) {
   if (!inspectExisting) await mkdir(root, { mode: 0o700 });
   const directory = join(root, "verifications", run.run_id);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  // Preserve older reports as history, without leaving an ambiguous success at
-  // the capture root. Never delete caller-owned evidence.
-  try {
-    await rename(
-      join(root, "verification.json"),
-      join(directory, "legacy-verification.json"),
-    );
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  await latest(root, {
-    run_id: run.run_id,
-    status: "running",
-    started_at: new Date().toISOString(),
-    directory,
+  await withLatestLock(root, async () => {
+    // Preserve older reports as history, without leaving an ambiguous success
+    // at the capture root. Registration is the shared marker's ordering point.
+    try {
+      await rename(
+        join(root, "verification.json"),
+        join(directory, "legacy-verification.json"),
+      );
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await latest(root, {
+      run_id: run.run_id,
+      status: "running",
+      started_at: new Date().toISOString(),
+      directory,
+    });
   });
   return { directory, captureRoot: join(root, "captures") };
 }
@@ -63,11 +93,19 @@ export async function publishAttempt(root, directory, report) {
       JSON.stringify(report, null, 2),
       { flag: "wx" },
     );
-  await latest(root, {
-    run_id: report.run_id,
-    status: report.status,
-    directory,
-    finished_at: report.finished_at,
+  await withLatestLock(root, async () => {
+    const current = JSON.parse(
+      await readFile(join(root, "verification-latest.json"), "utf8"),
+    );
+    if (current.run_id !== report.run_id) return;
+    // Ownership check and replacement share one lock with attempt registration.
+    // An older attempt still keeps its reports, but cannot replace this marker.
+    await latest(root, {
+      run_id: report.run_id,
+      status: report.status,
+      directory,
+      finished_at: report.finished_at,
+    });
   });
 }
 
