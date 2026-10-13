@@ -87,6 +87,48 @@ it("reports a wait that resolves at the deadline as aborted, not elapsed", async
   }
 });
 
+it("classifies an active wait at expiry before the re-armed owner callback runs", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let monotonic = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => monotonic);
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  const deadline = new ProviderStartupDeadline(40);
+  try {
+    const pending = deadline.wait(500);
+    const firstOwner = timers.mock.calls[0]?.[0];
+    const wait = timers.mock.calls[1]?.[0];
+    if (typeof firstOwner !== "function" || typeof wait !== "function")
+      throw new Error("expected the owner and wait timer callbacks");
+    clearTimeout(timers.mock.results[0]?.value);
+    monotonic = 39;
+    firstOwner();
+    expect(deadline.signal.aborted).toBe(false);
+    expect(timers.mock.calls).toHaveLength(3);
+    expect(timers.mock.calls[2]?.[1]).toBe(1);
+
+    // Deliver the pending wait at expiry while the replacement owner timer
+    // remains queued. Classification must come from the absolute deadline.
+    clearTimeout(timers.mock.results[1]?.value);
+    monotonic = 40;
+    wait();
+    await expect(pending).resolves.toBe("aborted");
+    expect(deadline.signal.aborted).toBe(false);
+    expect(deadline.interruption).toBe("timeout");
+    expect(deadline.remainingMs()).toBe(0);
+
+    const replacementOwner = timers.mock.calls[2]?.[0];
+    if (typeof replacementOwner !== "function")
+      throw new Error("expected the replacement owner timer callback");
+    clearTimeout(timers.mock.results[2]?.value);
+    replacementOwner();
+    expect(deadline.signal.aborted).toBe(true);
+  } finally {
+    deadline.dispose();
+    timers.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
 it("resolves a polling interval shorter than the budget as elapsed", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let monotonic = 0;
@@ -142,7 +184,7 @@ it("keeps a full-budget wait pending when both timers fire early", async () => {
     await vi.advanceTimersByTimeAsync(40);
     expect(deadline.signal.aborted).toBe(false);
     expect(deadline.remainingMs()).toBe(1);
-    expect(outcome).toBeUndefined(); // currently "elapsed"
+    expect(outcome).toBeUndefined();
     monotonic = 40;
     await vi.advanceTimersByTimeAsync(1);
     await expect(pending).resolves.toBe("aborted");
