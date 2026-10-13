@@ -7,6 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, matchesGlob } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -83,7 +84,7 @@ async function classify(
   await writeFile(output, "");
   const result = await execFileAsync(
     process.execPath,
-    [new URL("../../../scripts/ci/plan.mjs", import.meta.url).pathname],
+    [fileURLToPath(new URL("../../../scripts/ci/plan.mjs", import.meta.url))],
     {
       cwd: directory,
       env: {
@@ -225,6 +226,8 @@ it("retains native Inspector verification on every documented package host", asy
 });
 
 it.each([
+  ["src/browser/CdpCaptureEventHandlers.ts", { web_runtime: true }],
+  ["src/browser/assets/PageScriptCapture.ts", { web_runtime: true }],
   [
     "src/evm/client.ts",
     { code: true, runtime: true, evm: true, browser: false, package: false },
@@ -419,8 +422,9 @@ it.each([
 );
 
 it("rejects skipped selected work while allowing unselected lanes to skip", async () => {
-  const command = new URL("../../../scripts/ci/required.mjs", import.meta.url)
-    .pathname;
+  const command = fileURLToPath(
+    new URL("../../../scripts/ci/required.mjs", import.meta.url),
+  );
   const jobs = {
     changes: { result: "success", outputs: { evm: "true" } },
     static: { result: "success" },

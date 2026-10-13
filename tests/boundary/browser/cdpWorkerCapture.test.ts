@@ -1,12 +1,118 @@
 import { expect, it, onTestFinished, vi } from "vitest";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
+import { analyzeWebBundleInputSchema } from "../../../src/domain/webBundleAnalysis.js";
 import {
   startFakeCdpBrowser,
   type FakeOptions,
 } from "../../fixtures/fakeCdpBrowser.js";
 
 const source = 'postMessage("worker 🧪");';
+
+it("does not enter worker observation for page-only bundle analysis", async () => {
+  const { provider, input, browser } = await fixture({
+    commandError: (command) =>
+      command.method === "ServiceWorker.enable" ||
+      command.method === "Target.setAutoAttach"
+        ? { code: -32000, message: "Workers are unavailable" }
+        : undefined,
+  });
+  const result = await provider.analyzeBundle(
+    analyzeWebBundleInputSchema.parse(input),
+  );
+  expect(result.ok).toBe(true);
+  expect(
+    browser.commands.some(
+      (command) =>
+        command.method.startsWith("ServiceWorker.") ||
+        command.method === "Target.setAutoAttach" ||
+        command.method === "Target.getTargets",
+    ),
+  ).toBe(false);
+});
+
+it.each(["", "https://foreign.example/changed.js"])(
+  "rejects a previously retained script whose replacement leaves scope: %s",
+  async (url) => {
+    const { provider, input } = await fixture({
+      eventsBeforeReply: ["Debugger.getScriptSource"],
+      commandEvents: (command) =>
+        command.method === "Debugger.getScriptSource" &&
+        command.sessionId === "worker-own"
+          ? [
+              {
+                method: "Debugger.scriptParsed",
+                sessionId: "worker-own",
+                params: { scriptId: "1", url, hash: "replacement" },
+              },
+            ]
+          : undefined,
+    });
+    expect(await provider.inspectPage(input)).toMatchObject({
+      ok: false,
+      error: { reason: "target_changed" },
+    });
+  },
+);
+
+it("settles unfetched worker JSON responses as partial while retaining the request shape", async () => {
+  const { provider, input } = await fixture({
+    commandEvents: (command, origin) =>
+      command.method === "Network.enable" && command.sessionId === "worker-own"
+        ? [
+            {
+              method: "Network.requestWillBeSent",
+              sessionId: "worker-own",
+              params: {
+                requestId: "post",
+                type: "Fetch",
+                request: {
+                  url: origin + "/post",
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  postData: '{"selected":true}',
+                },
+                initiator: { type: "script" },
+              },
+            },
+            {
+              method: "Network.responseReceived",
+              sessionId: "worker-own",
+              params: {
+                requestId: "post",
+                response: {
+                  url: origin + "/post",
+                  status: 200,
+                  mimeType: "application/json",
+                  headers: {},
+                },
+              },
+            },
+            {
+              method: "Network.loadingFinished",
+              sessionId: "worker-own",
+              params: { requestId: "post", encodedDataLength: 17 },
+            },
+          ]
+        : undefined,
+  });
+  const result = await provider.inspectPage({
+    ...input,
+    include_json_body_shapes: true,
+  });
+  if (!result.ok) throw result.error;
+  const observed = result.value.workers.find(
+    (worker) => worker.target_id === "own",
+  )!.observation!;
+  expect(observed.network_requests[0]?.body_shapes).toMatchObject({
+    status: "partial",
+    response: null,
+  });
+  expect(observed.network_requests[0]?.body_shapes.request).not.toBeNull();
+  expect(observed.completeness.unavailable_sections).toContain(
+    "json_body_shapes",
+  );
+});
 
 it("rejects a script identity change while its source read is pending", async () => {
   const { provider, input, browser } = await fixture({

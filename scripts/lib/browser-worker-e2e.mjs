@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { writeFile, readFile } from "node:fs/promises";
+import { writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { waitForBrowserDevtoolsPort } from "../../dist/browser/BrowserProcessStartup.js";
 import {
   startRuntimeFixtureBrowser,
   closeRuntimeFixtureResources,
@@ -24,21 +24,11 @@ export async function verifyBrowserWorkers(
   entrypoint = fileURLToPath(new URL("../rea.mjs", import.meta.url)),
 ) {
   const site = await startWorkerSite();
-  let fixture, browser, client, transport, primaryError, foreignSite;
+  let fixture, browser, client, transport, primaryError, foreignSite, artifacts;
   try {
+    artifacts = await mkdtemp(join(tmpdir(), "rea-worker-evidence-"));
     fixture = await startRuntimeFixtureBrowser(executable, site.origin);
-    let stderr = "";
-    fixture.browser.stderr.on("data", (c) => {
-      if (stderr.length < 65536) stderr += c;
-    });
-    const port = await waitForBrowserDevtoolsPort({
-      child: fixture.browser,
-      executable,
-      activePortPath: join(fixture.profile, "DevToolsActivePort"),
-      stderr: () => stderr,
-      timeoutMs: 20000,
-    });
-    const endpoint = `http://127.0.0.1:${port}`;
+    const endpoint = `http://127.0.0.1:${fixture.port}`;
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0];
@@ -198,7 +188,7 @@ export async function verifyBrowserWorkers(
       () => page.evaluate(() => window.act()),
     );
     check(explicit, site, target, true);
-    const savedCapture = join(fixture.profile, "worker-capture.json");
+    const savedCapture = join(artifacts, "worker-capture.json");
     await writeFile(savedCapture, JSON.stringify(explicit));
     const exported = await promisify(execFile)(
       process.execPath,
@@ -206,7 +196,7 @@ export async function verifyBrowserWorkers(
         entrypoint,
         "export-web-scripts",
         savedCapture,
-        join(fixture.profile, "exported"),
+        join(artifacts, "exported"),
         "--json",
       ],
       { timeout: 40000, maxBuffer: 32 * 1024 * 1024 },
@@ -215,10 +205,7 @@ export async function verifyBrowserWorkers(
       JSON.parse(exported.stdout),
     ).normalized_result;
     const manifest = JSON.parse(
-      await readFile(
-        join(fixture.profile, "exported", "manifest.json"),
-        "utf8",
-      ),
+      await readFile(join(artifacts, "exported", "manifest.json"), "utf8"),
     );
     const exportedWorkers = manifest.scripts.filter(
       (s) => s.source.kind === "worker-script",
@@ -330,6 +317,10 @@ export async function verifyBrowserWorkers(
         () => fixture?.close(),
         () => site.close(),
         () => foreignSite?.close(),
+        () =>
+          artifacts === undefined
+            ? undefined
+            : rm(artifacts, { recursive: true, force: true }),
       ],
       primaryError,
     );

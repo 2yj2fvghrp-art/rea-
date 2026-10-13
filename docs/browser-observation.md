@@ -270,6 +270,9 @@ Only the observation window is covered. Loaded source is not execution coverage;
 registration alone is not cache delivery. `network.requests[].response_source`
 preserves the browser's actual Service Worker/disk-cache response flags and
 Service Worker response-source classification, with absent fields left unknown.
+Worker response bodies are not fetched. When JSON shapes are requested, retained
+request shapes remain available and unfetched JSON response shapes are explicitly
+unavailable in each worker's completeness ledger.
 Worker requests are scoped to that worker; request IDs must not be joined across
 worker sessions. Worker attachments and domains are released on completion,
 failure and cancellation; REA does not terminate workers or the user-owned page.

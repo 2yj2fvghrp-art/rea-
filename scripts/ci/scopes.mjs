@@ -251,6 +251,9 @@ export const SCOPES = {
     "scripts/fixtures/generate-mitmproxy-capture.py",
   ],
   web_runtime: [
+    "src/browser/CdpCapture*.ts",
+    "src/browser/assets/**",
+    "src/domain/webScriptExport*.ts",
     "scripts/lib/browser-worker-e2e.mjs",
     "scripts/fixtures/browser-worker-site.mjs",
     "src/browser/CdpWorkerCapture.ts",
@@ -267,7 +270,6 @@ export const SCOPES = {
     "src/browser/CdpConnection.ts",
     "src/browser/CdpEndpoint.ts",
     "src/browser/CdpTarget*.ts",
-    "src/browser/CdpCaptureValues.ts",
     "src/browser/CdpAuthorized*.ts",
     "src/domain/webRuntime.ts",
     "src/domain/webExecution.ts",

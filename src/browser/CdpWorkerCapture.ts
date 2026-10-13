@@ -119,6 +119,7 @@ export class CdpWorkerCapture {
     return [...this.#workers.values()]
       .map((worker) => {
         worker.events.recordScriptMetadataBudgetExclusions();
+        worker.events.settleUnexaminedResponseBodies();
         if (!this.context.input.include_script_sources)
           worker.events.completeness.exclude(
             "script_sources",
@@ -363,7 +364,14 @@ export class CdpWorkerCapture {
   ): void {
     const scriptId = cdpStringValue(params.scriptId);
     const script = worker.events.scripts.get(scriptId ?? "");
-    if (script === undefined) return;
+    if (script === undefined) {
+      if (worker.sources.has(scriptId ?? ""))
+        throw new BrowserObservationError(
+          this.context.operation,
+          "target_changed",
+        );
+      return;
+    }
     const contextId = numberValue(params.executionContextId);
     const item: Observation["scripts"][number] = {
       script_id: script.scriptId,

@@ -42,7 +42,7 @@ export interface CaptureContext {
 }
 
 interface CaptureState {
-  readonly workers: CdpWorkerCapture;
+  readonly workers: CdpWorkerCapture | undefined;
   readonly context: CaptureContext;
   readonly events: CdpCaptureEvents;
   readonly allowedOrigins: ReadonlySet<string>;
@@ -77,7 +77,10 @@ export const capturePage = async (
     events.ingest(event);
   });
   const state: CaptureState = {
-    workers: new CdpWorkerCapture(context, allowedOrigins, [], events),
+    workers:
+      context.operation === "inspect_web_page"
+        ? new CdpWorkerCapture(context, allowedOrigins, [], events)
+        : undefined,
     context,
     events,
     allowedOrigins,
@@ -97,10 +100,10 @@ export const capturePage = async (
   try {
     return await captureAuthorizedPage(state);
   } catch (cause) {
-    state.workers.check();
+    state.workers?.check();
     throw cause;
   } finally {
-    await state.workers.close();
+    await state.workers?.close();
     removeListener();
   }
 };
@@ -148,8 +151,8 @@ const captureAuthorizedPage = async (
     resources,
     frameIds: new Set(frames.map((frame) => frame.frame_id)),
   });
-  const workers = await state.workers.finish();
-  limitations.push(...state.workers.limitations);
+  const workers = (await state.workers?.finish()) ?? [];
+  limitations.push(...(state.workers?.limitations ?? []));
   const storageCapture = await captureStorage(
     context,
     attachedUrl,
@@ -253,12 +256,12 @@ const authorizeObservationWindow = async (
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
   events.beginAuthorizedFrame(mainFrame.frame_id);
   await enableObservationDomains(connection, sessionId, signal);
-  await state.workers.start();
+  await state.workers?.start();
   await report(context.progress, 2, "Observing page events");
   await delayWithCancellation(
     context.input.observation_ms,
     context.operation,
-    state.workers.signal,
+    state.workers?.signal ?? signal,
   );
   if (events.originViolation)
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
