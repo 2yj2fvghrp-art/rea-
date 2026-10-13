@@ -393,6 +393,13 @@ export const classifyArtifactContent = (
   readonly format: ArtifactOccurrence["artifact_format"];
 } => {
   const format = classifyArtifactBytes(prefix, fileSize);
+  const byPath = classifyArtifactPath(path);
+  if (
+    format === "plist" &&
+    !hasBinaryPlistSignature(prefix) &&
+    ["javascript", "source-map", "entitlements"].includes(byPath.kind)
+  )
+    return byPath;
   if (
     format === "file" &&
     path.toLowerCase().endsWith(".asar") &&
@@ -422,11 +429,6 @@ const artifactRoleForFormat = (
   format: ArtifactOccurrence["artifact_format"],
 ): ReturnType<typeof classifyArtifactPath> => {
   const byPath = classifyArtifactPath(path);
-  if (
-    format === "plist" &&
-    ["javascript", "source-map", "entitlements"].includes(byPath.kind)
-  )
-    return byPath;
   if (format === "file" || format === byPath.format) return byPath;
   if (format === "unknown") return { kind: "unknown", format };
   if (format === "zip")
