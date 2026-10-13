@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { buffer } from "node:stream/consumers";
 
 import { expect, it, vi } from "vitest";
 
@@ -98,7 +99,6 @@ it("inventories a 2.1 archive, nested PYZ modules, and derived bytecode", async 
       "PyInstaller type code s.",
       "PyInstaller compression flag 1.",
       RECONSTRUCTED_PYTHON_HEADER_LIMITATION,
-      `Uncompressed sha256 ${sha256(script)}.`,
     ]),
   );
   expect(
@@ -776,10 +776,13 @@ it("keeps compressed member spans on the physical extent or unknown", async () =
     const occurrence = snapshot.occurrences.find(
       (candidate) => candidate.logical_path === logicalPath,
     );
-    expect(occurrence?.declared_size).toBeGreaterThan(fileSize);
-    expect(occurrence?.compressed_size ?? fileSize).toBeLessThan(
-      occurrence?.declared_size ?? 0,
-    );
+    if (logicalPath === "payload.bin") {
+      expect(occurrence?.declared_size).toBeGreaterThan(fileSize);
+      expect(occurrence?.compressed_size ?? fileSize).toBeLessThan(occurrence?.declared_size ?? 0);
+    } else {
+      expect(occurrence?.declared_size).toBeNull();
+      expect(snapshot.nodes.find(node => node.artifact_id === occurrence?.artifact_id)?.size).toBeGreaterThan(fileSize);
+    }
     const span = occurrence?.source_location;
     if (span === null || span === undefined) {
       expect(span).toBeNull();
@@ -843,4 +846,56 @@ it("reconstructs each PYZ image's bytecode with that image's own magic", async (
       (node) => node.sha256 === sha256(withHeader(PYTHON_39_MAGIC, second)),
     ),
   ).toBeUndefined();
+});
+
+
+it("opens selected PYZ modules lazily and permits repeat reads without retaining their expanded bytes", async () => {
+  const good = Buffer.from("selected module");
+  const image = pyzArchive({
+    magic: PYTHON_39_MAGIC,
+    modules: [
+      { name: "damaged", typeCode: 0, body: Buffer.from("damaged module") },
+      { name: "selected", typeCode: 0, body: good },
+    ],
+  });
+  image[12] = 0; // Damage the first zlib header without changing the valid PYZ table.
+  const path = await writeArchive("lazy-pyz", cArchiveExecutable({
+    layout: "2.1", pythonVersion: 309,
+    members: [{ name: "PYZ.pyz", typeCode: "z", payload: image, compress: false }],
+  }));
+  const reader = new PyInstallerArtifactReader(path);
+  try {
+    const entries = [];
+    for await (const entry of reader.entries()) entries.push(entry);
+    const selected = entries.find(entry => entry.path === "PYZ.pyz/selected.pyc");
+    const damaged = entries.find(entry => entry.path === "PYZ.pyz/damaged.pyc");
+    if (selected === undefined || damaged === undefined) throw new Error("Missing PYZ entries");
+    expect(selected.declaredSize).toBeNull();
+    for (let attempt = 0; attempt < 2; attempt += 1)
+      expect(await buffer(await reader.open(selected))).toEqual(derived(good));
+    await expect(reader.open(damaged)).rejects.toMatchObject({ reason: "format" });
+  } finally {
+    await reader.close();
+  }
+});
+
+it("uses known PYZ magic for separate CArchive scripts when the marshal table stays opaque", async () => {
+  const script = Buffer.from("entry script");
+  const path = await writeArchive("opaque-table", cArchiveExecutable({
+    layout: "2.1", pythonVersion: 309,
+    members: [
+      { name: "hello", typeCode: "s", payload: script, compress: true },
+      { name: "PYZ.pyz", typeCode: "z", compress: false,
+        payload: pyzArchive({ magic: PYTHON_39_MAGIC, modules: [], toc: Buffer.from([0x4e]) }) },
+    ],
+  }));
+  const snapshot = await scanCanonicalArtifactInventory(path);
+  const opaque = snapshot.occurrences.find(entry => entry.logical_path === "PYZ.pyz");
+  expect(opaque).toMatchObject({ entry_kind: "file" });
+  expect(opaque?.limitations.join(" ")).toContain("left opaque");
+  expect(snapshot.nodes.find(node => node.sha256 === sha256(derived(script)))).toBeDefined();
+  const output = join(await createTestTempDirectory("rea-opaque-script-"), "extracted");
+  await materializeArtifactInventory({ inputPath: path, inputFormat: "elf", outputRoot: output,
+    environment: process.env, integrityPolicy: "fail" }, path, snapshot);
+  expect(await readFile(join(output, "hello"))).toEqual(derived(script));
 });

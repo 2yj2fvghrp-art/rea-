@@ -34,6 +34,7 @@ export type PyzArchive =
     }
   | {
       readonly kind: "opaque";
+      readonly pythonMagic: Buffer | undefined;
       readonly sha256: string;
       readonly limitation: string;
     };
@@ -55,6 +56,7 @@ export const parsePyzArchive = (
   if (pythonVersion === undefined)
     return ok({
       kind: "opaque",
+      pythonMagic: undefined,
       sha256,
       limitation: `PYZ Python magic ${pythonMagic.toString("hex")} is not in the supported set; the member was left opaque.`,
     });
@@ -70,6 +72,7 @@ export const parsePyzArchive = (
   if (!marshalled.ok)
     return ok({
       kind: "opaque",
+      pythonMagic,
       sha256,
       limitation: `PYZ table of contents could not be parsed (${marshalled.error.message}); the member was left opaque.`,
     });
@@ -78,6 +81,7 @@ export const parsePyzArchive = (
     return entries.error.reason === "format"
       ? ok({
           kind: "opaque",
+          pythonMagic,
           sha256,
           limitation: `${entries.error.message}; the member was left opaque.`,
         })

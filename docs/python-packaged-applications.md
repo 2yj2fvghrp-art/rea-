@@ -11,8 +11,11 @@ The root occurrence records the CArchive layout (2.0 or 2.1), the Python
 version integer from the cookie, and the Python library name when the 2.1
 cookie includes one.
 
-Each table entry reports its name, type code, compression flag, compressed and
-uncompressed sizes, file offset, and SHA-256. Entry scripts use type `s`.
+Each table entry reports its name, type code, compression flag, declared sizes
+and known source offsets. Inventory opens members individually to hash their
+content; it does not retain expanded module bodies. PYZ tables declare only
+compressed lengths, so uncompressed declared sizes and decoded source spans
+remain unknown. Entry scripts use type `s`.
 Runtime options use type `o`, and the option text is the entry name.
 
 A PYZ archive is a nested container when its Python bytecode magic is a final
@@ -27,8 +30,8 @@ archive that contains an encrypted entry is refused.
 
 Compiled members are written as `.pyc` files with a reconstructed 16-byte header
 when the Python magic is known. The inventory records that header as a
-derivation. The member digest covers the derived file, and a limitation records
-the SHA-256 of the uncompressed payload.
+derivation. The member digest covers the derived file. A supported PYZ magic remains usable
+for separate CArchive scripts even when the PYZ table itself stays opaque.
 
 Detection searches the last 16 MiB of the file for the CArchive cookie, so a
 macOS code signature after the cookie does not hide the archive. Member offsets

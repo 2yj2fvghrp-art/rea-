@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { copyArtifactEntry, type ArtifactEntry } from "../ArtifactReader.js";
 import type { CArchiveEntry, PyInstallerCookie } from "./CArchiveLayout.js";
 import type { PyzArchive, PyzEntry } from "./PyzArchive.js";
@@ -11,16 +9,22 @@ import { formatPythonCookieVersion } from "./PythonBytecode.js";
 
 const CRYPTO_KEY_NAME = "pyimod00_crypto_key";
 
-/** Bytes the reader returns for one inventoried file, when already materialized. */
-export interface MaterializedMember {
+/** Stable entry descriptions and bounded read plans; expanded member bytes are never retained. */
+export interface PyInstallerMember {
   readonly entry: ArtifactEntry;
-  readonly bytes: Buffer | undefined;
   readonly read:
     | {
+        readonly kind: "carchive";
         readonly absolute: number;
         readonly size: number;
         readonly compressionFlag: number;
         readonly uncompressedSize: number;
+        readonly header: Buffer | undefined;
+      }
+    | {
+        readonly kind: "pyz";
+        readonly compressed: Buffer;
+        readonly header: Buffer | undefined;
       }
     | undefined;
 }
@@ -42,8 +46,7 @@ export const projectStoredMember = (
   entry: CArchiveEntry,
   archiveStart: number,
   pythonMagic: Buffer | undefined,
-  bytes: Buffer | undefined,
-): MaterializedMember => {
+): PyInstallerMember => {
   const header =
     pythonMagic !== undefined && isBytecodeType(entry.typeCode)
       ? reconstructedPycHeader(pythonMagic)
@@ -53,12 +56,8 @@ export const projectStoredMember = (
   const limitations = memberLimitations(entry.typeCode, entry.compressionFlag);
   limitations.push(...originalNameLimitation(named.original));
   if (symlink) limitations.push("PyInstaller symlink target was not read.");
-  if (header !== undefined && bytes !== undefined) {
-    limitations.push(RECONSTRUCTED_PYTHON_HEADER_LIMITATION);
-    limitations.push(`Uncompressed sha256 ${sha256(bytes)}.`);
-  }
-  const declaredSize =
-    bytes === undefined ? entry.uncompressedSize : bytes.length;
+  if (header !== undefined) limitations.push(RECONSTRUCTED_PYTHON_HEADER_LIMITATION);
+  const declaredSize = entry.uncompressedSize;
   return {
     entry: fileEntry({
       path: named.path,
@@ -73,19 +72,14 @@ export const projectStoredMember = (
       limitations,
       adapterKey: `carchive:${entry.name}`,
     }),
-    bytes:
-      header === undefined || bytes === undefined
-        ? undefined
-        : Buffer.concat([header, bytes]),
-    read:
-      bytes === undefined
-        ? {
-            absolute: archiveStart + entry.offset,
-            size: entry.compressedSize,
-            compressionFlag: entry.compressionFlag,
-            uncompressedSize: entry.uncompressedSize,
-          }
-        : undefined,
+    read: {
+      kind: "carchive",
+      absolute: archiveStart + entry.offset,
+      size: entry.compressedSize,
+      compressionFlag: entry.compressionFlag,
+      uncompressedSize: entry.uncompressedSize,
+      header,
+    },
   };
 };
 
@@ -94,7 +88,7 @@ export const projectPyzContainer = (
   archiveStart: number,
   archive: PyzArchive,
   encrypted: boolean,
-): MaterializedMember => {
+): PyInstallerMember => {
   const named = canonicalMemberName(entry.name);
   const byteOffset = sourceByteOffset(
     archiveStart + entry.offset,
@@ -115,12 +109,13 @@ export const projectPyzContainer = (
         limitations: [...limitations, archive.limitation],
         adapterKey: `carchive:${entry.name}`,
       }),
-      bytes: undefined,
       read: {
+        kind: "carchive",
         absolute: archiveStart + entry.offset,
         size: entry.compressedSize,
         compressionFlag: entry.compressionFlag,
         uncompressedSize: entry.uncompressedSize,
+        header: undefined,
       },
     };
   return {
@@ -143,19 +138,17 @@ export const projectPyzContainer = (
       ],
       adapterKey: `carchive:${entry.name}`,
     },
-    bytes: undefined,
     read: undefined,
   };
 };
 
 export const projectPyzMember = (
   container: CArchiveEntry,
-  archiveStart: number,
   item: PyzEntry,
   encrypted: boolean,
   pythonMagic: Buffer | undefined,
-  inflated: Buffer | undefined,
-): MaterializedMember => {
+  compressed: Buffer | undefined,
+): PyInstallerMember => {
   const located = pyzMemberLocation(
     canonicalMemberName(container.name).path,
     item,
@@ -179,7 +172,6 @@ export const projectPyzMember = (
         ],
         adapterKey: `pyz:${located.path}`,
       },
-      bytes: undefined,
       read: undefined,
     };
   const header =
@@ -194,36 +186,23 @@ export const projectPyzMember = (
   ];
   if (encrypted)
     limitations.push("PYZ entry is encrypted and was not decoded.");
-  if (header !== undefined && inflated !== undefined) {
+  if (header !== undefined)
     limitations.push(RECONSTRUCTED_PYTHON_HEADER_LIMITATION);
-    limitations.push(`Uncompressed sha256 ${sha256(inflated)}.`);
-  }
-  limitations.push(...originalNameLimitation(located.original));
-  const declaredSize = inflated === undefined ? item.length : inflated.length;
-  const body =
-    inflated === undefined
-      ? undefined
-      : header === undefined
-        ? inflated
-        : Buffer.concat([header, inflated]);
+  limitations.push(
+    "PYZ tables declare compressed lengths; the uncompressed size is unknown until decoding.",
+    ...originalNameLimitation(located.original),
+  );
   return {
     entry: fileEntry({
       path: located.path,
-      declaredSize,
+      declaredSize: null,
       compressedSize: item.length,
-      byteOffset: pyzChildSourceOffset(
-        container,
-        archiveStart,
-        item.offset,
-        declaredSize,
-        item.length,
-      ),
+      byteOffset: null,
       encrypted,
       limitations,
       adapterKey: `pyz:${located.path}`,
     }),
-    bytes: body,
-    read: undefined,
+    read: compressed === undefined ? undefined : { kind: "pyz", compressed, header },
   };
 };
 
@@ -251,21 +230,6 @@ const sourceByteOffset = (
   declaredSize: number,
   physicalLength: number,
 ): number | null => (declaredSize === physicalLength ? absoluteOffset : null);
-
-const pyzChildSourceOffset = (
-  container: CArchiveEntry,
-  archiveStart: number,
-  itemOffset: number,
-  declaredSize: number,
-  physicalLength: number,
-): number | null =>
-  container.compressionFlag === 0
-    ? sourceByteOffset(
-        archiveStart + container.offset + itemOffset,
-        declaredSize,
-        physicalLength,
-      )
-    : null;
 
 const pyzMemberLocation = (
   container: string,
@@ -297,7 +261,7 @@ const memberLimitations = (
 
 const fileEntry = (input: {
   readonly path: string;
-  readonly declaredSize: number;
+  readonly declaredSize: number | null;
   readonly compressedSize: number;
   readonly byteOffset: number | null;
   readonly limitations: readonly string[];
@@ -318,11 +282,8 @@ const fileEntry = (input: {
   adapterKey: input.adapterKey,
 });
 
-const sha256 = (bytes: Buffer): string =>
-  createHash("sha256").update(bytes).digest("hex");
-
 /** Stable entry stored for a later open(). */
-export const sealMember = (member: MaterializedMember): MaterializedMember => ({
+export const sealMember = (member: PyInstallerMember): PyInstallerMember => ({
   ...member,
   entry: copyArtifactEntry(member.entry),
 });

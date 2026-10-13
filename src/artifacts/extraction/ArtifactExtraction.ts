@@ -17,6 +17,7 @@ import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
 import { SafeOutputTree } from "../SafeOutputTree.js";
 import { SafeOutputTreeCreationFailure } from "../SafeOutputTreeCreationFailure.js";
 import { ZipArtifactReader } from "../ZipArtifactReader.js";
+import { isZipPackageFormat } from "../../domain/zipPackageFormat.js";
 import { MachOSliceArtifactReader } from "../MachOSliceArtifactReader.js";
 import { PyInstallerArtifactReader } from "../PyInstallerArtifactReader.js";
 import { containsPyInstallerArchive } from "../pyinstaller/CArchiveLayout.js";
@@ -251,7 +252,7 @@ const materializeSelection = async ({
       compareUnicodeCodePoints(left.relative_path, right.relative_path),
     );
     completed = createExtractionResult(input, inventory, selected, extracted);
-    await output.commit();
+    await output.commit(signal);
     return completed;
   } catch (cause: unknown) {
     const cleanupFailures = await releaseExtractionOwners(
@@ -403,13 +404,6 @@ interface ExtractionInventory {
   readonly integrityContradictions: readonly IntegrityContradiction[];
 }
 
-const ZIP_FORMATS = ["ipa", "apk", "msix", "appx", "zip"] as const;
-
-const isZipFormat = (
-  format: BinaryTarget["format"],
-): format is (typeof ZIP_FORMATS)[number] =>
-  (ZIP_FORMATS as readonly string[]).includes(format);
-
 /**
  * Refuse a format without an extraction reader before inventory work starts.
  * The target kind, not the host, is unsupported by extraction. The error keeps
@@ -428,7 +422,7 @@ const requireExtractableFormat = async (
     !directory &&
     format !== "asar" &&
     !isMachOFormat(format) &&
-    !isZipFormat(format) &&
+    !isZipPackageFormat(format) &&
     !(
       (format === "elf" || format === "pe") &&
       (await pathContainsPyInstallerArchive(path, input.resourceScope))
@@ -453,7 +447,7 @@ const createReader = async (
   if (await requireExtractableFormat(path, input))
     return new DirectoryArtifactReader(path);
   if (format === "asar") return new AsarArtifactReader(path);
-  if (isZipFormat(format)) return new ZipArtifactReader(path, format);
+  if (isZipPackageFormat(format)) return new ZipArtifactReader(path, format);
   if (
     (format === "elf" || format === "pe" || isMachOFormat(format)) &&
     (await pathContainsPyInstallerArchive(path, input.resourceScope))

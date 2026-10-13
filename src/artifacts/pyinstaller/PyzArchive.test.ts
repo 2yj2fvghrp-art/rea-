@@ -40,6 +40,7 @@ it("leaves a PYZ opaque when the table uses an unsupported marshal type", () => 
   expect(parsed.ok).toBe(true);
   if (!parsed.ok || parsed.value.kind !== "opaque") return;
   expect(parsed.value.limitation).toContain("left opaque");
+  expect(parsed.value.pythonMagic).toEqual(PYTHON_39_MAGIC);
 });
 
 it("reports an entry that extends outside the PYZ as an integrity error", () => {
