@@ -241,7 +241,12 @@ it("keeps the thin-slice failure for confirmed universal Mach-O containers", () 
     { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
     { cpu: CPU.arm64, bytes: machoImage({ cpu: CPU.arm64 }) },
   ];
-  for (const universal of [fatImage(slices), fatImage(slices, true)]) {
+  for (const universal of [
+    fatImage(slices),
+    fatImage(slices, true),
+    fatImage(slices, false, true),
+    fatImage(slices, true, true),
+  ]) {
     expect(() => readGoBinaryImage(Buffer.from(universal))).toThrowError(
       /fat Mach-O containers require selecting a thin slice/,
     );
