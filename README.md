@@ -4,15 +4,29 @@
 
 ### Reverse Engineering Life
 
-**Understand how software works. Keep the evidence. Learn by doing.**
+**Understand the mechanism. Keep the proof. Learn by doing.**
 
 A beginner-friendly investigation interface built on top of [REA — Reverse Engineer Anything](https://github.com/morluto/rea).
 
-**[Get started](#first-run-in-a-terminal) · [Use with Codex](#use-rel-with-codex-or-another-ai-agent) · [Supported targets](#what-can-rel-investigate) · [Original REA documentation](UPSTREAM_REA_README.md)**
+**[Open the visual lab](experiments/rel-visual-lab/README.md) · [Get started](#first-run-in-a-terminal) · [Use with Codex](#use-rel-with-codex-or-another-ai-agent) · [Original REA documentation](UPSTREAM_REA_README.md)**
 
 </div>
 
 ---
+
+## Start here if you're new to code
+
+REL is our visual, evidence-first learning workbench built **on top of** REA. We keep the powerful original engine and make its investigations understandable to humans. We do not claim to have developed REA's original providers.
+
+From a local checkout of this draft branch, with Node.js available:
+
+```bash
+node rel.mjs lab --open
+```
+
+This opens **REL Visual Lab 01** in your own browser. You can search five fictional notes, trace the code's relationships, read plain-English explanations of terms such as *import* and *function*, and compare a real result with a clearly labeled hypothetical change. Nothing from other repositories is accessed; it does not require an REA build or Codex connection. See the [visual lab guide and learning levels](experiments/rel-visual-lab/README.md).
+
+**Our learning progression:** Observe → Map → Explain → Prove → Experiment. Future work may add native-binary analysis and actual side-by-side artifact comparison; the visual lab today is not a live REA graph viewer.
 
 ## What is REL?
 
@@ -30,10 +44,10 @@ REL is **not an AI model and not a replacement for the underlying reverse-engine
 
 ### What actually works today?
 
-- **Works:** `node rel.mjs types`, `node rel.mjs inspect TARGET`, `node rel.mjs demo` — safe target identification and preview. `node rel.mjs codex` checks the local Codex integration prerequisites.
+- **Works:** `node rel.mjs lab [--open]` opens the offline beginner visual experience through a loopback-only local server; `types`, `inspect TARGET`, and `demo` provide safe previews. `node rel.mjs codex` checks the local Codex integration prerequisites.
 - **Verified:** `node rel.mjs demo --run --out DIR` builds on our source-owned example to invoke the _real_, locally built REA JavaScript analyzer, save full Evidence, and generate a smaller readable report after the build.
 - **Existing upstream capability:** Advanced REA CLI and MCP workflows for JavaScript/Electron, native binaries, managed code, app packages, websites, captured traffic and more. Many require additional dependencies or authority.
-- **New experimental path:** `node rel.mjs analyze TARGET --authorized --out DIR` runs read-only static analysis on an authorized JavaScript/Electron directory or ASAR. **Not yet built:** automatic execution across every format, an interactive REL dashboard, or guaranteed reconstruction.
+- **New experimental path:** `node rel.mjs analyze TARGET --authorized --out DIR` runs read-only static analysis on an authorized JavaScript/Electron directory or ASAR. **Not yet built:** a general-purpose REA evidence graph dashboard, automatic execution across every format, or guaranteed reconstruction.
 
 A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful _small-sample_ test, not a universal capability claim.
 
