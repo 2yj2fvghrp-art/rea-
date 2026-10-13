@@ -63,7 +63,7 @@
         "!docs/.vitepress/dist/**",
         "!website/_site/**",
         "!experiments/analysis-efficiency/results/**",
-        "vitest.config.ts"
+        "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}"
       ]
     },
     "lint:built": {
@@ -84,7 +84,7 @@
         "!docs/.vitepress/dist/**",
         "!website/_site/**",
         "!experiments/analysis-efficiency/results/**",
-        "vitest.config.ts"
+        "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}"
       ]
     },
     "format:check": {},
@@ -100,8 +100,8 @@
         "tests/**/*.ts",
         "tsconfig.json",
         "tsconfig.build.json",
-        "vitest.config.ts",
-        "docs/.vitepress/config.ts"
+        "docs/.vitepress/config.ts",
+        "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}"
       ]
     },
     "jscpd": {

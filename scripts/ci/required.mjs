@@ -35,6 +35,7 @@ const lanes = {
     "test-shard",
     ...(outputs.tier === "fast" ? ["test-source"] : []),
   ],
+  reverse_tools: ["reverse-tools-quality"],
   runtime: ["windows-native-build", "package-e2e"],
   package: ["windows-curated"],
   sqlite: ["sqlite-runtime"],
