@@ -300,16 +300,15 @@ const fieldOnlyItem = (
 };
 
 /**
- * Name the evidence an ambiguous group shares. A group of one basis can come
- * from a round keyed with or without the declared type and name, so only the
- * exact-signature basis, which always includes them, names them.
+ * Name only evidence shared by the whole group. Exact-signature ambiguities
+ * include both declared-identity collisions and unresolved raw-signature choices.
  */
 const ambiguityLimitation = (
   members: "methods" | "fields",
   basis: MethodItem["match"]["basis"],
 ): string =>
   basis === "exact-signature"
-    ? `Multiple managed ${members} share the same declared type, name, and raw signature; REA did not guess a token remap.`
+    ? `Multiple managed ${members} share the same raw signature; REA did not guess declared ownership or a token remap.`
     : basis === "exact-il-signature"
       ? "Multiple managed methods share the same CIL and signature; REA did not guess a token remap."
       : members === "methods"

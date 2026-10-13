@@ -861,7 +861,7 @@ describe("managed member comparison of unresolved and held identities", () => {
   });
 });
 
-describe("managed member comparison of signature contention and consumed ambiguity", () => {
+describe("managed member comparison of raw-signature contention", () => {
   it("contests same-signature methods even when their bodies differ", () => {
     const base = inspect(
       buildManagedPeFixture(),
@@ -902,10 +902,25 @@ describe("managed member comparison of signature contention and consumed ambigui
     for (const result of [
       compareManagedMembers(withOwnerless, resolvedOnly),
       compareManagedMembers(resolvedOnly, withOwnerless),
-    ])
+    ]) {
+      expect(result.methods).toHaveLength(1);
+      const [item] = result.methods;
+      if (item === undefined)
+        throw new Error("Expected uncertain signature group");
+      expect(item).toMatchObject({
+        status: "unknown",
+        match: { status: "ambiguous", basis: "exact-signature" },
+      });
+      expect(result.summary).toMatchObject({
+        added: 0,
+        removed: 0,
+        unknown: 1,
+      });
       expect(
-        result.methods.filter(({ match }) => match.status === "matched"),
-      ).toEqual([]);
+        item.match.candidate_left_tokens.length +
+          item.match.candidate_right_tokens.length,
+      ).toBe(3);
+    }
   });
 
   it("contests ownerless undecoded fields by raw signature", () => {
@@ -944,7 +959,9 @@ describe("managed member comparison of signature contention and consumed ambigui
         result.fields.filter(({ match }) => match.status === "matched"),
       ).toEqual([]);
   });
+});
 
+describe("managed member comparison of consumed ownerless ambiguity", () => {
   it("keeps a consumed ownerless ambiguity from authorizing a later remap", () => {
     const base = inspect(
       buildManagedPeFixture(),

@@ -312,12 +312,45 @@ const matchByKeys = <Item extends Declared>({
       }
     }
   }
+  // Contention can prevent a declared signature pair even when CIL/shape
+  // evidence cannot form a later remap. Preserve those residual choices;
+  // leaving them one-sided would incorrectly assert observed absence.
+  for (const group of unresolvedSignatureAmbiguities(
+    left.filter((item) => !usedLeft.has(item)),
+    right.filter((item) => !usedRight.has(item)),
+  )) {
+    for (const item of group.left) usedLeft.add(item);
+    for (const item of group.right) usedRight.add(item);
+    ambiguous.push(group);
+  }
   return {
     pairs,
     ambiguous,
     leftOnly: left.filter((item) => !usedLeft.has(item)),
     rightOnly: right.filter((item) => !usedRight.has(item)),
   };
+};
+
+/** Residual name-free signatures whose unresolved owners still compete. */
+const unresolvedSignatureAmbiguities = <Item extends Declared>(
+  left: readonly Keyed<Item>[],
+  right: readonly Keyed<Item>[],
+): Ambiguous<Item>[] => {
+  const key = (member: Keyed<Item>): string => member.rawSignatureKey;
+  const contested = ownerlessContested([left, right], key);
+  const leftGroups = groupBy(left, key);
+  const rightGroups = groupBy(right, key);
+  const groups: Ambiguous<Item>[] = [];
+  for (const [signature, leftItems] of leftGroups) {
+    const rightItems = rightGroups.get(signature);
+    if (!contested.has(signature) || rightItems === undefined) continue;
+    groups.push({
+      left: leftItems,
+      right: rightItems,
+      basis: "exact-signature",
+    });
+  }
+  return groups;
 };
 
 interface Declared {
