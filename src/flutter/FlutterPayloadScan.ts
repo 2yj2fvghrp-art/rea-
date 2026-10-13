@@ -66,8 +66,9 @@ export class SnapshotHashScanner {
     const joined = new Uint8Array(this.#buffer.length + chunk.length);
     joined.set(this.#buffer, 0);
     joined.set(chunk, this.#buffer.length);
-    // Resume after the last fully processed hash so carried bytes are not
-    // counted twice across chunk boundaries.
+    // Resume after the last processed magic, as within a chunk, so carried
+    // bytes are not counted twice and a magic inside that record's span is
+    // still found when a chunk boundary splits it.
     let offset = Math.max(0, this.#absoluteScanFrom - this.#base);
     let pendingMagic: number | null = null;
     for (;;) {
@@ -96,8 +97,7 @@ export class SnapshotHashScanner {
       // magic record whose field is not lowercase hex is not a source.
       if (isValidHash) this.#sources += 1;
       offset = magic + DART_SNAPSHOT_MAGIC.length;
-      this.#absoluteScanFrom =
-        this.#base + magic + SNAPSHOT_HASH_OFFSET + SNAPSHOT_HASH_LENGTH;
+      this.#absoluteScanFrom = this.#base + offset;
     }
     // Keep a pending magic for the next chunk; otherwise keep only the
     // trailing bytes where a magic could still begin, so magic-free
