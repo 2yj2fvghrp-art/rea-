@@ -11,11 +11,27 @@ import {
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
+import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
 
 interface JavaScriptRequireOrigin {
   readonly origin: JavaScriptModuleOrigin;
   readonly call: t.CallExpression;
 }
+
+/** Node's unbound process reference shares the cached process exports object. */
+export const semanticGlobalProcessOrigin = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptModuleOrigin | undefined =>
+  t.isIdentifier(node, { name: "process" }) &&
+  resolveSemanticBindingState(state, node, "process") === undefined &&
+  !semanticResolutionBlocked(state, node, "process") &&
+  !(state.ambientBindingWrites.get("process") ?? []).some(
+    (write) =>
+      !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
+  )
+    ? { specifier: "node:process", importedPath: [], resolutionMode: "require" }
+    : undefined;
 
 /** Recover an unshadowed literal require origin and its exact member path. */
 export const semanticRequireOrigin = (
@@ -48,7 +64,14 @@ export const semanticRequireOrigin = (
     resolveSemanticBindingState(state, current.callee, "require") !==
       undefined ||
     semanticResolutionBlocked(state, current.callee, "require") ||
-    state.ambientWrites.covers(["binding", "require"])
+    (state.ambientBindingWrites.get("require") ?? []).some(
+      (write) =>
+        !semanticTopLevelEffectFollowsCapture(
+          current,
+          write,
+          state.parentsByNode,
+        ),
+    )
   )
     return undefined;
   const specifier = stringValue(current.arguments[0]);

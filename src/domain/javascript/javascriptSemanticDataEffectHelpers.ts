@@ -4,6 +4,7 @@ import { semanticBuiltinNamespacePath } from "./javascriptSemanticProvenance.js"
 import {
   semanticRequireOrigin,
   semanticRequireExportsIdentity,
+  semanticGlobalProcessOrigin,
 } from "./javascriptSemanticRequireOrigin.js";
 import type { JavaScriptModuleOrigin } from "./javascriptSemanticIr.js";
 import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
@@ -16,7 +17,6 @@ import { semanticCallableIdForNode } from "./javascriptSemanticProjection.js";
 import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
 import {
   resolveSemanticBindingState,
-  semanticResolutionBlocked,
   type JavaScriptSemanticAnalysisState,
   type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
@@ -24,7 +24,6 @@ import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 import {
   readExactJavaScriptLiteral,
   semanticStaticPropertyKey,
-  semanticStaticPropertyName,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 
@@ -193,7 +192,7 @@ export const builtinDataEffectMethod = (
     callee.object,
     callee.object.name,
   );
-  const method = semanticStaticPropertyName(callee.property, callee.computed);
+  const method = semanticStaticPropertyKey(callee.property, callee.computed);
   return method !== null &&
     builtinBindingPath(binding, state, specifiers, callee, [method], true)
       ?.length === 0
@@ -297,13 +296,19 @@ const builtinBindingPath = (
         t.isMemberExpression(node) ||
         t.isOptionalMemberExpression(node)
       ) {
-        const key = semanticStaticPropertyName(node.property, node.computed);
+        const key = semanticStaticPropertyKey(node.property, node.computed);
         if (key === null) return null;
         pending.push({
           node: node.object,
           path: [key, ...current.path],
           capture: node,
         });
+      } else if (t.isSequenceExpression(node)) {
+        const final = node.expressions.at(-1);
+        if (final === undefined) return null;
+        pending.push({ ...current, node: final });
+      } else if (t.isAssignmentExpression(node) && node.operator === "=") {
+        pending.push({ ...current, node: node.right });
       } else if (t.isConditionalExpression(node)) {
         pending.push(
           { ...current, node: node.consequent },
@@ -417,7 +422,8 @@ const originalBuiltinReceiver = (
   const sourceOrigin =
     provenance?.status === "module"
       ? provenance.origins[0]
-      : semanticRequireOrigin(callee.object, state)?.origin;
+      : (semanticRequireOrigin(callee.object, state)?.origin ??
+        semanticGlobalProcessOrigin(callee.object, state));
   if (sourceOrigin === undefined) return false;
   const origin = builtinNamespaceOrigin(sourceOrigin);
   if (
@@ -427,7 +433,7 @@ const originalBuiltinReceiver = (
     origin.importedPath.length !== 0
   )
     return false;
-  const method = semanticStaticPropertyName(callee.property, callee.computed);
+  const method = semanticStaticPropertyKey(callee.property, callee.computed);
   const identity = semanticRequireExportsIdentity(sourceOrigin.specifier, [
     ...sourceOrigin.importedPath,
     method ?? "",
@@ -472,8 +478,11 @@ export const isSemanticProcessObject = (
   const binding = resolveSemanticBindingState(state, node, node.name);
   if (binding === undefined)
     return (
-      node.name === "process" &&
-      !semanticResolutionBlocked(state, node, node.name)
+      semanticGlobalProcessOrigin(node, state) !== undefined &&
+      !requiredModuleChanged("process", [family], node, undefined, state, [
+        "process",
+        "node:process",
+      ])
     );
   return (
     builtinBindingPath(binding, state, ["process", "node:process"], node, [

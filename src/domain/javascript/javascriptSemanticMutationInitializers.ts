@@ -166,7 +166,7 @@ export const semanticMutationInitializers = (
   parents: WeakMap<t.Node, t.Node>,
 ): Pick<
   JavaScriptSemanticBindingState,
-  "initializers" | "referenceInitializers"
+  "initializers" | "referenceInitializers" | "directOrigins"
 > => {
   const mutationPosition =
     directMutationPosition(mutation, parents) ??
@@ -214,6 +214,9 @@ export const semanticMutationInitializers = (
       .map(({ initializer }) => initializer),
   );
   return {
+    // A proven earlier assignment replaces even an import-equals value. A
+    // capture before/inside an uncertain assignment returned the full binding.
+    directOrigins: origins.length === 0 ? binding.directOrigins : [],
     initializers: binding.initializers.filter((initializer) =>
       retained.has(initializer),
     ),

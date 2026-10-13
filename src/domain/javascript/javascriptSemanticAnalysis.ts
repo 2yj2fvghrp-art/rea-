@@ -564,6 +564,7 @@ const createState = (
     linkedRequireCalls: new WeakSet(),
     moduleLinkBindings: new WeakMap(),
     conditionalInitializers: new WeakSet(),
+    ambientBindingWrites: new Map(),
     ambientWrites: new SemanticPropertyPathCoverage(),
   };
 };
@@ -1262,7 +1263,9 @@ const addAssignment = (
   if (binding === undefined) {
     // Unbound identifiers can denote host wrapper bindings (such as require),
     // which are separate from properties written through the global object.
-    state.ambientWrites.retain(["binding", identifier.name]);
+    const writes = state.ambientBindingWrites.get(identifier.name) ?? [];
+    writes.push(identifier);
+    state.ambientBindingWrites.set(identifier.name, writes);
     return;
   }
   binding.mutable = true;

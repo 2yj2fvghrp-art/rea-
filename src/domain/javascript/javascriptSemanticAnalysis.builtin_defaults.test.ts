@@ -2,6 +2,92 @@ import { expect, it } from "vitest";
 
 import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
 
+it("shares required process writes with globals while keeping earlier observations", () => {
+  const ir = analyzeJavaScriptSemantics(`const proc=require('process');
+    process.cwd(); const before=proc.env.BEFORE;
+    proc.env={}; const after=process.env.AFTER;`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["BEFORE"]);
+});
+
+it("does not propagate replacement-object writes from import-equals direct origins", () => {
+  const ir = analyzeJavaScriptSemantics(`import fs = require('fs');
+    const other=require('fs'); fs={}; fs.readFileSync=custom; other.readFileSync('kept');`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
+it("retains original import-equals aliases captured before reassignment", () => {
+  const ir = analyzeJavaScriptSemantics(`import fs = require('fs');
+    const alias=fs; const other=require('fs'); fs={}; alias.readFileSync=custom; other.readFileSync('wrong');`);
+  expect(ir.configurationOperations).toEqual([]);
+});
+
+it("keeps computed namespace calls as unknown receiver escapes", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `const fs=require('fs'); fs.hook=custom; fs[key](); fs.readFileSync('wrong');`,
+  );
+  expect(ir.configurationOperations).toEqual([]);
+});
+
+it.each(["(0, fs.readFileSync)", "(assigned = fs.readFileSync)"])(
+  "checks captured function validity through %s",
+  (value) => {
+    const ir = analyzeJavaScriptSemantics(`const fs=require('fs'); let assigned;
+    const saved=${value}; fs.readFileSync=custom; const late=${value}; saved('kept'); late('wrong');`);
+    expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+  },
+);
+
+it.each(['process.env={MODE:"local"};', "process.argv=[];", "patch(process);"])(
+  "shares unbound process object effects with required aliases: %s",
+  (write) => {
+    const ir =
+      analyzeJavaScriptSemantics(`${write} const proc=require('process');
+    ${write.includes("argv") ? "const arg=proc.argv[2];" : "const mode=proc.env.MODE;"}`);
+    expect(ir.configurationOperations).toEqual([]);
+  },
+);
+
+it.each([
+  "function local(process) {process.env={};}",
+  "process={}; process.env={};",
+])("keeps unrelated process replacements separate: %s", (write) => {
+  const ir = analyzeJavaScriptSemantics(
+    `${write} const proc=require('process'); const mode=proc.env.MODE;`,
+  );
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["MODE"]);
+});
+
+it("preserves exports captured before a later loader overwrite", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    const fs=require('node:fs'); fs.readFileSync('before');
+    const read=fs.readFileSync;
+    require('fs').readFileSync('direct-before');
+    require=replacement;
+    fs.readFileSync('after'); read('saved');
+    const late=require('fs'); late.readFileSync('wrong');
+    require('fs').readFileSync('also-wrong');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual([
+    "before",
+    "direct-before",
+    "after",
+    "saved",
+  ]);
+});
+
+it.each([
+  `for (;;) { require('fs').readFileSync('wrong'); require=replacement; }`,
+  `function run() { require('fs').readFileSync('wrong'); require=replacement; }`,
+  `require=replacement; const fs=require('fs'); fs.readFileSync('wrong'); require=again;`,
+])(
+  "keeps repeated or already replaced loader captures uncertain: %s",
+  (source) => {
+    expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
+      [],
+    );
+  },
+);
+
 it.each([
   ["fs.readFileSync = custom;", "other.readFileSync('wrong');"],
   ["other.readFileSync = custom;", "fs.readFileSync('wrong');"],

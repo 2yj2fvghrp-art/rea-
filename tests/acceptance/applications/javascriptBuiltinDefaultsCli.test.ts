@@ -58,6 +58,28 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
      const read = other.readFileSync; observe(read); read('escaped.json');
      fs.readFileSync = custom; other.readFileSync('wrong-import-equals.json');`,
   );
+  await writeFile(
+    join(root, "late-loader.cjs"),
+    `const fs=require('fs'); fs.readFileSync('loader-before.json');
+     require=replacement; fs.readFileSync('loader-after.json');
+     require('fs').readFileSync('wrong-late-loader.json');`,
+  );
+  await writeFile(
+    join(root, "replacement.ts"),
+    `import fs = require('fs'); const other=require('fs'); fs={}; fs.readFileSync=custom; other.readFileSync('replacement-kept.json');`,
+  );
+  await writeFile(
+    join(root, "dynamic.cjs"),
+    `const fs=require('fs'); fs.hook=custom; fs[key](); fs.readFileSync('wrong-dynamic.json');`,
+  );
+  await writeFile(
+    join(root, "wrapped.cjs"),
+    `const fs=require('fs'); let assigned; const saved=(0, fs.readFileSync); fs.readFileSync=custom; const late=(assigned=fs.readFileSync); saved('wrapped-kept.json'); late('wrong-wrapped.json');`,
+  );
+  await writeFile(
+    join(root, "global-process.cjs"),
+    `process.env={MODE:'local'}; const proc=require('process'); const mode=proc.env.MODE;`,
+  );
   const { stdout } = await execute(
     process.execPath,
     ["scripts/rea.mjs", "analyze-javascript-application", root, "--json"],
@@ -78,9 +100,13 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
     "direct.json",
     "escaped.json",
     "later.json",
+    "loader-after.json",
+    "loader-before.json",
+    "replacement-kept.json",
     "saved-destructured.json",
     "saved.json",
     "sibling.json",
+    "wrapped-kept.json",
   ]);
   expect(
     result.semantic_graph.nodes.filter(({ kind }) => kind === "resource"),

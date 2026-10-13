@@ -2,6 +2,7 @@ import * as t from "@babel/types";
 import {
   semanticRequireOrigin,
   semanticRequireExportsIdentity,
+  semanticGlobalProcessOrigin,
 } from "./javascriptSemanticRequireOrigin.js";
 
 import {
@@ -151,6 +152,14 @@ export function* collectSemanticMemberMutationsSteps(
           expression.name,
         );
         if (binding === undefined) {
+          const processOrigin = semanticGlobalProcessOrigin(expression, state);
+          if (processOrigin !== undefined)
+            recordRequiredEffect(
+              processOrigin.specifier,
+              current.path,
+              effect,
+              mutation,
+            );
           if (
             (expression.name === "Array" &&
               (current.path[0] === "prototype" || current.path[0] === null)) ||
@@ -291,7 +300,7 @@ export function* collectSemanticMemberMutationsSteps(
             ? binding
             : semanticMutationInitializers(binding, current.originAt, parents);
         if (!primitiveWrite) {
-          for (const origin of binding.directOrigins)
+          for (const origin of origins.directOrigins)
             if (origin.resolutionMode === "require")
               recordRequiredEffect(
                 origin.specifier,
