@@ -149,13 +149,13 @@ describe("packaged Windows native admission", () => {
   ])(
     "rejects digest-valid high-bit $signature lookalikes before loading",
     ({ offset }) => {
-    const value = fixture();
-    value.bytes[offset] = (value.bytes[offset] ?? 0) | 0x80;
-    value.manifest.artifactSha256 = createHash("sha256")
-      .update(value.bytes)
-      .digest("hex");
-    expect(loadWindowsNativeAuthority(value.host).available).toBe(false);
-    expect(value.loads()).toBe(0);
+      const value = fixture();
+      value.bytes[offset] = (value.bytes[offset] ?? 0) | 0x80;
+      value.manifest.artifactSha256 = createHash("sha256")
+        .update(value.bytes)
+        .digest("hex");
+      expect(loadWindowsNativeAuthority(value.host).available).toBe(false);
+      expect(value.loads()).toBe(0);
     },
   );
 
