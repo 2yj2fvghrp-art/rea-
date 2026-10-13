@@ -67,7 +67,7 @@ export const compareDimensions = (
           links: context.links,
           leftCount: null,
           rightCount: null,
-          limitations,
+          limitations: [...result.limitations, ...limitations],
         });
   });
 };

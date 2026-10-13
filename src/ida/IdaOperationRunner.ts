@@ -69,6 +69,9 @@ const identity = (fn: IdaFunction) => ({
 interface IdaRelationships {
   readonly items: ReturnType<typeof identity>[];
   readonly coverage: RelationshipCoverage;
+  readonly availability:
+    | { readonly available: true }
+    | { readonly available: false; readonly reason: string };
 }
 
 /** The only lookup answers upstream reports for a name or address that is not a function. */
@@ -413,7 +416,14 @@ export class IdaOperationRunner {
     };
     if (this.readsCallGraph(direction)) {
       coverage = await this.addCallGraphCallees(fn, result);
-      return { items: [...result.values()], coverage };
+      return {
+        items: [...result.values()],
+        coverage,
+        availability:
+          coverage.status === "unknown"
+            ? { available: false, reason: coverage.reason }
+            : { available: true },
+      };
     }
     if (this.protocol === "legacy") {
       const value = await this.call(
@@ -435,6 +445,10 @@ export class IdaOperationRunner {
       );
       return {
         items: [],
+        availability: {
+          available: false,
+          reason: "Upstream xrefs do not establish direct caller relationships.",
+        },
         coverage: {
           status: "unknown",
           reason:
@@ -499,7 +513,11 @@ export class IdaOperationRunner {
         result.set(resolved.address, resolved);
       }
     }
-    return { items: [...result.values()], coverage };
+    return {
+      items: [...result.values()],
+      coverage,
+      availability: { available: true },
+    };
   }
 
   async run(
@@ -638,14 +656,8 @@ export class IdaOperationRunner {
           available: false,
           reason: "IDA adapter does not expose typed comments.",
         },
-        callers:
-          this.protocol === "modern"
-            ? {
-                available: false,
-                reason: "Modern IDA profile does not prove direct callers.",
-              }
-            : { available: true },
-        callees: { available: true },
+        callers: callers.availability,
+        callees: callees.availability,
         references: {
           available: false,
           reason: "IDA adapter does not expose typed reference edges.",

@@ -129,6 +129,24 @@ const observe = (
   );
 
 describe("function comparison normalized identity", () => {
+  it("retains unresolved call details alongside missing facet coverage", () => {
+    const value: Record<string, unknown> = {
+      ...dossier("return 0;", "0x1000"),
+      unresolved_calls: [{ address: "0x1010", reason: "Unknown indirect target" }],
+    };
+    delete value.facet_availability;
+    const legacy = observe("a", functionDossierSchema.parse(value), "ida");
+    const calls = compareFunctions(legacy, legacy).dimensions.find(
+      ({ dimension }) => dimension === "calls",
+    );
+    expect(calls).toMatchObject({
+      status: "unknown",
+      limitations: expect.arrayContaining([
+        "Left: Unresolved call at 0x1010: Unknown indirect target",
+        "Left: callers: Provider did not declare coverage for this empty facet.",
+      ]),
+    });
+  });
   it("keeps empty legacy facets without coverage declarations unknown", () => {
     const value: Record<string, unknown> = {
       ...dossier("return 0;", "0x1000"),
@@ -183,6 +201,34 @@ describe("function comparison normalized identity", () => {
       }).success,
     ).toBe(false);
   });
+  it("keeps differing generated names ambiguous and stable names mismatched", () => {
+    const named = (base: "0x1000" | "0x2000", name: string) =>
+      functionDossierSchema.parse({
+        ...dossier("return 0;", base),
+        procedure: {
+          ...procedure(base, name),
+          signature: "int helper(void)",
+          locals: [],
+        },
+      });
+    const generated = compareFunctions(
+      observe("1", named("0x1000", "sub_1000")),
+      observe("2", named("0x2000", "sub_2000")),
+    );
+    expect(generated.function_match.status).toBe("ambiguous");
+    expect(generated.status).toBe("unknown");
+    expect(
+      generated.dimensions.find(({ dimension }) => dimension === "identity"),
+    ).toMatchObject({ status: "unknown" });
+
+    const stable = compareFunctions(
+      observe("3", named("0x1000", "firstFunction")),
+      observe("4", named("0x2000", "secondFunction")),
+    );
+    expect(stable.function_match.status).toBe("mismatched");
+    expect(stable.status).toBe("changed");
+  });
+
   it.each(["sub_deallocate", "sub_deadbeef_handler", "fcn.dispatch"])(
     "recognizes the explicit symbol %s without a generated-name prefix false positive",
     (name) => {
