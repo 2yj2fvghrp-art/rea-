@@ -1104,7 +1104,9 @@ export class GdbSessionManager {
       const newline = data.indexOf("\n", offset);
       const piece = data.slice(offset, newline < 0 ? data.length : newline);
       session.bufferBytes += Buffer.byteLength(piece, "utf8");
-      if (session.bufferBytes > MAX_MI_LINE_BYTES) {
+      const lineBytes =
+        session.bufferBytes - (newline >= 0 && piece.endsWith("\r") ? 1 : 0);
+      if (lineBytes > MAX_MI_LINE_BYTES) {
         this.#failProtocol(
           session,
           "GDB emitted an MI line exceeding the 16 MiB protocol limit.",
