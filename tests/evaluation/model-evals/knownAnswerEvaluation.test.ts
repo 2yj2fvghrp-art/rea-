@@ -308,6 +308,40 @@ describe("managed member grounding", () => {
     ).toBe("failed");
   });
 
+  it("rejects distinct authenticated matching artifact deliveries", () => {
+    const fixture = managedTranscript();
+    const secondArtifact = fixture.evidenceFor(
+      "inspect_managed_artifact",
+      fixture.artifact,
+      { parameters: { path: "/targets/AgentEval.dll" } },
+    );
+    expect(secondArtifact.evidence_id).not.toBe(
+      fixture.artifactEvidence.evidence_id,
+    );
+    const member = delivered(fixture.memberEvidence);
+    expect(
+      fixture.grade([delivered(secondArtifact), member]).factualCorrectness,
+    ).toBe("passed");
+    expect(
+      fixture.grade([
+        delivered(fixture.artifactEvidence),
+        delivered(secondArtifact),
+        member,
+      ]).factualCorrectness,
+    ).toBe("failed");
+  });
+
+  it("accepts identical repeated artifact deliveries", () => {
+    const fixture = managedTranscript();
+    expect(
+      fixture.grade([
+        delivered(fixture.artifactEvidence),
+        delivered(fixture.artifactEvidence),
+        delivered(fixture.memberEvidence),
+      ]).factualCorrectness,
+    ).toBe("passed");
+  });
+
   it("requires companion delivery and rejects conflicting or failed artifact deliveries", () => {
     const fixture = managedTranscript();
     const member = delivered(fixture.memberEvidence);
