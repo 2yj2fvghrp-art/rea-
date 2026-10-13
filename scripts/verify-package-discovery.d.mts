@@ -24,6 +24,7 @@ export function packageSetupSupport(
   host: SetupHostFacts,
 ): {
   supportedSetupHost: boolean;
+  hopperReadinessRequired: boolean;
   hopperSetupSupported: boolean | undefined;
 };
 

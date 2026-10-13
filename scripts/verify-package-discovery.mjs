@@ -40,8 +40,12 @@ const REQUIRED_LLM_TOPICS = [
 export function packageSetupSupport(checks, host) {
   const supportedSetupHost =
     checks?.find(({ name }) => name === "node")?.ok === true;
+  const hopperReadinessRequired =
+    host.platform !== "win32" &&
+    checks?.find(({ name }) => name === "host")?.ok === true;
   return {
     supportedSetupHost,
+    hopperReadinessRequired,
     hopperSetupSupported: hopperInstallerSupported(
       host,
       checks?.find(({ name }) => name === "host")?.ok,
@@ -85,13 +89,11 @@ export async function verifyPackageDiscovery({ cli, environment }) {
     environment,
   );
   const doctor = json(doctorExecution.stdout);
-  const { supportedSetupHost, hopperSetupSupported } = packageSetupSupport(
-    doctor.checks,
-    {
+  const { supportedSetupHost, hopperReadinessRequired, hopperSetupSupported } =
+    packageSetupSupport(doctor.checks, {
       platform: process.platform,
       linuxDistribution: await readHostLinuxDistribution(),
-    },
-  );
+    });
   const hopperReady = doctor.checks?.find(({ name }) => name === "hopper")?.ok;
   const expectedDoctorHealth = doctor.checks?.every(({ ok }) => ok) === true;
   const missingHelp = REQUIRED_HELP_COMMANDS.filter(
@@ -105,7 +107,7 @@ export async function verifyPackageDiscovery({ cli, environment }) {
     missingLlms.length !== 0 ||
     doctor.healthy !== expectedDoctorHealth ||
     doctorExecution.status !== (expectedDoctorHealth ? 0 : 1) ||
-    (hopperSetupSupported === true && hopperReady !== true)
+    (hopperReadinessRequired && hopperReady !== true)
   )
     throw new Error(
       `packaged CLI discovery or doctor failed: ${JSON.stringify({ helpSetup: help.includes("setup"), llmsDecompile: llms.includes("decompile"), doctor })}`,

@@ -28,7 +28,11 @@ describe("packaged setup support derivation", () => {
         platform: "linux",
         linuxDistribution: KALI,
       }),
-    ).toEqual({ supportedSetupHost: true, hopperSetupSupported: false });
+    ).toEqual({
+      supportedSetupHost: true,
+      hopperReadinessRequired: true,
+      hopperSetupSupported: false,
+    });
   });
 
   it("follows the distribution's own applicability, not host readiness", () => {
@@ -36,8 +40,12 @@ describe("packaged setup support derivation", () => {
       packageSetupSupport(checks({ host: false }), {
         platform: "linux",
         linuxDistribution: UBUNTU_24,
-      }).hopperSetupSupported,
-    ).toBe(true);
+      }),
+    ).toEqual({
+      supportedSetupHost: true,
+      hopperReadinessRequired: false,
+      hopperSetupSupported: true,
+    });
   });
 
   it("keeps unreadable Linux applicability unknown", () => {
@@ -69,6 +77,10 @@ describe("packaged setup support derivation", () => {
         platform: "linux",
         linuxDistribution: UBUNTU_24,
       }),
-    ).toEqual({ supportedSetupHost: false, hopperSetupSupported: true });
+    ).toEqual({
+      supportedSetupHost: false,
+      hopperReadinessRequired: true,
+      hopperSetupSupported: true,
+    });
   });
 });
