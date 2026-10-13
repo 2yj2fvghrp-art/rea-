@@ -31,10 +31,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "function first(this: void, value: number) { return value; }",
         "function rest(this: void, ...values: number[]) { return values; }",
         "function destructured({ left }: { left: number }, right: number) { return left + right; }",
+        "function mixed(this: void, head: number, ...tail: number[]) { return [head, ...tail]; }",
         "const a = first(7);",
         "const b = rest(1, 2);",
         "const c = destructured({ left: 3 }, 4);",
-        "console.log(JSON.stringify([a, b, c, first.length, rest.length]));",
+        "const d = mixed(9, 10, 11);",
+        "console.log(JSON.stringify([a, b, c, d, first.length, rest.length, mixed.length]));",
       ].join("\n"),
     });
     const control = await processes.run(
@@ -43,7 +45,15 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       { timeoutMs: 15_000 },
     );
     expect(control.exitCode, control.stderr).toBe(0);
-    expect(JSON.parse(control.stdout)).toEqual([7, [1, 2], 7, 1, 0]);
+    expect(JSON.parse(control.stdout)).toEqual([
+      7,
+      [1, 2],
+      7,
+      [9, 10, 11],
+      1,
+      0,
+      1,
+    ]);
     const analysis = await analyzeJavaScriptDirectory(surface, cli, root);
     const graph = analysis.semantic_graph;
     const parameters = graph.nodes.filter(
@@ -51,8 +61,10 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         node.kind === "parameter" && node.identity.module_path === "entry.mts",
     );
     expect(parameters.map((node) => node.label).sort()).toEqual([
+      "head",
       "left",
       "right",
+      "tail",
       "value",
       "values",
     ]);
@@ -64,13 +76,34 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     );
     expect(
       flows
-        .map(
-          (flow) =>
-            graph.nodes.find((node) => node.node_id === flow.target_node_id)
-              ?.label,
-        )
+        .map((flow) => {
+          const source = graph.nodes.find(
+            (node) => node.node_id === flow.source_node_id,
+          );
+          const target = parameters.find(
+            (node) => node.node_id === flow.target_node_id,
+          );
+          const owner = graph.nodes.find(
+            (node) => node.node_id === target?.function_node_id,
+          );
+          return [
+            source?.identity.source_range?.start.line,
+            source?.label,
+            owner?.label,
+            target?.label,
+          ];
+        })
         .sort(),
-    ).toEqual(["left", "right", "value", "values", "values"]);
+    ).toEqual([
+      [5, "argument 0", "first", "value"],
+      [6, "argument 0", "rest", "values"],
+      [6, "argument 1", "rest", "values"],
+      [7, "argument 0", "destructured", "left"],
+      [7, "argument 1", "destructured", "right"],
+      [8, "argument 0", "mixed", "head"],
+      [8, "argument 1", "mixed", "tail"],
+      [8, "argument 2", "mixed", "tail"],
+    ]);
     expect(
       analysis.graph.nodes
         .flatMap((node) => node.observations)
@@ -92,6 +125,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["first", 1],
       ["rest", 1],
       ["destructured", 2],
+      ["mixed", 2],
     ] as const) {
       const callable = graph.nodes.find(
         (node) => node.kind === "function" && node.label === name,
