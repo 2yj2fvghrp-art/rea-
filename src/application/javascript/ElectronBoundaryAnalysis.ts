@@ -102,10 +102,12 @@ export const summarizeElectronBoundaries = (
     })),
   );
   const nativeBindings = analysis.files.flatMap(({ file, javascript: value }) =>
-    (value?.electron.native_addon_bindings ?? []).map((finding) => ({
-      file,
-      finding,
-    })),
+    (value?.electron.native_addon_bindings ?? [])
+      .filter((finding) => finding.type_only !== true)
+      .map((finding) => ({
+        file,
+        finding,
+      })),
   );
   const ipc = collectElectronIpcRecords(analysis);
   const pairing = classifyElectronIpcPairings(ipc);
