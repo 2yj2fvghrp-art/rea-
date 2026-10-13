@@ -83,20 +83,27 @@ it("preserves directional gaps through advertised schemas and public path recons
         goal: { address: "0x9999" },
       };
       expect(validate(input), JSON.stringify(validate.errors)).toBe(true);
-      expect(
-        validate({
-          ...input,
-          functions: [
-            {
-              ...observation,
-              relationship_coverage: {
-                ...coverage,
-                limited_directions: ["callers", "callers"],
+      for (const limited_directions of [
+        [],
+        ["callers", "callers"],
+        ["callees", "callees"],
+        ["callers", "callees", "callers"],
+        ["incoming"],
+      ])
+        expect(
+          validate({
+            ...input,
+            functions: [
+              {
+                ...observation,
+                relationship_coverage: {
+                  ...coverage,
+                  limited_directions,
+                },
               },
-            },
-          ],
-        }),
-      ).toBe(false);
+            ],
+          }),
+        ).toBe(false);
       const result = await client.callTool({
         name: "build_call_path",
         arguments: input,
