@@ -25,6 +25,20 @@ const execute = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "rea-mips-boundaries-"));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const cli = fileURLToPath(new URL("./rea.mjs", import.meta.url));
+// Only declared tool prerequisites and resource settings reach REA children.
+// Ambient REA seeds, analyzer controls and session settings cannot alter controls.
+const env = {
+  PATH: process.env.PATH ?? "/usr/bin:/bin",
+  TMPDIR: root,
+  REA_ANALYSIS_PROVIDER: "ghidra",
+  REA_LOG_LEVEL: "silent",
+  GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR,
+  JAVA_HOME: process.env.JAVA_HOME,
+  HOPPER_LAUNCHER_PATH: "/rea-unconfigured-deep-provider/hopper",
+};
+for (const setting of ["GHIDRA_HEADLESS_MAXMEM", "GHIDRA_MAXMEM"]) {
+  if (process.env[setting] !== undefined) env[setting] = process.env[setting];
+}
 const reports = [];
 try {
   for (const byteOrder of ["little", "big"]) {
@@ -67,12 +81,7 @@ try {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [cli, "mcp"],
-      env: {
-        ...process.env,
-        REA_ANALYSIS_PROVIDER: "ghidra",
-        REA_LOG_LEVEL: "silent",
-        TMPDIR: root,
-      },
+      env,
       stderr: "inherit",
     });
     const client = new Client({ name: "rea-mips-boundaries", version: "1" });
@@ -104,7 +113,7 @@ try {
               "--full-output",
               "--json",
             ],
-            { env: process.env, timeout: 240_000 },
+            { env, timeout: 240_000 },
           );
           assert.fail("CLI admitted an unsupported MIPS declaration");
         } catch (cause) {
