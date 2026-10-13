@@ -1,5 +1,8 @@
 import { isMap, isSeq, type Node, type YAMLMap } from "yaml";
-import { parseEnvironment } from "../config/environment.js";
+import {
+  parseEnvironment,
+  parseEnvironmentValues,
+} from "../config/environment.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { ClientConfigurationDocument } from "./ClientConfigurationDocument.js";
@@ -180,6 +183,7 @@ export class DshCordisDocument {
   /** Validate literals without treating expression source as an environment value. */
   environment(
     overrides: Readonly<Record<string, string>> = {},
+    validation: "fragment" | "effective" = "effective",
   ): Result<Readonly<Record<string, string>>, ConfigurationError> {
     const config = this.#field("config");
     if (config instanceof CordisExpression)
@@ -235,7 +239,10 @@ export class DshCordisDocument {
       literals[key] = value;
     }
     const environment = { ...literals, ...overrides };
-    const validated = parseEnvironment(environment, unresolvedSettings);
+    const validated =
+      validation === "fragment"
+        ? parseEnvironmentValues(environment)
+        : parseEnvironment(environment, unresolvedSettings);
     return validated.ok ? ok(environment) : validated;
   }
 

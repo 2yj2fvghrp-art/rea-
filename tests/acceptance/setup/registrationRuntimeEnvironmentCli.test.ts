@@ -1,11 +1,12 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { expect } from "vitest";
 import { stringify } from "yaml";
 
 import {
   effectiveClientServer,
   parseClientConfiguration,
+  clientRegistrationEntry,
 } from "../../../src/application/ClientConfigurationDocument.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
@@ -145,3 +146,90 @@ for (const scenario of scenarios)
       expect(await readFile(config, "utf8")).toBe(text);
     },
   );
+
+cliTest(
+  "OpenCode CLI validates dependent settings after merging JSON and JSONC",
+  async ({ cli }) => {
+    const home = await createTestTempDirectory("rea-layered-runtime-cli-");
+    const directory = join(home, ".config/opencode");
+    await mkdir(directory, { recursive: true });
+    const lower = join(directory, "opencode.json");
+    const upper = join(directory, "opencode.jsonc");
+    const content = (env: Record<string, string>) =>
+      JSON.stringify({
+        mcp: {
+          rea: clientRegistrationEntry(
+            "opencode",
+            [resolve("scripts/rea.mjs"), "mcp"],
+            env,
+          ),
+        },
+      });
+    const lowerContent = content({
+      REA_GHIDRA_LANGUAGE_ID: "x86:LE:32:default",
+    });
+    const upperContent = content({ REA_GHIDRA_COMPILER_SPEC_ID: "borlandcpp" });
+    await writeFile(lower, lowerContent);
+    await writeFile(upper, upperContent);
+    const environment = {
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+    };
+    const run = (args: readonly string[]) =>
+      cli.run({ arguments: [...args, "--json"], cwd: home, environment });
+    const setup = await run([
+      "setup",
+      "--client",
+      "opencode",
+      "--skill=false",
+      "--yes",
+    ]);
+    expect(setup.exitCode, setup.stdout).toBe(0);
+    expect(setup.json).toMatchObject({
+      status: "ready",
+      plannedActions: [],
+      appliedActions: [],
+    });
+    const doctor = await run(["doctor", "--client", "opencode"]);
+    expect(doctor.exitCode, doctor.stdout).toBe(0);
+    expect(doctor.json).toMatchObject({
+      identity: {
+        registrations: expect.arrayContaining([
+          expect.objectContaining({ client: "opencode", state: "aligned" }),
+        ]),
+      },
+    });
+    expect(await readFile(lower, "utf8")).toBe(lowerContent);
+    expect(await readFile(upper, "utf8")).toBe(upperContent);
+    await writeFile(lower, content({ CALLER_SETTING: "retained" }));
+    const missing = await run([
+      "setup",
+      "--client",
+      "opencode",
+      "--skill=false",
+      "--yes",
+    ]);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.json).toMatchObject({
+      status: "needs_human",
+      plannedActions: [],
+      appliedActions: [],
+      remediation: expect.stringContaining("REA_GHIDRA_COMPILER_SPEC_ID"),
+    });
+    const invalidDoctor = await run(["doctor", "--client", "opencode"]);
+    expect(invalidDoctor.exitCode).toBe(1);
+    expect(invalidDoctor.json).toMatchObject({
+      identity: {
+        registrations: expect.arrayContaining([
+          expect.objectContaining({ client: "opencode", state: "invalid" }),
+        ]),
+      },
+    });
+    expect(await readFile(upper, "utf8")).toBe(upperContent);
+    for (const path of [lower, upper])
+      await expect(access(`${path}.rea.backup`)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+  },
+);

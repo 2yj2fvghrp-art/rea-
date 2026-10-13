@@ -79,11 +79,9 @@ type Environment = Omit<
   readonly referenceSecretPatterns: readonly string[];
 };
 
-/** Parse runtime semantics without probing the host or persisting defaults. */
-export const parseEnvironment = (
+/** Parse individual settings before layered registration fragments are merged. */
+export const parseEnvironmentValues = (
   environment: Readonly<Record<string, string | undefined>>,
-  // Registration expressions are not evaluated; their absence is not proven.
-  unresolvedSettings: ReadonlySet<string> = new Set(),
 ): Result<Environment, ConfigurationError> => {
   const parsed = environmentSchema.safeParse(environment);
   if (!parsed.success) {
@@ -111,6 +109,22 @@ export const parseEnvironment = (
     "REA_REFERENCE_SECRET_PATTERNS_JSON",
   );
   if (!secretPatterns.ok) return secretPatterns;
+  return ok({
+    ...env,
+    loaderArgs: loaderArgs.value,
+    referenceSecretPatterns: secretPatterns.value,
+  });
+};
+
+/** Validate complete runtime semantics without probing the host or persisting defaults. */
+export const parseEnvironment = (
+  environment: Readonly<Record<string, string | undefined>>,
+  // Registration expressions are not evaluated; their absence is not proven.
+  unresolvedSettings: ReadonlySet<string> = new Set(),
+): Result<Environment, ConfigurationError> => {
+  const parsed = parseEnvironmentValues(environment);
+  if (!parsed.ok) return parsed;
+  const env = parsed.value;
   // Ghidra's analyzeHeadless accepts -cspec only together with -processor.
   if (
     env.REA_GHIDRA_COMPILER_SPEC_ID !== undefined &&
@@ -127,9 +141,5 @@ export const parseEnvironment = (
         ],
       }),
     );
-  return ok({
-    ...env,
-    loaderArgs: loaderArgs.value,
-    referenceSecretPatterns: secretPatterns.value,
-  });
+  return parsed;
 };
