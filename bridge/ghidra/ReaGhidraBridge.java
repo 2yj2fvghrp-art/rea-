@@ -3759,18 +3759,21 @@ public final class ReaGhidraBridge extends HeadlessScript {
      */
     private SwiftSelectProvenance swiftSelectProvenance(Function function, SwiftLiteralBudget budget) {
         // Flow edges can outnumber instructions (jump tables sharing many targets), so both are
-        // counted, without retaining either, and charged before the analysis allocates.
-        long count = 0;
-        long edges = 0;
+        // counted without collecting either, stopping as soon as the charge cannot fit, and
+        // charged before the analysis allocates.
+        long charge = 0;
         for (Instruction instruction : currentProgram.getListing().getInstructions(function.getBody(), true)) {
-            count++;
-            edges += predecessors(function, instruction).size();
+            charge += SwiftSelectProvenance.BYTES_PER_INSTRUCTION;
+            if (!budget.fits(charge)) return SwiftSelectProvenance.UNAVAILABLE;
+            if (instruction.getFallFrom() != null) charge += SwiftSelectProvenance.BYTES_PER_EDGE;
+            for (Reference reference : currentProgram.getReferenceManager().getReferencesTo(instruction.getAddress())) {
+                if (!reference.getReferenceType().isFlow() || reference.getReferenceType().isCall()) continue;
+                if (!function.getBody().contains(reference.getFromAddress())) continue;
+                charge += SwiftSelectProvenance.BYTES_PER_EDGE;
+                if (!budget.fits(charge)) return SwiftSelectProvenance.UNAVAILABLE;
+            }
         }
-        if (!budget.takeBytes(
-            count * SwiftSelectProvenance.BYTES_PER_INSTRUCTION + edges * SwiftSelectProvenance.BYTES_PER_EDGE
-        )) {
-            return SwiftSelectProvenance.UNAVAILABLE;
-        }
+        if (!budget.takeBytes(charge)) return SwiftSelectProvenance.UNAVAILABLE;
         List<Instruction> instructions = new ArrayList<>();
         currentProgram.getListing().getInstructions(function.getBody(), true).forEach(instructions::add);
         Map<Address, Integer> indexes = new HashMap<>();
@@ -3947,6 +3950,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
             }
             remaining -= BYTES_PER_RECORD + bytes * BYTES_PER_LITERAL_BYTE;
             return true;
+        }
+
+        boolean fits(long bytes) {
+            return bytes <= remaining;
         }
 
         boolean takeBytes(long bytes) {
