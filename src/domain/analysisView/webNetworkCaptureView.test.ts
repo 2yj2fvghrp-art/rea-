@@ -322,3 +322,19 @@ it.each([
   if (format === "har")
     expect(JSON.stringify(item?.reported)).not.toContain("status_code");
 });
+
+it.each(["scheme", "host", "port", "authority"])(
+  "keeps a userinfo-bearing mitmproxy %s out of the preview",
+  (field) => {
+    const preview = nativePreview("mitmproxy", {
+      method: "GET",
+      path: "/users/42",
+      [field]: "user:password@example.test",
+    });
+    const reported = preview.items[0]?.reported;
+    expect(reported).toMatchObject({
+      request: { method: "GET", path: "/users/42" },
+    });
+    expect(JSON.stringify(reported)).not.toContain("password");
+  },
+);

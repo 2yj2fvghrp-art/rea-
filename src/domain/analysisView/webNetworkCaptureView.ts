@@ -77,7 +77,9 @@ const HEADLINE_FIELDS = [
 // bounded scalars, and the path only in origin or asterisk form with no
 // credentials under the recorded transport-URL interpretation: an absolute,
 // authority-bearing or ambiguous spelling may carry userinfo the native
-// redaction does not recognise. Excluded values stay in complete record pages.
+// redaction does not recognise. Other target strings are never previewed with
+// a userinfo marker, because only path and authority receive native redaction.
+// Excluded values stay in complete record pages.
 const MITMPROXY_HEADLINE_FIELDS = [
   "scheme",
   "host",
@@ -97,7 +99,7 @@ const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
       (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
       parseRecordedTransportUrl(value).credentials === null
     );
-  return field !== "authority" || !String(value).includes("@");
+  return typeof value !== "string" || !value.includes("@");
 };
 
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
