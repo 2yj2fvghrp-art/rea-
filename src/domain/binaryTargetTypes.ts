@@ -1,3 +1,5 @@
+import type { ZipPackageFormat } from "./zipPackageFormat.js";
+
 /** Provider-neutral CPU families detected from supported executable headers. */
 export const BINARY_ARCHITECTURES = [
   "x86",
@@ -143,7 +145,13 @@ export type BinaryTarget =
       readonly managed?: never;
     })
   | (ExecutableTarget & {
-      readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
+      readonly format: "elf" | "dos-mz" | "dos-com";
+      readonly universalSlice?: never;
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
+  | (ExecutableTarget & {
+      readonly format: "mach-o";
       readonly universalSlice?: never;
       readonly executableRole?: never;
       readonly managed?: never;
@@ -184,18 +192,7 @@ export type BinaryTarget =
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {
         readonly kind: "archive";
-        readonly format:
-          | "zip"
-          | "ipa"
-          | "apk"
-          | "msix"
-          | "appx"
-          | "hap"
-          | "hsp"
-          | "app-pack"
-          | "asar"
-          | "dmg"
-          | "pkg";
+        readonly format: ZipPackageFormat | "asar" | "dmg" | "pkg";
       })
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {

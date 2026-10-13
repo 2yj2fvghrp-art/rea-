@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { constants, type Stats } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import { constants, type Dir, type Stats } from "node:fs";
+import { open, opendir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 
@@ -95,6 +95,8 @@ const readUuidRegion = async (
 ): Promise<Result<Buffer, string>> => {
   throwIfCancelled(signal);
   const probeLength = Math.min(length, HEADER_READ_LIMIT);
+  if (probeLength > TRAVERSAL_BUDGET_BYTES - ledger.spent)
+    return err("the Mach-O traversal exceeds the supported aggregate budget");
   const probe = Buffer.alloc(probeLength);
   const observed = await handle.read(probe, 0, probe.length, offset);
   const probed = probe.subarray(0, observed.bytesRead);
@@ -108,12 +110,11 @@ const readUuidRegion = async (
       "the Mach-O declared load-command span exceeds the supported budget",
     );
   if (needed <= probed.length || needed > length) return ok(probed);
+  if (needed > TRAVERSAL_BUDGET_BYTES - ledger.spent)
+    return err("the Mach-O traversal exceeds the supported aggregate budget");
   const full = Buffer.alloc(needed);
   const reread = await handle.read(full, 0, full.length, offset);
-  const extended = chargeTraversal(
-    ledger,
-    reread.bytesRead - observed.bytesRead,
-  );
+  const extended = chargeTraversal(ledger, reread.bytesRead);
   if (!extended.ok) return extended;
   return ok(full.subarray(0, reread.bytesRead));
 };
@@ -274,36 +275,43 @@ export const admitDebugCompanion = async (input: {
       reason: `dsym_path is not a .dSYM bundle directory: ${dsymPath}`,
     });
   const dwarfDirectory = join(dsymPath, DSYM_DWARF_DIRECTORY);
-  let names: string[];
+  let directory: Dir;
   try {
-    names = await readdir(dwarfDirectory);
+    directory = await opendir(dwarfDirectory, {
+      bufferSize: MEMBER_COUNT_LIMIT + 1,
+    });
   } catch {
     return err({
       reason: `dsym_path has no Contents/Resources/DWARF member directory: ${dsymPath}`,
     });
   }
   const memberPaths: string[] = [];
-  for (const name of names) {
+  let examinedEntries = 0;
+  for await (const entry of directory) {
     throwIfCancelled(signal);
-    const memberPath = join(dwarfDirectory, name);
+    examinedEntries += 1;
+    if (examinedEntries > MEMBER_COUNT_LIMIT)
+      return err({
+        reason: `dsym_path contains more than ${String(MEMBER_COUNT_LIMIT)} DWARF directory entries`,
+      });
+    const memberPath = join(dwarfDirectory, entry.name);
     const memberStat = await stat(memberPath).catch(() => undefined);
     if (memberStat?.isFile() !== true) continue;
     memberPaths.push(memberPath);
-    // Reject as soon as the directory exceeds the supported member budget
-    // instead of walking a large directory to the end.
-    if (memberPaths.length > MEMBER_COUNT_LIMIT)
-      return err({
-        reason: `dsym_path contains more than ${String(MEMBER_COUNT_LIMIT)} DWARF member files`,
-      });
   }
   if (memberPaths.length === 0)
     return err({
       reason: `dsym_path contains no DWARF member file: ${dsymPath}`,
     });
+  const ledger: TraversalLedger = { spent: 0 };
+  const traversalOptions = {
+    ledger,
+    ...(signal === undefined ? {} : { signal }),
+  };
   const targetEntries = await readMachoFileUuidEntries(
     input.targetHandle,
     input.targetSize,
-    signal === undefined ? {} : { signal },
+    traversalOptions,
   );
   if (!targetEntries.ok) return err({ reason: targetEntries.error });
   // Mirror the target parser's FAT selection: the first slice of each CPU
@@ -339,7 +347,7 @@ export const admitDebugCompanion = async (input: {
       const memberEntries = await readMachoFileUuidEntries(
         memberHandle,
         initial.size,
-        signal === undefined ? {} : { signal },
+        traversalOptions,
       );
       if (!memberEntries.ok) continue;
       const matched = debugCompanionMatches({

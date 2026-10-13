@@ -61,6 +61,8 @@ flow.
   located dSYM belongs to the imported image.
 - Only the DWARF member that carries the matching UUID is staged; source file
   contents referenced by DWARF are not resolved.
+- Ghidra rejects targets with more than one available architecture. Thin a
+  multi-architecture executable to the desired slice before analysis.
 - The selected architecture slice of a universal target must be covered by a
   matching member UUID in the bundle; per-slice selection inside the bundle is
   not exposed.
