@@ -63,6 +63,12 @@ import {
 } from "./webNetworkCaptureView.js";
 import type { WebNetworkApiSurfaceAccumulator } from "./WebNetworkApiSurfaceAccumulator.js";
 import {
+  pcapViewRequestSchema,
+  pcapViewPageSchema,
+  pcapSummarySchema,
+  projectPcapCaptureView,
+} from "./pcapCaptureView.js";
+import {
   qlogViewRequestSchema,
   qlogViewPageSchema,
   qlogViewContextSchema,
@@ -190,6 +196,7 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   apiSurfaceViewSchema,
   captureViewRequestSchema,
   qlogViewRequestSchema,
+  pcapViewRequestSchema,
 ]);
 
 // The application owns admission and authenticated Evidence parsing. SDK and
@@ -305,6 +312,7 @@ const viewResultBase = {
     "inspect_managed_artifact",
     "inspect_web_network_capture",
     "inspect_android_package",
+    "inspect_pcap_capture",
   ]),
   parent_digest: digestSchema,
   view_digest: digestSchema,
@@ -376,6 +384,12 @@ export const androidPackageSummaryViewResultSchema = z.strictObject({
   summary: androidPackageSummarySchema,
 });
 
+export const pcapCaptureSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_pcap_capture"),
+  summary: pcapSummarySchema,
+});
+
 /** Projected facts for one selected view of retained analysis Evidence. */
 export const analysisViewResultSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -400,6 +414,7 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
       managedSummarySchema,
       captureSummarySchema,
       androidPackageSummarySchema,
+      pcapSummarySchema,
     ]),
   }),
   z.strictObject({
@@ -416,6 +431,14 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     context: qlogViewContextSchema,
     ...viewResultBase,
     parent_operation: z.literal("inspect_web_network_capture"),
+  }),
+  z.strictObject({
+    kind: z.literal("pcap"),
+    view: pcapViewRequestSchema,
+    page: pcapViewPageSchema,
+    source_coverage: z.enum(["complete", "partial"]),
+    ...viewResultBase,
+    parent_operation: z.literal("inspect_pcap_capture"),
   }),
   z.strictObject({
     kind: z.literal("facet"),
@@ -538,6 +561,7 @@ export type UnsignedAnalysisView =
   | Omit<Extract<AnalysisViewResult, { readonly kind: "wasm" }>, "view_digest">
   | Omit<Extract<AnalysisViewResult, { readonly kind: "evm" }>, "view_digest">
   | Omit<Extract<AnalysisViewResult, { readonly kind: "qlog" }>, "view_digest">
+  | Omit<Extract<AnalysisViewResult, { readonly kind: "pcap" }>, "view_digest">
   | Omit<
       Extract<AnalysisViewResult, { readonly kind: "capture" }>,
       "view_digest"
@@ -655,6 +679,10 @@ export const projectAnalysisView = (
   }
   if (parent.operation === "inspect_web_network_capture") {
     const projected = projectWebNetworkCaptureView(parent, view);
+    return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
+  }
+  if (parent.operation === "inspect_pcap_capture") {
+    const projected = projectPcapCaptureView(parent, view);
     return projected.ok ? ok(sealAnalysisView(projected.value)) : projected;
   }
   if (parent.operation === "inspect_binary_layout") {
