@@ -167,7 +167,9 @@ const indexStaticPaths = (
       node.node_id,
       uniqueSorted([
         ...nodePaths(node),
-        ...(relatedBySource.get(node.node_id) ?? []).flatMap(nodePaths),
+        ...(usesApplicationFileDeclaration(node)
+          ? []
+          : (relatedBySource.get(node.node_id) ?? []).flatMap(nodePaths)),
       ]),
     ]),
   );
@@ -178,9 +180,14 @@ const nodePaths = (node: ApplicationNode): string[] => {
   if (node.identity.strategy === "canonical-path")
     paths.push(node.identity.path);
   for (const observation of node.observations) {
-    for (const property of ["path", "resolved_path"])
-      if (typeof observation.properties[property] === "string")
-        paths.push(observation.properties[property]);
+    const rawApplicationFile =
+      node.kind === "electron-renderer" &&
+      isRawApplicationFileObservation(observation);
+    if (typeof observation.properties.path === "string")
+      paths.push(observation.properties.path);
+    if (rawApplicationFile) continue;
+    if (typeof observation.properties.resolved_path === "string")
+      paths.push(observation.properties.resolved_path);
     const declaration = observation.properties.declared_path;
     if (
       !hasOwnedArtifactPath(node) &&
@@ -202,26 +209,47 @@ const nodePaths = (node: ApplicationNode): string[] => {
 };
 
 // Raw filesystem expressions have host syntax only when a captured file location
-// establishes that format. Resolved artifact facts always take precedence.
+// establishes that format. Genuinely owned artifact facts take precedence.
 const hasOwnedArtifactPath = (node: ApplicationNode): boolean =>
   node.identity.strategy === "canonical-path" ||
-  node.observations.some(({ properties }) =>
-    ["path", "resolved_path"].some(
-      (property) => typeof properties[property] === "string",
-    ),
+  node.observations.some(
+    ({ properties }) => typeof properties.path === "string",
+  ) ||
+  node.observations.some(
+    (observation) =>
+      !isRawApplicationFileObservation(observation) &&
+      typeof observation.properties.resolved_path === "string",
   );
+
+// loadFile receives a raw literal here: the syntax producer does not retain
+// computed __dirname expressions. Electron resolves this relative to the app
+// root, so its source-relative inference is not an owned runtime target.
+const isRawApplicationFileObservation = (
+  observation: ApplicationNode["observations"][number],
+): boolean =>
+  observation.properties.resolution_context === "filesystem-expression" &&
+  typeof observation.properties.mechanism === "string" &&
+  observation.properties.mechanism.startsWith("call:") &&
+  observation.properties.mechanism.endsWith("loadFile");
+
+const usesApplicationFileDeclaration = (node: ApplicationNode): boolean =>
+  node.kind === "electron-renderer" &&
+  !hasOwnedArtifactPath(node) &&
+  node.observations.some(isRawApplicationFileObservation);
 
 const nativeDeclarationPaths = (
   node: ApplicationNode,
 ): StaticRuntimeCandidate["nativeDeclarationPaths"] => {
   if (hasOwnedArtifactPath(node)) return { posix: [], windows: [] };
-  const declarations = node.observations.flatMap(({ properties }) =>
-    properties.resolution_context === "filesystem-expression" &&
-    typeof properties.declared_path === "string" &&
-    properties.declared_path.includes("\\")
+  const declarations = node.observations.flatMap((observation) => {
+    const { properties } = observation;
+    return properties.resolution_context === "filesystem-expression" &&
+      typeof properties.declared_path === "string" &&
+      (isRawApplicationFileObservation(observation) ||
+        properties.declared_path.includes("\\"))
       ? [properties.declared_path]
-      : [],
-  );
+      : [];
+  });
   const normalized = (windows: boolean): string[] =>
     declarations
       .filter(

@@ -665,8 +665,12 @@ it.skipIf(process.platform === "win32")(
     await writeFile(join(root, directory, "index.html"), "owned target");
     await writeFile(join(root, "index.html"), "different target");
     await writeFile(
-      join(root, directory, "main.cjs"),
-      "const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile('./index.html');",
+      join(root, directory, "package.json"),
+      JSON.stringify({
+        name: "literal-renderer",
+        version: "1.0.0",
+        renderer: "./index.html",
+      }),
     );
     const analysis = await analyzeFixture(root);
     const reconcileTarget = (path: string) =>
@@ -746,3 +750,27 @@ it.skipIf(process.platform === "win32")(
     ).toMatchObject({ status: "unmatched" });
   },
 );
+
+it("keeps a raw nested loadFile target application-relative when the producer also resolves a nested decoy", async () => {
+  const root = await createTestTempDirectory("rea-raw-loadfile-ownership-");
+  await mkdir(join(root, "dist"));
+  await mkdir(join(root, "sub", "dist"), { recursive: true });
+  await writeFile(join(root, "dist", "index.html"), "application target");
+  await writeFile(join(root, "sub", "dist", "index.html"), "nested decoy");
+  await writeFile(
+    join(root, "sub", "main.cjs"),
+    "const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile('dist/index.html');",
+  );
+  const analysis = await analyzeFixture(root);
+  const reconcileTarget = (path: string) =>
+    reconcileInput({
+      static_layers: [{ analysis, role: "application" }],
+      runtime_observations: [rendererCapture(root, path)],
+    }).reconciliations.find(({ entity_kind }) => entity_kind === "target");
+  expect(reconcileTarget(join(root, "dist", "index.html"))).toMatchObject({
+    status: "matched",
+  });
+  expect(
+    reconcileTarget(join(root, "sub", "dist", "index.html")),
+  ).toMatchObject({ status: "unmatched" });
+});
