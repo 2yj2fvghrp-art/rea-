@@ -211,7 +211,7 @@ process.stdin.on("data", (chunk) => {
   );
   cleanups.push(() => connection.close());
   expect(await connection.connect()).toEqual(["list_strings"]);
-  expect(await connection.call("list_strings", {})).toEqual({
-    result: "x".repeat(11 * 1024 * 1024),
-  });
+  expect(await connection.call("list_strings", {})).toEqual(
+    "x".repeat(11 * 1024 * 1024),
+  );
 });
