@@ -34,7 +34,7 @@ const authenticatedServer = (
     request: Record<string, unknown>,
     respond: (
       value: unknown,
-      options?: { raw?: boolean; fragment?: boolean },
+      options?: { raw?: boolean; fragment?: boolean; chunkBytes?: number },
     ) => void,
     connection: import("node:net").Socket,
   ) => void,
@@ -82,7 +82,11 @@ const authenticatedServer = (
         }
         const respond = (
           value: unknown,
-          options: { raw?: boolean; fragment?: boolean } = {},
+          options: {
+            raw?: boolean;
+            fragment?: boolean;
+            chunkBytes?: number;
+          } = {},
         ): void => {
           const response =
             options.raw === true ? String(value) : JSON.stringify(value);
@@ -92,11 +96,23 @@ const authenticatedServer = (
             )
             .digest("hex");
           const frame = `${JSON.stringify({ response, proof: responseProof })}\n`;
-          if (options.fragment === true) {
-            connection.write(frame.slice(0, Math.floor(frame.length / 2)));
-            setImmediate(() =>
-              connection.end(frame.slice(Math.floor(frame.length / 2))),
-            );
+          const bytes = Buffer.from(frame);
+          if (options.chunkBytes !== undefined) {
+            const writeChunk = (offset: number): void => {
+              if (connection.destroyed) return;
+              const end = Math.min(offset + options.chunkBytes!, bytes.length);
+              if (offset === bytes.length) {
+                connection.end();
+                return;
+              }
+              connection.write(bytes.subarray(offset, end));
+              setImmediate(() => writeChunk(end));
+            };
+            setImmediate(() => writeChunk(0));
+          } else if (options.fragment === true) {
+            const midpoint = Math.floor(bytes.length / 2);
+            connection.write(bytes.subarray(0, midpoint));
+            setImmediate(() => connection.end(bytes.subarray(midpoint)));
           } else connection.end(frame);
         };
         const request = JSON.parse(requestBytes) as Record<string, unknown>;
@@ -791,7 +807,7 @@ describe("CutterBridgeClient: scenario group 5", () => {
           return;
         }
         if (malformed) respond("{", { raw: true });
-        else respond({ ok: true, output: "split" }, { fragment: true });
+        else respond({ ok: true, output: "split 雪 ☃️" }, { fragment: true });
       },
     );
     const port = await listen(server);
@@ -809,7 +825,10 @@ describe("CutterBridgeClient: scenario group 5", () => {
         command: "pd 1",
         json: false,
       }),
-    ).resolves.toMatchObject({ output: "split", executionState: "complete" });
+    ).resolves.toMatchObject({
+      output: "split 雪 ☃️",
+      executionState: "complete",
+    });
     malformed = true;
     await expect(
       client.execute({
@@ -885,8 +904,15 @@ describe("CutterBridgeClient: scenario group 6", () => {
     server = authenticatedServer(
       "synthetic-cutter-bridge-token-for-test",
       sessionId,
-      (_request, respond) =>
-        respond({ ok: true, output: "x".repeat(16 * 1024 * 1024 + 1) }),
+      (_request, respond, connection) => {
+        connection.on("error", (error) => {
+          expect((error as NodeJS.ErrnoException).code).toBe("ECONNRESET");
+        });
+        respond(
+          { ok: true, output: "雪".repeat(5_600_000) },
+          { chunkBytes: 64 * 1024 },
+        );
+      },
     );
     const port = await listen(server);
     await writeDescriptor(

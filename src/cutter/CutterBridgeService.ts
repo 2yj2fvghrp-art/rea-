@@ -34,6 +34,7 @@ interface CutterBridgePort {
 
 /** Shared Cutter bridge workflows used by the MCP adapter and CLI. */
 export class CutterBridgeService {
+  #cleanupAttempt: Promise<Result<null, AnalysisError>> | undefined;
   readonly #pendingCleanup = new Map<
     string,
     {
@@ -46,7 +47,16 @@ export class CutterBridgeService {
   constructor(readonly client: CutterBridgePort = new CutterBridgeClient()) {}
 
   /** Release timed-out work only after producer-owned terminal proof. */
-  async retryCleanup(): Promise<Result<null, AnalysisError>> {
+  retryCleanup(): Promise<Result<null, AnalysisError>> {
+    if (this.#cleanupAttempt !== undefined) return this.#cleanupAttempt;
+    const attempt = this.#retryPendingCleanup().finally(() => {
+      if (this.#cleanupAttempt === attempt) this.#cleanupAttempt = undefined;
+    });
+    this.#cleanupAttempt = attempt;
+    return attempt;
+  }
+
+  async #retryPendingCleanup(): Promise<Result<null, AnalysisError>> {
     for (const [requestId, pending] of this.#pendingCleanup) {
       const confirmCommandCompletion = this.client.confirmCommandCompletion;
       if (confirmCommandCompletion === undefined) return err(pending.failure);

@@ -69,6 +69,7 @@ const acknowledgementSchema = z.object({
 });
 const MAX_DESCRIPTOR_BYTES = 64 * 1024;
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+const FRAME_PAGE_BYTES = 64 * 1024;
 // Bound admitted descriptor input bytes and concurrent file/socket handles.
 const MAX_DESCRIPTOR_CANDIDATES = MAX_FRAME_BYTES / MAX_DESCRIPTOR_BYTES;
 const DISCOVERY_CONCURRENCY = 8;
@@ -98,6 +99,70 @@ const serializeRequest = (
     );
   return requestBytes as AuthenticatedRequestBytes;
 };
+
+class CutterBridgeResponseFrames {
+  #parts: Buffer[] = [];
+  #page = Buffer.allocUnsafe(FRAME_PAGE_BYTES);
+  #pageLength = 0;
+  #contentBytes = 0;
+  #framesRead = 0;
+
+  push(chunk: Buffer, onFrame: (line: Buffer) => boolean): void {
+    let offset = 0;
+    while (offset < chunk.length) {
+      const delimiter = chunk.indexOf(0x0a, offset);
+      const end = delimiter < 0 ? chunk.length : delimiter;
+      const segment = chunk.subarray(offset, end);
+      if (
+        this.#contentBytes + segment.length + (delimiter < 0 ? 1 : 0) >
+        MAX_FRAME_BYTES
+      )
+        throw new Error(
+          "Cutter bridge response exceeded its framed transport limit",
+        );
+      this.#append(segment);
+      if (delimiter < 0) return;
+      if (++this.#contentBytes > MAX_FRAME_BYTES)
+        throw new Error(
+          "Cutter bridge response exceeded its framed transport limit",
+        );
+      if (this.#pageLength > 0)
+        this.#parts.push(this.#page.subarray(0, this.#pageLength));
+      const line = Buffer.concat(this.#parts, this.#contentBytes - 1);
+      this.#reset();
+      if (++this.#framesRead > 2)
+        throw new Error("Cutter bridge sent more than two protocol frames");
+      offset = delimiter + 1;
+      if (!onFrame(line)) return;
+    }
+  }
+
+  #append(segment: Buffer): void {
+    let copied = 0;
+    while (copied < segment.length) {
+      const length = Math.min(
+        segment.length - copied,
+        FRAME_PAGE_BYTES - this.#pageLength,
+      );
+      segment.copy(this.#page, this.#pageLength, copied, copied + length);
+      this.#pageLength += length;
+      this.#contentBytes += length;
+      copied += length;
+      if (this.#pageLength === FRAME_PAGE_BYTES) {
+        this.#parts.push(this.#page);
+        this.#page = Buffer.allocUnsafe(FRAME_PAGE_BYTES);
+        this.#pageLength = 0;
+      }
+    }
+  }
+
+  #reset(): void {
+    this.#parts = [];
+    this.#page = Buffer.allocUnsafe(FRAME_PAGE_BYTES);
+    this.#pageLength = 0;
+    this.#contentBytes = 0;
+  }
+}
 
 const mapDiscovery = async <Input, Output>(
   inputs: readonly Input[],
@@ -716,7 +781,7 @@ export class CutterBridgeClient {
         host: descriptor.host,
         port: descriptor.port,
       });
-      let payload = "";
+      const frames = new CutterBridgeResponseFrames();
       let settled = false;
       let requestSent = false;
       let authenticated = false;
@@ -744,29 +809,15 @@ export class CutterBridgeClient {
       };
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
-      connection.setEncoding("utf8");
       connection.once("connect", () => {
         connection.write(
           `${JSON.stringify({ kind: "rea-auth-v2", nonce: clientNonce })}\n`,
         );
       });
-      connection.on("data", (chunk: string) => {
-        payload += chunk;
-        if (Buffer.byteLength(payload, "utf8") > 16 * 1024 * 1024) {
-          connection.destroy(
-            new Error(
-              "Cutter bridge response exceeded its framed transport limit",
-            ),
-          );
-          return;
-        }
-        for (;;) {
-          const lineEnd = payload.indexOf("\n");
-          if (lineEnd < 0) return;
-          const line = payload.slice(0, lineEnd);
-          payload = payload.slice(lineEnd + 1);
-          try {
-            const frame: unknown = JSON.parse(line);
+      connection.on("data", (chunk: Buffer) => {
+        try {
+          frames.push(chunk, (line) => {
+            const frame: unknown = JSON.parse(line.toString("utf8"));
             if (!authenticated) {
               const challenge = z
                 .object({
@@ -799,32 +850,32 @@ export class CutterBridgeClient {
               connection.write(
                 `${JSON.stringify({ request: requestBytes, proof })}\n`,
               );
-              continue;
-            }
-            const envelope = z
-              .object({
-                response: z.string(),
-                proof: z.string().regex(/^[0-9a-f]{64}$/),
-              })
-              .parse(frame);
-            const expected = createHmac("sha256", descriptor.token)
-              .update(
-                `rea-cutter-response-v2:${descriptor.session_id}:${clientNonce}:${serverNonce}:${envelope.response}`,
+              return true;
+            } else {
+              const envelope = z
+                .object({
+                  response: z.string(),
+                  proof: z.string().regex(/^[0-9a-f]{64}$/),
+                })
+                .parse(frame);
+              const expected = createHmac("sha256", descriptor.token)
+                .update(
+                  `rea-cutter-response-v2:${descriptor.session_id}:${clientNonce}:${serverNonce}:${envelope.response}`,
+                )
+                .digest();
+              if (
+                !timingSafeEqual(expected, Buffer.from(envelope.proof, "hex"))
               )
-              .digest();
-            if (!timingSafeEqual(expected, Buffer.from(envelope.proof, "hex")))
-              throw new Error("response proof failed");
-            const response: unknown = JSON.parse(envelope.response);
-            connection.end();
-            finish(() => resolve(response));
-            return;
-          } catch {
-            rejectRequest(
-              "Cutter bridge peer authentication or response failed",
-            );
-            connection.destroy();
-            return;
-          }
+                throw new Error("response proof failed");
+              const response: unknown = JSON.parse(envelope.response);
+              connection.end();
+              finish(() => resolve(response));
+              return false;
+            }
+          });
+        } catch {
+          rejectRequest("Cutter bridge peer authentication or response failed");
+          connection.destroy();
         }
       });
       connection.once("error", (cause) =>
