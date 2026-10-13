@@ -75,6 +75,7 @@ const nativeIndexedSource = [
   'type Negative = (typeof import("native-mixed/addon.node"))[-1];',
   'type Zero = (typeof import("native-mixed/addon.node"))[-0];',
   'type WrappedNegative = (typeof import("native-mixed/addon.node"))[((-1))];',
+  'type Choice = (typeof import("native-mixed/addon.node"))["NativeMode" | "-1"];',
   'const first: Plain = { source: "import" };',
   'const second: Punctuated = { source: "import" };',
   'const third: Empty = { source: "import" };',
@@ -86,7 +87,8 @@ const nativeIndexedSource = [
   'const ninth: Negative = { source: "import" };',
   'const tenth: Zero = { source: "import" };',
   'const eleventh: WrappedNegative = { source: "import" };',
-  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source, eighth.source, ninth.source, tenth.source, eleventh.source]));",
+  'const twelfth: Choice = { source: "import" };',
+  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source, eighth.source, ninth.source, tenth.source, eleventh.source, twelfth.source]));",
 ].join("\n");
 
 export const modeSourceFiles = {
@@ -118,6 +120,10 @@ export const modeSourceFiles = {
     'export type * from "native-mode/addon.node" with {};',
   "cts/native-commented-omission.cts":
     'import type { NativeMode } from "native-mode/addon.node" /* with {} */;',
+  "cts/native-value-selector.mts":
+    'import { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "require" };',
+  "cts/native-value-export-selector.mts":
+    'export { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "require" };',
   "cts/native-empty-commented.cts":
     'import type { NativeMode } from "native-mode/addon.node" /* before */ with {} /* after */;',
   "cts/native-nested.d.cts": [
@@ -497,27 +503,28 @@ const expectNativeTypeSelections = (
           }),
         }),
       );
-  expect
-    .soft(graph.nodes.flatMap(({ observations }) => observations))
-    .toContainEqual(
-      expect.objectContaining({
-        properties: expect.objectContaining({
-          specifier: "native-mixed/addon.node",
-          requested_members: [],
-          namespace_access: false,
-          dynamic_member_access: true,
-          type_only: true,
-        }),
-        evidence: expect.objectContaining({
-          location: expect.objectContaining({
-            value: expect.objectContaining({
-              source: "cts/native-indexed.mts",
-              start: expect.objectContaining({ line: 7 }),
+  for (const line of [7, 12])
+    expect
+      .soft(graph.nodes.flatMap(({ observations }) => observations))
+      .toContainEqual(
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            specifier: "native-mixed/addon.node",
+            requested_members: [],
+            namespace_access: false,
+            dynamic_member_access: true,
+            type_only: true,
+          }),
+          evidence: expect.objectContaining({
+            location: expect.objectContaining({
+              value: expect.objectContaining({
+                source: "cts/native-indexed.mts",
+                start: expect.objectContaining({ line }),
+              }),
             }),
           }),
         }),
-      }),
-    );
+      );
   expect(
     graph.nodes.flatMap(({ observations }) => observations),
   ).toContainEqual(
@@ -575,22 +582,24 @@ const expectNativeImportEqualsExports = (
       }),
     }),
   );
-  for (const source of [
-    "cts/native-invalid-mode.cts",
-    "cts/native-extra-attributes.cts",
-    "cts/native-duplicate-attributes.cts",
-    "cts/native-empty-attributes.cts",
-    "cts/native-empty-reexport.cts",
-    "cts/native-empty-namespace.cts",
-    "cts/native-empty-commented.cts",
-    "cts/native-inline-extra-attributes.cts",
-    "cts/native-inline-duplicate-attributes.cts",
-  ])
+  for (const [source, typeOnly] of [
+    ["cts/native-invalid-mode.cts", true],
+    ["cts/native-extra-attributes.cts", true],
+    ["cts/native-duplicate-attributes.cts", true],
+    ["cts/native-empty-attributes.cts", true],
+    ["cts/native-empty-reexport.cts", true],
+    ["cts/native-empty-namespace.cts", true],
+    ["cts/native-empty-commented.cts", true],
+    ["cts/native-inline-extra-attributes.cts", true],
+    ["cts/native-inline-duplicate-attributes.cts", true],
+    ["cts/native-value-selector.mts", false],
+    ["cts/native-value-export-selector.mts", false],
+  ] as const)
     expect.soft(observations).toContainEqual(
       expect.objectContaining({
         properties: expect.objectContaining({
           module_kind: "compiler-dependent",
-          type_only: true,
+          type_only: typeOnly,
           resolved_path: null,
         }),
         evidence: expect.objectContaining({

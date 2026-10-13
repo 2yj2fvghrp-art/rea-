@@ -50,7 +50,13 @@ export const typescriptImportResolutionMode = (
   )
     return undefined;
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
-  if (kind !== "type") return undefined;
+  if (kind !== "type")
+    return node.attributes?.some(
+      (attribute) =>
+        semanticStaticPropertyKey(attribute.key, false) === "resolution-mode",
+    ) === true
+      ? "compiler-dependent"
+      : undefined;
   const attributes = node.attributes;
   if (attributes === null || attributes === undefined) return undefined;
   const attribute = attributes[0];
