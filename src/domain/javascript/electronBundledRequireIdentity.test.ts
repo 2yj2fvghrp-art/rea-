@@ -162,6 +162,79 @@ describe("Webpack externals with a tampered runtime", () => {
       ),
     ).toEqual([]);
   });
+});
+
+describe("Webpack externals with a tampered loader or module object", () => {
+  it.each([
+    [
+      "cached exports rewritten through the runtime exposure",
+      bootstrap(
+        EXTERNAL,
+        CONSUMER,
+        "n.c=c;n(45840);n.c[45840].exports=local;n(100);",
+      ),
+    ],
+    [
+      "a pre-populated cache",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "c={};",
+        "c={45840:{exports:local}};",
+      ),
+    ],
+    [
+      "exports rewritten in the returned sequence",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "return m[t](o,o.exports,n),o.exports}",
+        "return m[t](o,o.exports,n),o.exports=local,o.exports}",
+      ),
+    ],
+    [
+      "exports rewritten before the return",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "return m[t](o,o.exports,n),o.exports}",
+        "m[t](o,o.exports,n);o.exports=local;return o.exports}",
+      ),
+    ],
+    [
+      "an alias of the exposed table",
+      bootstrap(EXTERNAL, CONSUMER, "n.m=m;const a=n.m;a[45840]=local;n(100);"),
+    ],
+    [
+      "a rewritten module key",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "function n(t){",
+        "function n(t){if(t===45840)t=100;",
+      ),
+    ],
+    [
+      "a dispatch behind a guard",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "return m[t](o,o.exports,n),o.exports}",
+        "if(t===100)m[t](o,o.exports,n);return o.exports}",
+      ),
+    ],
+    [
+      "duplicate factory parameter names",
+      bootstrap('function(e,e,n){e.exports=require("electron")}', CONSUMER),
+    ],
+    [
+      "an accessor for module exports",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "var o=c[t]={exports:{}}",
+        "var o=c[t]={get exports(){return local},set exports(v){}}",
+      ),
+    ],
+  ])("keeps %s unresolved", (_name, source) => {
+    const electron = electronOf(source);
+    expect(electron.browser_windows).toEqual([]);
+    // Only direct observations come from this identity; the separate
+    // wrapper-substitution path keeps its own resolution basis.
+    expect(
+      electron.ipc.filter(
+        ({ resolution_basis: basis }) => basis !== "wrapper-substitution",
+      ),
+    ).toEqual([]);
+  });
 
   it.each([
     [
@@ -181,6 +254,13 @@ describe("Webpack externals with a tampered runtime", () => {
         EXTERNAL,
         CONSUMER,
         "n.m=m;n.i=e=>{for(var k in e)n.m[k]=e[k]};n(100);",
+      ),
+    ],
+    [
+      "a loaded flag set before returning",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "return m[t](o,o.exports,n),o.exports}",
+        "return m[t].call(o.exports,o,o.exports,n),o.loaded=!0,o.exports}",
       ),
     ],
   ])("still resolves with %s", (_name, source) => {

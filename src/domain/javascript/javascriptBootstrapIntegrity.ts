@@ -19,6 +19,8 @@ export interface JavaScriptBootstrapIntegrity {
 
 interface LoaderShape {
   readonly parameterId: string;
+  /** The single unconditional `table[key](...)` call. */
+  readonly dispatch: t.CallExpression;
   readonly dispatches: ReadonlySet<t.Node>;
   readonly moduleId: string;
   readonly cacheId: string | undefined;
@@ -72,9 +74,16 @@ const loaderShape = (
   const parameterId = t.isIdentifier(parameter)
     ? bindingOf(state, parameter)
     : undefined;
-  if (parameterId === undefined || loader.async || loader.generator)
+  // A rewritten key would dispatch a different slot than the caller named.
+  if (
+    parameterId === undefined ||
+    state.bindingsById.get(parameterId)?.definitions.length !== 1 ||
+    loader.async ||
+    loader.generator
+  )
     return undefined;
   const dispatches = new Set<t.Node>();
+  const calls: t.CallExpression[] = [];
   const modules = new Set<string>();
   const returns: (t.Expression | null | undefined)[] = [];
   traverseJavaScriptAst(loader.body, {
@@ -85,16 +94,29 @@ const loaderShape = (
       const dispatch = tableDispatch(node, tableId, parameterId, state);
       if (dispatch === undefined) return;
       dispatches.add(dispatch.table);
+      calls.push(node);
       if (dispatch.moduleId !== undefined) modules.add(dispatch.moduleId);
     },
   });
   const [moduleId] = modules;
-  if (dispatches.size !== 1 || modules.size !== 1 || moduleId === undefined)
+  const [dispatch] = calls;
+  if (
+    calls.length !== 1 ||
+    dispatch === undefined ||
+    modules.size !== 1 ||
+    moduleId === undefined ||
+    !runsUnconditionally(dispatch, loader, state)
+  )
     return undefined;
   const cache = moduleCache(moduleId, parameterId, state);
-  if (cache === null) return undefined;
+  if (
+    cache === null ||
+    !moduleObjectContained(loader, moduleId, dispatch, state)
+  )
+    return undefined;
   const shape: LoaderShape = {
     parameterId,
+    dispatch,
     dispatches,
     moduleId,
     cacheId: cache?.cacheId,
@@ -158,14 +180,111 @@ const moduleCache = (
   )
     return null;
   const value = initializer.node;
-  if (t.isObjectExpression(value)) return undefined;
+  if (isPlainObject(value)) return undefined;
   if (
     !t.isAssignmentExpression(value, { operator: "=" }) ||
-    !t.isObjectExpression(value.right)
+    !isPlainObject(value.right)
   )
     return null;
   const cacheId = keyedSlot(value.left, parameterId, state);
-  return cacheId === undefined ? null : { cacheId, site: value.left };
+  return cacheId !== undefined && startsEmpty(cacheId, state)
+    ? { cacheId, site: value.left }
+    : null;
+};
+
+/** A pre-populated cache could answer the early return without a dispatch. */
+const startsEmpty = (
+  cacheId: string,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const binding = state.bindingsById.get(cacheId);
+  const initializer = semanticStableInitializer(binding, state);
+  return (
+    binding?.definitions.length === 1 &&
+    initializer?.projection.length === 0 &&
+    t.isObjectExpression(initializer.node) &&
+    initializer.node.properties.length === 0
+  );
+};
+
+/** An object literal of ordinary data properties, so `exports` stores plainly. */
+const isPlainObject = (node: t.Node): boolean =>
+  t.isObjectExpression(node) &&
+  node.properties.every(
+    (property) =>
+      t.isObjectProperty(property) &&
+      !property.computed &&
+      semanticStaticPropertyKey(property.key, false) !== "__proto__",
+  );
+
+/** Every ancestor up to the loader body executes whenever the loader runs. */
+const runsUnconditionally = (
+  dispatch: t.Node,
+  loader: t.FunctionDeclaration,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let child: t.Node = dispatch;
+  let parent = state.parentsByNode.get(child);
+  while (parent !== undefined && child !== loader.body) {
+    const ordered =
+      t.isSequenceExpression(parent) ||
+      t.isExpressionStatement(parent) ||
+      t.isReturnStatement(parent) ||
+      t.isBlockStatement(parent) ||
+      (t.isMemberExpression(parent) && parent.object === child) ||
+      (t.isCallExpression(parent) && parent.callee === child) ||
+      (t.isTryStatement(parent) && parent.block === child);
+    if (!ordered) return false;
+    child = parent;
+    parent = state.parentsByNode.get(parent);
+  }
+  return child === loader.body;
+};
+
+/**
+ * The module object reaches only the dispatch, `.exports` reads after it, and
+ * writes to members other than `exports`, so nothing swaps its exports.
+ */
+const moduleObjectContained = (
+  loader: t.FunctionDeclaration,
+  moduleId: string,
+  dispatch: t.CallExpression,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let contained = true;
+  traverseJavaScriptAst(loader.body, {
+    enter: (node, parent, readAncestors) => {
+      if (!contained || !t.isIdentifier(node) || parent === null) return;
+      const ancestors = readAncestors();
+      if (!t.isReferenced(node, parent, ancestors.at(-2))) return;
+      if (bindingOf(state, node) !== moduleId) return;
+      contained =
+        !ancestors.some((ancestor) => t.isFunction(ancestor)) &&
+        moduleUse(node, [parent, ancestors.at(-2)], dispatch);
+    },
+  });
+  return contained;
+};
+
+const moduleUse = (
+  node: t.Identifier,
+  [parent, grandparent]: readonly [t.Node, t.Node | undefined],
+  dispatch: t.CallExpression,
+): boolean => {
+  if (parent === dispatch) return dispatch.arguments.includes(node);
+  if (!t.isMemberExpression(parent) || parent.object !== node) return false;
+  const key = semanticStaticPropertyKey(parent.property, parent.computed);
+  const written =
+    (t.isAssignmentExpression(grandparent) && grandparent.left === parent) ||
+    t.isUpdateExpression(grandparent) ||
+    t.isUnaryExpression(grandparent, { operator: "delete" });
+  if (written) return key !== null && key !== "exports";
+  if (key !== "exports") return false;
+  // `module.exports` passed to the factory, or read after the dispatch ran.
+  return (
+    grandparent === dispatch ||
+    (parent.start ?? -1) > (dispatch.end ?? Number.POSITIVE_INFINITY)
+  );
 };
 
 /** Record `cache[key]` reads that initialize the loader's early-return binding. */
@@ -203,6 +322,15 @@ const returnsModuleExports = (
   const value = t.isSequenceExpression(argument)
     ? argument.expressions.at(-1)
     : argument;
+  const before = t.isSequenceExpression(argument)
+    ? argument.expressions.slice(0, -1)
+    : [];
+  if (
+    !before.every((expression) =>
+      sideEffectBeforeReturn(expression, shape, state),
+    )
+  )
+    return false;
   if (
     !t.isMemberExpression(value) ||
     !t.isIdentifier(value.object) ||
@@ -219,6 +347,27 @@ const returnsModuleExports = (
     initializer?.projection.length === 0 &&
     keyedSlot(initializer.node, shape.parameterId, state) === shape.cacheId
   );
+};
+
+/** The dispatch itself, or a write to a module member other than `exports`. */
+const sideEffectBeforeReturn = (
+  expression: t.Expression,
+  shape: LoaderShape,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  if (expression === shape.dispatch) return true;
+  if (
+    !t.isAssignmentExpression(expression) ||
+    !t.isMemberExpression(expression.left) ||
+    !t.isIdentifier(expression.left.object) ||
+    bindingOf(state, expression.left.object) !== shape.moduleId
+  )
+    return false;
+  const key = semanticStaticPropertyKey(
+    expression.left.property,
+    expression.left.computed,
+  );
+  return key !== null && key !== "exports";
 };
 
 /** The binding of `owner` in `owner[key]` when `key` is the loader parameter. */
@@ -269,8 +418,9 @@ const referencesAreContained = (
       const role = id === undefined ? undefined : tracked.get(id);
       if (role === undefined) return;
       const use: Use = { node, parent, ancestors, shape, loaderIds, state };
-      if (role === "loader") exposedSlotWrite(use, replacedKeys);
-      else if (!containedUse(role, use)) contained = false;
+      if (role !== "loader") contained = containedUse(role, use);
+      else if (exposedTableUse(use) === "escaped") contained = false;
+      else exposedSlotWrite(use, replacedKeys);
     },
   });
   return contained ? { replacedKeys } : undefined;
@@ -304,6 +454,40 @@ const isRuntimeExposure = (use: Use, key: "m" | "c"): boolean => {
       key &&
     loaderIds.has(bindingOf(state, parent.left.object) ?? "")
   );
+};
+
+/**
+ * `loader.m`/`loader.c` may only be assigned (the exposure) or indexed
+ * directly; any other use, such as `const a = loader.m`, lets later writes
+ * escape this proof. Writing a member of an indexed entry, such as
+ * `loader.c[id].exports = value`, can replace what the loader returns.
+ */
+const exposedTableUse = (use: Use): "other" | "contained" | "escaped" => {
+  const { parent, ancestors } = use;
+  if (
+    !t.isMemberExpression(parent) ||
+    parent.object !== use.node ||
+    !["m", "c"].includes(
+      semanticStaticPropertyKey(parent.property, parent.computed) ?? "",
+    )
+  )
+    return "other";
+  const outer = ancestors.at(-2);
+  const assigned =
+    t.isAssignmentExpression(outer, { operator: "=" }) && outer.left === parent;
+  const indexed =
+    t.isMemberExpression(outer) && outer.object === parent && outer.computed;
+  if (assigned) return "contained";
+  if (!indexed) return "escaped";
+  const member = ancestors.at(-3);
+  const target = ancestors.at(-4);
+  const entryWritten =
+    t.isMemberExpression(member) &&
+    member.object === outer &&
+    ((t.isAssignmentExpression(target) && target.left === member) ||
+      t.isUpdateExpression(target) ||
+      t.isUnaryExpression(target, { operator: "delete" }));
+  return entryWritten ? "escaped" : "contained";
 };
 
 /**

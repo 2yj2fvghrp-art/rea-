@@ -165,8 +165,13 @@ const externalSpecifier = (
   state: JavaScriptSemanticAnalysisState,
 ): string | undefined => {
   const moduleParameter = factory.params[0];
+  const names = factory.params.map((parameter) =>
+    t.isIdentifier(parameter) ? parameter.name : null,
+  );
   if (
     !t.isIdentifier(moduleParameter) ||
+    // A duplicated name binds the later argument, not the module object.
+    new Set(names).size !== names.length ||
     factory.generator ||
     factory.async ||
     (t.isObjectMethod(factory) && factory.kind !== "method")
