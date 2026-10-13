@@ -296,6 +296,33 @@ const scenarios = [
       mutation: '__vite__mapDeps["f"]["splice"](0, 1, "./last.js");',
     },
     {
+      file: "borrowed-splice.js",
+      mutation:
+        'Array.prototype.splice.call(__vite__mapDeps.f, 0, 1, "./last.js");',
+    },
+    {
+      file: "borrowed-apply.js",
+      mutation:
+        'Array.prototype.fill.apply(__vite__mapDeps.f, ["./last.js"]);',
+    },
+    {
+      file: "spread-child-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "spread-property-replacement.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = ["./last.js"];',
+      kept: true,
+    },
+    {
+      file: "spread-overridden-child.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: []}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
       file: "reassigned-alias.js",
       mutation:
         'let alias = __vite__mapDeps; alias = runtimeMapper; alias.f = ["./last.js"];',

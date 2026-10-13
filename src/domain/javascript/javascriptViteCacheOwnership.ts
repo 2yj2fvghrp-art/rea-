@@ -84,7 +84,15 @@ export function* invalidateJavaScriptViteCachesSteps(
           for (const path of origins(callee.object))
             if (path[1] === null || path[1] === "f") retain(node, path);
       }
-      return interop.intrinsicInvocation(node);
+      const invocation = interop.intrinsicInvocation(node);
+      if (
+        invocation?.path.slice(0, -1).join(".") === "intrinsic.Array.prototype" &&
+        ARRAY_MUTATORS.has(invocation.path.at(-1) ?? "") &&
+        invocation.receiver !== undefined
+      )
+        for (const path of origins(invocation.receiver))
+          if (path[1] === null || path[1] === "f") retain(node, path);
+      return invocation;
     },
     interop.staticString,
     interop.isFreshObject,
@@ -218,7 +226,13 @@ function* indexViteAliasesSteps(
     if (node === undefined) break;
     for (const input of aliasProducerInputs(node, state)) {
       if (typeof input.source !== "string") normalize(input.source);
-      connect(input.source, { target: node, first: input.first });
+      connect(input.source, {
+        target: node,
+        first: input.first,
+        ...(input.copyKeepsCache === undefined
+          ? {}
+          : { copyKeepsCache: input.copyKeepsCache }),
+      });
     }
   }
   return aliases;
@@ -227,12 +241,39 @@ function* indexViteAliasesSteps(
 const aliasProducerInputs = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
-): readonly { source: AliasVertex; first: CacheKey }[] => {
+): readonly {
+  source: AliasVertex;
+  first: CacheKey;
+  copyKeepsCache?: boolean;
+}[] => {
   const { root, members } = electronMemberPath(node);
   const first = members[0];
   if (t.isIdentifier(root)) {
     const binding = resolveSemanticBindingState(state, root, root.name);
     return binding === undefined ? [] : [{ source: binding.bindingId, first }];
+  }
+  if (t.isObjectExpression(root)) {
+    const inputs: {
+      source: AliasVertex;
+      first: CacheKey;
+      copyKeepsCache: boolean;
+    }[] = [];
+    let overwritten = false;
+    for (let index = root.properties.length - 1; index >= 0; index--) {
+      const property = root.properties[index];
+      if (property === undefined) continue;
+      if (t.isSpreadElement(property))
+        inputs.push({
+          source: property.argument,
+          first,
+          copyKeepsCache: !overwritten,
+        });
+      else {
+        const key = semanticStaticPropertyKey(property.key, property.computed);
+        if (key === "f" || key === null) overwritten = true;
+      }
+    }
+    return inputs;
   }
   if (t.isConditionalExpression(root))
     return [
