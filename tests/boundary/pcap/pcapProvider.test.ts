@@ -254,6 +254,29 @@ it("reports relative configuration and missing capinfos as capability gaps", asy
   }
 });
 
+it("names the prlimit selection when the Linux limiter is unusable", async () => {
+  const root = await createTestTempDirectory("rea-pcap-prlimit-");
+  const tools = await writeStubTools(root);
+  const provider = new PcapProvider({
+    environment: {
+      REA_TSHARK_COMMAND: tools.tshark,
+      REA_CAPINFOS_COMMAND: tools.capinfos,
+      REA_TSHARK_PRLIMIT_COMMAND: "relative/prlimit",
+    },
+  });
+  onTestFinished(() => provider.close());
+  const result = await provider.execute({
+    operation: "inspect_pcap_capture",
+    input: { path: "/not-opened/capture.pcap" },
+  });
+  if (result.ok) throw new Error("expected an unusable limiter");
+  const projected = projectAnalysisError(result.error);
+  expect(projected.code).toBe("capability_unavailable");
+  expect(projected.message).toContain(
+    "(REA_TSHARK_PRLIMIT_COMMAND must be absolute.) Check that REA_TSHARK_PRLIMIT_COMMAND",
+  );
+});
+
 const nodeTool = async (
   root: string,
   name: string,
