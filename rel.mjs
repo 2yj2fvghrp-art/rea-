@@ -76,7 +76,7 @@ try {
       } else {
         if (settings.positional.length !== 1) throw new Error("Choose a single supported command or target.");
       }
-      if (settings.run || settings.authorized || settings.out) throw new Error("Only analyze --authorized or demo --run can launch the trusted static analyzer.");
+      if (settings.run || settings.authorized || settings.out) throw new Error("Analysis execution is only enabled for the REL-owned demo or via analyze --authorized for static JavaScript.");
       const plan = classifyTarget(mode === "inspect" ? target : mode);
       console.log(settings.json ? JSON.stringify({...plan, question:settings.question, execution:"preview-only"},null,2) : renderPlan(plan, settings.question));
     }
