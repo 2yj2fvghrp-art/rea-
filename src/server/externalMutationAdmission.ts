@@ -35,7 +35,7 @@ export const runWithExternalMutationAdmission = async <Value>(
       value.ok
         ? new AnalysisOutputError(
             operationName,
-            "The external command may have changed the bound artifact, but the active analysis session could not be rebound.",
+            "The external command may have changed the bound artifact, but the active analysis session could not be retired.",
             {
               cause,
               ...(evidenceOf === undefined
@@ -53,7 +53,7 @@ export const runWithExternalMutationAdmission = async <Value>(
             },
           )
         : value.error.retainSecondaryFailure(cause, {
-            rebind_error: projectAnalysisError(cause),
+            retirement_error: projectAnalysisError(cause),
           }),
     operationName,
     cleanupRecovery,

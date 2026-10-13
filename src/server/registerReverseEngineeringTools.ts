@@ -33,7 +33,7 @@ export const registerReverseEngineeringTools = (
     path: string | undefined,
     signal: AbortSignal | undefined,
     operation: () => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (
+    retirementFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
     ) => AnalysisError,
@@ -94,12 +94,12 @@ export const registerReverseEngineeringTools = (
           (value, cause) => {
             if (!value.ok)
               return value.error.retainSecondaryFailure(cause, {
-                rebind_error: projectAnalysisError(cause),
+                retirement_error: projectAnalysisError(cause),
               });
             const observation = value.value;
             return new AnalysisOutputError(
               rizin.name,
-              "Rizin may have changed the bound artifact, but the active analysis session could not be rebound.",
+              "Rizin may have changed the bound artifact, but the active analysis session could not be retired.",
               {
                 cause,
                 ...(cause.cleanup === undefined

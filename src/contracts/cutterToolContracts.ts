@@ -78,7 +78,7 @@ export const CUTTER_TOOL_CONTRACTS = [
     ...toolContractMetadata("cutter_command"),
     kind: "native-provider",
     description:
-      "Run one arbitrary Rizin command in a selected live Cutter session. Commands may edit and persist analysis state or execute plugin-provided effects; completion uncertainty is returned as Evidence and must not be retried automatically.",
+      "Run one arbitrary Rizin command in a selected live Cutter session. Commands may edit and persist analysis state or execute plugin-provided effects; completion uncertainty is returned as Evidence and must not be retried automatically. In a shared MCP server, this admitted command closes any active binary-analysis session; after its effects have settled, call open_binary before further analysis. Close an active Ghidra session explicitly first.",
     inputSchema: cutterCommandInputSchema,
     outputSchema: evidenceResultOf(cutterCommandResultSchema),
     examples: [

@@ -120,18 +120,7 @@ it("admits Rizin startup across a bound analysis session", async () => {
   const [fixture] = await createBinarySessionTargets();
   const target = fixture.replace(/first\.hop$/u, "first.macho");
   await writeFile(target, thinMach(0xfeedfacf, 0x0100000c));
-  const baseProvider = createCacheProvider([]);
-  let clientsCreated = 0;
-  const provider = {
-    ...baseProvider,
-    createClient: (
-      ...arguments_: Parameters<typeof baseProvider.createClient>
-    ) => {
-      clientsCreated += 1;
-      return baseProvider.createClient(...arguments_);
-    },
-  };
-  const analysisSession = createTestBinarySession(provider);
+  const analysisSession = createTestBinarySession(createCacheProvider([]));
   expect((await analysisSession.open(target)).ok).toBe(true);
   const initialRunId = z
     .object({ analysis_run: z.object({ run_id: z.string() }) })
@@ -170,6 +159,14 @@ it("admits Rizin startup across a bound analysis session", async () => {
       arguments: { path: target, inferior_tty: "/dev/null" },
     });
     expect(started.isError ?? false).toBe(false);
+    expect(
+      z
+        .object({ session_id: z.string().uuid() })
+        .parse(started.structuredContent).session_id,
+    ).toBe("00000000-0000-4000-8000-000000000001");
+    expect(analysisSession.activeTarget()).toBeUndefined();
+
+    expect((await analysisSession.open(target)).ok).toBe(true);
     const currentRunId = z
       .object({ analysis_run: z.object({ run_id: z.string() }) })
       .parse(analysisSession.status()).analysis_run.run_id;

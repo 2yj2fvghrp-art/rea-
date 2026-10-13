@@ -6,7 +6,6 @@ import { expect, it, vi } from "vitest";
 
 import { TestReverseEngineeringService as ReverseEngineeringService } from "../../support/reverseEngineeringService.js";
 import { AnalysisInputError } from "../../../src/domain/analysisErrorCore.js";
-import { HopperStartError } from "../../../src/domain/hopperErrors.js";
 import {
   createBinarySessionTargets,
   createCacheProvider,
@@ -71,7 +70,7 @@ it("records partial Evidence and references it in the original MCP error", async
   });
 });
 
-it("admits Rizin mutation and rebinds after dispatch while invalidating first", async () => {
+it("admits Rizin mutation after invalidating before dispatch", async () => {
   const { server, handler } = createReverseEngineeringMcpHarness();
   const events: string[] = [];
   const service = new ReverseEngineeringService({
@@ -90,9 +89,7 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
     () => events.push("invalidate"),
     async (_path, _signal, operation) => {
       events.push("admit");
-      const result = await operation();
-      events.push("rebind");
-      return ok(result);
+      return ok(await operation());
     },
   );
   const invoke = handler("execute_rizin_command");
@@ -102,7 +99,7 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
     { mcpReq: { signal: new AbortController().signal } },
   );
 
-  expect(events).toEqual(["admit", "invalidate", "dispatch", "rebind"]);
+  expect(events).toEqual(["admit", "invalidate", "dispatch"]);
 });
 
 it("invalidates the snapshot in the legacy Rizin admission path", async () => {
@@ -187,7 +184,7 @@ it("delivers failed Rizin execution after external admission", async () => {
   expect(response.isError).toBe(true);
 });
 
-it("reports rebind failure when admitted Rizin execution has no partial observation", async () => {
+it("preserves the Rizin operation error when analysis retirement also fails", async () => {
   const { server, handler } = createReverseEngineeringMcpHarness();
   const service = {
     retryCleanup: async () => ok(null),
@@ -234,23 +231,15 @@ it("reports rebind failure when admitted Rizin execution has no partial observat
 });
 
 it.each(["success", "timeout"])(
-  "retains %s output and leaves the session unbound when a symlink rebind fails",
+  "retains %s output and requires reopening after a symlink command",
   async (outcome) => {
     const [target] = await createBinarySessionTargets();
     const alias = join(dirname(target), "active-target-alias.hop");
     await symlink(target, alias);
-    let profileResolutions = 0;
-    const base = createCacheProvider([]);
-    const session = createTestBinarySession({
-      ...base,
-      resolveAnalysisProfile: async (...arguments_) => {
-        profileResolutions += 1;
-        if (profileResolutions > 1) return err(new HopperStartError());
-        return base.resolveAnalysisProfile!(...arguments_);
-      },
-    });
+    const session = createTestBinarySession(createCacheProvider([]));
     expect((await session.open(target)).ok).toBe(true);
     expect(session.activeTarget()?.path).toBe(target);
+    const originalDigest = session.activeTarget()?.sha256;
 
     const { server, handler } = createReverseEngineeringMcpHarness();
     const service = new ReverseEngineeringService({
@@ -299,27 +288,27 @@ it.each(["success", "timeout"])(
       };
     };
 
-    expect(profileResolutions).toBeGreaterThan(1);
-    expect(response.isError).toBe(true);
-    expect(response.structuredContent?.error?.code).toBe(
-      outcome === "timeout" ? "provider_timeout" : "unreadable_output",
-    );
-    if (outcome === "timeout")
+    expect(response.isError ?? false).toBe(outcome === "timeout");
+    if (outcome === "timeout") {
+      expect(response.structuredContent?.error?.code).toBe("provider_timeout");
       expect(response.structuredContent?.error?.details).toMatchObject({
         captured_output: {
           stdout: "partial analysis output",
           stderr: "timeout diagnostics",
         },
-        diagnostics: { rebind_error: { code: expect.any(String) } },
       });
-    expect(response.structuredContent?.error?.details).toMatchObject({
-      partial_observation: {
-        kind: "retained-evidence",
-        evidence_id: expect.any(String),
-      },
-    });
+      expect(response.structuredContent?.error?.details).toMatchObject({
+        partial_observation: {
+          kind: "retained-evidence",
+          evidence_id: expect.any(String),
+        },
+      });
+    }
     expect(recordEvidence).toHaveBeenCalledTimes(1);
     expect(session.activeTarget()).toBeUndefined();
+    expect((await session.execute("address_name", {})).ok).toBe(false);
+    expect((await session.open(target)).ok).toBe(true);
+    expect(session.activeTarget()?.sha256).not.toBe(originalDigest);
     await session.close();
     await rm(dirname(target), { recursive: true, force: true });
   },

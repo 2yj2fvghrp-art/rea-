@@ -2,6 +2,16 @@
 
 REA can call caller-supplied GNU objdump, GDB, and Rizin installations. REA does not install or update these tools. Static objdump/Rizin workflows use the same services from CLI and MCP. GDB's persistent MCP sessions and ephemeral CLI command are available only on Linux. Persistent debugger sessions exist only for the lifetime of the REA MCP server process.
 
+In a shared MCP server, unrestricted Rizin and Cutter commands, GDB console
+commands, Rizin debugger start/close, and GDB debugger close retire any active
+binary analysis session after the operation. This prevents a fresh analysis
+provider from being rebound automatically while command effects may still be
+writing. After the command and any background writers have stopped, call
+`open_binary` explicitly before continuing analysis. A successful command
+response alone does not prove that background writers have stopped. An active
+Ghidra analysis session must be closed explicitly before an external mutation
+can run.
+
 ## GNU objdump
 
 `inspect_with_objdump` and `rea inspect-with-objdump` capture stdout and stderr as inline Evidence. Artifact inspection Evidence records SHA-256 digests before and after the provider call and whether those observed digests differ; this cannot prove the exact bytes consumed if the artifact changes during execution. Choose one artifact operation: `file_headers`, `section_headers`, `symbols`, `relocations`, `dwarf`, `disassemble`, or `disassemble_all`. `disassemble` maps to `-d`; `disassemble_all` maps to `-D` and has different symbol-boundary semantics. The pathless `inspect_with_objdump {"operation":"architectures"}` MCP call or `rea list-objdump-architectures` CLI command maps to `-i` and produces subjectless provider-capability Evidence describing BFD targets compiled into the installed binary, not a guarantee that a target is supported.
