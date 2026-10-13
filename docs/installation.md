@@ -163,6 +163,22 @@ CLAUDE_CONFIG_DIR=~/.claude-rea claude
 The profile needs its own login. Sessions started without the variable use
 the default profile rather than this profile's registration, skill, and history.
 
+Inline assignments apply only to that command. Keep the same prefix for every
+profile check, setup rerun, update, or removal; bare commands use the current
+environment and can otherwise inspect or recreate default-profile state:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-rea claude mcp list
+CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents doctor --client claude_code --json
+CLAUDE_CONFIG_DIR=~/.claude-rea npx -y rea-agents@latest setup --client claude_code --dry-run
+```
+
+After reviewing an update plan, rerun that same prefixed setup command without
+`--dry-run` and approve its exact changes. Profile removal likewise needs the
+prefix on `claude mcp remove --scope user rea` and any `rea uninstall` command;
+keep the broader client scope of uninstall in mind. Restart the selected
+profile after changing its pinned registration.
+
 **One project.** Install without configuring Claude Code: use the curl
 installer's `--no-setup`, or run setup only for other clients. Then register
 REA from the project directory at Claude Code's local scope:
@@ -187,8 +203,9 @@ the same directory, then the `claude mcp add` command above with the new
 version. Running setup for Claude Code instead would add a user-level entry
 for every project.
 
-Check either route with `claude mcp list`, run once inside the intended
-profile or project and once outside it.
+Check the separate profile with the prefixed `claude mcp list` above and compare
+with the default profile with `CLAUDE_CONFIG_DIR` unset. For local scope, run
+`claude mcp list` from the selected project and again from another project.
 
 ## Check readiness for your task
 
