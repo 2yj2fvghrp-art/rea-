@@ -1169,10 +1169,11 @@ export class IosProvider {
     timeoutMs: number,
     maxBuffer = SSH_MAX_OUTPUT_BYTES,
     acceptNonZero = false,
+    forwardLifetime: AbortSignal = this.#startupLifetime.signal,
   ): Promise<Result<CapturedRemote, AnalysisError>> {
     let tunnel: Tunnel;
     try {
-      tunnel = await this.#ensureForward(deviceId, 22, signal);
+      tunnel = await this.#ensureForward(deviceId, 22, signal, forwardLifetime);
       const ssh = this.#selection("ssh");
       const args = [
         "-o",
@@ -1257,13 +1258,19 @@ export class IosProvider {
   async #retireRemoteHelper(
     owner: RemoteHelperOwner,
   ): Promise<Result<void, AnalysisError>> {
+    // Retirement owns its transport lifetime independently of aborted provider startup.
+    // A fresh bounded signal also permits a later close() attempt to reconnect.
+    const cleanupLifetime = AbortSignal.timeout(15_000);
     const stopped = await this.#runRemote(
       "close_ios_remote_helper",
       owner.deviceId,
       owner.user,
       `${remoteTokenPrefix(owner.runToken)}; ${remoteTokenPids}; for rea_pid in $rea_pids; do rea_identity=$(ps eww -p "$rea_pid" -o command=) || exit 70; case " $rea_identity " in *" REA_PROCESS_RUN_ID=$rea_token "*) kill -TERM "$rea_pid" || exit 71 ;; esac; done; sleep 0.1; ${remoteTokenPids}; [ -z "$rea_pids" ]`,
-      undefined,
+      cleanupLifetime,
       5_000,
+      SSH_MAX_OUTPUT_BYTES,
+      false,
+      cleanupLifetime,
     );
     if (!stopped.ok)
       return err(
@@ -1307,8 +1314,11 @@ export class IosProvider {
         owner.deviceId,
         owner.user,
         `${IOS_JAILBREAK_PATH_SCRIPT}; rea_dir=${directory}; if [ ! -e "$rea_dir" ] && [ ! -L "$rea_dir" ]; then exit 0; fi; [ -d "$rea_dir" ] && [ ! -L "$rea_dir" ] && rm -f "$rea_dir/helper.log" && rmdir "$rea_dir"`,
-        undefined,
+        cleanupLifetime,
         5_000,
+        SSH_MAX_OUTPUT_BYTES,
+        false,
+        cleanupLifetime,
       );
       if (!removed.ok)
         return err(
@@ -1712,6 +1722,7 @@ export class IosProvider {
     deviceId: string,
     remotePort: number,
     signal?: AbortSignal,
+    startupLifetime: AbortSignal = this.#startupLifetime.signal,
   ): Promise<Tunnel> {
     if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
     const key = `${deviceId}:${String(remotePort)}`;
@@ -1727,12 +1738,7 @@ export class IosProvider {
       return existing;
     const started = (async () => {
       if (existing !== undefined) await this.#stopTunnel(existing);
-      return this.#startForward(
-        deviceId,
-        remotePort,
-        key,
-        this.#startupLifetime.signal,
-      );
+      return this.#startForward(deviceId, remotePort, key, startupLifetime);
     })();
     this.#tunnelStarts.set(key, started);
     const release = () => {
