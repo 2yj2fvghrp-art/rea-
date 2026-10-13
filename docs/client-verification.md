@@ -430,7 +430,7 @@ after verification unless fixture retention is requested. The lane
 installs the packaged skill and MCP registration through public `rea setup`,
 rather than copying a skill into a project that also inherits the caller's
 skills and configuration. Only authentication is copied, when present, and it
-is removed even with `REA_AGENT_EVAL_KEEP_FIXTURES=true`. No user configuration,
+is removed after verified process cleanup even with `REA_AGENT_EVAL_KEEP_FIXTURES=true`. No user configuration,
 rules, plugins or history is copied; shell snapshots and additional agents are
 disabled. Existing API-key environment authentication remains available.
 Authentication is the client's credential file (`auth.json`,
@@ -438,13 +438,18 @@ Authentication is the client's credential file (`auth.json`,
 (`OPENAI_API_KEY`/`CODEX_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`).
 The client environment is built from an allowlist of host, locale,
 temporary-directory, proxy, certificate and session-keyring variables, plus the
-selected client's own API key; other credentials and configuration are not
+selected client's own API key and endpoint (`ANTHROPIC_BASE_URL` or
+`GOOGLE_GEMINI_BASE_URL`); other credentials and configuration are not
 inherited. Copied credential files are registered for removal before they are
 written. Each scenario runs as an owned process tree with its own run token;
 completion or timeout ends with token-verified cleanup of the client and the
-REA MCP server it started, and the run fails if that cleanup is incomplete. Claude Code also disables account-level
+REA MCP server it started. Cleanup waits for token-owned descendants to disappear
+and retries retained ownership before releasing files. If cleanup remains
+unverified, the run fails and retains its private root, credential paths, and
+`process-ownership.json` receipt for token-verified recovery; the receipt does not
+store environment values. Claude Code also disables account-level
 claude.ai connectors. Gemini CLI reuses the caller's selected
-authentication type unless `GEMINI_API_KEY` is set. Its OAuth file is copied
+authentication type unless `GEMINI_API_KEY` is nonempty. Its OAuth file is copied
 only when OAuth is selected; an API key Gemini CLI keeps in the OS keychain is
 used in place rather than copied.
 

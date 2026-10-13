@@ -65,7 +65,9 @@ const modelArguments = (model) =>
 const apiKeys = (...names) =>
   Object.fromEntries(
     names.flatMap((name) =>
-      process.env[name] === undefined ? [] : [[name, process.env[name]]],
+      process.env[name] === undefined || process.env[name].length === 0
+        ? []
+        : [[name, process.env[name]]],
     ),
   );
 
@@ -174,6 +176,9 @@ const claudeCodeClient = (profile, model) => ({
     // Account-level claude.ai connectors are user configuration.
     ENABLE_CLAUDEAI_MCP_SERVERS: "false",
     ...apiKeys("ANTHROPIC_API_KEY"),
+    ...(process.env.ANTHROPIC_BASE_URL === undefined
+      ? {}
+      : { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL }),
   },
   skillDirectory: join(profile, "skills", SKILL),
   arguments: (prompt, approvedTools) => [
@@ -238,10 +243,9 @@ const prepareGeminiCli = async (profile, { model, authPaths }) => {
     ".gemini",
   );
   // An explicit API key wins; otherwise the caller's selected type is reused.
-  const authType =
-    process.env.GEMINI_API_KEY === undefined
-      ? ((await callerGeminiAuthType(callerGemini)) ?? "oauth-personal")
-      : "gemini-api-key";
+  const authType = !process.env.GEMINI_API_KEY
+    ? ((await callerGeminiAuthType(callerGemini)) ?? "oauth-personal")
+    : "gemini-api-key";
   if (authType === "oauth-personal")
     await copyAuthentication(
       join(callerGemini, "oauth_creds.json"),
@@ -264,6 +268,9 @@ const prepareGeminiCli = async (profile, { model, authPaths }) => {
       GEMINI_CLI_NO_RELAUNCH: "1",
       GEMINI_CLI_TRUST_WORKSPACE: "true",
       ...apiKeys("GEMINI_API_KEY"),
+      ...(process.env.GOOGLE_GEMINI_BASE_URL === undefined
+        ? {}
+        : { GOOGLE_GEMINI_BASE_URL: process.env.GOOGLE_GEMINI_BASE_URL }),
     },
     skillDirectory: join(profile, ".agents/skills", SKILL),
     arguments: async (prompt, approvedTools) => {

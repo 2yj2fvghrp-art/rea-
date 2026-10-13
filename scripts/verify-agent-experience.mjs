@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -18,7 +19,10 @@ import {
   summarizeFactualCorrectness,
 } from "../dist/evaluation/AgentEvaluationReport.js";
 import { PRODUCT_IDENTITY } from "../dist/identity.js";
-import { cleanupOwnedProcessGroup } from "../dist/process/ProcessOwnership.js";
+import {
+  cleanupOwnedProcessGroup,
+  verifyNoTokenOwnedProcesses,
+} from "../dist/process/ProcessOwnership.js";
 import { systemProcessOwnershipHost } from "../dist/process/ProcessOwnershipObservation.js";
 import {
   ProviderProcessSupervisor,
@@ -51,6 +55,9 @@ const fixtureRoot = join(evaluationRoot, "targets");
 const account = join(evaluationRoot, "account");
 // Copied credentials are registered here before they are written.
 const authPaths = [];
+// The run scope retains process authority until both stopping and token verification finish.
+const scenarioProcesses = new Map();
+const ownershipReceipt = join(evaluationRoot, "process-ownership.json");
 
 try {
   const clientVersion = await readCommandVersion(
@@ -375,10 +382,39 @@ try {
       `Agent routing/workflow/answer checks failed: ${failed.map(({ id }) => id).join(", ")}`,
     );
 } finally {
-  // Even a deliberately retained fixture directory must never retain auth.
-  await Promise.all(authPaths.map((path) => rm(path, { force: true })));
-  if (process.env.REA_AGENT_EVAL_KEEP_FIXTURES !== "true")
-    await rm(evaluationRoot, { recursive: true, force: true });
+  // Retry retained ownership before releasing credentials or the run root.
+  for (const owned of scenarioProcesses.values()) await stopScenario(owned);
+  if (scenarioProcesses.size > 0) {
+    await writeFile(
+      ownershipReceipt,
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          evaluation_root: evaluationRoot,
+          authentication_paths: authPaths,
+          processes: [...scenarioProcesses.values()].map(
+            ({ ownership, scenarioId, lastCleanup }) => ({
+              ownership,
+              scenario_id: scenarioId,
+              cleanup: lastCleanup,
+            }),
+          ),
+        },
+        null,
+        2,
+      )}\n`,
+      { mode: 0o600, flag: "wx" },
+    );
+    console.error(
+      `Agent evaluation cleanup is unresolved; retained private resources and ownership receipt: ${ownershipReceipt}`,
+    );
+    process.exitCode = 1;
+  } else {
+    // Fixture retention never retains auth after verified process cleanup.
+    await Promise.all(authPaths.map((path) => rm(path, { force: true })));
+    if (process.env.REA_AGENT_EVAL_KEEP_FIXTURES !== "true")
+      await rm(evaluationRoot, { recursive: true, force: true });
+  }
 }
 
 async function createTargets(root, includeManaged) {
@@ -473,22 +509,29 @@ async function runClient(env, arguments_, scenarioId) {
     // The allowlisted environment is complete; nothing else is inherited.
     hostEnvironment: {},
   });
-  const ownership =
-    captureBaseline === undefined
-      ? launch.ownership
-      : {
-          ...launch.ownership,
-          sweepTokenOwnedProcesses: true,
-          captureBaseline,
-        };
+  const ownership = {
+    ...launch.ownership,
+    sweepTokenOwnedProcesses: true,
+    ...(captureBaseline === undefined ? {} : { captureBaseline }),
+  };
+  const owned = {
+    ownership,
+    scenarioId,
+    supervisor: undefined,
+    stop: () => launch.cleanup?.() ?? cleanupOwnedProcessGroup(ownership),
+    lastCleanup: undefined,
+  };
+  // Register immediately after launch, before stream or supervisor preparation can fail.
+  scenarioProcesses.set(ownership.runId, owned);
   const supervisor = new ProviderProcessSupervisor(
     {
       ...launch,
       ownsProcessLifetime: true,
-      cleanup: () => launch.cleanup?.() ?? cleanupOwnedProcessGroup(ownership),
+      cleanup: owned.stop,
     },
     { captureStdout: false, maxDiagnosticBytes: 32_768 },
   );
+  owned.supervisor = supervisor;
   const events = [];
   const nonJson = [];
   const lines = createInterface({ input: launch.process.stdout });
@@ -507,15 +550,12 @@ async function runClient(env, arguments_, scenarioId) {
     if (exited) await supervisor.waitForOutputClose(5_000);
   } finally {
     // Owned descendants are stopped even when waiting failed.
-    stopped = await supervisor.stop();
+    stopped = await stopScenario(owned);
     lines.close();
   }
-  if (
-    stopped.status !== "verified-cleanup" &&
-    stopped.status !== "already-exited"
-  )
+  if (!stopped.cleaned)
     throw new Error(
-      `${client.id} process cleanup incomplete: ${JSON.stringify(stopped)}`,
+      `${client.id} process cleanup incomplete; ownership and resources retained at ${evaluationRoot}: ${JSON.stringify(stopped)}`,
     );
   if (!exited)
     throw new Error(
@@ -527,6 +567,54 @@ async function runClient(env, arguments_, scenarioId) {
     exitCode: snapshot.exitCode ?? 1,
     stderr: `${nonJson.join("")}${snapshot.stderr.text}`.slice(0, 32_768),
   };
+}
+
+/** Stop the launcher, then observe owned descendants rather than equating signal delivery with exit. */
+async function stopScenario(owned) {
+  try {
+    // A previously verified signal request may still have left descendants alive.
+    // Retry through the ownership primitive, which revalidates every live candidate.
+    if (owned.lastCleanup !== undefined) await owned.stop();
+    const stopped =
+      owned.supervisor === undefined
+        ? await owned.stop()
+        : await owned.supervisor.stop();
+    const deadline = performance.now() + 5_000;
+    let verification;
+    do {
+      verification = await verifyNoTokenOwnedProcesses(
+        owned.ownership.runId,
+        systemProcessOwnershipHost,
+        owned.ownership.captureBaseline,
+        owned.ownership,
+      );
+      if (verification.cleaned) break;
+      await delay(100);
+    } while (performance.now() < deadline);
+    const stoppedCleanly =
+      owned.supervisor === undefined
+        ? stopped.cleaned
+        : stopped.status === "verified-cleanup" ||
+          stopped.status === "already-exited";
+    const result = {
+      cleaned: stoppedCleanly && verification.cleaned,
+      stopped,
+      verification,
+    };
+    owned.lastCleanup = result;
+    if (result.cleaned) {
+      scenarioProcesses.delete(owned.ownership.runId);
+      owned.supervisor?.dispose();
+    }
+    return result;
+  } catch (cause) {
+    const result = {
+      cleaned: false,
+      reason: cause instanceof Error ? cause.message : String(cause),
+    };
+    owned.lastCleanup = result;
+    return result;
+  }
 }
 
 async function runProcess(
