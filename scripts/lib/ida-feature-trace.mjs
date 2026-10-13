@@ -31,13 +31,15 @@ export function assertFeatureTrace(trace, procedure) {
 }
 
 /**
- * Find a string that IDA maps outside every function. Returns its address, or
- * undefined when the target has no strings.
+ * Find a string that IDA maps outside every function. A string inside a
+ * function chunk (inline data in code) is valid and skipped, so the strings are
+ * tried in order. Returns its address, or undefined when no string qualifies.
  */
 export async function findMappedNonFunction(strings, resolveAt) {
-  if (strings.length === 0) return undefined;
-  const mapped = await resolveAt(strings[0].address);
-  assert.equal(mapped.found, false);
-  assert.equal(mapped.reason, "not_in_procedure");
-  return strings[0].address;
+  for (const { address } of strings) {
+    const resolved = await resolveAt(address);
+    if (!resolved.found && resolved.reason === "not_in_procedure")
+      return address;
+  }
+  return undefined;
 }

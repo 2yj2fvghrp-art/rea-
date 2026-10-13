@@ -295,7 +295,7 @@ const mcp = async (cliDossier) => {
       const mappedString = await findMappedNonFunction(strings, resolveAt);
       if (mappedString === undefined)
         report.unverified.push(
-          "Mapped non-function containment: the target has no string outside every function.",
+          "Mapped non-function containment: no string of the target is mapped outside every function.",
         );
       const context = await client.callTool({
         name: "inspect_address_context",
