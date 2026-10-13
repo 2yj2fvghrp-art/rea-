@@ -478,6 +478,7 @@ class _BridgeServer(threading.Thread):
         self.session_id = str(uuid.uuid4())
         self.token = secrets.token_urlsafe(32)
         self.poisoned = False
+        self.connection_ordinal = 0
         self.directory = _bridge_directory()
         self.descriptor = self.directory / f"cutter-{os.getpid()}-{self.session_id}.json"
 
@@ -539,21 +540,23 @@ class _BridgeServer(threading.Thread):
                 continue
             except OSError:
                 break
+            self.connection_ordinal += 1
+            connection_ordinal = self.connection_ordinal
             with connection:
                 connection.settimeout(AUTH_FRAME_TIMEOUT_SECONDS)
                 authenticated = False
                 try:
                     hello = self._receive_frame(connection)
-                    if not isinstance(hello, dict) or hello.get("kind") != "rea-auth-v1" or not isinstance(hello.get("nonce"), str) or len(hello["nonce"]) != 64:
+                    if not isinstance(hello, dict) or hello.get("kind") != "rea-auth-v2" or not isinstance(hello.get("nonce"), str) or len(hello["nonce"]) != 64:
                         self._send(connection, {"ok": False, "error": "authentication-failed"})
                         continue
                     client_nonce = hello["nonce"]
-                    server_nonce = secrets.token_hex(32)
-                    server_proof = hmac.new(self.token.encode(), f"rea-cutter-server-v1:{self.session_id}:{client_nonce}:{server_nonce}".encode(), hashlib.sha256).hexdigest()
+                    server_nonce = f"{connection_ordinal:016x}{secrets.token_hex(24)}"
+                    server_proof = hmac.new(self.token.encode(), f"rea-cutter-server-v2:{self.session_id}:{client_nonce}:{server_nonce}".encode(), hashlib.sha256).hexdigest()
                     self._send(connection, {"session_id": self.session_id, "nonce": server_nonce, "proof": server_proof})
                     authenticated_frame = self._receive_frame(connection)
                     request_bytes = authenticated_frame.get("request") if isinstance(authenticated_frame, dict) else None
-                    expected_proof = hmac.new(self.token.encode(), f"rea-cutter-client-v1:{self.session_id}:{client_nonce}:{server_nonce}:{request_bytes}".encode(), hashlib.sha256).hexdigest()
+                    expected_proof = hmac.new(self.token.encode(), f"rea-cutter-client-v2:{self.session_id}:{client_nonce}:{server_nonce}:{request_bytes}".encode(), hashlib.sha256).hexdigest()
                     if not isinstance(request_bytes, str) or not isinstance(authenticated_frame.get("proof"), str) or not hmac.compare_digest(authenticated_frame["proof"], expected_proof):
                         self._send(connection, {"ok": False, "error": "authentication-failed"})
                         continue
@@ -597,6 +600,8 @@ class _BridgeServer(threading.Thread):
                             "message": "The UI operation may still complete after this timeout; restart Cutter before issuing further commands.",
                         }, client_nonce, server_nonce)
                     else:
+                        if request.get("kind") == "status" and reply.get("ok") is True:
+                            reply["completed_connection"] = f"{connection_ordinal - 1:016x}"
                         self._send_authenticated(connection, reply, client_nonce, server_nonce)
                 except socket.timeout:
                     if authenticated:
@@ -675,7 +680,7 @@ class _BridgeServer(threading.Thread):
             response_parts.append(raw)
             escaped_parts.append(escaped)
         proof = hmac.new(self.token.encode(), digestmod=hashlib.sha256)
-        proof.update(f"rea-cutter-response-v1:{self.session_id}:{client_nonce}:{server_nonce}:".encode())
+        proof.update(f"rea-cutter-response-v2:{self.session_id}:{client_nonce}:{server_nonce}:".encode())
         for part in response_parts:
             proof.update(part)
         return prefix + b"".join(escaped_parts) + b'","proof":"' + proof.hexdigest().encode() + b'"}\n'

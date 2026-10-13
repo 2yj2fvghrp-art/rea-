@@ -38,8 +38,11 @@ const authenticatedServer = (
     ) => void,
     connection: import("node:net").Socket,
   ) => void,
-): ReturnType<typeof createServer> =>
-  createServer((connection) => {
+  handleStatusRequests = false,
+): ReturnType<typeof createServer> => {
+  let nextConnectionOrdinal = 0;
+  return createServer((connection) => {
+    const connectionOrdinal = ++nextConnectionOrdinal;
     connection.setEncoding("utf8");
     let input = "";
     let clientNonce = "";
@@ -54,12 +57,12 @@ const authenticatedServer = (
           unknown
         >;
         input = input.slice(end + 1);
-        if (frame.kind === "rea-auth-v1") {
+        if (frame.kind === "rea-auth-v2") {
           clientNonce = String(frame.nonce);
-          serverNonce = "e".repeat(64);
+          serverNonce = `${connectionOrdinal.toString(16).padStart(16, "0")}${"e".repeat(48)}`;
           const proof = createHmac("sha256", token)
             .update(
-              `rea-cutter-server-v1:${sessionId}:${clientNonce}:${serverNonce}`,
+              `rea-cutter-server-v2:${sessionId}:${clientNonce}:${serverNonce}`,
             )
             .digest("hex");
           connection.write(
@@ -70,7 +73,7 @@ const authenticatedServer = (
         const requestBytes = String(frame.request);
         const expected = createHmac("sha256", token)
           .update(
-            `rea-cutter-client-v1:${sessionId}:${clientNonce}:${serverNonce}:${requestBytes}`,
+            `rea-cutter-client-v2:${sessionId}:${clientNonce}:${serverNonce}:${requestBytes}`,
           )
           .digest("hex");
         if (frame.proof !== expected) {
@@ -85,7 +88,7 @@ const authenticatedServer = (
             options.raw === true ? String(value) : JSON.stringify(value);
           const responseProof = createHmac("sha256", token)
             .update(
-              `rea-cutter-response-v1:${sessionId}:${clientNonce}:${serverNonce}:${response}`,
+              `rea-cutter-response-v2:${sessionId}:${clientNonce}:${serverNonce}:${response}`,
             )
             .digest("hex");
           const frame = `${JSON.stringify({ response, proof: responseProof })}\n`;
@@ -96,14 +99,23 @@ const authenticatedServer = (
             );
           } else connection.end(frame);
         };
-        onRequest(
-          JSON.parse(requestBytes) as Record<string, unknown>,
-          respond,
-          connection,
-        );
+        const request = JSON.parse(requestBytes) as Record<string, unknown>;
+        if (request.kind === "status" && !handleStatusRequests) {
+          respond({
+            ok: true,
+            session_id: sessionId,
+            completed_commands: [],
+            completed_connection: (connectionOrdinal - 1)
+              .toString(16)
+              .padStart(16, "0"),
+          });
+          continue;
+        }
+        onRequest(request, respond, connection);
       }
     });
   });
+};
 
 const statusServer = (
   token: string,
@@ -123,6 +135,7 @@ const statusServer = (
         identity_status: "partial",
       });
     },
+    true,
   );
 
 const createStatusHarness = (
@@ -302,7 +315,7 @@ describe("CutterBridgeClient: scenario group 1", () => {
       json: false,
     });
     await expect(result).rejects.toThrow("peer authentication");
-    expect(received).toContain("rea-auth-v1");
+    expect(received).toContain("rea-auth-v2");
     expect(received).not.toContain(token);
     expect(received).not.toContain("write /tmp/secret");
   });
@@ -539,7 +552,7 @@ describe("CutterBridgeClient: scenario group 3", () => {
         );
       return {
         ...real,
-        readdir: async () => {
+        opendir: async () => {
           throw new Error("synthetic read failure");
         },
       };
@@ -598,6 +611,7 @@ describe("CutterBridgeClient: scenario group 3", () => {
       "synthetic-cutter-bridge-token-for-test",
       sessionId,
       (_request, respond) => respond({ ok: true, session_id: sessionId }),
+      true,
     );
     const port = await listen(server);
     await writeDescriptor(
@@ -639,8 +653,10 @@ describe("CutterBridgeClient: scenario group 4", () => {
     const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
     const token = "synthetic-cutter-bridge-token-for-test";
     let response: unknown = { ok: true };
-    server = authenticatedServer(token, sessionId, (_request, respond) =>
-      respond(response),
+    server = authenticatedServer(token, sessionId, (request, respond) =>
+      respond(
+        request.kind === "ack" ? { ok: true, acknowledged: true } : response,
+      ),
     );
     const port = await listen(server);
     await writeDescriptor(directory, sessionId, port, token, {
@@ -693,7 +709,11 @@ describe("CutterBridgeClient: scenario group 4", () => {
       documentGeneration: 9,
       cutterVersion: "new",
     });
-    response = { ok: false, error: "active-document-generation-changed" };
+    response = {
+      ok: false,
+      execution_state: "not_started",
+      error: "active-document-generation-changed",
+    };
     await expect(run()).rejects.toThrow("List sessions again");
     response = { ok: true, unexpected: true };
     // Valid schema responses can omit all optional fields; the fallback result is nullable.
@@ -765,7 +785,11 @@ describe("CutterBridgeClient: scenario group 5", () => {
     server = authenticatedServer(
       "synthetic-cutter-bridge-token-for-test",
       sessionId,
-      (_request, respond) => {
+      (request, respond) => {
+        if (request.kind === "ack") {
+          respond({ ok: true, acknowledged: true });
+          return;
+        }
         if (malformed) respond("{", { raw: true });
         else respond({ ok: true, output: "split" }, { fragment: true });
       },
@@ -1031,6 +1055,7 @@ describe("CutterBridgeClient: scenario group 7", () => {
     const bytes = await readFile(
       join(directory, `cutter-${process.pid}-${sessionId}.json`),
     );
+    let position = 0;
     await vi.resetModules();
     vi.doMock("node:fs/promises", async () => {
       const real =
@@ -1046,7 +1071,12 @@ describe("CutterBridgeClient: scenario group 7", () => {
             uid: process.getuid?.() ?? 0,
             mode: 0o100600,
           }),
-          readFile: async () => bytes,
+          read: async (target: Buffer, offset: number, length: number) => {
+            const chunk = bytes.subarray(position, position + length);
+            chunk.copy(target, offset);
+            position += chunk.byteLength;
+            return { bytesRead: chunk.byteLength };
+          },
           close: async () => {
             throw new Error("synthetic close failure");
           },
@@ -1232,36 +1262,44 @@ describe("CutterBridgeClient: scenario group 9", () => {
     const staleId = "ede4bbfd-6348-46aa-963b-0de0e78ccbdc";
     const token = "synthetic-cutter-bridge-token-for-test";
     const completedRequestIds = new Set<string>();
-    server = authenticatedServer(token, sessionId, (request, respond) => {
-      if (request.kind === "command") {
-        expect(request.request_id).toMatch(/^[0-9a-f-]{36}$/iu);
-        completedRequestIds.add(String(request.request_id));
-        respond({
-          ok: false,
-          session_id: sessionId,
-          execution_state: "unknown",
-          error: "ui-thread-request-timeout",
-        });
-        return;
-      }
-      if (request.kind === "ack") {
+    server = authenticatedServer(
+      token,
+      sessionId,
+      (request, respond) => {
+        if (request.kind === "command") {
+          expect(request.request_id).toMatch(/^[0-9a-f-]{36}$/iu);
+          completedRequestIds.add(String(request.request_id));
+          respond({
+            ok: false,
+            session_id: sessionId,
+            execution_state: "unknown",
+            error: "ui-thread-request-timeout",
+          });
+          return;
+        }
+        if (request.kind === "ack") {
+          respond({
+            ok: true,
+            acknowledged: completedRequestIds.delete(
+              String(request.request_id),
+            ),
+          });
+          return;
+        }
         respond({
           ok: true,
-          acknowledged: completedRequestIds.delete(String(request.request_id)),
+          session_id: sessionId,
+          current_file: "/tmp/input",
+          document_generation: 0,
+          completed_connection: "0000000000000000",
+          completed_commands: [...completedRequestIds].map((request_id) => ({
+            request_id,
+            execution_state: "complete",
+          })),
         });
-        return;
-      }
-      respond({
-        ok: true,
-        session_id: sessionId,
-        current_file: "/tmp/input",
-        document_generation: 0,
-        completed_commands: [...completedRequestIds].map((request_id) => ({
-          request_id,
-          execution_state: "complete",
-        })),
-      });
-    });
+      },
+      true,
+    );
     const port = await listen(server);
     await writeDescriptor(directory, sessionId, port, token);
     const client = createClient({ REA_CUTTER_BRIDGE_DIR: directory });

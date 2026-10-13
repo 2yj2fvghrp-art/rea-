@@ -126,6 +126,7 @@ it("clears a poisoned command only after its exact UI-dispatcher receipt", async
   expect(confirmCommandCompletion).toHaveBeenLastCalledWith(
     cutterInput.session_id,
     requestId,
+    undefined,
   );
 
   receipt = requestId;
@@ -137,6 +138,7 @@ it("clears a poisoned command only after its exact UI-dispatcher receipt", async
 
 it("recovers canceled command A after B and does not retain poisoned B", async () => {
   const requestA = "4b18ce4d-bf31-456e-ae31-e8c547b2f9db";
+  const completionTokenA = "0000000000000007";
   const requestB = "8ca93d11-107d-41ed-8b40-31dd53cd26a6";
   const receipts = new Set<string>();
   let dispatches = 0;
@@ -161,6 +163,7 @@ it("recovers canceled command A after B and does not retain poisoned B", async (
         error: "transport-response-missing",
         message: "cancelled after dispatch",
         outputTruncated: false,
+        completionToken: completionTokenA,
       };
     }
     if (dispatches === 2)
@@ -232,6 +235,7 @@ it("recovers canceled command A after B and does not retain poisoned B", async (
   expect(confirmCommandCompletion).toHaveBeenCalledWith(
     cutterInput.session_id,
     requestA,
+    completionTokenA,
   );
 
   expect(await callerA.execute(cutterInput)).toMatchObject({ ok: true });

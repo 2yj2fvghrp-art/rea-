@@ -83,7 +83,9 @@ describe("Cutter CLI commands", () => {
   it("returns Evidence when the selected Cutter session completes a command", async () => {
     directory = await mkdtemp(join(tmpdir(), "rea-cutter-cli-test-"));
     const token = "synthetic-cutter-cli-token-for-test";
+    let nextConnectionOrdinal = 0;
     server = createServer((connection) => {
+      const ordinal = ++nextConnectionOrdinal;
       connection.setEncoding("utf8");
       let input = "";
       let clientNonce = "";
@@ -97,11 +99,11 @@ describe("Cutter CLI commands", () => {
           unknown
         >;
         input = input.slice(newline + 1);
-        if (frame.kind === "rea-auth-v1") {
+        if (frame.kind === "rea-auth-v2") {
           clientNonce = String(frame.nonce);
-          serverNonce = "b".repeat(64);
+          serverNonce = `${ordinal.toString(16).padStart(16, "0")}${"b".repeat(48)}`;
           connection.write(
-            `${JSON.stringify({ session_id: SESSION_ID, nonce: serverNonce, proof: createHmac("sha256", token).update(`rea-cutter-server-v1:${SESSION_ID}:${clientNonce}:${serverNonce}`).digest("hex") })}\n`,
+            `${JSON.stringify({ session_id: SESSION_ID, nonce: serverNonce, proof: createHmac("sha256", token).update(`rea-cutter-server-v2:${SESSION_ID}:${clientNonce}:${serverNonce}`).digest("hex") })}\n`,
           );
           return;
         }
@@ -111,27 +113,43 @@ describe("Cutter CLI commands", () => {
           frame.proof !==
           createHmac("sha256", token)
             .update(
-              `rea-cutter-client-v1:${SESSION_ID}:${clientNonce}:${serverNonce}:${requestBytes}`,
+              `rea-cutter-client-v2:${SESSION_ID}:${clientNonce}:${serverNonce}:${requestBytes}`,
             )
             .digest("hex")
         ) {
           connection.destroy();
           return;
         }
+        const status = request.kind === "status";
         const response = JSON.stringify({
           ok: true,
           session_id: request.session_id,
-          output: { answer: 42 },
-          current_file: null,
-          document_generation: 0,
-          cutter_version: "Cutter fixture",
-          identity_status: "partial",
-          execution_state: "complete",
-          output_truncated: false,
+          ...(status
+            ? {
+                current_file: null,
+                document_generation: 0,
+                cutter_version: "Cutter fixture",
+                identity_status: "partial",
+                completed_connection: (ordinal - 1)
+                  .toString(16)
+                  .padStart(16, "0"),
+                completed_commands: [],
+              }
+            : request.kind === "ack"
+              ? { acknowledged: false }
+              : {
+                  output: { answer: 42 },
+                  current_file: null,
+                  document_generation: 0,
+                  cutter_version: "Cutter fixture",
+                  identity_status: "partial",
+                  execution_state: "complete",
+                  output_truncated: false,
+                }),
         });
         const proof = createHmac("sha256", token)
           .update(
-            `rea-cutter-response-v1:${SESSION_ID}:${clientNonce}:${serverNonce}:${response}`,
+            `rea-cutter-response-v2:${SESSION_ID}:${clientNonce}:${serverNonce}:${response}`,
           )
           .digest("hex");
         connection.end(`${JSON.stringify({ response, proof })}\n`);

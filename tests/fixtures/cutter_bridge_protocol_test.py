@@ -111,6 +111,9 @@ class ServeDispatcher:
     def __init__(self):
         self.dispatch = self
         self.completed_commands = {}
+        self.fail_next_ack = False
+        self.malformed_next_ack = False
+        self.hide_receipts_after_ack_failure = False
 
     def can_accept_command(self):
         return len(self.completed_commands) < bridge.MAX_COMPLETION_RECEIPTS
@@ -130,13 +133,25 @@ class ServeDispatcher:
                 "completed_commands": [
                     {"request_id": request_id, "execution_state": state}
                     for request_id, state in self.completed_commands.items()
-                ],
+                ] if not self.hide_receipts_after_ack_failure else [],
             })
         elif request.get("kind") == "ack":
+            if self.malformed_next_ack:
+                self.malformed_next_ack = False
+                reply.update({"ok": True, "session_id": request["session_id"]})
+                request["_event"].set()
+                return
+            if self.fail_next_ack:
+                self.fail_next_ack = False
+                self.hide_receipts_after_ack_failure = True
+                reply.update({"ok": False, "acknowledged": False})
+                request["_event"].set()
+                return
             reply.update({
                 "ok": True,
                 "acknowledged": self.completed_commands.pop(request["request_id"], None) is not None,
             })
+            self.hide_receipts_after_ack_failure = False
         elif request.get("kind") == "command" and request.get("expected_generation") != self.generation:
             reply.update({
                 "ok": False,
@@ -144,6 +159,37 @@ class ServeDispatcher:
                 "execution_state": "not_started",
             })
             self.completed_commands[request["request_id"]] = "not_started"
+        elif request.get("kind") == "command" and request.get("command") == "fixture-unknown":
+            reply.update({
+                "ok": False,
+                "error": "fixture-response-lost-after-completion",
+                "execution_state": "unknown",
+            })
+            self.completed_commands[request["request_id"]] = "complete"
+        elif request.get("kind") == "command" and request.get("command") == "fixture-fail-ack":
+            reply.update({
+                "ok": True,
+                "output": "ack will fail once",
+                "current_file": self.current_file,
+                "document_generation": self.generation,
+                "cutter_version": self.cutter_version,
+                "identity_status": "partial",
+                "execution_state": "complete",
+            })
+            self.completed_commands[request["request_id"]] = "complete"
+            self.fail_next_ack = True
+        elif request.get("kind") == "command" and request.get("command") == "fixture-malformed-ack":
+            reply.update({
+                "ok": True,
+                "output": "ack reply will be malformed once",
+                "current_file": self.current_file,
+                "document_generation": self.generation,
+                "cutter_version": self.cutter_version,
+                "identity_status": "partial",
+                "execution_state": "complete",
+            })
+            self.completed_commands[request["request_id"]] = "complete"
+            self.malformed_next_ack = True
         else:
             reply.update({
                 "ok": True,
@@ -176,6 +222,14 @@ def run_serve_mode():
 
 
 class ProtocolProducerTest(unittest.TestCase):
+    def test_rejects_legacy_peers_before_ui_dispatch(self):
+        with socket.create_connection(("127.0.0.1", self.server.port), timeout=2) as connection:
+            connection.sendall((json.dumps({"kind": "rea-auth-v1", "nonce": "a" * 64}) + "\n").encode())
+            with connection.makefile("rb") as reader:
+                reply = json.loads(reader.readline())
+        self.assertEqual(reply, {"ok": False, "error": "authentication-failed"})
+        self.assertEqual(self.dispatcher.commands, [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         os.environ["REA_CUTTER_BRIDGE_DIR"] = self.temp.name
@@ -198,20 +252,20 @@ class ProtocolProducerTest(unittest.TestCase):
         token = self.server.token.encode()
         client_nonce = os.urandom(32).hex()
         with socket.create_connection(("127.0.0.1", self.server.port), timeout=1) as connection:
-            _send(connection, {"kind": "rea-auth-v1", "nonce": client_nonce})
+            _send(connection, {"kind": "rea-auth-v2", "nonce": client_nonce})
             challenge = _frame(connection)
             self.assertEqual(challenge["session_id"], self.server.session_id)
             server_nonce = challenge["nonce"]
-            expected_server = hmac.new(token, f"rea-cutter-server-v1:{self.server.session_id}:{client_nonce}:{server_nonce}".encode(), hashlib.sha256).hexdigest()
+            expected_server = hmac.new(token, f"rea-cutter-server-v2:{self.server.session_id}:{client_nonce}:{server_nonce}".encode(), hashlib.sha256).hexdigest()
             self.assertTrue(hmac.compare_digest(challenge["proof"], expected_server))
             request_bytes = json.dumps(request, separators=(",", ":"))
-            proof = hmac.new(token, f"rea-cutter-client-v1:{self.server.session_id}:{client_nonce}:{server_nonce}:{request_bytes}".encode(), hashlib.sha256).hexdigest()
+            proof = hmac.new(token, f"rea-cutter-client-v2:{self.server.session_id}:{client_nonce}:{server_nonce}:{request_bytes}".encode(), hashlib.sha256).hexdigest()
             _send(connection, {"request": request_bytes, "proof": proof})
             frame = _frame(connection)
             if "response" not in frame:
                 return frame, client_nonce
             response = frame["response"]
-            expected_response = hmac.new(token, f"rea-cutter-response-v1:{self.server.session_id}:{client_nonce}:{server_nonce}:{response}".encode(), hashlib.sha256).hexdigest()
+            expected_response = hmac.new(token, f"rea-cutter-response-v2:{self.server.session_id}:{client_nonce}:{server_nonce}:{response}".encode(), hashlib.sha256).hexdigest()
             self.assertTrue(hmac.compare_digest(frame["proof"], expected_response))
             return json.loads(response), client_nonce
 
@@ -224,7 +278,7 @@ class ProtocolProducerTest(unittest.TestCase):
     def test_client_chosen_session_uuid_without_secret_proof_is_not_authenticated(self):
         client_nonce = os.urandom(32).hex()
         with socket.create_connection(("127.0.0.1", self.server.port), timeout=1) as connection:
-            _send(connection, {"kind": "rea-auth-v1", "nonce": client_nonce})
+            _send(connection, {"kind": "rea-auth-v2", "nonce": client_nonce})
             _frame(connection)
             request_bytes = json.dumps({"kind": "status", "session_id": "client-chosen-session"}, separators=(",", ":"))
             _send(connection, {"request": request_bytes, "proof": "0" * 64})
@@ -379,7 +433,7 @@ class ProtocolProducerTest(unittest.TestCase):
             response = frame["response"]
             expected = hmac.new(
                 self.server.token.encode(),
-                f"rea-cutter-response-v1:{self.server.session_id}:{'a' * 64}:{'b' * 64}:{response}".encode(),
+                f"rea-cutter-response-v2:{self.server.session_id}:{'a' * 64}:{'b' * 64}:{response}".encode(),
                 hashlib.sha256,
             ).hexdigest()
             self.assertTrue(hmac.compare_digest(frame["proof"], expected))

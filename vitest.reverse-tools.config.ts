@@ -36,6 +36,7 @@ export default defineConfig({
       "tests/boundary/providers/RizinTimeoutEvidence.test.ts",
       "tests/boundary/providers/RizinCommandTimeout.test.ts",
       "tests/boundary/providers/CutterBridgeClient.test.ts",
+      "tests/boundary/providers/CutterBridgeCapacity.test.ts",
       "tests/boundary/providers/cutterBridgeProducer.test.ts",
       "tests/boundary/providers/CutterBridgeNullIdentity.test.ts",
       "tests/boundary/providers/CutterBridgeService.test.ts",

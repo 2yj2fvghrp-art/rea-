@@ -87,12 +87,14 @@ const assertNotStartedEvidenceAndAdmission = async (
   expect(admitted.isError).not.toBe(true);
 };
 
-it("preserves live Cutter command Evidence and parity through the MCP boundary", async () => {
-  const directory = await createTestTempDirectory("rea-cutter-mcp-");
-  if (process.platform !== "win32") await chmod(directory, 0o700);
-  const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
-  const token = "synthetic-cutter-bridge-token-for-mcp-test";
+const createMcpBridge = async (
+  directory: string,
+  sessionId: string,
+  token: string,
+): Promise<ReturnType<typeof createNetServer>> => {
+  let connectionOrdinal = 0;
   const bridge = createNetServer((connection) => {
+    const ordinal = ++connectionOrdinal;
     let payload = "";
     let clientNonce = "";
     let serverNonce = "";
@@ -106,12 +108,12 @@ it("preserves live Cutter command Evidence and parity through the MCP boundary",
         unknown
       >;
       payload = payload.slice(newline + 1);
-      if (frame.kind === "rea-auth-v1") {
+      if (frame.kind === "rea-auth-v2") {
         clientNonce = String(frame.nonce);
-        serverNonce = "c".repeat(64);
+        serverNonce = `${ordinal.toString(16).padStart(16, "0")}${"c".repeat(48)}`;
         const proof = createHmac("sha256", token)
           .update(
-            `rea-cutter-server-v1:${sessionId}:${clientNonce}:${serverNonce}`,
+            `rea-cutter-server-v2:${sessionId}:${clientNonce}:${serverNonce}`,
           )
           .digest("hex");
         connection.write(
@@ -123,7 +125,7 @@ it("preserves live Cutter command Evidence and parity through the MCP boundary",
       const request = JSON.parse(requestBytes) as Record<string, unknown>;
       const expected = createHmac("sha256", token)
         .update(
-          `rea-cutter-client-v1:${sessionId}:${clientNonce}:${serverNonce}:${requestBytes}`,
+          `rea-cutter-client-v2:${sessionId}:${clientNonce}:${serverNonce}:${requestBytes}`,
         )
         .digest("hex");
       if (frame.proof !== expected) {
@@ -136,33 +138,42 @@ it("preserves live Cutter command Evidence and parity through the MCP boundary",
       }
       const notStarted = request.command === "Ps /tmp/not-started.rzdb";
       const status = request.kind === "status";
-      const response = JSON.stringify({
-        ok: !notStarted,
-        ...(notStarted
-          ? {
-              execution_state: "not_started",
-              error: "session-poisoned-after-ui-timeout",
-            }
-          : {}),
-        session_id: request.session_id,
-        output: status ? undefined : "synthetic Cutter command output",
-        current_file: "/fixtures/sample.bin",
-        document_generation: 3,
-        cutter_version: "Cutter fixture version",
-        identity_status: "partial",
-      });
-      const proof = createHmac("sha256", token)
+      const response = JSON.stringify(
+        request.kind === "ack"
+          ? { ok: true, acknowledged: false }
+          : {
+              ok: !notStarted,
+              ...(notStarted
+                ? {
+                    execution_state: "not_started",
+                    error: "session-poisoned-after-ui-timeout",
+                  }
+                : {}),
+              session_id: request.session_id,
+              output: status ? undefined : "synthetic Cutter command output",
+              current_file: "/fixtures/sample.bin",
+              document_generation: 3,
+              ...(status
+                ? {
+                    completed_connection: (ordinal - 1)
+                      .toString(16)
+                      .padStart(16, "0"),
+                    completed_commands: [],
+                  }
+                : {}),
+              cutter_version: "Cutter fixture version",
+              identity_status: "partial",
+            },
+      );
+      const responseProof = createHmac("sha256", token)
         .update(
-          `rea-cutter-response-v1:${sessionId}:${clientNonce}:${serverNonce}:${response}`,
+          `rea-cutter-response-v2:${sessionId}:${clientNonce}:${serverNonce}:${response}`,
         )
         .digest("hex");
-      connection.end(`${JSON.stringify({ response, proof })}\n`);
+      connection.end(`${JSON.stringify({ response, proof: responseProof })}\n`);
     });
   });
   await new Promise<void>((resolve) => bridge.listen(0, "127.0.0.1", resolve));
-  onTestFinished(
-    async () => new Promise<void>((resolve) => bridge.close(() => resolve())),
-  );
   const address = bridge.address();
   if (address === null || typeof address === "string")
     throw new Error("Expected an ephemeral IPv4 Cutter test bridge.");
@@ -181,7 +192,18 @@ it("preserves live Cutter command Evidence and parity through the MCP boundary",
     }),
     { mode: 0o600 },
   );
+  return bridge;
+};
 
+it("preserves live Cutter command Evidence and parity through the MCP boundary", async () => {
+  const directory = await createTestTempDirectory("rea-cutter-mcp-");
+  if (process.platform !== "win32") await chmod(directory, 0o700);
+  const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
+  const token = "synthetic-cutter-bridge-token-for-mcp-test";
+  const bridge = await createMcpBridge(directory, sessionId, token);
+  onTestFinished(
+    async () => new Promise<void>((resolve) => bridge.close(() => resolve())),
+  );
   const session = createTestBinarySession(createCacheProvider([]));
   const server = createServer(
     { kind: "session", session },

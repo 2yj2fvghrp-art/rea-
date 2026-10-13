@@ -5,7 +5,7 @@ import {
   AnalysisInputError,
   AnalysisOutputError,
 } from "../domain/analysisErrorCore.js";
-import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { createEvidence, type Evidence } from "../domain/evidence.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { cutterCommandInputSchema } from "../contracts/cutterToolContracts.js";
@@ -21,6 +21,7 @@ interface CutterBridgePort {
   confirmCommandCompletion?(
     sessionId: string,
     requestId: string,
+    completionToken?: string,
   ): Promise<Result<boolean, AnalysisError>>;
   execute(input: {
     readonly sessionId: string;
@@ -35,12 +36,16 @@ interface CutterBridgePort {
 export class CutterBridgeService {
   readonly #pendingCleanup = new Map<
     string,
-    { readonly sessionId: string; readonly failure: AnalysisOutputError }
+    {
+      readonly sessionId: string;
+      readonly completionToken?: string;
+      readonly failure: AnalysisOutputError;
+    }
   >();
 
   constructor(readonly client: CutterBridgePort = new CutterBridgeClient()) {}
 
-  /** Only the UI dispatcher's exact terminal receipt releases timed-out work. */
+  /** Release timed-out work only after producer-owned terminal proof. */
   async retryCleanup(): Promise<Result<null, AnalysisError>> {
     for (const [requestId, pending] of this.#pendingCleanup) {
       const confirmCommandCompletion = this.client.confirmCommandCompletion;
@@ -49,6 +54,7 @@ export class CutterBridgeService {
         this.client,
         pending.sessionId,
         requestId,
+        pending.completionToken,
       );
       if (!receipt.ok || !receipt.value) return err(pending.failure);
       const { failure } = pending;
@@ -144,12 +150,16 @@ export class CutterBridgeService {
         );
         this.#pendingCleanup.set(output.requestId, {
           sessionId: input.session_id,
+          ...(output.completionToken === undefined
+            ? {}
+            : { completionToken: output.completionToken }),
           failure,
         });
         return err(failure);
       }
       return ok(evidence);
     } catch (cause) {
+      if (cause instanceof AnalysisError) return err(cause);
       const message =
         cause instanceof Error
           ? cause.message

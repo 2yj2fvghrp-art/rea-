@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
-import { lstat, open, readdir } from "node:fs/promises";
+import { lstat, open, opendir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -10,10 +10,12 @@ import { z } from "zod";
 import {
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { requireWindowsNativeAuthority } from "../windows/WindowsNativeLoader.js";
+import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
 
 const descriptorSchema = z.object({
   session_id: z.string().uuid(),
@@ -56,8 +58,66 @@ const responseSchema = z.object({
     )
     .max(64)
     .optional(),
+  completed_connection: z
+    .string()
+    .regex(/^[0-9a-f]{16}$/)
+    .optional(),
+});
+const acknowledgementSchema = z.object({
+  ok: z.literal(true),
+  acknowledged: z.boolean(),
 });
 const MAX_DESCRIPTOR_BYTES = 64 * 1024;
+const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+// Bound admitted descriptor input bytes and concurrent file/socket handles.
+const MAX_DESCRIPTOR_CANDIDATES = MAX_FRAME_BYTES / MAX_DESCRIPTOR_BYTES;
+const DISCOVERY_CONCURRENCY = 8;
+type AuthenticatedRequestBytes = string & {
+  readonly __authenticatedRequestBytes: unique symbol;
+};
+
+const serializeRequest = (
+  descriptor: z.infer<typeof descriptorSchema>,
+  request: Readonly<Record<string, unknown>>,
+): AuthenticatedRequestBytes => {
+  const requestBytes = JSON.stringify({
+    ...request,
+    session_id: descriptor.session_id,
+  });
+  let frameBytes =
+    Buffer.byteLength(JSON.stringify({ request: "", proof: "0".repeat(64) })) +
+    Buffer.byteLength(requestBytes);
+  for (const character of requestBytes)
+    if (character === '"' || character === "\\") frameBytes += 1;
+  if (frameBytes > MAX_FRAME_BYTES)
+    throw new AnalysisResourceConstraintError(
+      "cutter_command",
+      "transport",
+      "Cutter request exceeds its authenticated frame limit; no command was sent.",
+      { frame_bytes: frameBytes, max_frame_bytes: MAX_FRAME_BYTES },
+    );
+  return requestBytes as AuthenticatedRequestBytes;
+};
+
+const mapDiscovery = async <Input, Output>(
+  inputs: readonly Input[],
+  operation: (input: Input) => Promise<Output>,
+): Promise<Output[]> => {
+  const results = new Array<Output>(inputs.length);
+  let next = 0;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(inputs.length, DISCOVERY_CONCURRENCY) },
+      async () => {
+        while (next < inputs.length) {
+          const index = next++;
+          results[index] = await operation(inputs[index]!);
+        }
+      },
+    ),
+  );
+  return results;
+};
 export type CutterBridgeExecutionState =
   | "not_started"
   | "complete"
@@ -74,6 +134,7 @@ export interface CutterBridgeExecution {
   readonly error: string | null;
   readonly message: string | null;
   readonly outputTruncated: boolean;
+  readonly completionToken?: string;
 }
 
 class CutterBridgeRequestFailure extends Error {
@@ -105,7 +166,8 @@ export interface CutterBridgeDiscovery {
     | "sessions_found"
     | "no_live_bridge_found"
     | "bridge_directory_unavailable"
-    | "bridge_directory_insecure";
+    | "bridge_directory_insecure"
+    | "bridge_directory_capacity_exceeded";
   readonly bridge_directory_security:
     | "private_verified"
     | "not_private"
@@ -167,14 +229,18 @@ export class CutterBridgeClient {
         discovery_status: loaded.error,
         bridge_directory_security: loaded.security,
       };
-    const descriptors = await Promise.all(
-      loaded.descriptors.map(async (descriptor) => {
+    const descriptors = await mapDiscovery(
+      loaded.descriptors,
+      async (descriptor) => {
         try {
           const status = responseSchema.safeParse(
-            await this.#request(descriptor, {
-              kind: "status",
-              session_id: descriptor.session_id,
-            }),
+            await this.#request(
+              descriptor,
+              serializeRequest(descriptor, {
+                kind: "status",
+                session_id: descriptor.session_id,
+              }),
+            ),
           );
           if (
             !status.success ||
@@ -198,7 +264,7 @@ export class CutterBridgeClient {
         } catch {
           return undefined;
         }
-      }),
+      },
     );
     const sessions = descriptors.filter(
       (value): value is CutterBridgeSession => value !== undefined,
@@ -222,21 +288,27 @@ export class CutterBridgeClient {
     input.signal?.throwIfAborted();
     const descriptor = await this.#find(input.sessionId);
     input.signal?.throwIfAborted();
+    const requestId = randomUUID();
+    const commandRequest = serializeRequest(descriptor, {
+      kind: "command",
+      request_id: requestId,
+      expected_generation: input.expectedGeneration,
+      command: input.command,
+      json: input.json,
+    });
+    await this.#recoverCompletedCommands(descriptor, input.signal);
     await this.#retryPendingAcknowledgements(descriptor);
     input.signal?.throwIfAborted();
-    const requestId = randomUUID();
+    let completionToken: string | undefined;
     let rawResponse: unknown;
     try {
       rawResponse = await this.#request(
         descriptor,
-        {
-          kind: "command",
-          request_id: requestId,
-          expected_generation: input.expectedGeneration,
-          command: input.command,
-          json: input.json,
-        },
+        commandRequest,
         input.signal,
+        (ordinal) => {
+          completionToken = ordinal;
+        },
       );
     } catch (cause) {
       if (!(cause instanceof CutterBridgeRequestFailure) || !cause.requestSent)
@@ -252,6 +324,7 @@ export class CutterBridgeClient {
         error: "transport-response-missing",
         message: `${cause.message}; the command may have completed; do not retry automatically`,
         outputTruncated: false,
+        ...(completionToken === undefined ? {} : { completionToken }),
       };
     }
     const parsed = responseSchema.safeParse(rawResponse);
@@ -268,6 +341,7 @@ export class CutterBridgeClient {
         message:
           "Cutter may have completed the command, but its response was invalid; do not retry automatically",
         outputTruncated: false,
+        ...(completionToken === undefined ? {} : { completionToken }),
       };
     const response = parsed.data;
     const executionState: CutterBridgeExecutionState = response.ok
@@ -303,13 +377,15 @@ export class CutterBridgeClient {
       error: response.ok ? null : (response.error ?? "cutter-command-failed"),
       message: response.message ?? null,
       outputTruncated: response.output_truncated ?? false,
+      ...(completionToken === undefined ? {} : { completionToken }),
     };
   }
 
-  /** Return only a typed receipt from the bridge's UI-thread dispatcher. */
+  /** Confirm completion by exact receipt or authenticated connection watermark. */
   async confirmCommandCompletion(
     sessionId: string,
     requestId: string,
+    completionToken?: string,
   ): Promise<Result<boolean, AnalysisError>> {
     let descriptor: z.infer<typeof descriptorSchema>;
     try {
@@ -325,10 +401,13 @@ export class CutterBridgeClient {
       );
     }
     try {
-      const raw = await this.#request(descriptor, {
-        kind: "status",
-        session_id: sessionId,
-      });
+      const raw = await this.#request(
+        descriptor,
+        serializeRequest(descriptor, {
+          kind: "status",
+          session_id: sessionId,
+        }),
+      );
       const parsed = responseSchema.safeParse(raw);
       if (
         !parsed.success ||
@@ -346,7 +425,12 @@ export class CutterBridgeClient {
         (receipt) => receipt.request_id === requestId,
       );
       if (completed) await this.#acknowledgeCompletion(descriptor, requestId);
-      return ok(completed);
+      return ok(
+        completed ||
+          (completionToken !== undefined &&
+            parsed.data.completed_connection !== undefined &&
+            parsed.data.completed_connection >= completionToken),
+      );
     } catch (cause) {
       return err(
         new AnalysisCapabilityUnavailableError(
@@ -359,25 +443,68 @@ export class CutterBridgeClient {
     }
   }
 
+  async #recoverCompletedCommands(
+    descriptor: z.infer<typeof descriptorSchema>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const raw = await this.#request(
+      descriptor,
+      serializeRequest(descriptor, {
+        kind: "status",
+        session_id: descriptor.session_id,
+      }),
+      signal,
+    );
+    const status = responseSchema.safeParse(raw);
+    if (
+      !status.success ||
+      !status.data.ok ||
+      status.data.session_id !== descriptor.session_id
+    )
+      throw new AnalysisOutputError(
+        "cutter_command_status",
+        "The bridge status response did not contain a valid session identity.",
+        { cause: status.success ? undefined : status.error },
+      );
+    if (status.data.completed_connection === undefined)
+      throw new AnalysisOutputError(
+        "cutter_command_status",
+        "The bridge did not provide authenticated proof that earlier connections reached a terminal state.",
+      );
+    const pending =
+      this.#pendingAcknowledgements.get(descriptor.session_id) ?? new Set();
+    for (const receipt of status.data.completed_commands ?? [])
+      pending.add(receipt.request_id);
+    if (pending.size > 0)
+      this.#pendingAcknowledgements.set(descriptor.session_id, pending);
+  }
+
   async #acknowledgeCompletion(
     descriptor: z.infer<typeof descriptorSchema>,
     requestId: string,
   ): Promise<boolean> {
     try {
-      const raw = await this.#request(descriptor, {
-        kind: "ack",
-        request_id: requestId,
-      });
-      const acknowledged = responseSchema.safeParse(raw);
-      if (!acknowledged.success || !acknowledged.data.ok)
-        throw new Error("Cutter did not confirm the completion receipt acknowledgement.");
+      const raw = await this.#request(
+        descriptor,
+        serializeRequest(descriptor, {
+          kind: "ack",
+          request_id: requestId,
+        }),
+      );
+      const acknowledged = acknowledgementSchema.safeParse(raw);
+      if (!acknowledged.success)
+        throw new Error(
+          "Cutter did not confirm the completion receipt acknowledgement.",
+        );
       const pending = this.#pendingAcknowledgements.get(descriptor.session_id);
       pending?.delete(requestId);
       if (pending?.size === 0)
         this.#pendingAcknowledgements.delete(descriptor.session_id);
       return true;
     } catch {
-      const pending = this.#pendingAcknowledgements.get(descriptor.session_id) ?? new Set<string>();
+      const pending =
+        this.#pendingAcknowledgements.get(descriptor.session_id) ??
+        new Set<string>();
       pending.add(requestId);
       this.#pendingAcknowledgements.set(descriptor.session_id, pending);
       return false;
@@ -400,8 +527,24 @@ export class CutterBridgeClient {
   }
 
   async #find(sessionId: string): Promise<z.infer<typeof descriptorSchema>> {
-    const sessions = await this.listDescriptors();
-    const descriptor = sessions.find(
+    const loaded = await this.#readDescriptors();
+    if (loaded.error === "bridge_directory_capacity_exceeded")
+      throw new AnalysisResourceConstraintError(
+        "cutter_command",
+        "transport",
+        "Cutter descriptor discovery exceeded its candidate budget; no command was sent.",
+        {
+          max_descriptor_candidates: MAX_DESCRIPTOR_CANDIDATES,
+          bridge_directory: this.#directory,
+        },
+      );
+    if (loaded.error !== undefined)
+      throw new AnalysisCapabilityUnavailableError(
+        "cutter",
+        "cutter_command",
+        `Cutter descriptor discovery failed: ${loaded.error}`,
+      );
+    const descriptor = loaded.descriptors.find(
       (candidate) => candidate.session_id === sessionId,
     );
     if (descriptor === undefined)
@@ -425,7 +568,8 @@ export class CutterBridgeClient {
       | "not_checked";
     readonly error?:
       | "bridge_directory_unavailable"
-      | "bridge_directory_insecure";
+      | "bridge_directory_insecure"
+      | "bridge_directory_capacity_exceeded";
   }> {
     let directoryInfo;
     try {
@@ -488,9 +632,19 @@ export class CutterBridgeClient {
         };
       }
     }
-    let entries: string[];
+    const entries: string[] = [];
     try {
-      entries = await readdir(this.#directory);
+      const directory = await opendir(this.#directory);
+      for await (const entry of directory) {
+        if (!/^cutter-\d+-[0-9a-f-]{36}\.json$/iu.test(entry.name)) continue;
+        if (entries.length === MAX_DESCRIPTOR_CANDIDATES)
+          return {
+            descriptors: [],
+            security,
+            error: "bridge_directory_capacity_exceeded",
+          };
+        entries.push(entry.name);
+      }
     } catch {
       return {
         descriptors: [],
@@ -498,51 +652,50 @@ export class CutterBridgeClient {
         error: "bridge_directory_unavailable",
       };
     }
-    const loaded = await Promise.all(
-      entries
-        .filter((entry) => /^cutter-\d+-[0-9a-f-]{36}\.json$/iu.test(entry))
-        .map(async (entry) => {
-          let file;
-          try {
-            let bytes: Buffer;
-            if (this.#platform === "win32") {
-              bytes = windowsPrivateReader!.readDescriptor(
-                this.#directory,
-                entry,
-                MAX_DESCRIPTOR_BYTES,
-              );
-            } else {
-              const flags =
-                fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
-              file = await open(join(this.#directory, entry), flags);
-              const info = await file.stat();
-              if (
-                !info.isFile() ||
-                info.size > MAX_DESCRIPTOR_BYTES ||
-                info.uid !== currentUid ||
-                (info.mode & 0o077) !== 0
-              )
-                return undefined;
-              bytes = await file.readFile();
-            }
-            if (bytes.byteLength > MAX_DESCRIPTOR_BYTES) return undefined;
-            const parsed = descriptorSchema.safeParse(
-              JSON.parse(bytes.toString("utf8")) as unknown,
-            );
-            if (
-              !parsed.success ||
-              entry !==
-                `cutter-${parsed.data.pid}-${parsed.data.session_id}.json`
-            )
-              return undefined;
-            return parsed.data;
-          } catch {
+    const loaded = await mapDiscovery(entries, async (entry) => {
+      let file;
+      try {
+        let bytes: Buffer;
+        if (this.#platform === "win32") {
+          bytes = windowsPrivateReader!.readDescriptor(
+            this.#directory,
+            entry,
+            MAX_DESCRIPTOR_BYTES,
+          );
+        } else {
+          const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+          file = await open(join(this.#directory, entry), flags);
+          const info = await file.stat();
+          if (
+            !info.isFile() ||
+            info.size > MAX_DESCRIPTOR_BYTES ||
+            info.uid !== currentUid ||
+            (info.mode & 0o077) !== 0
+          )
             return undefined;
-          } finally {
-            await file?.close().catch(() => undefined);
-          }
-        }),
-    );
+          const boundedBytes = await readBoundedFileBytes(
+            file,
+            MAX_DESCRIPTOR_BYTES,
+          );
+          if (boundedBytes === undefined) return undefined;
+          bytes = boundedBytes;
+        }
+        if (bytes.byteLength > MAX_DESCRIPTOR_BYTES) return undefined;
+        const parsed = descriptorSchema.safeParse(
+          JSON.parse(bytes.toString("utf8")) as unknown,
+        );
+        if (
+          !parsed.success ||
+          entry !== `cutter-${parsed.data.pid}-${parsed.data.session_id}.json`
+        )
+          return undefined;
+        return parsed.data;
+      } catch {
+        return undefined;
+      } finally {
+        await file?.close().catch(() => undefined);
+      }
+    });
     return {
       descriptors: loaded.filter(
         (value): value is z.infer<typeof descriptorSchema> =>
@@ -554,8 +707,9 @@ export class CutterBridgeClient {
 
   #request(
     descriptor: z.infer<typeof descriptorSchema>,
-    request: Readonly<Record<string, unknown>>,
+    requestBytes: AuthenticatedRequestBytes,
     signal?: AbortSignal,
+    onAuthenticated?: (connectionOrdinal: string) => void,
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const connection = createConnection({
@@ -568,6 +722,7 @@ export class CutterBridgeClient {
       let authenticated = false;
       const clientNonce = randomBytes(32).toString("hex");
       let serverNonce = "";
+      let connectionOrdinal: string | undefined;
       const finish = (complete: () => void): void => {
         if (settled) return;
         settled = true;
@@ -592,7 +747,7 @@ export class CutterBridgeClient {
       connection.setEncoding("utf8");
       connection.once("connect", () => {
         connection.write(
-          `${JSON.stringify({ kind: "rea-auth-v1", nonce: clientNonce })}\n`,
+          `${JSON.stringify({ kind: "rea-auth-v2", nonce: clientNonce })}\n`,
         );
       });
       connection.on("data", (chunk: string) => {
@@ -623,22 +778,20 @@ export class CutterBridgeClient {
               if (challenge.session_id !== descriptor.session_id)
                 throw new Error("unexpected peer session");
               serverNonce = challenge.nonce;
+              connectionOrdinal = challenge.nonce.slice(0, 16);
               const expected = createHmac("sha256", descriptor.token)
                 .update(
-                  `rea-cutter-server-v1:${descriptor.session_id}:${clientNonce}:${challenge.nonce}`,
+                  `rea-cutter-server-v2:${descriptor.session_id}:${clientNonce}:${challenge.nonce}`,
                 )
                 .digest();
               if (
                 !timingSafeEqual(expected, Buffer.from(challenge.proof, "hex"))
               )
                 throw new Error("peer proof failed");
-              const requestBytes = JSON.stringify({
-                ...request,
-                session_id: descriptor.session_id,
-              });
+              onAuthenticated?.(connectionOrdinal);
               const proof = createHmac("sha256", descriptor.token)
                 .update(
-                  `rea-cutter-client-v1:${descriptor.session_id}:${clientNonce}:${challenge.nonce}:${requestBytes}`,
+                  `rea-cutter-client-v2:${descriptor.session_id}:${clientNonce}:${challenge.nonce}:${requestBytes}`,
                 )
                 .digest("hex");
               authenticated = true;
@@ -656,7 +809,7 @@ export class CutterBridgeClient {
               .parse(frame);
             const expected = createHmac("sha256", descriptor.token)
               .update(
-                `rea-cutter-response-v1:${descriptor.session_id}:${clientNonce}:${serverNonce}:${envelope.response}`,
+                `rea-cutter-response-v2:${descriptor.session_id}:${clientNonce}:${serverNonce}:${envelope.response}`,
               )
               .digest();
             if (!timingSafeEqual(expected, Buffer.from(envelope.proof, "hex")))

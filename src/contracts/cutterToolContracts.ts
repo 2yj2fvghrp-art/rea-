@@ -51,6 +51,7 @@ export const cutterDiscoverySchema = z.strictObject({
     "no_live_bridge_found",
     "bridge_directory_unavailable",
     "bridge_directory_insecure",
+    "bridge_directory_capacity_exceeded",
   ]),
   bridge_directory_security: z.enum([
     "private_verified",
@@ -67,7 +68,7 @@ export const CUTTER_TOOL_CONTRACTS = [
     ...toolContractMetadata("list_cutter_sessions"),
     kind: "native-provider",
     description:
-      "List live REA bridge sessions hosted by upstream Cutter instances, including observed document identity and bridge-directory security status.",
+      "List live REA bridge sessions hosted by upstream Cutter instances, including observed document identity and bridge-directory security status. Discovery admits at most 256 descriptor candidates (16 MiB at the descriptor byte limit), reads and probes at most eight concurrently, and reports bridge_directory_capacity_exceeded rather than claiming no sessions when that budget is exceeded.",
     inputSchema: cutterListInputSchema,
     outputSchema: cutterDiscoverySchema,
     examples: [{ title: "List open Cutter instances", input: {} }],

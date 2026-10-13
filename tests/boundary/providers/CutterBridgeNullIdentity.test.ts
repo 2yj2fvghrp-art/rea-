@@ -35,11 +35,13 @@ const listen = async (
   return address.port;
 };
 
-const statusServer = (
+const bridgeServer = (
   currentFile: string | null,
   documentGeneration: number,
-): ReturnType<typeof createServer> =>
-  createServer((connection) => {
+): ReturnType<typeof createServer> => {
+  let ordinal = 0;
+  return createServer((connection) => {
+    const connectionOrdinal = ++ordinal;
     connection.setEncoding("utf8");
     let input = "";
     let clientNonce = "";
@@ -53,11 +55,12 @@ const statusServer = (
         unknown
       >;
       input = input.slice(newline + 1);
-      if (frame.kind === "rea-auth-v1") {
+      if (frame.kind === "rea-auth-v2") {
         clientNonce = String(frame.nonce);
-        serverNonce = "d".repeat(64);
+        serverNonce =
+          connectionOrdinal.toString(16).padStart(16, "0") + "d".repeat(48);
         connection.write(
-          `${JSON.stringify({ session_id: SESSION_ID, nonce: serverNonce, proof: createHmac("sha256", TOKEN).update(`rea-cutter-server-v1:${SESSION_ID}:${clientNonce}:${serverNonce}`).digest("hex") })}\n`,
+          `${JSON.stringify({ session_id: SESSION_ID, nonce: serverNonce, proof: createHmac("sha256", TOKEN).update(`rea-cutter-server-v2:${SESSION_ID}:${clientNonce}:${serverNonce}`).digest("hex") })}\n`,
         );
         return;
       }
@@ -65,29 +68,47 @@ const statusServer = (
       const request = JSON.parse(requestBytes) as Record<string, unknown>;
       const expected = createHmac("sha256", TOKEN)
         .update(
-          `rea-cutter-client-v1:${SESSION_ID}:${clientNonce}:${serverNonce}:${requestBytes}`,
+          `rea-cutter-client-v2:${SESSION_ID}:${clientNonce}:${serverNonce}:${requestBytes}`,
         )
         .digest("hex");
       if (frame.proof !== expected) {
         connection.destroy();
         return;
       }
-      const response = JSON.stringify({
-        ok: true,
-        session_id: request.session_id,
-        current_file: currentFile,
-        document_generation: documentGeneration,
-        cutter_version: "Cutter fixture version",
-        identity_status: "partial",
-      });
+      if (!["status", "command", "ack"].includes(String(request.kind)))
+        throw new Error(`Unmodeled bridge request: ${String(request.kind)}`);
+      const response = JSON.stringify(
+        request.kind === "ack"
+          ? {
+              ok: true,
+              acknowledged: false,
+            }
+          : {
+              ok: true,
+              session_id: request.session_id,
+              current_file: currentFile,
+              document_generation: documentGeneration,
+              cutter_version: "Cutter fixture version",
+              identity_status: "partial",
+              ...(request.kind === "status"
+                ? {
+                    completed_connection: (connectionOrdinal - 1)
+                      .toString(16)
+                      .padStart(16, "0"),
+                    completed_commands: [],
+                  }
+                : { execution_state: "complete" }),
+            },
+      );
       const proof = createHmac("sha256", TOKEN)
         .update(
-          `rea-cutter-response-v1:${SESSION_ID}:${clientNonce}:${serverNonce}:${response}`,
+          `rea-cutter-response-v2:${SESSION_ID}:${clientNonce}:${serverNonce}:${response}`,
         )
         .digest("hex");
       connection.end(`${JSON.stringify({ response, proof })}\n`);
     });
   });
+};
 
 const clientFor = (bridgeDirectory: string): CutterBridgeClient =>
   process.platform === "win32"
@@ -128,7 +149,7 @@ const writeDescriptor = async (port: number): Promise<void> => {
 
 it("preserves a live Cutter status that explicitly has no active document", async () => {
   directory = await mkdtemp(join(tmpdir(), "rea-cutter-null-status-"));
-  server = statusServer(null, 2);
+  server = bridgeServer(null, 2);
   await writeDescriptor(await listen(server));
 
   const result = await clientFor(directory).listSessions();
@@ -142,7 +163,7 @@ it("preserves a live Cutter status that explicitly has no active document", asyn
 
 it("preserves a null active document returned after a Cutter command", async () => {
   directory = await mkdtemp(join(tmpdir(), "rea-cutter-null-command-"));
-  server = statusServer(null, 2);
+  server = bridgeServer(null, 2);
   await writeDescriptor(await listen(server));
 
   const result = await clientFor(directory).execute({
