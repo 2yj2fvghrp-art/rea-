@@ -2,10 +2,7 @@ import { posix, win32 } from "node:path";
 
 import type { ApplicationNode } from "./javascriptApplicationGraphSchemas.js";
 import type { JavaScriptApplicationGraph } from "./javascriptApplicationGraph.js";
-import {
-  logicalPathEscapesRoot,
-  normalizeJoinedLogicalPath,
-} from "../artifactIdentity.js";
+import { logicalPathEscapesRoot, logicalPathNfc } from "../artifactIdentity.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import type { ParsedStaticLayer } from "./javascriptRuntimeReconciliationParsing.js";
@@ -217,7 +214,8 @@ const pathBelowRoot = (root: string, value: string): string | null => {
     rootStyle === "windows"
       ? win32.relative(root, value)
       : posix.relative(root, value);
-  const portableRemainder = remainder.replaceAll("\\", "/");
+  const portableRemainder =
+    rootStyle === "windows" ? remainder.replaceAll("\\", "/") : remainder;
   if (
     remainder === "" ||
     (rootStyle === "windows" && win32.isAbsolute(remainder)) ||
@@ -299,7 +297,8 @@ const safeArtifactPath = (prefix: string, suffix: string): string | null =>
   relativeLogicalPath(prefix === "" ? suffix : posix.join(prefix, suffix));
 
 const relativeLogicalPath = (value: string): string | null => {
-  const normalized = normalizeJoinedLogicalPath(value);
+  // These are artifact names or already parsed runtime paths, not declarations.
+  const normalized = logicalPathNfc(posix.normalize(value));
   return normalized !== "" &&
     normalized !== "." &&
     !logicalPathEscapesRoot(normalized)

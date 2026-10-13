@@ -8,6 +8,9 @@ import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js
 import { createElectronActiveEvidence } from "../../../../src/application/javascript/ElectronActiveEvidence.js";
 import { reconcileJavaScriptRuntimeEvidence } from "../../../../src/application/javascript/JavaScriptRuntimeReconciliationService.js";
 import { createEvidence } from "../../../../src/domain/evidence.js";
+import { mappedRuntimePaths } from "../../../../src/domain/javascript/javascriptRuntimeStaticCandidates.js";
+import { projectRuntimeCaptures } from "../../../../src/domain/javascript/javascriptRuntimeReconciliationRuntime.js";
+import { electronPageInspectionSchema } from "../../../../src/domain/javascript/electronObservation.js";
 import {
   parseRuntimeReconciliationInput,
   reconcileJavaScriptRuntime,
@@ -419,3 +422,149 @@ it("imports an operator-provided cache layer through an explicit file mapping", 
     sharedFile?.observations.map(({ properties }) => properties.path),
   ).toEqual(expect.arrayContaining(["app.js", "mapped/chunk.js"]));
 });
+
+const sourceFreeRuntime = (runtimeRoot: string, scriptFile: string) => {
+  const runtime = electronRuntimeEvidence(runtimeRoot, "", {
+    scriptFile,
+    sourceIncluded: false,
+    includeWorker: false,
+  });
+  const observation = electronPageInspectionSchema.parse(
+    runtime.normalized_result,
+  );
+  for (const script of observation.scripts.items)
+    script.source = { included: false, reason: "not-requested" };
+  return createEvidence(undefined, runtime.provider, {
+    operation: runtime.operation,
+    predicateType: runtime.predicate_type,
+    parameters: runtime.parameters,
+    result: observation,
+    confidence: runtime.confidence,
+    authority: runtime.authority,
+  });
+};
+
+const reconcileScriptLocation = (
+  application: Awaited<ReturnType<typeof analyzeFixture>>,
+  root: string,
+  scriptFile: string,
+  runtimeRoot = root,
+) => {
+  return reconcileInput({
+    static_layers: [
+      {
+        role: "application",
+        analysis: application,
+        runtime_mappings:
+          runtimeRoot === root
+            ? []
+            : [{ kind: "file-root", root: runtimeRoot, artifact_prefix: "" }],
+      },
+    ],
+    runtime_observations: [sourceFreeRuntime(runtimeRoot, scriptFile)],
+  }).reconciliations.find(({ entity_kind }) => entity_kind === "script");
+};
+
+it.skipIf(process.platform === "win32")(
+  "keeps distinct POSIX backslash and slash script locations separate",
+  async () => {
+    const root = await createTestTempDirectory("rea-backslash-runtime-");
+    const literal = "literal\\name.js";
+    await writeFile(join(root, literal), "export const marker = 'literal';\n");
+    const application = await analyzeFixture(root);
+    expect(
+      reconcileScriptLocation(application, root, "literal/name.js"),
+    ).toMatchObject({ status: "unmatched" });
+    expect(reconcileScriptLocation(application, root, literal)).toMatchObject({
+      status: "matched",
+      basis: "artifact-path",
+    });
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "does not make POSIX literal and slash paths ambiguous, including Windows runtime mappings",
+  async () => {
+    const root = await createTestTempDirectory("rea-backslash-runtime-pair-");
+    const literal = "literal\\name.js";
+    await mkdir(join(root, "literal"));
+    await writeFile(join(root, literal), "export const marker = 'literal';\n");
+    await writeFile(
+      join(root, "literal", "name.js"),
+      "export const marker = 'slash';\n",
+    );
+    const application = await analyzeFixture(root);
+    const slash = reconcileScriptLocation(application, root, "literal/name.js");
+    const backslash = reconcileScriptLocation(application, root, literal);
+    expect(slash).toMatchObject({ status: "matched", basis: "artifact-path" });
+    expect(backslash).toMatchObject({
+      status: "matched",
+      basis: "artifact-path",
+    });
+    expect(slash?.static_node_id).not.toBe(backslash?.static_node_id);
+    // These recorded Windows paths exercise matching only, not native Windows IO.
+    expect(
+      reconcileScriptLocation(
+        application,
+        root,
+        "literal\\name.js",
+        "C:\\runtime",
+      ),
+    ).toMatchObject({
+      status: "matched",
+      static_node_id: slash?.static_node_id,
+    });
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "preserves URL-prefix path semantics separately from logical artifact names",
+  async () => {
+    const root = await createTestTempDirectory("rea-backslash-runtime-url-");
+    await writeFile(
+      join(root, "literal\\name.js"),
+      "export const marker = 42;\n",
+    );
+    const analysis = await analyzeFixture(root);
+    const parsed = parseRuntimeReconciliationInput(
+      reconcileJavaScriptRuntimeInputSchema.parse({
+        static_layers: [
+          {
+            analysis,
+            role: "application",
+            runtime_mappings: [
+              {
+                kind: "url-prefix",
+                prefix: "https://example.test/assets/",
+                artifact_prefix: "",
+              },
+            ],
+          },
+        ],
+        runtime_observations: [sourceFreeRuntime(root, "literal\\name.js")],
+      }),
+    );
+    const layer = parsed.layers[0];
+    const entity = projectRuntimeCaptures(parsed.captures).entities.find(
+      ({ kind }) => kind === "script",
+    );
+    if (layer === undefined || entity === undefined)
+      throw new Error("Expected parsed static layer and runtime script");
+    const mapped = (value: string) =>
+      mappedRuntimePaths(layer, {
+        ...entity,
+        location: { kind: "url", value },
+      }).map(({ path }) => path);
+    expect(mapped("https://example.test/assets/literal%5Cname.js")).toEqual([
+      "literal\\name.js",
+    ]);
+    expect(mapped("https://example.test/assets/literal/name.js")).toEqual([
+      "literal/name.js",
+    ]);
+    expect(mapped("https://example.test/assets/literal\\name.js")).toEqual([
+      "literal/name.js",
+    ]);
+    expect(mapped("https://other.test/assets/literal/name.js")).toEqual([]);
+    expect(mapped("https://example.test/assets/%2e%2e/outside.js")).toEqual([]);
+  },
+);

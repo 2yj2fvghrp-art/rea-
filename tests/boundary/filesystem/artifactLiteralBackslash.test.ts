@@ -13,6 +13,8 @@ import {
   withArtifactResourceScope,
 } from "../../fixtures/artifactInventory.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
+import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 
 const NAMES = [
   "literal\\name.txt",
@@ -58,6 +60,8 @@ it.skipIf(process.platform === "win32").each(["directory", "asar"] as const)(
     const extracted = await withArtifactResourceScope((resourceScope) =>
       extractArtifact({
         inputPath: input,
+        // The owner checks lstat first and selects the directory reader;
+        // BinaryTarget formats have no separate directory tag.
         inputFormat: "asar",
         outputRoot: output,
         environment: {},
@@ -125,3 +129,40 @@ it.each([
     expect(await tree.rollback()).toMatchObject({ status: "complete" });
   }
 });
+
+it.skipIf(process.platform === "win32").each(["directory", "asar"] as const)(
+  "retains literal POSIX JavaScript names in application and semantic graphs from %s",
+  async (format) => {
+    const root = await createTestTempDirectory("rea-backslash-js-graph-");
+    const source = join(root, "source");
+    await mkdir(source);
+    const names = [
+      "literal\\name.js",
+      "\\leading.js",
+      "\\\\server\\share.js",
+      "nested/literal\\name.js",
+    ];
+    for (const name of names) {
+      await mkdir(dirname(join(source, name)), { recursive: true });
+      await writeFile(join(source, name), "export const marker = 42;\n");
+    }
+    const input = format === "directory" ? source : join(root, "input.asar");
+    if (format === "asar") await createPackage(source, input);
+    const result = await analyzeJavaScriptApplication({
+      input_path: input,
+      format,
+    });
+    if (!result.ok) throw result.error;
+    const parsed = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    const observed = parsed.graph.nodes.flatMap(({ observations }) =>
+      observations.map(({ properties }) => properties.path),
+    );
+    expect(observed).toEqual(expect.arrayContaining(names));
+    const semantic = parsed.semantic_graph?.nodes.map(
+      ({ identity }) => identity.module_path,
+    );
+    expect(semantic).toEqual(expect.arrayContaining(names));
+  },
+);
