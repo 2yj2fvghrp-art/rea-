@@ -2413,7 +2413,9 @@ describe("package exports pattern keys", () => {
       }
     },
   );
+});
 
+describe("package exports pattern key selection", () => {
   it("substitutes a simple wildcard key into its target", () => {
     const files = fileMap([
       file("app/src/consumer.js", "root"),
