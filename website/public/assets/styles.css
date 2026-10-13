@@ -1783,10 +1783,60 @@ pre code {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 3.5rem;
-  align-items: baseline;
+  align-items: start;
 }
 .home-start-grid h1 {
   font-size: clamp(2.8rem, 5vw, 4.2rem);
+}
+.home-first-look {
+  min-width: 0;
+  margin: 0;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--soft);
+}
+.home-first-look blockquote {
+  margin: 0 0 1.4rem;
+  color: var(--ink);
+  font-size: clamp(1.35rem, 2.4vw, 1.8rem);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+.home-first-look-steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+}
+.home-first-look-step {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  padding-block: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+.home-step-label {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.home-step-label b {
+  font-weight: inherit;
+}
+.home-first-look-step strong {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.home-setup {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 3.5rem;
+  margin-top: 0.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
 }
 .home-start-grid .home-setup h2 {
   font-size: 1.3rem;
@@ -1797,6 +1847,26 @@ pre code {
   margin-bottom: 1rem;
   font-size: 0.9rem;
   color: var(--muted);
+}
+.home-setup-agent > p,
+.home-setup-command > p {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.home-setup-agent > p {
+  margin-bottom: 1rem;
+}
+.home-setup-command > p:first-child {
+  margin-top: 0;
+}
+.home-install-resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.25rem;
+  font-size: 0.85rem;
+}
+.home-install-resources a:first-child::after {
+  content: " →";
 }
 .home-question {
   margin-block: 0 1.8rem;
@@ -1832,15 +1902,6 @@ pre code {
   color: var(--ink);
   font-size: 1.5rem;
   font-weight: 600;
-}
-.home-project-prompts {
-  margin-block: 2rem 2.5rem;
-}
-.home-project-prompts .agent-terminal {
-  margin: 0;
-}
-.home-project-prompts .caption {
-  margin-block: 0.8rem 0;
 }
 .home-page #analysis-guides {
   scroll-margin-top: 5rem;
@@ -1884,9 +1945,50 @@ pre code {
 }
 .home-role-comparison {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
-  gap: 0 2rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  max-width: 880px;
   margin: 0;
+}
+.agent-investigation {
+  order: 1;
+  max-width: 760px;
+}
+.manual-investigation {
+  order: 2;
+  margin-top: 2rem;
+  padding-block: 1rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.manual-investigation > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0;
+  border: 0;
+  list-style: none;
+  cursor: pointer;
+}
+.manual-investigation > summary::-webkit-details-marker {
+  display: none;
+}
+.manual-investigation > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.manual-investigation[open] > summary {
+  margin-bottom: 1rem;
+}
+.manual-investigation > summary::after {
+  content: "+";
+  color: var(--accent);
+  font-size: 1.2rem;
+  font-weight: 400;
+}
+.manual-investigation[open] > summary::after {
+  content: "−";
 }
 .comparison-question {
   margin-block: 1.8rem 1.2rem;
@@ -2109,9 +2211,57 @@ pre code {
   font-size: 0.875rem;
 }
 .home-role-comparison figcaption {
+  order: 3;
   grid-column: 1 / -1;
   margin-top: 1.2rem;
   font-size: 0.8rem;
+  color: var(--muted);
+}
+.home-showcase-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+.home-showcase-heading .lede {
+  max-width: 680px;
+  margin-bottom: 0;
+}
+.home-case-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+.home-case-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.home-case-card .eyebrow {
+  margin-bottom: 0.8rem;
+  color: var(--accent);
+}
+.home-case-card h3 {
+  font-size: 1.25rem;
+}
+.home-case-card p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.home-case-card .text-link {
+  margin-top: auto;
+  padding-top: 0.7rem;
+}
+.home-end-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4rem;
+}
+.home-end-grid p {
   color: var(--muted);
 }
 .home-example-grid {
@@ -2351,7 +2501,13 @@ pre code {
     gap: 2rem;
   }
   .home-start-grid .home-setup {
-    max-width: 620px;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+    gap: 2rem;
+  }
+  .home-case-grid,
+  .home-end-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .home-start-grid h1 {
     font-size: clamp(2.7rem, 9vw, 4.65rem);
@@ -2361,6 +2517,14 @@ pre code {
   }
 }
 @media (max-width: 640px) {
+  .home-first-look-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+  .home-showcase-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .home-start-grid .actions {
     display: grid;
     grid-template-columns: max-content max-content;
@@ -2782,6 +2946,9 @@ html[dir="rtl"] .percent-display {
 html[dir="rtl"] .terminal-prompt {
   font-family: inherit;
   text-align: start;
+}
+html[dir="rtl"] .home-install-resources a:first-child::after {
+  content: " ←";
 }
 html[dir="rtl"] .breadcrumb,
 html[dir="rtl"] .brand-name {
