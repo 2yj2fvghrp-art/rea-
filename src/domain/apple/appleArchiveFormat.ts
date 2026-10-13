@@ -24,7 +24,7 @@ export const createXmlPlistSignatureProbe = (): {
   let bomBytes = 0;
   let fedBytes = 0;
   let decodedBytes = 0;
-  let preamble = new Uint8Array();
+  let preamble: Uint8Array = new Uint8Array();
   const scanner = createXmlPlistPrologScanner();
   const encodedLength = (text: string): number =>
     utf16 ? text.length * 2 : new TextEncoder().encode(text).length;
