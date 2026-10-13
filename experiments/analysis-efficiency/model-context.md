@@ -133,3 +133,49 @@ client value in this pair. Candidate input/uncached tokens remain higher. The
 observed projection and round counts are useful constraints for the next
 experiment; this one pair does not attribute all usage differences to either
 formatting or discovery, or establish a reliable speedup.
+
+## Same-runtime guided discovery, repeated in both orders
+
+Checkpoint `e20bd0e2a905f06bc8c56fe04b0e61f3da88636a` runs four actual Codex trials
+in unguided/guided/guided/unguided order. All use the **same** frozen candidate
+runtime, artifact, original question, requested model/reasoning, two selected
+tools, provider settings and capture mode. Only the explicit discovery-guidance
+treatment changes. Every trial selects artifact summary and makes the same two
+successful MCP calls in dependency order; source bytes stay unchanged, captures
+succeed and profiles are removed.
+
+| Trial      |   Input | Cached | Uncached | Output | Seconds | Observed responses |
+| ---------- | ------: | -----: | -------: | -----: | ------: | -----------------: |
+| Unguided 1 |  77,251 | 50,432 |   26,819 |  1,931 |  62.066 |                  4 |
+| Guided 1   |  39,175 | 23,040 |   16,135 |  1,763 |  55.658 |                  3 |
+| Guided 2   |  58,336 | 38,144 |   20,192 |  1,626 |  50.685 |                  4 |
+| Unguided 2 | 103,301 | 72,704 |   30,597 |  1,983 |  60.336 |                  5 |
+
+Both guided discovery output values repeat at 12,336 bytes without truncation,
+versus 41,709 bytes with truncation on both unguided trials. The recorded
+executor/output usage explains observable discovery and round differences; it
+does not certify exact remote request contents or attribute every token to the
+hint. CPU samples are 6.303–6.554 seconds and peak family memory 684,519,424–
+712,028,160 bytes, with no guard abort. Final resource counters remain unknown.
+These samples do not establish a memory or CPU improvement.
+
+Unguided 1 omits `classification.container` and fails the selected factual gate;
+it is not a fully acceptable comparison answer. Guided 1 and Unguided 2 pass
+that gate. Guided 2 initially fails exact coverage-object equality because it
+adds `module_ref_count: 0` and `pinvoke_import_count: 0` to the explicitly named
+native scope. Both numbers exactly match the producer's returned arrays. The
+grader now explicitly verifies only these two known additional counts, including
+integer type, while still requiring all original coverage facts. Unknown extra
+claims, conflicting aliases, wrong counts, boolean/string counts and omitted
+issues continue to fail. Source coverage remains unchanged; returned-row counts
+do not establish global absence. Original failure receipts remain preserved;
+the regrade separately records its new source hash. Guided 2 then passes selected
+facts, but every **full** gate still fails unknown final physical resource checks.
+
+The second comparison has two factually acceptable answers: observed guided input
+falls about 43.5%, uncached input about 34.0%, and wall time about 16.0%. The first
+comparison has an incomplete unguided answer and is reported without counting it
+as equivalent completed work. Two trials per treatment on one question/application
+remain a preliminary signal, not a general default recommendation. The hint stays
+opt-in; wider questions/domains, count/coverage representation and client round
+behavior need further verification before promoting it into general guidance.

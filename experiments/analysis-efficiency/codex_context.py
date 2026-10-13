@@ -47,8 +47,8 @@ def selected_event(event):
             selected_info = {key: token_counts(info[key]) for key in
                              ['total_token_usage', 'last_token_usage'] if key in info}
             window = info.get('model_context_window')
-            if window is not None:
-                if not isinstance(window, int) or isinstance(window, bool) or window <= 0:
+            if 'model_context_window' in info:
+                if window is not None and (not isinstance(window, int) or isinstance(window, bool) or window <= 0):
                     raise ValueError('Expected a positive model context window')
                 selected_info['model_context_window'] = window
             payload = {'type': 'token_count', 'info': selected_info}

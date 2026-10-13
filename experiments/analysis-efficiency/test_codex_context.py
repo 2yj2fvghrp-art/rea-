@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import runpy
 import sys
 from pathlib import Path
 import tempfile
@@ -11,6 +12,30 @@ import unittest
 from unittest.mock import Mock, patch
 
 from codex_context import capture_tool_context, selected_event
+
+
+class ManagedCoverageTests(unittest.TestCase):
+    def test_verifies_extra_counts_and_preserves_unknown_fields(self):
+        review = runpy.run_path(str(Path(__file__).with_name('review-model.py')))
+        project = review['scope_with_verified_counts']
+        expected = {'state': 'partial', 'issues': ['unreturned rows remain unknown']}
+        original = {**expected, 'module_ref_count': 0, 'pinvoke_import_count': 2}
+        scope, checks = project(original, expected, {'module_ref_count': 0, 'pinvoke_import_count': 2})
+        self.assertEqual(scope, expected)
+        self.assertTrue(all(checks.values()))
+        self.assertEqual(original['pinvoke_import_count'], 2)
+        for count in [3, '2', True]:
+            scope, checks = project({**expected, 'pinvoke_import_count': count}, expected, {'pinvoke_import_count': 2})
+            self.assertFalse(checks['pinvoke_import_count'])
+        _, checks = project({**expected, 'module_ref_count': False}, {**expected, 'module_ref_count': 0}, {'module_ref_count': 0})
+        self.assertFalse(checks['module_ref_count'])
+        scope, _ = project({**expected, 'unsupported_claim': True}, expected, {})
+        self.assertNotEqual(scope, expected)
+        scope, _ = project({'state': 'partial', 'module_ref_count': 0}, expected, {'module_ref_count': 0})
+        self.assertNotEqual(scope, expected)
+        ambiguous = review['named_scope']({'native_boundaries': expected, 'native_boundary_declarations': {'state': 'complete'}}, ['native_boundaries', 'native_boundary_declarations'])
+        scope, _ = project(ambiguous, expected, {'module_ref_count': 0})
+        self.assertNotEqual(scope, expected)
 
 
 class ContextCaptureTests(unittest.TestCase):
@@ -70,6 +95,8 @@ class ContextCaptureTests(unittest.TestCase):
             selected_event({'type': {'environment': 'unexpected'}, 'payload': {}})
         with self.assertRaises(ValueError):
             selected_event({'type': 'response_item', 'timestamp': {'environment': 'unexpected'}, 'payload': {}})
+        unknown = selected_event({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {'model_context_window': None}}})
+        self.assertIsNone(unknown['payload']['info']['model_context_window'])
 
     def test_capture_failure_still_removes_trial_credentials_and_profile(self):
         spec = importlib.util.spec_from_file_location('agent_trial', Path(__file__).with_name('agent-trial.py'))
