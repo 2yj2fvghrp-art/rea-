@@ -384,6 +384,34 @@ describe("managed user strings", () => {
     ]);
   });
 
+  it("rejects #US items that run past the end of the stream", () => {
+    const { heap: readable, tokens } = fixtureUserStringHeap(["ok"]);
+    // An odd length claiming 127 bytes with two left, then a two-byte length
+    // prefix whose second byte lies past the stream end.
+    const crossing = Buffer.from([0x7f, 0x41, 0x00]);
+    const heap = Buffer.concat([readable, crossing, Buffer.from([0x80])]);
+    const token = (offset: number) =>
+      `0x70${offset.toString(16).padStart(6, "0")}`;
+    const crossingToken = token(readable.length);
+    const truncatedToken = token(readable.length + crossing.length);
+    const result = inspect({
+      ilBody: ldstrBody([tokens[0] ?? "", crossingToken, truncatedToken]),
+      userStringHeap: heap,
+    });
+
+    expect(result.user_strings).toEqual([
+      { token: tokens[0], offset: expect.any(Number), value: "ok" },
+    ]);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [crossingToken, truncatedToken].map((item) => ({
+        code: "invalid-string",
+        scope: `metadata.#US:${item}`,
+        detail: "User string leaves #US",
+      })),
+    });
+  });
+
   it("leaves user strings unexamined when CLI metadata is unavailable or predates them", () => {
     const native = buildNativePeFixture();
     expect(
