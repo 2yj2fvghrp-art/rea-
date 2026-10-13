@@ -507,7 +507,15 @@ const createOwnedCleanupPlan = async (
     const scanFailures = tokenOwned.failures.filter(({ pid }) =>
       members.some((member) => member.pid === pid),
     );
-    if (failures.length > 0) unresolved.push(...failures);
+    if (failures.length > 0)
+      // The sweep already recorded one failure per unreadable member; a second
+      // entry for the same live process would be counted twice in the cleanup
+      // diagnostic. Keep one observation per PID.
+      unresolved.push(
+        ...failures.filter(
+          ({ pid }) => !unresolved.some((entry) => entry.pid === pid),
+        ),
+      );
     if (
       failures.length === 0 &&
       scanFailures.length === 0 &&
