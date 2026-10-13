@@ -76,7 +76,7 @@ export function classifyPrCi(input: {
   runs: Array<{ run: PrCiWorkflowRun; basis: string }>;
   runsComplete: boolean;
   pullRequestInventoryComplete: boolean;
-  ambiguousRunIdentity: boolean;
+  ambiguousRuns: Array<{ run: PrCiWorkflowRun; basis: string }>;
 }): PrCiClassification;
 
 export function matchRunToPullRequest(input: {

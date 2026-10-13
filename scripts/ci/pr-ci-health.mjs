@@ -121,7 +121,7 @@ function classifyPullRequests(snapshot) {
   const identityCounts = countHeadIdentities(pulls.items);
   return candidates.map((pull) => {
     const relevant = [];
-    let ambiguousRunIdentity = false;
+    const ambiguousRuns = [];
     for (const run of runs.items) {
       const match = matchRunToPullRequest({
         run,
@@ -130,7 +130,8 @@ function classifyPullRequests(snapshot) {
         inventoryComplete: pulls.complete,
       });
       if (match.kind === "match") relevant.push({ run, basis: match.basis });
-      if (match.kind === "ambiguous") ambiguousRunIdentity = true;
+      if (match.kind === "ambiguous")
+        ambiguousRuns.push({ run, basis: "ambiguous_head_identity" });
     }
     return {
       ...pull,
@@ -139,7 +140,7 @@ function classifyPullRequests(snapshot) {
         runs: relevant,
         runsComplete: runs.complete,
         pullRequestInventoryComplete: pulls.complete,
-        ambiguousRunIdentity,
+        ambiguousRuns,
       }),
     };
   });
@@ -209,42 +210,59 @@ export function classifyPrCi({
   runs,
   runsComplete,
   pullRequestInventoryComplete,
-  ambiguousRunIdentity,
+  ambiguousRuns,
 }) {
   if (!pull.identityValid)
     return result("unknown", "pull_request_head_identity_invalid", []);
+  const evidence = [...runs, ...ambiguousRuns];
   if (pull.mergeable === false)
-    return result("merge_conflict", "github_reports_merge_conflict", runs);
-  const latest = [...runs].sort(compareRunEvidence).at(-1);
+    return result("merge_conflict", "github_reports_merge_conflict", evidence);
+  const selection = newestRun(runs);
+  if (!selection.known)
+    return result("unknown", "workflow_run_order_unknown", evidence);
+  const latest = selection.latest;
+  if (
+    ambiguousRuns.some((candidate) => {
+      const order = latest ? compareRunEvidence(candidate, latest) : null;
+      return order === null || order >= 0;
+    })
+  )
+    return result("unknown", "workflow_run_identity_ambiguous", evidence);
   if (latest !== undefined) {
     const run = latest.run;
     if (run.conclusion === "startup_failure")
-      return result("startup_failure", "workflow_startup_failure", runs);
+      return result("startup_failure", "workflow_startup_failure", evidence);
     if (run.status === "waiting" || run.conclusion === "action_required")
       return result(
         "approval_required",
         "workflow_waiting_for_approval_or_gate",
-        runs,
+        evidence,
       );
     if (["queued", "requested", "pending", "in_progress"].includes(run.status))
-      return result("queued_pending_executing", `workflow_${run.status}`, runs);
+      return result(
+        "queued_pending_executing",
+        `workflow_${run.status}`,
+        evidence,
+      );
     if (run.status === "completed") {
       if (run.conclusion === "failure" || run.conclusion === "timed_out")
-        return result("completed_failure", `workflow_${run.conclusion}`, runs);
+        return result(
+          "completed_failure",
+          `workflow_${run.conclusion}`,
+          evidence,
+        );
       if (run.conclusion === "cancelled")
-        return result("completed_canceled", "workflow_cancelled", runs);
+        return result("completed_canceled", "workflow_cancelled", evidence);
       if (run.conclusion === "success")
-        return result("completed_success", "workflow_succeeded", runs);
+        return result("completed_success", "workflow_succeeded", evidence);
       return result(
         "completed_other",
         `workflow_${run.conclusion ?? "unknown_conclusion"}`,
-        runs,
+        evidence,
       );
     }
-    return result("unknown", "workflow_status_unrecognized", runs);
+    return result("unknown", "workflow_status_unrecognized", evidence);
   }
-  if (ambiguousRunIdentity)
-    return result("unknown", "workflow_run_identity_ambiguous", []);
   if (!runsComplete || !pullRequestInventoryComplete)
     return result("deferred", "lookup_inventory_incomplete", []);
   if (pull.mergeable !== true)
@@ -393,16 +411,46 @@ function headIdentityKey(repositoryId, ref) {
   return `${String(repositoryId)}\u0000${ref}`;
 }
 
+function newestRun(runs) {
+  let latest = runs[0];
+  for (const candidate of runs) {
+    if (latest && (compareRunEvidence(candidate, latest) ?? 0) > 0)
+      latest = candidate;
+  }
+  const known = runs.every((candidate) => {
+    if (candidate === latest) return true;
+    const order = compareRunEvidence(candidate, latest);
+    return order !== null && order <= 0;
+  });
+  return { known, latest };
+}
+
+// Attempt ordering is meaningful within one run; different run IDs are not clocks.
 function compareRunEvidence(left, right) {
   const leftRun = left.run;
   const rightRun = right.run;
+  const id = positiveInteger(leftRun.id);
+  if (id !== null && id === positiveInteger(rightRun.id)) {
+    const leftAttempt = positiveInteger(leftRun.run_attempt);
+    const rightAttempt = positiveInteger(rightRun.run_attempt);
+    if (leftAttempt === null || rightAttempt === null) return null;
+    if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt;
+    return leftRun.status === rightRun.status &&
+      leftRun.conclusion === rightRun.conclusion
+      ? 0
+      : null;
+  }
+  // A retry may start long after its original creation; without an attempt
+  // clock, creation dates only order first attempts from different runs.
+  if (
+    positiveInteger(leftRun.run_attempt) !== 1 ||
+    positiveInteger(rightRun.run_attempt) !== 1
+  )
+    return null;
   const time =
     Date.parse(leftRun.created_at ?? "") -
     Date.parse(rightRun.created_at ?? "");
-  if (Number.isFinite(time) && time !== 0) return time;
-  const attempt = (leftRun.run_attempt ?? 0) - (rightRun.run_attempt ?? 0);
-  if (attempt !== 0) return attempt;
-  return (leftRun.id ?? 0) - (rightRun.id ?? 0);
+  return Number.isFinite(time) && time !== 0 ? time : null;
 }
 
 function result(category, reason, runs) {

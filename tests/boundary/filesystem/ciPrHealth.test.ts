@@ -51,7 +51,7 @@ it("classifies workflow states without confusing absent, pending, and completed 
         runs: [{ run: evidence, basis: "event_pr_number_and_head_sha" }],
         runsComplete: true,
         pullRequestInventoryComplete: true,
-        ambiguousRunIdentity: false,
+        ambiguousRuns: [],
       }).category,
     ).toBe(category);
   }
@@ -61,7 +61,7 @@ it("classifies workflow states without confusing absent, pending, and completed 
       runs: [],
       runsComplete: true,
       pullRequestInventoryComplete: true,
-      ambiguousRunIdentity: false,
+      ambiguousRuns: [],
     }).category,
   ).toBe("merge_conflict");
 });
@@ -74,7 +74,7 @@ it("requires complete inventories, known mergeability, and immutable head identi
       runs: [],
       runsComplete: true,
       pullRequestInventoryComplete: true,
-      ambiguousRunIdentity: false,
+      ambiguousRuns: [],
       ...overrides,
     });
 
@@ -86,7 +86,11 @@ it("requires complete inventories, known mergeability, and immutable head identi
   expect(classify({ pullRequestInventoryComplete: false }).category).toBe(
     "deferred",
   );
-  expect(classify({ ambiguousRunIdentity: true }).category).toBe("unknown");
+  expect(
+    classify({
+      ambiguousRuns: [{ run: run(), basis: "ambiguous_head_identity" }],
+    }).category,
+  ).toBe("unknown");
   expect(classify({ pull: { ...pull, mergeable: undefined } }).category).toBe(
     "unknown",
   );
@@ -438,6 +442,102 @@ function validPull(overrides: Partial<PrCiPullRequest> = {}): PrCiPullRequest {
     ...overrides,
   };
 }
+
+it.each([
+  ["newer run", { id: 78, created_at: "2026-10-13T01:00:00Z" }, "unknown"],
+  [
+    "older run",
+    { id: 78, created_at: "2026-10-12T23:00:00Z" },
+    "completed_success",
+  ],
+  ["equal timestamps", { id: 78 }, "unknown"],
+  [
+    "retry of an older run",
+    { id: 78, created_at: "2026-10-12T23:00:00Z", run_attempt: 2 },
+    "unknown",
+  ],
+  ["unknown timestamp", { id: 78, created_at: "invalid" }, "unknown"],
+  ["newer attempt", { run_attempt: 3 }, "unknown"],
+  ["older attempt", { run_attempt: 1 }, "completed_success"],
+] as const)(
+  "retains ambiguity evidence for a %s without reporting a stale completion",
+  (_label, overrides, category) => {
+    const currentAttempt = "id" in overrides ? 1 : 2;
+    const result = classifyPrCi({
+      pull: validPull(),
+      runs: [
+        {
+          run: run({ run_attempt: currentAttempt }),
+          basis: "event_pr_number_and_head_sha",
+        },
+      ],
+      ambiguousRuns: [
+        {
+          run: run({ run_attempt: currentAttempt, ...overrides }),
+          basis: "ambiguous_head_identity",
+        },
+      ],
+      runsComplete: true,
+      pullRequestInventoryComplete: true,
+    });
+    expect(result.category).toBe(category);
+    expect(result.runs).toHaveLength(2);
+  },
+);
+
+it("does not let an older proven run hide a newer run with an unverified repository ID", async () => {
+  const pull = rawPull(42);
+  const older = run({
+    id: 70,
+    created_at: "2026-10-13T00:00:00Z",
+    pull_requests: [{ number: 42, head: { sha: headSha, repo: { id: 73 } } }],
+  });
+  const newer = run({
+    id: 71,
+    created_at: "2026-10-13T01:00:00Z",
+    status: "in_progress",
+    conclusion: null,
+    pull_requests: [{ number: 42, head: { sha: headSha } }],
+  });
+  const report = await collectPrCiHealth({
+    repository: "owner/rea",
+    repositoryId: 11,
+    defaultBranch: "main",
+    now: observedAt,
+    apiRequest: async (_method, endpoint) => {
+      if (endpoint.includes("/pulls?")) return [pull];
+      if (endpoint.endsWith("/pulls/42")) return { ...pull, mergeable: true };
+      return { workflow_runs: [newer, older] };
+    },
+  });
+  expect(report.pullRequests[0]?.ci).toMatchObject({
+    category: "unknown",
+    reason: "workflow_run_identity_ambiguous",
+  });
+  expect(report.pullRequests[0]?.ci.runs).toHaveLength(2);
+});
+
+it("keeps a proven newest run even when two older matched runs have equal timestamps", () => {
+  const result = classifyPrCi({
+    pull: validPull(),
+    runs: [
+      run({ id: 70, run_attempt: 1 }),
+      run({ id: 71, run_attempt: 1, conclusion: "failure" }),
+      run({
+        id: 72,
+        run_attempt: 1,
+        created_at: "2026-10-13T01:00:00Z",
+        status: "in_progress",
+        conclusion: null,
+      }),
+    ].map((run) => ({ run, basis: "event_pr_number_and_head_sha" })),
+    ambiguousRuns: [],
+    runsComplete: true,
+    pullRequestInventoryComplete: true,
+  });
+  expect(result.category).toBe("queued_pending_executing");
+  expect(result.runs).toHaveLength(3);
+});
 
 function run(overrides: Partial<PrCiWorkflowRun> = {}): PrCiWorkflowRun {
   return {
