@@ -14,7 +14,6 @@ import { spawn } from "node:child_process";
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LAB = "/experiments/rel-visual-lab/index.html";
 const SOURCES = Object.freeze({
-  "/": ["experiments/rel-visual-lab/index.html", "text/html; charset=utf-8"],
   "/experiments/rel-visual-lab/": ["experiments/rel-visual-lab/index.html", "text/html; charset=utf-8"],
   [LAB]: ["experiments/rel-visual-lab/index.html", "text/html; charset=utf-8"],
   "/experiments/rel-first-lab/cli.mjs": ["experiments/rel-first-lab/cli.mjs", "text/javascript; charset=utf-8"],
@@ -51,6 +50,11 @@ export async function startLabServer({ port = 0 } = {}) {
       route = new URL(req.url, "http://127.0.0.1").pathname;
     } catch {
       respond(res, 400, "Invalid URL.");
+      return;
+    }
+    if (route === "/") {
+      res.writeHead(302, { Location: LAB, "Cache-Control": "no-store" });
+      res.end();
       return;
     }
     if (!Object.hasOwn(SOURCES, route)) {
