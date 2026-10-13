@@ -166,6 +166,9 @@ export class TsharkCaptureProvider implements PacketCapturePort {
       const configurationPath = join(root.path, "configuration");
       await mkdir(configurationPath, { mode: 0o700 });
       const execute = async (args: readonly string[]) => {
+        // A command that fails before producing output must not report the
+        // version probe's output as its own.
+        capturedOutput = undefined;
         const output = await runOwnedCommand(
           {
             command: limiter,
