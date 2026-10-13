@@ -40,7 +40,7 @@ try {
         REA_LOG_LEVEL: "silent",
         TMPDIR: root,
       },
-      stderr: "pipe",
+      stderr: "inherit",
     });
     const client = new Client({ name: "rea-mips1-verifier", version: "1" });
     const call = async (name, args = {}) =>
@@ -66,9 +66,17 @@ try {
       const delay = await call("inspect_native_instruction", {
         address: "0x401008",
       });
+      const branch = await call("inspect_native_instruction", {
+        address: "0x401004",
+      });
       assert.equal(first.status, "decoded");
       assert.match(first.mnemonic, /^addiu$/iu);
       assert.match(delay.mnemonic, /^_?sll$/iu);
+      assert.equal(branch.status, "decoded");
+      assert.match(branch.mnemonic, /^beq$/iu);
+      assert.equal(branch.flow.kind, "jump");
+      assert.equal(branch.flow.conditional, true);
+      assert.deepEqual(branch.flow.direct_destinations, ["0x401010"]);
       const loaded = await call("read_bytes", {
         address: fixture.entry,
         length: 24,
@@ -151,7 +159,9 @@ try {
         loaded_bytes: true,
         cli: byteOrder === "little" ? "verified" : "not-run",
         instruction_decode: true,
-        delay_slot: true,
+        conditional_branch_destination: true,
+        expected_delay_slot_instruction_decoded: true,
+        delay_slot_relationship: "not-exposed-by-instruction-contract",
         dossier: true,
         snapshot_replay: true,
         fp_semantics: "unverified",
