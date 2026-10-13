@@ -96,7 +96,11 @@ assembly. Older member Evidence without `selection` remains readable.
 
 `member_refs[].parent_name`, `call_edges[].target_declaring_type`, and
 `field_accesses[].field_declaring_type` name the type that declares each
-target. TypeDef and TypeRef names use the namespace-qualified `full_name`
+target. Referenced spec signatures validate encoded type coordinates against
+the metadata tables, including nested type arguments and custom modifiers.
+TypeRef resolution scopes are checked transitively with cycle detection;
+readable names survive malformed scopes as partial evidence.
+TypeDef and TypeRef names use the namespace-qualified `full_name`
 form, and nested types keep bare names. A generic-instantiation TypeSpec
 parent names its generic type, such as ``System.Collections.Generic.List`1``.
 Other well-formed TypeSpec forms and ModuleRef or MethodDef parents stay

@@ -465,10 +465,40 @@ const POSITION_ELEMENTS: ReadonlyMap<number, readonly SignaturePosition[]> =
     [0x10, ["return", "parameter", "field"]],
   ]);
 
+/** Decode a type operand once; spec callers also validate its metadata coordinate. */
+const readTypeOperand = (
+  blob: Buffer,
+  offset: number,
+  layout?: ManagedMetadataLayout,
+  tables: readonly number[] = [2, 1, 27],
+): ReturnType<typeof readCompressed> => {
+  const token = readCompressed(blob, offset);
+  if (layout !== undefined) {
+    const reason =
+      token.value === 0
+        ? "type operand is null"
+        : metadataCodedTokenInvalidReason(
+            token.value,
+            2,
+            tables,
+            layout.rowCounts,
+          );
+    if (reason !== null)
+      throw managedFailure(
+        "invalid-row",
+        "signature",
+        `TypeDefOrRefOrSpec operand 0x${token.value.toString(16)} is invalid: ${reason}`,
+        offset,
+      );
+  }
+  return token;
+};
+
 const readTypeSignature = (
   blob: Buffer,
   offset: number,
   base: SignaturePosition,
+  layout?: ManagedMetadataLayout,
 ): { readonly value: string; readonly next: number } => {
   const stack: TypeContinuation[] = [];
   let cursor = offset;
@@ -495,7 +525,7 @@ const readTypeSignature = (
       stack.push({ kind: "suffix", suffix });
       cursor += 1;
     } else if (kind === 0x1f || kind === 0x20) {
-      const token = readCompressed(blob, cursor + 1);
+      const token = readTypeOperand(blob, cursor + 1, layout);
       const modifier = `${kind === 0x1f ? "modreq" : "modopt"}:${String(token.value)}`;
       // A modifier frame on top was pushed by the directly preceding byte;
       // keep an adjacent run together and in source order.
@@ -504,7 +534,7 @@ const readTypeSignature = (
       else stack.push({ kind: "modifiers", modifiers: [modifier] });
       cursor = token.next;
     } else if (kind === 0x11 || kind === 0x12) {
-      const token = readCompressed(blob, cursor + 1);
+      const token = readTypeOperand(blob, cursor + 1, layout);
       value = `${kind === 0x11 ? "valuetype" : "class"}:${String(token.value)}`;
       cursor = token.next;
     } else if (kind === 0x1e || kind === 0x13) {
@@ -524,7 +554,7 @@ const readTypeSignature = (
           "generic instantiation does not name a class or value type",
           cursor + 1,
         );
-      const token = readCompressed(blob, cursor + 2);
+      const token = readTypeOperand(blob, cursor + 2, layout, [2, 1]);
       const argumentCount = readCompressed(blob, token.next);
       if (argumentCount.value === 0)
         return malformedSignature(
@@ -646,7 +676,7 @@ export const specSignature = (
     const types: string[] = [];
     // Each Type consumes at least one byte, so a false count fails on truncation.
     for (let index = 0; index < count; index += 1) {
-      const type = readTypeSignature(blob, cursor, "type");
+      const type = readTypeSignature(blob, cursor, "type", layout);
       types.push(type.value);
       cursor = type.next;
     }
@@ -657,6 +687,7 @@ export const specSignature = (
     if (
       !(cause instanceof ManagedReaderFailure) ||
       (cause.issue.code !== "invalid-blob" &&
+        cause.issue.code !== "invalid-row" &&
         cause.issue.code !== "unsupported-signature")
     )
       throw cause;

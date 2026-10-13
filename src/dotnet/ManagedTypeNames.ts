@@ -1,3 +1,4 @@
+import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
 import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import {
   fullName,
@@ -32,27 +33,54 @@ export const typeNameLookup = (
   issues: ManagedParseIssue[],
 ): ((token: string | null) => string | null) => {
   const names = new Map<string, string | null>();
+  const checkedScopes = new Set<number>();
+  const validateScopeChain = (row: number): void => {
+    const path = new Set<number>();
+    let current = row;
+    while (!checkedScopes.has(current)) {
+      const cursor = metadataRowCursor(bytes, layout, 1, current);
+      if (path.has(current)) {
+        issues.push({
+          code: "invalid-row",
+          scope: `metadata.TypeRef:${metadataToken(1, current)}`,
+          offset: cursor.start,
+          detail: "TypeRef ResolutionScope chain contains a cycle",
+        });
+        break;
+      }
+      // Admit the chain's visited entry and retained validation-cache entry.
+      managedDecodeBudget(layout).reserve(128, cursor.start);
+      path.add(current);
+      const raw = cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
+      const reason = metadataCodedTokenInvalidReason(
+        raw,
+        2,
+        [0, 26, 35, 1],
+        layout.rowCounts,
+      );
+      if (reason !== null) {
+        issues.push({
+          code: "invalid-row",
+          scope: `metadata.TypeRef:${metadataToken(1, current)}`,
+          offset: cursor.start,
+          detail: `TypeRef ResolutionScope coded index 0x${raw.toString(16)} is invalid: ${reason}`,
+        });
+        break;
+      }
+      // Null scopes are legal; non-TypeRef scopes terminate local validation.
+      if (raw === 0 || (raw & 3) !== 3) break;
+      current = Math.floor(raw / 4);
+    }
+    for (const visited of path) checkedScopes.add(visited);
+  };
   const definitionName = (table: 1 | 2, row: number): string | null => {
     if (table === 2) {
       metadataRowOffset(layout, 2, row);
       return ranges[row - 1]?.fullName ?? null;
     }
     const cursor = metadataRowCursor(bytes, layout, 1, row);
-    const scopeRaw = cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
-    // A null scope is legal: the type resolves through ExportedType.
-    const scopeReason = metadataCodedTokenInvalidReason(
-      scopeRaw,
-      2,
-      [0, 26, 35, 1],
-      layout.rowCounts,
-    );
-    if (scopeReason !== null)
-      issues.push({
-        code: "invalid-row",
-        scope: `metadata.TypeRef:${metadataToken(1, row)}`,
-        offset: cursor.start,
-        detail: `TypeRef ResolutionScope coded index 0x${scopeRaw.toString(16)} is invalid: ${scopeReason}`,
-      });
+    cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
+    validateScopeChain(row);
     const name = cursor.readIndex(layout.stringIndexSize);
     const namespace = cursor.readIndex(layout.stringIndexSize);
     return fullName(
