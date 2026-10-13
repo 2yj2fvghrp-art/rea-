@@ -19,9 +19,9 @@ import {
   serializedSemanticFactBytes,
   type SemanticFileGraphBudget,
 } from "./JavaScriptSemanticFileGraphBudget.js";
-import {
-  type JavaScriptSemanticFileProjectionCoverage,
-  type JavaScriptSemanticFingerprint,
+import type {
+  JavaScriptSemanticFileProjectionCoverage,
+  JavaScriptSemanticFingerprint,
 } from "../../domain/javascript/javascriptSemanticGraphSchemas.js";
 import {
   inferredSemanticEvidence,
