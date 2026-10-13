@@ -283,13 +283,14 @@ const addDiscoveredRole = (
     sourcePath: input.file.path,
     context: input.value.resolution_context,
     files: context.filesByPath,
-    runtimeEntrypoint:
-      input.value.role === "preload" ||
-      (input.value.role === "renderer" &&
-        input.value.resolution_context === "filesystem-expression"),
-    exactUrlResource:
-      input.value.role === "renderer" &&
-      input.value.resolution_context === "module-specifier",
+    ...(input.value.role === "preload" ||
+    (input.value.role === "renderer" &&
+      input.value.resolution_context === "filesystem-expression")
+      ? { runtimePathKind: "exact-file" as const }
+      : input.value.role === "renderer" &&
+          input.value.resolution_context === "module-specifier"
+        ? { runtimePathKind: "url-resource" as const }
+        : {}),
   });
   const role = createElectronRoleNode(context, {
     kind:

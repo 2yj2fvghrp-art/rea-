@@ -3,7 +3,10 @@ import type { ElectronIpcFinding } from "../../domain/javascript/electronStaticA
 import type { ElectronBoundarySummary } from "../../domain/javascript/javascriptApplicationAnalysis.js";
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
-import { resolveArtifactPathByContext } from "./JavaScriptArtifactPathResolution.js";
+import {
+  resolveArtifactPathByContext,
+  type ResolveArtifactPathInput,
+} from "./JavaScriptArtifactPathResolution.js";
 
 /** One IPC fact retaining its exact owning artifact for graph projection. */
 export interface ElectronIpcRecord {
@@ -160,7 +163,7 @@ export const summarizeElectronBoundaries = (
           specifier: finding.module_path,
           context: finding.module_resolution_context,
           files,
-          moduleKind: "require",
+          runtimePathKind: "node-entrypoint",
         }),
     ).length,
     native_addon_bindings: nativeBindings.length,
@@ -205,7 +208,7 @@ interface ResolveToFileInput {
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
   readonly kind?: JavaScriptArtifactFile["kind"];
   readonly moduleKind?: "import" | "require";
-  readonly runtimeEntrypoint?: boolean;
+  readonly runtimePathKind?: ResolveArtifactPathInput["runtimePathKind"];
 }
 
 const resolvesToFile = (input: ResolveToFileInput): boolean => {
@@ -214,7 +217,9 @@ const resolvesToFile = (input: ResolveToFileInput): boolean => {
     sourcePath: input.file.path,
     context: input.context,
     files: input.files,
-    ...(input.runtimeEntrypoint ? { runtimeEntrypoint: true } : {}),
+    ...(input.runtimePathKind === undefined
+      ? {}
+      : { runtimePathKind: input.runtimePathKind }),
     ...(input.moduleKind === undefined ? {} : { moduleKind: input.moduleKind }),
   }).resolved_path;
   return (

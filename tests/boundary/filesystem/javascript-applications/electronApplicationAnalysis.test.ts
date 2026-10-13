@@ -301,11 +301,12 @@ const expectSuffixOnlyRenderersUnresolved = (graph: ApplicationGraph): void => {
         renderer,
       ]),
   );
-  expect(renderers.get("file:///renderer/index.html")?.observations[0]?.properties)
-    .toMatchObject({
-      resolved_path: "renderer/index.html",
-      resolution_status: "resolved",
-    });
+  expect(
+    renderers.get("file:///renderer/index.html")?.observations[0]?.properties,
+  ).toMatchObject({
+    resolved_path: "renderer/index.html",
+    resolution_status: "resolved",
+  });
   for (const declaredPath of [
     "./renderer/other.html?theme=dark#home",
     "renderer/bare.html",

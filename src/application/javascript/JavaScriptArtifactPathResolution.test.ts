@@ -1332,7 +1332,7 @@ describe("package import alias resolution", () => {
         sourcePath: "main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2384,7 +2384,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        exactUrlResource: true,
+        runtimePathKind: "url-resource",
       }),
     ).toMatchObject({
       resolution_status: "unavailable",
@@ -2397,7 +2397,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        exactUrlResource: true,
+        runtimePathKind: "url-resource",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2425,7 +2425,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2437,7 +2437,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2449,7 +2449,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2461,7 +2461,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "not-found",
@@ -2482,7 +2482,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "resolved",
@@ -2494,7 +2494,7 @@ describe("exact Electron runtime entrypoint resolution", () => {
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
-        runtimeEntrypoint: true,
+        runtimePathKind: "exact-file",
       }),
     ).toMatchObject({
       resolution_status: "not-found",
@@ -2511,7 +2511,7 @@ it.each(["#home", "?theme=dark", ""])(
         declaredPath,
         sourcePath: "main.cjs",
         context: "url-reference",
-        exactUrlResource: true,
+        runtimePathKind: "url-resource",
         files: fileMap([file("main.cjs", "root")]),
       }),
     ).toMatchObject({
@@ -2521,3 +2521,27 @@ it.each(["#home", "?theme=dark", ""])(
     });
   },
 );
+
+it("resolves Node runtime entrypoints without substituting emitted TypeScript sources", () => {
+  const files = fileMap([
+    file("main.ts", "root"),
+    file("worker.ts", "root"),
+    file("worker.js", "other-container"),
+    file("runtime.js", "root"),
+    file("directory/index.js", "root"),
+  ]);
+  for (const [declaredPath, status, path] of [
+    ["./worker.js", "not-found", null],
+    ["./runtime", "resolved", "runtime.js"],
+    ["./directory", "resolved", "directory/index.js"],
+  ] as const)
+    expect(
+      resolve({
+        declaredPath,
+        sourcePath: "main.ts",
+        context: "module-specifier",
+        files,
+        runtimePathKind: "node-entrypoint",
+      }),
+    ).toMatchObject({ resolution_status: status, resolved_path: path });
+});

@@ -140,7 +140,7 @@ const addWindowPreload = (
     sourcePath: input.file.path,
     context: resolutionContext,
     files: input.context.filesByPath,
-    runtimeEntrypoint: true,
+    runtimePathKind: "exact-file",
   });
   const role = createElectronRoleNode(input.context, {
     kind: "electron-preload",
@@ -266,7 +266,7 @@ const addUtilityProcess = (
           sourcePath: file.path,
           context: value.module_resolution_context,
           files: context.filesByPath,
-          moduleKind: "require",
+          runtimePathKind: "node-entrypoint",
         });
   addElectronInferenceEdge(context, {
     source: input.source,
