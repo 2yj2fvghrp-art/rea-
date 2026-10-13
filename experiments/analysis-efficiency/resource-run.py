@@ -1,6 +1,7 @@
 """Run one owned experiment in a bounded, transient Linux systemd scope."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -73,6 +74,8 @@ def main():
     options = parser.parse_args()
     if options.task_ceiling <= 0:
         parser.error('--task-ceiling must be positive')
+    if options.observe_payload_exit and options.task_ceiling < 2:
+        parser.error('--observe-payload-exit requires capacity for the observer and payload (at least 2 tasks)')
     args = options.command
     if args and args[0] == '--':
         args = args[1:]
@@ -96,6 +99,10 @@ def main():
         '-p', 'CPUQuota=100%', '-p', 'TasksMax=' + str(options.task_ceiling),
         'taskset', '-c', str(cpu), *payload,
     ]
+    observer_sources = {
+        name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+        for name in ['resource-run.py', 'resource_payload.py']
+    } if options.observe_payload_exit else None
     try:
         process = subprocess.Popen(command)
     except BaseException:
@@ -195,6 +202,7 @@ def main():
                          else 128 - payload_observation['payload_exit_code']) == code
                 ),
                 'payload_observation_scope': 'Counters at payload exit while observer remains alive; not final whole-scope counters.',
+                'payload_observer_sources_sha256': observer_sources,
             } if options.observe_payload_exit else {}),
         }), file=sys.stderr)
         if receipt_root is not None:

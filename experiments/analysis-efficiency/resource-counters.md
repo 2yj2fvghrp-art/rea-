@@ -28,12 +28,15 @@ must use the same mode. Default commands do not start an observer or add fields.
 
 One CPU, the unchanged 3 GiB early-stop/4 GiB hard ceiling, no swap, task limits
 and host-available-memory safeguards remain in force. No resource limit is raised.
+The opt-in mode requires at least two task slots for observer plus payload;
+smaller caller-selected ceilings fail before process acquisition. Default mode
+continues to accept a one-task ceiling.
 Cleanup uses the uniquely owned systemd scope, without signaling a process merely
 because a recorded PID exists. Failed scope cleanup retains the named owner.
 
 ## Focused verification
 
-Four semantic Python cases cover nonzero exit/kernel facts, missing or malformed
+Five semantic Python cases cover acquisition-free capacity rejection, nonzero exit/kernel facts, missing or malformed
 receipts, wrong ownership, integer types, contradictory cleanup, lingering actors,
 foreign symlinks and exclusion of unrelated metadata. They join the existing
 Python gate; simulated receipts do not establish actual cgroup behavior.
@@ -55,3 +58,46 @@ These are metering/lifecycle probes, not a new model/provider performance claim.
 Actual REA workflows and repeated observer-overhead measurements remain necessary
 before relying on the new mode for domain comparisons. Raw receipts remain in
 the private experiment lab outside Git.
+
+## Actual REA and model observations
+
+Checkpoint `d1f2cfe76df28e6effe973123f2e19313f6d0d4b` repeats real SDK workflows
+against the unchanged frozen candidate `8bc1601ca51e417ca472d90ea0367e9418a1a0f2`
+(runtime file-table SHA-256
+`9e7380f537301bf0cfe2926f5619011af848af7c220750e75189498e65d825e1`).
+The resource supervisor changes; the compiled REA/provider algorithms do not.
+Managed pairs use default/observer/observer/default order with the same question,
+settings, two public calls and identical selected facts. Raw receipts remain
+private and new measurements do not replace historical resource unknowns.
+
+| Workflow             | SDK milliseconds | Scope seconds | Sampled peak bytes | Kernel peak at payload exit | Payload CPU microseconds |
+| -------------------- | ---------------: | ------------: | -----------------: | --------------------------: | -----------------------: |
+| Managed default 1    |        5,168.485 |        11.814 |        525,873,152 |                     unknown |                  unknown |
+| Managed observer 1   |        4,156.708 |         5.358 |        527,777,792 |                 535,724,032 |                5,195,457 |
+| Managed observer 2   |        3,810.362 |         5.056 |        538,742,784 |                 539,529,216 |                4,818,497 |
+| Managed default 2    |        4,263.993 |         5.360 |        526,032,896 |                     unknown |                  unknown |
+| SQLite WASM observer |        6,733.216 |         8.087 |        777,199,616 |                 777,199,616 |                7,830,130 |
+| NewPipe APK observer |       23,162.195 |        24.600 |      1,286,586,368 |               1,287,548,928 |               23,965,627 |
+
+The WASM and APK runs use actual configured WABT and JADX/Java. Every observer
+receipt verifies a sole remaining observer, successful payload exit and the
+expected owned group. No guard abort occurs. The initial default scope timing is
+an outlier relative to its SDK workflow and later scopes; its cause is not
+established. Two managed pairs are insufficient to characterize observer overhead
+or establish a speed/memory improvement. Kernel peak and CPU include the observer.
+
+One actual Codex CLI 0.161.0 trial uses the original managed question, exact-name
+guidance, context capture and requested `gpt-5.6-terra` high. It passes selected
+facts, preserves source bytes, removes its profile and makes three successful MCP
+calls (including an additional artifact inspection). Reported usage is 61,173
+input, 48,128 cached, 13,045 uncached and 2,678 output tokens; wall time is 125.798
+seconds. The payload-exit witness records 812,896,256 kernel peak bytes and
+8,566,029 CPU microseconds with only the observer alive and zero recorded
+memory/task limit events at that phase. This confirms the completed model/MCP
+payload boundary, not a token/time benefit or final whole-scope no-OOM proof.
+Its full existing grader remains false for unknown terminal physical counters.
+
+The subsequent review adds supervisor/helper source SHA-256 to opt-in receipts
+before process acquisition, without adding those fields to default receipts.
+This distinguishes measurement implementations independently of frozen runtime
+identity and keeps the observer's phase explicit.

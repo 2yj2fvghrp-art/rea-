@@ -1,9 +1,13 @@
 """Receipt semantics; real systemd/cgroup workflows are verified separately."""
 
 import json
+import importlib.util
+import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from resource_payload import read_observation
 
@@ -21,6 +25,18 @@ def receipt():
 
 
 class PayloadObservationTests(unittest.TestCase):
+    def test_observer_capacity_failure_precedes_any_process_acquisition(self):
+        spec = importlib.util.spec_from_file_location('resource_run', Path(__file__).with_name('resource-run.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        arguments = ['resource-run.py', '--observe-payload-exit', '--task-ceiling', '1', '--', 'payload']
+        with patch.object(sys, 'argv', arguments), patch.object(sys, 'stderr', io.StringIO()), \
+                patch.object(module.subprocess, 'Popen') as spawn:
+            with self.assertRaises(SystemExit) as failure:
+                module.main()
+        self.assertEqual(failure.exception.code, 2)
+        spawn.assert_not_called()
+
     def test_preserves_nonzero_status_kernel_peak_and_nonzero_events(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'receipt.json'
