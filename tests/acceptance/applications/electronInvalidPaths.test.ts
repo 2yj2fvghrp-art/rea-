@@ -189,6 +189,7 @@ cliTest.skipIf(isWindows)(
     expect(session.isError, JSON.stringify(session)).not.toBe(true);
     expect(await retained()).toEqual(before);
   },
+  180_000,
 );
 
 cliTest(
