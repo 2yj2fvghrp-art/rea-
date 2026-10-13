@@ -52,7 +52,9 @@ describe("onboarding documentation product facts", () => {
       .map((language) => language.readme);
     expect(translatedReadmes).toContain("docs/readme/README_it.md");
     expect(translatedReadmes).toHaveLength(18);
-    const english = shellExamples(await readFile(resolve("UPSTREAM_REA_README.md"), "utf8"));
+    const english = shellExamples(
+      await readFile(resolve("UPSTREAM_REA_README.md"), "utf8"),
+    );
     for (const path of translatedReadmes)
       expect(
         shellExamples(await readFile(resolve(path), "utf8")),

@@ -10,10 +10,10 @@ Use [REL Simple Mode](rel/README.md) to choose a supported investigation workflo
 
 Learn to answer a narrow question about authorized software with **evidence**, then test the explanation. Our first milestone is a repeatable, understandable **local investigation**, not a new agent or native-analysis provider.
 
-~~~text
+```text
 Question → choose authorized target → observe behavior → inspect structure
          → separate facts from guesses → verify → record what remains unknown
-~~~
+```
 
 REA provides a CLI and an MCP server for agents. Both use shared analysis workflows. In this fork, the CLI entry point is scripts/rea.mjs, with routing in src/cli.ts and implementations in src/. The published npm package rea-agents is upstream; **npx rea-agents does not automatically run code from our modified fork**. Build and run the local entry point when testing fork changes.
 
@@ -23,25 +23,25 @@ Visit [experiments/rel-first-lab/README.md](experiments/rel-first-lab/README.md)
 
 From the repository root:
 
-~~~bash
+```bash
 node experiments/rel-first-lab/cli.mjs bridge
 node experiments/rel-first-lab/verify.mjs
-~~~
+```
 
-Expected search order: **Bridge Patterns → Signal Bridge → Local Cache**. First predict *why*. Then open search.mjs and compare your prediction with the actual code. The verifier checks only this toy example; it does **not** prove the complete REA analyzer works.
+Expected search order: **Bridge Patterns → Signal Bridge → Local Cache**. First predict _why_. Then open search.mjs and compare your prediction with the actual code. The verifier checks only this toy example; it does **not** prove the complete REA analyzer works.
 
 ## Code map
 
-| Path | What it does |
-| --- | --- |
-| scripts/rea.mjs and src/cli.ts | Start and route CLI commands |
-| src/main.ts and src/server/ | MCP/server entry points |
-| src/composition/ | Wire providers and workflows |
-| src/application/ and src/javascript/ | App-analysis and JavaScript logic |
-| src/domain/ and src/contracts/ | Evidence models, types, contracts |
-| docs/cli.md | CLI usage and summary views |
+| Path                                     | What it does                           |
+| ---------------------------------------- | -------------------------------------- |
+| scripts/rea.mjs and src/cli.ts           | Start and route CLI commands           |
+| src/main.ts and src/server/              | MCP/server entry points                |
+| src/composition/                         | Wire providers and workflows           |
+| src/application/ and src/javascript/     | App-analysis and JavaScript logic      |
+| src/domain/ and src/contracts/           | Evidence models, types, contracts      |
+| docs/cli.md                              | CLI usage and summary views            |
 | docs/javascript-application-workflows.md | Graph, trace, and comparison semantics |
-| experiments/rel-first-lab/ | Our source-owned practice target |
+| experiments/rel-first-lab/               | Our source-owned practice target       |
 
 Static relationships are **inferences, not proof of execution**. Observations, derivations, confidence, unknowns and coverage are intentionally separate in REA. See [JavaScript Application Graph](docs/javascript-application-graph.md).
 

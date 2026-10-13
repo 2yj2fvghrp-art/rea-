@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { classifyTarget, renderPlan, availableCategories } from "./rel/intake.mjs";
+import {
+  classifyTarget,
+  renderPlan,
+  availableCategories,
+} from "./rel/intake.mjs";
 import { runStaticAnalysis } from "./rel/analyze-static.mjs";
 
 const repo = dirname(fileURLToPath(import.meta.url));
@@ -23,14 +27,22 @@ const help = [
 ].join("\n");
 
 function options(args) {
-  const values = { json: false, run: false, authorized: false, out: null, question: null, positional: [] };
+  const values = {
+    json: false,
+    run: false,
+    authorized: false,
+    out: null,
+    question: null,
+    positional: [],
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--json") values.json = true;
     else if (arg === "--run") values.run = true;
     else if (arg === "--authorized") values.authorized = true;
     else if (["--out", "--question", "-q"].includes(arg)) {
-      if (!args[i + 1] || args[i + 1].startsWith("--")) throw new Error(arg + " requires a value.");
+      if (!args[i + 1] || args[i + 1].startsWith("--"))
+        throw new Error(arg + " requires a value.");
       values[arg === "--out" ? "out" : "question"] = args[++i];
     } else if (arg.startsWith("-")) throw new Error("Unknown option: " + arg);
     else values.positional.push(arg);
@@ -46,39 +58,116 @@ try {
     const settings = options(args);
     const [mode, target] = settings.positional;
     if (mode === "types" && settings.positional.length === 1) {
-      if (settings.run || settings.authorized || settings.out) throw new Error("types is preview-only.");
+      if (settings.run || settings.authorized || settings.out)
+        throw new Error("types is preview-only.");
       const list = availableCategories();
-      console.log(settings.json ? JSON.stringify(list, null, 2) : list.map((x) => x.label + " — " + x.capability).join("\n"));
+      console.log(
+        settings.json
+          ? JSON.stringify(list, null, 2)
+          : list.map((x) => x.label + " — " + x.capability).join("\n"),
+      );
     } else if (mode === "codex" && settings.positional.length === 1) {
-      if (settings.run || settings.authorized || settings.out || settings.json) throw new Error("codex has no execution flags.");
-      console.log("REL / Codex workspace configuration: " + (existsSync(resolve(repo, ".codex/config.toml")) ? "present" : "not found"));
-      console.log("REA compiled MCP runtime: " + (existsSync(resolve(repo, "dist/mcp/main.js")) ? "built" : "missing — run npm ci && npm run build:cached"));
-      console.log("Open this REL checkout from its root in a trusted Codex workspace; check /mcp and use $rel-investigator.");
-      console.log("Project settings are not your personal Codex config. Only this REL fork was changed.");
+      if (settings.run || settings.authorized || settings.out || settings.json)
+        throw new Error("codex has no execution flags.");
+      console.log(
+        "REL / Codex workspace configuration: " +
+          (existsSync(resolve(repo, ".codex/config.toml"))
+            ? "present"
+            : "not found"),
+      );
+      console.log(
+        "REA compiled MCP runtime: " +
+          (existsSync(resolve(repo, "dist/mcp/main.js"))
+            ? "built"
+            : "missing — run npm ci && npm run build:cached"),
+      );
+      console.log(
+        "Open this REL checkout from its root in a trusted Codex workspace; check /mcp and use $rel-investigator.",
+      );
+      console.log(
+        "Project settings are not your personal Codex config. Only this REL fork was changed.",
+      );
     } else if (mode === "demo" && settings.positional.length === 1) {
       const lab = resolve(repo, "experiments/rel-first-lab");
       if (settings.run) {
-        if (!settings.out || settings.authorized || settings.json) throw new Error("Use demo --run --out DIR, without --authorized or --json.");
-        const child = spawnSync(process.execPath, [resolve(repo, "experiments/rel-first-lab/run-real-analysis.mjs"), resolve(settings.out)], {cwd:repo,stdio:"inherit",timeout:240000});
-        if (child.error || child.status !== 0) throw new Error("REL demo run failed; see output and logs.");
+        if (!settings.out || settings.authorized || settings.json)
+          throw new Error(
+            "Use demo --run --out DIR, without --authorized or --json.",
+          );
+        const child = spawnSync(
+          process.execPath,
+          [
+            resolve(repo, "experiments/rel-first-lab/run-real-analysis.mjs"),
+            resolve(settings.out),
+          ],
+          { cwd: repo, stdio: "inherit", timeout: 240000 },
+        );
+        if (child.error || child.status !== 0)
+          throw new Error("REL demo run failed; see output and logs.");
       } else {
-        if (settings.out || settings.authorized) throw new Error("Demo preview does not accept --out or --authorized.");
+        if (settings.out || settings.authorized)
+          throw new Error(
+            "Demo preview does not accept --out or --authorized.",
+          );
         const plan = classifyTarget(lab);
-        console.log(settings.json ? JSON.stringify({...plan, safe_demo:true},null,2) : renderPlan(plan, settings.question) + "\n\nTo run: node rel.mjs demo --run --out /tmp/rel-evidence");
+        console.log(
+          settings.json
+            ? JSON.stringify({ ...plan, safe_demo: true }, null, 2)
+            : renderPlan(plan, settings.question) +
+                "\n\nTo run: node rel.mjs demo --run --out /tmp/rel-evidence",
+        );
       }
-    } else if (mode === "analyze" && target && settings.positional.length === 2) {
-      if (settings.run) throw new Error("analyze uses --authorized (not --run).");
-      const result = runStaticAnalysis({target, out:settings.out, authorized:settings.authorized, question:settings.question});
-      console.log(settings.json ? JSON.stringify(result, null, 2) : "REL static analysis verified: " + result.nodes + " graph nodes, " + result.edges + " edges.\nEvidence: " + result.evidence_id + "\nReport: " + result.report);
+    } else if (
+      mode === "analyze" &&
+      target &&
+      settings.positional.length === 2
+    ) {
+      if (settings.run)
+        throw new Error("analyze uses --authorized (not --run).");
+      const result = runStaticAnalysis({
+        target,
+        out: settings.out,
+        authorized: settings.authorized,
+        question: settings.question,
+      });
+      console.log(
+        settings.json
+          ? JSON.stringify(result, null, 2)
+          : "REL static analysis verified: " +
+              result.nodes +
+              " graph nodes, " +
+              result.edges +
+              " edges.\nEvidence: " +
+              result.evidence_id +
+              "\nReport: " +
+              result.report,
+      );
     } else {
       if (mode === "inspect") {
-        if (!target || settings.positional.length !== 2) throw new Error("Usage: node rel.mjs inspect TARGET");
+        if (!target || settings.positional.length !== 2)
+          throw new Error("Usage: node rel.mjs inspect TARGET");
       } else {
-        if (settings.positional.length !== 1) throw new Error("Choose a single supported command or target.");
+        if (settings.positional.length !== 1)
+          throw new Error("Choose a single supported command or target.");
       }
-      if (settings.run || settings.authorized || settings.out) throw new Error("Analysis execution is only enabled for the REL-owned demo or via analyze --authorized for static JavaScript.");
+      if (settings.run || settings.authorized || settings.out)
+        throw new Error(
+          "Analysis execution is only enabled for the REL-owned demo or via analyze --authorized for static JavaScript.",
+        );
       const plan = classifyTarget(mode === "inspect" ? target : mode);
-      console.log(settings.json ? JSON.stringify({...plan, question:settings.question, execution:"preview-only"},null,2) : renderPlan(plan, settings.question));
+      console.log(
+        settings.json
+          ? JSON.stringify(
+              {
+                ...plan,
+                question: settings.question,
+                execution: "preview-only",
+              },
+              null,
+              2,
+            )
+          : renderPlan(plan, settings.question),
+      );
     }
   }
 } catch (error) {

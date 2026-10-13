@@ -39,15 +39,15 @@ The command intentionally refuses to run if the built CLI is absent. Its output 
 
 ## How to read the resulting files
 
-| File | Interpretation |
-| --- | --- |
-| `observed-search.txt` | Concrete runtime behavior of the *toy search app* |
-| `lab-verification.txt` | Our test output; not a REA engine test |
-| `evidence.json` | Full static-analysis Evidence produced by REA; retain for reinspection |
-| `view-evidence.json` | Second Evidence record produced by REA's compact analysis-view workflow |
-| `summary.json` | REL's bounded count-and-identity projection, plus durations |
-| `REL_EVIDENCE_REPORT.md` | Human-readable learning report with explicit unknowns |
-| `*.stderr.txt` | Logs and diagnostics for failed/partial steps |
+| File                     | Interpretation                                                          |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `observed-search.txt`    | Concrete runtime behavior of the _toy search app_                       |
+| `lab-verification.txt`   | Our test output; not a REA engine test                                  |
+| `evidence.json`          | Full static-analysis Evidence produced by REA; retain for reinspection  |
+| `view-evidence.json`     | Second Evidence record produced by REA's compact analysis-view workflow |
+| `summary.json`           | REL's bounded count-and-identity projection, plus durations             |
+| `REL_EVIDENCE_REPORT.md` | Human-readable learning report with explicit unknowns                   |
+| `*.stderr.txt`           | Logs and diagnostics for failed/partial steps                           |
 
 If a command fails, **do not** treat a partially written Evidence file or summary as passing proof. The workflow must finish successfully, with both Evidence operations checked.
 
@@ -55,7 +55,7 @@ If a command fails, **do not** treat a partially written Evidence file or summar
 
 - Are `cli.mjs`, `search.mjs` and `notes.mjs` represented by graph nodes? What exact recorded paths or source locations establish that?
 - Is the `cli.mjs` → `search.mjs` dependency backed by an `imports` edge, or is there only a weaker candidate/unknown?
-- Does the analyzer identify **ranking behavior**, or only the function/module structure? What claim could we *not* make from this alone?
+- Does the analyzer identify **ranking behavior**, or only the function/module structure? What claim could we _not_ make from this alone?
 - What did the analysis cost in elapsed time and Evidence size, versus what useful explanation we gained?
 
 After that proof, we can make **one** controlled change to this same fictional search example and measure whether REA detects it. That is the start of improving REL based on evidence instead of adding features speculatively.

@@ -1,6 +1,6 @@
 # Connect REL to Codex
 
-REL has two distinct interfaces. The beginner CLI (`node rel.mjs`) previews arbitrary target families and can analyze an explicitly authorized JavaScript/Electron directory or ASAR statically. The existing REA MCP server (`node scripts/rea.mjs mcp`) exposes the engine's *full* toolset to a capable agent.
+REL has two distinct interfaces. The beginner CLI (`node rel.mjs`) previews arbitrary target families and can analyze an explicitly authorized JavaScript/Electron directory or ASAR statically. The existing REA MCP server (`node scripts/rea.mjs mcp`) exposes the engine's _full_ toolset to a capable agent.
 
 **This document is a guide, not a claim that your machine or personal Codex session has been configured.** All steps below are optional and affect only the environment where you run them. Current development work remains limited to this REL repository.
 
@@ -69,7 +69,7 @@ To learn the difference between coding knowledge and actual analysis:
 
 > Explain the difference between what you learned by reading the three source files, what REA's static graph says, and what the search program actually printed. Show the evidence for each and state one unknown that remains.
 
-For another *authorized* target later, explicitly provide its path, your specific question, and what kinds of static or runtime inspection you approve. Never treat a general request as approval to browse a live website or run an unknown binary.
+For another _authorized_ target later, explicitly provide its path, your specific question, and what kinds of static or runtime inspection you approve. Never treat a general request as approval to browse a live website or run an unknown binary.
 
 ## Step 4 — diagnose or remove
 

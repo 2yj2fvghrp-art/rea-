@@ -1,6 +1,6 @@
 # REL Simple Mode — one front door, many investigation tools
 
-**Goal:** understand authorized software in plain English with source-backed evidence, while preserving upstream REA's detailed tools. We are *simplifying the interface*, not claiming that any software can always be reconstructed.
+**Goal:** understand authorized software in plain English with source-backed evidence, while preserving upstream REA's detailed tools. We are _simplifying the interface_, not claiming that any software can always be reconstructed.
 
 ## Start here
 
@@ -29,18 +29,18 @@ For an authorized extracted JavaScript application, use `node rel.mjs analyze /a
 
 ## Capabilities, not overpromises
 
-| Target | REL first decision | Prerequisite |
-| --- | --- | --- |
-| JavaScript / Electron / TypeScript | Use static application-graph analysis | Built REA fork |
-| ELF / PE / Mach-O executable | Choose native analysis provider | Suitable Hopper, Ghidra or IDA |
-| .NET `.dll` | Verify real managed metadata | Static .NET tools; DLL extension alone is insufficient |
-| Android APK / Apple app package | Inventory package, then inspect layers | Format-specific providers/tools |
-| WebAssembly | Inspect WASM sections/interfaces | WABT for detailed inspection |
-| SQLite | Analyze a read-only database snapshot | Supported Node version and snapshot |
-| HAR / PCAP files | Analyze *recorded* requests and packets | Capture-format tooling and permission |
-| Firmware or raw binary | Identify actual format before analysis | Often additional Linux tools |
-| Website | Plan bounded browser observation | Explicit authorization and browser |
-| Unknown format | Ask for a format or sample | No fabricated diagnosis |
+| Target                             | REL first decision                      | Prerequisite                                           |
+| ---------------------------------- | --------------------------------------- | ------------------------------------------------------ |
+| JavaScript / Electron / TypeScript | Use static application-graph analysis   | Built REA fork                                         |
+| ELF / PE / Mach-O executable       | Choose native analysis provider         | Suitable Hopper, Ghidra or IDA                         |
+| .NET `.dll`                        | Verify real managed metadata            | Static .NET tools; DLL extension alone is insufficient |
+| Android APK / Apple app package    | Inventory package, then inspect layers  | Format-specific providers/tools                        |
+| WebAssembly                        | Inspect WASM sections/interfaces        | WABT for detailed inspection                           |
+| SQLite                             | Analyze a read-only database snapshot   | Supported Node version and snapshot                    |
+| HAR / PCAP files                   | Analyze _recorded_ requests and packets | Capture-format tooling and permission                  |
+| Firmware or raw binary             | Identify actual format before analysis  | Often additional Linux tools                           |
+| Website                            | Plan bounded browser observation        | Explicit authorization and browser                     |
+| Unknown format                     | Ask for a format or sample              | No fabricated diagnosis                                |
 
 ## Our intended workflow
 

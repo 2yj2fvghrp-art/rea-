@@ -156,10 +156,17 @@ export const documentationFactIssues = async (root, catalog) => {
         ),
       ) !== JSON.stringify(canonicalLinks)
     )
-      issues.push(`${path}: documentation links differ from ${upstreamEnglish}`);
+      issues.push(
+        `${path}: documentation links differ from ${upstreamEnglish}`,
+      );
 
   const forkReadme = await readFile(join(root, "README.md"), "utf8");
-  for (const expected of ["# REL", "node rel.mjs", "rel/CONNECT_CODEX.md", "UPSTREAM_REA_README.md"])
+  for (const expected of [
+    "# REL",
+    "node rel.mjs",
+    "rel/CONNECT_CODEX.md",
+    "UPSTREAM_REA_README.md",
+  ])
     requireText(issues, "README.md", forkReadme, expected);
 
   const installationPath = "docs/installation.md";

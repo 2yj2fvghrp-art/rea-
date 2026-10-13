@@ -19,8 +19,10 @@ export function searchNotes(notes, query) {
   return notes
     .map((note) => ({ note, score: rank(note, term) }))
     .filter(({ score }) => score >= 0)
-    .sort((left, right) =>
-      right.score - left.score || left.note.title.localeCompare(right.note.title),
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.note.title.localeCompare(right.note.title),
     )
     .map(({ note }) => note);
 }

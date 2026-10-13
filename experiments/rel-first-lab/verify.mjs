@@ -11,7 +11,10 @@ assert.deepEqual(ids("signal"), ["N-101", "N-105"]);
 assert.deepEqual(ids("observability"), ["N-103"]);
 assert.deepEqual(ids("missing"), []);
 assert.deepEqual(ids("  "), []);
-assert.deepEqual(NOTES.map(({ id }) => id), ["N-101", "N-102", "N-103", "N-104", "N-105"]);
+assert.deepEqual(
+  NOTES.map(({ id }) => id),
+  ["N-101", "N-102", "N-103", "N-104", "N-105"],
+);
 
 const cliPath = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 const ok = spawnSync(process.execPath, [cliPath, "bridge"], {

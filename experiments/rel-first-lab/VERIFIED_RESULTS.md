@@ -16,20 +16,20 @@
 
 ## Observed measurements
 
-| Measurement | Result |
-| --- | --- |
-| Source JavaScript files parsed | 7 |
-| Parse failures | 0 |
-| Application graph nodes / edges | 43 / 65 |
-| Edge relationships | 47 `imports`, 14 `contains`, 4 `exposes` |
-| Application graph coverage | `complete`, not truncated |
-| Semantic graph nodes / relationships | 1,460 / 1,149 |
-| Semantic graph explicit unknowns | 475 |
-| Semantic coverage status | `unknown` |
-| Real static analysis elapsed | 1,973 ms on GitHub runner |
-| Full analyzer Evidence | 2,466,492 bytes |
-| REA projected view Evidence | 10,154 bytes |
-| REL human-readable report | 1,984 bytes |
+| Measurement                          | Result                                   |
+| ------------------------------------ | ---------------------------------------- |
+| Source JavaScript files parsed       | 7                                        |
+| Parse failures                       | 0                                        |
+| Application graph nodes / edges      | 43 / 65                                  |
+| Edge relationships                   | 47 `imports`, 14 `contains`, 4 `exposes` |
+| Application graph coverage           | `complete`, not truncated                |
+| Semantic graph nodes / relationships | 1,460 / 1,149                            |
+| Semantic graph explicit unknowns     | 475                                      |
+| Semantic coverage status             | `unknown`                                |
+| Real static analysis elapsed         | 1,973 ms on GitHub runner                |
+| Full analyzer Evidence               | 2,466,492 bytes                          |
+| REA projected view Evidence          | 10,154 bytes                             |
+| REL human-readable report            | 1,984 bytes                              |
 
 The `statistics.modules` field was `0`, but the graph contained `javascript-module` nodes. That statistic is **not** a count of all source files or all graph modules. The 47 import edges can represent several recovered relationships, not necessarily 47 unique package dependencies. `complete` structural coverage does **not** imply complete understanding: the semantic graph retains 475 explicit unknowns and its own coverage is `unknown`.
 
@@ -53,7 +53,7 @@ REA can scan our little program, identify its pieces, draw links between them, a
 ## Next quality and efficiency steps
 
 1. Narrow the analysis target to the three sample application files (the current directory also contains our test/report tooling); measure evidence size and analysis time again.
-2. Produce a *short, task-focused* REL report containing the two relevant import edges and locations. The full Evidence should remain accessible separately, rather than flooding an agent's context with every semantic unknown.
+2. Produce a _short, task-focused_ REL report containing the two relevant import edges and locations. The full Evidence should remain accessible separately, rather than flooding an agent's context with every semantic unknown.
 3. Make a single controlled ranking change and compare two independently generated Evidence snapshots; check whether REA spots the real change and whether the result actually helps us understand it.
 
 ## CI qualification note

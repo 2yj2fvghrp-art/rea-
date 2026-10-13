@@ -18,24 +18,24 @@ A beginner-friendly investigation interface built on top of [REA — Reverse Eng
 
 REL is **not an AI model and not a replacement for the underlying reverse-engineering engines**. Think of it as the workbench that connects them.
 
-| Piece | Job |
-| --- | --- |
-| **You** | Ask a question: “How does this feature work?” |
-| **REL Simple Mode** (`rel.mjs`) | Recognize the target, show the applicable workflow and its limits |
-| **REA** (`scripts/rea.mjs`) | Inspect local software, create graphs, trace evidence and expose MCP tools |
-| **Codex or another AI agent** | Interpret the evidence and explain it in ordinary language |
-| **Optional native tools** | Supply deeper binary analysis when available (Hopper, Ghidra, IDA, etc.) |
+| Piece                           | Job                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| **You**                         | Ask a question: “How does this feature work?”                              |
+| **REL Simple Mode** (`rel.mjs`) | Recognize the target, show the applicable workflow and its limits          |
+| **REA** (`scripts/rea.mjs`)     | Inspect local software, create graphs, trace evidence and expose MCP tools |
+| **Codex or another AI agent**   | Interpret the evidence and explain it in ordinary language                 |
+| **Optional native tools**       | Supply deeper binary analysis when available (Hopper, Ghidra, IDA, etc.)   |
 
 **It has both a terminal interface and an AI interface.** The same REA engine can answer direct CLI commands or be called by an MCP-capable agent. The REL-branded shortcut is still being developed.
 
 ### What actually works today?
 
 - **Works:** `node rel.mjs types`, `node rel.mjs inspect TARGET`, `node rel.mjs demo` — safe target identification and preview. `node rel.mjs codex` checks the local Codex integration prerequisites.
-- **Verified:** `node rel.mjs demo --run --out DIR` builds on our source-owned example to invoke the *real*, locally built REA JavaScript analyzer, save full Evidence, and generate a smaller readable report after the build.
+- **Verified:** `node rel.mjs demo --run --out DIR` builds on our source-owned example to invoke the _real_, locally built REA JavaScript analyzer, save full Evidence, and generate a smaller readable report after the build.
 - **Existing upstream capability:** Advanced REA CLI and MCP workflows for JavaScript/Electron, native binaries, managed code, app packages, websites, captured traffic and more. Many require additional dependencies or authority.
 - **New experimental path:** `node rel.mjs analyze TARGET --authorized --out DIR` runs read-only static analysis on an authorized JavaScript/Electron directory or ASAR. **Not yet built:** automatic execution across every format, an interactive REL dashboard, or guaranteed reconstruction.
 
-A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful *small-sample* test, not a universal capability claim.
+A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful _small-sample_ test, not a universal capability claim.
 
 ## First run in a terminal
 
@@ -88,13 +88,13 @@ node scripts/rea.mjs providers --json
 node scripts/rea.mjs capabilities --json
 ```
 
-These commands run the **local fork**. In contrast, `npx rea-agents` downloads/runs the *published upstream REA package*, which does **not** contain our REL changes.
+These commands run the **local fork**. In contrast, `npx rea-agents` downloads/runs the _published upstream REA package_, which does **not** contain our REL changes.
 
 ## Use REL with Codex or another AI agent
 
 **Yes—Codex can use the underlying REA tools through MCP.** REL now includes [a repo-local Codex configuration](.codex/config.toml) and [the rel-investigator skill](.agents/skills/rel-investigator/SKILL.md), which Codex can load when you open a trusted REL checkout. It can also read the code and this repository's `AGENTS.md` when the local checkout is open as its workspace. Those are different things:
 
-- **Repository context** tells Codex what REL is, what commands exist and how we work. It is *not* new model training.
+- **Repository context** tells Codex what REL is, what commands exist and how we work. It is _not_ new model training.
 - **MCP registration** gives Codex a tool connection to the locally built REA server, which exposes more than the simple `rel.mjs` preview.
 - **A prompt** tells Codex your investigation question and the allowed target. Without a working checkout/connection, it cannot inspect arbitrary files on your machine.
 
@@ -123,19 +123,19 @@ This GitHub fork and your local Codex/MCP connection are **not automatically the
 
 The REA base supports multiple families; **capability depends on your target and installed tools**:
 
-| Target | Typical investigation | Requirements / caveat |
-| --- | --- | --- |
-| JavaScript / Electron | Modules, imports, processes, IPC, source maps | Node.js; static mode available |
-| Native executables and libraries | Assembly, pseudocode, symbols, calls | Compatible Ghidra, Hopper or IDA |
-| .NET | Assembly metadata, methods and CIL | Confirm the file is actually managed |
-| Websites | Scripts, page structure and observable requests | Browser, authorization, runtime side-effect review |
-| APKs and Apple packages | Manifests, resources, code and native boundaries | Extra platform-specific tooling |
-| WASM | Imports, exports, sections and decoded content | WABT for deeper parsing |
-| SQLite | Schema and selected sample rows | Snapshot; compatible Node version |
-| HAR / PCAP | Previously captured network behavior | Supported capture format and tools |
-| Firmware / raw binaries | Identify regions or hand off to a native provider | Format/architecture knowledge; extra tools |
+| Target                           | Typical investigation                             | Requirements / caveat                              |
+| -------------------------------- | ------------------------------------------------- | -------------------------------------------------- |
+| JavaScript / Electron            | Modules, imports, processes, IPC, source maps     | Node.js; static mode available                     |
+| Native executables and libraries | Assembly, pseudocode, symbols, calls              | Compatible Ghidra, Hopper or IDA                   |
+| .NET                             | Assembly metadata, methods and CIL                | Confirm the file is actually managed               |
+| Websites                         | Scripts, page structure and observable requests   | Browser, authorization, runtime side-effect review |
+| APKs and Apple packages          | Manifests, resources, code and native boundaries  | Extra platform-specific tooling                    |
+| WASM                             | Imports, exports, sections and decoded content    | WABT for deeper parsing                            |
+| SQLite                           | Schema and selected sample rows                   | Snapshot; compatible Node version                  |
+| HAR / PCAP                       | Previously captured network behavior              | Supported capture format and tools                 |
+| Firmware / raw binaries          | Identify regions or hand off to a native provider | Format/architecture knowledge; extra tools         |
 
-Run `node rel.mjs types` to see what the simple interface can classify. *Recognition alone is not proof that the analysis engine for that format is installed.*
+Run `node rel.mjs types` to see what the simple interface can classify. _Recognition alone is not proof that the analysis engine for that format is installed._
 
 ## How we investigate
 
@@ -154,20 +154,20 @@ Four human actions: **Understand**, **Map**, **Compare**, **Reconstruct**. These
 
 ## Repository guide
 
-| Location | Purpose |
-| --- | --- |
-| [`rel.mjs`](rel.mjs) | Beginner terminal entry point |
-| [`rel/intake.mjs`](rel/intake.mjs) | Read-only target classification |
-| [`rel/analyze-static.mjs`](rel/analyze-static.mjs) | Authorized static JavaScript analysis and bounded report |
-| [`.codex/config.toml`](.codex/config.toml) | Project-scoped Codex MCP connection |
-| [`rel/codex-mcp.test.mjs`](rel/codex-mcp.test.mjs) | MCP handshake and actual REA tool-discovery test |
-| [`rel-investigator skill`](.agents/skills/rel-investigator/SKILL.md) | Codex-native investigation workflow |
-| [`rel/CONNECT_CODEX.md`](rel/CONNECT_CODEX.md) | Optional Codex/MCP setup |
-| [`experiments/rel-first-lab/`](experiments/rel-first-lab/) | Safe demo and saved verification |
-| [`REL_START_HERE.md`](REL_START_HERE.md) | Learning milestones |
-| [`src/`](src/) | Original REA analysis machinery |
-| [`docs/cli.md`](docs/cli.md) / [`docs/installation.md`](docs/installation.md) | Advanced CLI and setup |
-| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md) | Preserved upstream landing page and docs links |
+| Location                                                                      | Purpose                                                  |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+| [`rel.mjs`](rel.mjs)                                                          | Beginner terminal entry point                            |
+| [`rel/intake.mjs`](rel/intake.mjs)                                            | Read-only target classification                          |
+| [`rel/analyze-static.mjs`](rel/analyze-static.mjs)                            | Authorized static JavaScript analysis and bounded report |
+| [`.codex/config.toml`](.codex/config.toml)                                    | Project-scoped Codex MCP connection                      |
+| [`rel/codex-mcp.test.mjs`](rel/codex-mcp.test.mjs)                            | MCP handshake and actual REA tool-discovery test         |
+| [`rel-investigator skill`](.agents/skills/rel-investigator/SKILL.md)          | Codex-native investigation workflow                      |
+| [`rel/CONNECT_CODEX.md`](rel/CONNECT_CODEX.md)                                | Optional Codex/MCP setup                                 |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                    | Safe demo and saved verification                         |
+| [`REL_START_HERE.md`](REL_START_HERE.md)                                      | Learning milestones                                      |
+| [`src/`](src/)                                                                | Original REA analysis machinery                          |
+| [`docs/cli.md`](docs/cli.md) / [`docs/installation.md`](docs/installation.md) | Advanced CLI and setup                                   |
+| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                            | Preserved upstream landing page and docs links           |
 
 ## Project boundaries and attribution
 

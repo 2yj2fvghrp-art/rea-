@@ -6,20 +6,20 @@ Run commands from the **repository root**. Basic steps need Node.js only. The op
 
 ## A. Observe before reading source
 
-~~~bash
+```bash
 node experiments/rel-first-lab/cli.mjs bridge
 node experiments/rel-first-lab/cli.mjs SIGNAL
 node experiments/rel-first-lab/cli.mjs observability
 node experiments/rel-first-lab/cli.mjs --help
-~~~
+```
 
 Ask: why does **Bridge Patterns** outrank **Signal Bridge**? Why does **Local Cache** appear when its title lacks "bridge"? Does case or extra whitespace matter? Write down the **actual output**, not what you assume happens.
 
 ## B. Verify
 
-~~~bash
+```bash
 node experiments/rel-first-lab/verify.mjs
-~~~
+```
 
 Expected: **REL first lab: 11 checks passed.** This verifies the sample's search behavior, preservation of source data, and selected CLI success/error behavior. It does **not** test the REA engine or MCP server.
 
@@ -37,25 +37,25 @@ Write the explanation and its limitations in [WORKSHEET.md](WORKSHEET.md).
 
 Use the pinned Node/npm environment. Installing project dependencies requires network access; the later static-analysis command works on local source and does not execute the demo.
 
-~~~bash
+```bash
 # If nvm is already installed, first run: nvm use
 npm ci
 npm run build:cached
-~~~
+```
 
 On macOS/Linux, place generated Evidence in a temporary directory, not in Git:
 
-~~~bash
+```bash
 OUT="$(mktemp -d)"
 node scripts/rea.mjs analyze-javascript-application "$PWD/experiments/rel-first-lab" --json > "$OUT/evidence.json"
-~~~
+```
 
 To project the smaller summary view using the documented CLI contract:
 
-~~~bash
+```bash
 node -e 'const fs = require("node:fs"); const evidence = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); fs.writeFileSync(process.argv[2], JSON.stringify({source:{kind:"inline",evidence},view:{kind:"summary"}}));' "$OUT/evidence.json" "$OUT/summary-request.json"
 node scripts/rea.mjs inspect-analysis-view "$OUT/summary-request.json"
-~~~
+```
 
 Large apps can produce very large Evidence files; pass summaries to an agent and preserve the original Evidence for drill-down. CLI behavior is documented in [docs/cli.md](../../docs/cli.md), with graph semantics in [docs/javascript-application-workflows.md](../../docs/javascript-application-workflows.md).
 
