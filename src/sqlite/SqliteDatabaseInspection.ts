@@ -263,24 +263,27 @@ const readSchema = (
   const shadowParentOf = (
     name: string,
     listed: z.output<typeof tableRow>,
-  ): (typeof unresolvedVirtualTables)[number] | undefined =>
-    listed.type === "table"
-      ? unresolvedVirtualTables.find((parent) =>
-          sqliteIdentifierKey(name).startsWith(parent.prefix),
-        )
-      : undefined;
+  ): (typeof unresolvedVirtualTables)[number] | undefined => {
+    if (listed.type !== "table") return undefined;
+    const identifier = sqliteIdentifierKey(name);
+    return unresolvedVirtualTables.find((parent) =>
+      identifier.startsWith(parent.prefix),
+    );
+  };
   const selected =
     selectedName === undefined ? undefined : metadata.get(selectedName);
   if (selectedName !== undefined && selected === undefined)
     throw missingSelectedTable(selectedName);
+  const selectedShadowParent =
+    selectedName === undefined || selected === undefined
+      ? undefined
+      : shadowParentOf(selectedName, selected);
   // NOCASE folds only ASCII letters, as SQLite does when it resolves the
   // table named by an index or trigger. Fold only for an ordinary table whose
   // rows can be selected; a selection refused later keeps the exact filter,
   // so its failure does not depend on declarations under another spelling.
   const foldDependents =
-    selectedName !== undefined &&
-    selected?.type === "table" &&
-    shadowParentOf(selectedName, selected) === undefined;
+    selected?.type === "table" && selectedShadowParent === undefined;
   const schema: SqliteDatabase["schema"] = {
     scope,
     completeness: "complete",
@@ -321,7 +324,10 @@ const readSchema = (
           "format",
           `SQLite schema/table inventory mismatch: ${value.name}`,
         );
-      const possibleShadowParent = shadowParentOf(value.name, listed);
+      const possibleShadowParent =
+        value.name === selectedName
+          ? selectedShadowParent
+          : shadowParentOf(value.name, listed);
       const table: SqliteDatabase["schema"]["tables"][number] = {
         name: value.name,
         ...(scope === "inventory" ? {} : { sql: value.sql }),
