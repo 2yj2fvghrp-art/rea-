@@ -52,6 +52,11 @@ it("resolves require calls by lexical binding and source mode", async () => {
       "require = () => 'local';",
       "console.log(require('./throwing.cjs'));",
     ].join("\n"),
+    "before-write.cjs": [
+      "console.log(require('./loaded.cjs'));",
+      "require = () => 'local';",
+      "console.log(require('./throwing.cjs'));",
+    ].join("\n"),
     "unbound-esm.mjs": [
       "try { require('./throwing.cjs'); }",
       "catch (error) {",
@@ -89,6 +94,7 @@ it("resolves require calls by lexical binding and source mode", async () => {
     ["top-level-var.cjs", "loaded\nreal\n"],
     ["initialized-var.cjs", "local\n"],
     ["assigned-var.cjs", "local\n"],
+    ["before-write.cjs", "loaded\nreal\nlocal\n"],
     ["unbound-esm.mjs", "no-global-require\n"],
     ["shadowed-esm.mjs", "local\n"],
     ["create-require-esm.mjs", "loaded\nreal\n"],
@@ -114,6 +120,7 @@ it("resolves require calls by lexical binding and source mode", async () => {
       .map(({ from_path, to }) => [from_path, to])
       .sort((left, right) => (left[0] ?? "").localeCompare(right[0] ?? "")),
   ).toEqual([
+    ["before-write.cjs", "loaded.cjs"],
     ["create-require-esm.mjs", "loaded.cjs"],
     ["nested.cjs", "loaded.cjs"],
     ["top-level-var.cjs", "loaded.cjs"],

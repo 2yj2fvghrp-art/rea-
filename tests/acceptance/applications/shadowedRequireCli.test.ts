@@ -30,6 +30,18 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "var.cjs": 'var require; console.log(require("./real-dependency.cjs"));',
       "create-require.mjs":
         'import {createRequire} from "node:module"; const require = createRequire(import.meta.url); console.log(require("./real-dependency.cjs"));',
+      "before-reassign.cjs":
+        'console.log(require?.("./real-dependency.cjs")); require = () => "local"; console.log(require?.("./ghost.cjs"));',
+      "before-var-initializer.cjs":
+        'console.log(require?.("./real-dependency.cjs")); var require = () => "local"; console.log(require?.("./ghost.cjs"));',
+      "before-destructuring.cjs":
+        'console.log(require?.("./real-dependency.cjs")); ({require} = {require: () => "local"}); console.log(require?.("./ghost.cjs"));',
+      "deferred.cjs":
+        'function run() { return require?.("./ghost.cjs"); } require = () => "local"; console.log(run());',
+      "deferred-write.cjs":
+        'reset(); console.log(require?.("./ghost.cjs")); function reset() { require = () => "local"; }',
+      "instance-field.cjs":
+        'class Loader { value = require?.("./ghost.cjs"); } require = () => "local"; console.log(new Loader().value);',
       "real-dependency.cjs": 'module.exports = "real";',
       "ghost.cjs":
         'throw new Error("A local function must not load this module");',
@@ -49,6 +61,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["real-optional.cjs", "real"],
       ["var.cjs", "real"],
       ["create-require.mjs", "real"],
+      ["before-reassign.cjs", "real\nlocal"],
+      ["before-var-initializer.cjs", "real\nlocal"],
+      ["before-destructuring.cjs", "real\nlocal"],
+      ["deferred.cjs", "local"],
+      ["deferred-write.cjs", "local"],
+      ["instance-field.cjs", "local"],
     ] as const)
       expect(
         (
@@ -78,6 +96,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
           : null;
       });
     expect(realSources.sort()).toEqual([
+      "before-destructuring.cjs",
+      "before-reassign.cjs",
+      "before-var-initializer.cjs",
       "create-require.mjs",
       "real-optional.cjs",
       "real.cjs",

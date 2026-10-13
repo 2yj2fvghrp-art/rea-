@@ -53,10 +53,10 @@ import {
 
 import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
 import {
-  collectSemanticReferences,
+  collectSemanticReferencesSteps,
   semanticImportEqualsSpecifier,
 } from "./javascriptSemanticProjection.js";
-import { unshadowedJavaScriptRequireCalls } from "./javascriptRequireBindings.js";
+import { unshadowedJavaScriptRequireCallsSteps } from "./javascriptRequireBindings.js";
 import {
   hasUncertainTypeOnlyModuleSideEffect,
   isTypeOnlyExportDeclaration,
@@ -100,7 +100,11 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     bindings,
   );
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
-  let requireCalls: ReadonlySet<t.Node> | undefined;
+  const requireCalls = yield* unshadowedJavaScriptRequireCallsSteps(
+    file,
+    undefined,
+    yield* collectSemanticReferencesSteps(file.program, bindings),
+  );
   yield* traverseStaticSourceSteps(
     file,
     {
@@ -108,14 +112,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
       accumulator,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
       electronBindings: electronIdentity.bindings,
-      isUnshadowedRequireCall: (node) => {
-        requireCalls ??= unshadowedJavaScriptRequireCalls(
-          file,
-          undefined,
-          collectSemanticReferences(file.program, bindings),
-        );
-        return requireCalls.has(node);
-      },
+      isUnshadowedRequireCall: (node) => requireCalls.has(node),
       rpcScan: createJavaScriptRpcScan(source, clientRoots),
     },
     bindings,
