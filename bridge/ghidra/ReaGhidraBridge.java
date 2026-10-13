@@ -3753,6 +3753,16 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return value != null && context.isConstant(value) ? value.getOffset() : null;
     }
 
+    /** Single-site producer query; dossier decoding reuses one analysis for every site. */
+    private boolean selectedValue(Function function, Instruction use, Register register) throws Exception {
+        SwiftSelectProvenance provenance = swiftSelectProvenance(function, new SwiftLiteralBudget());
+        monitor.checkCancelled();
+        if (provenance == SwiftSelectProvenance.UNAVAILABLE) {
+            throw new IllegalStateException("Swift select provenance exceeded available capacity");
+        }
+        return provenance.selected(use, register);
+    }
+
     /**
      * A forward may analysis over the function body: a register is selected on entry to an
      * instruction when some predecessor path last defined it, through any chain of register
@@ -3858,7 +3868,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 from.add(source);
                 successors.get(source).add(index);
             }
-            predecessors[index] = from.stream().mapToInt(Integer::intValue).toArray();
+            int[] sources = new int[from.size()];
+            for (int predecessor = 0; predecessor < sources.length; predecessor++) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+                sources[predecessor] = from.get(predecessor);
+            }
+            predecessors[index] = sources;
             defined[index] = new BitSet();
             for (Object result : instruction.getResultObjects()) {
                 if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
