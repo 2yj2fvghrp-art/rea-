@@ -16,6 +16,10 @@ _start:
     xor %eax, %eax
     call rea_forward_clear_sub
     sub %eax, %eax
+    call rea_forward_clear_and
+    and $0, %eax
+    call rea_forward_clear_test
+    test $0, %eax
     call rea_overwrite_return
     call rea_written_slot_control
     call rea_unknown_store_control
@@ -30,6 +34,8 @@ _start:
     call rea_thiscall_missing_cleanup
     call rea_custom_allocation_control
     call rea_variadic_control
+    call rea_variadic_cleanup_conflict
+    call rea_long_entry_prefix
     ret
 .size _start, .-_start
 
@@ -252,3 +258,32 @@ rea_many_forwarding:
 .size rea_many_forwarding, .-rea_many_forwarding
 
 .section .note.GNU-stack,"",@progbits
+
+
+.globl rea_forward_clear_and, rea_forward_clear_test
+.type rea_forward_clear_and, @function
+rea_forward_clear_and:
+    call rea_conversion_helper
+    ret
+.size rea_forward_clear_and, .-rea_forward_clear_and
+.type rea_forward_clear_test, @function
+rea_forward_clear_test:
+    call rea_conversion_helper
+    ret
+.size rea_forward_clear_test, .-rea_forward_clear_test
+
+.globl rea_variadic_cleanup_conflict
+.type rea_variadic_cleanup_conflict, @function
+rea_variadic_cleanup_conflict:
+    mov 8(%esp), %eax
+    ret $4
+.size rea_variadic_cleanup_conflict, .-rea_variadic_cleanup_conflict
+
+.globl rea_long_entry_prefix
+.type rea_long_entry_prefix, @function
+rea_long_entry_prefix:
+    .rept 300
+    mov 8(%esp), %eax
+    .endr
+    ret
+.size rea_long_entry_prefix, .-rea_long_entry_prefix

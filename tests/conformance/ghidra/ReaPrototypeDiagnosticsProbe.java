@@ -99,10 +99,10 @@ public class ReaPrototypeDiagnosticsProbe extends GhidraScript {
             HighFunctionDBUtil.commitParamsToDatabase(recovered.getHighFunction(), true,
                 ReturnCommitOption.COMMIT, SourceType.ANALYSIS);
             function.setSignatureSource(SourceType.ANALYSIS);
-            if (java.util.Set.of("rea_written_slot_control", "rea_unknown_store_control", "rea_conditional_pointer_control", "rea_dynamic_stack_control", "rea_userop_control").contains(function.getName()))
+            if (java.util.Set.of("rea_written_slot_control", "rea_unknown_store_control", "rea_conditional_pointer_control", "rea_dynamic_stack_control", "rea_userop_control", "rea_long_entry_prefix").contains(function.getName()))
                 function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
-            if (java.util.Set.of("rea_forward_clear_xor", "rea_forward_clear_sub", "rea_many_forwarding").contains(function.getName()))
+            if (java.util.Set.of("rea_forward_clear_xor", "rea_forward_clear_sub", "rea_forward_clear_and", "rea_forward_clear_test", "rea_many_forwarding").contains(function.getName()))
                 function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
             if (function.getName().equals("rea_cleanup_conflict") || function.getName().equals("rea_cleanup_control"))
@@ -139,7 +139,7 @@ public class ReaPrototypeDiagnosticsProbe extends GhidraScript {
                 function.updateFunction("__cdecl", new ReturnParameterImpl(IntegerDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.CUSTOM_STORAGE, true, SourceType.USER_DEFINED,
                     new ParameterImpl("byte_input", CharDataType.dataType, 4, currentProgram));
-            if (function.getName().equals("rea_variadic_control")) {
+            if (java.util.Set.of("rea_variadic_control", "rea_variadic_cleanup_conflict").contains(function.getName())) {
                 function.updateFunction("__cdecl", new ReturnParameterImpl(IntegerDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.USER_DEFINED,
                     new ParameterImpl("fixed_input", IntegerDataType.dataType, currentProgram));

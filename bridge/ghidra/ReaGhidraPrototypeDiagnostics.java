@@ -28,6 +28,9 @@ import ghidra.util.task.TaskMonitor;
 public final class ReaGhidraPrototypeDiagnostics {
     // Shared epilogues and call/return observations are probes, not CFG recovery.
     private static final int EPILOGUE_INSTRUCTIONS = 16;
+    private static final int ENTRY_INSTRUCTIONS = 256;
+    private static final int ENTRY_PCODE_OPERATIONS = 2048;
+    private static final int ENTRY_FACTS = 256;
     // Bound the aggregate forwarding evidence retained in one dossier.
     private static final int FORWARDING_EVIDENCE_BUDGET = 256;
 
@@ -94,34 +97,63 @@ public final class ReaGhidraPrototypeDiagnostics {
         boolean unknownStore = false;
         Set<Address> visited = new HashSet<>();
         Instruction instruction = program.getListing().getInstructionAt(function.getEntryPoint());
-        while (instruction != null && function.getBody().contains(instruction.getAddress()) &&
+        int entryInstructions = 0;
+        int entryOperations = 0;
+        int entryFacts = 0;
+        boolean entryLimited = false;
+        entryPrefix: while (instruction != null && function.getBody().contains(instruction.getAddress()) &&
                 visited.add(instruction.getAddress())) {
             monitor.checkCancelled();
+            if (entryInstructions >= ENTRY_INSTRUCTIONS || entryFacts >= ENTRY_FACTS) {
+                entryLimited = true;
+                break;
+            }
+            entryInstructions++;
             if (instruction.getFlowType().isCall()) {
                 if (!x87.isEmpty()) x87.add(evidence("call-site", instruction,
                     "Call following x87 operations: " + instruction, addressText));
                 break;
             }
-            if (instruction.getFlowType().isJump() || isReturn(instruction) || instruction.getFlowType().isTerminal()) break;
+            if (instruction.getFlowType().isJump() || instruction.getFlowType().isTerminal()) break;
+            PcodeOp[] operations = instruction.getPcode();
+            if (operations.length > ENTRY_PCODE_OPERATIONS - entryOperations) {
+                entryLimited = true;
+                break;
+            }
+            entryOperations += operations.length;
             boolean internalFlow = false;
-            for (PcodeOp operation : instruction.getPcode())
+            boolean returns = false;
+            for (PcodeOp operation : operations) {
+                if (operation.getOpcode() == PcodeOp.RETURN) returns = true;
                 if (operation.getOpcode() == PcodeOp.BRANCH || operation.getOpcode() == PcodeOp.CBRANCH ||
                     operation.getOpcode() == PcodeOp.BRANCHIND || operation.getOpcode() == PcodeOp.CALL ||
                     operation.getOpcode() == PcodeOp.CALLIND || operation.getOpcode() == PcodeOp.CALLOTHER) internalFlow = true;
+            }
+            if (returns) break;
             if (internalFlow) {
                 limitations.add("Raw p-code control flow at " + addressText.apply(instruction.getAddress()) +
                     " or an unsupported user-op makes subsequent stack offsets or memory effects ambiguous; entry stack-read propagation stopped.");
                 break;
             }
             offsets.keySet().removeIf(Varnode::isUnique);
-            if (instruction.getMnemonicString().toUpperCase(Locale.ROOT).startsWith("F"))
+            if (instruction.getMnemonicString().toUpperCase(Locale.ROOT).startsWith("F")) {
                 x87.add(evidence("instruction", instruction, "Observed x87 instruction: " + instruction, addressText));
-            for (PcodeOp operation : instruction.getPcode()) {
+                entryFacts++;
+            }
+            for (PcodeOp operation : operations) {
+                monitor.checkCancelled();
+                if (entryFacts >= ENTRY_FACTS) {
+                    entryLimited = true;
+                    break entryPrefix;
+                }
                 if (operation.getOpcode() == PcodeOp.STORE) {
                     Long offset = offsets.get(operation.getInput(1));
                     if (offset == null) {
-                        if (!unknownStore) limitations.add("A store with unresolved aliasing at " + addressText.apply(instruction.getAddress()) +
-                            " prevents subsequent stack reads from establishing unmodified entry inputs.");
+                        if (!unknownStore) {
+                            entryFacts++;
+                            limitations.add("A store with unresolved aliasing at " + addressText.apply(instruction.getAddress()) +
+                                " prevents subsequent stack reads from establishing unmodified entry inputs.");
+                        }
                         unknownStore = true;
                     } else writtenStack.add(new long[] { offset, offset + operation.getInput(2).getSize() });
                 }
@@ -130,6 +162,7 @@ public final class ReaGhidraPrototypeDiagnostics {
                     int size = operation.getOutput().getSize();
                     if (offset != null && offset >= 4 && !covered(parameters, offset, size) &&
                             !(knownAllocation && coveredSlots(slots, offset, size))) {
+                        entryFacts++;
                         if (unknownStore || overlaps(writtenStack, offset, size)) {
                             limitations.add("Stack read at " + addressText.apply(instruction.getAddress()) +
                                 " may contain data written by this entry prefix; an omitted entry input was not established.");
@@ -153,6 +186,7 @@ public final class ReaGhidraPrototypeDiagnostics {
             Address next = instruction.getFallThrough();
             instruction = next == null ? null : program.getListing().getInstructionAt(next);
         }
+        if (entryLimited) limitations.add("Entry-prefix checks reached their budget of 256 instructions, 2048 raw p-code operations or 256 facts; remaining entry instructions and stack inputs were not examined.");
         if (!x87.isEmpty()) diagnostics.add(diagnostic("x87-expression", "observation", claim, x87,
             "The x87 entry inputs and listed operations do not establish a complete expression or the semantics of a following call. Missing factors, conversion type, signedness and compiler identity remain unknown."));
 
@@ -207,7 +241,7 @@ public final class ReaGhidraPrototypeDiagnostics {
                 if (caller == null || caller.getFallThrough() == null) continue;
                 Instruction use = program.getListing().getInstructionAt(caller.getFallThrough());
                 if (use != null && readsRegister(use, eax) && forwardingAddresses.add(use.getAddress()))
-                    forwardingFacts.add(evidence("call-site", use,
+                    forwardingFacts.add(evidence("instruction", use,
                         "The immediate caller continuation reads EAX in raw p-code; return intent is not established.", addressText));
             }
             diagnostics.add(diagnostic("return-register-forwarding", "observation",
@@ -275,16 +309,26 @@ public final class ReaGhidraPrototypeDiagnostics {
     private static boolean readsRegister(Instruction instruction, Register register) {
         Varnode node = new Varnode(register.getAddress(), register.getMinimumByteSize());
         for (PcodeOp operation : instruction.getPcode()) {
-            // Self-XOR/SUB and subtraction flags are independent of the incoming value.
-            // Their register writes still kill it before later flag p-code reads the result.
-            boolean independent = (operation.getOpcode() == PcodeOp.INT_XOR || operation.getOpcode() == PcodeOp.INT_SUB ||
-                operation.getOpcode() == PcodeOp.INT_LESS || operation.getOpcode() == PcodeOp.INT_SBORROW) &&
-                operation.getInput(0).equals(operation.getInput(1));
+            // Equal-input XOR/SUB and constant-annihilating arithmetic do not
+            // consume the incoming value. Register writes still kill that value
+            // before later flag p-code reads the new result.
+            boolean independent = operation.getNumInputs() == 2 &&
+                ((operation.getOpcode() == PcodeOp.INT_XOR || operation.getOpcode() == PcodeOp.INT_SUB ||
+                  operation.getOpcode() == PcodeOp.INT_LESS || operation.getOpcode() == PcodeOp.INT_SBORROW) &&
+                  operation.getInput(0).equals(operation.getInput(1)) ||
+                 (operation.getOpcode() == PcodeOp.INT_AND || operation.getOpcode() == PcodeOp.INT_MULT) &&
+                  (isConstant(operation.getInput(0), 0) || isConstant(operation.getInput(1), 0)) ||
+                 operation.getOpcode() == PcodeOp.INT_OR &&
+                  (isConstant(operation.getInput(0), -1) || isConstant(operation.getInput(1), -1)));
             if (!independent)
                 for (int i = 0; i < operation.getNumInputs(); i++) if (node.intersects(operation.getInput(i))) return true;
             if (operation.getOutput() != null && node.intersects(operation.getOutput())) return false;
         }
         return false;
+    }
+
+    private static boolean isConstant(Varnode node, long value) {
+        return node.isConstant() && signedConstant(node) == value;
     }
 
     private static Instruction epilogueReturn(Program program, Function function, Address start,
@@ -323,8 +367,8 @@ public final class ReaGhidraPrototypeDiagnostics {
         // Known caller-cleaned models require zero argument cleanup even when
         // the observed immediate happens to equal recovered parameter storage.
         // UNKNOWN_EXTRAPOP is not proof that the callee owns cleanup.
-        if (prototype.isVarArg() || expectedCleanup != null && cleanup == expectedCleanup ||
-                expectedCleanup == null && cleanup == extent) return;
+        if (expectedCleanup != null ? cleanup == expectedCleanup :
+                prototype.isVarArg() || cleanup == extent) return;
         JsonArray facts = new JsonArray();
         if (branch != null) facts.add(evidence("branch", branch, "Direct branch to a shared epilogue outside the owned body; no body range was added.", addressText));
         facts.add(evidence("return", returned, "RET explicitly cleans up " + cleanup + " bytes, compared with " + extent + " recovered stack-argument bytes." +

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { pageViewCoverage } from "../dist/domain/analysisView/analysisViewCoverage.js";
 import { parseGhidraFunctionResult } from "../dist/ghidra/GhidraFunctionValues.js";
 import { projectNativeApiInspection } from "../dist/application/native/NativeApiInspection.js";
 import { projectAnalysisView } from "../dist/domain/analysisView/analysisView.js";
@@ -70,8 +71,17 @@ export function assertPrototypeDiagnosticsReport(report) {
             `${name}: ${facet} lost unknown`,
           );
         if (facet === "native_api") assert.deepEqual(view.value.item, api);
-        if (facet === "assembly")
-          assert.deepEqual(view.value.item, value.assembly);
+        if (facet === "assembly") {
+          assert.deepEqual(view.value.item, value.assembly.slice(0, 64));
+          assert.deepEqual(
+            view.value.coverage,
+            pageViewCoverage(
+              0,
+              Math.min(64, value.assembly.length),
+              value.assembly.length,
+            ),
+          );
+        }
       }
     }
     checked.push(name);
@@ -151,15 +161,21 @@ export function assertPrototypeDiagnosticsReport(report) {
     "observation",
   );
   assert.ok(
-    has(forward, "return-register-forwarding").evidence.some((item) =>
-      item.detail.includes("immediate caller"),
+    has(forward, "return-register-forwarding").evidence.some(
+      (item) =>
+        item.kind === "instruction" && item.detail.includes("immediate caller"),
     ),
   );
   assert.equal(
     has(dossier("rea_overwrite_return"), "return-register-forwarding"),
     undefined,
   );
-  for (const name of ["rea_forward_clear_xor", "rea_forward_clear_sub"]) {
+  for (const name of [
+    "rea_forward_clear_xor",
+    "rea_forward_clear_sub",
+    "rea_forward_clear_and",
+    "rea_forward_clear_test",
+  ]) {
     const diagnostic = has(dossier(name), "return-register-forwarding");
     assert.equal(diagnostic.classification, "observation");
     assert.equal(
@@ -236,6 +252,26 @@ export function assertPrototypeDiagnosticsReport(report) {
   assert.equal(
     has(custom, "stack-parameter-read").classification,
     "observation",
+  );
+  const prefix = dossier("rea_long_entry_prefix");
+  assert.match(
+    prefix.prototype_check_limitations.join(" "),
+    /Entry-prefix checks reached/u,
+  );
+  assert.ok(
+    prefix.prototype_diagnostics.reduce(
+      (count, item) => count + item.evidence.length,
+      0,
+    ) <= 256,
+  );
+  const variadicCleanup = dossier("rea_variadic_cleanup_conflict");
+  assert.equal(
+    has(variadicCleanup, "stack-cleanup").classification,
+    "conflict",
+  );
+  assert.match(
+    has(variadicCleanup, "stack-cleanup").evidence[0].detail,
+    /requires 0 argument-cleanup/u,
   );
   const variadic = noConflict("rea_variadic_control");
   assert.equal(
