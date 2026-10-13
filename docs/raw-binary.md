@@ -97,9 +97,11 @@ checks real CLI/MCP load-image parity, mapped bytes, decoded calls, decompilatio
 invalid mappings, unchanged source bytes and runtime cleanup.
 Low-memory checks include a file spanning the zero-page/stack boundary at `0xff`
 and a complete 64-KiB image at `0x0`, with verified default-space mappings through
-both CLI and MCP. Windows requires the matching native addon; the POSIX provider
-path has not been exercised by
-the Windows run.
+both CLI and MCP. On Windows, the lane also checks that a caller-selected
+junction path is rejected at snapshot admission through CLI and MCP, with
+unchanged source bytes and complete runtime cleanup. Windows requires the
+matching native addon; the POSIX provider path has not been exercised by the
+Windows run.
 
 ## Limitations
 

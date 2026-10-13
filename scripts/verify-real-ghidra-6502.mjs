@@ -7,6 +7,8 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -279,6 +281,65 @@ try {
       sha256: lowSha256,
     });
   }
+  let windowsReparseAdmission = "not-applicable";
+  if (process.platform === "win32") {
+    const junction = join(workspace, "linked");
+    await symlink(workspace, junction, "junction");
+    try {
+      const linkedPath = join(junction, "image.bin");
+      // Canonical file identity must not bypass admission of the requested path.
+      await call("open_binary", {
+        path: linkedPath,
+        format: "raw-binary",
+        architecture: "6502",
+        entry_point: "0x8001",
+        provider_id: "ghidra",
+      });
+      // open_binary selects a lazy session; the first analysis admits the snapshot.
+      const linkedImage = await client.callTool(
+        { name: "inspect_native_load_image", arguments: {} },
+        { timeout: 240000 },
+      );
+      assert.equal(linkedImage.isError, true);
+      assert.match(
+        JSON.stringify(linkedImage),
+        /Reparse path component is unsupported/u,
+      );
+      await call("close_binary");
+      await assert.rejects(
+        exec(
+          process.execPath,
+          [
+            entrypoint,
+            "inspect-native-load-image",
+            linkedPath,
+            "--target-format",
+            "raw-binary",
+            "--architecture",
+            "6502",
+            "--entry-point",
+            "0x8001",
+            "--provider",
+            "ghidra",
+            "--json",
+          ],
+          { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
+        ),
+        (cause) => {
+          assert.match(
+            cause.stdout + cause.stderr,
+            /Reparse path component is unsupported/u,
+          );
+          return true;
+        },
+      );
+      assert.deepEqual(await readFile(path), bytes);
+      assert.deepEqual(await readdir(runtime), []);
+      windowsReparseAdmission = "cli-mcp-rejected";
+    } finally {
+      await unlink(junction);
+    }
+  }
   report = {
     ok: true,
     mocked: false,
@@ -297,6 +358,7 @@ try {
     decompilation: true,
     invalid_mapping_preserves_session: true,
     low_memory_cli_mcp_parity: lowMemory,
+    windows_reparse_admission: windowsReparseAdmission,
     source_unchanged: true,
     runtime_cleanup: "complete",
   };
