@@ -288,6 +288,13 @@ describe("binary target I/O: XML plist probe", () => {
     expect(hasXmlPlistSignature(bytes)).toBe(false);
   });
 
+  it.each(["plist-view", "plist:view", "plist.view", "plisté"])(
+    "does not mistake the XML name %s for plist",
+    (name) => {
+      expect(hasXmlPlistSignature(Buffer.from(`<${name}>`))).toBe(false);
+    },
+  );
+
   it("continues probing through legal XML whitespace beyond the initial window", async () => {
     const directory = await createTestTempDirectory("rea-xml-long-prolog-");
     const path = join(directory, "Model.archive");

@@ -28,7 +28,7 @@ mcpTest(
         $version: 100000,
         $objects: ["$null", "leaf"],
         $top: { root: { UID: 1 } },
-      }),
+      }).replace("?>", `?><?audit run?>${" ".repeat(8192)}`),
     );
     const configured = parseConfig({ REA_ANALYSIS_PROVIDER: "auto" });
     if (!configured.ok) throw configured.error;
