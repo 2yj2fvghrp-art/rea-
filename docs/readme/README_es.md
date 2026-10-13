@@ -139,12 +139,16 @@ REA requiere Node.js 22.x (>=22.19), 24.x (>=24.11) o 26+, además de npm. Las h
 | JavaScript / Electron       | Módulos, importaciones, mapas de código fuente, rutas, IPC y relaciones con complementos nativos                               | Node.js y npm; [análisis de aplicaciones](https://rea.tools/es/guides/javascript/)                                                     |
 | Sitios web                  | Estructura de la página, scripts, observaciones de red y capturas de pantalla solicitadas                                      | Un navegador de la familia Chrome; [análisis del navegador](https://rea.tools/es/guides/browser/)                                      |
 | Capturas de red guardadas   | Solicitudes, respuestas, contenido accesible de las cargas útiles y ubicaciones de origen                                      | HAR; mitmdump en Linux para capturas en formato nativo de mitmproxy; [guía de capturas](../web-network-captures.md)                    |
+| Capturas de paquetes        | Endpoints, DNS, TLS SNI, distribución de protocolos y solicitudes HTTP                                                         | tshark y capinfos suministrados por el autor de la llamada; [guía pcap](../pcap-analysis.md)                                           |
 | Ensamblados .NET            | Metadatos, instrucciones CIL, dependencias nativas declaradas y comparaciones de compilaciones                                 | Inspección estática; [guía de código administrado](../managed-code-analysis.md)                                                        |
 | APK de Android              | Declaraciones del manifiesto, clases, métodos descompilados y referencias                                                      | JADX sin interfaz gráfica y un JDK completo en Linux/macOS/Windows x64; [guía de Android](../android-analysis.md)                      |
 | Dispositivos Android        | Dispositivos, paquetes, procesos, registros, volcados, capturas de pantalla y transferencias de APK/archivos                   | adb suministrado por el autor de la llamada (emulador o dispositivo); [guía de ADB](../adb-device-analysis.md)                         |
 | Proyectos JEB               | Unidades de proyecto del motor, resúmenes de artefactos y pseudocódigo de tipos/métodos                                        | Un cliente JEB iniciado por el autor de la llamada que sirve MCP, seleccionado con REA_JEB_MCP_URL; [guía de JEB](../jeb-analysis.md)  |
 | Recursos de Android         | Manifiesto decodificado, tablas de cadenas, idiomas y datos de versión                                                         | Lanzador de Apktool suministrado por el autor de la llamada; [guía de recursos](../apktool-resource-analysis.md)                       |
+| Aplicaciones Flutter        | Hash de snapshot de Dart, resúmenes de bibliotecas por ABI y procedencia de compilación del motor                              | Ninguna (análisis APK estático); [guía de Flutter](../flutter-analysis.md)                                                             |
 | Firmware                    | Regiones, resultados de extracción y derivaciones al análisis nativo                                                           | Binwalk / Unblob en Linux; [guía de firmware](../firmware-analysis.md)                                                                 |
+| Paquetes grabados           | Campos seleccionados, valores repetidos, filtros y reglas de decodificación                                                    | Linux: TShark 4.x + prlimit; [guía de capturas](../packet-captures.md)                                                                 |
+| Señales lógicas grabadas    | Anotaciones del decodificador, rangos de muestras y diagnósticos                                                               | Linux: sigrok-cli 0.7.2 + prlimit; [guía de señales](../signal-recordings.md)                                                          |
 | Paquetes y recursos         | Inventarios de archivos, resúmenes criptográficos, plists, estructura de paquetes de Apple y recursos extraídos                | [Guía de artefactos y JavaScript](../javascript-artifact-reconstruction.md), [aplicaciones de Apple](../apple-application-analysis.md) |
 | Comportamiento de procesos  | Salida de la terminal, interacciones, observaciones de salida y del sistema de archivos, y comparaciones entre ejecuciones     | Linux/macOS con una PTY nativa; [captura de procesos](../process-capture.md)                                                           |
 
@@ -258,7 +262,7 @@ Informa de vulnerabilidades siguiendo [SECURITY.md](../../SECURITY.md).
 
 ## Historial de estrellas
 
-🎉 **110.000 estrellas en GitHub: ¡gracias!**
+🎉 **170.000 estrellas en GitHub: ¡gracias!**
 
 Gracias a quienes usan REA, informan de errores, solicitan funciones, prueban compilaciones y contribuyen con correcciones.
 
