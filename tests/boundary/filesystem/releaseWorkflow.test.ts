@@ -693,12 +693,19 @@ it("requires qualified package validation before publishing and retains the regi
   ).toBe(true);
 });
 
-it("uploads the Windows GUI archive before its checksum and recovers orphan checksums", async () => {
+it("replaces incomplete owned GUI assets before validating release retries", async () => {
   const steps = (await readReleaseWorkflow()).jobs["publish-windows-gui"].steps;
   const attach = steps.find(
     (step) => step.name === "Attach the portable GUI to the GitHub release",
   );
   const command = attach?.run ?? "";
+  const assetInspection = command.indexOf("--json assets");
+  const incompleteCheck = command.indexOf(
+    '$existingAsset.state -cne "uploaded"',
+  );
+  const incompleteRemoval = command.indexOf(
+    "gh release delete-asset $env:TAG $assetName --yes",
+  );
   const orphanRemoval = command.indexOf(
     "gh release delete-asset $env:TAG $checksumName --yes",
   );
@@ -709,6 +716,16 @@ it("uploads the Windows GUI archive before its checksum and recovers orphan chec
     "& gh release upload $env:TAG $env:CHECKSUM",
   );
 
+  expect(assetInspection).toBeGreaterThanOrEqual(0);
+  expect(incompleteCheck).toBeGreaterThan(assetInspection);
+  expect(incompleteRemoval).toBeGreaterThan(incompleteCheck);
+  expect(command.slice(incompleteRemoval, orphanRemoval)).toContain(
+    "$LASTEXITCODE -ne 0",
+  );
+  expect(command).toContain("[int64]$existingAsset.size -le 0");
+  expect(command.slice(incompleteRemoval, orphanRemoval)).toContain(
+    "gh release delete-asset $env:TAG $assetName --yes",
+  );
   expect(orphanRemoval).toBeGreaterThanOrEqual(0);
   expect(orphanRemoval).toBeLessThan(archiveUpload);
   expect(archiveUpload).toBeGreaterThanOrEqual(0);

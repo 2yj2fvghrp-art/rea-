@@ -543,7 +543,23 @@ jobs:
 
           $archiveName = [System.IO.Path]::GetFileName($env:ASSET)
           $checksumName = [System.IO.Path]::GetFileName($env:CHECKSUM)
-          $assetNames = @($release.assets | ForEach-Object { $_.name })
+          foreach ($assetName in @($archiveName, $checksumName)) {
+            $existingAsset = $release.assets |
+              Where-Object { $_.name -ceq $assetName } |
+              Select-Object -First 1
+            if ($null -ne $existingAsset -and
+                ($existingAsset.state -cne "uploaded" -or [int64]$existingAsset.size -le 0)) {
+              gh release delete-asset $env:TAG $assetName --yes
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not remove the incomplete owned GUI asset $assetName."
+              }
+              Write-Output "Removed incomplete owned GUI asset $assetName (state=$($existingAsset.state), size=$($existingAsset.size)); retrying its upload."
+            }
+          }
+
+          $assetNames = @($release.assets | Where-Object {
+            $_.state -ceq "uploaded" -and [int64]$_.size -gt 0
+          } | ForEach-Object { $_.name })
           $hasArchive = $assetNames -ccontains $archiveName
           $hasChecksum = $assetNames -ccontains $checksumName
           $uploadPaths = [System.Collections.Generic.List[string]]::new()
