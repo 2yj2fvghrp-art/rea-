@@ -1,4 +1,5 @@
 import { decodeXmlPlistText } from "../../domain/propertyListXmlText.js";
+import { hasBinaryPlistSignature } from "../../domain/apple/appleArchiveFormat.js";
 
 /** Reason reported when an archive would exceed the shared decoding budget. */
 export type InterfaceBuilderBudgetReason = "aggregate_decode_budget_exhausted";
@@ -89,21 +90,23 @@ export class InterfaceBuilderDecodeBudget {
 }
 
 /** Preflight the representation created by the pinned plist decoder. */
-export const estimatePropertyListDecodeBytes = (
+export const preflightPropertyListDecode = (
   bytes: Buffer,
   maxBytes: number,
   xmlText?: string,
-): number => {
-  const estimate =
-    bytes.subarray(0, 8).toString("ascii") === "bplist00"
-      ? estimateBinaryPlistExpansion(bytes, maxBytes)
-      : estimateXmlPlistExpansion(bytes, maxBytes, xmlText);
-  if (estimate > maxBytes)
+): PlistDecodePreflight => {
+  const expansion = hasBinaryPlistSignature(bytes)
+    ? estimateBinaryPlistExpansion(bytes, maxBytes)
+    : {
+        estimatedBytes: estimateXmlPlistExpansion(bytes, maxBytes, xmlText),
+        binaryPrototypeKeyObserved: false,
+      };
+  if (expansion.estimatedBytes > maxBytes)
     throw new InterfaceBuilderDecodeBudgetExceeded(
       "aggregate_decode_budget_exhausted",
       "plist representation exceeds the aggregate Interface Builder decode budget",
     );
-  return estimate;
+  return expansion;
 };
 
 const estimateXmlPlistExpansion = (
@@ -167,11 +170,19 @@ export interface BinaryPlistExpansionOptions {
   readonly fail?: (kind: BinaryPlistExpansionFailure, message: string) => Error;
   /**
    * Structural bounds: "strict" keeps objects and the offset table before the
-   * trailer; "decoder" admits exactly what plist.parseBinary can read, so
-   * expansion is bounded without rejecting archives that decoder accepts.
+   * trailer; "decoder" follows the decoder's object-table boundary policy
+   * while still rejecting structures whose coercion would lose plist facts.
    */
   readonly bounds?: "strict" | "decoder";
 }
+
+/** Preflight size and binary-key observations; XML keys are inspected by decode. */
+export interface PlistDecodePreflight {
+  readonly estimatedBytes: number;
+  readonly binaryPrototypeKeyObserved: boolean;
+}
+
+const PROTOTYPE_KEY = "__proto__";
 
 /**
  * Count every expanded binary-plist reference before calling plist.parseBinary,
@@ -186,7 +197,7 @@ export const estimateBinaryPlistExpansion = (
     fail = interfaceBuilderBudgetFailure,
     bounds = "strict",
   }: BinaryPlistExpansionOptions = {},
-): number => {
+): PlistDecodePreflight => {
   if (bytes.length < 40)
     throw new TypeError("binary plist trailer is truncated");
   const trailer = bytes.length - 32;
@@ -218,13 +229,17 @@ export const estimateBinaryPlistExpansion = (
   )
     throw new TypeError("binary plist trailer or object table is invalid");
   let estimate = bytes.length * 2 + objectCount * 16;
+  let binaryPrototypeKeyObserved = false;
   if (estimate > maxBytes)
     throw fail("expansion", `binary plist object table exceeds ${budget}`);
 
   const active = new Set<number>();
-  const pending: Array<{ object: number; depth: number; exit: boolean }> = [
-    { object: topObject, depth: 0, exit: false },
-  ];
+  const pending: Array<{
+    object: number;
+    depth: number;
+    exit: boolean;
+    dictionaryKey: boolean;
+  }> = [{ object: topObject, depth: 0, exit: false, dictionaryKey: false }];
   let pendingObjectCount = 1;
   while (pending.length > 0) {
     const entry = pending.pop();
@@ -252,6 +267,8 @@ export const estimateBinaryPlistExpansion = (
       throw new TypeError("binary plist object offset is invalid");
     const marker = bytes[offset] ?? 0;
     const type = marker >> 4;
+    if (entry.dictionaryKey && type !== 5 && type !== 6)
+      throw new TypeError("binary plist dictionary key is not a string");
     let size = marker & 0x0f;
     let cursor = offset + 1;
     if (size === 0x0f && type !== 0 && type !== 8) {
@@ -269,6 +286,26 @@ export const estimateBinaryPlistExpansion = (
       const byteLength = type === 6 ? size * 2 : size;
       if (cursor + byteLength > objectsEnd)
         throw new TypeError("binary plist scalar object is truncated");
+      if (
+        !binaryPrototypeKeyObserved &&
+        entry.dictionaryKey &&
+        (type === 5 || type === 6) &&
+        size === PROTOTYPE_KEY.length
+      ) {
+        let matches = true;
+        for (let index = 0; index < PROTOTYPE_KEY.length; index += 1) {
+          const codeUnit =
+            type === 5
+              ? (bytes[cursor + index] ?? 0)
+              : ((bytes[cursor + index * 2] ?? 0) << 8) |
+                (bytes[cursor + index * 2 + 1] ?? 0);
+          if (codeUnit !== PROTOTYPE_KEY.charCodeAt(index)) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) binaryPrototypeKeyObserved = true;
+      }
       estimate += type === 4 ? size + 4 * Math.ceil(size / 3) : byteLength * 2;
       if (estimate > maxBytes)
         throw fail(
@@ -289,7 +326,12 @@ export const estimateBinaryPlistExpansion = (
         `binary plist reference expansion exceeds ${budget}`,
       );
     active.add(entry.object);
-    pending.push({ object: entry.object, depth: entry.depth, exit: true });
+    pending.push({
+      object: entry.object,
+      depth: entry.depth,
+      exit: true,
+      dictionaryKey: false,
+    });
     for (let index = childCount - 1; index >= 0; index -= 1) {
       const reference = readInteger(
         cursor + index * referenceSize,
@@ -297,9 +339,14 @@ export const estimateBinaryPlistExpansion = (
       );
       if (reference < 0 || reference >= objectCount)
         throw new TypeError("binary plist reference is invalid");
-      pending.push({ object: reference, depth: entry.depth + 1, exit: false });
+      pending.push({
+        object: reference,
+        depth: entry.depth + 1,
+        exit: false,
+        dictionaryKey: type === 13 && index < size,
+      });
     }
     pendingObjectCount += childCount;
   }
-  return estimate;
+  return { estimatedBytes: estimate, binaryPrototypeKeyObserved };
 };

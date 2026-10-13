@@ -1,6 +1,8 @@
 import { fstatSync } from "node:fs";
 import {
   mkdtemp,
+  mkdir,
+  symlink,
   lstat,
   open,
   readdir,
@@ -154,3 +156,43 @@ it.skipIf(process.platform === "win32")(
     }
   },
 );
+
+for (const variant of [
+  "unchanged",
+  "case-alias",
+  "ancestor-junction",
+  "replaced-junction",
+] as const) {
+  it.runIf(process.platform === "win32")(
+    `hashes only the captured Windows file through ${variant}`,
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "rea-snapshot-windows-"));
+      try {
+        const original = join(directory, "original");
+        const replacement = join(directory, "replacement");
+        await mkdir(original);
+        await mkdir(replacement);
+        await writeFile(join(original, "TestFile.txt"), "captured bytes");
+        await writeFile(join(replacement, "TestFile.txt"), "replaced bytes");
+        const alias = join(directory, "alias");
+        if (variant === "ancestor-junction" || variant === "replaced-junction")
+          await symlink(original, alias, "junction");
+        const path = join(
+          variant.includes("junction") ? alias : original,
+          variant === "case-alias" ? "testfile.txt" : "TestFile.txt",
+        );
+        const expected = await lstat(path);
+        if (variant === "replaced-junction") {
+          await rm(alias);
+          await symlink(replacement, alias, "junction");
+        }
+        const result = await hashFile(path, expected, 1_000);
+        expect(result.state).toBe(
+          variant === "replaced-junction" ? "omitted" : "hashed",
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+}

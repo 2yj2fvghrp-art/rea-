@@ -1,20 +1,11 @@
 name: Website checks
 
 on:
-  pull_request:
-    branches: [main, "release/*"]
-    paths:
-      - "website/**"
-      - "scripts/*website*.py"
-      - ".github/workflows/**"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: website-check-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   check:

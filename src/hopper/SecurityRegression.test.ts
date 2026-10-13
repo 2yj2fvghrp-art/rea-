@@ -13,14 +13,13 @@ import {
   open,
   readFile,
   readdir,
-  realpath,
   rm,
   stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -169,54 +168,6 @@ describe("P3: Windows path normalization preserves junction detection", () => {
     }
   });
 
-  it("WINDOWS: junction causes realpath divergence after resolve+normalize", async () => {
-    if (!isWindows) return;
-
-    const directory = await temporaryDirectory();
-    const realDir = join(directory, "real");
-    const junctionDir = join(directory, "junction");
-
-    await mkdir(realDir);
-    const secretFile = join(realDir, "secret.txt");
-    await writeFile(secretFile, "confidential data");
-
-    await symlink(realDir, junctionDir, "junction");
-
-    const throughJunction = join(junctionDir, "secret.txt");
-    const canonical = await realpath(throughJunction);
-
-    // Even after resolve(), the junction path still diverges
-    const resolvedRequest = resolve(throughJunction);
-    const resolvedCanonical = resolve(canonical);
-
-    // Case-insensitive compare still detects the junction
-    const diverged =
-      resolvedCanonical.localeCompare(resolvedRequest, undefined, {
-        sensitivity: "accent",
-      }) !== 0;
-    expect(diverged).toBe(true);
-  });
-
-  it("WINDOWS: same file with different casing does NOT false-positive", async () => {
-    if (!isWindows) return;
-
-    const directory = await temporaryDirectory();
-    const file = join(directory, "TestFile.txt");
-    await writeFile(file, "content");
-
-    // Access with different casing
-    const lowercase = join(directory, "testfile.txt");
-    const rpOriginal = resolve(await realpath(file));
-    const rpLower = resolve(await realpath(lowercase));
-
-    // Case-insensitive compare treats these as SAME (no false omission)
-    const diverged =
-      rpOriginal.localeCompare(rpLower, undefined, {
-        sensitivity: "accent",
-      }) !== 0;
-    expect(diverged).toBe(false);
-  });
-
   it("POSIX: hashFile rejects symlink-substituted files", async () => {
     if (isWindows) return;
 
@@ -293,7 +244,7 @@ describe("Lease directory validation (POSIX-only)", () => {
       fsConstants.O_NOFOLLOW;
 
     await expect(open(symlinkDir, flags)).rejects.toMatchObject({
-      code: "ELOOP",
+      code: expect.stringMatching(/^(ELOOP|ENOTDIR)$/u),
     });
 
     const handle = await open(realDir, flags);

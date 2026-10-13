@@ -1,6 +1,6 @@
 import type { DoctorReport, DoctorScope, runDoctor } from "./Doctor.js";
 import type { LinuxDistribution } from "./LinuxHopper.js";
-import type { SkillDestination } from "./SetupSkill.js";
+import type { SkillDestination, SkillInstallResult } from "./SetupSkill.js";
 import type { SetupClient } from "./SupportedClients.js";
 import type {
   SetupFailureCode,
@@ -26,6 +26,16 @@ export type ClientConfigurationResult =
   | {
       readonly status: "failed";
       readonly reason: "path" | "backup" | "write" | "readback";
+    }
+  | {
+      readonly status: "failed";
+      readonly reason: "rollback";
+      readonly backupPath?: string;
+      readonly failure: {
+        readonly kind: "restore";
+        readonly path: string;
+        readonly detail: string;
+      };
     };
 
 /** Read-only state used to block unsafe setup plans before any mutation. */
@@ -50,6 +60,8 @@ export interface SetupHost {
   linuxDistribution(): Promise<LinuxDistribution | undefined>;
   initialSetupState(scope?: DoctorScope): Promise<SetupInitialState>;
   installHopper(replaceExisting: boolean): Promise<SetupHopperInstallResult>;
+  /** Retry and report any cleanup resources still owned by this setup host. */
+  close?(): Promise<string | undefined>;
   detectedClients(): Promise<readonly SetupClient[]>;
   supportedClients(): Promise<readonly SetupClient[]>;
   configureClient(
@@ -68,9 +80,7 @@ export interface SetupHost {
     command: readonly string[],
   ): Promise<ClientConfigurationInspection>;
   skillNeedsInstall(clientIds: readonly string[]): Promise<boolean>;
-  installSkill(
-    clientIds: readonly string[],
-  ): Promise<"installed" | "unchanged" | "failed">;
+  installSkill(clientIds: readonly string[]): Promise<SkillInstallResult>;
   doctor(scope?: DoctorScope): Promise<Awaited<ReturnType<typeof runDoctor>>>;
 }
 /** Structured setup outcome carrying remediation instead of prompting. */
@@ -155,6 +165,8 @@ export interface SetupOptions {
   readonly structured: boolean;
   readonly proposeHopper?: boolean;
   readonly clientIds?: readonly string[];
+  /** Skill roots to update independently of MCP registrations (maintenance). */
+  readonly skillClientIds?: readonly string[];
   readonly installSkill?: boolean;
   readonly readinessScope?: DoctorScope;
   readonly dryRun?: boolean;

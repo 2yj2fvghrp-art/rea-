@@ -12,7 +12,6 @@ import {
   javascriptAnalysisCoverage,
   linkElectronRoleToAsset,
   moduleLookupKey,
-  resolveArtifactPath,
   selfReferenceOmissions,
   sourceNodeFor,
   type JavaScriptArtifactGraphContext,
@@ -22,7 +21,12 @@ import {
   astObservationEvidence,
   staticInferenceEvidence,
 } from "./JavaScriptArtifactGraphEvidence.js";
-import { resolveArtifactPathByContext } from "./JavaScriptArtifactPathResolution.js";
+import {
+  artifactPathResolutionProperties,
+  resolveArtifactPathByContext,
+  type ArtifactPathResolution,
+} from "./JavaScriptArtifactPathResolution.js";
+import { moduleResolutionModeForJavaScriptReference } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 
 type StaticReference = JavaScriptStaticAnalysis["references"][number];
 type StaticEndpoint = JavaScriptStaticAnalysis["endpoints"][number];
@@ -38,9 +42,12 @@ interface FindingInput<Value> {
 }
 
 interface ResolvedReference {
-  readonly path: string;
-  readonly file: JavaScriptArtifactFile;
+  readonly path: string | null;
+  readonly file: JavaScriptArtifactFile | null;
   readonly node: ApplicationNode;
+  readonly limitations: readonly string[];
+  readonly resolutionStatus?: string;
+  readonly resolution?: ArtifactPathResolution;
 }
 
 /** Project imports, workers, roles, endpoints, storage, and source-map links. */
@@ -78,12 +85,16 @@ const addReference = (
   omissions: { selfReferences: number },
 ): void => {
   const source =
-    sourceNodeFor(context, input.file.path, input.value.module_key) ??
-    input.asset;
+    sourceNodeFor(
+      context,
+      input.file.path,
+      input.value.module_key,
+      input.value.module_runtime,
+    ) ?? input.asset;
   const resolved =
     input.value.specifier === null
       ? null
-      : resolveReference(context, input.file.path, input.value);
+      : resolveReference(context, input.file.path, input.value, input.coverage);
   if (input.value.kind === "worker" || input.value.kind === "service-worker") {
     const worker = context.accumulator.addNode({
       kind: input.value.kind === "worker" ? "worker" : "service-worker",
@@ -119,7 +130,7 @@ const addReference = (
       relation: "loads",
       properties: { kind: input.value.kind },
     });
-    if (resolved !== null)
+    if (resolved !== null && resolved.path !== null)
       addStaticInferenceEdge(context, {
         source: worker,
         target: resolved.node,
@@ -128,6 +139,7 @@ const addReference = (
         coverage: input.coverage,
         relation: "maps_to",
         properties: { resolved_path: resolved.path },
+        limitations: resolved.limitations,
       });
     return;
   }
@@ -147,13 +159,25 @@ const addReference = (
     file: input.file,
     range: input.value.location,
     coverage: input.coverage,
-    relation: resolved?.file.kind === "native-addon" ? "loads" : "imports",
+    relation: resolved?.file?.kind === "native-addon" ? "loads" : "imports",
     properties: {
       kind: input.value.kind,
       specifier: input.value.specifier,
       expression: input.value.expression,
+      resolution_mode:
+        input.value.kind === "static-import" ||
+        input.value.kind === "dynamic-import" ||
+        input.value.kind === "require"
+          ? moduleResolutionModeForJavaScriptReference(
+              input.file.path,
+              input.value.kind,
+            )
+          : null,
       resolved_path: resolved?.path ?? null,
+      resolution_status: resolved?.resolutionStatus ?? null,
+      ...artifactPathResolutionProperties(resolved?.resolution),
     },
+    ...(resolved === null ? {} : { limitations: resolved.limitations }),
   });
 };
 
@@ -162,8 +186,12 @@ const addEndpoint = (
   input: FindingInput<StaticEndpoint>,
 ): void => {
   const source =
-    sourceNodeFor(context, input.file.path, input.value.module_key) ??
-    input.asset;
+    sourceNodeFor(
+      context,
+      input.file.path,
+      input.value.module_key,
+      input.value.module_runtime,
+    ) ?? input.asset;
   const key = compactStringIdentityKey(input.value.value);
   const label = `${input.value.kind} endpoint`;
   const node = context.accumulator.addNode({
@@ -204,8 +232,12 @@ const addStorage = (
   input: FindingInput<StaticStorage>,
 ): void => {
   const source =
-    sourceNodeFor(context, input.file.path, input.value.module_key) ??
-    input.asset;
+    sourceNodeFor(
+      context,
+      input.file.path,
+      input.value.module_key,
+      input.value.module_runtime,
+    ) ?? input.asset;
   const node = context.accumulator.addNode({
     kind: "storage",
     identity: artifactLocalIdentity(
@@ -262,8 +294,12 @@ const addDiscoveredRole = (
     coverage: input.coverage,
   });
   const source =
-    sourceNodeFor(context, input.file.path, input.value.module_key) ??
-    input.asset;
+    sourceNodeFor(
+      context,
+      input.file.path,
+      input.value.module_key,
+      input.value.module_runtime,
+    ) ?? input.asset;
   addStaticInferenceEdge(context, {
     source,
     target: role,
@@ -354,44 +390,90 @@ const resolveReference = (
   context: JavaScriptArtifactGraphContext,
   sourcePath: string,
   reference: StaticReference,
+  coverage: JavaScriptArtifactGraphCoverage,
 ): ResolvedReference | null => {
   const specifier = reference.specifier;
   if (specifier === null) return null;
-  const chunk = resolveBundlerChunkReference(context, sourcePath, reference);
+  const isWorker =
+    reference.kind === "worker" || reference.kind === "service-worker";
+  const chunk = isWorker
+    ? null
+    : resolveBundlerChunkReference(context, sourcePath, reference);
   if (chunk !== null) return chunk;
-  const module = context.moduleNodes.get(
-    moduleLookupKey(sourcePath, specifier),
-  );
+  const module =
+    isWorker || reference.module_runtime === undefined
+      ? undefined
+      : context.moduleNodes.get(
+          moduleLookupKey(sourcePath, reference.module_runtime, specifier),
+        );
   if (module !== undefined) {
     const file = context.filesByPath.get(sourcePath);
     return file === undefined
       ? null
-      : { path: `${sourcePath}#module:${specifier}`, file, node: module };
+      : {
+          path: `${sourcePath}#module:${specifier}`,
+          file,
+          node: module,
+          limitations: [],
+        };
   }
   // Worker scripts are URLs relative to the script, not module specifiers.
-  const path =
-    reference.kind === "worker" || reference.kind === "service-worker"
-      ? resolveArtifactPathByContext({
-          declaredPath: specifier,
-          sourcePath,
-          context: "url-reference",
-          files: context.filesByPath,
-        }).resolved_path
-      : resolveArtifactPath(
-          specifier,
-          sourcePath,
-          context.filesByPath,
-          reference.kind === "require"
-            ? "require"
-            : reference.kind === "static-import" ||
-                reference.kind === "dynamic-import"
-              ? "import"
-              : undefined,
-        );
-  if (path === null) return null;
+  const resolution = isWorker
+    ? resolveArtifactPathByContext({
+        declaredPath: specifier,
+        sourcePath,
+        context: "url-reference",
+        files: context.filesByPath,
+      })
+    : resolveArtifactPathByContext({
+        declaredPath: specifier,
+        sourcePath,
+        context: "module-specifier",
+        files: context.filesByPath,
+        ...("require" === reference.kind ||
+        "static-import" === reference.kind ||
+        "dynamic-import" === reference.kind
+          ? {
+              moduleKind: moduleResolutionModeForJavaScriptReference(
+                sourcePath,
+                reference.kind,
+              ),
+            }
+          : {}),
+      });
+  const path = resolution.resolved_path;
+  if (path === null) {
+    if (isWorker) return null;
+    const source = context.filesByPath.get(sourcePath);
+    return source === undefined
+      ? null
+      : {
+          path: null,
+          file: null,
+          node: unresolvedReferenceNode(
+            context,
+            source,
+            reference,
+            coverage,
+            resolution,
+          ),
+          limitations: resolution.limitations,
+          resolutionStatus: resolution.resolution_status,
+          resolution,
+        };
+  }
   const file = context.filesByPath.get(path);
   const node = context.fileNodes.get(path);
-  return file === undefined || node === undefined ? null : { path, file, node };
+  return file === undefined || node === undefined
+    ? null
+    : {
+        path,
+        file,
+        node,
+        limitations: resolution.limitations,
+        resolutionStatus: resolution.resolution_status,
+        resolution,
+      };
 };
 
 const resolveBundlerChunkReference = (
@@ -407,10 +489,11 @@ const resolveBundlerChunkReference = (
   if (file === undefined) return null;
   const registrations = context.analysis.files
     .find(({ file: analyzedFile }) => analyzedFile.path === sourcePath)
-    ?.javascript?.bundler_registrations.filter(({ modules }) =>
-      reference.module_key === null
-        ? true
-        : modules.some(
+    ?.javascript?.bundler_registrations.filter(({ runtime, modules }) =>
+      reference.module_runtime === undefined
+        ? reference.module_key === null
+        : runtime === reference.module_runtime &&
+          modules.some(
             ({ module_key: moduleKey }) => moduleKey === reference.module_key,
           ),
     );
@@ -428,7 +511,7 @@ const resolveBundlerChunkReference = (
   const node = unique[0];
   return node === undefined
     ? null
-    : { path: `${sourcePath}#chunk:${key}`, file, node };
+    : { path: `${sourcePath}#chunk:${key}`, file, node, limitations: [] };
 };
 
 const unresolvedReferenceNode = (
@@ -436,6 +519,7 @@ const unresolvedReferenceNode = (
   file: JavaScriptArtifactFile,
   reference: StaticReference,
   coverage: JavaScriptArtifactGraphCoverage,
+  resolution?: ArtifactPathResolution,
 ): ApplicationNode =>
   context.accumulator.addNode({
     kind: "javascript-module",
@@ -452,6 +536,10 @@ const unresolvedReferenceNode = (
           specifier: reference.specifier,
           expression: reference.expression,
           resolution: "unresolved",
+          ...(resolution === undefined
+            ? {}
+            : { resolution_status: resolution.resolution_status }),
+          ...artifactPathResolutionProperties(resolution),
         },
         evidence: staticInferenceEvidence({
           sha256: file.sha256,
@@ -462,6 +550,7 @@ const unresolvedReferenceNode = (
           confidence: "low",
           limitations: [
             "The static reference could not be resolved within the inventoried artifact.",
+            ...(resolution?.limitations ?? []),
           ],
         }),
       },

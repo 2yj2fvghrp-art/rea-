@@ -25,6 +25,10 @@ const diagnosticsSchema = z.object({
 export class EvmInterfaceService {
   constructor(readonly provider: EvmInterfacePort) {}
 
+  close(): Promise<void> {
+    return this.provider.close?.() ?? Promise.resolve();
+  }
+
   /** Preserve selected byte identity while clearly labeling recovered ABI candidates as inferences. */
   async inspect(
     rawInput: unknown,
@@ -63,6 +67,7 @@ export class EvmInterfaceService {
       !report.success ||
       report.data.artifact.path !== input.data.path ||
       report.data.artifact.encoding !== input.data.encoding ||
+      execution.subject?.format !== "file" ||
       execution.subject?.path !== input.data.path ||
       execution.subject.sha256 !== report.data.artifact.sha256
     )

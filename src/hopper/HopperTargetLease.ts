@@ -15,7 +15,7 @@ import {
   type Server,
   type Socket,
 } from "node:net";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { HopperStartError } from "../domain/hopperErrors.js";
 import { safeParseJson } from "../domain/safeJson.js";
 
@@ -46,16 +46,17 @@ export const acquireHopperTargetLease = async (input: {
   readonly runId: string;
   readonly directory?: string;
 }): Promise<HopperTargetLeaseAcquisition> => {
-  // The canonical path only derives the lease key; it never authorizes access.
-  // Common expected `realpath` failures include a missing target or path
-  // component (ENOENT, ENOTDIR), an unreadable component (EACCES), or a
-  // symlink loop (ELOOP). This catch also falls back for every other error,
-  // which may hide a real filesystem problem. The lexical `resolve` fallback
-  // still yields a deterministic key, but aliases may take separate leases
-  // whenever `realpath` cannot resolve them.
-  const targetPath = await realpath(input.targetPath).catch(() =>
-    resolve(input.targetPath),
-  );
+  // Canonicalization is required for lease identity. A lexical fallback could
+  // let two aliases reserve independent sockets for the same Hopper document.
+  let targetPath: string;
+  try {
+    targetPath = await realpath(input.targetPath);
+  } catch (cause: unknown) {
+    throw new HopperStartError({
+      cause,
+      userMessage: `REA could not resolve Hopper target ${JSON.stringify(input.targetPath)} to a canonical path before reserving the document. Confirm that the target exists and its path is accessible.`,
+    });
+  }
   return acquireLease({
     ...input,
     identity: {
@@ -140,6 +141,10 @@ const tryAcquireLease = async (
   owner: HopperTargetLeaseOwner,
 ): Promise<HopperTargetLeaseAcquisition | "missing" | "stale"> => {
   const server = createServer((socket) => sendOwner(socket, owner));
+  // The lease lives exactly as long as its owning process. A lease retained
+  // after unconfirmed cleanup must not keep a completed one-shot command
+  // alive; process exit leaves a stale socket that later acquirers recover.
+  server.unref();
   if (!(await bind(server, socketPath))) {
     const existingOwner = await readOwner(socketPath);
     return typeof existingOwner === "string"
@@ -177,8 +182,8 @@ const ensureLeaseDirectory = async (directory: string): Promise<void> => {
     });
   }
   // Use O_DIRECTORY|O_NOFOLLOW to open the directory without following symlinks,
-  // then fstat the descriptor to eliminate the TOCTOU window between lstat and
-  // subsequent socket/chmod operations on the predictable /tmp path.
+  // then inspect and secure that descriptor. Later socket operations still use
+  // the path and are not made atomic by this directory validation.
   let handle;
   try {
     handle = await open(
@@ -202,8 +207,8 @@ const ensureLeaseDirectory = async (directory: string): Promise<void> => {
     // and permission fix. Windows DACL-based security is handled separately.
     const posixPermissionsApply = process.getuid !== undefined;
     if (posixPermissionsApply && (directoryStat.mode & 0o077) !== 0) {
-      await chmod(directory, 0o700);
-      // Re-verify after chmod to ensure the directory was not replaced.
+      await handle.chmod(0o700);
+      // Re-verify permissions on the same opened directory.
       const afterChmod = await handle.stat();
       if (
         afterChmod.isSymbolicLink() ||

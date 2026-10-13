@@ -4,11 +4,13 @@ import { dirname, join } from "node:path";
 import { describe, expect } from "vitest";
 
 import {
+  CPU,
   FILE_TYPE,
   LC,
   buildVersionCommand,
   dylibCommand,
   dyldEnvironmentCommand,
+  fatImage,
   machoImage,
   rpathCommand,
 } from "../../../src/artifacts/apple/MachoImage.fixture.js";
@@ -252,6 +254,130 @@ describe("trace-dylib-resolution CLI", () => {
   );
 });
 
+cliTest(
+  "rejects build-version tool records outside their load command",
+  async ({ cli }) => {
+    const app = await fixtureApp();
+    const withTool = new Uint8Array(32);
+    withTool.set(buildVersionCommand(0xffffffff));
+    const toolView = new DataView(withTool.buffer);
+    toolView.setUint32(4, 32, true);
+    toolView.setUint32(20, 1, true);
+    toolView.setUint32(24, 3, true);
+    toolView.setUint32(28, 0x10000, true);
+
+    const missingTool = buildVersionCommand(1);
+    new DataView(missingTool.buffer).setUint32(20, 1, true);
+    const excessiveTools = buildVersionCommand(1);
+    new DataView(excessiveTools.buffer).setUint32(20, 0xffffffff, true);
+    const missingSecondTool = withTool.slice();
+    new DataView(missingSecondTool.buffer).setUint32(20, 2, true);
+    const shortHeader = buildVersionCommand(1).slice(0, 16);
+    new DataView(shortHeader.buffer).setUint32(4, 16, true);
+    const cases = [
+      ["no-tools", [buildVersionCommand(1)], "parsed"],
+      ["one-tool", [withTool], "parsed"],
+      // The following command and the image's trailing bytes cannot satisfy ntools.
+      ["missing-tool", [missingTool, rpathCommand("x")], "malformed"],
+      ["excessive-tools", [excessiveTools], "malformed"],
+      ["missing-second-tool", [missingSecondTool], "malformed"],
+      ["short-header", [shortHeader], "malformed"],
+    ] as const;
+    for (const [name, commands] of cases) {
+      await writeFiles(app, {
+        [`Contents/Helpers/${name}`]: machoImage({ commands }),
+      });
+    }
+
+    const result = await cli.run({
+      arguments: ["trace-dylib-resolution", app, "--json"],
+      environment: ENVIRONMENT,
+    });
+    expect(result.exitCode, JSON.stringify(result.json)).toBe(0);
+    const trace = dylibResolutionResultSchema.parse(
+      (result.json as { normalized_result: unknown }).normalized_result,
+    );
+    for (const [name, , status] of cases) {
+      const path = `Contents/Helpers/${name}`;
+      const image = trace.images.find((item) => item.path === path);
+      expect(image, name).toMatchObject({ parse_status: status });
+      if (status === "malformed") {
+        expect(image).toMatchObject({
+          reason: expect.stringContaining("LC_BUILD_VERSION"),
+          slices: [],
+        });
+        expect(trace.roots.some((root) => root.image === path)).toBe(false);
+        expect(trace.coverage.unparsed_images).toContain(path);
+      } else {
+        expect(image).toMatchObject({
+          reason: null,
+          slices: [{ platforms: [name === "one-tool" ? 0xffffffff : 1] }],
+        });
+      }
+    }
+    expect(trace.coverage.status).toBe("partial");
+  },
+);
+
+cliTest(
+  "retains directory requirements when resolving dylib install names",
+  async ({ cli }) => {
+    const directory = await createTestTempDirectory("rea-dylib-path-cli-");
+    const names = [
+      "@loader_path/lib/libhelper.dylib/",
+      "@loader_path/lib/libhelper.dylib/.",
+      "@rpath/libhelper.dylib/",
+      "@rpath/libhelper.dylib/.",
+      "@rpath/",
+      "@loader_path/lib/./libhelper.dylib",
+      "@loader_path/lib//libhelper.dylib",
+    ];
+    await writeFiles(directory, {
+      tool: machoImage({
+        commands: [
+          buildVersionCommand(1),
+          rpathCommand("@loader_path/lib/libhelper.dylib"),
+          rpathCommand("@loader_path/lib"),
+          ...names.map((name) => dylibCommand(LC.LOAD_DYLIB, name)),
+        ],
+      }),
+      "lib/libhelper.dylib": machoImage({
+        fileType: FILE_TYPE.dylib,
+        commands: [buildVersionCommand(1)],
+      }),
+    });
+    const result = await cli.run({
+      arguments: ["trace-dylib-resolution", join(directory, "tool"), "--json"],
+      environment: ENVIRONMENT,
+    });
+    expect(result.exitCode, JSON.stringify(result.json)).toBe(0);
+    const trace = dylibResolutionResultSchema.parse(
+      parseEvidence(result.json).normalized_result,
+    );
+    expect(
+      trace.edges.map(({ install_name, candidates, resolution }) => ({
+        install_name,
+        outcome: candidates[0]?.outcome,
+        resolution,
+      })),
+    ).toEqual(
+      names.map((name, index) => ({
+        install_name: name,
+        outcome: index < 5 ? "absent" : "resolved",
+        resolution:
+          index < 5
+            ? { status: "unresolved", image: null }
+            : { status: "resolved", image: "lib/libhelper.dylib" },
+      })),
+    );
+    expect(
+      trace.findings.map(({ kind, edge_index }) => [kind, edge_index]),
+    ).toEqual(
+      [0, 1, 2, 3, 4].map((index) => ["required-load-unresolved", index]),
+    );
+  },
+);
+
 describe.skipIf(process.getuid?.() === 0)(
   "trace-dylib-resolution permissions",
   () => {
@@ -343,6 +469,64 @@ cliTest(
         expect(trace.findings[0]?.explanation).toContain(
           "does not establish which image dyld will load",
         );
+    }
+  },
+);
+
+cliTest(
+  "reports each same-named slice's own embedded dyld environment",
+  async ({ cli }) => {
+    // arm64e and arm64e.x1 slices both report the architecture name arm64e.
+    // A plain x86_64 slice keeps the bundle openable on x64 hosts.
+    for (const [settings, expected] of [
+      [[null, "DYLD_PRINT_RPATHS=1"], ["DYLD_PRINT_RPATHS=1"]],
+      [
+        ["DYLD_PRINT_LIBRARIES=1", "DYLD_PRINT_RPATHS=1"],
+        ["DYLD_PRINT_LIBRARIES=1", "DYLD_PRINT_RPATHS=1"],
+      ],
+    ] as const) {
+      const app = await fixtureApp();
+      await writeFiles(app, {
+        "Contents/MacOS/App": fatImage([
+          ...[CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
+            const setting = settings[index];
+            return {
+              cpu,
+              bytes: machoImage({
+                cpu,
+                commands:
+                  setting === null || setting === undefined
+                    ? []
+                    : [dyldEnvironmentCommand(setting)],
+              }),
+            };
+          }),
+          { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+        ]),
+      });
+      const result = await cli.run({
+        arguments: [
+          "trace-dylib-resolution",
+          app,
+          "--root",
+          "Contents/MacOS/App",
+          "--json",
+        ],
+        environment: ENVIRONMENT,
+      });
+      expect(result.exitCode, JSON.stringify(result.json)).toBe(0);
+      const trace = dylibResolutionResultSchema.parse(
+        parseEvidence(result.json).normalized_result,
+      );
+      expect(
+        trace.roots.filter(({ architecture }) => architecture === "arm64e"),
+      ).toHaveLength(2);
+      const environments = trace.findings
+        .filter(({ kind }) => kind === "dyld-environment-present")
+        .map(({ explanation }) =>
+          expected.filter((setting) => explanation.includes(setting)),
+        );
+      expect(environments).toEqual(expected.map((setting) => [setting]));
     }
   },
 );

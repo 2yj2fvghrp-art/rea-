@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  artifactInventorySummaryViewResultSchema,
+  machoSummaryViewResultSchema,
+  managedArtifactSummaryViewResultSchema,
+} from "../domain/analysisView/analysisView.js";
+import { evidenceBundleSummarySchema } from "../domain/evidenceRecordSummary.js";
+import { BINARY_ARCHITECTURES } from "../domain/binaryTargetTypes.js";
+import {
+  binaryArchitectureSchema,
+  rawBinaryEntryPointSchema,
+} from "../domain/rawBinary.js";
 import { nativeFunctionAnnotationsSchema } from "../domain/native/nativeFunctionAnnotations.js";
 import { nativeLoadImageSchema } from "../domain/native/nativeLoadImage.js";
 import { nativeUiResultSchema } from "../domain/native/nativeUiObservation.js";
@@ -31,7 +42,7 @@ import {
   listArchitecturesSchema,
 } from "../domain/native/nativeInspection.js";
 import { artifactExtractionResultSchema } from "../domain/artifactGraph.js";
-import { artifactInspectionResultSchema } from "../domain/artifactInspection.js";
+import { artifactInspectionOutputSchema } from "../domain/artifactInspection.js";
 import { interfaceBuilderAnalysisSchema } from "../domain/apple/interfaceBuilderGraph.js";
 import { dylibResolutionResultSchema } from "../domain/apple/dylibResolution.js";
 import { keyedArchiveResultSchema } from "../domain/apple/keyedArchive.js";
@@ -53,6 +64,7 @@ import { callPathResultSchema } from "../domain/callPathSchemas.js";
 import { staticRuntimeCorrelationResultSchema } from "../domain/staticRuntimeCorrelation.js";
 import { reconstructionVerificationResultSchema } from "../domain/reconstructionVerificationSchemas.js";
 import { analysisErrorProjectionSchema } from "./errorSchemas.js";
+import { relationshipCoverageSchema } from "../domain/relationshipCoverage.js";
 import { nativeDispatchMetadataResultSchema } from "../domain/native/objcSwiftMetadata.js";
 import { nativeInvestigationTraceSchema } from "../domain/native/nativeInvestigationGraph.js";
 import {
@@ -213,7 +225,7 @@ const callPathTraceOutput = evidenceResultOf(
     start: z.string(),
     goal: z.string().nullable(),
     direction: z.enum(["forward", "backward"]),
-    goal_status: z.enum(["not_requested", "reached", "not_reached"]),
+    goal_status: z.enum(["not_requested", "reached", "not_reached", "unknown"]),
     nodes: z.array(
       z.object({
         address: z.string(),
@@ -234,6 +246,7 @@ const callPathTraceOutput = evidenceResultOf(
         error: analysisErrorProjectionSchema,
       }),
     ),
+    relationship_coverage: z.record(z.string(), relationshipCoverageSchema),
     traversal: z.object({
       nodes_visited: z.number().int().min(1),
     }),
@@ -296,7 +309,12 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
       failed: z.number().int().min(0),
     }),
   ),
-  get_call_graph: evidenceResultOf(z.record(z.string(), z.array(graphNode))),
+  get_call_graph: evidenceResultOf(
+    z.strictObject({
+      graph: z.record(z.string(), z.array(graphNode)),
+      limitations: z.array(z.string()),
+    }),
+  ),
   analyze_swift_types: evidenceResultOf(
     z.object({
       total: z.number().int().min(0),
@@ -339,12 +357,15 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   binary_overview: evidenceResultOf(
     z.object({
       document: z.string(),
+      image_base: z.string().min(1).optional(),
       segments: z.array(
         z.object({
           name: z.string(),
           start: z.string(),
           end: z.string(),
           length: z.number().min(0),
+          image_base: z.string().exactOptional(),
+          address_space: z.string().exactOptional(),
         }),
       ),
       segment_count: z.number().int().min(0),
@@ -363,7 +384,9 @@ export const nativeOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   observe_native_ui: evidenceResultOf(nativeUiResultSchema),
   capture_native_ui_scenario: evidenceResultOf(nativeUiResultSchema),
   observe_native_calls: evidenceResultOf(nativeCallObservationResultSchema),
-  inspect_macho: evidenceResultOf(inspectMachoSchema),
+  inspect_macho: evidenceResultOf(
+    z.union([inspectMachoSchema, machoSummaryViewResultSchema]),
+  ),
   inspect_signature: evidenceResultOf(inspectSignatureSchema),
   inspect_plist: evidenceResultOf(inspectPlistSchema),
   list_architectures: evidenceResultOf(listArchitecturesSchema),
@@ -372,7 +395,12 @@ export const nativeOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
 
 /** Exact Evidence schemas for provider-neutral artifact graph operations. */
 export const artifactOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
-  inspect_artifact: evidenceResultOf(artifactInspectionResultSchema),
+  inspect_artifact: evidenceResultOf(
+    z.union([
+      artifactInspectionOutputSchema,
+      artifactInventorySummaryViewResultSchema,
+    ]),
+  ),
   extract_artifact: evidenceResultOf(artifactExtractionResultSchema),
   decode_interface_builder: evidenceResultOf(interfaceBuilderAnalysisSchema),
   inspect_keyed_archive: evidenceResultOf(keyedArchiveResultSchema),
@@ -382,7 +410,12 @@ export const artifactOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
 
 /** Exact Evidence schema for execution-free managed static analysis. */
 export const managedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
-  inspect_managed_artifact: evidenceResultOf(managedArtifactInspectionSchema),
+  inspect_managed_artifact: evidenceResultOf(
+    z.union([
+      managedArtifactInspectionSchema,
+      managedArtifactSummaryViewResultSchema,
+    ]),
+  ),
   inspect_managed_members: evidenceResultOf(managedMemberInspectionSchema),
   inspect_managed_native_boundaries: evidenceResultOf(
     managedNativeBoundaryInspectionSchema,
@@ -407,16 +440,33 @@ export const managedWorkflowOutputSchemas: Readonly<
   ),
 };
 
+const lifecycleTargetFields = {
+  path: z.string(),
+  kind: targetKindSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  architecture: z.enum(BINARY_ARCHITECTURES).nullable(),
+};
+const detectedLifecycleTargetSchema = z.object({
+  ...lifecycleTargetFields,
+  format: targetFormatSchema.exclude(["raw-binary"]),
+});
+const rawLifecycleTargetSchema = z.object({
+  ...lifecycleTargetFields,
+  format: z.literal("raw-binary"),
+  kind: z.literal("executable"),
+  architecture: binaryArchitectureSchema,
+  entry_point: rawBinaryEntryPointSchema.describe(
+    "Canonical caller-selected address where raw file offset 0 is mapped and execution is seeded.",
+  ),
+});
+
 /** Exact structured-content schemas for target lifecycle operations. */
 export const sessionOutputSchemas = {
   open_binary: lifecycleResultOf(
-    z.object({
-      path: z.string(),
-      format: targetFormatSchema,
-      kind: targetKindSchema,
-      sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-      architecture: z.enum(["x86", "x86_64", "arm", "arm64"]).nullable(),
-    }),
+    z.discriminatedUnion("format", [
+      detectedLifecycleTargetSchema,
+      rawLifecycleTargetSchema,
+    ]),
   ),
   close_binary: lifecycleResultOf(
     z.union([
@@ -446,19 +496,15 @@ export const sessionOutputSchemas = {
   ),
   binary_session: lifecycleResultOf(
     z.union([
-      z.union([
-        sessionProvider.extend({
-          open: z.literal(false),
-        }),
-        sessionProvider.extend({
-          open: z.literal(true),
-          path: z.string(),
-          format: targetFormatSchema,
-          kind: targetKindSchema,
-          sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-          architecture: z.enum(["x86", "x86_64", "arm", "arm64"]).nullable(),
-        }),
-      ]),
+      sessionProvider.extend({ open: z.literal(false) }),
+      sessionProvider.extend({
+        open: z.literal(true),
+        ...detectedLifecycleTargetSchema.shape,
+      }),
+      sessionProvider.extend({
+        open: z.literal(true),
+        ...rawLifecycleTargetSchema.shape,
+      }),
     ]),
   ),
   export_evidence_bundle: lifecycleResultOf(
@@ -469,7 +515,9 @@ export const sessionOutputSchemas = {
       unknowns: z.number().int().min(0),
     }),
   ),
-  get_evidence_bundle: lifecycleResultOf(evidenceBundleSchema),
+  get_evidence_bundle: lifecycleResultOf(
+    z.union([evidenceBundleSchema, evidenceBundleSummarySchema]),
+  ),
   get_navigation_context: lifecycleResultOf(
     z.object({
       document: z.string(),
@@ -512,6 +560,8 @@ export const sessionOutputSchemas = {
     z.object({
       items: z.array(residualUnknownSchema),
       total: z.number().int().min(0),
+      offset: z.number().int().min(0),
+      next_offset: z.number().int().min(0).nullable(),
     }),
   ),
   record_unknown: lifecycleResultOf(residualUnknownSchema),

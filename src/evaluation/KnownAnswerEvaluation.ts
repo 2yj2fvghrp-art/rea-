@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { parseEvidence, type Evidence } from "../domain/evidence.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
-import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import { canonicalJson } from "../domain/comparisonSemantics.js";
 
 /** One closed fixture assertion and the producer facts that must support it. */
 export interface FixtureClaimExpectation {
@@ -104,27 +104,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const record = (value: unknown): Record<string, unknown> | undefined =>
   isRecord(value) ? value : undefined;
-const canonicalValue = (value: JsonValue): JsonValue => {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
-      .map(([key, child]) => [key, canonicalValue(child)]),
-  );
-};
 const sameJson = (left: unknown, right: unknown): boolean => {
   const parsedLeft = jsonValueSchema.safeParse(left);
   const parsedRight = jsonValueSchema.safeParse(right);
   return (
     parsedLeft.success &&
     parsedRight.success &&
-    JSON.stringify(canonicalValue(parsedLeft.data)) ===
-      JSON.stringify(canonicalValue(parsedRight.data))
+    canonicalJson(parsedLeft.data) === canonicalJson(parsedRight.data)
   );
 };
 
-const parseClosedAnswer = (text: string): unknown => {
+const parseClosedJson = (text: string): unknown => {
   const objects: Set<string>[] = [];
   let invalid = false;
   try {
@@ -156,7 +146,7 @@ const parseClosedAnswer = (text: string): unknown => {
     // The JSON visitor checked syntax and duplicate members before JSON.parse can fold them.
     return JSON.parse(text);
   } catch (error) {
-    // Syntax and nesting failures are malformed final-answer input, not an evaluation crash.
+    // Syntax and nesting failures are malformed transcript input, not an evaluation crash.
     if (error instanceof SyntaxError || error instanceof RangeError)
       return undefined;
     throw error;
@@ -168,6 +158,16 @@ interface DeliveredEvidence {
   readonly conflicts: Set<string>;
 }
 
+/** One completed tool call, with aliases normalized and successful Evidence authenticated. */
+export interface ParsedCodexToolCall {
+  readonly item: Record<string, unknown>;
+  readonly id: string | null;
+  readonly server: string | null;
+  readonly tool: string;
+  readonly arguments: JsonValue;
+  readonly evidence: readonly Evidence[];
+}
+
 const consistentAliases = (
   value: Record<string, unknown>,
   left: string,
@@ -177,30 +177,14 @@ const consistentAliases = (
   value[right] === undefined ||
   value[left] === value[right];
 
-const completedCall = (event: unknown): Record<string, unknown> | undefined => {
-  const value = record(event);
-  const item =
-    value?.type === "item.completed"
-      ? record(value.item)
-      : value?.type === "mcp_tool_call" && value.status === "completed"
-        ? value
-        : undefined;
-  if (item?.type !== "mcp_tool_call") return undefined;
-  const server = item.server ?? item.server_name;
-  if (
-    typeof server !== "string" ||
-    server.toLowerCase() !== "rea" ||
-    (item.status !== undefined && item.status !== "completed") ||
-    (item.error !== undefined && item.error !== null)
-  )
-    return undefined;
-  if (
-    !consistentAliases(item, "server", "server_name") ||
-    !consistentAliases(item, "tool", "name")
-  )
-    return undefined;
-  return item;
-};
+const consistentJsonFields = (
+  value: Record<string, unknown>,
+  left: string,
+  right: string,
+): boolean =>
+  value[left] === undefined ||
+  value[right] === undefined ||
+  sameJson(value[left], value[right]);
 
 const consistentJsonAliases = (
   value: Record<string, unknown>,
@@ -215,6 +199,7 @@ const consistentJsonAliases = (
 
 const evidenceFromCall = (
   item: Record<string, unknown>,
+  tool: string,
 ): Evidence | undefined => {
   if (!consistentJsonAliases(item, "result", "output")) return undefined;
   const result = record(item.result ?? item.output);
@@ -224,18 +209,27 @@ const evidenceFromCall = (
     (result.error !== undefined && result.error !== null)
   )
     return undefined;
-  const structured = record(
-    result.structuredContent ?? result.structured_content,
-  );
-  if (
-    structured === undefined ||
-    (structured.error !== undefined && structured.error !== null)
-  )
-    return undefined;
   if (
     result.structuredContent !== undefined &&
     result.structured_content !== undefined &&
     !sameJson(result.structuredContent, result.structured_content)
+  )
+    return undefined;
+  let value = result.structuredContent ?? result.structured_content;
+  if (value === undefined || value === null) {
+    // Some Codex transcripts retain only the complete MCP JSON text block.
+    // Prose, multiple blocks, and truncated previews cannot establish delivery.
+    if (!Array.isArray(result.content) || result.content.length !== 1)
+      return undefined;
+    const block = record(result.content[0]);
+    if (block?.type !== "text" || typeof block.text !== "string")
+      return undefined;
+    value = parseClosedJson(block.text);
+  }
+  const structured = record(value);
+  if (
+    structured === undefined ||
+    (structured.error !== undefined && structured.error !== null)
   )
     return undefined;
   let evidence: Evidence;
@@ -245,24 +239,120 @@ const evidenceFromCall = (
     // Transcript output is untrusted; invalid Evidence cannot support a claim.
     return undefined;
   }
-  if ((item.tool ?? item.name) !== evidence.operation) return undefined;
+  if (tool !== evidence.operation) return undefined;
   return evidence;
 };
 
+const completedToolItem = (
+  event: unknown,
+): Record<string, unknown> | undefined => {
+  const value = record(event);
+  const wrapped = value?.type === "item.completed";
+  const item = wrapped
+    ? record(value.item)
+    : value?.type === "mcp_tool_call"
+      ? value
+      : undefined;
+  if (item?.type !== "mcp_tool_call") return undefined;
+  const terminalStatus =
+    item.status === "completed" || item.status === "failed";
+  if (
+    (wrapped
+      ? item.status !== undefined && !terminalStatus
+      : !terminalStatus) ||
+    !consistentAliases(item, "server", "server_name") ||
+    !consistentAliases(item, "tool", "name") ||
+    !consistentJsonFields(item, "arguments", "input")
+  )
+    return undefined;
+  return item;
+};
+
+const artifactDelivery = (evidence: Evidence): readonly Evidence[] => {
+  const records = [evidence];
+  if (evidence.operation !== "inspect_artifact") return records;
+  const substeps = record(evidence.normalized_result)?.substeps;
+  if (!Array.isArray(substeps)) return records;
+  // Artifact inspection delivers linked inventory Evidence inline; bare IDs in
+  // normalized facts are references, not authenticated deliveries.
+  for (const value of substeps) {
+    const substep = record(value);
+    if (
+      substep?.status !== "completed" ||
+      substep.operation !== "inventory_artifact" ||
+      typeof substep.evidence_id !== "string" ||
+      !evidence.evidence_links.includes(substep.evidence_id)
+    )
+      continue;
+    try {
+      const nested = parseEvidence(substep.evidence);
+      if (
+        nested.evidence_id === substep.evidence_id &&
+        nested.operation === substep.operation
+      )
+        records.push(nested);
+    } catch {
+      // An authenticated parent does not authenticate an embedded record's ID.
+    }
+  }
+  return records;
+};
+
+/** Parse one completed transcript call and authenticate any successful REA Evidence. */
+export const parseCodexToolCall = (
+  event: unknown,
+): ParsedCodexToolCall | undefined => {
+  const item = completedToolItem(event);
+  if (item === undefined) return undefined;
+  const status = item.status;
+  const server = item.server ?? item.server_name;
+  const tool = item.tool ?? item.name;
+  if (
+    ((item.server !== undefined || item.server_name !== undefined) &&
+      typeof server !== "string") ||
+    typeof tool !== "string" ||
+    tool.length === 0
+  )
+    return undefined;
+  const argumentsValue =
+    item.arguments !== undefined
+      ? item.arguments
+      : item.input !== undefined
+        ? item.input
+        : {};
+  const parsedArguments = jsonValueSchema.safeParse(argumentsValue);
+  if (!parsedArguments.success) return undefined;
+  const parsed: ParsedCodexToolCall = {
+    item,
+    id: typeof item.id === "string" && item.id.length > 0 ? item.id : null,
+    server: typeof server === "string" ? server : null,
+    tool,
+    arguments: parsedArguments.data,
+    evidence: [],
+  };
+  if (
+    parsed.server?.toLowerCase() !== "rea" ||
+    status === "failed" ||
+    (item.error !== undefined && item.error !== null)
+  )
+    return parsed;
+  const evidence = evidenceFromCall(item, tool);
+  if (evidence === undefined) return parsed;
+  return { ...parsed, evidence: artifactDelivery(evidence) };
+};
+
 const collectDeliveredEvidence = (
-  events: readonly unknown[],
+  calls: readonly (ParsedCodexToolCall | undefined)[],
 ): DeliveredEvidence => {
   const records = new Map<string, Evidence>();
   const conflicts = new Set<string>();
-  for (const event of events) {
-    const item = completedCall(event);
-    if (item === undefined) continue;
-    const evidence = evidenceFromCall(item);
-    if (evidence === undefined) continue;
-    const previous = records.get(evidence.evidence_id);
-    if (previous !== undefined && !sameJson(previous, evidence))
-      conflicts.add(evidence.evidence_id);
-    else records.set(evidence.evidence_id, evidence);
+  for (const call of calls) {
+    for (const evidence of call?.evidence ?? []) {
+      const previous = records.get(evidence.evidence_id);
+      if (previous !== undefined && !sameJson(previous, evidence))
+        conflicts.add(evidence.evidence_id);
+      else records.set(evidence.evidence_id, evidence);
+    }
   }
   return { records, conflicts };
 };
@@ -359,7 +449,7 @@ const assessClaim = (
 
 /** Grade closed answers only against configured fixture truth and delivered authenticated Evidence. */
 export const evaluateKnownAnswers = (
-  events: readonly unknown[],
+  calls: readonly (ParsedCodexToolCall | undefined)[],
   finalMessage: string,
   expectations: readonly FixtureClaimExpectation[] | undefined,
 ): KnownAnswerAssessment => {
@@ -382,7 +472,7 @@ export const evaluateKnownAnswers = (
       manifestFailures: ["duplicate_fixture_claim_ids"],
       claims: [],
     };
-  const manifest = finalAnswerSchema.safeParse(parseClosedAnswer(finalMessage));
+  const manifest = finalAnswerSchema.safeParse(parseClosedJson(finalMessage));
   if (!manifest.success)
     return {
       scope,
@@ -399,7 +489,7 @@ export const evaluateKnownAnswers = (
       manifestFailures.push(`unknown_claim:${claim.id}`);
     submitted.set(claim.id, claim);
   }
-  const delivered = collectDeliveredEvidence(events);
+  const delivered = collectDeliveredEvidence(calls);
   const claims = expectations.map((expected) =>
     assessClaim(expected, submitted.get(expected.id), delivered),
   );

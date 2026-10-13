@@ -95,7 +95,7 @@ export const sessionEvidence = (session: BinarySession, value: unknown) => {
 const installationHost = (): GhidraInstallationHost => ({
   platform: "linux",
   architecture: "x64",
-  readText: () => "application.version=12.1.4\n",
+  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
   probeJava: () => ({
     version: "21.0.11",
@@ -206,15 +206,19 @@ const resultBuilders = new Map<GhidraOperation, GhidraResultBuilder>([
   ["procedure_callers", () => []],
   [
     "procedure_info",
-    () => ({
-      name: "fixture_main",
-      entrypoint: "0x401000",
-      basicblock_count: 1,
-      length: 6,
-      signature: "int fixture_main(void)",
-      locals: [],
-      classification: ghidraFunctionClassification(),
-    }),
+    () => {
+      const identity = ghidraFunctionIdentity();
+      return {
+        name: "fixture_main",
+        entrypoint: "0x401000",
+        basicblock_count: 1,
+        length: 6,
+        signature: "int fixture_main(void)",
+        locals: [],
+        classification: ghidraFunctionClassification(),
+        body: identity.body,
+      };
+    },
   ],
   ["procedure_pseudo_code", () => "int fixture_main(void) { return 42; }"],
   [
@@ -247,8 +251,22 @@ const resultFor = (
   const builder = resultBuilders.get(operation);
   if (builder === undefined)
     throw new TypeError(`Unexpected Ghidra operation: ${operation}`);
-  return builder(input, typeof input.limit === "number" ? input.limit : 100);
+  const value = builder(
+    input,
+    typeof input.limit === "number" ? input.limit : 100,
+  );
+  return functionObservationOperations.has(operation)
+    ? { value, limitations: [] }
+    : value;
 };
+
+const functionObservationOperations: ReadonlySet<GhidraOperation> = new Set([
+  "analyze_function",
+  "procedure_assembly",
+  "procedure_info",
+  "procedure_pseudo_code",
+  "read_function_instructions",
+]);
 
 const stringItem = (address: string, value: string): JsonValue => ({
   address,

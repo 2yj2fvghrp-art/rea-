@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
+import { lstat, open, opendir, readlink } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 import type { ProcessScenario } from "../../domain/process/processScenario.js";
@@ -96,24 +96,12 @@ export const hashFile = async (
   }
   try {
     signal?.throwIfAborted();
-    // On Windows, O_NOFOLLOW is unavailable (undefined → 0), so symlinks,
-    // junctions, and mount points are silently followed. Verify the canonical
-    // path matches the requested path to detect symlink/junction substitution.
-    // Compare with platform-aware normalization: Windows paths are
-    // case-insensitive and may differ in separator style, so resolve both
-    // and compare case-insensitively to avoid false omissions on legitimate
-    // files while still detecting junction/symlink traversal.
+    // On hosts without O_NOFOLLOW, compare the leaf's identity with the
+    // captured regular file. Ancestor aliases do not change file identity.
     if (!noFollowAvailable) {
-      const canonicalPath = await realpath(path);
-      const resolvedRequest = resolve(path);
-      const resolvedCanonical = resolve(canonicalPath);
-      const diverged =
-        process.platform === "win32"
-          ? resolvedCanonical.localeCompare(resolvedRequest, undefined, {
-              sensitivity: "accent",
-            }) !== 0
-          : resolvedCanonical !== resolvedRequest;
-      if (diverged)
+      const named = await lstat(path);
+      signal?.throwIfAborted();
+      if (!hasSameFileState(expected, named))
         return {
           state: "omitted",
           reason: "file_changed_or_short_read",
@@ -150,7 +138,10 @@ export const hashFile = async (
     }
     const after = await handle.stat();
     signal?.throwIfAborted();
-    if (!hasSameFileState(stats, after))
+    if (
+      !hasSameFileState(stats, after) ||
+      (!noFollowAvailable && !hasSameFileState(after, await lstat(path)))
+    )
       return {
         state: "omitted",
         reason: "file_changed_or_short_read",
@@ -179,6 +170,7 @@ export const snapshotRoots = async (
   const entries: FileState[] = [];
   const completeRoots: string[] = [];
   let remainingBytes = scenario.limits.file_bytes;
+  let pendingNames = 0;
   let truncated = false;
   const enumerationReasons = new Set<
     FilesystemCoverage["enumeration_reasons"][number]
@@ -273,15 +265,40 @@ export const snapshotRoots = async (
       symlink_target: null,
     });
     if (type !== "directory") return true;
-    const children = await readdir(path);
+    const children: string[] = [];
+    let complete = true;
+    const remainingEntries =
+      scenario.limits.files - entries.length - pendingNames;
+    const directory = await opendir(path);
+    for await (const child of directory) {
+      signal?.throwIfAborted();
+      if (
+        children.length >= remainingEntries ||
+        depth >= scenario.limits.filesystem_depth
+      ) {
+        truncated = true;
+        complete = false;
+        if (children.length >= remainingEntries)
+          enumerationReasons.add("files_limit");
+        if (depth >= scenario.limits.filesystem_depth)
+          enumerationReasons.add("depth_limit");
+        break;
+      }
+      children.push(child.name);
+      pendingNames += 1;
+    }
     const afterRead = await lstat(path);
     if (!hasSameIdentity(stats, afterRead, "directory")) {
+      pendingNames -= children.length;
       truncated = true;
       enumerationReasons.add("identity_changed");
       return false;
     }
-    let complete = true;
-    for (const child of children.sort()) {
+    children.sort().reverse();
+    while (children.length > 0) {
+      const child = children.pop();
+      if (child === undefined) break;
+      pendingNames -= 1;
       if (!(await visit(root, rootAlias, join(path, child), depth + 1)))
         complete = false;
     }

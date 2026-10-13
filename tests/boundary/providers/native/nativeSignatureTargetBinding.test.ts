@@ -9,11 +9,13 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { NativeMacOSProvider } from "../../../../src/native/NativeMacOSProvider.js";
+import { ArtifactResourceScope } from "../../../../src/artifacts/ArtifactResourceScope.js";
 import {
   withSignatureTarget,
   verifySignatureTarget,
@@ -102,8 +104,13 @@ describe("native signature target identity", () => {
       const runner = new Captures(async (args) => {
         if (!args.includes("--entitlements")) return;
         if (change === "remove") await rm(path);
-        else if (change === "rewrite") await writeFile(path, CONTENT);
-        else {
+        else if (change === "rewrite") {
+          const before = await lstat(path);
+          await writeFile(path, CONTENT);
+          // Identical writes may share a filesystem clock tick. Make the
+          // metadata change observed by the target guard explicit.
+          await utimes(path, before.atimeMs / 1000, before.mtimeMs / 1000 + 1);
+        } else {
           const replacement = `${path}.replacement`;
           await writeFile(replacement, CONTENT);
           await rename(replacement, path);
@@ -271,6 +278,7 @@ it("returns typed cancellation at binding entry and final verification", async (
   await expect(
     withSignatureTarget(
       target,
+      new ArtifactResourceScope(),
       async () => {
         throw new Error("Cancelled acquisition must not invoke inspection");
       },
@@ -280,14 +288,18 @@ it("returns typed cancellation at binding entry and final verification", async (
     ok: false,
     error: { _tag: "AnalysisCancelledError" },
   });
-  await withSignatureTarget(target, async (binding) => {
-    const result = await verifySignatureTarget(target, binding, signal);
-    expect(result).toMatchObject({
-      ok: false,
-      error: { _tag: "AnalysisCancelledError" },
-    });
-    return result;
-  });
+  await withSignatureTarget(
+    target,
+    new ArtifactResourceScope(),
+    async (binding) => {
+      const result = await verifySignatureTarget(target, binding, signal);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisCancelledError" },
+      });
+      return result;
+    },
+  );
 });
 
 it("preserves cancellation after a capture instead of classifying it as invalid output", async () => {
@@ -342,21 +354,31 @@ it("copies and hashes the same bytes across multiple snapshot chunks", async () 
   const bytes = Buffer.alloc(128 * 1024 + 13, 42);
   await writeFile(path, bytes);
   const target = await nativeMachoTargetForFile(path);
-  await withSignatureTarget(target, async (binding) => {
-    expect(await readFile(binding.snapshotPath)).toEqual(bytes);
-    return verifySignatureTarget(target, binding);
-  });
+  await withSignatureTarget(
+    target,
+    new ArtifactResourceScope(),
+    async (binding) => {
+      expect(await readFile(binding.snapshotPath)).toEqual(bytes);
+      return verifySignatureTarget(target, binding);
+    },
+  );
 });
 
 it("cleans the private snapshot when inspection throws", async () => {
   const { target } = await fixture();
   let snapshotPath: string | undefined;
-  await expect(
-    withSignatureTarget(target, async (binding) => {
+  const result = await withSignatureTarget(
+    target,
+    new ArtifactResourceScope(),
+    async (binding) => {
       snapshotPath = binding.snapshotPath;
       throw new Error("Invalid parsed output");
-    }),
-  ).rejects.toThrow("Invalid parsed output");
+    },
+  );
+  expect(result).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisOutputError" },
+  });
   if (snapshotPath === undefined) throw new Error("Expected snapshot");
   await expect(lstat(dirname(snapshotPath))).rejects.toMatchObject({
     code: "ENOENT",

@@ -32,6 +32,7 @@ import {
   acquireLinuxHopperApplicationLease,
 } from "./HopperTargetLease.js";
 import type { HopperTargetLease } from "./HopperTargetLease.js";
+import { HOPPER_SHUTDOWN_TIMEOUT_MS } from "./HopperSessionValues.js";
 
 const execFileAsync = promisify(execFile);
 const HOPPER_BACKGROUND_STARTUP_MS = 5_000;
@@ -46,6 +47,8 @@ export interface BridgeSession {
 
 /** Process handle returned by a bridge launcher. */
 export type BridgeLaunch = {
+  /** Only literal native-helper arguments support a pre-handoff denial conclusion. */
+  readonly authorizationDenialBeforeHandoff?: true;
   /** Release application/target exclusivity only after verified document and process cleanup. */
   readonly releaseLease?: () => Promise<void>;
   /** Exact launch command retained in local ownership metadata. */
@@ -256,6 +259,15 @@ export class HopperApplicationLauncher implements BridgeLauncher {
             ...ownedLauncher,
             providerLifetime: "external-application",
             shutdownMode: "bridge-request",
+            // The vendor helper interpolates these values into AppleScript
+            // literals without escaping. Preserve them, but withhold the
+            // pre-handoff conclusion when they can alter that script.
+            ...((this.dependencies.platform ?? process.platform) === "darwin" &&
+            ![this.options.launcherPath, ...argumentsForTarget].some((value) =>
+              /["\\\r\n]/u.test(value),
+            )
+              ? { authorizationDenialBeforeHandoff: true as const }
+              : {}),
           });
     } catch (cause: unknown) {
       return err(hopperLaunchFailure(cause, signal));
@@ -360,10 +372,9 @@ export class HopperApplicationLauncher implements BridgeLauncher {
       ? { ok: true, strategy: selection.strategy }
       : {
           ok: false,
-          error: new HopperProcessError(
-            selection.exitCode,
-            selection.diagnostic,
-          ),
+          error: new HopperProcessError(selection.exitCode, {
+            diagnostic: selection.diagnostic,
+          }),
         };
   }
 }
@@ -380,6 +391,7 @@ const bridgeBootstrapSource = (
     `REA_RUN_ID = ${JSON.stringify(session.runId)}`,
     `REA_TARGET_PATH = ${JSON.stringify(loadedPath)}`,
     `REA_OWNS_PROCESS_LIFETIME = ${ownsProcessLifetime ? "True" : "False"}`,
+    `REA_RECONNECT_TIMEOUT_SECONDS = ${HOPPER_SHUTDOWN_TIMEOUT_MS / 1_000}`,
     `exec(compile(open(${JSON.stringify(options.bridgeScriptPath)}, 'rb').read(), ${JSON.stringify(options.bridgeScriptPath)}, 'exec'))`,
     "",
   ].join("\n");
@@ -411,6 +423,8 @@ const launchHopperProcess = async (input: {
       runId: input.session.runId,
       expectedCommand: ownershipCommand,
       hostEnvironment: input.options.environment,
+      // The helper observes EOF when this REA process exits, including SIGKILL.
+      stdin: "pipe",
       ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
   return spawn(input.argumentsForTarget);
@@ -432,6 +446,7 @@ export const linuxDemoLaunch = (
     return undefined;
   const helperArguments = [
     options.demoHelperPath,
+    "--owner-stdin",
     "--strategy",
     strategy ?? "direct",
     ...(strategy === "user-mount-namespace" ? ["--mount-private-x11"] : []),
