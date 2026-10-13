@@ -70,6 +70,8 @@ if (
   );
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+if (process.argv.includes("--x86") && process.argv.includes("--arm64"))
+  throw new Error("Choose either --x86 or --arm64, not both.");
 const architecture = process.argv.includes("--x86")
   ? "x86"
   : process.argv.includes("--arm64")
