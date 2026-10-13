@@ -71,6 +71,10 @@ const nativeIndexedSource = [
   'type TemplatePunctuated = (typeof import("native-mixed/addon.node"))[`Native.Mode`];',
   'type TemplateEmpty = (typeof import("native-mixed/addon.node"))[``];',
   'type Dynamic = (typeof import("native-mixed/addon.node"))[`Native${"Mode"}`];',
+  'type Wrapped = (typeof import("native-mixed/addon.node"))[("NativeMode")];',
+  'type Negative = (typeof import("native-mixed/addon.node"))[-1];',
+  'type Zero = (typeof import("native-mixed/addon.node"))[-0];',
+  'type WrappedNegative = (typeof import("native-mixed/addon.node"))[((-1))];',
   'const first: Plain = { source: "import" };',
   'const second: Punctuated = { source: "import" };',
   'const third: Empty = { source: "import" };',
@@ -78,7 +82,11 @@ const nativeIndexedSource = [
   'const fifth: TemplatePunctuated = { source: "import" };',
   'const sixth: TemplateEmpty = { source: "import" };',
   'const seventh: Dynamic = { source: "import" };',
-  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source]));",
+  'const eighth: Wrapped = { source: "import" };',
+  'const ninth: Negative = { source: "import" };',
+  'const tenth: Zero = { source: "import" };',
+  'const eleventh: WrappedNegative = { source: "import" };',
+  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source, eighth.source, ninth.source, tenth.source, eleventh.source]));",
 ].join("\n");
 
 export const modeSourceFiles = {
@@ -102,6 +110,31 @@ export const modeSourceFiles = {
     'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
   "cts/native-duplicate-attributes.cts":
     'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
+  "cts/native-empty-attributes.cts":
+    'import type { NativeMode } from "native-mode/addon.node" with {};',
+  "cts/native-empty-reexport.cts":
+    'export type { NativeMode } from "native-mode/addon.node" with {};',
+  "cts/native-empty-namespace.cts":
+    'export type * from "native-mode/addon.node" with {};',
+  "cts/native-commented-omission.cts":
+    'import type { NativeMode } from "native-mode/addon.node" /* with {} */;',
+  "cts/native-empty-commented.cts":
+    'import type { NativeMode } from "native-mode/addon.node" /* before */ with {} /* after */;',
+  "cts/native-nested.d.cts": [
+    'declare module "virtual-native" {',
+    'import type { NativeMode } from "native-mode/addon.node";',
+    'export type { NativeMode as Reexported } from "native-mode/addon.node";',
+    'export type * from "native-mode/addon.node";',
+    "type Check = NativeMode;",
+    "}",
+  ].join("\n"),
+  "cts/native-nested-empty.d.cts": [
+    'declare module "virtual-invalid" {',
+    'import type { NativeMode } from "native-mode/addon.node" with {};',
+    'export type { NativeMode as Reexported } from "native-mode/addon.node" with {};',
+    'export type * from "native-mode/addon.node" with {};',
+    "}",
+  ].join("\n"),
   "cts/native-inline-extra-attributes.cts":
     'type Native = import("native-mode/addon.node", { with: { "resolution-mode": "import", type: "json" } }).NativeMode;',
   "cts/native-inline-duplicate-attributes.cts":
@@ -121,7 +154,7 @@ export const modePackageFiles = {
     },
   }),
   "node_modules/native-mixed/addon.d.mts":
-    'export interface NativeMode { source: "import"; } export const NativeMode: NativeMode; export { NativeMode as "Native.Mode", NativeMode as "" };',
+    'export interface NativeMode { source: "import"; } export const NativeMode: NativeMode; export { NativeMode as "Native.Mode", NativeMode as "", NativeMode as "-1", NativeMode as "0" };',
   "node_modules/native-mixed/addon.node": "source-owned native placeholder",
   "node_modules/same-mode/package.json": JSON.stringify({
     exports: { import: "./both.js", require: "./both.js" },
@@ -438,6 +471,10 @@ const expectNativeTypeSelections = (
     [4, "NativeMode"],
     [5, "Native.Mode"],
     [6, ""],
+    [8, "NativeMode"],
+    [9, "-1"],
+    [10, "0"],
+    [11, "-1"],
   ] as const)
     expect
       .soft(graph.nodes.flatMap(({ observations }) => observations))
@@ -542,6 +579,10 @@ const expectNativeImportEqualsExports = (
     "cts/native-invalid-mode.cts",
     "cts/native-extra-attributes.cts",
     "cts/native-duplicate-attributes.cts",
+    "cts/native-empty-attributes.cts",
+    "cts/native-empty-reexport.cts",
+    "cts/native-empty-namespace.cts",
+    "cts/native-empty-commented.cts",
     "cts/native-inline-extra-attributes.cts",
     "cts/native-inline-duplicate-attributes.cts",
   ])
@@ -561,4 +602,46 @@ const expectNativeImportEqualsExports = (
         }),
       }),
     );
+  expect.soft(observations).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        module_kind: "require",
+        type_only: true,
+        resolved_path: "node_modules/native-mode/require.node",
+      }),
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({
+            source: "cts/native-commented-omission.cts",
+          }),
+        }),
+      }),
+    }),
+  );
+  for (const [source, mode, path] of [
+    [
+      "cts/native-nested.d.cts",
+      "require",
+      "node_modules/native-mode/require.node",
+    ],
+    ["cts/native-nested-empty.d.cts", "compiler-dependent", null],
+  ] as const)
+    for (const line of [2, 3, 4])
+      expect.soft(observations).toContainEqual(
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            module_kind: mode,
+            type_only: true,
+            resolved_path: path,
+          }),
+          evidence: expect.objectContaining({
+            location: expect.objectContaining({
+              value: expect.objectContaining({
+                source,
+                start: expect.objectContaining({ line }),
+              }),
+            }),
+          }),
+        }),
+      );
 };

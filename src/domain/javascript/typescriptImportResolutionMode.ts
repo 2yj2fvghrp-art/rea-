@@ -52,12 +52,7 @@ export const typescriptImportResolutionMode = (
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
   if (kind !== "type") return undefined;
   const attributes = node.attributes;
-  if (
-    attributes === null ||
-    attributes === undefined ||
-    attributes.length === 0
-  )
-    return undefined;
+  if (attributes === null || attributes === undefined) return undefined;
   const attribute = attributes[0];
   return attributes.length === 1 &&
     attribute !== undefined &&
@@ -121,8 +116,11 @@ export const typescriptImportTypeRequest = (
     }
     if (!t.isTSIndexedAccessType(parent) || parent.objectType !== cursor) break;
     locationNode = parent;
-    const literal = t.isTSLiteralType(parent.indexType)
-      ? parent.indexType.literal
+    let indexType = parent.indexType;
+    while (t.isTSParenthesizedType(indexType))
+      indexType = indexType.typeAnnotation;
+    const literal = t.isTSLiteralType(indexType)
+      ? indexType.literal
       : undefined;
     const key =
       literal === undefined ? undefined : readExactJavaScriptLiteral(literal);

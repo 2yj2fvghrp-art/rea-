@@ -411,6 +411,10 @@ const expectNativeTypeSelections = async (
     [["Native.Mode"], false, false, true],
     [[""], false, false, true],
     [[], false, true, true],
+    [["NativeMode"], false, false, true],
+    [["-1"], false, false, true],
+    [["0"], false, false, true],
+    [["-1"], false, false, true],
   ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
@@ -422,18 +426,56 @@ const expectNativeTypeSelections = async (
     "Native.Mode",
     "",
     null,
+    "NativeMode",
+    "-1",
+    "0",
+    "-1",
   ]);
-  for (const text of [
-    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
-    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
-    'type Native = import("native-mode/addon.node", {with: {"resolution-mode": "import", type: "json"}}).NativeMode;',
-  ]) {
+  for (const [text, count] of [
+    [
+      'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
+      1,
+    ],
+    [
+      'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
+      1,
+    ],
+    [
+      'type Native = import("native-mode/addon.node", {with: {"resolution-mode": "import", type: "json"}}).NativeMode;',
+      1,
+    ],
+    [modeSourceFiles["cts/native-empty-attributes.cts"], 1],
+    [modeSourceFiles["cts/native-empty-reexport.cts"], 1],
+    [modeSourceFiles["cts/native-empty-namespace.cts"], 1],
+    [modeSourceFiles["cts/native-empty-commented.cts"], 1],
+    [modeSourceFiles["cts/native-nested-empty.d.cts"], 3],
+  ] as const) {
     const result = await worker.analyze(source("invalid.cts", text), 100);
     if (!result.ok) throw result.error.error;
     expect(
-      result.value.javascript.electron.native_addon_bindings,
-    ).toMatchObject([{ module_kind: "compiler-dependent" }]);
+      result.value.javascript.electron.native_addon_bindings.map(
+        ({ module_kind }) => module_kind,
+      ),
+    ).toEqual(Array.from({ length: count }, () => "compiler-dependent"));
   }
+  const omitted = await worker.analyze(
+    source("omitted.cts", modeSourceFiles["cts/native-commented-omission.cts"]),
+    100,
+  );
+  if (!omitted.ok) throw omitted.error.error;
+  expect(omitted.value.module?.moduleLinks).toMatchObject([
+    { resolutionMode: "require", importedName: "NativeMode" },
+  ]);
+  const nested = await worker.analyze(
+    source("nested.d.cts", modeSourceFiles["cts/native-nested.d.cts"]),
+    100,
+  );
+  if (!nested.ok) throw nested.error.error;
+  expect(
+    nested.value.module?.moduleLinks.map(
+      ({ resolutionMode }) => resolutionMode,
+    ),
+  ).toEqual(["require", "require", "require"]);
   const dynamic = await worker.analyze(
     source(
       "dynamic.mts",
