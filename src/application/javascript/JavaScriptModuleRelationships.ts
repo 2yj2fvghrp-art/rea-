@@ -37,6 +37,10 @@ import {
   type ArtifactPathResolution,
 } from "./JavaScriptArtifactPathResolution.js";
 import { projectJavaScriptExportReturnShapes } from "../../domain/javascript/javascriptExportReturnShapeProjection.js";
+import {
+  isJavaScriptExportLink,
+  javaScriptExportModuleOrigin,
+} from "../../domain/javascript/javascriptModuleSemanticIr.js";
 
 import type { JavaScriptModuleSemanticIr } from "./JavaScriptArtifactAnalysisTypes.js";
 
@@ -165,7 +169,7 @@ export function* addJavaScriptModuleRelationshipsSteps(
       yield;
       if (link.kind === "type-import") continue;
       const input = { context, file, semantic, source, link };
-      if (isExportLink(link)) addExportRelationship(input, omissions);
+      if (isJavaScriptExportLink(link)) addExportRelationship(input, omissions);
       else if (link.specifier !== null)
         addImportRelationship(input, source, omissions, {
           specifier: link.specifier,
@@ -242,7 +246,7 @@ const addExportRelationship = (
     properties: relationshipProperties(link, null),
     evidence: relationshipEvidence(input, "expose-module-export", []),
   });
-  const origin = moduleOriginForExport(semantic.ir, link);
+  const origin = javaScriptExportModuleOrigin(semantic.ir, link);
   if (origin !== null)
     addImportRelationship(input, exported, omissions, origin);
 };
@@ -362,30 +366,6 @@ const unresolvedModuleNode = (
     ],
   });
 
-const moduleOriginForExport = (
-  ir: JavaScriptModuleSemanticIr,
-  link: JavaScriptSemanticModuleLink,
-): JavaScriptModuleOrigin | null => {
-  if (link.specifier !== null)
-    return {
-      ...(link.resolutionMode === undefined
-        ? {}
-        : { resolutionMode: link.resolutionMode }),
-      specifier: link.specifier,
-      importedPath: link.importedName === null ? [] : [link.importedName],
-    };
-  if (link.localName === null) return null;
-  const program = ir.scopes.find(({ kind }) => kind === "program");
-  const binding = ir.bindings.find(
-    ({ name, scopeId }) =>
-      name === link.localName && scopeId === program?.scopeId,
-  );
-  return binding?.provenance.status === "module" &&
-    binding.provenance.origins.length === 1
-    ? (binding.provenance.origins[0] ?? null)
-    : null;
-};
-
 const relationshipProperties = (
   link: JavaScriptSemanticModuleLink,
   target: ResolvedModuleTarget | null,
@@ -478,8 +458,3 @@ const jsonStatus = (
     return "invalid";
   }
 };
-
-const isExportLink = (link: JavaScriptSemanticModuleLink): boolean =>
-  link.kind === "export" ||
-  link.kind === "re-export" ||
-  link.kind === "commonjs-export";

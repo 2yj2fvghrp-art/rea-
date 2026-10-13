@@ -28,6 +28,8 @@ export interface JavaScriptWorkerSemanticAdmission {
   readonly resultBytes: number;
   /** Serialized semantic-fact bytes this source may add to the Evidence. */
   readonly graphBytes: number;
+  /** Unreserved Evidence bytes for required module facts and semantic facts. */
+  readonly evidenceBytes: number;
 }
 
 /** Trusted composition callback; this provider owns framing and temporary I/O. */
@@ -172,6 +174,7 @@ const analyzeJob = async (
           return {
             resultBytes: resultBudgetBytes,
             graphBytes: admission.semantic_graph_bytes,
+            evidenceBytes: admission.evidence_available_bytes,
           };
         },
       },

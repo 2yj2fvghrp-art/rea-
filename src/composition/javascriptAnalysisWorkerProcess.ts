@@ -9,6 +9,7 @@ import {
 import { failedJavaScriptStaticAnalysis } from "../domain/javascript/javascriptStaticAnalysisHelpers.js";
 import { projectJavaScriptModuleSemantics } from "../domain/javascript/javascriptModuleSemanticIr.js";
 import {
+  javaScriptApplicationProjectionRetentionBytes,
   javaScriptGraphBytesWithinRetention,
   javaScriptTransferByteBudget,
   measureJavaScriptModuleTransfer,
@@ -85,22 +86,25 @@ const analyze: JavaScriptSourceWorkerAnalyzer = async (
       },
     );
   await callbacks.phase("projection");
+  // Application facts are required with the module and are charged to the
+  // unreserved Evidence; semantic facts receive what they leave, up to their
+  // share, and the retained capacity left after both.
+  const application = estimateJavaScriptModuleApplicationProjection(
+    module,
+    file.path,
+    admission.evidenceBytes,
+  );
   const projection = await completeJavaScriptAnalysisSteps(
     projectJavaScriptSemanticFileSteps(
       file,
       ir,
       Math.min(
-        Math.max(
-          0,
-          admission.graphBytes -
-            estimateJavaScriptModuleApplicationProjection(
-              module,
-              file.path,
-              admission.graphBytes,
-            ),
-        ),
+        admission.graphBytes,
+        Math.max(0, admission.evidenceBytes - application.bytes),
         javaScriptGraphBytesWithinRetention(
-          resultBudgetBytes - measured.retentionBytes,
+          resultBudgetBytes -
+            measured.retentionBytes -
+            javaScriptApplicationProjectionRetentionBytes(application),
         ),
       ),
       nodeBudget,

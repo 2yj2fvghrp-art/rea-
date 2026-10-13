@@ -49,6 +49,7 @@ import {
 import {
   readJavaScriptAnalysisTransfer,
   JAVASCRIPT_ANALYSIS_TRANSFER_RECORD_BYTES,
+  javaScriptApplicationProjectionRetentionBytes,
   javaScriptTransferRetentionBytes,
 } from "./JavaScriptAnalysisTransfer.js";
 import { javaScriptWorkerStaticAnalysisSchema } from "./JavaScriptAnalysisWorkerSchemas.js";
@@ -319,6 +320,10 @@ export class JavaScriptAnalysisWorker {
                     sourceBytesRemaining,
                     response.semantic_root_bytes,
                   ),
+            evidence_available_bytes:
+              offeredResultBudget === 0
+                ? 0
+                : this.evidenceBudget.remainingBytes(),
           });
           await new Promise<void>((resolve, reject) =>
             stdin.write(`${JSON.stringify(admission)}\n`, (error) =>
@@ -406,20 +411,19 @@ export class JavaScriptAnalysisWorker {
         );
         module = decoded.module;
         projection = decoded.projection;
-        const applicationBytes = estimateJavaScriptModuleApplicationProjection(
+        const application = estimateJavaScriptModuleApplicationProjection(
           module,
           file.path,
-          Math.max(
-            0,
-            remaining - moduleEstimate - (retainGraph ? graphEstimate : 0),
-          ),
+          this.evidenceBudget.remainingBytes(),
         );
+        const applicationRetention =
+          javaScriptApplicationProjectionRetentionBytes(application);
         if (
           moduleEstimate +
             (retainGraph ? graphEstimate : 0) +
-            applicationBytes >
+            applicationRetention >
             remaining ||
-          !this.evidenceBudget.reserveBytes(applicationBytes)
+          !this.evidenceBudget.reserveBytes(application.bytes)
         ) {
           module = null;
           projection = null;
@@ -430,12 +434,14 @@ export class JavaScriptAnalysisWorker {
             {
               ...this.#limits(),
               application_projection_estimated_bytes_lower_bound:
-                applicationBytes,
+                application.bytes,
             },
           );
         }
         this.#estimatedRetainedBytes +=
-          moduleEstimate + (retainGraph ? graphEstimate : 0) + applicationBytes;
+          moduleEstimate +
+          (retainGraph ? graphEstimate : 0) +
+          applicationRetention;
         this.#evidenceChargedBytes +=
           decoded.projection?.coverage.retained_graph_bytes ?? 0;
         result = retainGraph

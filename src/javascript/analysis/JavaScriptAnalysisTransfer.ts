@@ -62,6 +62,16 @@ export const javaScriptTransferRetentionBytes = (
 ): number => bytes * TRANSFER_RETENTION_EXPANSION + records * 64;
 
 /**
+ * Retained objects for forecast application facts. The serialized forecast
+ * measured 1.71x to 1.87x the emitted JSON, above the retained-object
+ * expansion of parsed graph arrays, so only per-record overhead is added.
+ */
+export const javaScriptApplicationProjectionRetentionBytes = (estimate: {
+  readonly bytes: number;
+  readonly records: number;
+}): number => estimate.bytes + estimate.records * 64;
+
+/**
  * Serialized semantic-fact bytes whose transfer rows fit a retention budget.
  *
  * Each row adds at most 32 bytes of framing and 64 bytes of retained overhead

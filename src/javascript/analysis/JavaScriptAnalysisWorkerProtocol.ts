@@ -43,6 +43,11 @@ export const javaScriptWorkerAdmissionSchema = z.strictObject({
   semantic_result_budget_bytes: z.number().int().nonnegative(),
   /** Serialized semantic-fact bytes this source may add to the Evidence. */
   semantic_graph_bytes: z.number().int().nonnegative(),
+  /**
+   * Unreserved Evidence bytes. Required application facts of the module are
+   * charged here; semantic facts receive what they leave, up to their share.
+   */
+  evidence_available_bytes: z.number().int().nonnegative(),
 });
 
 const identity = { id: z.uuid() };
