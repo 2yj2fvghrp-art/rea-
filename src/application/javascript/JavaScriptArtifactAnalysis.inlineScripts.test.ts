@@ -30,6 +30,7 @@ it("reports the locations of inline HTML scripts that are not analyzed", () => {
   });
 
   expect(analysis.html_scripts).toEqual([]);
+  expect(analysis.omitted_inline_scripts).toBe(2);
   expect(analysis.limitations).toContain(
     "Inline script elements in www/index.html were not analyzed (source locations: 2:1, 3:1).",
   );

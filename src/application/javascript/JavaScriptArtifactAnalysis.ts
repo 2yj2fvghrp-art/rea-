@@ -58,6 +58,7 @@ interface MutableArtifactAnalysis<
   readonly packages: JavaScriptPackageObservation[];
   readonly jsonModules: JavaScriptJsonModuleObservation[];
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
+  omittedInlineScripts: number;
   readonly sourceMaps: JavaScriptSourceMapObservation[];
   readonly limitations: string[];
   visitedNodes: number;
@@ -330,6 +331,7 @@ const finalizeArtifactAnalysis = <
     packages: state.packages,
     json_modules: state.jsonModules,
     html_scripts: state.htmlScripts,
+    omitted_inline_scripts: state.omittedInlineScripts,
     source_maps: state.sourceMaps,
     visited_ast_nodes: state.visitedNodes,
     findings: state.findings + state.htmlScripts.length,
@@ -361,9 +363,10 @@ function* analyzeArtifactFileSteps<
   if (file.kind === "html" && file.text.included) {
     const htmlScripts = parseHtmlScripts(file.path, file.text.value);
     state.htmlScripts.push(...htmlScripts.observations);
+    state.omittedInlineScripts += htmlScripts.inlineScriptLocations.length;
     if (htmlScripts.inlineScriptLocations.length > 0) {
       const locations = htmlScripts.inlineScriptLocations.map(
-        ({ start }) => `${start.line}:${start.column + 1}`,
+        ({ line, column }) => `${line}:${column + 1}`,
       );
       state.limitations.push(
         `Inline script elements in ${file.path} were not analyzed (source locations: ${locations.join(", ")}).`,
@@ -455,6 +458,7 @@ const emptyArtifactAnalysis = <
   packages: [],
   jsonModules: [],
   htmlScripts: [],
+  omittedInlineScripts: 0,
   sourceMaps: [],
   limitations: [],
   visitedNodes: 0,
@@ -530,18 +534,19 @@ const parseHtmlScripts = (
   text: string,
 ): {
   readonly observations: JavaScriptHtmlScriptObservation[];
-  readonly inlineScriptLocations: readonly JavaScriptSourceRange[];
+  readonly inlineScriptLocations: readonly JavaScriptSourcePoint[];
 } => {
   const { scripts, inlineScripts, baseHref } = htmlArtifactReferences(text);
+  const lineStarts = lineStartOffsets(text);
   return {
     observations: scripts.map(({ scriptPath, startOffset, endOffset }) => ({
       html_path: path,
       script_path: scriptPath,
       base_href: baseHref,
-      location: rangeForOffsets(text, startOffset, endOffset),
+      location: rangeForOffsets(lineStarts, startOffset, endOffset),
     })),
-    inlineScriptLocations: inlineScripts.map(({ startOffset, endOffset }) =>
-      rangeForOffsets(text, startOffset, endOffset),
+    inlineScriptLocations: inlineScripts.map(({ startOffset }) =>
+      pointForOffset(lineStarts, startOffset),
     ),
   };
 };
@@ -660,20 +665,38 @@ const findingCount = (analysis: JavaScriptStaticAnalysis): number =>
   analysis.electron.native_addon_bindings.length;
 
 const rangeForOffsets = (
-  text: string,
+  lineStarts: readonly number[],
   start: number,
   end: number,
 ): JavaScriptSourceRange => ({
-  start: pointForOffset(text, start),
-  end: pointForOffset(text, end),
+  start: pointForOffset(lineStarts, start),
+  end: pointForOffset(lineStarts, end),
 });
 
+const lineStartOffsets = (text: string): number[] => {
+  const offsets = [0];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\r") {
+      if (text[index + 1] === "\n") index += 1;
+      offsets.push(index + 1);
+    } else if (text[index] === "\n") offsets.push(index + 1);
+  }
+  return offsets;
+};
+
 const pointForOffset = (
-  text: string,
+  lineStarts: readonly number[],
   offset: number,
 ): JavaScriptSourcePoint => {
-  const lines = text.slice(0, offset).split(/\r\n|\r|\n/u);
-  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
+  let low = 0;
+  let high = lineStarts.length;
+  while (low < high) {
+    const middle = low + ((high - low) >> 1);
+    if (lineStarts[middle]! <= offset) low = middle + 1;
+    else high = middle;
+  }
+  const lineIndex = low - 1;
+  return { line: lineIndex + 1, column: offset - lineStarts[lineIndex]! };
 };
 
 const optionalString = (value: unknown): string | null =>
