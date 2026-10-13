@@ -308,14 +308,15 @@ const expectExactRendererPaths = (graph: ApplicationGraph): void => {
         renderer,
       ]),
   );
-  for (const declaredPath of [
-    "./renderer/missing.html",
-    "./renderer/page",
+  for (const [declaredPath, candidatePath] of [
+    ["./renderer/missing.html", "renderer/missing.html"],
+    ["./renderer/page", "renderer/page"],
   ]) {
     const renderer = renderers.get(declaredPath);
     expect(renderer?.observations[0]?.properties).toMatchObject({
       resolved_path: null,
       resolution_status: "not-found",
+      candidate_path: candidatePath,
     });
     expect(
       graph.edges.some(

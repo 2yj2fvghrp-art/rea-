@@ -242,9 +242,14 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   if (input.exactUrlResource)
     return (
       resolveFileCandidates(input, [confined]) ??
-      unresolvedCandidate("not-found", [
-        `The exact URL resource ${confined} was not found among the selected application files.`,
-      ])
+      {
+        resolvedPath: null,
+        status: "not-found",
+        candidatePath: confined,
+        limitations: [
+          `The exact URL resource ${confined} was not found among the selected application files.`,
+        ],
+      }
     );
   if (input.context === "html-reference" || input.context === "url-reference")
     return (
