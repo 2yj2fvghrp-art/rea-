@@ -25,15 +25,24 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Format only the new visual lab with pinned oxfmt
-        run: ./node_modules/.bin/oxfmt experiments/rel-visual-lab/index.html
-      - name: Verify and commit only the formatted HTML to REL
+      - name: Format and push the most recent branch state (never force)
         run: |
-          git diff --check
-          git add -- experiments/rel-visual-lab/index.html
-          if git diff --cached --quiet; then
-            echo "Visual lab is already formatted"
-            exit 0
-          fi
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "style(rel): format visual investigation lab"
-          git push origin HEAD:refs/heads/rel/first-lab-foundations
+          for attempt in 1 2 3 4 5 6 7 8; do
+            git fetch --no-tags origin refs/heads/rel/first-lab-foundations
+            git reset --hard FETCH_HEAD
+            ./node_modules/.bin/oxfmt experiments/rel-visual-lab/index.html
+            git diff --check
+            git add -- experiments/rel-visual-lab/index.html
+            if git diff --cached --quiet; then
+              echo "No formatting changes needed in latest branch"
+              exit 0
+            fi
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "style(rel): format current visual investigation lab"
+            if git push origin HEAD:refs/heads/rel/first-lab-foundations; then
+              echo "Formatted current branch without overwriting concurrent work"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Concurrent commits prevented a safe format push. No force-push attempted." >&2
+          exit 1
