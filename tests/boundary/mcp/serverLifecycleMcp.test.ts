@@ -337,6 +337,48 @@ it("awaits SQLite cleanup and retries its retained owner after failed server shu
   expect(attempts).toBe(2);
 });
 
+it("retries only the providers whose cleanup failed", async () => {
+  let sqliteAttempts = 0;
+  let goCloseAttempts = 0;
+  let cleanupAllowed = false;
+  const sqliteDatabase = new SqliteDatabaseService({
+    inspect: async () => {
+      throw new Error("No inspection requested");
+    },
+    close: async () => {
+      sqliteAttempts += 1;
+      if (!cleanupAllowed) throw new Error("SQLite snapshot removal denied");
+    },
+  });
+  const goBinary = new GoBinaryService({
+    identity: { id: "go-fixture", name: "Go fixture", version: "1" },
+    inspect: async ({ path }) =>
+      err(
+        new AnalysisUnsupportedTargetError(
+          "inspect_go_binary",
+          path,
+          "fixture rejection",
+        ),
+      ),
+    close: async () => {
+      goCloseAttempts += 1;
+    },
+  });
+  const server = createServer(
+    { kind: "fixed", analysis: { execute: async () => ok(null) } },
+    { sqliteDatabase, goBinary },
+  );
+  resources.push(server);
+  try {
+    await expect(server.close()).rejects.toBeInstanceOf(AggregateError);
+    expect([sqliteAttempts, goCloseAttempts]).toEqual([1, 1]);
+  } finally {
+    cleanupAllowed = true;
+  }
+  await server.close();
+  expect([sqliteAttempts, goCloseAttempts]).toEqual([2, 1]);
+});
+
 it("closes the bound Go and web-capture services and retries failed shutdown", async () => {
   let goCalls = 0;
   let goCloseAttempts = 0;

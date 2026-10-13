@@ -331,32 +331,42 @@ export const createServer = (
   const jeb = options.jebAnalysis ?? createJebAnalysisProvider(environment);
   const adbDevice =
     options.adbDeviceAnalysis ?? createAdbDeviceAnalysisProvider(environment);
+  // A retry after failed cleanup must only revisit the providers whose close
+  // did not complete; re-closing a finished provider is not assumed safe.
+  const providerCleanupOwners = [
+    () => android.close(),
+    () => fridaInstrumentation.closeAll(),
+    () => wasmArtifact.close(),
+    () => packetCapture.close(),
+    () => signalRecording.close(),
+    () => apktool.close(),
+    () => jeb.close(),
+    () => adbDevice.close(),
+    () => flutter.close(),
+    () => pcap.close(),
+    () => evmInterface.close(),
+    () => sqliteDatabase.close(),
+    () => binaryLayout.close(),
+    () => recordedCrash.close(),
+    () => webSourceLocation.close(),
+    () => webModuleTrace.close(),
+    () => goBinary.close(),
+    () => peResources.close(),
+    () => webNetworkCapture.close(),
+    () => javascriptRecovery.close?.() ?? Promise.resolve(),
+    () => artifactResources.close(),
+    () => firmwareAnalysis.close(),
+  ].map((close) => ({ close, closed: false }));
   let providerClose: Promise<void> | undefined;
   const closeProviders = (): Promise<void> => {
-    providerClose ??= Promise.allSettled([
-      android.close(),
-      fridaInstrumentation.closeAll(),
-      wasmArtifact.close(),
-      packetCapture.close(),
-      signalRecording.close(),
-      apktool.close(),
-      jeb.close(),
-      adbDevice.close(),
-      flutter.close(),
-      pcap.close(),
-      evmInterface.close(),
-      sqliteDatabase.close(),
-      binaryLayout.close(),
-      recordedCrash.close(),
-      webSourceLocation.close(),
-      webModuleTrace.close(),
-      goBinary.close(),
-      peResources.close(),
-      webNetworkCapture.close(),
-      javascriptRecovery.close?.() ?? Promise.resolve(),
-      artifactResources.close(),
-      firmwareAnalysis.close(),
-    ])
+    providerClose ??= Promise.allSettled(
+      providerCleanupOwners
+        .filter((owner) => !owner.closed)
+        .map(async (owner) => {
+          await owner.close();
+          owner.closed = true;
+        }),
+    )
       .then((results) => {
         const failures = results.flatMap((result) =>
           result.status === "rejected" ? [result.reason] : [],
