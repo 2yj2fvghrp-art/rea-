@@ -298,6 +298,18 @@ it.each([
   ],
   ["install.sh", { code: true, runtime: true, package: true, evm: false }],
   [
+    "scripts/package-portable-windows.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/verify-portable-windows.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "tests/process-global/runnerCancellation.test.ts",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
     ".agents/skills/reverse-engineer-anything/SKILL.md",
     { code: true, runtime: true, docs: true, package: false, evm: false },
   ],
