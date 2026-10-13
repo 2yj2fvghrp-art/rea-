@@ -12,6 +12,7 @@ import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js
 import { NativeMacOSProvider } from "../../../../src/native/NativeMacOSProvider.js";
 import {
   NATIVE_COMMAND_OUTPUT_BUDGET_BYTES,
+  NATIVE_FAILURE_DIAGNOSTIC_BYTES,
   NativeCommandFailure,
   XcrunCommandRunner,
   type NativeCommandRunner,
@@ -404,6 +405,13 @@ describe("native command failure capture and limits", () => {
       (result.error.capture?.stdoutBytes ?? 0) +
         (result.error.capture?.stderrBytes ?? 0),
     ).toBeLessThanOrEqual(NATIVE_COMMAND_OUTPUT_BUDGET_BYTES);
+    // The failure carries an excerpt, not the whole retained output budget.
+    expect(result.error.capture?.stdout.length).toBe(
+      NATIVE_FAILURE_DIAGNOSTIC_BYTES,
+    );
+    expect(result.error.capture?.stdoutBytes).toBeGreaterThan(
+      NATIVE_FAILURE_DIAGNOSTIC_BYTES,
+    );
   });
 });
 
