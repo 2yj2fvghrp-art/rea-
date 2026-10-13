@@ -647,7 +647,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         requireDocument(params);
         // Public input validation owns the grammar; validate again at the socket boundary.
         String pattern = requireString(params, "pattern").replaceAll("[\\s\\p{Z}\\uFEFF]", "");
-        String mask = optionalString(params, "mask");
+        String mask = params.has("mask") ? requireString(params, "mask") : null;
         if (mask != null) mask = mask.replaceAll("[\\s\\p{Z}\\uFEFF]", "");
         if (pattern.isEmpty() || pattern.length() % 2 != 0 ||
             (mask != null && mask.length() != pattern.length()))
@@ -668,8 +668,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         if (!constrained) throw new RequestFailure("invalid_request", "Pattern must constrain at least one bit");
         int limit = requireBoundedInteger(params, "limit", 1, 1000);
-        Address start = optionalString(params, "start") == null ? null : requireAddress(params, "start");
-        Address end = optionalString(params, "end") == null ? null : requireAddress(params, "end");
+        Address start = params.has("start") ? requireAddress(params, "start") : null;
+        Address end = params.has("end") ? requireAddress(params, "end") : null;
         if (start != null && end != null &&
             (!start.getAddressSpace().equals(end.getAddressSpace()) || start.compareTo(end) > 0))
             throw new RequestFailure("invalid_request", "Search bounds must be ordered in one address space");
@@ -678,7 +678,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 bytesHex(bytes), bytesHex(masks), start == null ? "" : canonicalAddress(start),
                 end == null ? "" : canonicalAddress(end), optionalString(params, "document") }) identity.add(value);
         String binding = bytesHex(MessageDigest.getInstance("SHA-256").digest(identity.toString().getBytes(StandardCharsets.UTF_8)));
-        String cursor = optionalString(params, "cursor");
+        String cursor = params.has("cursor") ? requireString(params, "cursor") : null;
         Address resume = null;
         if (cursor != null) {
             if (!cursor.startsWith(binding + ":"))
