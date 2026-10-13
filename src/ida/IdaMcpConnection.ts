@@ -140,8 +140,11 @@ export const createIdaMcpConnection = (
   const transportFailure = (cause: unknown): never => {
     const failure = redactIdaTransportFailure(cause, config);
     if (stderrBytes === 0) throw failure;
+    let start = 0;
+    // The byte tail may start inside a UTF-8 code point. Retain whole units.
+    while (start < stderr.length && (stderr[start]! & 0xc0) === 0x80) start++;
     const diagnostic = redactIdaTransportFailure(
-      new Error(stderr.toString("utf8")),
+      new Error(stderr.subarray(start).toString("utf8")),
       config,
     ).message;
     throw new ProviderAdapterError("ida", "transport", {
@@ -150,7 +153,7 @@ export const createIdaMcpConnection = (
       capturedOutput: {
         stdout: "",
         stderr: diagnostic,
-        truncated: stderrBytes > stderr.length,
+        truncated: stderrBytes > stderr.length - start,
         stdout_bytes: 0,
         stderr_bytes: stderrBytes,
       },

@@ -98,10 +98,18 @@ class IdaCleanupError extends ProviderAdapterError {
   constructor(path: string, cause: unknown) {
     super("ida", "close", {
       cause,
+      capturedOutput:
+        cause instanceof AnalysisError ? cause.capturedOutput : undefined,
       diagnostics: {
+        ...(cause instanceof AnalysisError ? cause.diagnostics : undefined),
         reason:
           "IDA cleanup could not be verified; the remaining connection or private workspace is retained for retry.",
-        failure_reason: cause instanceof Error ? cause.message : String(cause),
+        failure_reason:
+          cause instanceof AnalysisError
+            ? (cause.diagnostics?.reason ?? cause.message)
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
         workspace: path,
       },
     });
@@ -327,6 +335,21 @@ export class IdaSessionClient implements AnalysisClient {
   ) {
     let failure: AnalysisError;
     if (
+      cause instanceof ProviderAdapterError &&
+      cause.operation === "transport"
+    )
+      failure = new ProviderAdapterError("ida", operation, {
+        cause,
+        capturedOutput: cause.capturedOutput,
+        partialObservation: cause.partialObservation,
+        cleanup: cause.cleanup,
+        diagnostics: {
+          ...cause.diagnostics,
+          recovery:
+            "Check the configured upstream MCP registration and selected target; see docs/ida-provider.md.",
+        },
+      });
+    else if (
       cause instanceof AnalysisError &&
       (cause.partialObservation !== undefined ||
         cause.cleanupIncomplete ||

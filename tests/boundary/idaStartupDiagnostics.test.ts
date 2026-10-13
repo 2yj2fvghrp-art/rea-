@@ -57,3 +57,30 @@ describe("IDA startup diagnostics", () => {
     }
   });
 });
+
+it("drops a leading partial UTF-8 character from the bounded stderr tail", async () => {
+  const connection = createIdaMcpConnection(
+    {
+      command: process.execPath,
+      args: [
+        "-e",
+        'process.stderr.write("€".repeat(6000), () => process.exit(2));',
+      ],
+      env: {},
+      mode: "headless",
+      timeoutMs: 1000,
+    },
+    {},
+  );
+  try {
+    await expect(connection.connect()).rejects.toMatchObject({
+      capturedOutput: {
+        stderr: "€".repeat(Math.floor(16384 / 3)),
+        stderr_bytes: 18000,
+        truncated: true,
+      },
+    });
+  } finally {
+    await connection.close();
+  }
+});
