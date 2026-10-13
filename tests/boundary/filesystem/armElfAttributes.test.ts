@@ -171,6 +171,8 @@ it("preserves a valid extended ELF32 header during ARM attribute inspection", as
   const target = await resolveArm(
     armFixture(V7_ATTRIBUTES, { headerSize: 56 }),
   );
+  if (target.format !== "elf" || target.architecture !== "arm")
+    throw new Error("Expected an ARM ELF target");
   expect(target.arm).toMatchObject({ headerSize: 56, cpuArch: 10 });
 });
 
