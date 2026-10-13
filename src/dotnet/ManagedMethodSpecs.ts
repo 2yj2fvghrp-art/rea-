@@ -31,12 +31,15 @@ export const edgeTargets = (
   const members = new Map(cores.flatMap((core) => [...core]));
   const issues: ManagedParseIssue[] = [];
   const seen = new Set<string>();
+  // Generic arity by method token, so instantiations of one method decode it once.
+  const arities = new Map<string, number | null>();
   for (const method of methods)
     for (const { operand } of method.body.anchors) {
       if (operand?.startsWith("0x2b") !== true || seen.has(operand)) continue;
       seen.add(operand);
       readManagedValue(
-        () => readMethodSpec({ bytes, layout, members, issues }, operand),
+        () =>
+          readMethodSpec({ bytes, layout, members, issues, arities }, operand),
         issues,
       );
     }
@@ -54,11 +57,13 @@ const readMethodSpec = (
     layout,
     members,
     issues,
+    arities,
   }: {
     readonly bytes: Buffer;
     readonly layout: ManagedMetadataLayout;
     readonly members: Map<string, MemberCore>;
     readonly issues: ManagedParseIssue[];
+    readonly arities: Map<string, number | null>;
   },
   token: string,
 ): void => {
@@ -96,10 +101,12 @@ const readMethodSpec = (
     { form: "instantiation", scope, offset: cursor.start },
   );
   if (generic === null) return;
-  const arity = methodGenericArity(
-    layout,
-    methodSignatureBlob(bytes, layout, generic),
-  );
+  if (!arities.has(generic))
+    arities.set(
+      generic,
+      methodGenericArity(layout, methodSignatureBlob(bytes, layout, generic)),
+    );
+  const arity = arities.get(generic) ?? null;
   if (arity !== types.length)
     throw managedFailure(
       "invalid-row",
