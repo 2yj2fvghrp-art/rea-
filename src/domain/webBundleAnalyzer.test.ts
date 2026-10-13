@@ -324,7 +324,7 @@ describe("web bundle API classification parity", () => {
   it("keeps configuration setting reads out of endpoints in both analyzers", () => {
     const source = `
       vscode.workspace.getConfiguration("git").get("autofetch");
-      getConfiguration("git").get("enabled", true);
+      workspace.getConfiguration("git").get("enabled", true);
       const config = vscode.workspace.getConfiguration("git");
       config.get("autofetchPeriod", 180);
       config.get("/v1/settings");
@@ -339,10 +339,15 @@ describe("web bundle API classification parity", () => {
         config.get("shadowed");
       }
       api.get("users");
+      const client = getConfiguration("/api/v1");
+      client.get("accounts");
+      http.getConfiguration(baseUrl).get("orders");
     `;
     const expected = [
       "/v1/settings",
+      "accounts",
       "conditional",
+      "orders",
       "reassigned",
       "shadowed",
       "users",

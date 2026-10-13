@@ -352,18 +352,28 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
 }
 
 /**
- * Whether a call spells a configuration accessor such as VS Code's
- * `workspace.getConfiguration(section)`, whose result `.get` reads setting
- * keys rather than request paths.
+ * Whether a call spells VS Code's `workspace.getConfiguration(section)`, whose
+ * result `.get` reads setting keys rather than request paths. The `workspace`
+ * member is required: a bare or differently scoped `getConfiguration` may be
+ * an application's own HTTP client factory. Minifiers keep property names, so
+ * bundled `x.workspace.getConfiguration` still matches.
  */
-const isConfigurationAccessorCall = (node: t.Node): boolean =>
-  (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
-  (t.isIdentifier(node.callee)
-    ? node.callee.name === "getConfiguration"
-    : (t.isMemberExpression(node.callee) ||
-        t.isOptionalMemberExpression(node.callee)) &&
-      semanticStaticPropertyKey(node.callee.property, node.callee.computed) ===
-        "getConfiguration");
+const isConfigurationAccessorCall = (node: t.Node): boolean => {
+  if (!t.isCallExpression(node) && !t.isOptionalCallExpression(node))
+    return false;
+  const callee = node.callee;
+  if (
+    (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee)) ||
+    semanticStaticPropertyKey(callee.property, callee.computed) !==
+      "getConfiguration"
+  )
+    return false;
+  const host = callee.object;
+  return t.isIdentifier(host)
+    ? host.name === "workspace"
+    : (t.isMemberExpression(host) || t.isOptionalMemberExpression(host)) &&
+        semanticStaticPropertyKey(host.property, host.computed) === "workspace";
+};
 
 /**
  * Whether a `.get` receiver is a configuration accessor result, either inline
