@@ -206,7 +206,11 @@ const parseElf = (
   const machine = little ? bytes.readUInt16LE(18) : bytes.readUInt16BE(18);
   const architecture = elfArchitecture(machine);
   if (architecture === undefined) return err("unsupported ELF architecture");
-  if (architecture === "mips" || architecture === "riscv" || architecture === "powerpc") {
+  if (
+    architecture === "mips" ||
+    architecture === "riscv" ||
+    architecture === "powerpc"
+  ) {
     const flagsOffset = elfClass === 32 ? 36 : 48;
     const metadata: ElfFamilyMetadata = {
       elfClass,
@@ -217,7 +221,12 @@ const parseElf = (
         : bytes.readUInt32BE(flagsOffset),
     };
     if (architecture === "powerpc")
-      return ok({ format: "elf", architecture, availableArchitectures: [architecture], powerpc: metadata });
+      return ok({
+        format: "elf",
+        architecture,
+        availableArchitectures: [architecture],
+        powerpc: metadata,
+      });
     return architecture === "mips"
       ? ok({
           format: "elf",

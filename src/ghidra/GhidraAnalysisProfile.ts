@@ -21,7 +21,10 @@ import {
   ghidraRiscvLanguageOverride,
   ghidraRiscvProfileParameters,
 } from "./GhidraRiscvProfile.js";
-import { ghidraPowerPcLanguage, ghidraPowerPcProfileParameters } from "./GhidraPowerPcProfile.js";
+import {
+  ghidraPowerPcLanguage,
+  ghidraPowerPcProfileParameters,
+} from "./GhidraPowerPcProfile.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 
 import {

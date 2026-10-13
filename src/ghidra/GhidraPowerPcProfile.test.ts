@@ -81,7 +81,9 @@ describe("bounded Ghidra PowerPC admission", () => {
       languageId: "PowerPC:BE:32:default",
       compilerSpecId: "default",
     });
-    expect(ghidraProfileLanguageOverride(parameters)).toEqual(ghidraPinnedLanguage(target()));
+    expect(ghidraProfileLanguageOverride(parameters)).toEqual(
+      ghidraPinnedLanguage(target()),
+    );
   });
 
   it("lets a configured language replace the lane default", async () => {
@@ -108,7 +110,9 @@ describe("bounded Ghidra PowerPC admission", () => {
       language_id: "PowerPC:BE:32:e500",
       language_selection: "configured-v1",
     });
-    expect(ghidraProfileLanguageOverride(parameters)).toEqual({ languageId: "PowerPC:BE:32:e500" });
+    expect(ghidraProfileLanguageOverride(parameters)).toEqual({
+      languageId: "PowerPC:BE:32:e500",
+    });
   });
 
   it("commits header flags so a changed interpretation changes the profile", async () => {
