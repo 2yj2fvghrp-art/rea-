@@ -276,54 +276,89 @@ export const readVersionInfos = (
   resources: PeResources["resources"],
   account: (value: unknown) => void,
   ensureCapacity: (projectedBytes: number) => void,
-): PeResources["version_infos"] =>
-  resources
+): PeResources["version_infos"] => {
+  const decodedByRange = new Map<string, VersionInfo>();
+  const decode = (resource: Resource): VersionInfo => {
+    const { offset, bytes: size } = resource.payload.location;
+    let info: VersionInfo;
+    try {
+      const root = readBlock(bytes, offset, offset + size, offset);
+      if (root.key !== "VS_VERSION_INFO")
+        malformed("Version root key is not VS_VERSION_INFO.");
+      if (root.type !== 0) malformed("Version root value is not binary.");
+      if (
+        root.valueLength !== 0 &&
+        (root.valueLength !== FIXED_FILE_INFO_BYTES ||
+          root.value.bytes !== FIXED_FILE_INFO_BYTES)
+      )
+        malformed("VS_FIXEDFILEINFO is not 52 bytes.");
+      const fixed =
+        root.valueLength === 0 ? null : readFixedFileInfo(bytes, root.value);
+      const stringFileInfo: VersionStrings[] = [];
+      const translations: VersionInfo["translations"] = [];
+      for (const child of readChildren(bytes, root, offset)) {
+        if (child.key === "StringFileInfo")
+          stringFileInfo.push(
+            ...readStringFileInfo(bytes, child, offset, ensureCapacity),
+          );
+        else if (child.key === "VarFileInfo")
+          translations.push(...readTranslations(bytes, child, offset));
+      }
+      info = {
+        resource_index: resource.index,
+        status: "decoded",
+        fixed_file_info: fixed,
+        string_file_info: stringFileInfo,
+        translations,
+        reason: null,
+      };
+    } catch (cause) {
+      if (!(cause instanceof MalformedPayload)) throw cause;
+      info = {
+        resource_index: resource.index,
+        status: "malformed",
+        fixed_file_info: null,
+        string_file_info: [],
+        translations: [],
+        reason: cause.message,
+      };
+    }
+    return info;
+  };
+  const clone = (info: VersionInfo, resourceIndex: number): VersionInfo => ({
+    ...info,
+    resource_index: resourceIndex,
+    fixed_file_info:
+      info.fixed_file_info === null
+        ? null
+        : {
+            ...info.fixed_file_info,
+            location: { ...info.fixed_file_info.location },
+          },
+    string_file_info: info.string_file_info.map((table) => ({
+      ...table,
+      location: { ...table.location },
+      strings: table.strings.map((string) => ({
+        ...string,
+        location: { ...string.location },
+      })),
+    })),
+    translations: info.translations.map((translation) => ({
+      ...translation,
+      location: { ...translation.location },
+    })),
+  });
+  return resources
     .filter((resource) => isResourceType(resource, RT_VERSION))
     .map((resource) => {
       const { offset, bytes: size } = resource.payload.location;
-      let info: VersionInfo;
-      try {
-        const root = readBlock(bytes, offset, offset + size, offset);
-        if (root.key !== "VS_VERSION_INFO")
-          malformed("Version root key is not VS_VERSION_INFO.");
-        if (root.type !== 0) malformed("Version root value is not binary.");
-        if (
-          root.valueLength !== 0 &&
-          (root.valueLength !== FIXED_FILE_INFO_BYTES ||
-            root.value.bytes !== FIXED_FILE_INFO_BYTES)
-        )
-          malformed("VS_FIXEDFILEINFO is not 52 bytes.");
-        const fixed =
-          root.valueLength === 0 ? null : readFixedFileInfo(bytes, root.value);
-        const stringFileInfo: VersionStrings[] = [];
-        const translations: VersionInfo["translations"] = [];
-        for (const child of readChildren(bytes, root, offset)) {
-          if (child.key === "StringFileInfo")
-            stringFileInfo.push(
-              ...readStringFileInfo(bytes, child, offset, ensureCapacity),
-            );
-          else if (child.key === "VarFileInfo")
-            translations.push(...readTranslations(bytes, child, offset));
-        }
-        info = {
-          resource_index: resource.index,
-          status: "decoded",
-          fixed_file_info: fixed,
-          string_file_info: stringFileInfo,
-          translations,
-          reason: null,
-        };
-      } catch (cause) {
-        if (!(cause instanceof MalformedPayload)) throw cause;
-        info = {
-          resource_index: resource.index,
-          status: "malformed",
-          fixed_file_info: null,
-          string_file_info: [],
-          translations: [],
-          reason: cause.message,
-        };
+      const key = `${String(offset)}:${String(size)}`;
+      let cached = decodedByRange.get(key);
+      if (cached === undefined) {
+        cached = decode(resource);
+        decodedByRange.set(key, cached);
       }
-      account(info);
-      return info;
+      account({ ...cached, resource_index: resource.index });
+      return clone(cached, resource.index);
     });
+};

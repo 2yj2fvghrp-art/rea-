@@ -231,6 +231,27 @@ describe("PE version payloads", () => {
     expect(fixed.location.bytes).toBe(52);
   });
 
+  it("projects repeated payload ranges as independent version records", async () => {
+    const payload = versionInfo();
+    const { result } = await parse([
+      { type: 16, name: 1, language: 1033, payload },
+      { type: 16, name: 2, language: 1033, payload },
+    ]);
+    expect(
+      result.version_infos.map(({ resource_index }) => resource_index),
+    ).toEqual([0, 1]);
+    expect(result.version_infos[0]).toEqual({
+      ...result.version_infos[1],
+      resource_index: 0,
+    });
+    expect(result.version_infos[0]?.string_file_info).not.toBe(
+      result.version_infos[1]?.string_file_info,
+    );
+    expect(result.version_infos[0]?.string_file_info[0]?.strings).not.toBe(
+      result.version_infos[1]?.string_file_info[0]?.strings,
+    );
+  });
+
   it("reads text values whose length a resource compiler counted in bytes", async () => {
     const companyName = text("CompanyName", "Embarcadero");
     // Count the value in bytes instead of UTF-16 units, as some compilers do.
