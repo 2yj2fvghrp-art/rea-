@@ -258,46 +258,62 @@ export interface ElectronNativeAddonResolution {
   readonly basis:
     | "specifier"
     | "loader-package-root"
+    | "loader-directory"
+    | "loader-directory-unavailable"
     | "create-require-base-unavailable";
 }
 
-// node-gyp-build and bindings search their package's build and prebuild trees.
+// node-gyp-build and bindings search a package's build and prebuild trees.
 const LOADER_ADDON =
   /^(?:build\/(?:Release|Debug)|prebuilds\/[^/]+)\/[^/]+\.node$/u;
+
+/** Add-ons in the build and prebuild trees below one artifact directory. */
+const loaderCandidates = (
+  root: string,
+  files: ReadonlyMap<string, JavaScriptArtifactFile>,
+  wanted: string | undefined,
+): readonly string[] =>
+  [...files.values()]
+    .filter(({ path, kind }) => {
+      const relative = root === "" ? path : path.slice(root.length + 1);
+      return (
+        kind === "native-addon" &&
+        (root === "" || path.startsWith(`${root}/`)) &&
+        LOADER_ADDON.test(relative) &&
+        (wanted === undefined || posix.basename(path) === wanted)
+      );
+    })
+    .map(({ path }) => path)
+    .sort(compareUnicodeCodePoints);
 
 /**
  * Resolve one native binding. A specifier is resolved as a module or
  * filesystem path. `bindings` and `node-gyp-build` select a file at runtime,
- * so their candidates are the add-ons in the build and prebuild directories of
- * the nearest inventoried package root; one candidate resolves, more remain
- * candidates. `bindings` candidates must also match the requested name.
+ * so their candidates are the add-ons in a build or prebuild tree; one
+ * candidate resolves, more remain candidates. `bindings` searches the nearest
+ * inventoried package root and its candidates must match the requested name.
+ * `node-gyp-build` searches the directory it receives, which must be known
+ * relative to the calling source and stay inside the artifact.
  */
 export const resolveElectronNativeAddon = (
   file: JavaScriptArtifactFile,
   finding: ElectronNativeAddonBindingFinding,
   files: ReadonlyMap<string, JavaScriptArtifactFile>,
 ): ElectronNativeAddonResolution => {
-  if (finding.loader === "bindings" || finding.loader === "node-gyp-build") {
+  if (finding.loader === "node-gyp-build")
+    return nodeGypBuildAddon(file, finding, files);
+  if (finding.loader === "bindings") {
     const root = packageRoot(file.path, files);
-    const wanted =
-      finding.loader === "bindings" && finding.specifier_status === "literal"
-        ? finding.specifier.replace(/\.node$/u, "") + ".node"
-        : undefined;
     const candidates =
       root === undefined
         ? []
-        : [...files.values()]
-            .filter(({ path, kind }) => {
-              const relative = root === "" ? path : path.slice(root.length + 1);
-              return (
-                kind === "native-addon" &&
-                (root === "" || path.startsWith(`${root}/`)) &&
-                LOADER_ADDON.test(relative) &&
-                (wanted === undefined || posix.basename(path) === wanted)
-              );
-            })
-            .map(({ path }) => path)
-            .sort(compareUnicodeCodePoints);
+        : loaderCandidates(
+            root,
+            files,
+            finding.specifier_status === "literal"
+              ? finding.specifier.replace(/\.node$/u, "") + ".node"
+              : undefined,
+          );
     return {
       resolved_path: candidates.length === 1 ? (candidates[0] ?? null) : null,
       candidates,
@@ -333,6 +349,35 @@ export const resolveElectronNativeAddon = (
     resolved_path: addon,
     candidates: addon === null ? [] : [addon],
     basis: "specifier",
+  };
+};
+
+/** node-gyp-build searches the directory it receives. */
+const nodeGypBuildAddon = (
+  file: JavaScriptArtifactFile,
+  finding: ElectronNativeAddonBindingFinding,
+  files: ReadonlyMap<string, JavaScriptArtifactFile>,
+): ElectronNativeAddonResolution => {
+  const directory =
+    finding.specifier_status === "literal" &&
+    !posix.isAbsolute(finding.specifier)
+      ? posix.join(posix.dirname(file.path), finding.specifier)
+      : undefined;
+  if (directory === undefined || directory.split("/")[0] === "..")
+    return {
+      resolved_path: null,
+      candidates: [],
+      basis: "loader-directory-unavailable",
+    };
+  const candidates = loaderCandidates(
+    directory === "." ? "" : directory,
+    files,
+    undefined,
+  );
+  return {
+    resolved_path: candidates.length === 1 ? (candidates[0] ?? null) : null,
+    candidates,
+    basis: "loader-directory",
   };
 };
 

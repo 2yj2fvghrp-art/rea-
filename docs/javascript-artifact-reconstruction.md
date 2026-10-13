@@ -265,10 +265,13 @@ Selected bounded text is then parsed as inert data to recover:
   (`parameter-default`). A `createRequire` call with a non-`.node` specifier is
   a `require` reference. `bindings` and `node-gyp-build` choose their add-on at
   runtime, so the candidates are the `.node` files in `build/Release`,
-  `build/Debug`, and `prebuilds/*` of the nearest inventoried package root
-  (`resolution_basis: loader-package-root`); exactly one candidate resolves the
-  binding with low confidence. Members read from a loader result are not
-  followed.
+  `build/Debug`, and `prebuilds/*` of a searched directory: the nearest
+  inventoried package root for `bindings`
+  (`resolution_basis: loader-package-root`), and the directory passed to
+  `node-gyp-build` (`loader-directory`). That directory must be `__dirname` or
+  a path built from it; otherwise the binding stays unresolved
+  (`loader-directory-unavailable`). Exactly one candidate resolves the binding
+  with low confidence. Members read from a loader result are not followed.
 
 Electron option values, IPC channels, contextBridge keys, sender checks, and
 network endpoint arguments are read through the semantic value lattice.

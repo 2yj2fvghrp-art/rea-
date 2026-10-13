@@ -254,7 +254,8 @@ const expectNativeLoaders = (graph: Graph): void => {
       expect.objectContaining({
         binding_kind: "loader",
         loader: "node-gyp-build",
-        resolution_basis: "loader-package-root",
+        specifier: ".",
+        resolution_basis: "loader-directory",
         resolved_path: "node_modules/gyp/build/Release/gyp.node",
         candidate_paths: ["node_modules/gyp/build/Release/gyp.node"],
       }),

@@ -11,6 +11,7 @@ import {
   argumentNode,
   calleeName,
   range,
+  sourceDirectoryPath,
   staticPath,
   stringValue,
 } from "./javascriptStaticAnalysisHelpers.js";
@@ -74,10 +75,13 @@ const inspectLoaderCall = (
       return;
     }
   }
+  // node-gyp-build searches the directory it receives.
   const path =
     call.loader === "bindings" || argument === undefined
       ? literal
-      : staticPath(argument);
+      : call.loader === "node-gyp-build"
+        ? sourceDirectoryPath(argument)
+        : staticPath(argument);
   if (path === undefined) context.accumulator.unknownFindings += 1;
   addBinding({
     context,

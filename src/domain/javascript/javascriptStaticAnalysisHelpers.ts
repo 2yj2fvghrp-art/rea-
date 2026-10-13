@@ -183,6 +183,17 @@ export const staticPathResolutionContext = (
     ? "filesystem-expression"
     : "module-specifier";
 
+/**
+ * A directory named relative to the source file's own directory (`.` for the
+ * directory itself) or an absolute path. Process-relative paths are unknown.
+ */
+export const sourceDirectoryPath = (node: t.Node): string | undefined =>
+  isDirectoryIdentity(node)
+    ? "."
+    : isFilesystemPathExpression(node)
+      ? staticPath(node)
+      : undefined;
+
 /** Resolve a path composed only from inert literal syntax. */
 export const staticPath = (node: t.Node): string | undefined => {
   if (t.isStringLiteral(node)) return node.value;
