@@ -12,7 +12,8 @@ import type {
 } from "./javascriptApplicationGraphSchemas.js";
 import {
   applicationFeatureTraceResultSchema,
-  type ApplicationFeatureSeed,
+  applicationFeatureSeedSchema,
+  type ApplicationFeatureSeedInput,
   type ApplicationFeatureTraceResult,
   type TraceApplicationFeatureInput,
 } from "./javascriptFeatureTraceSchemas.js";
@@ -31,14 +32,18 @@ export interface ApplicationFeatureTraceProjectionInput {
   readonly sourceEvidenceId: string;
   readonly graph: JavaScriptApplicationGraph;
   readonly nativeEvidence: readonly Evidence[];
-  readonly seed: ApplicationFeatureSeed;
+  readonly seed: ApplicationFeatureSeedInput;
   readonly direction: TraceApplicationFeatureInput["direction"];
 }
 
 /** Trace a literal feature through its complete reachable, authority-preserving JAG. */
 export const traceApplicationFeature = (
-  input: ApplicationFeatureTraceProjectionInput,
+  source: ApplicationFeatureTraceProjectionInput,
 ): ApplicationFeatureTraceResult => {
+  const input = {
+    ...source,
+    seed: applicationFeatureSeedSchema.parse(source.seed),
+  };
   const allSeedMatches = findApplicationFeatureSeeds(
     input.graph.nodes,
     input.seed,

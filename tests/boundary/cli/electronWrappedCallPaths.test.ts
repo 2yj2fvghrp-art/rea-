@@ -142,24 +142,40 @@ cliTest(
       .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
       .parse(output.json);
     const { graph } = application;
-    const paths = graph.nodes.flatMap((node) => node.observations).filter(
-      (observation) =>
-        observation.properties.entry === "api.nested.write" &&
-        observation.properties.entry_kind === "bridge-member",
-    );
-    expect(paths.some((observation) => observation.properties.step_kind === "exposure")).toBe(true);
-    expect(paths.some((observation) => observation.properties.step_kind === "terminal")).toBe(true);
+    const paths = graph.nodes
+      .flatMap((node) => node.observations)
+      .filter(
+        (observation) =>
+          observation.properties.entry === "api.nested.write" &&
+          observation.properties.entry_kind === "bridge-member",
+      );
+    expect(
+      paths.some(
+        (observation) => observation.properties.step_kind === "exposure",
+      ),
+    ).toBe(true);
+    expect(
+      paths.some(
+        (observation) => observation.properties.step_kind === "terminal",
+      ),
+    ).toBe(true);
     const joins = graph.edges.filter(
-      (edge) => edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+      (edge) =>
+        edge.evidence.extractor.operation === "join-electron-wrapper-paths",
     );
-    expect(joins.map((edge) => edge.properties.channel)).toEqual(["nested:write"]);
+    expect(joins.map((edge) => edge.properties.channel)).toEqual([
+      "nested:write",
+    ]);
 
     const traceInput = join(root, "trace-nested-input.json");
-    await writeFile(traceInput, JSON.stringify({
-      application: output.json,
-      seed: { kind: "api", value: "api.nested.write", match: "exact" },
-      direction: "outgoing",
-    }));
+    await writeFile(
+      traceInput,
+      JSON.stringify({
+        application: output.json,
+        seed: { kind: "api", value: "api.nested.write", match: "exact" },
+        direction: "outgoing",
+      }),
+    );
     const traced = await cli.run({
       arguments: ["trace-application-feature", traceInput, "--json"],
     });
@@ -208,7 +224,9 @@ cliTest(
       .find((observation) => observation.properties.api_key === "desktop");
     expect(bridge?.properties.members).not.toContain("__proto__.inherited");
     expect(bridge?.properties.members).toContain("__proto__.own");
-    const paths = observations.map((observation) => observation.properties.entry_path);
+    const paths = observations.map(
+      (observation) => observation.properties.entry_path,
+    );
     expect(paths).toEqual(
       expect.arrayContaining([
         ["desktop", "nested.write"],
@@ -219,9 +237,15 @@ cliTest(
     expect(paths).not.toContainEqual(["desktop", "__proto__", "inherited"]);
     const handlerPaths = application.graph.nodes
       .flatMap((node) => node.observations)
-      .filter((observation) => observation.properties.entry_kind === "ipc-handler");
+      .filter(
+        (observation) => observation.properties.entry_kind === "ipc-handler",
+      );
     expect(handlerPaths.length).toBeGreaterThan(0);
-    expect(handlerPaths.every((observation) => !("entry_path" in observation.properties))).toBe(true);
+    expect(
+      handlerPaths.every(
+        (observation) => !("entry_path" in observation.properties),
+      ),
+    ).toBe(true);
   },
 );
 
@@ -256,16 +280,20 @@ cliTest(
     ).toBe(true);
     expect(
       graph.edges.some(
-        (edge) => edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+        (edge) =>
+          edge.evidence.extractor.operation === "join-electron-wrapper-paths",
       ),
     ).toBe(false);
 
     const traceInput = join(root, "trace-nested-input.json");
-    await writeFile(traceInput, JSON.stringify({
-      application: output.json,
-      seed: { kind: "api", value: "api.nested.write", match: "exact" },
-      direction: "outgoing",
-    }));
+    await writeFile(
+      traceInput,
+      JSON.stringify({
+        application: output.json,
+        seed: { kind: "api", value: "api.nested.write", match: "exact" },
+        direction: "outgoing",
+      }),
+    );
     const traced = await cli.run({
       arguments: ["trace-application-feature", traceInput, "--json"],
     });
@@ -429,7 +457,9 @@ cliTest(
 cliTest(
   "preserves empty bridge member segments in nested paths",
   async ({ cli }) => {
-    const root = await createTestTempDirectory("rea-electron-empty-bridge-key-");
+    const root = await createTestTempDirectory(
+      "rea-electron-empty-bridge-key-",
+    );
     await writeFixtureFiles(root, {
       "preload.js": `const { contextBridge, ipcRenderer } = require("electron");
         contextBridge.exposeInMainWorld("desktop", {
@@ -459,8 +489,7 @@ cliTest(
       application.graph.edges
         .filter(
           (edge) =>
-            edge.evidence.extractor.operation ===
-            "join-electron-wrapper-paths",
+            edge.evidence.extractor.operation === "join-electron-wrapper-paths",
         )
         .map((edge) => edge.properties.channel),
     ).toEqual(["empty:key"]);

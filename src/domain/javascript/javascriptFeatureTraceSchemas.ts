@@ -17,15 +17,6 @@ export const featureSeedMatchMode = (seed: {
 }): "exact" | "contains" =>
   seed.match ?? (seed.kind === "string" ? "contains" : "exact");
 
-const literalSeedKinds = [
-  "route",
-  "string",
-  "api",
-  "channel",
-  "module",
-  "native-export",
-] as const;
-
 const apiSeedSchema = z.union([
   z.strictObject({
     kind: z.literal("api"),
@@ -63,7 +54,7 @@ const apiPathSeedSchema = z.union([
  * such as the channel in `ipcMain.handle("")`, must be an explicit exact
  * literal seed: empty containment would select every node.
  */
-const applicationFeatureSeedSchema = z.union([
+export const applicationFeatureSeedSchema = z.union([
   z.strictObject({
     kind: z.enum([
       "node-id",
@@ -197,13 +188,12 @@ export const applicationFeatureTraceResultSchema = z.strictObject({
 export type TraceApplicationFeatureInput = z.infer<
   typeof traceApplicationFeatureInputSchema
 >;
-export type ApplicationFeatureSeed = {
-  readonly kind: "node-id" | (typeof literalSeedKinds)[number];
-  readonly value: string;
-  readonly match?: "exact" | "contains" | null;
-  readonly case_sensitive?: boolean;
-  readonly entry_path?: readonly string[];
-};
+export type ApplicationFeatureSeed = z.output<
+  typeof applicationFeatureSeedSchema
+>;
+export type ApplicationFeatureSeedInput = z.input<
+  typeof applicationFeatureSeedSchema
+>;
 export type ApplicationFeatureTraceResult = z.infer<
   typeof applicationFeatureTraceResultSchema
 >;

@@ -144,7 +144,9 @@ export const collectElectronWrappedCallPaths = (
       if (--remainingVisits < 0) return;
       const path = [...segments, member];
       const name = path.join(".");
-      for (const variant of symbolicVariants(resolver.property(value, member))) {
+      for (const variant of symbolicVariants(
+        resolver.property(value, member),
+      )) {
         if (variant.kind === "function") yield { name, path, fn: variant };
         else if (resolver.members(variant).length > 0)
           yield* bridgeMemberFunctions(variant, path, nested);
@@ -197,7 +199,8 @@ export const collectElectronWrappedCallPaths = (
     const path: ElectronCallPath = {
       entry_kind: context.entryKind,
       entry: context.entry,
-      ...(context.entryKind !== "bridge-member" || context.entryPath === undefined
+      ...(context.entryKind !== "bridge-member" ||
+      context.entryPath === undefined
         ? {}
         : { entry_path: context.entryPath }),
       channel,

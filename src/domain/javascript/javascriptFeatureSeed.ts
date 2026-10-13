@@ -52,7 +52,8 @@ const seedMatch = (
         ]
       : [];
   if (!kindMatches(node, seed.kind)) return [];
-  const requestedEntryPath = seed.entry_path;
+  const requestedEntryPath =
+    seed.kind === "api" && "entry_path" in seed ? seed.entry_path : undefined;
   if (
     seed.kind === "api" &&
     requestedEntryPath !== undefined &&
