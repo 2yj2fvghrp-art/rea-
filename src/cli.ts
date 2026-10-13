@@ -1,3 +1,5 @@
+import { registerCaptureCommands } from "./cli/captureCommands.js";
+import { registerSignalCommands } from "./cli/signalCommands.js";
 import { registerWasmCommands } from "./cli/wasmCommands.js";
 import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
 import { createDirectAnalysis } from "./composition/directAnalysis.js";
@@ -44,7 +46,7 @@ import type { CliInstance } from "./cli/types.js";
 import {
   streamCliCommandResults,
   type CliResultOutput,
-} from "./cli/streamedJsonOutput.js";
+} from "./cli/cliResultOutput.js";
 
 /** Describe CLI settings that are invalid before any command runs, as MCP does. */
 export const cliConfigurationError = (
@@ -94,6 +96,8 @@ export const createCli = (
   registerCoreAnalysisCommands(cli, logger, analysis.runDirectAnalysis);
   registerUtilityCommands(cli, logger, environment, analysis);
   registerWasmCommands(cli, logger, environment);
+  registerCaptureCommands(cli, logger, environment);
+  registerSignalCommands(cli, logger, environment);
   registerEvmCommands(cli, logger, environment);
   registerGoCommands(cli, logger);
   registerSqliteCommands(cli, logger, environment);
