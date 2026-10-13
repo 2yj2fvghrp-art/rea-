@@ -348,3 +348,10 @@ For Electron hosts, set `REA_DSH_NODE_PATH` to an installed standalone Node exec
 choose a value longer than the operation analysis budget and cleanup. Operations
 at the maximum timer boundary need a direct REA workflow because the client timer
 cannot exceed that boundary. Live native Desktop composition remains unverified.
+
+The compatibility workflow also owns `scripts/smoke-harness-bundle.mjs`. It
+loads the installed bundle through the built Harness profile boot/Loader,
+evaluates the bundle's service expressions there, and checks REA tool discovery
+in Harness's live registry without an LLM or API key. This source check has not
+been executed in this review; native Desktop composition remains separately
+unqualified.

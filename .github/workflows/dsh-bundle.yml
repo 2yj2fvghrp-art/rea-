@@ -91,9 +91,12 @@ jobs:
           grep -F 'dsh-rea-bundle' /tmp/rea-dsh-composition.txt
           grep -F 'id: rea-mcp' /tmp/rea-dsh-composition.txt
           grep -F 'ctx.reaLauncher.command' /tmp/rea-dsh-composition.txt
+      - name: Boot installed bundle through Harness and discover REA tools without an API key
+        working-directory: harness-upstream
+        run: node ../integrations/deepseek-harness/scripts/smoke-harness-bundle.mjs . "$DSH_HOME/profiles/web"
       - name: Report scope
         run: |
-          echo 'Validated: build-free bundle, prebuilt REA MCP handshake, current upstream Harness static composition. Runtime bundle boot through the Harness MCP bridge remains unverified.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Validated: build-free bundle, prebuilt REA MCP handshake, current upstream Harness static composition and API-key-free runtime bundle boot through its MCP bridge.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Not validated: live DeepSeek API calls, paid providers, native Desktop installation, optional Ghidra/IDA.' >> "$GITHUB_STEP_SUMMARY"
 
   release-plugin:

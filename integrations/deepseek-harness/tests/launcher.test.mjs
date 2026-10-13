@@ -110,3 +110,22 @@ test("the Cordis adapter provides its owned service", () =>
       else process.env.REA_DSH_ENTRYPOINT = previous;
     }
   }));
+
+test("preserves an explicitly selected client deadline and rejects invalid timer values", () => {
+  const options = {
+    env: { REA_DSH_TOOL_CALL_TIMEOUT_MS: "300001" },
+    execPath: "/usr/local/bin/node",
+    resolvePackage: () => "/installed/rea/scripts/rea.mjs",
+    fileExists: () => true,
+  };
+  assert.equal(resolveReaLauncher(options).toolCallTimeoutMs, 300001);
+  for (const value of ["0", "-1", "1.5", "2147483648", "invalid"])
+    assert.throws(
+      () =>
+        resolveReaLauncher({
+          ...options,
+          env: { REA_DSH_TOOL_CALL_TIMEOUT_MS: value },
+        }),
+      /REA_DSH_TOOL_CALL_TIMEOUT_MS/,
+    );
+});
