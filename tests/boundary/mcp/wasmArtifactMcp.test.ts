@@ -114,10 +114,6 @@ it.each(["bin", "hop"])(
     const { client } = harness;
     const { name, ajv, inputSchema } = await wasmToolSchemas(client);
     const input = { path };
-    expect(
-      toolContract("inspect_wasm_artifact").inputSchema.safeParse(input)
-        .success,
-    ).toBe(true);
     const opening = await client.callTool({
       name: "open_binary",
       arguments: input,
@@ -131,13 +127,19 @@ it.each(["bin", "hop"])(
         details: { constraint: "wasm_requires_static_inspection" },
       },
     });
-    expect(failure.error.remediation.action).toContain(
-      JSON.stringify({ path }),
-    );
-    expect(ajv.validate(inputSchema, input)).toBe(true);
+    const [, recoveryName, serializedInput] =
+      failure.error.remediation.action.match(
+        /call (\w+) with (\{.*\}) or run/,
+      ) ?? [];
+    expect(recoveryName).toBe(name);
+    const recoveryInput = z
+      .object({ path: z.literal(path) })
+      .strict()
+      .parse(JSON.parse(serializedInput ?? "null"));
+    expect(ajv.validate(inputSchema, recoveryInput)).toBe(true);
     const inspection = await client.callTool({
-      name,
-      arguments: input,
+      name: recoveryName ?? "",
+      arguments: recoveryInput,
     });
     expect(inspection.isError).toBe(true);
     expect(parseMcpToolError(inspection)).toMatchObject({
