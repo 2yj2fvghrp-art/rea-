@@ -82,8 +82,12 @@ const run = createVerifierRun();
 const root = await PrivateRuntimeRoot.create({ prefix: "rea-wabt-verifier-" });
 const client = new Client({ name: "wabt-artifact-verifier", version: "1" });
 // The default response budget matches the client's default receive buffer.
-const { REA_MCP_MAX_RESPONSE_BYTES: _responseBudget, ...mcpEnvironment } =
-  environment;
+// Windows environment names are case-insensitive.
+const mcpEnvironment = Object.fromEntries(
+  Object.entries(environment).filter(
+    ([name]) => name.toUpperCase() !== "REA_MCP_MAX_RESPONSE_BYTES",
+  ),
+);
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [entrypoint, "mcp"],
