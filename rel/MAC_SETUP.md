@@ -2,6 +2,10 @@
 
 The **same REL fork** retains upstream REA's broad reverse-engineering toolset. This guide makes the experience macOS-first, **without switching off the native Windows safety tests** or claiming every provider works on macOS.
 
+## Easiest start: the Finder launcher
+
+After cloning this fork and installing Node.js, double-click **`Start-REL.command`** from Finder. It runs the read-only Mac readiness check and opens the local visual lab. If macOS blocks the unsigned shell script, run `zsh ./Start-REL.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open while learning; Control+C stops the local server. For your first experiment, see [your first ten minutes](../FIRST_10_MINUTES.md).
+
 ## First: let REL look at your actual Mac
 
 In the REL checkout, after installing Node.js:

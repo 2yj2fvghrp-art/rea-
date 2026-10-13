@@ -4,6 +4,10 @@
 
 This is our own beginner experience built **on top of** the original [REA engine](https://github.com/morluto/rea). We are not renaming someone else's engine or pretending to have written its analysis providers. Our identity is the learning workflow and clear explanations around the real engine.
 
+## First lesson in plain English
+
+On a Mac with Node.js installed, you can open **`Start-REL.command`** from the repo folder. Try searching for `bridge`, click **Show real results**, and then **Show me how**. See [your first ten minutes](../../FIRST_10_MINUTES.md) for the exact walkthrough and macOS troubleshooting.
+
 ## Start on your computer
 
 Open Terminal in the REL checkout on branch `rel/first-lab-foundations`. Use a supported Node.js version (the repo pins one in `.nvmrc`).

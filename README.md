@@ -14,6 +14,10 @@ A beginner-friendly investigation interface built on top of [REA — Reverse Eng
 
 ---
 
+## Start REL without knowing programming
+
+**On a Mac with Node.js installed, open `Start-REL.command` from Finder.** It checks basic Mac readiness and launches the first visual investigation in your browser—without installing anything or touching other projects. If macOS prevents opening the downloaded unsigned script, use `zsh ./Start-REL.command` in Terminal instead. [First ten minutes walkthrough](FIRST_10_MINUTES.md).
+
 ## Start here if you're new to code
 
 REL is our visual, evidence-first learning workbench built **on top of** REA. We keep the powerful original engine and make its investigations understandable to humans. We do not claim to have developed REA's original providers.

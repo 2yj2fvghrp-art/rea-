@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "rel.mjs"
+      - "Start-REL.command"
+      - "FIRST_10_MINUTES.md"
       - "rel/**"
       - "experiments/rel-first-lab/**"
       - "experiments/rel-visual-lab/**"
@@ -32,6 +34,10 @@ jobs:
           test "$(uname -s)" = "Darwin"
           node rel.mjs doctor
           node rel.mjs doctor --json > "$RUNNER_TEMP/rel-mac-doctor.json"
+      - name: Verify Finder launcher executable mode and macOS shell syntax
+        run: |
+          test -x Start-REL.command
+          /bin/zsh -n Start-REL.command
       - name: Run deterministic Mac readiness checks and local visual lab tests
         run: |
           node --test rel/mac-doctor.test.mjs
