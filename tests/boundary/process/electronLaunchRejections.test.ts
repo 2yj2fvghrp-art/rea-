@@ -1,7 +1,7 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import {
@@ -122,6 +122,10 @@ console.log(JSON.stringify({
 }));
 `;
 
+// A cold macOS Swift toolchain may spend up to 120 seconds building the
+// ownership reader before any child launch reaches its assertion.
+vi.setConfig({ testTimeout: 180_000 });
+
 type Outcome = {
   readonly before: number;
   readonly during: number;
@@ -148,7 +152,7 @@ const run = async (
       script,
       JSON.stringify([scenario, executable, root]),
     ],
-    { timeoutMs: 60_000 },
+    { timeoutMs: 150_000 },
   );
 
 const outcome = (result: { readonly stdout: string }): Outcome =>
