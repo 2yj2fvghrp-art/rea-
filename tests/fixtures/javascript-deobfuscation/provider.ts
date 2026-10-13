@@ -7,6 +7,7 @@ import { JavaScriptDeobfuscationService } from "../../../src/application/javascr
 import { createJavaScriptDeobfuscationProvider } from "../../../src/composition/javascriptDeobfuscation.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { createTestTempDirectory } from "../temporaryDirectory.js";
+import { readLinuxResourceLimits } from "../../../src/process/LinuxResourceLimits.js";
 import { JS_REDOX_LIMITS } from "../../../src/javascript/deobfuscation/JsRedoxRelease.js";
 
 /** Exercise the production provider boundary while replacing only the external producer bytes. */
@@ -32,14 +33,22 @@ export const deobfuscationFixture = async (
       expect(options.command).toBe(
         environment.REA_JAVASCRIPT_PRLIMIT_COMMAND ?? "/usr/bin/prlimit",
       );
+      const limits = await readLinuxResourceLimits({
+        address_space_bytes: JS_REDOX_LIMITS.addressSpaceBytes,
+        file_bytes: JS_REDOX_LIMITS.outputBytes,
+        cpu_seconds: JS_REDOX_LIMITS.cpuSeconds,
+      });
       expect(options.arguments.slice(0, separator + 1)).toEqual([
-        `--as=${JS_REDOX_LIMITS.addressSpaceBytes}`,
-        `--fsize=${JS_REDOX_LIMITS.outputBytes}`,
+        `--as=${limits.address_space_bytes}`,
+        `--fsize=${limits.file_bytes}`,
         "--core=0",
-        `--cpu=${JS_REDOX_LIMITS.cpuSeconds}`,
+        `--cpu=${limits.cpu_seconds}`,
         "--",
       ]);
-      expect(enginePath).toBe(join(options.cwd!, "deobfuscate-safe"));
+      const phase = options.arguments.slice(separator + 2).includes("--version")
+        ? "version"
+        : "transform";
+      expect(enginePath).toBe(join(options.cwd!, `deobfuscate-safe-${phase}`));
       engineSnapshots.push({
         path: enginePath,
         bytes: await readFile(enginePath),
@@ -56,6 +65,7 @@ export const deobfuscationFixture = async (
         env: {
           ...options.env,
           REA_DEOBFUSCATION_FIXTURE_MODE: mode,
+          REA_DEOBFUSCATION_PRIVATE_ENGINE: enginePath,
         },
       });
       launches.push({ cwd: options.cwd, pid: child.process.pid });

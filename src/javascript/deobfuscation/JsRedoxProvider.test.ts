@@ -44,7 +44,7 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     ).resolves.toBeUndefined();
     expect(fixture.engineSnapshots).toHaveLength(2);
     expect(new Set(fixture.engineSnapshots.map(({ path }) => path)).size).toBe(
-      1,
+      2,
     );
     expect(fixture.engineSnapshots[0]?.path).not.toBe(fixture.command);
     expect(fixture.engineSnapshots[0]?.bytes.toString("utf8")).toBe(
@@ -383,5 +383,52 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     expect(
       javascriptDeobfuscationResultSchema.parse(response.value.result),
     ).toMatchObject({ status: "unchanged", proof: { iterations: 0 } });
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "rebuilds the transform executable from retained bytes after a mutating version probe",
+  async () => {
+    const fixture = await deobfuscationFixture("replace-version-snapshot");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (!response.ok) throw response.error;
+    expect(new Set(fixture.engineSnapshots.map(({ path }) => path)).size).toBe(
+      2,
+    );
+    expect(
+      fixture.engineSnapshots.map(({ bytes }) => bytes.toString("utf8")),
+    ).toEqual(["#!/bin/sh\nexit 0\n", "#!/bin/sh\nexit 0\n"]);
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "cancels at commit entry without publishing output",
+  async () => {
+    const fixture = await deobfuscationFixture();
+    onTestFinished(async () => fixture.provider.close?.());
+    const controller = new AbortController();
+    const originalCommit = SafeOutputTree.prototype.commit;
+    vi.spyOn(SafeOutputTree.prototype, "commit").mockImplementationOnce(
+      async function (this: SafeOutputTree, signal?: AbortSignal) {
+        controller.abort();
+        await originalCommit.call(this, signal);
+      },
+    );
+    onTestFinished(() => vi.restoreAllMocks());
+    const response = await fixture.service.deobfuscate(
+      { path: fixture.path, output_directory: fixture.output },
+      { signal: controller.signal },
+    );
+    if (response.ok) throw new Error("expected commit cancellation");
+    expect(response.error._tag).toBe("AnalysisCancelledError");
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await assertDeobfuscationCleanup(fixture.launches);
   },
 );

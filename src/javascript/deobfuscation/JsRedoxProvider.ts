@@ -28,6 +28,7 @@ import {
   runOwnedCommand,
 } from "../../process/OwnedCommand.js";
 import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
+import { readLinuxResourceLimits } from "../../process/LinuxResourceLimits.js";
 import type { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 import {
   JS_REDOX_LIMITS,
@@ -121,7 +122,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
       await root.close();
       root = undefined;
       if (options?.signal?.aborted) throw new AnalysisCancelledError(OPERATION);
-      await tree.commit();
+      await tree.commit(options?.signal);
     } catch (cause: unknown) {
       failure = cause;
       if (cause instanceof OwnedCommandFailure)
@@ -287,15 +288,20 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
     }
   }
 
-  #run(engine: { limiter: string }, request: JsRedoxRunRequest) {
+  async #run(engine: { limiter: string }, request: JsRedoxRunRequest) {
+    const limits = await readLinuxResourceLimits({
+      address_space_bytes: JS_REDOX_LIMITS.addressSpaceBytes,
+      file_bytes: JS_REDOX_LIMITS.outputBytes,
+      cpu_seconds: JS_REDOX_LIMITS.cpuSeconds,
+    });
     return runOwnedCommand(
       {
         command: engine.limiter,
         arguments: [
-          `--as=${String(JS_REDOX_LIMITS.addressSpaceBytes)}`,
-          `--fsize=${String(JS_REDOX_LIMITS.outputBytes)}`,
+          `--as=${String(limits.address_space_bytes)}`,
+          `--fsize=${String(limits.file_bytes)}`,
           "--core=0",
-          `--cpu=${String(JS_REDOX_LIMITS.cpuSeconds)}`,
+          `--cpu=${String(limits.cpu_seconds)}`,
           "--",
           request.command,
           ...request.arguments,

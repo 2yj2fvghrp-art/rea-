@@ -13,6 +13,11 @@ if (mode === "nonzero") {
 }
 if (args.includes("--version")) {
   console.log(mode === "wrong-version" ? "jsvm-lift 9.9.9" : "jsvm-lift 0.1.0");
+  if (mode === "replace-version-snapshot")
+    await writeFile(
+      process.env.REA_DEOBFUSCATION_PRIVATE_ENGINE,
+      "replaced executable",
+    );
 } else {
   const input = args[0];
   const output = args[1];

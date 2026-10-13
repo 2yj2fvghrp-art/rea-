@@ -61,7 +61,7 @@ export const executeJsRedox = async (input: {
   ) => Promise<ProviderProcessSnapshot>;
 }): Promise<AnalysisExecution> => {
   const snapshotPath = join(input.runtimePath, "source.js");
-  const enginePath = await snapshotEngine(input);
+  const versionEnginePath = await snapshotEngine(input, "version");
   const outputPath = join(input.runtimePath, "deobfuscated.js");
   const reportPath = join(input.runtimePath, "report.json");
   assertActive(input.signal);
@@ -71,16 +71,16 @@ export const executeJsRedox = async (input: {
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
   const deadlineAt = Date.now() + JS_REDOX_LIMITS.timeoutMs;
-  const runWithinDeadline = (arguments_: readonly string[]) =>
+  const runWithinDeadline = (command: string, arguments_: readonly string[]) =>
     input.run({
-      command: enginePath,
+      command,
       arguments: arguments_,
       cwd: input.runtimePath,
       ...(input.signal === undefined ? {} : { signal: input.signal }),
       timeoutMs: remainingTimeoutMs(deadlineAt),
     });
 
-  const versionRun = await runWithinDeadline(["--version"]);
+  const versionRun = await runWithinDeadline(versionEnginePath, ["--version"]);
   const version = parseJsRedoxVersion(versionRun.stdout.text);
   if (version !== JS_REDOX_RELEASE.version)
     throw new AnalysisCapabilityUnavailableError(
@@ -92,7 +92,10 @@ export const executeJsRedox = async (input: {
       },
     );
 
-  const executionRun = await runWithinDeadline([
+  // runOwnedCommand has settled the complete version process family. A fresh
+  // exclusive copy cannot follow a pathname the version probe replaced.
+  const transformEnginePath = await snapshotEngine(input, "transform");
+  const executionRun = await runWithinDeadline(transformEnginePath, [
     snapshotPath,
     outputPath,
     "--report",
@@ -152,12 +155,15 @@ const assertUtf8JavaScript = (bytes: Buffer): void => {
   }
 };
 
-const snapshotEngine = async (input: {
-  readonly runtimePath: string;
-  readonly engine: JsRedoxEngine;
-  readonly signal?: AbortSignal;
-}): Promise<string> => {
-  const enginePath = join(input.runtimePath, "deobfuscate-safe");
+const snapshotEngine = async (
+  input: {
+    readonly runtimePath: string;
+    readonly engine: JsRedoxEngine;
+    readonly signal?: AbortSignal;
+  },
+  phase: "version" | "transform",
+): Promise<string> => {
+  const enginePath = join(input.runtimePath, `deobfuscate-safe-${phase}`);
   assertActive(input.signal);
   await writeFile(enginePath, input.engine.executable, {
     flag: "wx",

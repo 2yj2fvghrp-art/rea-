@@ -73,6 +73,7 @@ export class JavaScriptDeobfuscationService {
       execution.value.subject.sha256 !== result.data.source.sha256 ||
       result.data.options.max_iterations !== parsed.data.max_iterations ||
       result.data.proof.iterations > parsed.data.max_iterations ||
+      result.data.proof.analysis_source_sha256 !== result.data.output.sha256 ||
       execution.value.provider.id !== result.data.engine.id ||
       execution.value.provider.version !== result.data.engine.version
     )

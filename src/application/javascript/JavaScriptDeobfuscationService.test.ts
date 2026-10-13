@@ -101,12 +101,23 @@ describe("JavaScript deobfuscation workflow", () => {
     "missing-subject",
     "subject-mismatch",
     "engine-mismatch",
+    "proof-output-mismatch",
   ])("rejects %s returned across the provider boundary", async (mode) => {
     const service = new JavaScriptDeobfuscationService({
       deobfuscate: async () =>
         ok(
           createAnalysisExecution(
-            mode === "invalid-result" ? {} : result(),
+            mode === "invalid-result"
+              ? {}
+              : mode === "proof-output-mismatch"
+                ? {
+                    ...result(),
+                    proof: {
+                      ...result().proof,
+                      analysis_source_sha256: "b".repeat(64),
+                    },
+                  }
+                : result(),
             mode === "engine-mismatch"
               ? { ...provider, id: "other" }
               : provider,
