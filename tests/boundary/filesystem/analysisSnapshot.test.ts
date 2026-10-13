@@ -340,6 +340,24 @@ it("classifies readable non-object roots as invalid snapshot structure", async (
   }
 });
 
+it("keeps whitespace-only snapshots classified as malformed JSON", async () => {
+  const directory = await createTestTempDirectory("rea-snapshot-empty-");
+  const path = join(directory, "snapshot.json");
+  // The larger document takes the streaming parser instead of JSON.parse.
+  for (const text of [" \n", " ".repeat(9 * 1024 * 1024)]) {
+    await writeFile(path, text);
+    const result = await readAnalysisSnapshot(path);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "EvidenceFileError", reason: "invalid-json" },
+    });
+    if (result.ok) continue;
+    expect(projectAnalysisError(result.error).message).toBe(
+      "Evidence file is not valid JSON. Repair or recreate the file and try again.",
+    );
+  }
+});
+
 it("rejects copied preparation handles and prevents mutable caller values from changing authenticated cache content", () => {
   const snapshot = snapshotFixture();
   const entry = snapshot.entries[0];
