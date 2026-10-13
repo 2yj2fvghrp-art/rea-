@@ -80,9 +80,10 @@ resolution evidence and its coverage, not the boolean alone.
 ## Resume with portable Evidence
 
 Retained IDs belong to the current MCP session. `close_binary` clears its ledger,
-including unknown revisions. A successful target switch retains Evidence, but
-failed provider retirement can clear it. Export before closing, switching
-providers or handing off work so the original observations remain available:
+including unknown revisions. Target switches preserve retained Evidence, even
+when provider retirement fails; a failed switch clears the current snapshot,
+not the Evidence ledger. Export before closing, switching providers or handing
+off work when the observations must survive the current session:
 
 1. Call `export_evidence_bundle` with a caller-selected absolute local path,
    such as `{"path":"/work/investigation/evidence.json"}`. Existing files
