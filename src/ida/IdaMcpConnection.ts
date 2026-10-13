@@ -12,7 +12,10 @@ import {
 import { z } from "zod";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
-import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisProtocolError,
+  AnalysisResourceConstraintError,
+} from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 
 /** Injectable MCP boundary used by the provider and transport conformance tests. */
@@ -52,6 +55,10 @@ const toolResultSchema = z.object({
     .passthrough()
     .optional(),
 });
+
+// Legacy IDA string inventories arrive in one stdio reply. Keep that message
+// bounded while allowing inventories larger than the SDK's 10 MiB default.
+const IDA_STDIO_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 
 const parseIdaJsonText = (text: string): JsonValue => {
   let value: unknown;
@@ -145,9 +152,15 @@ export const createIdaMcpConnection = (
   const client = new Client({ name: "rea-ida-provider", version: "1" });
   let stderr = Buffer.alloc(0);
   let stderrBytes = 0;
-  const transportFailure = (cause: unknown): never => {
+  const transportFailure = (
+    cause: unknown,
+    operation = "ida_mcp_response",
+  ): never => {
+    const bufferLimit =
+      cause instanceof Error
+        ? /ReadBuffer exceeded maximum size of (\d+) bytes/u.exec(cause.message)
+        : null;
     const failure = redactIdaTransportFailure(cause, config);
-    if (stderrBytes === 0) throw failure;
     let start = 0;
     // The byte tail may start inside a UTF-8 code point. Retain whole units.
     if (stderrBytes > stderr.length)
@@ -156,16 +169,26 @@ export const createIdaMcpConnection = (
       new Error(stderr.subarray(start).toString("utf8")),
       config,
     ).message;
+    const capturedOutput = {
+      stdout: "",
+      stderr: diagnostic,
+      truncated: stderrBytes > stderr.length - start,
+      stdout_bytes: 0,
+      stderr_bytes: stderrBytes,
+    };
+    if (bufferLimit !== null)
+      throw new AnalysisResourceConstraintError(
+        operation,
+        "transport",
+        `Upstream IDA MCP reply exceeded the ${bufferLimit[1]}-byte transport limit; no partial Evidence was returned.`,
+        { max_response_bytes: Number(bufferLimit[1]) },
+        { cause, capturedOutput },
+      );
+    if (stderrBytes === 0) throw failure;
     throw new ProviderAdapterError("ida", "transport", {
       cause: failure,
       diagnostics: { reason: failure.message },
-      capturedOutput: {
-        stdout: "",
-        stderr: diagnostic,
-        truncated: stderrBytes > stderr.length - start,
-        stdout_bytes: 0,
-        stderr_bytes: stderrBytes,
-      },
+      capturedOutput,
     });
   };
   const transport =
@@ -188,6 +211,7 @@ export const createIdaMcpConnection = (
             ...snapshotEnvironment(config.env),
           },
           stderr: "pipe",
+          maxBufferSize: IDA_STDIO_MAX_MESSAGE_BYTES,
         })
       : new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: config.headers, redirect: "error" },
@@ -217,7 +241,7 @@ export const createIdaMcpConnection = (
       return decodeIdaToolResult(
         await client
           .callTool({ name, arguments: args }, { timeout: config.timeoutMs })
-          .catch(transportFailure),
+          .catch((cause: unknown) => transportFailure(cause, name)),
         config.protocol,
       );
     },
