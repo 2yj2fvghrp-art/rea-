@@ -63,11 +63,22 @@ import {
 } from "./webNetworkCaptureView.js";
 import type { WebNetworkApiSurfaceAccumulator } from "./WebNetworkApiSurfaceAccumulator.js";
 import {
+  qlogViewRequestSchema,
+  qlogViewPageSchema,
+  qlogViewContextSchema,
+} from "./qlogCaptureView.js";
+import {
   projectAndroidPackageView,
   androidPackageSummarySchema,
   androidViewRequestSchema,
   androidManifestViewItemSchema,
 } from "./androidPackageView.js";
+import {
+  projectDartAotView,
+  dartAotSummarySchema,
+  dartAotViewRequestSchema,
+  dartAotViewContextSchema,
+} from "./dartAotView.js";
 
 /** Public name of the selected-view workflow. */
 export const INSPECT_ANALYSIS_VIEW_OPERATION = "inspect_analysis_view" as const;
@@ -184,6 +195,8 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   androidViewRequestSchema,
   apiSurfaceViewSchema,
   captureViewRequestSchema,
+  qlogViewRequestSchema,
+  dartAotViewRequestSchema,
 ]);
 
 // The application owns admission and authenticated Evidence parsing. SDK and
@@ -299,6 +312,7 @@ const viewResultBase = {
     "inspect_managed_artifact",
     "inspect_web_network_capture",
     "inspect_android_package",
+    "inspect_dart_aot",
   ]),
   parent_digest: digestSchema,
   view_digest: digestSchema,
@@ -370,6 +384,13 @@ export const androidPackageSummaryViewResultSchema = z.strictObject({
   summary: androidPackageSummarySchema,
 });
 
+/** Exact snapshot and pool-coverage carrier for selected AOT delivery. */
+export const dartAotSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_dart_aot"),
+  summary: dartAotSummarySchema,
+});
+
 /** Projected facts for one selected view of retained analysis Evidence. */
 export const analysisViewResultSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -394,12 +415,21 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
       managedSummarySchema,
       captureSummarySchema,
       androidPackageSummarySchema,
+      dartAotSummarySchema,
     ]),
   }),
   z.strictObject({
     kind: z.literal("capture"),
     view: captureViewRequestSchema,
     items: captureViewItemsSchema,
+    ...viewResultBase,
+    parent_operation: z.literal("inspect_web_network_capture"),
+  }),
+  z.strictObject({
+    kind: z.literal("qlog"),
+    view: qlogViewRequestSchema,
+    page: qlogViewPageSchema,
+    context: qlogViewContextSchema,
     ...viewResultBase,
     parent_operation: z.literal("inspect_web_network_capture"),
   }),
@@ -455,6 +485,14 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     item: androidManifestViewItemSchema,
     ...viewResultBase,
     parent_operation: z.literal("inspect_android_package"),
+  }),
+  z.strictObject({
+    kind: z.literal("dart-aot"),
+    view: dartAotViewRequestSchema,
+    items: z.array(z.string()),
+    ...viewResultBase,
+    ...dartAotViewContextSchema.shape,
+    parent_operation: z.literal("inspect_dart_aot"),
   }),
   z.strictObject({
     kind: z.literal("inventory"),
@@ -523,6 +561,7 @@ export type UnsignedAnalysisView =
     >
   | Omit<Extract<AnalysisViewResult, { readonly kind: "wasm" }>, "view_digest">
   | Omit<Extract<AnalysisViewResult, { readonly kind: "evm" }>, "view_digest">
+  | Omit<Extract<AnalysisViewResult, { readonly kind: "qlog" }>, "view_digest">
   | Omit<
       Extract<AnalysisViewResult, { readonly kind: "capture" }>,
       "view_digest"
@@ -533,6 +572,10 @@ export type UnsignedAnalysisView =
     >
   | Omit<
       Extract<AnalysisViewResult, { readonly kind: "android" }>,
+      "view_digest"
+    >
+  | Omit<
+      Extract<AnalysisViewResult, { readonly kind: "dart-aot" }>,
       "view_digest"
     >;
 
@@ -579,7 +622,7 @@ const unsupportedParent = (
   new AnalysisUnsupportedTargetError(
     INSPECT_ANALYSIS_VIEW_OPERATION,
     parentArtifactPath(parent),
-    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, WASM, EVM, managed artifact, Android package, or web network capture Evidence.`,
+    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, WASM, EVM, managed artifact, Android package, Dart AOT, or web network capture Evidence.`,
   );
 
 const parentArtifactPath = (parent: AnalysisViewParent): string => {
@@ -609,6 +652,7 @@ const retainedViewProjectors = new Map<string, typeof projectWasmArtifactView>([
   ["inspect_evm_interface", projectEvmInterfaceView],
   ["inspect_managed_artifact", projectManagedArtifactView],
   ["inspect_android_package", projectAndroidPackageView],
+  ["inspect_dart_aot", projectDartAotView],
   ["inspect_artifact", projectArtifactInventoryView],
   ["inventory_artifact", projectArtifactInventoryView],
 ]);
