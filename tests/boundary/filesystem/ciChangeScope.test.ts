@@ -4,6 +4,7 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, matchesGlob } from "node:path";
@@ -109,6 +110,7 @@ it("keeps every translated root README and authored guide on the documentation l
   const head = await change(directory, [
     ...readmes,
     "docs/guide.md",
+    "native/windows/README.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
   ]);
@@ -131,6 +133,29 @@ it("does not charge a documentation PR for unrelated implementation updates on m
     package: false,
   });
 });
+
+it.each(["modify", "delete", "rename"])(
+  "keeps the packaged portable guide on the package lane after %s",
+  async (operation) => {
+    const { directory } = await fixture();
+    const path = "docs/portable-windows.md";
+    const base = await change(directory, [path], "Portable artifact input\n");
+    if (operation === "modify")
+      await writeFile(join(directory, path), "Updated portable guide\n");
+    else if (operation === "delete") await rm(join(directory, path));
+    else await rename(join(directory, path), join(directory, "docs/moved.md"));
+    const head = await commit(directory);
+    expect(await classify(directory, base, head)).toMatchObject({
+      code: true,
+      package: true,
+      runtime: true,
+      docs: true,
+      apple: false,
+      browser: false,
+      evm: false,
+    });
+  },
+);
 
 it.each([
   "src/README.md",

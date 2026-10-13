@@ -14,7 +14,8 @@ import { windowsPrivateRuntime } from "../windows/WindowsPrivateRuntime.js";
 import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { AnalysisCapturedOutput } from "../domain/analysisErrorBase.js";
-import { execFileOutputFailure } from "../process/ExecFileOutput.js";
+import { OwnedCommandFailure } from "../process/OwnedCommand.js";
+import { DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS } from "../config/providerStartupTimeout.js";
 import { boundedUtf8Text } from "../process/boundedUtf8Text.js";
 import { redactCapturedTransportCredential } from "../process/ProviderDiagnosticRedaction.js";
 import {
@@ -76,7 +77,7 @@ export type GhidraLaunchSupportDiagnostic = {
 export interface GhidraLauncher {
   launch(
     session: GhidraLaunchSession,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
   ): Promise<Result<GhidraLaunch, GhidraLaunchError | AnalysisCancelledError>>;
 }
 
@@ -119,20 +120,23 @@ export class GhidraLaunchError extends Error {
 
 /**
  * Retain a failed launcher command's exit/signal and output in the shared
- * captured-output envelope. Bounds apply at projection; truncation there stays
- * explicit, matching the compiler-outcome diagnostics.
+ * captured-output envelope. Collection and projection have independent bounds;
+ * preserve observed byte counts when collection already excluded output.
  */
 const ghidraLaunchCommandOutput = (
   cause: unknown,
 ): AnalysisCapturedOutput | undefined => {
-  const failure = execFileOutputFailure(cause);
-  if (failure === undefined) return undefined;
+  if (!(cause instanceof OwnedCommandFailure) || cause.snapshot === null)
+    return undefined;
+  const snapshot = cause.snapshot;
   return {
-    stdout: failure.stdout,
-    stderr: failure.stderr,
-    truncated: failure.outputTruncated,
-    exit_code: typeof failure.code === "number" ? failure.code : null,
-    signal: failure.signal,
+    stdout: snapshot.stdout.text,
+    stderr: snapshot.stderr.text,
+    stdout_bytes: snapshot.stdout.observedBytes,
+    stderr_bytes: snapshot.stderr.observedBytes,
+    truncated: snapshot.diagnosticTruncated === true,
+    exit_code: snapshot.exitCode ?? null,
+    signal: snapshot.signal ?? null,
   };
 };
 
@@ -164,6 +168,8 @@ export interface GhidraHeadlessLauncherOptions {
   readonly mipsSoftFloat?: true;
   /** Spawn seam for provider-boundary lifecycle tests. */
   readonly spawnProcess?: typeof spawnOwnedProviderProcess;
+  /** Spawn seam for short-lived LaunchSupport lifecycle tests. */
+  readonly spawnProbe?: typeof spawnOwnedProviderProcess;
 }
 
 /** Launch Ghidra without copying scripts into or modifying its installation. */
@@ -178,7 +184,10 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
 
   async launch(
     session: GhidraLaunchSession,
-    options: { readonly signal?: AbortSignal } = {},
+    options: {
+      readonly signal?: AbortSignal;
+      readonly timeoutMs?: number;
+    } = {},
   ): Promise<Result<GhidraLaunch, GhidraLaunchError | AnalysisCancelledError>> {
     if (isAborted(options.signal))
       return err(new AnalysisCancelledError("open_binary"));
@@ -295,6 +304,14 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         tempRoot: paths.tempRoot,
         arguments: headlessArguments,
         environment,
+        runId: session.runId,
+        timeoutMs: Math.max(
+          1,
+          options.timeoutMs ?? DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS,
+        ),
+        ...(this.options.spawnProbe === undefined
+          ? {}
+          : { spawnProbe: this.options.spawnProbe }),
         onStderr: (mode, stderr) => {
           if (stderr === "") return;
           const bytes = Buffer.byteLength(stderr);
@@ -366,6 +383,49 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       const primary = isAborted(options.signal)
         ? new AnalysisCancelledError("open_binary", { cause: launchFailure })
         : launchFailure;
+      // Command collection already attempted independent cleanup. Transfer its
+      // unresolved owner to the client, which must retain private paths until
+      // the entire probe tree is verified gone, including after cancellation.
+      if (
+        cause instanceof OwnedCommandFailure &&
+        cause.cleanupOwner !== undefined
+      ) {
+        const owner = cause.cleanupOwner;
+        return err(
+          new GhidraLaunchError(
+            `${primary.message}; LaunchSupport cleanup remains incomplete`,
+            {
+              cause: primary,
+              partialLaunch: {
+                ...owner.launch,
+                projectRoot: paths.projectRoot,
+                ghidraLogPath: paths.ghidraLogPath,
+                scriptLogPath: paths.scriptLogPath,
+                ...(launchSupport.length === 0
+                  ? {}
+                  : { launchSupport: [...launchSupport] }),
+                cleanup: async () => {
+                  const stopped = await owner.stop();
+                  return stopped.status === "incomplete"
+                    ? (stopped.cleanupResult ?? {
+                        cleaned: false,
+                        reason: stopped.reason,
+                      })
+                    : {
+                        cleaned: true,
+                        signaled:
+                          stopped.status === "terminated" ||
+                          stopped.status === "killed",
+                      };
+                },
+                ownsProcessLifetime: true,
+              },
+              launchSupport,
+              ...(capturedOutput === undefined ? {} : { capturedOutput }),
+            },
+          ),
+        );
+      }
       if (started === undefined) return err(primary);
 
       let cleanupFailure: unknown;
