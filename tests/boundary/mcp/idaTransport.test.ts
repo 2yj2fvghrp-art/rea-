@@ -68,7 +68,7 @@ type IdaTransportFixtureOptions = {
   };
   readonly toolStatus?: number;
   readonly toolContentType?: string;
-  readonly toolResponseBody?: string;
+  readonly toolResponseBody?: string | Buffer;
   readonly configurationHeaders?: Readonly<Record<string, string>>;
 };
 const fixture = async ({
@@ -967,3 +967,55 @@ it.each([200, 500])(
     });
   },
 );
+
+it.each(
+  [200, 500].flatMap((toolStatus) =>
+    ["utf-16le", "utf-16"].map((charset) => ({ toolStatus, charset })),
+  ),
+)(
+  "omits unsupported $charset diagnostic bytes from HTTP $toolStatus JSON failures",
+  async ({ toolStatus, charset }) => {
+    const credential = "charset-fixture-secret";
+    const utf16 = Buffer.from('{"reason":"' + credential + '"}', "utf16le");
+    const encoded =
+      charset === "utf-16"
+        ? Buffer.concat([Buffer.from([0xff, 0xfe]), utf16])
+        : utf16;
+    const { connection } = await fixture({
+      configurationHeaders: { Cookie: "session=" + credential },
+      toolStatus,
+      toolContentType: "application/json; charset=" + charset,
+      toolResponseBody: encoded,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error))
+      throw new Error("Expected unsupported encoded JSON error");
+    expect(failure.message).toMatch(/body.*omitted|omitted.*body/iu);
+    expect(failure.message).not.toContain(encoded.toString("utf8"));
+    const inspected = inspect(failure, {
+      depth: null,
+      showHidden: true,
+      maxStringLength: null,
+    });
+    expect(
+      inspected
+        .replaceAll("\\x00", "")
+        .replaceAll("\\u0000", "")
+        .replaceAll("\0", ""),
+    ).not.toContain(credential);
+  },
+);
+
+it("retains successfully parsed analysis values despite unsupported declared charset metadata", async () => {
+  const observed = "charset-fixture-secret";
+  const { connection } = await fixture({
+    configurationHeaders: { Cookie: "session=" + observed },
+    toolContentType: "application/json; charset=utf-16le",
+    toolResult: { content: [], structuredContent: { observed } },
+  });
+  await connection.connect();
+  expect(await connection.call("first", {})).toEqual({ observed });
+});

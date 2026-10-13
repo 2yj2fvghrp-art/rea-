@@ -171,7 +171,10 @@ const diagnosticFetch =
           const value: unknown = JSON.parse(text);
           return value;
         } catch {
-          throw new IdaHttpJsonError(safeBody ?? redactor.json(text));
+          // Parsing failure owns diagnostics even when the HTTP status succeeded.
+          throw new IdaHttpJsonError(
+            safeBody ?? httpErrorBody(response, text, redactor),
+          );
         }
       },
     });
