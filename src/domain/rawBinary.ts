@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import type { BinaryArchitecture } from "./binaryTargetTypes.js";
+import type {
+  BinaryArchitecture,
+  HeaderArchitecture,
+} from "./binaryTargetTypes.js";
 import type { ExecutableFormatHint } from "./dosCom.js";
 import { err, ok, type Result } from "./result.js";
 
@@ -56,7 +59,7 @@ export const validateRawBinaryLength = (
 
 /** Admitted headerless load identity used by target resolution and profiles. */
 export interface RawBinaryAdmission {
-  readonly architecture: Exclude<BinaryArchitecture, "mips">;
+  readonly architecture: HeaderArchitecture | "6502";
   readonly entryPoint: string;
   readonly entryPointSource: string;
 }

@@ -67,6 +67,7 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "arm64",
   "mips",
   "6502",
+  "riscv",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless import. */
