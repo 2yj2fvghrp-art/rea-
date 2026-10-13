@@ -210,6 +210,13 @@ export async function verifyBrowserWorkers(
     const exportedWorkers = manifest.scripts.filter(
       (s) => s.source.kind === "worker-script",
     );
+    for (const worker of explicit.workers)
+      assert.ok(
+        worker.observation.completeness.excluded.some(
+          ({ section, reason }) =>
+            section === "json_body_shapes" && reason === "not_approved",
+        ),
+      );
     assert.deepEqual(
       manifest.worker_coverage,
       explicit.workers.map((worker) => ({

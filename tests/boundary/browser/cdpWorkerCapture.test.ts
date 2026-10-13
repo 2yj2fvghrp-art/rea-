@@ -15,6 +15,82 @@ import {
 
 const source = 'postMessage("worker 🧪");';
 
+it("retains selected worker metadata with explicit coverage limits on direct page transports", async () => {
+  const { provider, input, browser } = await fixture({
+    pageScopedVersionWebSocket: true,
+    omitTargetWebSocket: true,
+  });
+  const result = await provider.inspectPage({
+    ...input,
+    worker_target_ids: ["shared"],
+  });
+  if (!result.ok) throw result.error;
+  const worker = result.value.workers.find(
+    ({ target_id }) => target_id === "shared",
+  )!.observation!;
+  expect(worker.selected_explicitly).toBe(true);
+  expect(worker.scripts).toEqual([]);
+  expect(worker.completeness.unavailable_sections).toEqual(
+    expect.arrayContaining(["scripts", "network_requests"]),
+  );
+  expect(worker.limitations.join(" ")).toContain("browser-level CDP WebSocket");
+  expect(
+    browser.commands.some(
+      ({ method, sessionId }) =>
+        method === "Target.attachToTarget" ||
+        method === "Target.detachFromTarget" ||
+        method === "Target.setAutoAttach" ||
+        sessionId !== undefined,
+    ),
+  ).toBe(false);
+});
+
+it.each(["explicit", "auto"] as const)(
+  "rejects empty worker session IDs from %s attachments",
+  async (kind) => {
+    const { provider, input, browser } = await fixture({
+      commandResult: (command) =>
+        kind === "explicit" &&
+        command.method === "Target.attachToTarget" &&
+        command.params.targetId === "shared"
+          ? { sessionId: "" }
+          : undefined,
+      commandEvents: (command, origin) =>
+        kind === "auto" &&
+        command.method === "Target.setAutoAttach" &&
+        command.params.autoAttach === true
+          ? [
+              {
+                method: "Target.attachedToTarget",
+                sessionId: "session-1",
+                params: {
+                  sessionId: "",
+                  targetInfo: {
+                    targetId: "own",
+                    type: "worker",
+                    url: origin + "/same.js",
+                    attached: true,
+                  },
+                },
+              },
+            ]
+          : undefined,
+    });
+    const result = await provider.inspectPage({
+      ...input,
+      worker_target_ids: kind === "explicit" ? ["shared"] : [],
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { reason: "protocol_error" },
+    });
+    expect(browser.commands.some(({ sessionId }) => sessionId === "")).toBe(
+      false,
+    );
+    await vi.waitFor(() => expect(browser.activeConnectionCount()).toBe(0));
+  },
+);
+
 it.each([
   ["https://foreign.example/a.js", "disallowed_origin"],
   ["file:///worker.js", "unsupported_url"],
@@ -57,6 +133,12 @@ it("preserves worker coverage and warnings through CLI export even without worke
   )!;
   const observation = own.observation!;
   expect(observation.scripts).toEqual([]);
+  expect(observation.network_requests).toEqual([]);
+  expect(observation.completeness.excluded).toContainEqual({
+    section: "json_body_shapes",
+    reason: "not_approved",
+    count: null,
+  });
   expect(observation.completeness.unavailable_sections).toContain("scripts");
   result.value.workers.push({
     ...own,
@@ -96,6 +178,28 @@ it("preserves worker coverage and warnings through CLI export even without worke
     worker_coverage: expect.arrayContaining(expected),
   });
 }, 30000);
+
+it.each([false, true])(
+  "retains worker JSON-shape selection with no requests: %s",
+  async (selected) => {
+    const { provider, input } = await fixture();
+    const result = await provider.inspectPage({
+      ...input,
+      include_json_body_shapes: selected,
+    });
+    if (!result.ok) throw result.error;
+    const own = result.value.workers.find(
+      ({ target_id }) => target_id === "own",
+    )!.observation!;
+    expect(own.network_requests).toEqual([]);
+    expect(
+      own.completeness.excluded.some(
+        ({ section, reason }) =>
+          section === "json_body_shapes" && reason === "not_approved",
+      ),
+    ).toBe(!selected);
+  },
+);
 
 it("does not enter worker observation for page-only bundle analysis", async () => {
   const { provider, input, browser } = await fixture({

@@ -262,6 +262,11 @@ To observe one explicitly, use a returned worker target ID:
 ```
 
 The CLI equivalent adds `--worker-target-ids SHARED_WORKER_ID`.
+
+Worker runtime attachment requires a browser-level CDP WebSocket. With a direct
+page transport, REA retains available worker inventory and explicit selections,
+but reports worker scripts and network requests as unavailable with a transport
+limitation. It does not issue browser attachment commands on that page socket.
 Explicit selection retains unknown page ownership and still enforces the allowed
 origin boundary. The first observation progress notification is emitted after
 the page and initial worker observers are armed; external actions can follow it.

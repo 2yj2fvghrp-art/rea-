@@ -72,20 +72,21 @@ export class CdpWorkerCapture {
       }
     });
     await this.#command("ServiceWorker.enable", {}, this.context.sessionId);
-    await this.#command(
-      "Target.setAutoAttach",
-      {
-        autoAttach: true,
-        waitForDebuggerOnStart: false,
-        flatten: true,
-        filter: [
-          { type: "worker" },
-          { type: "service_worker" },
-          { exclude: true },
-        ],
-      },
-      this.context.sessionId,
-    );
+    if (this.context.sessionId !== undefined)
+      await this.#command(
+        "Target.setAutoAttach",
+        {
+          autoAttach: true,
+          waitForDebuggerOnStart: false,
+          flatten: true,
+          filter: [
+            { type: "worker" },
+            { type: "service_worker" },
+            { exclude: true },
+          ],
+        },
+        this.context.sessionId,
+      );
     await this.#inventory();
     for (const id of this.context.input.worker_target_ids ?? []) {
       const worker = this.#workers.get(id);
@@ -94,7 +95,11 @@ export class CdpWorkerCapture {
           this.context.operation,
           "target_not_allowed",
         );
-      if (worker.sessionId !== undefined) continue;
+      if (
+        worker.sessionId !== undefined ||
+        this.context.sessionId === undefined
+      )
+        continue;
       const result = recordValue(
         await this.#command(
           "Target.attachToTarget",
@@ -139,7 +144,9 @@ export class CdpWorkerCapture {
           worker.events.completeness.snapshot();
         if (!worker.enabled)
           worker.item.observation.limitations.push(
-            "Worker source and runtime observation unavailable without proven page ownership or explicit target selection.",
+            this.context.sessionId === undefined
+              ? "Worker runtime observation requires a browser-level CDP WebSocket; this endpoint exposes a direct page transport."
+              : "Worker source and runtime observation unavailable without proven page ownership or explicit target selection.",
           );
         return worker.item;
       })
@@ -166,11 +173,12 @@ export class CdpWorkerCapture {
         /* Socket close is the definitive release boundary. */
       }
     };
-    await send(
-      "Target.setAutoAttach",
-      { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
-      this.context.sessionId,
-    );
+    if (this.context.sessionId !== undefined)
+      await send(
+        "Target.setAutoAttach",
+        { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+        this.context.sessionId,
+      );
     await send("ServiceWorker.disable", {}, this.context.sessionId);
     for (const [sessionId, worker] of this.#sessions)
       if (!worker.detached)
@@ -302,6 +310,7 @@ export class CdpWorkerCapture {
       return;
     }
     if (event.method === "Target.attachedToTarget") {
+      if (this.context.sessionId === undefined) return;
       const parent =
         event.sessionId === this.context.sessionId
           ? undefined
@@ -481,6 +490,11 @@ export class CdpWorkerCapture {
   }
 
   #attach(worker: WorkerState, sessionId: string): void {
+    if (sessionId.length === 0)
+      throw new BrowserObservationError(
+        this.context.operation,
+        "protocol_error",
+      );
     if (worker.sessionId === sessionId) return;
     if (worker.sessionId !== undefined)
       throw new BrowserObservationError(
