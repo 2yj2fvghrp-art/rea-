@@ -280,6 +280,37 @@ describe("JavaScript semantic analysis: read-modify-write", () => {
   });
 });
 
+describe("JavaScript semantic analysis: wrapped binding targets", () => {
+  it("records a wrapped identifier update as a read before a write", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      let count = 1;
+      count! += 1;
+      (count as number)++;
+      const copy = count!;
+    `);
+    expect(
+      ir.references
+        .filter(({ name }) => name === "count")
+        .map(({ role }) => role),
+    ).toEqual(["read", "write", "read", "write", "read"]);
+    expect(topLevelBinding(ir, "count").value).toMatchObject({
+      status: "unknown",
+    });
+  });
+
+  it("records a wrapped identifier assignment as a write of its value", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      let count = 1;
+      count! = 2;
+    `);
+    expect(
+      ir.references
+        .filter(({ name }) => name === "count")
+        .map(({ role }) => role),
+    ).toEqual(["write"]);
+  });
+});
+
 describe("JavaScript semantic analysis: dataflow 2", () => {
   it("retains partial property coverage and empty returns", () => {
     const partial = analyzeJavaScriptSemantics(`

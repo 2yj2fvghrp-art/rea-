@@ -26,9 +26,11 @@ import {
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 import {
   propertyName,
+  semanticStaticPropertyKey,
+  semanticWrappedWriteSite,
   semanticWriteSiteReadsFirst,
   semanticWriteSiteTarget,
-  semanticStaticPropertyKey,
+  unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import {
   isTypeOnlyExportDeclaration,
@@ -177,12 +179,17 @@ export function* collectSemanticReferencesSteps(
           !patterns.some((pattern) => bindsIdentifier(pattern, parent, node)))
       )
         return;
-      const role = semanticIdentifierRole(node, parent, readAncestors());
+      const ancestors = readAncestors();
+      const role = semanticIdentifierRole(node, parent, ancestors);
       if (role === null) return;
       // A compound assignment or update reads before it writes; emit both so
       // reference consumers see the read they actually execute.
       const roles =
-        role === "write" && semanticReadsBeforeWrite(node, parent)
+        role === "write" &&
+        semanticReadsBeforeWrite(
+          node,
+          semanticWrappedWriteSite(node, parent, ancestors) ?? parent,
+        )
           ? (["read", "write"] as const)
           : ([role] as const);
       for (const resolvedRole of roles) {
@@ -596,10 +603,15 @@ const declarationCallableId = (
  */
 export const semanticReadsBeforeWrite = (
   node: t.Node,
-  parent: t.Node,
-): boolean =>
-  semanticWriteSiteTarget(parent) === node &&
-  semanticWriteSiteReadsFirst(parent);
+  site: t.Node,
+): boolean => {
+  const target = semanticWriteSiteTarget(site);
+  return (
+    target !== null &&
+    unwrapJavaScriptExpression(target).node === node &&
+    semanticWriteSiteReadsFirst(site)
+  );
+};
 
 /**
  * Role of one identifier occurrence, given the node's ancestry.
@@ -620,6 +632,8 @@ export const semanticIdentifierRole = (
     if (isPatternOwnerDeclaration(patternAncestor)) return null;
     return "write";
   }
+  const site = semanticWrappedWriteSite(node, parent, ancestors);
+  if (site !== null && site !== parent && !isDeleteSite(site)) return "write";
   return semanticReferenceRole(node, parent);
 };
 
@@ -707,6 +721,10 @@ export const semanticReferenceRole = (
   if (t.isExportSpecifier(parent) && parent.local === node) return "export";
   return "read";
 };
+
+// `delete x` is a sloppy-mode global removal and stays a read of `x`.
+const isDeleteSite = (site: t.Node): boolean =>
+  t.isUnaryExpression(site, { operator: "delete" });
 
 const isDeclarationIdentifier = (
   node: t.Identifier,

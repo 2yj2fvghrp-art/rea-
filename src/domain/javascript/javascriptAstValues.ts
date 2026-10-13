@@ -112,6 +112,34 @@ export const semanticWriteSiteReadsFirst = (site: t.Node): boolean =>
   (t.isAssignmentExpression(site) && site.operator !== "=") ||
   t.isUpdateExpression(site);
 
+/**
+ * The write site whose target is `node` once inert wrappers (`x!`,
+ * `x as T`, parentheses) are removed, or null. `ancestors` is outermost-first
+ * and may end with `parent`. A wrapped target such as `(count as number)++`
+ * has a wrapper as its immediate parent, so the parent alone cannot say that
+ * the identifier or member is written.
+ */
+export const semanticWrappedWriteSite = (
+  node: t.Node,
+  parent: t.Node,
+  ancestors: readonly t.Node[],
+): t.Node | null => {
+  const chain =
+    ancestors.at(-1) === parent ? ancestors : [...ancestors, parent];
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    const candidate = chain[index];
+    if (candidate === undefined) return null;
+    const target = semanticWriteSiteTarget(candidate);
+    if (target !== null)
+      return unwrapJavaScriptExpression(target).node === node
+        ? candidate
+        : null;
+    // Only an inert wrapper may sit between a target and its write site.
+    if (unwrapJavaScriptExpression(candidate).depth === 0) return null;
+  }
+  return null;
+};
+
 /** Visit binding and member leaves in direct and destructuring write targets. */
 export function* semanticWriteTargets(
   root: t.Node,
