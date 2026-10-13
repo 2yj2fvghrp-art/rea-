@@ -15,6 +15,14 @@ const shellExamples = (content: string): string[] =>
   );
 
 describe("onboarding documentation product facts", () => {
+  it("offers Kurdish navigation from every README identified in review", async () => {
+    for (const locale of ["fr", "ja", "zh", "zh-TW"]) {
+      const path = `docs/readme/README_${locale}.md`;
+      const content = await readFile(resolve(path), "utf8");
+      expect(content, path).toContain("[کوردی](README_ku.md)");
+    }
+  });
+
   it.each([
     ["docs/native-investigation.md", "raw-binary.md#nmos-6502"],
     ["docs/ghidra-riscv.md", "raw-binary.md"],
@@ -51,7 +59,8 @@ describe("onboarding documentation product facts", () => {
       .filter((language) => language.code !== "en")
       .map((language) => language.readme);
     expect(translatedReadmes).toContain("docs/readme/README_it.md");
-    expect(translatedReadmes).toHaveLength(18);
+    expect(translatedReadmes).toContain("docs/readme/README_ku.md");
+    expect(translatedReadmes).toHaveLength(19);
     const english = shellExamples(await readFile(resolve("README.md"), "utf8"));
     for (const path of translatedReadmes)
       expect(
