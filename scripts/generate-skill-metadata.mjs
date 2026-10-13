@@ -60,7 +60,36 @@ const specifiersIn = (text) =>
 // version. Prose that names the package ("the rea-agents package", "npx with
 // the rea-agents package") is not a package operand and passes.
 const packageCommand =
-  /(?:^|[\s`"'(;&|])(npx|pnpx|bunx|npm|pnpm|yarn|bun)(?=\s)/gu;
+  /(?:^|[\s`"'(;&|])(npx|pnpx|bunx|npm|pnpm|yarn|bun)(?=\s)/uy;
+const packageCommandsIn = (text) => {
+  const matches = [];
+  let quote = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "\\" && quote !== "'" && index + 1 < text.length) {
+      index += 1;
+      continue;
+    }
+    if (quote !== "") {
+      if (character === quote) quote = "";
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    packageCommand.lastIndex = index;
+    const match = packageCommand.exec(text);
+    if (match) {
+      matches.push({
+        index: packageCommand.lastIndex - match[1].length,
+        manager: match[1],
+      });
+      index = packageCommand.lastIndex - 1;
+    }
+  }
+  return matches;
+};
 // Parse quoted words once, before interpreting runner options and operands.
 const commandWords = (text) => {
   const words = [];
@@ -78,6 +107,10 @@ const commandWords = (text) => {
     } else if (character === '"' || character === "'") {
       quote = character;
       started = true;
+    } else if (character === "`") {
+      if (started) words.push(word);
+      word = "";
+      started = false;
     } else if (";&|".includes(character)) {
       if (started) words.push(word);
       words.push(character);
@@ -97,6 +130,8 @@ const commandWords = (text) => {
 };
 const valueOptions = new Set([
   "--cache",
+  "--omit",
+  "--package",
   "--prefix",
   "--registry",
   "--userconfig",
@@ -200,7 +235,9 @@ const commandPackageOperands = (manager, words) => {
     globalAdd ||
     (manager === "npm"
       ? npmInstallVerbs.has(verb)
-      : ["install", "i", "add"].includes(verb));
+      : ["install", "i", "add", ...(manager === "bun" ? ["a"] : [])].includes(
+          verb,
+        ));
   if (!installs && !["exec", "x", "dlx"].includes(verb)) return [];
   // Preserve manager options as operands; --package may precede the verb.
   // Tokenization gives multi-space and continued "global add" one identity.
@@ -211,13 +248,13 @@ const commandPackageOperands = (manager, words) => {
 };
 const commandPackagesIn = (text) => {
   const commands = text.replaceAll(/\\\r?\n/gu, " ");
-  const matches = [...commands.matchAll(packageCommand)];
+  const matches = packageCommandsIn(commands);
   return matches
     .flatMap((match, index) => {
-      const start = match.index + match[0].length;
+      const start = match.index + match.manager.length;
       const end = matches[index + 1]?.index ?? commands.length;
       return commandPackageOperands(
-        match[1],
+        match.manager,
         commandWords(commands.slice(start, end)),
       );
     })
