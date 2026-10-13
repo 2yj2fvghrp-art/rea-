@@ -92,6 +92,16 @@ describe("Ghidra function-analysis result values", () => {
       limitations: ["Only the first instruction range was examined."],
     },
     { status: "unknown", reason: "Relationship inventory was unavailable." },
+    {
+      status: "partial",
+      limitations: ["Missing callers."],
+      limited_directions: ["callers"],
+    },
+    {
+      status: "unknown",
+      reason: "Missing callees.",
+      limited_directions: ["callees"],
+    },
   ])("preserves observed $status relationship coverage", (coverage) => {
     const parsed = parseGhidraFunctionResult("analyze_function", {
       value: ghidraFunctionDossier(),
@@ -112,11 +122,21 @@ describe("Ghidra function-analysis result values", () => {
     if (!parsed.ok) throw parsed.error;
     expect(parsed.value).not.toHaveProperty("relationshipCoverage");
   });
+});
 
+describe("Ghidra relationship metadata validation", () => {
   it.each([
     { status: "partial", limitations: [] },
     { status: "unknown", reason: "" },
     { status: "complete", limitations: ["Truncated."] },
+    { status: "partial", limitations: ["Truncated."], limited_directions: [] },
+    {
+      status: "partial",
+      limitations: ["Truncated."],
+      limited_directions: ["callers", "callers"],
+    },
+    { status: "unknown", reason: "Missing.", limited_directions: ["incoming"] },
+    { status: "complete", limited_directions: ["callers"] },
   ])("rejects malformed relationship coverage %j", (coverage) => {
     expect(
       parseGhidraFunctionResult("analyze_function", {

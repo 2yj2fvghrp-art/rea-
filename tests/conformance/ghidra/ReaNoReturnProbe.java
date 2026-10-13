@@ -133,11 +133,24 @@ public class ReaNoReturnProbe extends GhidraScript {
             callees.setAccessible(true);
             JsonObject inventory = (JsonObject) callees.invoke(bridge, query, false);
             require("omitted_callee_inventory_stays_partial", inventory.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
+            require("omitted_callee_direction_is_explicit",
+                inventory.getAsJsonObject("relationship_coverage").getAsJsonArray("limited_directions").toString().equals("[\"callees\"]"));
             require("interior_caller_omitted_by_entry_getter", !target.getCallingFunctions(monitor).contains(caller));
             query.addProperty("procedure", target.getName());
             JsonObject incoming = (JsonObject) callees.invoke(bridge, query, true);
             require("off_entry_caller_inventory_stays_partial",
                 incoming.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
+            require("off_entry_caller_direction_is_explicit",
+                incoming.getAsJsonObject("relationship_coverage").getAsJsonArray("limited_directions").toString().equals("[\"callers\"]"));
+            JsonObject dossierQuery = new JsonObject();
+            dossierQuery.addProperty("procedure", target.getName());
+            Method analyze = bridge.getClass().getDeclaredMethod("analyzeFunctionObservation", JsonObject.class);
+            analyze.setAccessible(true);
+            Object observation = analyze.invoke(bridge, dossierQuery);
+            Method coverage = observation.getClass().getDeclaredMethod("relationshipCoverage");
+            coverage.setAccessible(true);
+            require("dossier_preserves_caller_only_gap",
+                ((JsonObject) coverage.invoke(observation)).getAsJsonArray("limited_directions").toString().equals("[\"callers\"]"));
         } finally {
             if (changed != null) references.delete(changed);
             for (MemoryCallReference reference : saved) {
@@ -145,6 +158,43 @@ public class ReaNoReturnProbe extends GhidraScript {
                     reference.type(), reference.sourceType(), reference.operandIndex());
                 references.setPrimary(restored, reference.primary());
             }
+        }
+    }
+
+    private void nonCallInstructionReference(GhidraScript bridge) throws Exception {
+        Function caller = function("rea_tls_chain");
+        Function target = function("rea_memcpy");
+        Instruction source = null;
+        for (Instruction instruction : currentProgram.getListing().getInstructions(caller.getBody(), true)) {
+            if (!instruction.getFlowType().isCall()) { source = instruction; break; }
+        }
+        if (source == null) throw new IllegalStateException("Missing non-call instruction");
+        var references = currentProgram.getReferenceManager();
+        Reference added = references.addMemoryReference(source.getAddress(), target.getEntryPoint().add(1),
+            RefType.UNCONDITIONAL_CALL, SourceType.USER_DEFINED, -1);
+        try {
+            require("non_call_reference_target_omitted", !caller.getCalledFunctions(monitor).contains(target));
+            JsonObject query = new JsonObject();
+            query.addProperty("document", currentProgram.getName());
+            query.addProperty("procedure", caller.getName());
+            Method read = bridge.getClass().getDeclaredMethod("procedureCalls", JsonObject.class, boolean.class);
+            read.setAccessible(true);
+            JsonObject output = (JsonObject) read.invoke(bridge, query, false);
+            require("non_call_instruction_reference_stays_partial",
+                output.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
+            query.addProperty("direction", "outgoing");
+            Method edges = bridge.getClass().getDeclaredMethod("procedureReferences", JsonObject.class);
+            edges.setAccessible(true);
+            JsonObject known = (JsonObject) edges.invoke(bridge, query);
+            require("non_call_known_reference_is_not_unresolved", known.getAsJsonArray("unresolved_calls").isEmpty());
+            references.delete(added);
+            Address unknown = currentProgram.getMemory().getMaxAddress().add(0x1000);
+            added = references.addMemoryReference(source.getAddress(), unknown,
+                RefType.UNCONDITIONAL_CALL, SourceType.USER_DEFINED, -1);
+            JsonObject unresolved = (JsonObject) edges.invoke(bridge, query);
+            require("non_call_unknown_reference_keeps_site", unresolved.getAsJsonArray("unresolved_calls").size() == 1);
+        } finally {
+            references.delete(added);
         }
     }
 
@@ -227,6 +277,8 @@ public class ReaNoReturnProbe extends GhidraScript {
             Object output = pseudocode.invoke(bridge, query);
             require("recovered_pseudocode", output instanceof JsonObject value &&
                 value.get("value").getAsString().contains("rea_after_call"));
+            nonCallInstructionReference(bridge);
+            knownInteriorCall(bridge);
         } finally {
             ((ghidra.app.decompiler.DecompInterface) field.get(bridge)).dispose();
         }
@@ -234,7 +286,6 @@ public class ReaNoReturnProbe extends GhidraScript {
         for (var item : imports.entrySet()) bodies.put(function(item.getKey()), new AddressSet(function(item.getKey()).getBody()));
         repair.invoke(fix);
         require("idempotent_body_repair", bodies.entrySet().stream().allMatch(item -> item.getValue().equals(item.getKey().getBody())));
-        knownInteriorCall(bridge);
         JsonObject report = new JsonObject();
         report.addProperty("status", "passed");
         report.addProperty("ghidra_version", Application.getApplicationVersion());

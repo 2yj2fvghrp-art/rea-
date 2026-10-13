@@ -36,7 +36,7 @@ import {
   NATIVE_AOT_PROFILE_CONTRACT_REVISION,
 } from "../domain/native/nativeAotPe.js";
 
-const callRelationshipCoverage = "function-body-call-coverage-v4";
+const callRelationshipCoverage = "function-body-call-coverage-v5";
 
 /**
  * The processor language REA pins for this target, or undefined when Ghidra may

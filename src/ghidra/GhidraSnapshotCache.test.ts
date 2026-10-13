@@ -144,6 +144,11 @@ describe("Ghidra relationship coverage replay", () => {
     { status: "complete", diagnostics: ["Resolved static references only."] },
     { status: "partial", limitations: ["Instruction coverage was truncated."] },
     { status: "unknown", reason: "Relationship inventory was unavailable." },
+    {
+      status: "partial",
+      limitations: ["Missing callers."],
+      limited_directions: ["callers"],
+    },
   ] satisfies (RelationshipCoverage | undefined)[])(
     "preserves relationship coverage %j through live execution, cache and snapshot replay",
     async (coverage) => {
@@ -190,18 +195,23 @@ describe("Ghidra snapshot profile admission", () => {
     },
     {
       parameter: "call_relationship_coverage",
-      current: "function-body-call-coverage-v4",
+      current: "function-body-call-coverage-v5",
       legacy: "resolved-call-reference-diagnostics-v1",
     },
     {
       parameter: "call_relationship_coverage",
-      current: "function-body-call-coverage-v4",
+      current: "function-body-call-coverage-v5",
       legacy: "decoded-call-target-coverage-v2",
     },
     {
       parameter: "call_relationship_coverage",
-      current: "function-body-call-coverage-v4",
+      current: "function-body-call-coverage-v5",
       legacy: "decoded-call-target-coverage-v3",
+    },
+    {
+      parameter: "call_relationship_coverage",
+      current: "function-body-call-coverage-v5",
+      legacy: "function-body-call-coverage-v4",
     },
   ])(
     "refuses snapshots with outdated $parameter semantics",
