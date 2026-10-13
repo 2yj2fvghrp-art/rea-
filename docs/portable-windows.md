@@ -26,8 +26,8 @@ Command Prompt expands `%NAME%` in command text before the launcher runs. Caller
 with delayed expansion enabled (`cmd /v:on` or `EnableDelayedExpansion`) also
 expand `!NAME!` before `rea.cmd` starts. The wrapper cannot recover altered
 arguments; use the PowerShell entrypoint for inputs containing `%` or `!`.
-If local policy disables PowerShell scripts, call the bundled runtime directly:
-`& .\runtime\node.exe .\app\scripts\rea.mjs --help`. The same CLI arguments apply.
+If local policy disables PowerShell scripts, call the bundled bootstrap directly:
+`& .\runtime\node.exe .\runtime\launch.mjs --help`. The same CLI arguments apply.
 
 External tools such as Ghidra, Java, Hopper, browsers, and optional analysis
 toolchains are not included. Prepare the tools needed for your task separately

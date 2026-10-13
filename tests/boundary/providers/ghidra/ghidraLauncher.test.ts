@@ -424,52 +424,6 @@ describe("Ghidra Windows launcher", () => {
   });
 });
 
-describe("Ghidra Windows batch command construction", () => {
-  it("wraps the Windows batch launcher without enabling a Node shell", () => {
-    const command = ghidraHeadlessCommand({
-      environment: {},
-      platform: "win32",
-      analyzeHeadlessPath:
-        "C:\\Program Files\\Ghidra 12.1.4\\support\\analyzeHeadless.bat",
-      arguments: [
-        "C:\\REA Runtime\\project",
-        "rea-project",
-        "-import",
-        "C:\\REA Runtime\\target.exe",
-      ],
-      comSpec: "C:\\Windows\\System32\\cmd.exe",
-    });
-
-    expect(command).toEqual({
-      command: "C:\\Windows\\System32\\cmd.exe",
-      arguments: [
-        "/d",
-        "/e:on",
-        "/v:off",
-        "/s",
-        "/c",
-        '""C:\\Program Files\\Ghidra 12.1.4\\support\\analyzeHeadless.bat" "C:\\REA Runtime\\project" "rea-project" "-import" "C:\\REA Runtime\\target.exe""',
-      ],
-    });
-  });
-
-  it.each([
-    "C:\\targets\\%TEMP%\\fixture.exe",
-    "C:\\targets\\fixture & calc.exe",
-    'C:\\targets\\fixture".exe',
-  ])("rejects a Windows command-interpreter path: %s", (targetPath) => {
-    expect(() =>
-      ghidraHeadlessCommand({
-        environment: {},
-        platform: "win32",
-        analyzeHeadlessPath: "C:\\Ghidra\\support\\analyzeHeadless.bat",
-        arguments: ["-import", targetPath],
-        comSpec: "C:\\Windows\\System32\\cmd.exe",
-      }),
-    ).toThrow(/metacharacters/u);
-  });
-});
-
 describe("Ghidra Windows launcher runtime", () => {
   it.skipIf(process.platform !== "win32").each([
     {

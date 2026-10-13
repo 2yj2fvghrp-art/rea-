@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 
 import {
   hashPortableFile,
+  readPortableManifest,
   verifyPortableInventory,
 } from "../../../scripts/lib/portable-inventory.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -38,6 +39,19 @@ it("rejects an unexpected file size", async () => {
     "Portable file size mismatch",
   );
   await unlink(path);
+});
+
+it("bounds portable manifest bytes and file entries before inventory work", async () => {
+  const { root } = await fixture();
+  const path = join(root, "portable.json");
+  await writeFile(path, Buffer.alloc(8 * 1024 * 1024 + 1));
+  await expect(readPortableManifest(path)).rejects.toThrow(
+    "exceeds the 8 MiB limit",
+  );
+  await writeFile(path, JSON.stringify({ files: Array(50_001).fill({}) }));
+  await expect(readPortableManifest(path)).rejects.toThrow(
+    "exceeds the 50,000-file limit",
+  );
 });
 
 it("accepts the complete regular-file set excluding its own manifest", async () => {

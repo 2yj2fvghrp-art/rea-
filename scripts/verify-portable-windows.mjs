@@ -18,6 +18,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse as parseToml } from "smol-toml";
 import {
   hashPortableFile,
+  readPortableManifest,
   verifyPortableInventory,
 } from "./lib/portable-inventory.mjs";
 
@@ -30,9 +31,7 @@ const directory = resolve(values.directory);
 const reportStage = (stage) =>
   console.error(`[portable verification] ${stage}`);
 reportStage("inventory and SHA-256");
-const manifest = JSON.parse(
-  await readFile(join(directory, "portable.json"), "utf8"),
-);
+const manifest = await readPortableManifest(join(directory, "portable.json"));
 await verifyPortableInventory(directory, manifest.files);
 for (const file of manifest.files) {
   const path = resolve(directory, file.path);

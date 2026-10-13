@@ -3,6 +3,55 @@ import { createHash } from "node:crypto";
 import { open, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+const MAX_PORTABLE_MANIFEST_BYTES = 8 * 1024 * 1024;
+const MAX_PORTABLE_MANIFEST_FILES = 50_000;
+
+/** Read and bound an untrusted portable inventory before using its entries. */
+export async function readPortableManifest(path) {
+  const file = await open(path, "r");
+  let chunks;
+  let size = 0;
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile())
+      throw new Error("Portable manifest must be a regular file.");
+    if (metadata.size > MAX_PORTABLE_MANIFEST_BYTES)
+      throw new Error("Portable manifest exceeds the 8 MiB limit.");
+    chunks = [];
+    const buffer = Buffer.alloc(64 * 1024);
+    while (size <= MAX_PORTABLE_MANIFEST_BYTES) {
+      const { bytesRead } = await file.read(
+        buffer,
+        0,
+        Math.min(buffer.length, MAX_PORTABLE_MANIFEST_BYTES + 1 - size),
+        size,
+      );
+      if (bytesRead === 0) break;
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+      size += bytesRead;
+    }
+    if (size > MAX_PORTABLE_MANIFEST_BYTES)
+      throw new Error("Portable manifest exceeds the 8 MiB limit.");
+  } finally {
+    await file.close();
+  }
+
+  const manifest = JSON.parse(
+    new TextDecoder("utf-8", { fatal: true }).decode(
+      Buffer.concat(chunks, size),
+    ),
+  );
+  if (
+    typeof manifest !== "object" ||
+    manifest === null ||
+    !Array.isArray(manifest.files)
+  )
+    throw new Error("Portable manifest must contain a files array.");
+  if (manifest.files.length > MAX_PORTABLE_MANIFEST_FILES)
+    throw new Error("Portable manifest exceeds the 50,000-file limit.");
+  return manifest;
+}
+
 /** Hash one opened file with bounded buffers; reject size mismatches before reads. */
 export async function hashPortableFile(path, expectedSize) {
   const file = await open(path, "r");
