@@ -507,15 +507,8 @@ const createOwnedCleanupPlan = async (
     const scanFailures = tokenOwned.failures.filter(({ pid }) =>
       members.some((member) => member.pid === pid),
     );
-    if (failures.length > 0)
-      // The sweep already recorded one failure per unreadable member; a second
-      // entry for the same live process would be counted twice in the cleanup
-      // diagnostic. Keep one observation per PID.
-      unresolved.push(
-        ...failures.filter(
-          ({ pid }) => !unresolved.some((entry) => entry.pid === pid),
-        ),
-      );
+    for (const failure of failures)
+      mergeProcessOwnershipFailure(unresolved, failure);
     if (
       failures.length === 0 &&
       scanFailures.length === 0 &&
@@ -540,6 +533,36 @@ const createOwnedCleanupPlan = async (
     unverified: tokenOwned.unverified,
   };
 };
+
+/** Keep one current, most useful ownership diagnosis for each live PID. */
+const mergeProcessOwnershipFailure = (
+  failures: ProcessOwnershipValidationFailure[],
+  next: ProcessOwnershipValidationFailure,
+): void => {
+  const index = failures.findIndex(({ pid }) => pid === next.pid);
+  if (index < 0) {
+    failures.push(next);
+    return;
+  }
+  const previous = failures[index];
+  if (
+    previous !== undefined &&
+    ownershipFailurePriority(next.reason) >=
+      ownershipFailurePriority(previous.reason)
+  )
+    failures[index] = next;
+};
+
+const ownershipFailurePriority = (
+  reason: ProcessOwnershipValidationFailure["reason"],
+): number =>
+  reason === "run-token-mismatch"
+    ? 3
+    : reason === "process-identity-unavailable"
+      ? 2
+      : reason === "environment-unreadable"
+        ? 1
+        : 0;
 
 const revalidateOwnedProcessGroup = async (
   processGroupId: number,
