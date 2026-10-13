@@ -79,9 +79,15 @@ export const prepareSessionExecution = (
   const cacheable =
     profile !== undefined &&
     isSnapshotCacheable(operation, capability, parameters);
-  const cached = cacheable
-    ? lookupSnapshot(active.target, profile, operation, parameters)
-    : undefined;
+  // A Windows reparse component can resolve to the same bytes while its
+  // caller-selected path has not passed the provider's native admission.
+  const canonicalPathForReplay =
+    process.platform !== "win32" ||
+    (active.target.sourcePath ?? active.target.path) === active.target.path;
+  const cached =
+    cacheable && canonicalPathForReplay
+      ? lookupSnapshot(active.target, profile, operation, parameters)
+      : undefined;
   return ok({ active, capability, profile, cacheable, cached });
 };
 

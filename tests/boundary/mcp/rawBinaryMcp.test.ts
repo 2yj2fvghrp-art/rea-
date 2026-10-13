@@ -10,7 +10,8 @@ import { createServer } from "../../../src/server/createServer.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import type { AnalysisProvider } from "../../../src/application/AnalysisProvider.js";
 import { createAnalysisProfile } from "../../../src/domain/analysisProfile.js";
-import { ok } from "../../../src/domain/result.js";
+import { ProviderAdapterError } from "../../../src/domain/providerAdapterError.js";
+import { err, ok } from "../../../src/domain/result.js";
 import { observed } from "../../fixtures/analysisExecution.js";
 import {
   createCacheProvider,
@@ -254,7 +255,7 @@ it("reuses a canonical raw entry and replaces the session when the entry changes
 });
 
 it.skipIf(process.platform !== "win32")(
-  "replaces a Windows raw session when its requested path changes to a junction",
+  "does not replay a saved read after switching to a Windows junction",
   async () => {
     const root = await createTestTempDirectory("rea-raw-mcp-linked-reopen-");
     const actual = join(root, "actual");
@@ -274,6 +275,13 @@ it.skipIf(process.platform !== "win32")(
           execute: (operation) => {
             if (operation === "address_name")
               executed.push(target.sourcePath ?? target.path);
+            if (
+              operation === "address_name" &&
+              target.sourcePath === join(linked, "image.bin")
+            )
+              return Promise.resolve(
+                err(new ProviderAdapterError("fixture", operation)),
+              );
             return Promise.resolve(
               observed(operation === "address_name" ? "entry" : null),
             );
@@ -282,7 +290,8 @@ it.skipIf(process.platform !== "win32")(
         };
       },
     });
-    for (const requested of [path, join(linked, "image.bin")]) {
+    const linkedPath = join(linked, "image.bin");
+    for (const requested of [path, linkedPath]) {
       const opened = await client.callTool({
         name: "open_binary",
         arguments: {
@@ -295,11 +304,13 @@ it.skipIf(process.platform !== "win32")(
       expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
       const address = await client.callTool({
         name: "address_name",
-        arguments: { address: "0x8001" },
+        arguments: { address: "0x8001", document: "image.bin" },
       });
-      expect(address.isError, JSON.stringify(address)).not.toBe(true);
+      expect(address.isError === true, JSON.stringify(address)).toBe(
+        requested === linkedPath,
+      );
     }
-    expect(created).toEqual([path, join(linked, "image.bin")]);
-    expect(executed).toEqual([path, join(linked, "image.bin")]);
+    expect(created).toEqual([path, linkedPath]);
+    expect(executed).toEqual([path, linkedPath]);
   },
 );
