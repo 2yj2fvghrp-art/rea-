@@ -122,6 +122,40 @@ cliTest(
   },
 );
 
+cliTest(
+  "retains bridge and handler conditions on Electron IPC join edges",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-join-conditions-");
+    await writeFixtureFiles(root, {
+      "preload.js": `const e=require("electron");
+        e.contextBridge.exposeInMainWorld("desktop", {
+          choose: flag
+            ? () => e.ipcRenderer.send("test:copy")
+            : () => e.ipcRenderer.send("test:cut")
+        });`,
+      "main.js": `const e=require("electron");
+        e.ipcMain.on("test:copy",event=>allowed(event)&&event.sender.copy());
+        e.ipcMain.on("test:cut",event=>allowed(event)&&event.sender.cut());`,
+    });
+    const { graph } = await analyzeJavaScriptDirectory("CLI", cli, root);
+    const joins = graph.edges.filter(
+      (edge) =>
+        edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+    );
+    expect(joins).toHaveLength(2);
+    for (const [channel, bridgeCondition] of [
+      ["test:copy", "flag"],
+      ["test:cut", "!(flag)"],
+    ]) {
+      const edge = joins.find((candidate) => candidate.properties.channel === channel);
+      expect(edge?.properties.conditions).toEqual([
+        expect.objectContaining({ expression: bridgeCondition }),
+        expect.objectContaining({ expression: "allowed(event)" }),
+      ]);
+    }
+  },
+);
+
 for (const surface of ["CLI", "stdio MCP"] as const) {
   cliTest(
     `preserves handler ambiguity and short-circuit factory paths through ${surface}`,

@@ -156,7 +156,7 @@ export const addElectronCallPaths = (
             pairing_basis: "unique-exact-literal-channel",
             resolution: "candidate",
             handler_path: to.file.path,
-            conditions: to.path.conditions,
+            conditions: [...from.path.conditions, ...to.path.conditions],
           },
           limitations: [
             "The unique static channel match does not establish runtime registration, sender acceptance, or dispatch.",
