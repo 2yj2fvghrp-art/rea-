@@ -343,6 +343,61 @@ describe("artifact comparison", () => {
 });
 
 describe("artifact comparison completeness", () => {
+  it("does not infer child changes from root-only coverage", async () => {
+    const root = await createTestTempDirectory("rea-artifact-root-coverage-");
+    const leftPath = join(root, "left.app");
+    const rightPath = join(root, "right.app");
+    await Promise.all([mkdir(leftPath), mkdir(rightPath)]);
+    await Promise.all([
+      writeFile(join(leftPath, "left-only.txt"), "left"),
+      writeFile(join(rightPath, "right-only.txt"), "right"),
+    ]);
+    const [left, right] = await Promise.all([
+      observe(leftPath),
+      observe(rightPath),
+    ]);
+    const rootOnly = (evidence: Awaited<ReturnType<typeof observe>>) => {
+      const inventory = artifactInventoryResultSchema.parse(
+        evidence.normalized_result,
+      );
+      return createEvidence(
+        {
+          path: evidence.subject?.local_path ?? "",
+          sha256: inventory.manifest.root_sha256,
+          format: inventory.manifest.root_format,
+        },
+        PROVIDER,
+        {
+          operation: "inventory_artifact",
+          parameters: {},
+          result: jsonValueSchema.parse({
+            ...inventory,
+            coverage: { scope: "root", status: "complete" },
+          }),
+          confidence: "derived",
+          authority: "shipped-artifact",
+        },
+      );
+    };
+    const compared = compareArtifacts(rootOnly(left), rootOnly(right));
+    expect(compared.status).toBe("unknown");
+    expect(compared.summary).toMatchObject({ added: 0, removed: 0 });
+    expect(
+      compared.changes
+        .filter(({ logical_path }) => logical_path !== ".")
+        .map(({ logical_path, classification }) => ({
+          logical_path,
+          classification,
+        })),
+    ).toEqual([
+      { logical_path: "left-only.txt", classification: "unknown" },
+      { logical_path: "right-only.txt", classification: "unknown" },
+    ]);
+    expect(compared.limitations).toContain(
+      "Container entry coverage is unavailable for child paths.",
+    );
+  });
+
   it("compares every graph member for inventories larger than 500 entries", async () => {
     const root = await createTestTempDirectory("rea-artifact-pages-");
     const entryCount = 501;

@@ -40,7 +40,10 @@ export interface InventorySet {
 export const hasCompleteInventoryCoverage = (
   inventory: InventorySet,
   requiredScope: ArtifactInventoryCoverage["scope"],
-): boolean => inventory.complete && inventory.coverage.scope === requiredScope && inventory.coverage.status === "complete";
+): boolean =>
+  inventory.complete &&
+  inventory.coverage.scope === requiredScope &&
+  inventory.coverage.status === "complete";
 
 export interface ParsedInventorySet {
   readonly evidence: readonly Evidence[];
@@ -138,7 +141,10 @@ const assembleInventoryResults = (
     throw new TypeError("Artifact inventory requires Evidence pages");
   const manifestJson = canonicalJson(first.manifest, "Artifact inventory");
   const coverageJson = canonicalJson(
-    { coverage: first.coverage ?? null, coverage_status: first.coverage_status ?? null },
+    {
+      coverage: first.coverage ?? null,
+      coverage_status: first.coverage_status ?? null,
+    },
     "Artifact inventory coverage",
   );
   const nodes = new Map<string, ArtifactNode>();
@@ -150,7 +156,10 @@ const assembleInventoryResults = (
       throw new TypeError("Artifact inventory pages do not share one manifest");
     if (
       canonicalJson(
-        { coverage: page.coverage ?? null, coverage_status: page.coverage_status ?? null },
+        {
+          coverage: page.coverage ?? null,
+          coverage_status: page.coverage_status ?? null,
+        },
         "Artifact inventory coverage",
       ) !== coverageJson
     )
