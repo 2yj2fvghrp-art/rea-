@@ -114,7 +114,11 @@ Wildcards remain unconstrained even with an explicit mask. At least one bit
 must be constrained.
 
 Optional `start` and `end` addresses are inclusive and select one address space.
-Without bounds, all memory blocks are eligible, in Ghidra address order.
+A match must end at or before `end`, so `end` set inside a match excludes it.
+Without bounds, loaded memory blocks are eligible, in Ghidra address order.
+Blocks that are not loaded (file parts such as `.symtab`) and overlay blocks are
+listed in `searched.skipped_not_loaded` and are not searched; pass `start` or
+`end` in their address space to search them.
 Overlapping matches are included; matches never cross block boundaries.
 Each match reports its address, segment, unique source file offset (or null),
 and containing procedure (or null).

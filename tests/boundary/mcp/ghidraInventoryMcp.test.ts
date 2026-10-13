@@ -37,6 +37,9 @@ it("retains byte-search coverage and rejects malformed pages before creating Evi
       skipped_uninitialized: [
         { segment: ".bss", start: "0x402000", end: "0x40200f", bytes: 16 },
       ],
+      skipped_not_loaded: [
+        { segment: ".symtab", start: "0x0", end: "0x17f", bytes: 384 },
+      ],
     },
     complete: false,
     next_cursor: "continuation",

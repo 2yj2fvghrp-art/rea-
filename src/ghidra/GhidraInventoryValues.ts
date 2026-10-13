@@ -296,6 +296,7 @@ const resultSchemas = {
       ...[
         ...value.searched.blocks,
         ...value.searched.skipped_uninitialized,
+        ...value.searched.skipped_not_loaded,
       ].flatMap((block) => [block.start, block.end]),
     ];
     if (addresses.some((value) => !canonicalAddress.safeParse(value).success))

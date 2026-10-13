@@ -47,7 +47,12 @@ describe("official operation arguments", () => {
           name === "search_bytes"
             ? {
                 matches: [],
-                searched: { blocks: [], bytes: 0, skipped_uninitialized: [] },
+                searched: {
+                  blocks: [],
+                  bytes: 0,
+                  skipped_uninitialized: [],
+                  skipped_not_loaded: [],
+                },
                 complete: true,
                 next_cursor: null,
               }

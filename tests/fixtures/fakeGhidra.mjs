@@ -304,6 +304,7 @@ const inventoryResultFor = (method, params) => {
           skipped_uninitialized: [
             { segment: ".bss", start: "0x2000", end: "0x200f", bytes: 16 },
           ],
+          skipped_not_loaded: [],
         },
         complete: !paged,
         next_cursor: paged ? "fixture-second-page" : null,
