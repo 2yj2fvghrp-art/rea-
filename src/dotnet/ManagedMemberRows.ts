@@ -282,8 +282,8 @@ export const parseMethods = ({
     issues,
   );
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
-    // The owner is read first: a failed row hides a selected body only when
-    // its owner is selected or unknown.
+    // The owner is read first: a row that produced no method hides a selected
+    // body only when its owner is selected, unknown, or unreadably named.
     const owner =
       ownerRow === undefined
         ? undefined
@@ -292,7 +292,9 @@ export const parseMethods = ({
     const mayBeSelected =
       selected === null ||
       owner === undefined ||
-      isSelected(selected, declared);
+      isSelected(selected, declared) ||
+      // A type whose name is unreadable may be one the caller requested.
+      declared?.fullName === null;
     const produced = methods.length;
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 6, row);

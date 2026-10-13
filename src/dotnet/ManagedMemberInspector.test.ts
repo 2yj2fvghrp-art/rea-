@@ -1673,6 +1673,8 @@ describe("managed member type selection", () => {
 
     expect(result.selection?.unmatched_type_names).toEqual(["Fixture.Program"]);
     expect(result.coverage.state).toBe("partial");
+    // Its methods were never inspected, so neither were their literals.
+    expect(result.user_strings?.state).toBe("partial");
     expect(result.limitations).toContain(
       "1 TypeDef name(s) could not be read; a name in selection.unmatched_type_names may belong to one of them, so its absence is not observed.",
     );
