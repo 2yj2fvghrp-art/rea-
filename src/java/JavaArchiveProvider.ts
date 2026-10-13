@@ -28,7 +28,9 @@ export class JavaArchiveProvider implements JavaArchivePort {
   }
 
   close(): Promise<void> {
-    return this.#decompiler.close();
+    return Promise.all([this.#reader.close(), this.#decompiler.close()]).then(
+      () => undefined,
+    );
   }
 
   inspectArchive(input: InspectJavaArchiveInput, options?: ExecutionOptions) {

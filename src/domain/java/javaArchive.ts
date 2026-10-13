@@ -37,16 +37,23 @@ export type JavaAnnotation = {
   elements: { name: string; value: JavaAnnotationValue }[];
 };
 
-const annotationSchema: z.ZodType<JavaAnnotation> = z.lazy(() =>
+const annotationSchemaAt = (depth: number): z.ZodType<JavaAnnotation> =>
   z.strictObject({
     type: z.string(),
     visibility: z.enum(["runtime-visible", "runtime-invisible"]).nullable(),
-    elements: z.array(
-      z.strictObject({ name: z.string(), value: annotationValueSchema }),
-    ),
-  }),
-);
-const annotationValueSchema: z.ZodType<JavaAnnotationValue> = z.lazy(() =>
+    elements:
+      depth > 16
+        ? z.array(z.never())
+        : z.array(
+            z.strictObject({
+              name: z.string(),
+              value: annotationValueSchemaAt(depth),
+            }),
+          ),
+  });
+const annotationValueSchemaAt = (
+  depth: number,
+): z.ZodType<JavaAnnotationValue> =>
   z.discriminatedUnion("kind", [
     z.strictObject({
       kind: z.literal("constant"),
@@ -59,10 +66,28 @@ const annotationValueSchema: z.ZodType<JavaAnnotationValue> = z.lazy(() =>
       name: z.string(),
     }),
     z.strictObject({ kind: z.literal("class"), descriptor: z.string() }),
-    z.strictObject({ kind: z.literal("annotation"), annotation: annotationSchema }),
-    z.strictObject({ kind: z.literal("array"), values: z.array(annotationValueSchema) }),
-  ]),
-);
+    z.strictObject({
+      kind: z.literal("annotation"),
+      annotation:
+        depth >= 16
+          ? z.strictObject({
+              type: z.string(),
+              visibility: z
+                .enum(["runtime-visible", "runtime-invisible"])
+                .nullable(),
+              elements: z.array(z.never()),
+            })
+          : annotationSchemaAt(depth + 1),
+    }),
+    z.strictObject({
+      kind: z.literal("array"),
+      values:
+        depth >= 16
+          ? z.array(z.never())
+          : z.array(annotationValueSchemaAt(depth + 1)),
+    }),
+  ]);
+const annotationSchema = annotationSchemaAt(0);
 const constantSchema = z.union([z.string(), z.number()]).nullable();
 /** Selected bytes, classified by content: a ZIP-backed archive or one class file. */
 const artifactSchema = z.strictObject({
@@ -157,6 +182,7 @@ export const javaArchiveSchema = z.strictObject({
         z.strictObject({ name: z.string(), value: z.string() }),
       ),
       main_class: z.string().nullable(),
+      omitted_attributes: z.number().int().nonnegative(),
     })
     .nullable(),
   metadata_files: z.array(

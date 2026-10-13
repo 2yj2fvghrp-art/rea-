@@ -1,4 +1,5 @@
 import type { ExecutionOptions } from "../application/AnalysisProvider.js";
+import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import type { JavaArchivePort } from "../application/java/JavaArchivePort.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
@@ -30,12 +31,17 @@ import {
   parseManifestMainSection,
   type JavaInputSnapshot,
 } from "./JavaArchiveReader.js";
-import { JavaClassFormatFailure, parseJavaClassFile } from "./JavaClassFile.js";
+import {
+  JavaClassFormatFailure,
+  parseJavaClassFile,
+  parseJavaClassName,
+} from "./JavaClassFile.js";
 
 const NATIVE_LIBRARY = /\.(?:so|dll|dylib|jnilib)$/iu;
 const NESTED_ARCHIVE = /\.(?:jar|war|ear|zip)$/iu;
 const SIGNATURE_FILE = /^META-INF\/[^/]+\.(?:SF|RSA|DSA|EC)$/iu;
 const SHORT_NAME = 2;
+const ARCHIVE_CLASS_ROW_BYTES = 16 * 1024 * 1024;
 
 const STRUCTURE_LIMITATION =
   "Class facts are parsed from declared class-file structure without executing, loading or verifying bytecode. Method bodies are measured but not decoded; use decompile_java_class for a source representation.";
@@ -109,6 +115,11 @@ export class JavaClassFileProvider implements Pick<
   "inspectArchive" | "inspectClass"
 > {
   readonly identity = JAVA_CLASSFILE_PROVIDER_IDENTITY;
+  readonly #resources = new ArtifactResourceScope();
+
+  close(): Promise<void> {
+    return this.#resources.close();
+  }
 
   async inspectArchive(
     input: InspectJavaArchiveInput,
@@ -142,7 +153,7 @@ export class JavaClassFileProvider implements Pick<
           entry: selected.entry,
           entry_id: selected.entryId,
           class: selected.parsed,
-          nested_class_entries: selected.nested.map(({ entry }) => entry),
+          nested_class_entries: selected.nestedEntries,
           limitations: [STRUCTURE_LIMITATION],
         };
       },
@@ -156,8 +167,14 @@ export class JavaClassFileProvider implements Pick<
     work: (snapshot: JavaInputSnapshot) => Promise<T> | T,
   ): Promise<Result<T, AnalysisError>> {
     try {
-      const snapshot = await admitJavaInput(path, options?.signal);
-      const value = await work(snapshot);
+      const value = await this.#resources.run(async () => {
+        const snapshot = await admitJavaInput(
+          path,
+          options?.signal,
+          this.#resources,
+        );
+        return work(snapshot);
+      });
       options?.signal?.throwIfAborted();
       return ok(value);
     } catch (cause: unknown) {
@@ -224,6 +241,8 @@ export class JavaClassFileProvider implements Pick<
       const metadata: JavaArchive["metadata_files"] = [];
       let omittedMetadata = 0;
       let omittedClasses = 0;
+      let omittedClassRows = 0;
+      let classRowBytes = 0;
       const pathLists = [
         "native_libraries",
         "nested_archives",
@@ -256,6 +275,8 @@ export class JavaClassFileProvider implements Pick<
       };
       const classes: ArchiveClassFacts[] = [];
       const malformed: JavaArchive["malformed_classes"] = [];
+      let malformedBytes = 0;
+      let omittedMalformed = 0;
       for (const entry of entries) {
         signal?.throwIfAborted();
         if (entry.encrypted) counts.encrypted += 1;
@@ -278,16 +299,31 @@ export class JavaClassFileProvider implements Pick<
               JAVA_ARCHIVE_LIMITS.classBytes,
               signal,
             );
-            classes.push(
-              archiveClassFacts(
-                entry.path,
-                parseJavaClassFile(bytes, { mode: "archive-summary" }),
-                entry.adapterKey,
-              ),
+            const facts = archiveClassFacts(
+              entry.path,
+              parseJavaClassFile(bytes, { mode: "archive-summary" }),
+              entry.adapterKey,
             );
+            const rowBytes = Buffer.byteLength(
+              JSON.stringify(facts.row),
+              "utf8",
+            );
+            if (rowBytes > ARCHIVE_CLASS_ROW_BYTES - classRowBytes)
+              omittedClassRows += 1;
+            else {
+              classRowBytes += rowBytes;
+              classes.push(facts);
+            }
           } catch (cause: unknown) {
             if (!(cause instanceof JavaClassFormatFailure)) throw cause;
-            malformed.push({ entry: entry.path, reason: cause.message });
+            const candidate = { entry: entry.path, reason: cause.message };
+            const cost = Buffer.byteLength(JSON.stringify(candidate), "utf8");
+            if (malformed.length >= 100 || cost > 64 * 1024 - malformedBytes)
+              omittedMalformed += 1;
+            else {
+              malformedBytes += cost;
+              malformed.push(candidate);
+            }
           }
           continue;
         }
@@ -330,7 +366,9 @@ export class JavaClassFileProvider implements Pick<
         metadata_files: metadata,
         entries: counts,
         malformed_classes: malformed,
+        malformedClassesOmitted: omittedMalformed,
         omittedClasses,
+        omittedClassRows,
       });
       for (const kind of pathLists)
         if (omittedPaths[kind] > 0)
@@ -340,6 +378,14 @@ export class JavaClassFileProvider implements Pick<
       if (omittedMetadata > 0)
         report.limitations.push(
           `${String(omittedMetadata)} recognized metadata descriptors were omitted after the ${String(JAVA_ARCHIVE_LIMITS.metadataFiles)}-file resource limit; metadata_files is incomplete.`,
+        );
+      if (omittedMalformed > 0)
+        report.limitations.push(
+          `${String(omittedMalformed)} malformed class entries were omitted after the 100-entry/64 KiB JSON text budget; malformed_classes is incomplete.`,
+        );
+      if (manifest !== null && manifest.omitted_attributes > 0)
+        report.limitations.push(
+          `${String(manifest.omitted_attributes)} manifest main-section attributes were omitted after the 100-entry/64 KiB JSON text budget; manifest.attributes and main_class may be incomplete.`,
         );
       return report;
     } finally {
@@ -355,7 +401,11 @@ const summarize = (
   observed: Pick<
     JavaArchive,
     "manifest" | "metadata_files" | "entries" | "malformed_classes"
-  > & { readonly omittedClasses: number },
+  > & {
+    readonly omittedClasses: number;
+    readonly omittedClassRows?: number;
+    readonly malformedClassesOmitted?: number;
+  },
 ): JavaArchive => {
   const versions = new Map<number, number>();
   const packages = new Map<string, { classes: number; short: number }>();
@@ -379,6 +429,10 @@ const summarize = (
   if (observed.omittedClasses > 0)
     limitations.push(
       `${String(observed.omittedClasses)} class entries were not parsed because their declared sizes were unknown or exceeded the remaining ${String(JAVA_ARCHIVE_LIMITS.totalClassBytes)}-byte class inventory budget; class and package summaries are incomplete.`,
+    );
+  if ((observed.omittedClassRows ?? 0) > 0)
+    limitations.push(
+      `${String(observed.omittedClassRows)} class summaries were not retained after the ${String(ARCHIVE_CLASS_ROW_BYTES)}-byte class-row JSON budget; class and package summaries are incomplete.`,
     );
   const allPackageRows = [...packages.entries()]
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
@@ -419,7 +473,10 @@ const summarize = (
     whole === 0 ? 0 : part / whole;
   return {
     artifact: javaArtifactIdentity(snapshot),
-    ...observed,
+    manifest: observed.manifest,
+    metadata_files: observed.metadata_files,
+    entries: observed.entries,
+    malformed_classes: observed.malformed_classes,
     bytecode_versions: [...versions.entries()]
       .sort(([left], [right]) => left - right)
       .map(([major, count]) => ({
@@ -467,6 +524,7 @@ export interface SelectedJavaClass {
     readonly entry: string;
     readonly bytes: Buffer;
   }[];
+  readonly nestedEntries: readonly string[];
 }
 
 /** Resolve one class by exact entry path; a lone .class file must match any requested name. */
@@ -497,6 +555,7 @@ export const selectJavaClass = async (
       parsed,
       bytes: snapshot.bytes,
       nested: [],
+      nestedEntries: [],
     };
   }
   if (className === undefined)
@@ -549,9 +608,9 @@ export const selectJavaClass = async (
           JAVA_ARCHIVE_LIMITS.classBytes,
           signal,
         );
-        let parsed: JavaClass;
+        let parsedName: string;
         try {
-          parsed = parseJavaClassFile(bytes);
+          parsedName = parseJavaClassName(bytes);
         } catch (cause) {
           if (cause instanceof JavaClassFormatFailure) {
             // A malformed matching coordinate is not proof of absence.
@@ -568,7 +627,7 @@ export const selectJavaClass = async (
           }
           throw cause;
         }
-        if (parsed.name !== wanted) continue;
+        if (parsedName !== wanted) continue;
         if (selected !== undefined)
           throw new AnalysisInputError(operation, undefined, [
             {
@@ -577,30 +636,33 @@ export const selectJavaClass = async (
               message: `Binary name ${className} occurs at ${selected.entry.path} and ${entry.path}; select an exact .class entry or unique entry_id from inspect_java_archive.`,
             },
           ]);
-        selected = { entry, bytes, parsed };
+        selected = { entry, bytes, parsed: parseJavaClassFile(bytes) };
       }
     }
     if (selected === undefined) throw missingJavaClass(operation, className);
     const { entry, bytes, parsed } = selected;
     const nestedPrefix = `${entry.path.slice(0, -".class".length)}$`;
+    const nestedCandidates = entries.filter((candidate) =>
+      candidate.path.startsWith(nestedPrefix),
+    );
     const nested = [];
     if (includeNested)
-      for (const candidate of entries)
-        if (candidate.path.startsWith(nestedPrefix))
-          nested.push({
-            entry: candidate.path,
-            bytes: await archive.read(
-              candidate,
-              JAVA_ARCHIVE_LIMITS.classBytes,
-              signal,
-            ),
-          });
+      for (const candidate of nestedCandidates)
+        nested.push({
+          entry: candidate.path,
+          bytes: await archive.read(
+            candidate,
+            JAVA_ARCHIVE_LIMITS.classBytes,
+            signal,
+          ),
+        });
     return {
       entry: entry.path,
       entryId: entry.adapterKey,
       parsed,
       bytes,
       nested,
+      nestedEntries: nestedCandidates.map(({ path }) => path),
     };
   } finally {
     await archive.close();

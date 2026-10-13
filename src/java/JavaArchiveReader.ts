@@ -4,6 +4,7 @@ import {
   type ArtifactEntry,
 } from "../artifacts/ArtifactReader.js";
 import { readStableArtifact } from "../artifacts/readStableArtifact.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { ZipArtifactReader } from "../artifacts/ZipArtifactReader.js";
 import type { JavaArchive } from "../domain/java/javaArchive.js";
 import { hasZipSignature } from "../domain/zipPackageFormat.js";
@@ -64,11 +65,14 @@ export const javaArtifactIdentity = (snapshot: JavaInputSnapshot) => ({
 export const admitJavaInput = async (
   path: string,
   signal?: AbortSignal,
+  resources?: ArtifactResourceScope,
 ): Promise<JavaInputSnapshot> => {
   const { bytes, sha256 } = await readStableArtifact(
     path,
     JAVA_ARCHIVE_LIMITS.inputBytes,
     signal,
+    undefined,
+    resources,
   );
   // Universal Mach-O shares this magic; its next word is a small slice count,
   // where a class file carries minor/major versions with major >= 45.
@@ -274,23 +278,16 @@ export const parseManifestMainSection = (
 ): NonNullable<JavaArchive["manifest"]> => {
   // The manifest's 72-byte wrapping may split a UTF-8 character. Unfold
   // physical bytes before asking the UTF-8 decoder to interpret a header.
-  const lines: Buffer[][] = [];
-  for (let start = 0; start < bytes.length;) {
-    let end = start;
-    while (end < bytes.length && bytes[end] !== 10 && bytes[end] !== 13)
-      end += 1;
-    const line = bytes.subarray(start, end);
-    start = end + (bytes[end] === 13 && bytes[end + 1] === 10 ? 2 : 1);
-    if (line.length === 0) break;
-    if (line[0] === 32 && lines.length > 0)
-      lines.at(-1)!.push(line.subarray(1));
-    else lines.push([line]);
-  }
   const attributes: { name: string; value: string }[] = [];
-  for (const chunks of lines) {
+  let attributeBytes = 0;
+  let omittedAttributes = 0;
+  let chunks: Buffer[] = [];
+  let length = 0;
+  const finishHeader = (): void => {
+    if (chunks.length === 0) return;
     let line: string;
     try {
-      line = STRICT_UTF8.decode(Buffer.concat(chunks));
+      line = STRICT_UTF8.decode(Buffer.concat(chunks, length));
     } catch (cause: unknown) {
       throw new JavaArchiveFormatFailure(
         "malformed",
@@ -298,21 +295,51 @@ export const parseManifestMainSection = (
         { cause },
       );
     }
+    chunks = [];
+    length = 0;
     const separator = line.indexOf(": ");
     if (separator <= 0)
       throw new JavaArchiveFormatFailure(
         "malformed",
         `META-INF/MANIFEST.MF has a malformed header line: ${JSON.stringify(line.slice(0, 80))}.`,
       );
-    attributes.push({
+    const attribute = {
       name: line.slice(0, separator),
       value: line.slice(separator + 2),
-    });
+    };
+    const cost = Buffer.byteLength(JSON.stringify(attribute), "utf8");
+    if (attributes.length >= 100 || cost > 64 * 1024 - attributeBytes)
+      omittedAttributes += 1;
+    else {
+      attributes.push(attribute);
+      attributeBytes += cost;
+    }
+  };
+  for (let start = 0; start < bytes.length;) {
+    let end = start;
+    while (end < bytes.length && bytes[end] !== 10 && bytes[end] !== 13)
+      end += 1;
+    const line = bytes.subarray(start, end);
+    start = end + (bytes[end] === 13 && bytes[end + 1] === 10 ? 2 : 1);
+    if (line.length === 0) {
+      finishHeader();
+      break;
+    }
+    if (line[0] === 32 && chunks.length > 0) {
+      chunks.push(line.subarray(1));
+      length += line.length - 1;
+    } else {
+      finishHeader();
+      chunks = [line];
+      length = line.length;
+    }
   }
+  finishHeader();
   return {
     attributes,
     main_class:
       attributes.find(({ name }) => name.toLowerCase() === "main-class")
         ?.value ?? null,
+    omitted_attributes: omittedAttributes,
   };
 };

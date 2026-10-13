@@ -282,6 +282,15 @@ class ConstantPool {
   reportUtf8(index: number, what: string): string {
     const text = this.utf8(index, what);
     if (!this.retainReportDetails) return text;
+    return this.#reportRetainedText(index, text);
+  }
+
+  reportRetainedUtf8(index: number, what: string): string {
+    const text = this.utf8(index, what);
+    return this.#reportRetainedText(index, text);
+  }
+
+  #reportRetainedText(index: number, text: string): string {
     let cost = this.#textCosts.get(index);
     if (cost === undefined) {
       // JSON escaping can expand one code unit sixfold. Cache the exact encoded
@@ -301,16 +310,18 @@ class ConstantPool {
     this.#annotationNodes += count;
   }
 
-  className(index: number, what: string): string {
+  className(index: number, what: string, retain = true): string {
     const entry = this.#entry(index, what);
     if (entry.tag !== 7)
       throw new JavaClassFormatFailure(
         `${what} entry ${String(index)} is not a class reference.`,
       );
-    return this.reportUtf8(entry.index, what);
+    return retain
+      ? this.reportRetainedUtf8(entry.index, what)
+      : this.utf8(entry.index, what);
   }
 
-  constantValue(index: number): string | number {
+  constantValue(index: number, retain = true): string | number {
     const entry = this.#entry(index, "ConstantValue");
     switch (entry.tag) {
       case 3:
@@ -319,7 +330,9 @@ class ConstantPool {
       case 6:
         return entry.value;
       case 8:
-        return this.reportUtf8(entry.index, "ConstantValue string");
+        return retain
+          ? this.reportUtf8(entry.index, "ConstantValue string")
+          : this.utf8(entry.index, "ConstantValue string");
       default:
         throw new JavaClassFormatFailure(
           `ConstantValue entry ${String(index)} is not a literal.`,
@@ -332,6 +345,7 @@ const readAnnotationValue = (
   cursor: ByteCursor,
   pool: ConstantPool,
   depth: number,
+  retainDetails: boolean,
 ): JavaAnnotationValue => {
   if (depth > ANNOTATION_DEPTH)
     throw new JavaClassFormatFailure("Annotation values nest too deeply.");
@@ -346,37 +360,53 @@ const readAnnotationValue = (
     case "J":
     case "S":
     case "Z": {
-      const value = pool.constantValue(cursor.u2());
+      const value = pool.constantValue(cursor.u2(), retainDetails);
       return { kind: "constant", descriptor: tag, value };
     }
     case "s":
       return {
         kind: "constant",
         descriptor: "s",
-        value: pool.reportUtf8(cursor.u2(), "Annotation string"),
+        value: retainDetails
+          ? pool.reportUtf8(cursor.u2(), "Annotation string")
+          : pool.utf8(cursor.u2(), "Annotation string"),
       };
     case "e":
       return {
         kind: "enum",
-        type: pool.reportUtf8(cursor.u2(), "Annotation enum type"),
-        name: pool.reportUtf8(cursor.u2(), "Annotation enum constant"),
+        type: retainDetails
+          ? pool.reportUtf8(cursor.u2(), "Annotation enum type")
+          : pool.utf8(cursor.u2(), "Annotation enum type"),
+        name: retainDetails
+          ? pool.reportUtf8(cursor.u2(), "Annotation enum constant")
+          : pool.utf8(cursor.u2(), "Annotation enum constant"),
       };
     case "c":
       return {
         kind: "class",
-        descriptor: pool.reportUtf8(cursor.u2(), "Annotation class"),
+        descriptor: retainDetails
+          ? pool.reportUtf8(cursor.u2(), "Annotation class")
+          : pool.utf8(cursor.u2(), "Annotation class"),
       };
     case "@":
       return {
         kind: "annotation",
-        annotation: readAnnotation(cursor, pool, depth + 1),
+        annotation: readAnnotation(
+          cursor,
+          pool,
+          depth + 1,
+          undefined,
+          retainDetails,
+        ),
       };
     case "[": {
       pool.reserveAnnotationNodes();
       const count = cursor.u2();
       const values: JavaAnnotationValue[] = [];
       for (let index = 0; index < count; index += 1)
-        values.push(readAnnotationValue(cursor, pool, depth + 1));
+        values.push(
+          readAnnotationValue(cursor, pool, depth + 1, retainDetails),
+        );
       return { kind: "array", values };
     }
     default:
@@ -391,16 +421,22 @@ const readAnnotation = (
   pool: ConstantPool,
   depth: number,
   visibility: JavaAnnotation["visibility"] = null,
+  retainDetails = true,
 ): JavaAnnotation => {
   pool.reserveAnnotationNodes(2);
-  const type = pool.reportUtf8(cursor.u2(), "Annotation type");
+  const typeIndex = cursor.u2();
+  const type = retainDetails
+    ? pool.reportUtf8(typeIndex, "Annotation type")
+    : pool.utf8(typeIndex, "Annotation type");
   const count = cursor.u2();
   const elements: JavaAnnotation["elements"] = [];
   for (let index = 0; index < count; index += 1) {
     pool.reserveAnnotationNodes();
     elements.push({
-      name: pool.reportUtf8(cursor.u2(), "Annotation element name"),
-      value: readAnnotationValue(cursor, pool, depth),
+      name: retainDetails
+        ? pool.reportUtf8(cursor.u2(), "Annotation element name")
+        : pool.utf8(cursor.u2(), "Annotation element name"),
+      value: readAnnotationValue(cursor, pool, depth, retainDetails),
     });
   }
   return { type, visibility, elements };
@@ -431,32 +467,41 @@ const readAttributes = (
   for (let index = 0; index < count; index += 1) {
     const name = pool.utf8(cursor.u2(), `${owner} attribute name`);
     const body = new ByteCursor(cursor.slice(cursor.u4()));
-    if (!retainDetails && name !== "SourceFile" && name !== "Code") continue;
     switch (name) {
       case "RuntimeVisibleAnnotations":
       case "RuntimeInvisibleAnnotations": {
         const annotations = body.u2();
-        for (let item = 0; item < annotations; item += 1)
-          parsed.annotations.push(
-            readAnnotation(
-              body,
-              pool,
-              0,
-              name === "RuntimeVisibleAnnotations"
-                ? "runtime-visible"
-                : "runtime-invisible",
-            ),
+        for (let item = 0; item < annotations; item += 1) {
+          const annotation = readAnnotation(
+            body,
+            pool,
+            0,
+            name === "RuntimeVisibleAnnotations"
+              ? "runtime-visible"
+              : "runtime-invisible",
+            retainDetails,
           );
+          if (retainDetails) parsed.annotations.push(annotation);
+        }
         break;
       }
       case "SourceFile":
-        parsed.sourceFile = pool.reportUtf8(body.u2(), "SourceFile");
+        {
+          const sourceFile = pool.reportRetainedUtf8(body.u2(), "SourceFile");
+          parsed.sourceFile = sourceFile;
+        }
         break;
       case "Signature":
-        parsed.signature = pool.reportUtf8(body.u2(), "Signature");
+        {
+          const signature = pool.reportUtf8(body.u2(), "Signature");
+          if (retainDetails) parsed.signature = signature;
+        }
         break;
       case "ConstantValue":
-        parsed.constantValue = pool.constantValue(body.u2());
+        {
+          const value = pool.constantValue(body.u2(), retainDetails);
+          if (retainDetails) parsed.constantValue = value;
+        }
         break;
       case "Code":
         body.u2();
@@ -481,6 +526,17 @@ const readAttributes = (
       default:
         break;
     }
+    if (
+      [
+        "RuntimeVisibleAnnotations",
+        "RuntimeInvisibleAnnotations",
+        "SourceFile",
+        "Signature",
+        "ConstantValue",
+      ].includes(name) &&
+      body.offset !== body.bytes.length
+    )
+      throw new JavaClassFormatFailure(`${name} attribute has trailing bytes.`);
   }
   return parsed;
 };
@@ -572,4 +628,20 @@ export const parseJavaClassFile = (
     string_constants: strings,
     referenced_classes: [...referenced],
   };
+};
+
+/** Read only the declared binary name when archive selection scans candidates. */
+export const parseJavaClassName = (bytes: Uint8Array): string => {
+  const cursor = new ByteCursor(bytes);
+  if (cursor.u4() !== 0xcafebabe)
+    throw new JavaClassFormatFailure("Missing 0xCAFEBABE class-file magic.");
+  cursor.u2();
+  const major = cursor.u2();
+  if (major < 45)
+    throw new JavaClassFormatFailure(
+      `Class-file major version ${String(major)} predates JVMS 45.`,
+    );
+  const pool = new ConstantPool(readPool(cursor));
+  cursor.u2();
+  return pool.className(cursor.u2(), "this_class", false);
 };

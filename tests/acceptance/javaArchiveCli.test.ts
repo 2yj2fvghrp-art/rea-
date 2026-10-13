@@ -97,6 +97,7 @@ cliTest(
         { name: "Main-Class", value: "com.example.mod.Main" },
       ],
       main_class: "com.example.mod.Main",
+      omitted_attributes: 0,
     });
     expect(report.metadata_files).toEqual([
       {
