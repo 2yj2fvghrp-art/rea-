@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { expect } from "vitest";
 
@@ -9,11 +7,9 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js";
 
-const execute = promisify(execFile);
-
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "retains child options with omitted argv through %s",
-  async (surface, { cli }) => {
+  async (surface, { cli, processes }) => {
     const root = await createTestTempDirectory("rea-child-options-");
     await writeFixtureFiles(root, {
       "app/entry.mjs": [
@@ -30,14 +26,18 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "control.cjs": [
         'const { spawn, execFile, fork } = require("node:child_process");',
         'const { join } = require("node:path");',
-        'const receive = (child, input) => new Promise((resolve, reject) => { let text = ""; child.on("error", reject); child.stdout.on("data", (data) => { text += data; }); child.on("close", (code) => code === 0 ? resolve(text) : reject(new Error(String(code)))); if (input !== undefined) child.stdin.end(input); });',
+        'const owned = new Set(); const stop = () => { for (const child of owned) child.kill("SIGKILL"); }; process.on("SIGTERM", () => { process.exitCode = 1; stop(); });',
+        'const receive = (child, input) => new Promise((resolve, reject) => { owned.add(child); let text = ""; const timer = setTimeout(() => child.kill("SIGKILL"), 5000); child.on("error", reject); child.stdout.on("data", (data) => { text += data; }); child.on("close", (code) => { clearTimeout(timer); owned.delete(child); code === 0 ? resolve(text) : reject(new Error(String(code))); }); if (input !== undefined) child.stdin.end(input); });',
         'const input = "process.stdout.write(process.env.REA_FLAG);";',
-        '(async () => { const values = []; values.push(await receive(spawn(process.execPath, { env: { REA_FLAG: "spawn" }, stdio: "pipe" }), input)); values.push(await receive(execFile(process.execPath, { env: { REA_FLAG: "exec" } }), input)); values.push(await receive(fork(join(__dirname, "child.cjs"), { env: { REA_FLAG: "fork" }, stdio: ["pipe", "pipe", "pipe", "ipc"] }))); console.log(JSON.stringify(values)); })().catch((error) => { console.error(error); process.exitCode = 1; });',
+        '(async () => { const values = []; values.push(await receive(spawn(process.execPath, { env: { REA_FLAG: "spawn" }, stdio: "pipe" }), input)); values.push(await receive(execFile(process.execPath, { env: { REA_FLAG: "exec" } }), input)); values.push(await receive(fork(join(__dirname, "child.cjs"), { env: { REA_FLAG: "fork" }, stdio: ["pipe", "pipe", "pipe", "ipc"] }))); console.log(JSON.stringify(values)); })().catch((error) => { stop(); console.error(error); process.exitCode = 1; });',
       ].join("\n"),
     });
-    const control = await execute(process.execPath, [
-      join(root, "control.cjs"),
-    ]);
+    const control = await processes.run(
+      process.execPath,
+      [join(root, "control.cjs")],
+      { timeoutMs: 15_000 },
+    );
+    expect(control.exitCode, control.stderr).toBe(0);
     expect(JSON.parse(control.stdout)).toEqual(["spawn", "exec", "fork"]);
     const graph = (
       await analyzeJavaScriptDirectory(surface, cli, join(root, "app"))
