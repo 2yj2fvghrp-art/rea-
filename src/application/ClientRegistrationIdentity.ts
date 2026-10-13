@@ -6,16 +6,25 @@ import { PRODUCT_IDENTITY } from "../identity.js";
 /** Package runners whose pinned launcher setup can register. */
 export type PackageRunner = "npx" | "bunx";
 
+/** Match one variable's key; Windows variable names are case-insensitive. */
+export const environmentKey = (
+  environment: Readonly<Record<string, unknown>>,
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined => {
+  const keys = Object.keys(environment);
+  if (platform !== "win32") return keys.find((key) => key === name);
+  const folded = name.toLowerCase();
+  return keys.find((key) => key.toLowerCase() === folded);
+};
+
 /** Read one variable; Windows variable names are case-insensitive. */
 const environmentValue = (
   environment: Readonly<NodeJS.ProcessEnv>,
   name: string,
   platform: NodeJS.Platform,
 ): string | undefined => {
-  if (platform !== "win32") return environment[name];
-  const key = Object.keys(environment).find(
-    (candidate) => candidate.toLowerCase() === name,
-  );
+  const key = environmentKey(environment, name, platform);
   return key === undefined ? undefined : environment[key];
 };
 
