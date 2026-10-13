@@ -23,7 +23,7 @@ const provider = (platform: NodeJS.Platform) => {
       probeJava: () => ({
         version: "21.0.11",
         major: 21,
-        home: "/fixture/jdk",
+        home: platform === "win32" ? "C:\\fixture\\jdk" : "/fixture/jdk",
         bits: 64,
         runtime: "jdk",
         vmName: "OpenJDK 64-Bit Server VM",

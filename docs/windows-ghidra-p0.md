@@ -16,7 +16,7 @@ additional permission flag or degraded mode is required.
 - Windows 10+ x64 with fixed local NTFS target and temporary volumes;
 - Node.js 22.x (>=22.19), 24.x (>=24.11), or 26+;
 - an operator-installed Ghidra 12.1.x distribution (verified with 12.1.4);
-- a 64-bit full JDK inside that installation's declared Java range (JDK 21 or newer, with no maximum, for current 12.1 releases);
+- a 64-bit full JDK inside that installation's declared Java range (JDK 21 or newer, with no maximum, for current 12.1 releases), using an ordinary absolute drive path such as `C:\Java\jdk-21`; UNC and device-prefixed JDK homes are unsupported by the owned JVM launcher;
 - an explicit native, non-managed x86 or x86-64 PE application/DLL, or a
   [raw NMOS 6502 image](raw-binary.md#nmos-6502) with a caller-supplied entry; and
 - the 25 read-only Ghidra inventory, memory, and function-analysis operations.

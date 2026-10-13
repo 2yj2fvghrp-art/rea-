@@ -208,7 +208,7 @@ describe("Ghidra snapshot cache", () => {
       parameters: { procedure: "0x1000", document: "fixture" },
     },
   ] as const)(
-    "replays repeated $operation calls and imported snapshots despite private project writes",
+    "caches repeated $operation calls and respects source admission for imported snapshots",
     async ({ operation, parameters }) => {
       const initial = fixture();
       await open(initial.session);
@@ -244,7 +244,11 @@ describe("Ghidra snapshot cache", () => {
       expect(imported.ok && imported.value.result).toEqual(
         first.ok && first.value.result,
       );
-      expect(replay.calls).toEqual([]);
+      // Windows requires native source admission before imported Ghidra replay.
+      // This fake Linux provider cannot supply it, so a fresh query is required.
+      expect(replay.calls).toEqual(
+        process.platform === "win32" ? [operation] : [],
+      );
       await replay.session.close();
 
       const changed = fixture("12.1.5");

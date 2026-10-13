@@ -2,7 +2,6 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   copyFile,
   mkdir,
@@ -17,7 +16,10 @@ import { parseArgs, promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse as parseToml } from "smol-toml";
-import { verifyPortableInventory } from "./lib/portable-inventory.mjs";
+import {
+  hashPortableFile,
+  verifyPortableInventory,
+} from "./lib/portable-inventory.mjs";
 
 const { values } = parseArgs({
   options: { directory: { type: "string" }, powershell: { type: "string" } },
@@ -39,13 +41,8 @@ for (const file of manifest.files) {
     throw new Error(
       `Inventory path is outside the portable directory: ${file.path}`,
     );
-  const bytes = await readFile(path);
-  assert.equal(bytes.length, file.size, file.path);
-  assert.equal(
-    createHash("sha256").update(bytes).digest("hex"),
-    file.sha256,
-    file.path,
-  );
+  const observed = await hashPortableFile(path, file.size);
+  assert.equal(observed.sha256, file.sha256, file.path);
 }
 
 const workspace = await mkdtemp(join(tmpdir(), "rea-portable-verification-"));

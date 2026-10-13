@@ -1,6 +1,39 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { open, readdir } from "node:fs/promises";
 import { join } from "node:path";
+
+/** Hash one opened file with bounded buffers; reject size mismatches before reads. */
+export async function hashPortableFile(path, expectedSize) {
+  const file = await open(path, "r");
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile())
+      throw new Error(
+        `Portable inventory contains a non-regular file: ${path}`,
+      );
+    if (expectedSize !== undefined && metadata.size !== expectedSize)
+      throw new Error(
+        `Portable file size mismatch: ${path}; expected ${expectedSize}, observed ${metadata.size}`,
+      );
+    const hash = createHash("sha256");
+    let size = 0;
+    for await (const chunk of file.createReadStream({
+      autoClose: false,
+      highWaterMark: 64 * 1024,
+    })) {
+      size += chunk.length;
+      if (size > metadata.size)
+        throw new Error(`Portable file size changed while hashing: ${path}`);
+      hash.update(chunk);
+    }
+    if (size !== metadata.size)
+      throw new Error(`Portable file size changed while hashing: ${path}`);
+    return { size, sha256: hash.digest("hex") };
+  } finally {
+    await file.close();
+  }
+}
 
 /** Require exact files and their parent directories before running the artifact. */
 export async function verifyPortableInventory(directory, files) {

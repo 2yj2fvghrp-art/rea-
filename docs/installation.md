@@ -559,6 +559,9 @@ When Java is found through `PATH`, setup records its observed JDK home so GUI
 MCP clients do not depend on an incidental shell path. Setup shows every exact
 environment entry in its plan, writes only after approval, and never downloads,
 installs, upgrades, or modifies Ghidra or Java.
+On Windows, configured and discovered JDK homes must use an ordinary absolute
+drive path, such as `C:\Java\jdk-21`. Doctor rejects UNC and device-prefixed
+JDK homes because the owned JVM launcher cannot start those executables.
 
 Each verified session uses an ephemeral temporary project and isolated
 home/cache/config/temp paths. REA passes `-readOnly`, `-deleteProject`, uses

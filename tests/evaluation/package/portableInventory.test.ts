@@ -1,9 +1,13 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, symlink, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { expect, it } from "vitest";
 
-import { verifyPortableInventory } from "../../../scripts/lib/portable-inventory.mjs";
+import {
+  hashPortableFile,
+  verifyPortableInventory,
+} from "../../../scripts/lib/portable-inventory.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 async function fixture() {
@@ -13,6 +17,28 @@ async function fixture() {
   await writeFile(join(root, "portable.json"), "{}");
   return { root, files: [{ path: "runtime/node.exe" }] };
 }
+
+it("hashes an empty file and the final partial stream chunk", async () => {
+  const { root } = await fixture();
+  const path = join(root, "payload");
+  for (const bytes of [Buffer.alloc(0), Buffer.alloc(64 * 1024 + 17, 0x62)]) {
+    await writeFile(path, bytes);
+    await expect(hashPortableFile(path, bytes.length)).resolves.toEqual({
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+  }
+});
+
+it("rejects an unexpected file size", async () => {
+  const { root } = await fixture();
+  const path = join(root, "payload");
+  await writeFile(path, "unexpected payload");
+  await expect(hashPortableFile(path, 1)).rejects.toThrow(
+    "Portable file size mismatch",
+  );
+  await unlink(path);
+});
 
 it("accepts the complete regular-file set excluding its own manifest", async () => {
   const { root, files } = await fixture();

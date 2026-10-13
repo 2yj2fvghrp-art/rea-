@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   cp,
   lstat,
@@ -15,6 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { portableDependencies } from "./lib/portable-dependencies.mjs";
+import { hashPortableFile } from "./lib/portable-inventory.mjs";
 
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -147,11 +147,9 @@ async function inventory(directory, prefix = "") {
     if (entry.isDirectory())
       await inventory(join(directory, entry.name), `${path}/`);
     else if (entry.isFile()) {
-      const bytes = await readFile(join(directory, entry.name));
       files.push({
         path,
-        size: bytes.length,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
+        ...(await hashPortableFile(join(directory, entry.name))),
       });
     } else
       throw new Error(`Portable output contains a non-regular entry: ${path}`);
