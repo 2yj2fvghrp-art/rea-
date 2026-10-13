@@ -36,6 +36,14 @@ const REQUIREMENT =
   "Provide an absolute REA_JSBEAUTIFY_COMMAND pointing to a jsbeautify binary on Linux; no tool is installed by REA. See docs/javascript-recovery.md#jsbeautify.";
 const JSBEAUTIFY_SUPPORTED = process.platform === "linux";
 const REPARSE_PHASES = ["19.6", "21.5"] as const;
+/** The version is embedded in inline Evidence, the manifest and provenance. */
+const VERSION_MAX_LENGTH = 128;
+const EXCERPT_MAX_LENGTH = 512;
+
+const excerpt = (text: string): string =>
+  text.length <= EXCERPT_MAX_LENGTH
+    ? text
+    : `${text.slice(0, EXCERPT_MAX_LENGTH)}… (${String(Buffer.byteLength(text))} bytes)`;
 const LEVEL_ARGUMENTS = {
   minimal: [],
   standard: ["--deobfuscate"],
@@ -179,13 +187,15 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     ...command,
     arguments: ["--version"],
   });
-  const version = /^jsbeautify (\S+)$/.exec(banner.stdout.trim())?.[1];
+  const version = new RegExp(
+    `^jsbeautify (\\S{1,${String(VERSION_MAX_LENGTH)}})$`,
+  ).exec(banner.stdout.trim())?.[1];
   if (banner.exit_code !== 0 || version === undefined) {
-    const reason = `jsbeautify --version did not report a version; stdout: ${banner.stdout.trim()}; exit: ${String(banner.exit_code)}`;
+    const reason = `jsbeautify --version did not report a version of at most ${String(VERSION_MAX_LENGTH)} characters; stdout: ${excerpt(banner.stdout.trim())}; exit: ${String(banner.exit_code)}`;
     throw new AnalysisCapabilityUnavailableError(
       JSBEAUTIFY_PROVIDER_IDENTITY.id,
       OPERATION,
-      `${reason}; stderr: ${banner.stderr}`,
+      `${reason}; stderr: ${excerpt(banner.stderr)}`,
       { userMessage: `${reason}.` },
     );
   }

@@ -262,3 +262,15 @@ it("keeps natural output names when an extensionless input would take another in
   expect(byOriginal["bundle"]).not.toBe("bundle.js");
   expect(byOriginal["bundle"]).toMatch(/\.js$/);
 });
+
+it("rejects an unbounded version token without echoing it", async () => {
+  scenario.versionStdout = `jsbeautify ${"x".repeat(1024 * 1024)}`;
+  const evidence = await recover(["a.js"]);
+  expect(evidence.ok).toBe(false);
+  if (evidence.ok) return;
+  expect(evidence.error).toMatchObject({
+    _tag: "AnalysisCapabilityUnavailableError",
+  });
+  expect(evidence.error.message.length).toBeLessThan(4096);
+  expect(evidence.error.userMessage?.length).toBeLessThan(4096);
+});
