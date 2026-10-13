@@ -390,12 +390,7 @@ const workflowAvailabilityFor = ({
     policy.javascriptRecoveryEngines !== undefined
   ) {
     const engines = policy.javascriptRecoveryEngines;
-    const available = engines.wakaru || engines.jsbeautify;
-    return {
-      reason: available ? "available" : "provider_missing",
-      remediation: available
-        ? null
-        : "Configure a caller-supplied JavaScript recovery engine; see docs/javascript-recovery.md.",
+    const facts = {
       defaultModeAvailable: engines.wakaru,
       modes: (["wakaru", "jsbeautify"] as const).map((engine) =>
         engines[engine]
@@ -413,6 +408,14 @@ const workflowAvailabilityFor = ({
             },
       ),
     };
+    return engines.wakaru || engines.jsbeautify
+      ? { ...facts, reason: "available", remediation: null }
+      : {
+          ...facts,
+          reason: "provider_missing",
+          remediation:
+            "Configure a caller-supplied JavaScript recovery engine; see docs/javascript-recovery.md.",
+        };
   }
   if (name === "recover_javascript_sources")
     return policy.javascriptRecoveryEnabled === true

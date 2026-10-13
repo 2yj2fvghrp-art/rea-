@@ -216,8 +216,14 @@ const installSessionToolAvailability = (
             }
           : {}
         : {
-            javascriptRecoveryEngines:
-              options.javascriptRecovery.engineAvailability,
+            // A provider lists only the engines it offers; an omitted engine is unavailable.
+            javascriptRecoveryEngines: {
+              wakaru:
+                options.javascriptRecovery.engineAvailability.wakaru === true,
+              jsbeautify:
+                options.javascriptRecovery.engineAvailability.jsbeautify ===
+                true,
+            },
           }),
       javascriptRecoveryEnabled:
         options.javascriptRecovery !== undefined ||
