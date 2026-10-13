@@ -17,7 +17,13 @@ REA_PWNTOOLS_PYTHON=/absolute/isolated-env/bin/python \
   rea inspect-binary-layout ./selected.elf --json
 ```
 
-Larger ELF artifacts exceeding the default 32 MiB input budget can be analyzed by setting `REA_PWNTOOLS_MAX_INPUT_BYTES`.
+Larger ELF artifacts exceeding the default 32 MiB input budget can be admitted by setting `REA_PWNTOOLS_MAX_INPUT_BYTES`.
+The override cannot exceed one quarter of the worker's 3 GiB address-space
+budget after reserving its 64 MiB reply and 1 MiB diagnostics; this reserves
+capacity for expanded input representations before either process reads the file.
+This is an admission bound, not a guarantee that every ELF fits the remaining
+worker memory. Actual pwntools decoding above the old 32 MiB limit has not been
+verified; recording-launcher tests cover REA's configured read/admission boundary.
 
 ```json
 {

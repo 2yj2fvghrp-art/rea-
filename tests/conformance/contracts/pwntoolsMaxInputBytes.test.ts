@@ -1,21 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 
 import {
   parsePwntoolsMaxInputBytes,
+  PWNTOOLS_INPUT_CAPACITY_BYTES,
   pwntoolsMaxInputBytesSchema,
 } from "../../../src/config/pwntoolsMaxInputBytes.js";
 import { parseEnvironment } from "../../../src/config/environment.js";
 import { parseConfig } from "../../../src/config/parseConfig.js";
 import { PWNTOOLS_LIMITS } from "../../../src/native/pwntools/PwntoolsRelease.js";
-import { PwntoolsLayoutProvider } from "../../../src/native/pwntools/PwntoolsLayoutProvider.js";
-import { AnalysisInputError } from "../../../src/domain/analysisErrorCore.js";
-import {
-  createTestWorkspace,
-  removeTestWorkspace,
-} from "../../support/workspace/workspaceFixture.js";
-
 describe("pwntools max input bytes parsing and configuration", () => {
   it("defaults to PWNTOOLS_LIMITS.inputBytes when unset or empty", () => {
     expect(parsePwntoolsMaxInputBytes(undefined)).toEqual({
@@ -39,10 +31,10 @@ describe("pwntools max input bytes parsing and configuration", () => {
       ok: true,
       value: 268_435_456,
     });
-    // 1 GiB
-    expect(parsePwntoolsMaxInputBytes("1073741824")).toEqual({
+    // 512 MiB
+    expect(parsePwntoolsMaxInputBytes("536870912")).toEqual({
       ok: true,
-      value: 1_073_741_824,
+      value: 536_870_912,
     });
     // Minimum 1 byte
     expect(parsePwntoolsMaxInputBytes("1")).toEqual({
@@ -61,6 +53,8 @@ describe("pwntools max input bytes parsing and configuration", () => {
     "1e8",
     " 33554432",
     "33554432 ",
+    "1073741824", // exceeds the fixed worker representation capacity
+    "4294967296",
     "9007199254740992", // > Number.MAX_SAFE_INTEGER
   ])("rejects malformed or unsafe values: %j", (value) => {
     const result = parsePwntoolsMaxInputBytes(value);
@@ -70,8 +64,7 @@ describe("pwntools max input bytes parsing and configuration", () => {
       expect(result.error.settings).toEqual([
         {
           setting: "REA_PWNTOOLS_MAX_INPUT_BYTES",
-          constraint:
-            "REA_PWNTOOLS_MAX_INPUT_BYTES must be a positive decimal safe integer.",
+          constraint: `REA_PWNTOOLS_MAX_INPUT_BYTES must be a positive decimal safe integer no greater than ${PWNTOOLS_INPUT_CAPACITY_BYTES} bytes (worker representation capacity).`,
         },
       ]);
     }
@@ -124,94 +117,5 @@ describe("pwntools max input bytes parsing and configuration", () => {
       REA_PWNTOOLS_MAX_INPUT_BYTES: "536870912", // 512 MiB
     });
     expect(configResult.ok).toBe(true);
-  });
-});
-
-describe("pwntools decoder artifact read budget", () => {
-  it("rejects artifacts larger than the default 32 MiB budget in PwntoolsDecoder", async () => {
-    const platformSpy = vi
-      .spyOn(process, "platform", "get")
-      .mockReturnValue("linux");
-    const archSpy = vi.spyOn(process, "arch", "get").mockReturnValue("x64");
-    const { root } = await createTestWorkspace("rea-pwntools-default-");
-    try {
-      const file33Mb = join(root, "artifact_33mb");
-      const handle = await open(file33Mb, "w");
-      await handle.truncate(33 * 1024 * 1024);
-      await handle.close();
-
-      const defaultProvider = new PwntoolsLayoutProvider({
-        REA_PWNTOOLS_PYTHON: process.execPath,
-      });
-      const defaultResult = await defaultProvider.inspect({ path: file33Mb });
-      expect(defaultResult.ok).toBe(false);
-      if (
-        !defaultResult.ok &&
-        defaultResult.error instanceof AnalysisInputError
-      ) {
-        const issue = defaultResult.error.issues[0];
-        expect(issue?.reason).toBe("out_of_range");
-        expect(issue?.message).toContain(
-          "Selected artifact exceeds 33554432 bytes",
-        );
-      }
-    } finally {
-      platformSpy.mockRestore();
-      archSpy.mockRestore();
-      await removeTestWorkspace(root);
-    }
-  });
-
-  it("permits artifacts within the configured override and rejects beyond it", async () => {
-    const platformSpy = vi
-      .spyOn(process, "platform", "get")
-      .mockReturnValue("linux");
-    const archSpy = vi.spyOn(process, "arch", "get").mockReturnValue("x64");
-    const { root } = await createTestWorkspace("rea-pwntools-override-");
-    try {
-      const file33Mb = join(root, "artifact_33mb");
-      const handle33 = await open(file33Mb, "w");
-      await handle33.truncate(33 * 1024 * 1024);
-      await handle33.close();
-
-      const overrideProvider = new PwntoolsLayoutProvider({
-        REA_PWNTOOLS_PYTHON: process.execPath,
-        REA_PWNTOOLS_MAX_INPUT_BYTES: String(64 * 1024 * 1024),
-      });
-
-      const overrideResult = await overrideProvider.inspect({ path: file33Mb });
-      expect(overrideResult.ok).toBe(false);
-      if (
-        !overrideResult.ok &&
-        overrideResult.error instanceof AnalysisInputError
-      ) {
-        const issue = overrideResult.error.issues[0];
-        expect(issue?.reason).not.toBe("out_of_range");
-      }
-
-      const file65Mb = join(root, "artifact_65mb");
-      const handle65 = await open(file65Mb, "w");
-      await handle65.truncate(65 * 1024 * 1024);
-      await handle65.close();
-
-      const overrideResult65 = await overrideProvider.inspect({
-        path: file65Mb,
-      });
-      expect(overrideResult65.ok).toBe(false);
-      if (
-        !overrideResult65.ok &&
-        overrideResult65.error instanceof AnalysisInputError
-      ) {
-        const issue = overrideResult65.error.issues[0];
-        expect(issue?.reason).toBe("out_of_range");
-        expect(issue?.message).toContain(
-          "Selected artifact exceeds 67108864 bytes",
-        );
-      }
-    } finally {
-      platformSpy.mockRestore();
-      archSpy.mockRestore();
-      await removeTestWorkspace(root);
-    }
   });
 });
