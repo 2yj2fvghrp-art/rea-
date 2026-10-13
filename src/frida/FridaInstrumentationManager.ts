@@ -425,9 +425,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       };
       managed.scripts.set(scriptId, entry);
       nativeScript.message.connect(onMessage);
-      if (signal?.aborted)
-        throw cancelledOperation("load_frida_script", signal);
-      await nativeScript.load();
+      if (!signal?.aborted) await nativeScript.load();
       const observation: FridaScriptObservation = {
         scriptId,
         sourceKind: source.sourceKind,

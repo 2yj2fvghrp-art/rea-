@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
@@ -11,6 +12,7 @@ import type {
 import { expect, it, onTestFinished } from "vitest";
 
 import { toolContract } from "../../../src/contracts/toolContracts.js";
+import { evidenceBundleSchema } from "../../../src/domain/evidenceBundle.js";
 import { FridaInstrumentationManager } from "../../../src/frida/FridaInstrumentationManager.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
@@ -236,8 +238,8 @@ const pendingShutdown = async (server: { close(): Promise<void> }) => {
 const retryCancelledScriptUnload = async (
   fixture: Awaited<ReturnType<typeof connectedFixture>>,
   sessionId: string,
+  scriptId = fixture.manager.status(sessionId)?.scripts[1]?.scriptId,
 ) => {
-  const scriptId = fixture.manager.status(sessionId)?.scripts[1]?.scriptId;
   if (scriptId === undefined)
     throw new Error("Cancelled script was not retained");
   const retry = await fixture.client.callTool({
@@ -248,6 +250,51 @@ const retryCancelledScriptUnload = async (
     },
   });
   expect(retry.isError).not.toBe(true);
+};
+
+const retainedScriptObservation = async (
+  fixture: Awaited<ReturnType<typeof connectedFixture>>,
+  sessionId: string,
+  source: string,
+) => {
+  const response = await fixture.client.callTool({
+    name: "get_evidence_bundle",
+    arguments: {},
+  });
+  const bundle = evidenceBundleSchema.parse(
+    toolContract("get_evidence_bundle").outputSchema.parse(
+      response.structuredContent,
+    ).result,
+  );
+  const sourceSha256 = createHash("sha256").update(source).digest("hex");
+  const records = bundle.records.filter((record) => {
+    const result = record.normalized_result;
+    return (
+      record.operation === "load_frida_script" &&
+      result !== null &&
+      typeof result === "object" &&
+      !Array.isArray(result) &&
+      result.source_sha256 === sourceSha256
+    );
+  });
+  expect(records).toHaveLength(1);
+  expect(records[0]?.parameters).toEqual({ session_id: sessionId });
+  const observation = records[0]?.normalized_result;
+  if (
+    observation === undefined ||
+    observation === null ||
+    typeof observation !== "object" ||
+    Array.isArray(observation)
+  )
+    throw new Error("Missing retained script observation");
+  expect(observation).toMatchObject({
+    script_id: expect.any(String),
+    source_kind: "inline",
+    source_path: null,
+    source_sha256: sourceSha256,
+    messages_truncated: false,
+  });
+  return observation;
 };
 
 it.each(["load", "resume", "unload"] as const)(
@@ -357,20 +404,19 @@ it.each(["create", "load"] as const)(
     expect(fixture.controls.detachCalls).toBe(0);
     expect(fixture.controls.resumes).toBe(0);
     expect(fixture.manager.status(id)?.scripts).toHaveLength(2);
-    if (stage === "load") {
-      const records = fixture.session.exportEvidenceBundle().records;
-      expect(records).toContainEqual(
-        expect.objectContaining({
-          operation: "load_frida_script",
-          normalized_result: expect.objectContaining({
-            messages: [
-              expect.objectContaining({ payload: "cancelled-native" }),
-            ],
-            script_cleanup: "released",
-          }),
-        }),
-      );
-    }
+    const observation = await retainedScriptObservation(
+      fixture,
+      id,
+      "cancelled-native",
+    );
+    expect(observation).toMatchObject({
+      messages:
+        stage === "create"
+          ? []
+          : [expect.objectContaining({ payload: "cancelled-native" })],
+      script_cleanup: "released",
+      cleanup_error: null,
+    });
   },
 );
 
@@ -435,34 +481,58 @@ it("drains remote discovery before shutdown and retains failed connection cleanu
   expect(fixture.controls.remoteRemovals).toBe(3);
 });
 
-it("retains a cancelled script whose unload fails for an explicit MCP retry", async () => {
-  const { fixture, id, held } = await scriptLoadFixture();
-  fixture.controls.unloadFailures = 1;
-  const controller = new AbortController();
-  const cancelled = fixture.load(id, "cancelled-native", controller.signal);
-  const rejected = expect(cancelled).rejects.toThrow("cancel retained script");
-  await held.entered;
-  controller.abort(new Error("cancel retained script"));
-  await fixture.client.ping();
-  await rejected;
-  held.release();
-  await fixture.load(id, "barrier");
-  await fixture.client.ping();
-  expect(fixture.manager.status(id)?.scripts).toHaveLength(3);
-  expect(fixture.session.exportEvidenceBundle().records).toContainEqual(
-    expect.objectContaining({
-      operation: "load_frida_script",
-      normalized_result: expect.objectContaining({
-        script_cleanup: "incomplete_or_unknown",
-        cleanup_error: expect.stringContaining("transient unload failure"),
-      }),
-    }),
-  );
-  await retryCancelledScriptUnload(fixture, id);
-  expect(fixture.unloaded).toEqual(["cancelled-native", "cancelled-native"]);
-  expect(fixture.manager.status(id)?.scripts).toHaveLength(2);
-  expect(fixture.controls.detachCalls).toBe(0);
-});
+it.each(["create", "load"] as const)(
+  "retains the identity of a cancelled native %s for an explicit MCP unload retry",
+  async (stage) => {
+    const { fixture, id, held } = await scriptLoadFixture(stage);
+    fixture.controls.unloadFailures = 1;
+    const controller = new AbortController();
+    const cancelled = fixture.load(id, "cancelled-native", controller.signal);
+    const rejected = expect(cancelled).rejects.toThrow(
+      "cancel retained script",
+    );
+    await held.entered;
+    controller.abort(new Error("cancel retained script"));
+    await fixture.client.ping();
+    await rejected;
+    held.release();
+    await fixture.load(id, "barrier");
+    await fixture.client.ping();
+    expect(fixture.manager.status(id)?.scripts).toHaveLength(3);
+    const observation = await retainedScriptObservation(
+      fixture,
+      id,
+      "cancelled-native",
+    );
+    expect(observation).toMatchObject({
+      messages:
+        stage === "create"
+          ? []
+          : [expect.objectContaining({ payload: "cancelled-native" })],
+      script_cleanup: "incomplete_or_unknown",
+      cleanup_error: expect.stringContaining("transient unload failure"),
+    });
+    const scriptId = observation.script_id;
+    if (typeof scriptId !== "string")
+      throw new Error("Missing cancelled script identity");
+    expect(fixture.manager.status(id)?.scripts[1]?.scriptId).toBe(scriptId);
+    const resuming = await fixture.client.callTool({
+      name: "resume_frida_session",
+      arguments: { session_id: id },
+    });
+    expect(resuming.isError).toBe(true);
+    expect(fixture.controls.resumes).toBe(0);
+    await retryCancelledScriptUnload(fixture, id, scriptId);
+    expect(fixture.unloaded).toEqual(["cancelled-native", "cancelled-native"]);
+    expect(fixture.loaded).toEqual(
+      stage === "create"
+        ? ["original", "barrier"]
+        : ["original", "cancelled-native", "barrier"],
+    );
+    expect(fixture.manager.status(id)?.scripts).toHaveLength(2);
+    expect(fixture.controls.detachCalls).toBe(0);
+  },
+);
 
 it.each([0, 1])(
   "settles cancelled native-load cleanup before a queued resume (unload failures: %i)",
