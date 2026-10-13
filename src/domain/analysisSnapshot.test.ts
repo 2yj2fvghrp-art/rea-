@@ -170,6 +170,7 @@ describe("analysis snapshot target identity", () => {
       sourcePath: "/fixture/pair.dSYM",
       memberPath: "/fixture/pair.dSYM/Contents/Resources/DWARF/pair",
       memberSha256: "a".repeat(64),
+      memberSizeBytes: 4096,
       uuid: "A1B2C3D4-E5F6-0789-ABCD-EF0123456789",
     };
     // A byte-identical companion copied to another path is a different

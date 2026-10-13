@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 
 import { err, ok, type Result } from "../domain/result.js";
+import { sameRegularFileState } from "../filesystem/RegularFile.js";
 import type {
   BinaryArchitecture,
   MachODebugCompanion,
@@ -89,11 +90,16 @@ const readUuidRegion = async (
   handle: FileHandle,
   offset: number,
   length: number,
+  ledger: TraversalLedger,
+  signal: AbortSignal | undefined,
 ): Promise<Result<Buffer, string>> => {
+  throwIfCancelled(signal);
   const probeLength = Math.min(length, HEADER_READ_LIMIT);
   const probe = Buffer.alloc(probeLength);
   const observed = await handle.read(probe, 0, probe.length, offset);
   const probed = probe.subarray(0, observed.bytesRead);
+  const charged = chargeTraversal(ledger, observed.bytesRead);
+  if (!charged.ok) return charged;
   const span = machoCommandSpan(probed);
   if (!span.ok) return ok(probed);
   const needed = span.value.start + span.value.size;
@@ -104,14 +110,34 @@ const readUuidRegion = async (
   if (needed <= probed.length || needed > length) return ok(probed);
   const full = Buffer.alloc(needed);
   const reread = await handle.read(full, 0, full.length, offset);
+  const extended = chargeTraversal(
+    ledger,
+    reread.bytesRead - observed.bytesRead,
+  );
+  if (!extended.ok) return extended;
   return ok(full.subarray(0, reread.bytesRead));
 };
 
 /**
- * Aggregate bytes one admission may spend walking Mach-O command regions
- * across every target slice and member candidate.
+ * Aggregate bytes one admission may spend reading Mach-O headers and load
+ * commands across the target and every member candidate. Only bytes actually
+ * read are charged, and the ledger is shared for the whole admission.
  */
 const TRAVERSAL_BUDGET_BYTES = 64 * 1024 * 1024;
+
+interface TraversalLedger {
+  spent: number;
+}
+
+const chargeTraversal = (
+  ledger: TraversalLedger,
+  bytes: number,
+): Result<null, string> => {
+  ledger.spent += bytes;
+  return ledger.spent > TRAVERSAL_BUDGET_BYTES
+    ? err("the Mach-O traversal exceeds the supported aggregate budget")
+    : ok(null);
+};
 
 /**
  * Read every LC_UUID of a Mach-O file with its declaring cputype: a thin
@@ -124,12 +150,12 @@ export const readMachoFileUuidEntries = async (
   fileSize: number,
   options: {
     readonly signal?: AbortSignal;
-    readonly traversalBudgetBytes?: number;
+    readonly ledger?: TraversalLedger;
   } = {},
 ): Promise<Result<SliceUuidEntry[], string>> => {
-  const budget = options.traversalBudgetBytes ?? TRAVERSAL_BUDGET_BYTES;
-  let spent = 0;
-  const prefix = await readUuidRegion(handle, 0, fileSize);
+  const ledger = options.ledger ?? { spent: 0 };
+  const signal = options.signal;
+  const prefix = await readUuidRegion(handle, 0, fileSize, ledger, signal);
   if (!prefix.ok) return prefix;
   const magic = prefix.value.length >= 4 ? prefix.value.readUInt32BE(0) : 0;
   const universal =
@@ -152,7 +178,7 @@ export const readMachoFileUuidEntries = async (
     return err("the universal Mach-O container table is truncated");
   const entries: SliceUuidEntry[] = [];
   for (let index = 0; index < count; index += 1) {
-    throwIfCancelled(options.signal);
+    throwIfCancelled(signal);
     const entry = 8 + index * entrySize;
     const cpuType = big
       ? prefix.value.readInt32BE(entry)
@@ -173,10 +199,13 @@ export const readMachoFileUuidEntries = async (
       : read32(entry + 12);
     if (sliceOffset > fileSize || sliceSize > fileSize - sliceOffset)
       return err("a universal Mach-O slice is out of file bounds");
-    spent += Math.min(sliceSize, 16 * 1024 * 1024);
-    if (spent > budget)
-      return err("the Mach-O traversal exceeds the supported aggregate budget");
-    const slice = await readUuidRegion(handle, sliceOffset, sliceSize);
+    const slice = await readUuidRegion(
+      handle,
+      sliceOffset,
+      sliceSize,
+      ledger,
+      signal,
+    );
     if (!slice.ok) return slice;
     const read = readMachoUuidEntries(slice.value);
     if (!read.ok) return read;
@@ -186,12 +215,6 @@ export const readMachoFileUuidEntries = async (
   }
   return ok(entries);
 };
-
-const sameFile = (initial: Stats, observed: Stats): boolean =>
-  initial.dev === observed.dev &&
-  initial.ino === observed.ino &&
-  initial.size === observed.size &&
-  initial.mtimeMs === observed.mtimeMs;
 
 /**
  * Digest a DWARF member through the same handle its UUID was read from, so a
@@ -214,7 +237,7 @@ const digestOpenHandle = async (
     position += observed.bytesRead;
   }
   const opened = await handle.stat();
-  if (!sameFile(initial, opened))
+  if (!sameRegularFileState(initial, opened))
     return err("the dSYM DWARF member changed while being read");
   return ok(hash.digest("hex"));
 };
@@ -261,17 +284,21 @@ export const admitDebugCompanion = async (input: {
   }
   const memberPaths: string[] = [];
   for (const name of names) {
+    throwIfCancelled(signal);
     const memberPath = join(dwarfDirectory, name);
     const memberStat = await stat(memberPath).catch(() => undefined);
-    if (memberStat?.isFile() === true) memberPaths.push(memberPath);
+    if (memberStat?.isFile() !== true) continue;
+    memberPaths.push(memberPath);
+    // Reject as soon as the directory exceeds the supported member budget
+    // instead of walking a large directory to the end.
+    if (memberPaths.length > MEMBER_COUNT_LIMIT)
+      return err({
+        reason: `dsym_path contains more than ${String(MEMBER_COUNT_LIMIT)} DWARF member files`,
+      });
   }
   if (memberPaths.length === 0)
     return err({
       reason: `dsym_path contains no DWARF member file: ${dsymPath}`,
-    });
-  if (memberPaths.length > MEMBER_COUNT_LIMIT)
-    return err({
-      reason: `dsym_path contains ${String(memberPaths.length)} DWARF member files; at most ${String(MEMBER_COUNT_LIMIT)} are supported`,
     });
   const targetEntries = await readMachoFileUuidEntries(
     input.targetHandle,
@@ -332,6 +359,7 @@ export const admitDebugCompanion = async (input: {
         sourcePath: dsymPath,
         memberPath,
         memberSha256: memberSha256.value,
+        memberSizeBytes: initial.size,
         uuid: matched.value.uuid,
       });
     } finally {

@@ -113,6 +113,8 @@ export interface MachODebugCompanion {
   /** DWARF member inside the bundle whose LC_UUID matched the target image. */
   readonly memberPath: string;
   readonly memberSha256: string;
+  /** Admitted byte size bounding any later staging copy of the member. */
+  readonly memberSizeBytes: number;
   /** The LC_UUID shared by the target image and the matched member. */
   readonly uuid: string;
 }

@@ -52,10 +52,24 @@ export const stageGhidraDebugCompanion = async (
     destination = await open(memberName, "wx", 0o600);
     await destination.chmod(0o600);
     const hash = createHash("sha256");
+    // The admitted size bounds the staged copy: a member replaced or grown
+    // after admission must not stream past the budget that admitted it.
+    let staged = 0;
     const digest = new Transform({
       transform(chunk: unknown, _encoding, done) {
         if (!Buffer.isBuffer(chunk)) {
           done(new TypeError("dSYM member stream must contain bytes"));
+          return;
+        }
+        staged += chunk.length;
+        if (staged > companion.memberSizeBytes) {
+          done(
+            new AnalysisArtifactChangedError(
+              "open_binary",
+              companion.memberPath,
+              `The dSYM DWARF member grew beyond its admitted size (${String(companion.memberSizeBytes)} bytes)`,
+            ),
+          );
           return;
         }
         hash.update(chunk);

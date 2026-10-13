@@ -57,6 +57,7 @@ const readUuidsFromThin = (
   end: number,
 ): Result<MachOUuidEntry[], string> => {
   const base = offset;
+  if (end - base < 4) return err("Mach-O header is truncated");
   const magic = bytes.readUInt32BE(base);
   const little = THIN_LITTLE_MAGICS.has(magic);
   if (!little && !THIN_BIG_MAGICS.has(magic))

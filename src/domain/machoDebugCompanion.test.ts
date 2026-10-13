@@ -247,6 +247,15 @@ describe("LC_UUID admission invariants", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("truncated");
   });
+  it("rejects a one-byte slice instead of crashing on the magic read", () => {
+    const container = Buffer.alloc(8 + 20 + 1);
+    container.writeUInt32BE(0xcafebabe, 0);
+    container.writeUInt32BE(1, 4);
+    container.writeInt32BE(0x01000007, 8);
+    container.writeUInt32BE(28, 8 + 8);
+    container.writeUInt32BE(1, 8 + 12);
+    expect(readMachoUuidEntries(container).ok).toBe(false);
+  });
   it("decodes a byte-swapped FAT64 container", () => {
     const slice = withUuidLoadCommand("44444444-4444-4444-4444-444444444444");
     const entrySize = 32;

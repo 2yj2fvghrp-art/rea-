@@ -497,7 +497,7 @@ describe("debug companion fixture admission", () => {
         code: "invalid_request",
         details: {
           constraint: "debug_companion_rejected",
-          reason: expect.stringContaining("at most 16 are supported"),
+          reason: expect.stringContaining("more than 16 DWARF member files"),
         },
       });
     },
@@ -590,7 +590,7 @@ describe("debug companion universal slice selection", () => {
     container.writeInt32BE(0x01000007, 8);
     container.writeUInt32BE(headerSize, 8 + 8);
     container.writeUInt32BE(filler.length, 8 + 12);
-    container.writeInt32BE(0x01000008, 8 + 20);
+    container.writeInt32BE(0x01000007, 8 + 20);
     container.writeUInt32BE(headerSize + filler.length, 8 + 20 + 8);
     container.writeUInt32BE(siblingBytes.length, 8 + 20 + 12);
     filler.copy(container, headerSize);
@@ -606,7 +606,7 @@ describe("debug companion universal slice selection", () => {
         ok: true,
         value: [
           { cpuType: 0x01000007, uuid: null },
-          { cpuType: 0x01000008, uuid: siblingUuid },
+          { cpuType: 0x01000007, uuid: siblingUuid },
         ],
       });
     } finally {
