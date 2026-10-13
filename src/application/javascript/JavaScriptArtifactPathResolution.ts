@@ -75,6 +75,8 @@ export interface ResolveArtifactPathInput {
   readonly sourcePath: string;
   readonly context: ArtifactPathResolutionContext;
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
+  /** Directory identities retained by the complete artifact inventory. */
+  readonly directoryPaths?: ReadonlySet<string>;
   readonly htmlBaseHref?: string | null;
   /** Import/require semantics; runtime resource paths omit this provenance. */
   readonly moduleKind?: JavaScriptModuleResolutionMode;
@@ -470,7 +472,12 @@ const bareModuleCandidate = (
             metadata.exports === undefined)));
     const packageResolution =
       metadata.kind !== "absent" ||
-      hasContainerDirectory(input.files, candidate, source?.container_sha256)
+      hasContainerDirectory(
+        input.files,
+        candidate,
+        source?.container_sha256,
+        input.directoryPaths,
+      )
         ? resolvePackageDependency(input, candidate, request, metadata)
         : request.packageSubpath === "." && input.moduleKind !== "import"
           ? resolveFileCandidates(
@@ -663,7 +670,14 @@ const resolveLegacyEsmSubpath = (
   const file = resolveFileCandidates(input, [candidate]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
-  if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
+  if (
+    hasContainerDirectory(
+      input.files,
+      candidate,
+      source?.container_sha256,
+      input.directoryPaths,
+    )
+  )
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
     ]);
@@ -772,7 +786,9 @@ const hasContainerDirectory = (
   files: ReadonlyMap<string, JavaScriptArtifactFile>,
   candidate: string,
   containerSha256: string | undefined,
+  directoryPaths: ReadonlySet<string> | undefined,
 ): boolean => {
+  if (directoryPaths?.has(candidate) === true) return true;
   if (
     [...indexCandidates(candidate), posix.join(candidate, "package.json")].some(
       (path) => {
@@ -1017,6 +1033,9 @@ const resolveDirectory = (
     sourcePath: metadata.path,
     context: "package-entrypoint",
     files: input.files,
+    ...(input.directoryPaths === undefined
+      ? {}
+      : { directoryPaths: input.directoryPaths }),
     ...(input.moduleKind === undefined ? {} : { moduleKind: input.moduleKind }),
   };
   const candidate = contextualCandidate(entryInput);
@@ -1065,10 +1084,20 @@ const resolveNodePackageMain = (
     ]);
     if (finalizedFile !== null) return finalizedFile;
     const source = input.files.get(input.sourcePath);
-    if (hasContainerDirectory(input.files, finalized, source?.container_sha256))
-      return unresolvedCandidate("rejected", [
-        `The selected legacy ESM package main finalizes to directory ${finalized}; directory imports are unsupported and no later main or index candidate was tried.`,
-      ]);
+    if (
+      hasContainerDirectory(
+        input.files,
+        finalized,
+        source?.container_sha256,
+        input.directoryPaths,
+      )
+    )
+      return {
+        ...unresolvedCandidate("rejected", [
+          `The selected legacy ESM package main finalizes to directory ${finalized}; directory imports are unsupported and no later main or index candidate was tried.`,
+        ]),
+        candidatePath: finalized,
+      };
     return unresolvedCandidate("not-found", [
       `The selected legacy ESM package main finalizes to ${finalized}, which is not an inventoried file; no later main or index candidate was tried.`,
     ]);

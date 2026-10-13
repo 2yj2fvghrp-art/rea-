@@ -226,6 +226,32 @@ describe("legacy package main lookup", () => {
     },
   );
 
+  it("retains inventoried directories during legacy ESM main finalization", () => {
+    const files = fileMap([
+      file("app/src/entry.mjs", "root"),
+      file(
+        "app/node_modules/fixture/package.json",
+        "root",
+        '{"main":"./lib/"}',
+      ),
+      file("app/node_modules/fixture/lib.js", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "fixture",
+        sourcePath: "app/src/entry.mjs",
+        context: "module-specifier",
+        moduleKind: "import",
+        files,
+        directoryPaths: new Set(["app/node_modules/fixture/lib/.js"]),
+      }),
+    ).toMatchObject({
+      resolution_status: "rejected",
+      resolved_path: null,
+      candidate_path: "app/node_modules/fixture/lib/.js",
+    });
+  });
+
   it.each(["import", "require"] as const)(
     "does not recursively resolve a nested package from a %s package main",
     (moduleKind) => {
