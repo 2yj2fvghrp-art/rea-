@@ -6,6 +6,7 @@ import {
   cdpTargetWebSocket,
   discoverCdpBrowserSocket,
   discoverCdpEndpoint,
+  withCdpDiscoveryDeadline,
   type CdpEndpointDiscovery,
   type CdpEndpointTarget,
 } from "./CdpEndpoint.js";
@@ -26,36 +27,47 @@ export interface CdpOpenedEndpoint {
   readonly connection: CdpConnection | undefined;
 }
 
-/** Discover one passive browser endpoint through its selected transport. */
+/**
+ * Discover one passive browser endpoint through its selected transport. A
+ * browser socket's handshake and discovery share one discovery deadline.
+ */
 export const openCdpEndpoint = async (
   endpoint: BrowserObservationEndpoint,
   operation: BrowserObservationOperation,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<CdpOpenedEndpoint> => {
   if (endpoint.transport === "http_discovery")
     return {
       discovery: await discoverCdpEndpoint(endpoint.url, operation, signal),
       connection: undefined,
     };
-  const connection = await CdpConnection.connect(
-    endpoint.url,
+  return await withCdpDiscoveryDeadline(
     operation,
     signal,
-  );
-  try {
-    return {
-      discovery: await discoverCdpBrowserSocket(
-        connection,
+    async (deadlineSignal) => {
+      const connection = await CdpConnection.connect(
         endpoint.url,
         operation,
-        signal,
-      ),
-      connection,
-    };
-  } catch (cause: unknown) {
-    await connection.close();
-    throw cause;
-  }
+        deadlineSignal,
+      );
+      try {
+        return {
+          discovery: await discoverCdpBrowserSocket(
+            connection,
+            endpoint.url,
+            operation,
+            deadlineSignal,
+          ),
+          connection,
+        };
+      } catch (cause: unknown) {
+        await connection.close();
+        throw cause;
+      }
+    },
+    timeoutMs,
+  );
 };
 
 /** Open one authorized target through its supported browser or page transport. */

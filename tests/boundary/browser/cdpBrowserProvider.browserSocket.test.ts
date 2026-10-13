@@ -1,9 +1,13 @@
+import { createServer, type Socket } from "node:net";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
-import { CdpConnection } from "../../../src/browser/CdpConnection.js";
-import { discoverCdpBrowserSocket } from "../../../src/browser/CdpEndpoint.js";
+import { openCdpEndpoint } from "../../../src/browser/CdpTargetSession.js";
+import { AnalysisError } from "../../../src/domain/analysisErrorBase.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import {
+  browserObservationEndpointSchema,
   inspectWebPageInputSchema,
   listBrowserTargetsInputSchema,
 } from "../../../src/domain/browserObservation.js";
@@ -133,34 +137,6 @@ describe("CdpBrowserProvider: browser socket failures and cleanup", () => {
     expect(JSON.stringify(result)).not.toContain("not-this-browser");
   });
 
-  it("ends browser-socket discovery at the discovery deadline", async () => {
-    const browser = await startFakeCdpBrowser({
-      hangOnMethod: "Target.getTargets",
-    });
-    trackBrowser(browser);
-    const connection = await CdpConnection.connect(
-      browser.browserWebSocketUrl,
-      "list_browser_targets",
-    );
-    try {
-      await expect(
-        discoverCdpBrowserSocket(
-          connection,
-          browser.browserWebSocketUrl,
-          "list_browser_targets",
-          undefined,
-          50,
-        ),
-      ).rejects.toMatchObject({
-        _tag: "BrowserObservationError",
-        reason: "timeout",
-      });
-    } finally {
-      await connection.close();
-    }
-    await vi.waitFor(() => expect(browser.activeConnectionCount()).toBe(0));
-  });
-
   it("cancels browser-socket discovery and releases the socket", async () => {
     const browser = await startFakeCdpBrowser({
       hangOnMethod: "Target.getTargets",
@@ -190,5 +166,67 @@ describe("CdpBrowserProvider: browser socket failures and cleanup", () => {
       "Target.attachToTarget",
     );
     await vi.waitFor(() => expect(browser.activeConnectionCount()).toBe(0));
+  });
+});
+
+/** Expect a discovery timeout that projects publicly as a provider timeout. */
+const expectDiscoveryTimeout = async (url: string): Promise<void> => {
+  let failure: unknown;
+  try {
+    await openCdpEndpoint(
+      browserObservationEndpointSchema.parse(url),
+      "list_browser_targets",
+      undefined,
+      50,
+    );
+  } catch (cause: unknown) {
+    failure = cause;
+  }
+  expect(failure).toMatchObject({
+    _tag: "BrowserObservationError",
+    reason: "timeout",
+  });
+  if (!(failure instanceof AnalysisError))
+    throw new Error("Expected a typed discovery failure");
+  expect(projectAnalysisError(failure)).toMatchObject({
+    code: "provider_timeout",
+    category: "timeout",
+  });
+};
+
+describe("CdpBrowserProvider: browser socket discovery deadline", () => {
+  it("times out a discovery reply that never arrives and closes the socket", async () => {
+    const browser = await startFakeCdpBrowser({
+      hangOnMethod: "Target.getTargets",
+    });
+    trackBrowser(browser);
+    await expectDiscoveryTimeout(browser.browserWebSocketUrl);
+    await vi.waitFor(() => expect(browser.activeConnectionCount()).toBe(0));
+  });
+
+  it("times out a WebSocket handshake that never completes", async () => {
+    const sockets = new Set<Socket>();
+    // Read the upgrade request but never answer it; reading lets the
+    // client's close be observed here.
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.resume();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string")
+      throw new Error("Expected a TCP listener address");
+    try {
+      await expectDiscoveryTimeout(
+        `ws://127.0.0.1:${String(address.port)}/devtools/browser/stalled`,
+      );
+      await vi.waitFor(() => expect(sockets.size).toBe(0));
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

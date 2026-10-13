@@ -146,48 +146,58 @@ export const discoverCdpEndpoint = async (
 };
 
 /**
+ * Run browser-socket discovery work, including its WebSocket handshake, under
+ * the HTTP discovery deadline. Reaching the deadline is a timeout, not a
+ * caller cancellation, so the internal abort is not carried as its cause.
+ */
+export const withCdpDiscoveryDeadline = async <T>(
+  operation: BrowserObservationOperation,
+  signal: AbortSignal | undefined,
+  work: (deadlineSignal: AbortSignal) => Promise<T>,
+  timeoutMs: number = CDP_DISCOVERY_RESPONSE_LIMITS.timeoutMs,
+): Promise<T> => {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), timeoutMs);
+  try {
+    return await work(
+      signal === undefined
+        ? deadline.signal
+        : AbortSignal.any([signal, deadline.signal]),
+    );
+  } catch (cause: unknown) {
+    if (deadline.signal.aborted && signal?.aborted !== true)
+      throw new BrowserObservationError(operation, "timeout", {
+        detail: `CDP browser-socket discovery exceeded its ${String(timeoutMs)} ms deadline.`,
+      });
+    throw cause;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * Read discovery facts over a browser socket that has no HTTP discovery.
- * Both replies share the HTTP discovery deadline; each is bounded by the
- * connection's protocol message limit.
+ * Each reply is bounded by the connection's protocol message limit; callers
+ * apply the discovery deadline through `signal`.
  */
 export const discoverCdpBrowserSocket = async (
   connection: CdpConnection,
   url: string,
   operation: BrowserObservationOperation,
   signal?: AbortSignal,
-  timeoutMs: number = CDP_DISCOVERY_RESPONSE_LIMITS.timeoutMs,
 ): Promise<CdpEndpointDiscovery> => {
-  const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), timeoutMs);
-  const commandSignal =
-    signal === undefined
-      ? deadline.signal
-      : AbortSignal.any([signal, deadline.signal]);
-  let versionInput: unknown;
-  let targetsInput: unknown;
-  try {
-    versionInput = await connection.send(
-      "Browser.getVersion",
-      {},
-      undefined,
-      commandSignal,
-    );
-    targetsInput = await connection.send(
-      "Target.getTargets",
-      {},
-      undefined,
-      commandSignal,
-    );
-  } catch (cause: unknown) {
-    if (deadline.signal.aborted && signal?.aborted !== true)
-      throw new BrowserObservationError(operation, "timeout", {
-        detail: `CDP browser-socket discovery exceeded its ${String(timeoutMs)} ms deadline.`,
-        cause,
-      });
-    throw cause;
-  } finally {
-    clearTimeout(timer);
-  }
+  const versionInput = await connection.send(
+    "Browser.getVersion",
+    {},
+    undefined,
+    signal,
+  );
+  const targetsInput = await connection.send(
+    "Target.getTargets",
+    {},
+    undefined,
+    signal,
+  );
   const version = parseCdpEndpointValue(
     browserSocketVersionSchema,
     versionInput,
