@@ -68,6 +68,7 @@ const retainedPath=path+'-retained';renameSync(path,retainedPath);
 assert.equal(statSync(retainedPath,{bigint:true}).ino,identity.ino);
 // FILE_SHARE_DELETE permits rename; ownership follows the retained handle.
 mkdirSync(path);const replacement=statSync(path,{bigint:true});
+assert.notEqual(replacement.ino,identity.ino);
 const marker=join(path,'caller-evidence.txt');writeFileSync(marker,'caller-owned replacement');
 if(process.argv[2]!=='teardown'){
  const second=systemWindowsNativeAuthority();assert.equal(second.available,true);
