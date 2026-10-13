@@ -50,6 +50,19 @@ describe("setup package-manager failure reporting", () => {
     expect(remediation).toContain("error: unresolvable package conflicts");
   });
 
+  it("keeps an stderr conflict visible after long stdout", () => {
+    const remediation = remediationFor(
+      packageFailure({
+        stdout: "loading packages... ".repeat(100),
+        stderr: "error: unresolvable package conflicts detected",
+      }),
+    );
+    expect(remediation).toContain(
+      "error: unresolvable package conflicts detected",
+    );
+    expect(remediation.length).toBeLessThan(800);
+  });
+
   it("drops a token the bound would cut and reports truncated output", () => {
     const remediation = remediationFor(
       packageFailure({

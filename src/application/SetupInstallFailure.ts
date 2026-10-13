@@ -55,7 +55,7 @@ const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu;
 
 /** Collapse one failing command's output into a bounded, single-line excerpt. */
 const packageFailureExcerpt = (failure: LinuxPackageInstallFailure): string => {
-  const text = `${failure.stdout}\n${failure.stderr}`
+  const text = `${failure.stderr}\n${failure.stdout}`
     .replaceAll(TERMINAL_ESCAPE, "")
     .replaceAll(CONTROL_CHARACTER, "")
     .replaceAll(/\s+/gu, " ")

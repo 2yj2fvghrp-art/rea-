@@ -4,16 +4,14 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  execFileOutput,
-  execFileOutputFailure,
-} from "../process/ExecFileOutput.js";
+import { execFileBoundedOutput } from "../process/ExecFileBoundedOutput.js";
+import { execFileOutput } from "../process/ExecFileOutput.js";
 import {
   downloadHopperPackage,
   HOPPER_DOWNLOAD_BYTES,
 } from "./HopperDownload.js";
 
-/** Package-manager output retained per command; a larger stream fails it. */
+/** Package-manager output retained per stream without stopping the command. */
 const PACKAGE_MANAGER_OUTPUT_BYTES = 64 * 1024;
 const DOWNLOAD_PREFIX = "https://www.hopperapp.com:443/downloader/public/";
 const SUPPORTED_HOPPER_SHA256 = new Set([
@@ -329,23 +327,25 @@ const installSystemPackage = async (
     archive,
     process.getuid?.() === 0,
   )) {
-    try {
-      await execFileOutput(command.executable, command.args, {
+    const output = await execFileBoundedOutput(
+      command.executable,
+      command.args,
+      {
         env: environment,
-        maxBuffer: PACKAGE_MANAGER_OUTPUT_BYTES,
-      });
-    } catch (cause: unknown) {
-      const failure = execFileOutputFailure(cause);
+        limit: PACKAGE_MANAGER_OUTPUT_BYTES,
+      },
+    );
+    if (output.exitCode !== 0) {
       return {
         status: "failed",
         failure: {
           command: `${command.executable} ${command.args.join(" ")}`,
-          exitCode: failure?.code ?? null,
-          // The streams stay separate: execFile reports them after exit, so
-          // their original interleaved order is not recoverable.
-          stdout: failure?.stdout ?? "",
-          stderr: failure?.stderr ?? "",
-          outputTruncated: failure?.outputTruncated ?? false,
+          exitCode: output.exitCode,
+          // The streams stay separate; their original interleaved order
+          // is not recoverable after capture.
+          stdout: output.stdout,
+          stderr: output.stderr,
+          outputTruncated: output.outputTruncated,
         },
       };
     }
