@@ -1,3 +1,4 @@
+import { createPackageWithOptions } from "@electron/asar";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -10,10 +11,13 @@ import { parseApplicationGraphEvidence } from "../../../src/application/javascri
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-const analyze = async (root: string) => {
+const analyze = async (
+  root: string,
+  format: "directory" | "asar" = "directory",
+) => {
   const result = await analyzeJavaScriptApplication({
     input_path: root,
-    format: "directory",
+    format,
   });
   if (!result.ok) throw result.error;
   const parsed = parseApplicationGraphEvidence(result.value);
@@ -262,5 +266,63 @@ describe("opaque inventory target consistency", () => {
         ),
       );
     },
+  );
+});
+
+it("retains ordinary ASAR members as opaque candidates rather than skipping their suffix", async () => {
+  const root = await createTestTempDirectory("rea-opaque-asar-");
+  const source = join(root, "source");
+  await mkdir(source);
+  await Promise.all([
+    writeFile(join(source, "main.cjs"), 'require("./ordinary.asar");'),
+    writeFile(join(source, "ordinary.asar"), "opaque"),
+    writeFile(join(source, "ordinary.asar.js"), "module.exports = 1;"),
+  ]);
+  const artifact = join(root, "app.asar");
+  await createPackageWithOptions(source, artifact, {});
+  const { graph } = await analyze(artifact, "asar");
+  const edges = graph.edges.filter(
+    ({ properties }) => properties.specifier === "./ordinary.asar",
+  );
+  expect(edges).toHaveLength(2);
+  for (const edge of edges)
+    expect(edge.properties).toMatchObject({
+      resolution_status: "unavailable",
+      candidate_path: "ordinary.asar",
+      resolved_path: null,
+    });
+});
+
+it("retains unavailable opaque source-map provenance in observations and edges", async () => {
+  const root = await createTestTempDirectory("rea-opaque-source-map-");
+  await Promise.all([
+    writeFile(
+      join(root, "main.cjs"),
+      "const value = 1;\n//# sourceMappingURL=cache.bin",
+    ),
+    writeFile(join(root, "cache.bin"), "opaque"),
+  ]);
+  const { graph } = await analyze(root);
+  const edge = graph.edges.find(
+    ({ properties }) => properties.candidate_path === "cache.bin",
+  );
+  expect(edge?.properties).toMatchObject({
+    resolution_status: "unavailable",
+    resolved_path: null,
+  });
+  expect(edge?.evidence.limitations).toContainEqual(
+    expect.stringContaining(
+      "cache.bin exists in the inventoried artifact container",
+    ),
+  );
+  const target = graph.nodes.find(
+    ({ node_id }) => node_id === edge?.target_node_id,
+  );
+  expect(target?.observations[0]?.properties).toMatchObject({
+    resolution_status: "unavailable",
+    candidate_path: "cache.bin",
+  });
+  expect(target?.observations[0]?.evidence.limitations).toContainEqual(
+    expect.stringContaining("cache.bin exists"),
   );
 });

@@ -275,7 +275,7 @@ const resolveRuntimeSourceCandidates = (
     kind: "implementation",
   };
   for (const candidate of [exactCandidate, ...sourceCandidates]) {
-    const selected = resolveFileCandidates(input, [candidate.path]);
+    const selected = findFileCandidate(input, candidate.path);
     if (selected === null) continue;
     return candidate.kind === "declaration"
       ? {
@@ -1041,44 +1041,56 @@ const resolveDirectory = (
   );
 };
 
+/** Apply runtime-declaration policy after the shared inventory identity lookup. */
 const resolveFileCandidates = (
   input: ResolveArtifactPathInput,
   candidates: readonly string[],
 ): CandidateResolution | null => {
-  const source = input.files.get(input.sourcePath);
   for (const path of candidates) {
-    const target = input.files.get(path);
-    if (
-      target !== undefined &&
-      (source === undefined ||
-        target.container_sha256 === source.container_sha256)
-    )
-      return isRuntimeDeclarationPath(input, path)
-        ? {
-            resolvedPath: null,
-            status: "unavailable",
-            candidatePath: path,
-            limitations: [
-              `The TypeScript declaration ${path} is compile-time evidence and cannot identify a runtime module implementation.`,
-            ],
-          }
-        : { resolvedPath: path, status: "resolved", limitations: [] };
-    // The candidate exists, but outside the files this analysis reads. Report
-    // its inventory identity instead of letting the lookup fall through to
-    // "not-found", which would state that present bytes are absent.
-    const unanalyzed = input.unanalyzedFiles?.get(path);
-    if (
-      unanalyzed !== undefined &&
-      (source === undefined ||
-        unanalyzed.container_sha256 === source.container_sha256)
-    )
-      return {
-        ...unresolvedCandidate("unavailable", [
-          `${path} exists in the inventoried artifact container (sha256 ${unanalyzed.sha256}, ${String(unanalyzed.bytes)} bytes) but is not a JavaScript, JSON, HTML, source map, or native add-on file; its contents were not analyzed.`,
-        ]),
-        candidatePath: path,
-      };
+    const selected = findFileCandidate(input, path);
+    if (selected === null) continue;
+    return selected.status === "resolved" &&
+      isRuntimeDeclarationPath(input, path)
+      ? {
+          resolvedPath: null,
+          status: "unavailable",
+          candidatePath: path,
+          limitations: [
+            `The TypeScript declaration ${path} is compile-time evidence and cannot identify a runtime module implementation.`,
+          ],
+        }
+      : selected;
   }
+  return null;
+};
+
+/** Own candidate presence and container identity independently of loader policy. */
+const findFileCandidate = (
+  input: ResolveArtifactPathInput,
+  path: string,
+): CandidateResolution | null => {
+  const source = input.files.get(input.sourcePath);
+  const target = input.files.get(path);
+  if (
+    target !== undefined &&
+    (source === undefined ||
+      target.container_sha256 === source.container_sha256)
+  )
+    return { resolvedPath: path, status: "resolved", limitations: [] };
+  const unanalyzed = input.unanalyzedFiles?.get(path);
+  if (
+    unanalyzed !== undefined &&
+    (source === undefined ||
+      unanalyzed.container_sha256 === source.container_sha256)
+  )
+    return {
+      resolvedPath: null,
+      status: "unavailable",
+      candidatePath: path,
+      limitations: [
+        `${path} exists in the inventoried artifact container (sha256 ${unanalyzed.sha256}, ${String(unanalyzed.bytes)} bytes) but is not a JavaScript, JSON, HTML, source map, or native add-on file; its contents were not analyzed.`,
+      ],
+    };
   return null;
 };
 
