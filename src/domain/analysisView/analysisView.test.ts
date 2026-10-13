@@ -1,3 +1,4 @@
+import { boundedViewMessages } from "./analysisViewCoverage.js";
 import { expect, it } from "vitest";
 
 import { functionDossierSchema } from "../hopperValues.js";
@@ -920,4 +921,16 @@ it("rejects unsupported parent operations and incompatible collections", () => {
     ok: false,
     error: { _tag: "AnalysisInputError" },
   });
+});
+
+it("bounds repeated view messages even when fewer than 64 source strings are huge", () => {
+  const oversized = ["\u0000".repeat(300_000), "\\".repeat(300_000)];
+  const projected = boundedViewMessages(
+    oversized,
+    `ev_${"a".repeat(64)}`,
+    "limitations",
+  );
+  expect(projected).toHaveLength(1);
+  expect(projected[0]).toContain("2 additional limitations omitted");
+  expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(256 * 1024);
 });
