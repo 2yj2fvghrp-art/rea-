@@ -932,8 +932,9 @@ const addIpcFinding = (
   const unconditional = alternatives.some((guards) => guards.length === 0);
   // A fully observed transmission stays one source fact when its callback is
   // traced. Registrations retain invocation identity because handlers compete.
-  // Raw wrapper syntax describes the registration site, not an additional
-  // runtime invocation. Concrete invocations supersede that one raw summary.
+  // Raw wrapper registration syntax describes the registration site, not an
+  // additional runtime invocation. Concrete invocations supersede that one raw
+  // summary; an observed transmission is kept and its traced copy dropped.
   if (finding.invocation_location !== undefined)
     for (let index = accumulator.ipc.length - 1; index >= 0; index--) {
       const raw = accumulator.ipc[index]?.value;
@@ -941,6 +942,8 @@ const addIpcFinding = (
         raw !== undefined &&
         raw.resolution_basis === undefined &&
         raw.invocation_location === undefined &&
+        raw.mode !== "send" &&
+        raw.mode !== "invoke" &&
         raw.side === finding.side &&
         raw.operation === finding.operation &&
         raw.channel === finding.channel &&
