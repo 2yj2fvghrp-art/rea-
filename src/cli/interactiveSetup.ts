@@ -90,8 +90,13 @@ export const renderSetupProgress = (event: SetupProgressEvent): void => {
 export const renderTerminalSetupSummary = (
   result: SetupResult,
   scopeSelected: boolean,
+  mode: "dry-run" | "apply",
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
 ): void => {
+  if (mode === "dry-run") {
+    renderPlannedTerminalSummary(result, scopeSelected);
+    return;
+  }
   switch (result.status) {
     case "planned":
       renderPlannedTerminalSummary(result, scopeSelected);

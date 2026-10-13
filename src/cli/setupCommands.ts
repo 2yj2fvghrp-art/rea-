@@ -227,7 +227,12 @@ const runSetupCommand = async (
   );
   if (interactive) renderInteractiveSetupResult(result, environment);
   else if (setupOutputHiddenInTerminal(input.formatExplicit))
-    renderTerminalSetupSummary(result, hasExplicitScope, environment);
+    renderTerminalSetupSummary(
+      result,
+      hasExplicitScope,
+      options.dryRun ? "dry-run" : "apply",
+      environment,
+    );
   return result;
 };
 

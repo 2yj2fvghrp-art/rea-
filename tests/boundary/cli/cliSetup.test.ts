@@ -337,6 +337,37 @@ describe("interactive setup completion", () => {
 });
 
 describe("non-interactive setup in a terminal", () => {
+  it("renders a blocked dry-run plan before remediation and the no-mutation notice", async () => {
+    const result = {
+      status: "needs_human",
+      plannedActions: [actions[2]],
+      appliedActions: [],
+      clients: {},
+      doctor: {},
+      clientStates: [],
+      remediation: "Unsupported Hopper host",
+    };
+    const { stderr } = await execute(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        [
+          'import { renderTerminalSetupSummary } from "./dist/cli/interactiveSetup.js";',
+          `renderTerminalSetupSummary(${JSON.stringify(result)}, true, "dry-run");`,
+        ].join("\n"),
+      ],
+      { cwd: process.cwd(), env: { ...process.env, NO_COLOR: "1" } },
+    );
+    expect(stderr).toContain("Planned changes (dry run)");
+    expect(stderr).toContain("Hopper deep-analysis provider");
+    expect(stderr).toContain("Unsupported Hopper host");
+    expect(stderr.indexOf("Planned changes")).toBeLessThan(
+      stderr.indexOf("Unsupported Hopper host"),
+    );
+    expect(stderr).toContain("Dry run: no changes were made.");
+  });
+
   it.each([["--format", "json"], ["--json"]])(
     "keeps explicitly structured terminal output free of human summaries: %s",
     async (...format) => {
