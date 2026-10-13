@@ -234,6 +234,9 @@ it("reports JVM class files as unsupported images instead of fat Mach-O containe
   expect(() => readGoBinaryImage(javaClassFile(4000))).toThrowError(
     /Only ELF, PE, and thin Mach-O native images are supported/,
   );
+  expect(() => readGoBinaryImage(javaClassFile(4000, true))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
 });
 
 it("keeps the thin-slice failure for confirmed universal Mach-O containers", () => {

@@ -201,8 +201,9 @@ const readContainer = (bytes: Buffer): GoBinaryContainer => {
               return bytes.readUInt32BE(offset);
             })
           : undefined;
-      const confirmedFatMachO =
-        fatHeader.state !== "not-fat" && identity?.state !== "not-mach-o";
+      // An invalid FAT-shaped table is not proof of a Mach-O container: JVM
+      // constant-pool bytes can share both the magic and a known CPU value.
+      const confirmedFatMachO = identity?.state === "mach-o";
       if (confirmedFatMachO)
         throw new GoBinaryFormatFailure(
           "unsupported",
