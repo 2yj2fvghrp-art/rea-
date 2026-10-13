@@ -84,6 +84,24 @@ describe("parseAdbDevicesOutput", () => {
     ]);
   });
 
+  it("accepts complete multiword states and rejects state prefixes", () => {
+    const output = [
+      "serial-no-permission no permissions usb:1-1",
+      "serial-bad-device deviceXYZ  ",
+      "serial-bad-offline offline-ish",
+      "serial-bad-auth unauthorizedXYZ",
+    ].join("\n");
+    const { devices, unparsedLines } = parseAdbDevicesOutput(output);
+    expect(devices.map(({ serial, state }) => [serial, state])).toEqual([
+      ["serial-no-permission", "no permissions"],
+    ]);
+    expect(unparsedLines).toEqual([
+      "serial-bad-device deviceXYZ  ",
+      "serial-bad-offline offline-ish",
+      "serial-bad-auth unauthorizedXYZ",
+    ]);
+  });
+
   it("returns unrecognized lines instead of dropping them", () => {
     const output = [
       "List of devices attached",
@@ -194,10 +212,10 @@ describe("parsePackageListOutput", () => {
 
   it("keeps unrecognized lines for partial coverage reporting", () => {
     const { packages, unparsedLines } = parsePackageListOutput(
-      "package:/data/app/x/base.apk=com.ok\ngarbage line\n",
+      "package:/data/app/x/base.apk=com.ok\n  garbage line  \n",
     );
     expect(packages).toHaveLength(1);
-    expect(unparsedLines).toEqual(["garbage line"]);
+    expect(unparsedLines).toEqual(["  garbage line  "]);
   });
 });
 
@@ -240,20 +258,12 @@ describe("parsePmPathOutput", () => {
     });
   });
 
-  it("preserves whitespace and the exact POSIX device path", () => {
-    const devicePath = "/data/app/My App/résumé:final\\draft*.apk";
-    const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
-      `package:${devicePath}\r\n`,
-    );
-    expect(paths).toEqual([
-      {
-        device_path: devicePath,
-        file_name: "résumé:final\\draft*.apk",
-        role: "unknown",
-      },
-    ]);
-    expect(rejectedPaths).toEqual([]);
-    expect(unparsedLines).toEqual([]);
+  it("refuses Package Manager whitespace without changing the source path", () => {
+    const devicePath = "/data/app/My App/base.apk";
+    const parsed = parsePmPathOutput(`package:${devicePath}\n`);
+    expect(parsed.paths).toEqual([]);
+    expect(parsed.rejectedPaths).toEqual([{ device_path: devicePath, reason: "unsupported_character" }]);
+    expect(parsed.unparsedLines).toEqual([]);
   });
 
   it("rejects an empty final component without normalizing the source", () => {

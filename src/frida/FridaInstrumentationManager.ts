@@ -31,6 +31,10 @@ import {
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
+import {
+  unknownFridaScript,
+  unknownFridaSession,
+} from "../application/frida/fridaInputErrors.js";
 
 const MAX_SESSION_CAPTURE_BYTES = 16 * 1024 * 1024;
 const MAX_MESSAGE_METADATA_BYTES = 128 * 1024;
@@ -79,8 +83,8 @@ interface ManagedSession extends ManagedRemoteConnection {
   readonly pid: number;
   readonly mode: "attach" | "spawn";
   readonly scripts: Map<string, ManagedScript>;
-  readonly messages: JsonValue[];
-  readonly messagesByScript: Map<string, JsonValue[]>;
+  readonly messages: MessageFifo<CapturedMessage>;
+  readonly messagesByScript: Map<string, MessageFifo<JsonValue>>;
   state: "paused" | "running" | "detached";
   targetResumeObserved: boolean;
   resumeAfterDetachPending: boolean;
@@ -273,7 +277,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         pid,
         mode: input.mode,
         scripts: new Map(),
-        messages: [],
+        messages: new MessageFifo(),
         messagesByScript: new Map(),
         state: input.mode === "spawn" ? "paused" : "running",
         targetResumeObserved: false,
@@ -334,7 +338,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   ): Promise<Result<FridaScriptObservation, AnalysisError>> {
     const managed = this.#sessions.get(sessionId);
     if (managed === undefined || managed.state === "detached")
-      return err(new AnalysisInputError("load_frida_script"));
+      return err(unknownFridaSession("load_frida_script", sessionId));
 
     let scriptSource: string;
     try {
@@ -354,7 +358,13 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
               cause.code,
               { cause },
             )
-          : new AnalysisInputError("load_frida_script", { cause }),
+          : new AnalysisInputError("load_frida_script", { cause }, [
+              {
+                path: ["path"],
+                reason: "invalid_value",
+                message: `Cannot read Frida script file ${sourcePath ?? "<inline>"}.`,
+              },
+            ]),
       );
     }
 
@@ -363,7 +373,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       .digest("hex");
     const scriptId = randomUUID();
     const scriptName = `rea-${scriptId}`;
-    managed.messagesByScript.set(scriptId, []);
+    managed.messagesByScript.set(scriptId, new MessageFifo());
     let nativeScript: Script | undefined;
     const onMessage = (message: FridaMessage, data: Buffer | null): void => {
       this.#recordMessage(managed, scriptId, message, data);
@@ -387,7 +397,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         sourceKind: source.sourceKind,
         sourcePath: source.sourceKind === "file" ? source.path : null,
         sourceSha256,
-        messages: [...(managed.messagesByScript.get(scriptId) ?? [])],
+        messages: managed.messagesByScript.get(scriptId)?.toArray() ?? [],
         messagesTruncated: managed.messagesTruncated,
       });
     } catch (cause: unknown) {
@@ -419,7 +429,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   ): Promise<Result<null, AnalysisError>> {
     const managed = this.#sessions.get(sessionId);
     if (managed === undefined || managed.state === "detached")
-      return err(new AnalysisInputError("resume_frida_session"));
+      return err(unknownFridaSession("resume_frida_session", sessionId));
     if (managed.mode !== "spawn" || managed.state !== "paused")
       return err(
         new AnalysisCapabilityUnavailableError(
@@ -454,8 +464,10 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   ): Promise<Result<null, AnalysisError>> {
     const managed = this.#sessions.get(sessionId);
     const entry = managed?.scripts.get(scriptId);
-    if (managed === undefined || entry === undefined)
-      return err(new AnalysisInputError("unload_frida_script"));
+    if (managed === undefined)
+      return err(unknownFridaSession("unload_frida_script", sessionId));
+    if (entry === undefined)
+      return err(unknownFridaScript("unload_frida_script", scriptId));
     const cleanupReason = await this.#releaseScript(managed, entry);
     return cleanupReason === undefined
       ? ok(null)
@@ -505,7 +517,9 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         scriptId: id,
         name,
       })),
-      messages: [...managed.messages],
+      messages: managed.messages
+        .toArray()
+        .map(({ observation }) => observation),
       messagesTruncated: managed.messagesTruncated,
     };
   }
@@ -536,7 +550,7 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
   > {
     const managed = this.#sessions.get(sessionId);
     if (managed === undefined)
-      return err(new AnalysisInputError("close_frida_session"));
+      return err(unknownFridaSession("close_frida_session", sessionId));
     const scriptFailures = new Map<string, string>();
     const cleanupFailures: string[] = [];
     let parentSessionReleased =
@@ -839,30 +853,21 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
       return;
     }
     while (
-      managed.messages.length > 0 &&
+      managed.messages.size > 0 &&
       managed.capturedBytes + charge > MAX_SESSION_CAPTURE_BYTES
     ) {
       const removed = managed.messages.shift();
       if (removed !== undefined) {
-        managed.capturedBytes -= Buffer.byteLength(JSON.stringify(removed));
-        if (
-          typeof removed === "object" &&
-          removed !== null &&
-          !Array.isArray(removed) &&
-          typeof removed.script_id === "string"
-        ) {
-          const scriptMessages = managed.messagesByScript.get(
-            removed.script_id,
-          );
-          const index = scriptMessages?.indexOf(removed) ?? -1;
-          if (scriptMessages !== undefined && index >= 0) {
-            scriptMessages.splice(index, 1);
-          }
-        }
+        managed.capturedBytes -= removed.charge;
+        // Both queues are in arrival order, so the globally oldest message is
+        // also the oldest one retained for its script.
+        const scriptMessages = managed.messagesByScript.get(removed.scriptId);
+        if (scriptMessages?.peek() === removed.observation)
+          scriptMessages.shift();
       }
       managed.messagesTruncated = true;
     }
-    managed.messages.push(observation);
+    managed.messages.push({ observation, scriptId, charge });
     managed.messagesByScript.get(scriptId)?.push(observation);
     managed.capturedBytes += charge;
   }
@@ -1228,3 +1233,49 @@ const providerError = (
 
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
+
+interface CapturedMessage {
+  readonly observation: JsonValue;
+  readonly scriptId: string;
+  /** Serialized bytes charged against the session capture budget. */
+  readonly charge: number;
+}
+
+/**
+ * Arrival-ordered queue whose eviction advances a head offset. A full capture
+ * budget evicts on every message, and `Array#shift` would copy every retained
+ * message each time.
+ */
+class MessageFifo<T> {
+  #items: (T | undefined)[] = [];
+  #head = 0;
+
+  get size(): number {
+    return this.#items.length - this.#head;
+  }
+
+  push(item: T): void {
+    this.#items.push(item);
+  }
+
+  peek(): T | undefined {
+    return this.#items[this.#head];
+  }
+
+  shift(): T | undefined {
+    if (this.#head >= this.#items.length) return undefined;
+    const item = this.#items[this.#head];
+    this.#items[this.#head] = undefined;
+    this.#head += 1;
+    // Compacting once half the slots are evicted keeps eviction amortized O(1).
+    if (this.#head * 2 >= this.#items.length) {
+      this.#items = this.#items.slice(this.#head);
+      this.#head = 0;
+    }
+    return item;
+  }
+
+  toArray(): T[] {
+    return this.#items.slice(this.#head) as T[];
+  }
+}

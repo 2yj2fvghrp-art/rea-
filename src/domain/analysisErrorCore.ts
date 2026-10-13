@@ -21,13 +21,22 @@ export class AnalysisUnsupportedTargetError extends AnalysisError {
 }
 
 /** An analysis or transport resource failure, distinct from malformed input or unsupported coverage. */
+export const ANALYSIS_RESOURCE_KINDS = [
+  "memory",
+  "cpu",
+  "file-size",
+  "transport",
+  "capacity",
+] as const;
+
+/** A measured resource constraint or bounded admission refusal. */
 export class AnalysisResourceConstraintError extends AnalysisError {
   readonly _tag = "AnalysisResourceConstraintError";
   readonly remediationAction: string | undefined;
 
   constructor(
     readonly operation: string,
-    readonly resource: "memory" | "cpu" | "file-size" | "transport",
+    readonly resource: (typeof ANALYSIS_RESOURCE_KINDS)[number],
     readonly reason: string,
     readonly reportedLimits: Readonly<Record<string, JsonValue>> | null,
     options?: AnalysisErrorOptions & { readonly remediationAction?: string },
@@ -79,8 +88,6 @@ export interface AnalysisOutputErrorOptions extends AnalysisErrorOptions {
   /** Caller-facing explanation for a deterministic, diagnosable refusal. */
   readonly userMessage?: string;
   readonly remediationAction?: string;
-  /** Structured, secret-safe facts identifying exactly what was refused. */
-  readonly diagnostics?: Readonly<Record<string, JsonValue>>;
 }
 
 /** Provider output failed provider-neutral application parsing. */
@@ -88,7 +95,6 @@ export class AnalysisOutputError extends AnalysisError {
   readonly _tag = "AnalysisOutputError";
   override readonly userMessage: string | undefined;
   readonly remediationAction: string | undefined;
-  readonly diagnostics: Readonly<Record<string, JsonValue>> | undefined;
 
   constructor(
     readonly operation: string,
@@ -98,10 +104,6 @@ export class AnalysisOutputError extends AnalysisError {
     super(`Invalid analysis output for ${operation}: ${reason}`, options);
     this.userMessage = options?.userMessage;
     this.remediationAction = options?.remediationAction;
-    this.diagnostics =
-      options?.diagnostics === undefined
-        ? undefined
-        : structuredClone(options.diagnostics);
   }
 }
 
@@ -109,18 +111,24 @@ export class AnalysisOutputError extends AnalysisError {
 export class AnalysisCapabilityUnavailableError extends AnalysisError {
   readonly _tag = "AnalysisCapabilityUnavailableError";
   override readonly userMessage: string | undefined;
+  /** Incomplete cleanup must settle before the operation can be retried. */
+  readonly retryable: boolean;
 
   constructor(
     readonly providerId: string,
     readonly operation: string,
     readonly reason: string,
-    options?: AnalysisErrorOptions & { readonly userMessage?: string },
+    options?: AnalysisErrorOptions & {
+      readonly userMessage?: string;
+      readonly retryable?: boolean;
+    },
   ) {
     super(
       `Provider ${providerId} cannot execute ${operation}: ${reason}`,
       options,
     );
     this.userMessage = options?.userMessage;
+    this.retryable = options?.retryable === true && !this.cleanupIncomplete;
   }
 }
 

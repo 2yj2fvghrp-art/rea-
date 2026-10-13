@@ -6,6 +6,12 @@ for the reviewed setup transaction and [client IDs](installation.md#supported-ag
 The versioned verification notes below describe their stated runs; live service
 acceptance is verified only where explicitly recorded.
 
+## Fiddler Everywhere alongside REA
+
+Connect Fiddler Everywhere's MCP server separately for HTTP traffic debugging,
+preserving your REA client entry. See the
+[setup instructions and public skills](web-network-captures.md#fiddler-everywhere-mcp-and-public-skills).
+
 ## GitHub Copilot CLI
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
@@ -95,6 +101,11 @@ Setup and doctor follow Qwen Code's tilde and working-directory-relative home
 overrides. Qwen Code also discovers personal skills in `~/.agents/skills`,
 where setup installs the bundled workflow.
 
+## Antigravity
+
+Antigravity 2.0 discovers personal skills in `~/.gemini/config/skills`.
+Setup installs its selected skill copy there.
+
 ## Gemini CLI
 
 Gemini CLI uses `$GEMINI_CLI_HOME/.gemini/settings.json` when that home override
@@ -144,6 +155,30 @@ repair the profile or run `hermes profile use default` before retrying.
 REA follows `HERMES_HOME` whitespace trimming, environment-variable expansion,
 and home expansion before resolving that profile. Setup previews the resolved
 configuration and skill destinations; doctor and uninstall use those same paths.
+
+## Qoder CLI
+
+For [Qoder](https://docs.qoder.com/cli/mcp-reference), setup writes
+`mcpServers.rea` into the user-level `~/.qoder/settings.json` (the
+`QODER_CONFIG_DIR` override is honored). Entries carry `command`, `args`, and
+`env`; stdio is the default transport. Qoder CLI discovers personal skills
+from `~/.qoder/skills` (following `QODER_CONFIG_DIR` when set), so setup
+installs its skill copy there.
+
+## Trae
+
+For [Trae](https://docs.trae.ai/ide/add-mcp-servers), setup writes
+`mcpServers.rea` into the user-scope `mcp.json` under Trae's VS Code-style
+user directory (`%APPDATA%\Trae\User` on Windows,
+`~/Library/Application Support/Trae/User` on macOS, and
+`~/.config/Trae/User` elsewhere). Entries carry `command`, `args`, and
+`env`; stdio is the default transport. Trae discovers personal skills from
+`~/.trae/skills` (`%userprofile%\.trae\skills` on Windows), so setup
+installs its skill copy there.
+
+The user-level MCP paths follow the editor's VS Code layout. Trae's official
+documentation describes the raw JSON editor without specifying those paths;
+loading this registration in Trae remains unverified.
 
 ## ZCode
 

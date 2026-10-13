@@ -398,7 +398,7 @@ if [ "$1" = "version" ]; then
   printf 'Android Debug Bridge version 1.0.41\\nVersion 34.0.5-stub\\nInstalled as %s\\n' "$0"
   exit 0
 fi
-if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then
   printf '%s\\n' 'package:/data/app/x/base.apk' 'package:/data/app/x/..'
   exit 0
 fi

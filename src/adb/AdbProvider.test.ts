@@ -121,6 +121,52 @@ fi`,
   ]);
 });
 
+it("refuses device listings with an invalid state token", async () => {
+  const malformedLine = "serial deviceXYZ  ";
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "devices" ]; then
+  printf 'List of devices attached\\n${malformedLine}\\n'
+  exit 0
+fi`,
+  );
+  const result = await providerOver(binary).execute({
+    operation: "list_adb_devices",
+    input: {},
+  });
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(result.error._tag).toBe("AnalysisProtocolError");
+  expect(result.error.message).toContain(malformedLine);
+});
+
+it("lists rescue and detached transports alongside online devices", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "devices" ]; then
+  printf 'List of devices attached\\n'
+  printf 'serial-online          device transport_id:1\\n'
+  printf 'serial-rescue          rescue transport_id:2\\n'
+  printf 'serial-detached        detached transport_id:3\\n'
+  exit 0
+fi`,
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "list_adb_devices",
+    input: {},
+  });
+  expect(result.devices).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ serial: "serial-online", state: "device" }),
+      expect.objectContaining({ serial: "serial-rescue", state: "rescue" }),
+      expect.objectContaining({
+        serial: "serial-detached",
+        state: "detached",
+      }),
+    ]),
+  );
+});
+
 it("inspects a device through the getprop whitelist", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
@@ -177,7 +223,7 @@ const pullStub = (
   paths: string,
   pullBody: string,
 ): string => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then
   printf '%s\\n' ${paths}
   exit 0
 fi
@@ -315,7 +361,7 @@ it.each([
 ])("refuses %s before creating output or pulling", async (_, pmOutput) => {
   const { binary, root } = await writeAdbStub(
     (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf '%b' '${pmOutput.replaceAll("'", "'\\''").replaceAll("\n", "\\n")}\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf '%b' '${pmOutput.replaceAll("'", "'\\''").replaceAll("\n", "\\n")}\\n'; exit 0; fi
 if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then : > '${join(root, "pull-ran")}'; exit 0; fi
 exit 1`,
   );
@@ -371,7 +417,7 @@ it.each([
   async (_, pmOutput, details, excerpt) => {
     const { binary, root } = await writeAdbStub(
       () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf '%b' '${pmOutput}\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf '%b' '${pmOutput}\\n'; exit 0; fi
 exit 1`,
     );
     const projected = await refusedBy(providerOver(binary), {
@@ -403,7 +449,7 @@ it("projects a destination the output filesystem cannot create before pulling", 
   const fileName = `${"a".repeat(300)}.apk`;
   const { binary, root } = await writeAdbStub(
     (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf 'package:/data/app/x/${fileName}\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf 'package:/data/app/x/${fileName}\\n'; exit 0; fi
 if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then : > '${join(root, "pull-ran")}'; exit 0; fi
 exit 1`,
   );
@@ -440,7 +486,7 @@ it("escapes invisible and bidi code points in refusal prose but keeps raw detail
   const devicePath = "/data/app/x/\u202egpj.apk";
   const { binary, root } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ]; then printf 'package:%s\\npackage:%s\\n' '${devicePath}' '/data/app/y/\u202egpj.apk'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf 'package:%s\\npackage:%s\\n' '${devicePath}' '/data/app/y/\u202egpj.apk'; exit 0; fi
 exit 1`,
   );
   const projected = await refusedBy(providerOver(binary), {
@@ -452,10 +498,12 @@ exit 1`,
     },
   });
   expect(projected.details).toMatchObject({
-    reason: "duplicate_local_destination",
+    reason: "unsafe_device_path",
     diagnostics: {
-      file_name: "\u202egpj.apk",
-      device_paths: [devicePath, "/data/app/y/\u202egpj.apk"],
+      rejected_paths: [
+        { device_path: devicePath, reason: "unsupported_character" },
+        { device_path: "/data/app/y/\u202egpj.apk", reason: "unsupported_character" },
+      ],
     },
   });
   expect(projected.message).toContain('"/data/app/x/\\u{202E}gpj.apk"');
@@ -525,7 +573,7 @@ it.each([
 it("reports an uninstalled package from empty pm path output", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
-if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then exit 0; fi`,
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ] && [ "$6" = "path" ]; then exit 0; fi`,
   );
   const projected = await refusedBy(providerOver(binary), {
     operation: "pull_adb_package",
@@ -648,6 +696,44 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
   ]);
 });
 
+it("reports UTF-8 byte counts in total_bytes for non-ASCII logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    shellStub({
+      logcat:
+        "08-10 13:00:00.000 I/Tag( 1): 中文\n08-10 13:00:00.000 I/Tag( 1): 😀\n",
+    }),
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  expect(result.lines).toEqual([
+    "08-10 13:00:00.000 I/Tag( 1): 中文",
+    "08-10 13:00:00.000 I/Tag( 1): 😀",
+  ]);
+  // 30-byte prefix + 6-byte CJK + LF = 37; 30-byte prefix + 4-byte emoji + LF = 35.
+  expect(result.total_bytes).toBe(72);
+});
+
+it("counts raw captured bytes in total_bytes for malformed UTF-8 logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "shell" ]; then
+  printf '%b' '08-10 13:00:00.000 I/Tag( 1): A\\377B\\n'
+  exit 0
+fi
+printf 'unexpected arguments: %s\\n' "$@"
+exit 1`,
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  // 30-byte prefix + "A" + one raw 0xff byte + "B" + LF = 34 captured bytes.
+  // Re-encoding the decoded U+FFFD replacement would report 36.
+  expect(result.total_bytes).toBe(34);
+});
+
 it("projects package details from dumpsys package output", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
@@ -678,6 +764,34 @@ it("projects package details from dumpsys package output", async () => {
     installer_package_name: "com.android.vending",
     user_id: 10234,
     requested_permissions_count: 2,
+    coverage: "complete",
+  });
+});
+
+// Android 10 and 11 append ": restricted=true" to hard- and soft-restricted
+// entries of the requested-permissions list (Settings.dumpPackageLPr).
+it("counts requested permissions that the device marks as restricted", async () => {
+  const { binary } = await writeAdbStub(
+    shellStub({
+      "dumpsys:package": `Packages:
+  Package [com.example] (abcdef):
+    userId=10234
+    versionName=1.2.3
+    requested permissions:
+      android.permission.INTERNET
+      android.permission.WRITE_EXTERNAL_STORAGE: restricted=true
+      android.permission.CAMERA
+    install permissions:
+      android.permission.INTERNET: granted=true
+`,
+    }),
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "inspect_adb_package",
+    input: { serial: "emulator-5554", package: "com.example" },
+  });
+  expect(result).toMatchObject({
+    requested_permissions_count: 3,
     coverage: "complete",
   });
 });
@@ -1226,10 +1340,10 @@ it("rejects mistyped intent extras before touching the device", async () => {
 
 it("collects a device bugreport archive with its digest", async () => {
   const { binary, root } = await writeAdbStub(
-    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
 if [ "$1" = "-s" ] && [ "$3" = "bugreport" ]; then
-  printf 'bugreport-bytes' > "${join(root, "bugreport test.zip")}"
-  printf 'Bug report copied to ${join(root, "bugreport test.zip")}\\n'
+  printf 'bugreport-bytes' > "$4/bugreport test.zip"
+  printf 'Bug report copied to %s/bugreport test.zip\\n' "$4"
   exit 0
 fi
 exit 1`,
@@ -1243,7 +1357,7 @@ exit 1`,
     local_path: join(root, "bugreport test.zip"),
     bytes: 15,
     sha256: digest,
-    adb_reported_path: join(root, "bugreport test.zip"),
+    adb_reported_path: expect.stringContaining(".rea-bugreport-"),
   });
 });
 
