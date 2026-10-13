@@ -20,6 +20,8 @@ a controller or an existing registration, including after navigation. It does
 not unregister caller-owned workers. Navigation can run the destination's normal
 application code before this check; rejection does not undo those effects.
 The temporary registration wrapper is restored before disconnecting.
+Cleanup removes the owned future-document scripts before restoring live frames;
+cancellation stops pending navigation even when no storage seeds were supplied.
 Add secret declarations, storage seeds, and additional artifact or event
 capture only when needed. Action, secret, and storage counts are not capped.
 Duration, action, and navigation

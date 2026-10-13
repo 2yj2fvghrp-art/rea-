@@ -212,7 +212,11 @@ export class PlaywrightScenarioSession implements BrowserScenarioSessionPort {
     const serviceWorkers =
       scenario.browser.mode === "connect" &&
       scenario.environment.service_workers === "block"
-        ? new PlaywrightScenarioServiceWorkers(opened.page)
+        ? new PlaywrightScenarioServiceWorkers(
+            opened.page,
+            scenario.browser.cdp_endpoint,
+            scenario.browser.target_id,
+          )
         : undefined;
     try {
       await withPlaywrightExecutionBoundary(
@@ -267,7 +271,7 @@ export class PlaywrightScenarioSession implements BrowserScenarioSessionPort {
         }
         try {
           // A failed restoration retains the connection so cleanup can retry.
-          if (!opened.cleanup.browserClosed) await serviceWorkers?.close();
+          if (!opened.cleanup.browserClosed) await serviceWorkers?.close(true);
           await opened.cleanup.close(
             events === undefined
               ? undefined
@@ -385,7 +389,7 @@ export class PlaywrightScenarioSession implements BrowserScenarioSessionPort {
     }
     try {
       if (!this.opened.cleanup.browserClosed)
-        await this.serviceWorkers?.close();
+        await this.serviceWorkers?.close(stopLoading);
       await this.opened.cleanup.close(() => this.eventCapture.finish());
     } catch (failure: unknown) {
       browserFailure = { cause: failure };

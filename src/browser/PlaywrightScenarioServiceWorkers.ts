@@ -1,17 +1,52 @@
 import { randomUUID } from "node:crypto";
 
+import { z } from "zod";
 import type { Page } from "playwright-core";
 
+import { browserObservationEndpointSchema } from "../domain/browserObservation.js";
 import { BrowserObservationError } from "../domain/browserObservationError.js";
+import { CdpConnection } from "./CdpConnection.js";
+import {
+  attachCdpTargetSession,
+  openCdpEndpoint,
+  type CdpTargetSession,
+} from "./CdpTargetSession.js";
 import { withPlaywrightExecutionBoundary } from "./PlaywrightExecutionBoundary.js";
 
-/** Owns only the registration wrapper; existing workers always belong to the caller. */
+const OPERATION = "capture_browser_scenario" as const;
+const scriptResponse = z.object({ identifier: z.string() });
+const attachedEvent = z.object({
+  sessionId: z.string(),
+  targetInfo: z.object({ type: z.string() }),
+});
+const detachedEvent = z.object({ sessionId: z.string() });
+type PolicyTarget = {
+  readonly id: string;
+  ready: Promise<void>;
+  identifier?: string;
+};
+
+/** Owns only its frame scripts and registration wrappers, never caller-owned workers. */
 export class PlaywrightScenarioServiceWorkers {
-  private readonly key = JSON.stringify(`rea-service-workers-${randomUUID()}`);
+  private readonly marker = JSON.stringify(
+    `rea-service-workers-${randomUUID()}`,
+  );
+  private readonly restoreKey = JSON.stringify(`rea-restore-${randomUUID()}`);
+  private readonly secret = JSON.stringify(randomUUID());
   #initialization: Promise<void> | undefined;
   #restoration: Promise<void> | undefined;
+  #session: CdpTargetSession | undefined;
+  #targets = new Map<string, PolicyTarget>();
+  #closed = false;
+  #released = false;
+  #detached = false;
+  #removeListener: (() => void) | undefined;
 
-  constructor(private readonly page: Page) {}
+  constructor(
+    private readonly page: Page,
+    private readonly endpoint: string,
+    private readonly targetId: string,
+  ) {}
 
   initialize(): Promise<void> {
     return (this.#initialization ??= this.install());
@@ -19,52 +54,150 @@ export class PlaywrightScenarioServiceWorkers {
 
   private async install(): Promise<void> {
     await this.assertBlocked();
-    const script = `(() => {
-      if (!("serviceWorker" in navigator)) return;
-      const prototype = ServiceWorkerContainer.prototype;
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "register");
-      if (typeof descriptor?.value === "function" && Object.hasOwn(descriptor.value, Symbol.for(${this.key}))) return;
-      const register = () => Promise.reject(new Error("service workers are blocked by scenario policy"));
-      Object.defineProperty(register, Symbol.for(${this.key}), { value: descriptor });
-      Object.defineProperty(prototype, "register", { ...descriptor, configurable: true, value: register });
-    })()`;
-    await this.page.addInitScript(script);
-    for (const frame of this.page.frames()) {
-      try {
-        await frame.evaluate(script);
-      } catch (cause: unknown) {
-        if (!frame.isDetached()) throw cause;
+    const opened = await openCdpEndpoint(
+      browserObservationEndpointSchema.parse(this.endpoint),
+      OPERATION,
+    );
+    const target = opened.discovery.targets.find(
+      ({ id }) => id === this.targetId,
+    );
+    if (target === undefined) {
+      await opened.connection?.close();
+      throw new BrowserObservationError(OPERATION, "target_not_found");
+    }
+    const connection =
+      opened.connection ??
+      (await CdpConnection.connect(opened.discovery.webSocket.url, OPERATION));
+    this.#session = await attachCdpTargetSession(connection, target, OPERATION);
+    this.#removeListener = connection.onEvent((event) => {
+      if (
+        event.method === "Target.attachedToTarget" &&
+        this.#targets.has(event.sessionId ?? "")
+      ) {
+        const { sessionId, targetInfo } = attachedEvent.parse(event.params);
+        if (targetInfo.type === "iframe") this.addTarget(sessionId);
+      } else if (event.method === "Target.detachedFromTarget") {
+        const id = detachedEvent.parse(event.params).sessionId;
+        this.#targets.delete(id);
+        if (id === this.#session?.sessionId) this.#detached = true;
       }
+    });
+    const id = this.#session.sessionId;
+    if (id === undefined)
+      throw new BrowserObservationError(OPERATION, "protocol_error");
+    this.addTarget(id);
+    await this.settle();
+  }
+
+  private addTarget(id: string): void {
+    const target: PolicyTarget = { id, ready: Promise.resolve() };
+    this.#targets.set(id, target);
+    const ready = this.initializeTarget(target);
+    target.ready = ready;
+    void ready.catch(() => undefined);
+  }
+
+  private async initializeTarget(target: PolicyTarget): Promise<void> {
+    try {
+      if (this.#closed) return;
+      await this.send(target.id, "Page.enable");
+      if (this.#closed) return;
+      const added = scriptResponse.parse(
+        await this.send(target.id, "Page.addScriptToEvaluateOnNewDocument", {
+          runImmediately: true,
+          source: `(() => {
+          if (!("serviceWorker" in navigator)) return;
+          const prototype = ServiceWorkerContainer.prototype;
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, "register");
+          if (typeof descriptor?.value === "function" && Object.hasOwn(descriptor.value, Symbol.for(${this.marker}))) return;
+          const register = () => Promise.reject(new Error("service workers are blocked by scenario policy"));
+          Object.defineProperty(register, Symbol.for(${this.marker}), { value: true });
+          const secret = ${this.secret};
+          Object.defineProperty(globalThis, ${this.restoreKey}, { configurable: true, value: (provided) => {
+            if (provided !== secret) return false;
+            if (Object.getOwnPropertyDescriptor(prototype, "register")?.value === register) {
+              if (descriptor === undefined) delete prototype.register;
+              else Object.defineProperty(prototype, "register", descriptor);
+            }
+            delete globalThis[${this.restoreKey}];
+            return true;
+          }});
+          Object.defineProperty(prototype, "register", { ...descriptor, configurable: true, value: register });
+        })()`,
+        }),
+      );
+      target.identifier = added.identifier;
+      if (!this.#closed)
+        await this.send(target.id, "Target.setAutoAttach", {
+          autoAttach: true,
+          waitForDebuggerOnStart: true,
+          flatten: true,
+          filter: [{ type: "iframe", exclude: false }, { exclude: true }],
+        });
+    } finally {
+      // Only this page's iframe targets are attached; unrelated workers/popups
+      // are not acquired. Resume a child even if installation or cleanup fails.
+      if (
+        this.#targets.has(target.id) &&
+        target.id !== this.#session?.sessionId
+      )
+        await this.send(target.id, "Runtime.runIfWaitingForDebugger");
+    }
+  }
+
+  private send(
+    id: string,
+    method: string,
+    params: Readonly<Record<string, unknown>> = {},
+  ): Promise<unknown> {
+    if (this.#session === undefined)
+      throw new BrowserObservationError(OPERATION, "disconnected");
+    return this.#session.connection.send(method, params, id);
+  }
+
+  private async settle(): Promise<void> {
+    for (;;) {
+      const targets = [...this.#targets.values()];
+      await Promise.all(
+        targets.map(async (target) => {
+          try {
+            await target.ready;
+          } catch (cause: unknown) {
+            if (this.#targets.get(target.id) === target) throw cause;
+          }
+        }),
+      );
+      if (
+        targets.length === this.#targets.size &&
+        targets.every((target) => this.#targets.get(target.id) === target)
+      )
+        return;
     }
   }
 
   async assertBlocked(): Promise<void> {
-    // Check every current document, including origins reached through redirects,
-    // actions and child frames. Inspecting only the pre-navigation page misses
-    // registrations belonging to the actual scenario destination.
+    if (this.#session !== undefined) await this.settle();
     for (const frame of this.page.frames()) {
       let hasWorker: unknown;
       try {
         hasWorker = await frame.evaluate(`(async () => {
-        if (!("serviceWorker" in navigator)) return false;
-        const serviceWorker = navigator.serviceWorker;
-        if (serviceWorker.controller !== null) return true;
-        return (await serviceWorker.getRegistrations()).length > 0;
+          if (!("serviceWorker" in navigator)) return false;
+          const serviceWorker = navigator.serviceWorker;
+          if (serviceWorker.controller !== null) return true;
+          return (await serviceWorker.getRegistrations()).length > 0;
         })()`);
       } catch (cause: unknown) {
         if (frame.isDetached()) continue;
         throw cause;
       }
       if (hasWorker)
-        throw new BrowserObservationError(
-          "capture_browser_scenario",
-          "target_not_allowed",
-        );
+        throw new BrowserObservationError(OPERATION, "target_not_allowed");
     }
   }
 
-  close(): Promise<void> {
-    const restoration = (this.#restoration ??= this.restore());
+  close(stopLoading = false): Promise<void> {
+    this.#closed = true;
+    const restoration = (this.#restoration ??= this.restore(stopLoading));
     void restoration.then(
       () => {
         if (this.#restoration === restoration) this.#restoration = undefined;
@@ -76,32 +209,65 @@ export class PlaywrightScenarioServiceWorkers {
     return withPlaywrightExecutionBoundary(() => restoration, 1_000);
   }
 
-  private async restore(): Promise<void> {
-    // Cancellation races the operation; it does not cancel a sent Playwright
-    // request. Let installation settle before undoing any late mutation.
+  private async restore(stopLoading: boolean): Promise<void> {
     await this.#initialization?.catch(() => undefined);
-    if (this.page.isClosed()) return;
-    for (const frame of this.page.frames()) {
-      if (frame.isDetached()) continue;
-      try {
-        // A failed/cancelled goto can still be switching execution contexts.
-        // Restore the loaded replacement document rather than racing the old
-        // realm; the cleanup boundary retains ownership if navigation stalls.
-        await frame.waitForLoadState("load", { timeout: 0 });
-        await frame.evaluate(`(() => {
-        if (!("serviceWorker" in navigator)) return;
-        const prototype = ServiceWorkerContainer.prototype;
-        const register = Object.getOwnPropertyDescriptor(prototype, "register")?.value;
-        if (typeof register !== "function" || !Object.hasOwn(register, Symbol.for(${this.key}))) return;
-        const descriptor = register[Symbol.for(${this.key})];
-        if (descriptor === undefined) delete prototype.register;
-        else Object.defineProperty(prototype, "register", descriptor);
-        })()`);
-      } catch (cause: unknown) {
-        if (!frame.isDetached()) throw cause;
+    if (this.#released) return;
+    const session = this.#session;
+    if (session === undefined) return;
+    if (!this.page.isClosed()) {
+      // This owner exists even with empty storage seeds. Stopped navigation is
+      // independent of storage and restoration never waits for a load event.
+      if (stopLoading && !this.#detached && session.sessionId !== undefined)
+        await this.send(session.sessionId, "Page.stopLoading");
+      await Promise.all(
+        [...this.#targets.values()].map(({ ready }) =>
+          ready.catch(() => undefined),
+        ),
+      );
+      for (const target of this.#targets.values()) {
+        if (!this.#detached && target.identifier !== undefined) {
+          try {
+            await this.send(
+              target.id,
+              "Page.removeScriptToEvaluateOnNewDocument",
+              { identifier: target.identifier },
+            );
+          } catch (cause: unknown) {
+            if (this.#targets.get(target.id) === target) throw cause;
+          }
+          delete target.identifier;
+        }
+      }
+      // Future documents cannot install our wrapper after the removals above.
+      // A realm lost to navigation is not assumed restored: retain and retry.
+      for (const frame of this.page.frames()) {
+        if (frame.isDetached()) continue;
+        try {
+          await frame.evaluate(`(() => {
+            const restore = globalThis[${this.restoreKey}];
+            if (typeof restore === "function" && restore(${this.secret}) === true) return;
+            const register = globalThis.ServiceWorkerContainer?.prototype.register;
+            if (typeof register === "function" && Object.hasOwn(register, Symbol.for(${this.marker})))
+              throw new Error("service-worker policy restoration could not be confirmed");
+          })()`);
+        } catch (cause: unknown) {
+          if (!frame.isDetached()) throw cause;
+        }
       }
     }
-    // Playwright removes its page init scripts when this scenario's transport
-    // disconnects. Restore the live documents first, while retry is possible.
+    // Detaching the exact owned session also releases its iframe auto-attach.
+    if (
+      !this.page.isClosed() &&
+      !this.#detached &&
+      session.sessionId !== undefined
+    ) {
+      await session.connection.send("Target.detachFromTarget", {
+        sessionId: session.sessionId,
+      });
+      this.#detached = true;
+    }
+    this.#removeListener?.();
+    await session.connection.close();
+    this.#released = true;
   }
 }
