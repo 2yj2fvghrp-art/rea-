@@ -16,6 +16,7 @@ import {
 import {
   DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS,
   DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
+  DEFAULT_SWIFTC_COMPILE_TIMEOUT_MS,
   providerStartupTimeoutSchema,
 } from "./providerStartupTimeout.js";
 import { mcpInputSchemaProfileSchema } from "./mcpInputSchemaProfile.js";
@@ -50,6 +51,9 @@ const environmentSchema = z.object({
   ),
   REA_HOPPER_STARTUP_TIMEOUT_MS: providerStartupTimeoutSchema.default(
     DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
+  ),
+  REA_SWIFTC_COMPILE_TIMEOUT_MS: providerStartupTimeoutSchema.default(
+    DEFAULT_SWIFTC_COMPILE_TIMEOUT_MS,
   ),
   REA_GHIDRA_LANGUAGE_ID: ghidraLanguageIdSchema.optional(),
   REA_GHIDRA_COMPILER_SPEC_ID: ghidraCompilerSpecIdSchema.optional(),
