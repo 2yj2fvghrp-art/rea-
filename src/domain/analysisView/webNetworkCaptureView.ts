@@ -167,6 +167,10 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const selectedPointers = new Set<string>();
   const sidecarsAt = (pointer: string): readonly NumericSidecar[] =>
     record.numeric_literals.filter((literal) => literal.pointer === pointer);
+  // A pointer the record marks as redacted is never promoted, even if the
+  // value is still present (imported or caller-supplied Evidence).
+  const redacted = (pointer: string): boolean =>
+    record.redactions.some((redaction) => redaction.pointer === pointer);
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
@@ -198,11 +202,12 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
           !Object.hasOwn(fields, field) ||
           fieldValue === undefined ||
           (mitmproxy &&
-            !mitmproxyHeadline(
-              field,
-              fieldValue,
-              sidecarsAt(`/${key}/${field}`),
-            ))
+            (redacted(`/${key}/${field}`) ||
+              !mitmproxyHeadline(
+                field,
+                fieldValue,
+                sidecarsAt(`/${key}/${field}`),
+              )))
         )
           continue;
         selected[field] = fieldValue;

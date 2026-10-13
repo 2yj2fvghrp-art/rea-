@@ -188,10 +188,12 @@ const nativePreview = (
     producerType = "integer",
     sidecars,
     flowType = "http",
+    redactions = [],
   }: {
     readonly response?: Readonly<Record<string, unknown>>;
     readonly producerType?: "integer" | "float";
     readonly flowType?: string | null;
+    readonly redactions?: readonly { pointer: string; reason: string }[];
     readonly sidecars?: readonly {
       pointer: string;
       producer_type: string;
@@ -241,7 +243,7 @@ const nativePreview = (
         },
         binary_fields: [],
         numeric_literals: literals,
-        redactions: [],
+        redactions,
         limitations: [],
       },
     ],
@@ -480,6 +482,24 @@ it("keeps a string target that carries a numeric sidecar out of the preview", ()
     response: { http_version: "HTTP/1.1", reason: "OK" },
   });
   expect(item?.numeric_literals).toEqual([]);
+});
+
+it("keeps a mitmproxy headline the record marks as redacted out of the preview", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", host: "secret", path: "/a" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      redactions: [
+        { pointer: "/request/host", reason: "explicit-sensitive-value" },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toEqual({
+    type: "http",
+    request: { method: "GET", path: "/a" },
+    response: { http_version: "HTTP/1.1", reason: "OK" },
+  });
 });
 
 it("selects mitmproxy target fields from the request and the status from the response only", () => {
