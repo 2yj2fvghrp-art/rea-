@@ -13690,9 +13690,9 @@ msgstr ""
 #: website/public/assets/theme.js:52
 msgctxt "runtime"
 msgid "Switch to light mode"
-msgstr ""
+msgstr "بگۆڕە بۆ دۆخی ڕووناک"
 
 #: website/public/assets/theme.js:53
 msgctxt "runtime"
 msgid "Switch to dark mode"
-msgstr ""
+msgstr "بگۆڕە بۆ دۆخی تاریک"
