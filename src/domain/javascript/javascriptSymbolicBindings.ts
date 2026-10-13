@@ -1,6 +1,8 @@
 import * as t from "@babel/types";
 import {
   semanticStaticPropertyKey,
+  semanticWriteSiteTarget,
+  semanticWriteTargets,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import { javascriptBootstrapAt } from "./javascriptBootstrap.js";
@@ -104,12 +106,8 @@ export class JavaScriptSymbolicBindings {
     });
     traverseJavaScriptAst(program, {
       enter: (node) => {
-        if (t.isAssignmentExpression(node))
-          this.#indexWrite(node.left, node.right, node);
-        if (t.isUpdateExpression(node))
-          this.#indexWrite(node.argument, node, node);
-        if (t.isUnaryExpression(node, { operator: "delete" }))
-          this.#indexWrite(node.argument, node, node);
+        const writeTarget = semanticWriteSiteTarget(node);
+        if (writeTarget !== null) this.#indexWriteSite(writeTarget, node);
         if (
           t.isCallExpression(node) &&
           t.isMemberExpression(node.callee) &&
@@ -944,15 +942,39 @@ export class JavaScriptSymbolicBindings {
     else for (const key of invalidSlots) modules.delete(key);
   }
 
-  #indexWrite(target: t.Node, value: t.Node, site: t.Node): void {
+  /**
+   * Record the writes of one site. A direct identifier or member target keeps
+   * the assigned value. A destructuring pattern or a loop head assigns values
+   * this resolver does not model, so each flattened leaf invalidates its root
+   * instead of recording a value.
+   */
+  #indexWriteSite(target: t.Node, site: t.Node): void {
+    const direct = unwrapJavaScriptExpression(target).node;
+    if (
+      (t.isIdentifier(direct) || t.isMemberExpression(direct)) &&
+      !t.isForOfStatement(site) &&
+      !t.isForInStatement(site)
+    ) {
+      this.#indexWrite(
+        direct,
+        t.isAssignmentExpression(site) ? site.right : site,
+        site,
+      );
+      return;
+    }
+    for (const leaf of semanticWriteTargets(target))
+      this.#indexWrite(leaf, site, site, false);
+  }
+
+  #indexWrite(target: t.Node, value: t.Node, site: t.Node, exact = true): void {
     const path: string[] = [];
-    let root = target;
-    let dynamic = false;
+    let root = unwrapJavaScriptExpression(target).node;
+    let dynamic = !exact;
     while (t.isMemberExpression(root)) {
       const key = semanticStaticPropertyKey(root.property, root.computed);
       if (key === null) dynamic = true;
       else path.unshift(key);
-      root = root.object;
+      root = unwrapJavaScriptExpression(root.object).node;
     }
     if (dynamic && t.isIdentifier(root)) {
       const binding = resolveSemanticBindingState(this.state, root, root.name);

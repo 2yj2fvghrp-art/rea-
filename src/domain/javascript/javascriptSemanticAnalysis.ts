@@ -20,6 +20,7 @@ import {
   semanticObjectPatternKeys,
   semanticStaticPropertyKey,
   semanticWriteTargets,
+  unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import type {
   JavaScriptSemanticAnalysisState,
@@ -940,12 +941,13 @@ const bindAssignment = (
   state: JavaScriptSemanticAnalysisState,
 ): void => {
   if (t.isAssignmentExpression(node)) {
-    if (t.isIdentifier(node.left))
+    const left = unwrapJavaScriptExpression(node.left).node;
+    if (t.isIdentifier(left))
       addAssignment(
-        node.left,
+        left,
         node.operator === "=" ||
           ((node.operator === "||=" || node.operator === "??=") &&
-            !hasIncomingValue(node.left, scope, state))
+            !hasIncomingValue(left, scope, state))
           ? node.right
           : node,
         scope,
@@ -955,9 +957,10 @@ const bindAssignment = (
       for (const identifier of semanticWriteTargets(node.left))
         if (t.isIdentifier(identifier))
           addAssignment(identifier, node, scope, state);
-  } else if (t.isUpdateExpression(node) && t.isIdentifier(node.argument))
-    addAssignment(node.argument, node, scope, state);
-  else if (t.isForOfStatement(node) || t.isForInStatement(node))
+  } else if (t.isUpdateExpression(node)) {
+    const argument = unwrapJavaScriptExpression(node.argument).node;
+    if (t.isIdentifier(argument)) addAssignment(argument, node, scope, state);
+  } else if (t.isForOfStatement(node) || t.isForInStatement(node))
     for (const pattern of t.isVariableDeclaration(node.left)
       ? node.left.declarations.map(({ id }) => id)
       : [node.left]) {

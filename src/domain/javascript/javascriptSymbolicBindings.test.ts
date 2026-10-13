@@ -171,6 +171,34 @@ it("invalidates a bootstrap module slot mutated through an alias", () => {
 });
 
 it.each([
+  [
+    "destructuring assignment",
+    `[table[1]] = [function(module) { module.exports = require("other"); }];`,
+  ],
+  ["for-of head", `for (table[1] of replacements) {}`],
+  [
+    "wrapped assignment",
+    `(table as never)[1] = function(module) { module.exports = require("other"); };`,
+  ],
+])(
+  "invalidates a bootstrap module slot overwritten through %s",
+  (_name, write) => {
+    const values = inspectedValues(`(() => {
+    const modules = {
+      1(module) { module.exports = require("electron"); },
+      2(module, exports, load) { inspect(load(1)); }
+    };
+    const table = modules;
+    function load(id) { const m = {exports:{}}; modules[id](m,m.exports,load); return m.exports; }
+    ${write}
+    load(2);
+  })();`);
+    expect(values).toHaveLength(1);
+    expect(values[0]).toEqual(expect.objectContaining({ kind: "unknown" }));
+  },
+);
+
+it.each([
   `const electron=require("electron"); const ipc=electron.ipcMain; ipc.handle=()=>null; inspect(electron.ipcMain.handle);`,
   `require("electron").ipcMain.handle=()=>null; inspect(require("electron").ipcMain.handle);`,
   `const electron=require("electron"); ({ipcMain:electron.ipcMain}=replacement); inspect(electron.ipcMain);`,

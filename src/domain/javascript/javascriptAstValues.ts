@@ -86,6 +86,60 @@ export const semanticObjectPatternKeys = (
     return key === null ? [] : [key];
   });
 
+/**
+ * The target a node writes, or null when the node is not a write site.
+ *
+ * Direct assignment, update, `delete`, and `for...of`/`for...in` heads are
+ * the constructs that assign into their target. Collecting them in one place
+ * keeps every consumer's notion of "what is written" consistent; the target
+ * itself may be a binding, a member, or a destructuring pattern, which
+ * {@link semanticWriteTargets} flattens to its written leaves.
+ */
+export const semanticWriteSiteTarget = (node: t.Node): t.Node | null => {
+  if (t.isAssignmentExpression(node)) return node.left;
+  if (t.isUpdateExpression(node)) return node.argument;
+  if (t.isUnaryExpression(node, { operator: "delete" })) return node.argument;
+  if (t.isForOfStatement(node) || t.isForInStatement(node)) return node.left;
+  return null;
+};
+
+/**
+ * True when a write site reads its target's current value before writing it:
+ * compound assignment (`+=`, `||=`, ...) and update (`++`, `--`). Plain
+ * assignment, `delete`, and loop heads write without reading.
+ */
+export const semanticWriteSiteReadsFirst = (site: t.Node): boolean =>
+  (t.isAssignmentExpression(site) && site.operator !== "=") ||
+  t.isUpdateExpression(site);
+
+/**
+ * The write site whose target is `node` once inert wrappers (`x!`,
+ * `x as T`, parentheses) are removed, or null. `ancestors` is outermost-first
+ * and may end with `parent`. A wrapped target such as `(count as number)++`
+ * has a wrapper as its immediate parent, so the parent alone cannot say that
+ * the identifier or member is written.
+ */
+export const semanticWrappedWriteSite = (
+  node: t.Node,
+  parent: t.Node,
+  ancestors: readonly t.Node[],
+): t.Node | null => {
+  const chain =
+    ancestors.at(-1) === parent ? ancestors : [...ancestors, parent];
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    const candidate = chain[index];
+    if (candidate === undefined) return null;
+    const target = semanticWriteSiteTarget(candidate);
+    if (target !== null)
+      return unwrapJavaScriptExpression(target).node === node
+        ? candidate
+        : null;
+    // Only an inert wrapper may sit between a target and its write site.
+    if (unwrapJavaScriptExpression(candidate).depth === 0) return null;
+  }
+  return null;
+};
+
 /** Visit binding and member leaves in direct and destructuring write targets. */
 export function* semanticWriteTargets(
   root: t.Node,
