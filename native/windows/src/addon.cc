@@ -88,6 +88,14 @@ napi_value failureValue(napi_env env, const Failure& failure) {
     set(env, error, "constraint", string(env, failure.constraint));
     set(env, error, "requestedPath", string(env, failure.path));
     set(env, error, "win32Code", number(env, failure.win32));
+    const char* semantic = nullptr;
+    switch (failure.kind) {
+      case FailureKind::Native: break;
+      case FailureKind::ArtifactChanged: semantic = "artifact_changed"; break;
+      case FailureKind::WindowOwnerMismatch: semantic = "window_owner_mismatch"; break;
+      case FailureKind::ProcessIdentityMismatch: semantic = "process_identity_mismatch"; break;
+    }
+    if (semantic != nullptr) set(env, error, "failureKind", string(env, std::string(semantic)));
     set(env, error, "win32Message", string(env, detail));
     if (failure.runtimeDirectoryUnallocated)
       set(env, error, "runtimeAllocation", string(env, std::string("not-started")));

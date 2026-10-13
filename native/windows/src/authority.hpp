@@ -29,14 +29,18 @@ inline std::wstring ordinaryDriveSeparators(std::wstring path) {
   return path;
 }
 
+enum class FailureKind { Native, ArtifactChanged, WindowOwnerMismatch, ProcessIdentityMismatch };
+
 struct Failure : std::runtime_error {
   DWORD win32;
+  FailureKind kind;
   std::wstring path;
   std::string constraint;
   // Affirmative proof for a failed runtime-parent admission; omission is unknown.
   bool runtimeDirectoryUnallocated = false;
-  Failure(std::string constraint, std::wstring path = L"", DWORD code = GetLastError())
-      : std::runtime_error(constraint), win32(code), path(std::move(path)),
+  Failure(std::string constraint, std::wstring path = L"", DWORD code = GetLastError(),
+          FailureKind kind = FailureKind::Native)
+      : std::runtime_error(constraint), win32(code), kind(kind), path(std::move(path)),
         constraint(std::move(constraint)) {}
 };
 
@@ -46,8 +50,9 @@ inline void require(bool condition, const char* constraint, const std::wstring& 
     throw Failure(constraint, path, code);
   }
 }
-inline void require(bool condition, const char* constraint, const std::wstring& path, DWORD code) {
-  if (!condition) throw Failure(constraint, path, code);
+inline void require(bool condition, const char* constraint, const std::wstring& path, DWORD code,
+                    FailureKind kind = FailureKind::Native) {
+  if (!condition) throw Failure(constraint, path, code, kind);
 }
 
 class Handle {

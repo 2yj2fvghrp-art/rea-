@@ -92,7 +92,13 @@ export interface WindowsWindowCaptureHost {
 }
 
 const systemCaptureHost = (): WindowsWindowCaptureHost => ({
-  capture: async (pid, windowHandle, maximumDimension, targetIdentity, signal) => {
+  capture: async (
+    pid,
+    windowHandle,
+    maximumDimension,
+    targetIdentity,
+    signal,
+  ) => {
     let authority: ReturnType<typeof requireWindowsNativeAuthority>;
     try {
       authority = requireWindowsNativeAuthority();
@@ -243,7 +249,14 @@ export const captureWindowsWindowScreenshot = async (
       options.signal,
     );
   } catch (cause) {
-    return err(captureFailure(target.path, input.data.window_handle, cause));
+    return err(
+      captureFailure(
+        target.path,
+        input.data.pid,
+        input.data.window_handle,
+        cause,
+      ),
+    );
   }
   const parsed = rawCaptureSchema.safeParse(reply);
   if (!parsed.success)
@@ -291,6 +304,8 @@ export const captureWindowsWindowScreenshot = async (
   } catch (cause) {
     return err(identityError(target.path, cause));
   }
+  if (options.signal?.aborted)
+    return err(new AnalysisCancelledError(OPERATION));
   if (
     afterTarget.sha256 !== target.sha256 ||
     afterTarget.fileIdentity !== before.fileIdentity
@@ -307,10 +322,16 @@ export const captureWindowsWindowScreenshot = async (
     processImage.fileIdentity !== before.fileIdentity
   )
     return err(
-      new AnalysisCapabilityUnavailableError(
-        IDENTITY.id,
+      analysisInputErrorFromIssues(
         OPERATION,
-        "Selected PID does not map to the active PE target bytes.",
+        [
+          {
+            path: ["pid"],
+            code: "custom",
+            message: "Selected PID does not map to the active PE target bytes.",
+          },
+        ],
+        parameters,
       ),
     );
 
@@ -385,10 +406,12 @@ const hashExecutable = async (
         buffer.byteLength,
         position,
       );
+      if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       if (bytesRead === 0) break;
       digest.update(buffer.subarray(0, bytesRead));
       position += bytesRead;
     }
+    if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
     if (position !== size)
       throw new Error(
         "Selected executable changed while its identity was read",
@@ -409,9 +432,9 @@ const identityError = (path: string, cause: unknown): AnalysisError => {
     if (filesystem.data.code === "EACCES" || filesystem.data.code === "EPERM")
       return new AnalysisAccessDeniedError(
         OPERATION,
-      path,
-      filesystem.data.code,
-      { cause },
+        path,
+        filesystem.data.code,
+        { cause },
       );
     if (filesystem.data.code === "ENOENT")
       return new AnalysisArtifactChangedError(
@@ -436,19 +459,63 @@ const nativeFailureReason = (cause: unknown): string =>
 /** Only the addon-loading owner produces capability errors; native failures stay request-scoped. */
 const captureFailure = (
   path: string,
+  pid: number,
   windowHandle: string,
   cause: unknown,
 ): AnalysisError => {
   if (cause instanceof AnalysisError) return cause;
   const native = z
-    .object({ win32Code: z.number().int().nonnegative() })
+    .object({
+      win32Code: z.number().int().nonnegative(),
+      requestedPath: z.string().exactOptional(),
+      failureKind: z
+        .enum([
+          "artifact_changed",
+          "window_owner_mismatch",
+          "process_identity_mismatch",
+        ])
+        .exactOptional(),
+    })
     .safeParse(cause);
   if (!native.success)
-    return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), { cause });
+    return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), {
+      cause,
+    });
+  if (native.data.failureKind === "artifact_changed")
+    return new AnalysisArtifactChangedError(
+      OPERATION,
+      path,
+      nativeFailureReason(cause),
+      { cause },
+    );
+  if (
+    native.data.failureKind === "window_owner_mismatch" ||
+    native.data.failureKind === "process_identity_mismatch"
+  ) {
+    const field =
+      native.data.failureKind === "window_owner_mismatch"
+        ? "window_handle"
+        : "pid";
+    return analysisInputErrorFromIssues(
+      OPERATION,
+      [{ path: [field], code: "custom", message: nativeFailureReason(cause) }],
+      { pid, window_handle: windowHandle },
+      { cause },
+    );
+  }
   const code = native.data.win32Code;
   if (code === 995) return new AnalysisCancelledError(OPERATION, { cause });
-  if (code === 5)
-    return new AnalysisAccessDeniedError(OPERATION, path, "EACCES", { cause });
+  if (
+    code === 5 &&
+    native.data.requestedPath !== undefined &&
+    native.data.requestedPath.length > 0
+  )
+    return new AnalysisAccessDeniedError(
+      OPERATION,
+      native.data.requestedPath,
+      "EACCES",
+      { cause },
+    );
   if (code === 1460 || code === 258)
     return new AnalysisTimeoutError(OPERATION, 5000, { cause });
   // STG_E_MEDIUMFULL is the fixed retained PNG stream's capacity refusal.
@@ -472,13 +539,17 @@ const captureFailure = (
   if (code === 1400 || code === 6 || code === 87)
     return analysisInputErrorFromIssues(
       OPERATION,
-      [{
-        path: ["window_handle"],
-        code: "custom",
-        message: nativeFailureReason(cause),
-      }],
-      { window_handle: windowHandle },
+      [
+        {
+          path: ["window_handle"],
+          code: "custom",
+          message: nativeFailureReason(cause),
+        },
+      ],
+      { pid, window_handle: windowHandle },
       { cause },
     );
-  return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), { cause });
+  return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), {
+    cause,
+  });
 };

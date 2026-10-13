@@ -92,7 +92,7 @@ it("fails closed when the selected PID maps to different executable bytes", asyn
 
   expect(captured).toMatchObject({
     ok: false,
-    error: { _tag: "AnalysisCapabilityUnavailableError" },
+    error: { _tag: "AnalysisInputError" },
   });
 });
 
@@ -125,5 +125,49 @@ it("classifies malformed native replies as output failures", async () => {
   expect(captured).toMatchObject({
     ok: false,
     error: { _tag: "AnalysisOutputError" },
+  });
+});
+
+it.each([
+  [6, "artifact_changed", "AnalysisArtifactChangedError"],
+  [13, "artifact_changed", "AnalysisArtifactChangedError"],
+  [5, "window_owner_mismatch", "AnalysisInputError"],
+  [5, "process_identity_mismatch", "AnalysisInputError"],
+] as const)(
+  "preserves native refusal semantics for code %s and %s",
+  async (code, kind, tag) => {
+    const captured = await captureWindowsWindowScreenshot(
+      TARGET,
+      { pid: 42, window_handle: "0x1234" },
+      host({
+        capture: () => {
+          throw Object.assign(new Error("Native refusal"), {
+            win32Code: code,
+            failureKind: kind,
+          });
+        },
+      }),
+    );
+    expect(captured).toMatchObject({ ok: false, error: { _tag: tag } });
+  },
+);
+
+it("does not commit a screenshot cancelled during final identity reads", async () => {
+  const controller = new AbortController();
+  let reads = 0;
+  const captured = await captureWindowsWindowScreenshot(
+    TARGET,
+    { pid: 42, window_handle: "0x1234" },
+    host({
+      identifyExecutable: async () => {
+        if (++reads > 1) controller.abort();
+        return { fileIdentity: "c:\\apps\\fixture.exe", sha256: SHA256 };
+      },
+    }),
+    { signal: controller.signal },
+  );
+  expect(captured).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisCancelledError" },
   });
 });

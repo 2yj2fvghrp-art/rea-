@@ -292,7 +292,7 @@ std::wstring hexHandle(ULONG_PTR value) {
 }
 
 Handle openProcessForCapture(DWORD pid) {
-  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
   require(process.valid(), "Open selected process for window identity failed", L"", GetLastError());
   return process;
 }
@@ -307,17 +307,33 @@ std::wstring processImagePath(HANDLE process) {
   return std::wstring(buffer.data(), size);
 }
 
-double processStartTimeMs(HANDLE process) {
+uint64_t processStartTimeToken(HANDLE process) {
   FILETIME created{}, exited{}, kernel{}, user{};
   require(GetProcessTimes(process, &created, &exited, &kernel, &user) != FALSE,
           "Read selected process start time failed");
   ULARGE_INTEGER value{};
   value.LowPart = created.dwLowDateTime;
   value.HighPart = created.dwHighDateTime;
+  return value.QuadPart;
+}
+
+double processStartTimeMs(uint64_t token) {
   constexpr uint64_t WINDOWS_TO_UNIX_EPOCH_100NS = 116444736000000000ULL;
-  require(value.QuadPart >= WINDOWS_TO_UNIX_EPOCH_100NS,
+  require(token >= WINDOWS_TO_UNIX_EPOCH_100NS,
           "Selected process start time precedes the Unix epoch", L"", ERROR_INVALID_DATA);
-  return static_cast<double>((value.QuadPart - WINDOWS_TO_UNIX_EPOCH_100NS) / 10000ULL);
+  return static_cast<double>((token - WINDOWS_TO_UNIX_EPOCH_100NS) / 10000ULL);
+}
+
+Handle validateProcessIdentity(DWORD pid, uint64_t startToken, const std::wstring& imagePath) {
+  auto process = openProcessForCapture(pid);
+  require(processStartTimeToken(process.get()) == startToken && processImagePath(process.get()) == imagePath,
+          "Selected process identity changed during capture", L"", ERROR_INVALID_HANDLE,
+          FailureKind::ProcessIdentityMismatch);
+  const DWORD status = WaitForSingleObject(process.get(), 0);
+  require(status != WAIT_FAILED, "Read selected process liveness failed");
+  require(status == WAIT_TIMEOUT, "Selected process exited before capture settled", L"", ERROR_INVALID_HANDLE,
+          FailureKind::ProcessIdentityMismatch);
+  return process;
 }
 
 std::wstring windowTitle(HWND window) {
@@ -334,7 +350,7 @@ void validateWindowOwner(HWND window, DWORD expectedPid) {
   DWORD observedPid = 0;
   require(GetWindowThreadProcessId(window, &observedPid) != 0, "Read selected window owner failed");
   require(observedPid == expectedPid, "Selected window belongs to a different process", L"",
-          ERROR_ACCESS_DENIED);
+          ERROR_ACCESS_DENIED, FailureKind::WindowOwnerMismatch);
 }
 
 std::vector<BYTE> pngFromDib(int sourceWidth, int sourceHeight, void* pixels,
@@ -442,12 +458,14 @@ void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::w
           "Read capture executable identity failed", path);
   require(expected.VolumeSerialNumber == observed.VolumeSerialNumber &&
           std::memcmp(expected.FileId.Identifier, observed.FileId.Identifier, sizeof(expected.FileId.Identifier)) == 0,
-          "Selected process does not execute the active target file", path, ERROR_ACCESS_DENIED);
+          "Selected process does not execute the active target file", path, ERROR_ACCESS_DENIED,
+          FailureKind::ProcessIdentityMismatch);
   BY_HANDLE_FILE_INFORMATION nodeIdentity{};
   require(GetFileInformationByHandle(target, &nodeIdentity), "Read executable stat identity failed", path);
   const uint64_t index = (static_cast<uint64_t>(nodeIdentity.nFileIndexHigh) << 32) | nodeIdentity.nFileIndexLow;
   require(std::to_wstring(nodeIdentity.dwVolumeSerialNumber) + L":" + std::to_wstring(index) == expectedFileIdentity,
-          "Active executable identity changed before capture", path, ERROR_INVALID_HANDLE);
+          "Active executable identity changed before capture", path, ERROR_INVALID_HANDLE,
+          FailureKind::ArtifactChanged);
   LARGE_INTEGER size{};
   require(GetFileSizeEx(target, &size), "Read executable size failed", path);
   require(size.QuadPart >= 0 && size.QuadPart <= 256LL * 1024LL * 1024LL,
@@ -471,7 +489,8 @@ void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::w
     sha256.push_back(digits[byte >> 4]);
     sha256.push_back(digits[byte & 15]);
   }
-  require(sha256 == expectedSha256, "Active executable bytes changed before capture", path, ERROR_INVALID_DATA);
+  require(sha256 == expectedSha256, "Active executable bytes changed before capture", path, ERROR_INVALID_DATA,
+          FailureKind::ArtifactChanged);
 }
 
 WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
@@ -481,6 +500,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
   auto process = openProcessForCapture(pid);
+  const uint64_t startToken = processStartTimeToken(process.get());
   const std::wstring imagePath = processImagePath(process.get());
   // Read-only, non-write/delete-sharing handles pin the authorized file bytes
   // and identity through the paint request. No target handler runs first.
@@ -488,7 +508,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   auto processFile = openCaptureExecutable(imagePath);
   authorizeCaptureExecutable(targetFile.get(), processFile.get(), targetPath,
                              targetSha256, targetFileIdentity, control);
-  const double startTimeMs = processStartTimeMs(process.get());
+  const double startTimeMs = processStartTimeMs(startToken);
   const std::wstring title = windowTitle(window);
   RECT bounds{};
   require(GetClientRect(window, &bounds) != FALSE, "Read selected window client bounds failed");
@@ -504,6 +524,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   const UINT flags = PRF_CLIENT | PRF_ERASEBKGND;
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
+  auto paintProcess = validateProcessIdentity(pid, startToken, imagePath);
   const LRESULT delivered = SendMessageTimeoutW(window, WM_PRINT,
                                                  reinterpret_cast<WPARAM>(dc.get()), flags,
                                                  SMTO_ABORTIFHUNG | SMTO_BLOCK, CAPTURE_TIMEOUT_MS, &ignored);
@@ -513,11 +534,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   require(GdiFlush() != FALSE, "Flush selected-window drawing commands failed");
   bitmap.setOpaqueAlpha();
   validateWindowOwner(window, pid);
-  auto observedProcess = openProcessForCapture(pid);
-  require(processStartTimeMs(observedProcess.get()) == startTimeMs,
-          "Selected process identity changed during capture", L"", ERROR_INVALID_HANDLE);
-  require(processImagePath(observedProcess.get()) == imagePath,
-          "Selected process executable changed during capture", L"", ERROR_INVALID_HANDLE);
+  auto observedProcess = validateProcessIdentity(pid, startToken, imagePath);
   const int longest = std::max(width, height);
   const double scale = longest <= maximumDimension ? 1.0 : static_cast<double>(maximumDimension) / longest;
   const int renderedWidth = std::max(1, static_cast<int>(std::floor(width * scale)));
