@@ -48,6 +48,10 @@ const skipAttributesString = (
 
 /** AEABI declarations read from one attributes payload. */
 interface AeabiDeclarations {
+  readonly observed: {
+    readonly cpuArch: number | null;
+    readonly cpuArchProfile: string | null;
+  };
   readonly cpuArch: number | null;
   readonly cpuArchProfile: string | null;
   /**
@@ -59,6 +63,7 @@ interface AeabiDeclarations {
 }
 
 const NO_AEABI_DECLARATIONS: AeabiDeclarations = {
+  observed: { cpuArch: null, cpuArchProfile: null },
   cpuArch: null,
   cpuArchProfile: null,
   declarationConflict: false,
@@ -76,7 +81,7 @@ const scanAeabiScope = (
   start: number,
   end: number,
 ):
-  | (Omit<AeabiDeclarations, "declarationConflict"> & {
+  | (Pick<AeabiDeclarations, "cpuArch" | "cpuArchProfile"> & {
       readonly repeatedDeclarationConflicts: boolean;
     })
   | null => {
@@ -162,11 +167,13 @@ const aeabiDeclarations = (
   end: number,
 ): AeabiDeclarations | null => {
   let cursor = start;
-  let declarations = NO_AEABI_DECLARATIONS;
-  let allDeclarations = NO_AEABI_DECLARATIONS;
+  let declarations: Pick<AeabiDeclarations, "cpuArch" | "cpuArchProfile"> =
+    NO_AEABI_DECLARATIONS;
+  let allDeclarations: Pick<AeabiDeclarations, "cpuArch" | "cpuArchProfile"> =
+    NO_AEABI_DECLARATIONS;
   let conflict = false;
   const disagrees = (
-    scanned: Omit<AeabiDeclarations, "declarationConflict">,
+    scanned: Pick<AeabiDeclarations, "cpuArch" | "cpuArchProfile">,
   ): boolean =>
     (scanned.cpuArch !== null &&
       allDeclarations.cpuArch !== null &&
@@ -194,17 +201,19 @@ const aeabiDeclarations = (
     allDeclarations = {
       cpuArch: scanned.cpuArch ?? allDeclarations.cpuArch,
       cpuArchProfile: scanned.cpuArchProfile ?? allDeclarations.cpuArchProfile,
-      declarationConflict: conflict,
     };
     if (scope.value === 1)
       declarations = {
         cpuArch: scanned.cpuArch ?? declarations.cpuArch,
         cpuArchProfile: scanned.cpuArchProfile ?? declarations.cpuArchProfile,
-        declarationConflict: conflict,
       };
     cursor = blockEnd;
   }
-  return { ...declarations, declarationConflict: conflict };
+  return {
+    ...declarations,
+    observed: allDeclarations,
+    declarationConflict: conflict,
+  };
 };
 
 /**
@@ -237,12 +246,13 @@ const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
         return NO_AEABI_DECLARATIONS;
       if (
         merged !== null &&
-        ((merged.cpuArch !== null &&
-          declarations.cpuArch !== null &&
-          merged.cpuArch !== declarations.cpuArch) ||
-          (merged.cpuArchProfile !== null &&
-            declarations.cpuArchProfile !== null &&
-            merged.cpuArchProfile !== declarations.cpuArchProfile))
+        ((merged.observed.cpuArch !== null &&
+          declarations.observed.cpuArch !== null &&
+          merged.observed.cpuArch !== declarations.observed.cpuArch) ||
+          (merged.observed.cpuArchProfile !== null &&
+            declarations.observed.cpuArchProfile !== null &&
+            merged.observed.cpuArchProfile !==
+              declarations.observed.cpuArchProfile))
       )
         return NO_AEABI_DECLARATIONS;
       merged =
@@ -252,6 +262,13 @@ const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
               cpuArch: declarations.cpuArch ?? merged.cpuArch,
               cpuArchProfile:
                 declarations.cpuArchProfile ?? merged.cpuArchProfile,
+              observed: {
+                cpuArch:
+                  declarations.observed.cpuArch ?? merged.observed.cpuArch,
+                cpuArchProfile:
+                  declarations.observed.cpuArchProfile ??
+                  merged.observed.cpuArchProfile,
+              },
               declarationConflict: false,
             };
     }
@@ -376,16 +393,23 @@ export const readArmElfCpuArch = async (
     Result<Buffer | undefined, string>
   > => {
     let section: Buffer | undefined;
+    let attributeSectionSeen = false;
     for (let index = 0; index < examinable; index += 1) {
       checkCancelled();
       const position = index * stride;
       if (u32(contents.value, position + 4) !== SHT_ARM_ATTRIBUTES) continue;
-      if (section !== undefined)
+      if (attributeSectionSeen)
         return err("duplicate ARM attribute sections in the section table");
+      attributeSectionSeen = true;
       const offset = u32(contents.value, position + 16);
       const size = u32(contents.value, position + 20);
-      if (size <= 0 || size > ARM_ATTRIBUTES_MAX_BYTES)
-        return err("unsupported ARM attribute section size");
+      if (size <= 0) return err("invalid ARM attribute section size");
+      if (size > ARM_ATTRIBUTES_MAX_BYTES) {
+        limitations.push(
+          `ARM attribute section at file offset ${offset} exceeds the ${ARM_ATTRIBUTES_MAX_BYTES}-byte inspection bound; declarations remain unknown.`,
+        );
+        continue;
+      }
       const candidate = await read(offset, size, "attribute section");
       if (!candidate.ok) return candidate;
       section = candidate.value;

@@ -328,3 +328,34 @@ it("refuses a padded section-table entry size instead of allocating it", async (
     "invalid ARM section table offset or entry size",
   );
 });
+
+it("retains scoped constraints across aeabi vendor subsections", async () => {
+  const scoped = Buffer.concat([
+    Buffer.alloc(4),
+    Buffer.from("aeabi\0"),
+    SCOPED_CONFLICT_ATTRIBUTES.subarray(28),
+  ]);
+  scoped.writeUInt32LE(scoped.length, 0);
+  const attributes = Buffer.concat([
+    Buffer.from("A"),
+    scoped,
+    V7_ATTRIBUTES.subarray(1),
+  ]);
+  const target = await resolveArm(armFixture(attributes));
+  expect(target).toMatchObject({
+    arm: { cpuArch: null, cpuArchProfile: null },
+  });
+});
+
+it("preserves an ARM target above the attribute inspection capacity", async () => {
+  const target = await resolveArm(armFixture(Buffer.alloc(65537)));
+  expect(target).toMatchObject({
+    architecture: "arm",
+    format: "elf",
+    arm: {
+      cpuArch: null,
+      cpuArchProfile: null,
+      limitations: [expect.stringContaining("inspection bound")],
+    },
+  });
+});

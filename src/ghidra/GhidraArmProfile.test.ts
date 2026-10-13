@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../config/parseConfig.js";
@@ -38,6 +38,12 @@ const host: GhidraInstallationHost = {
 let installDir = "";
 beforeAll(async () => {
   installDir = await mkdtemp(join(tmpdir(), "rea-ghidra-arm-admission-"));
+  const languages = join(installDir, "Ghidra/Processors/ARM/data/languages");
+  await mkdir(languages, { recursive: true });
+  await writeFile(
+    join(languages, "ARM.ldefs"),
+    `<language_definitions><language processor="ARM" endian="little" size="32" variant="Cortex" version="1.0" slafile="ARM.sla" processorspec="ARM.pspec" id="ARM:LE:32:Cortex"><description>ARM Cortex override fixture</description><compiler name="default" spec="default.cspec" id="default"/></language></language_definitions>`,
+  );
 });
 afterAll(async () => {
   await rm(installDir, { recursive: true, force: true });
