@@ -68,6 +68,7 @@ import {
   isGhidraMipsSoftFloatTarget,
 } from "./GhidraMipsProfile.js";
 import { ghidraRiscvLimitations } from "./GhidraRiscvProfile.js";
+import { ghidraM68kLimitations } from "./GhidraM68kProfile.js";
 import { ghidraPeCodeViewLimitations } from "./GhidraPeProfile.js";
 import { unverifiedGhidraBuildLimitation } from "./GhidraInstallationPolicy.js";
 import { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
@@ -480,10 +481,22 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
+  // A caller-selected language that matches a pinned lane and omits the
+  // compiler specification commits the pinned compiler in the profile, so the
+  // comparison completes the same selection the launcher will run.
+  const configuredLanguage =
+    config.ghidraLanguageOverride !== undefined &&
+    config.ghidraLanguageOverride.compilerSpecId === undefined &&
+    targetLanguage?.compilerSpecId !== undefined
+      ? {
+          ...config.ghidraLanguageOverride,
+          compilerSpecId: targetLanguage.compilerSpecId,
+        }
+      : config.ghidraLanguageOverride;
   if (
     !sameGhidraLanguageOverride(
       parameterLanguage,
-      config.ghidraLanguageOverride ?? targetLanguage,
+      configuredLanguage ?? targetLanguage,
     )
   )
     return unavailableClient(
@@ -567,6 +580,11 @@ export const createGhidraProviderClient = (input: {
     ...ghidraMipsRelocatableLimitations(target),
     ...ghidraMipsSharedLimitations(target),
     ...ghidraRiscvLimitations(target),
+    ...ghidraM68kLimitations(target, {
+      providerVersion: prerequisites.value.providerVersion,
+      platform: installation.platform,
+      architecture: installation.architecture,
+    }),
   ];
   const providerLimitations =
     installation.platform === "win32"
