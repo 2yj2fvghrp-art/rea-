@@ -37,7 +37,7 @@ export type ManagedFieldAccess =
   ManagedMemberInspection["field_accesses"][number];
 export type ManagedUserString = NonNullable<
   ManagedMemberInspection["user_strings"]
->[number];
+>["literals"][number];
 export type ManagedSignature = ManagedMethod["signature"];
 export type ManagedMethodBody = ManagedMethod["body"];
 export type ManagedInstructionAnchor = ManagedMethodBody["anchors"][number];

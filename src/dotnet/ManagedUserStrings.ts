@@ -2,14 +2,32 @@ import {
   admitManagedProjection,
   managedDecodeBudget,
 } from "./ManagedDecodeBudget.js";
-import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
+import type {
+  ManagedMemberInspection,
+  ManagedParseIssue,
+} from "../domain/managed/managedArtifact.js";
 import type {
   ManagedMethod,
   ManagedUserString,
 } from "./ManagedMemberInspectorCore.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import { readMetadataUserString } from "./ManagedMetadataHeaps.js";
-import { readManagedValue } from "./ManagedReaderFailure.js";
+import {
+  readManagedValue,
+  uniqueManagedParseIssues,
+} from "./ManagedReaderFailure.js";
+
+type UserStringInventory = NonNullable<ManagedMemberInspection["user_strings"]>;
+
+/** The literals with their own coverage, which never enters member coverage. */
+const inventory = (
+  literals: readonly ManagedUserString[],
+  issues: readonly ManagedParseIssue[],
+): UserStringInventory => ({
+  state: issues.length === 0 ? "complete" : "partial",
+  literals: [...literals],
+  issues: [...uniqueManagedParseIssues(issues)],
+});
 
 /** Bookkeeping per distinct ldstr token: its set entry and its sorted slot. */
 const USER_STRING_TOKEN_BYTES = 128;
@@ -19,10 +37,7 @@ export const parseUserStrings = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   methods: readonly ManagedMethod[],
-): {
-  readonly userStrings: readonly ManagedUserString[];
-  readonly issues: readonly ManagedParseIssue[];
-} => {
+): UserStringInventory => {
   const budget = managedDecodeBudget(layout);
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
@@ -67,7 +82,7 @@ export const parseUserStrings = (
           budget,
         ),
       );
-      return { userStrings, issues };
+      return inventory(userStrings, issues);
     }
     for (const token of references) {
       const failures: ManagedParseIssue[] = [];
@@ -85,7 +100,7 @@ export const parseUserStrings = (
       for (const failure of failures)
         issues.push(admitManagedProjection(failure, budget));
     }
-    return { userStrings, issues };
+    return inventory(userStrings, issues);
   } finally {
     budget.releaseTransient();
   }

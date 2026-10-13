@@ -643,13 +643,17 @@ describe("managed user strings", () => {
     const ilBody = ldstrBody([unicode, path, lone, path, empty]);
     const result = inspect({ ilBody, userStringHeap: heap });
 
-    expect(result.user_strings).toEqual([
+    expect(result.user_strings?.literals).toEqual([
       { token: empty, offset: expect.any(Number), value: "" },
       { token: path, offset: expect.any(Number), value: "quicksave.peak" },
       { token: unicode, offset: expect.any(Number), value: "Ünïcødé 𝄞" },
       { token: lone, offset: expect.any(Number), value: "\ud800" },
     ]);
     expect(result.coverage).toEqual({ state: "complete", issues: [] });
+    expect(result.user_strings).toMatchObject({
+      state: "complete",
+      issues: [],
+    });
     const body = result.methods[0]?.body;
     expect(body?.anchors.map(({ operand }) => operand)).toEqual([
       unicode,
@@ -662,7 +666,7 @@ describe("managed user strings", () => {
       inspect({ ilBody }).methods[0]?.body.normalized_il_sha256,
     );
     expect(comparisonLimitations(result, result)).toContain(
-      "ldstr literals are observed but not compared; normalized CIL keeps #US tokens rather than decoded text, so an unchanged method does not establish unchanged string literals.",
+      "ldstr literals are not compared; normalized CIL keeps #US tokens rather than decoded text, so an unchanged method does not establish unchanged string literals.",
     );
   });
 
@@ -683,7 +687,7 @@ describe("managed user strings", () => {
       opcode: "ldtoken",
       operand_kind: "string",
     });
-    expect(result.user_strings).toEqual([]);
+    expect(result.user_strings?.literals).toEqual([]);
   });
 
   it("admits ldstr tokens before collecting them", () => {
@@ -718,12 +722,12 @@ describe("managed user strings", () => {
       userStringHeap: heap,
     });
 
-    expect(result.user_strings).toEqual([
+    expect(result.user_strings?.literals).toEqual([
       { token: ok, offset: expect.any(Number), value: "ok" },
     ]);
-    expect(result.coverage.state).toBe("partial");
+    expect(result.user_strings?.state).toBe("partial");
     expect(
-      result.coverage.issues.map(({ code, scope }) => [code, scope]),
+      result.user_strings?.issues.map(({ code, scope }) => [code, scope]),
     ).toEqual([
       ["invalid-heap-index", "metadata.#US:0x06000001"],
       ["invalid-string", `metadata.#US:${bad}`],
@@ -747,10 +751,10 @@ describe("managed user strings", () => {
       userStringHeap: heap,
     });
 
-    expect(result.user_strings).toEqual([
+    expect(result.user_strings?.literals).toEqual([
       { token: tokens[0], offset: expect.any(Number), value: "ok" },
     ]);
-    expect(result.coverage).toMatchObject({
+    expect(result.user_strings).toMatchObject({
       state: "partial",
       issues: [crossingToken, truncatedToken].map((item) => ({
         code: "invalid-string",
@@ -771,7 +775,7 @@ describe("managed user strings", () => {
     const parsed = managedMemberInspectionSchema.parse(legacy);
     expect(parsed.user_strings).toBeNull();
     expect(comparisonLimitations(parsed, inspect({}))).toContain(
-      "At least one managed member observation predates user-string inspection; its ldstr literals are unknown.",
+      "ldstr literals are not compared; normalized CIL keeps #US tokens rather than decoded text, so an unchanged method does not establish unchanged string literals.",
     );
   });
 });
@@ -794,9 +798,10 @@ describe("managed user string issues", () => {
     });
 
     expect(result.methods).toHaveLength(1);
-    expect(result.user_strings).toEqual([]);
-    expect(result.coverage).toEqual({
+    expect(result.coverage.state).toBe("complete");
+    expect(result.user_strings).toEqual({
       state: "partial",
+      literals: [],
       issues: [
         {
           code: "invalid-heap-index",
@@ -822,8 +827,8 @@ describe("managed user string issues", () => {
       userStringHeap: Buffer.from([3, 0x41, 0, 0]),
     });
 
-    expect(result.user_strings).toEqual([]);
-    expect(result.coverage).toMatchObject({
+    expect(result.user_strings?.literals).toEqual([]);
+    expect(result.user_strings).toMatchObject({
       state: "partial",
       issues: [{ code: "invalid-string", scope: "metadata.#US:0x70000000" }],
     });
@@ -842,10 +847,10 @@ describe("managed user string issues", () => {
         userStringHeap: Buffer.from(heap),
       });
 
-      expect(result.user_strings).toEqual([
+      expect(result.user_strings?.literals).toEqual([
         { token, offset: expect.any(Number), value },
       ]);
-      expect(result.coverage).toMatchObject({
+      expect(result.user_strings).toMatchObject({
         state: "partial",
         issues: [
           {
@@ -896,11 +901,12 @@ describe("managed user string issues", () => {
       userStringHeap: heap,
     });
 
-    expect(result.user_strings?.map(({ value }) => value)).toEqual([
+    expect(result.coverage.state).toBe("complete");
+    expect(result.user_strings?.literals.map(({ value }) => value)).toEqual([
       "ok",
       "it's",
     ]);
-    expect(result.coverage).toMatchObject({
+    expect(result.user_strings).toMatchObject({
       state: "partial",
       issues: [ok, quoted].map((token) => ({
         code: "invalid-string",

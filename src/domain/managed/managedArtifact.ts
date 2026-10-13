@@ -468,9 +468,16 @@ export const managedMemberInspectionSchema = z.object({
   call_edges: z.array(managedCallEdgeSchema),
   field_accesses: z.array(managedFieldAccessSchema),
   // Distinct #US literals loaded by ldstr in the inspected method bodies, in
-  // token order. Evidence recorded before user strings were read omits this
-  // field; null means they were not examined, not that there were none.
-  user_strings: z.array(managedUserStringSchema).nullable().default(null),
+  // token order, with their own coverage: #US issues never enter the member
+  // coverage. null means they were not examined, not that there were none.
+  user_strings: z
+    .object({
+      state: z.enum(["complete", "partial"]),
+      literals: z.array(managedUserStringSchema),
+      issues: z.array(managedParseIssueSchema),
+    })
+    .nullable()
+    .default(null),
   /** Caller-selected declaring types; null when every type was inspected. */
   selection: z
     .object({

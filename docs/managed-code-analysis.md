@@ -149,23 +149,24 @@ assembly. Older member Evidence without `selection` remains readable.
 
 ### User strings
 
-`ldstr` anchors keep their build-local `0x70` tokens. `user_strings` lists each
-distinct token loaded by an inspected method body once, in token order, with
-its `#US` file offset and decoded value. Values keep their stored UTF-16 code
-units, including unpaired surrogates. Token `0x70000000` names the heap's empty
-entry at offset 0 and reads as `""`; any other item there is malformed. The
-terminal flag is checked against ECMA-335 II.24.2.4, and the length prefix
-against the width II.23.2 assigns. A difference is reported with its byte
-offset as partial metadata coverage while preserving the readable literal.
+`ldstr` anchors keep their build-local `0x70` tokens. `user_strings.literals`
+lists each distinct token loaded by an inspected method body once, in token
+order, with its `#US` file offset and decoded value. Values keep their stored
+UTF-16 code units, including unpaired surrogates. Token `0x70000000` names the
+heap's empty entry at offset 0 and reads as `""`; any other item there is
+malformed. The terminal flag is checked against ECMA-335 II.24.2.4, and the
+length prefix against the width II.23.2 assigns. A difference is reported with
+its byte offset as a user-string issue while preserving the readable literal.
 Toolchain conventions can differ; this conformance observation does not
 establish runtime rejection. A missing `#US` stream is one stream-level issue;
-a malformed item is reported against its token. Either makes coverage partial,
-and readable literals remain; #US issues leave `metadata.status` describing the
-member inventory, so member comparisons keep their added and removed results.
-Normalized CIL digests do not include decoded values, and
-`compare_managed_members` does not compare literals: an unchanged method does
-not establish unchanged strings, and the comparison says so in its limitations.
-Older member Evidence without `user_strings` reads as `null`: not examined.
+a malformed item is reported against its token. User strings carry their own
+coverage: any of these makes `user_strings.state` partial and lists the issue
+in `user_strings.issues`, while the member `coverage` and `metadata.status` are
+unaffected, and readable literals remain. Normalized CIL digests do not include
+decoded values. `compare_managed_members` does not decode or compare literals:
+an unchanged method does not establish unchanged strings, and the comparison
+says so in its limitations. Older member Evidence without `user_strings` reads
+as `null`: not examined.
 
 ### Edge target declaring types
 

@@ -152,11 +152,19 @@ const selectTypes = (
 /**
  * Inspect metadata members and method bodies without loading target code.
  * Selected type names restrict full decoding to members of those exact types.
+ * A caller that never reads literals, such as member comparison, can skip
+ * user strings; they are then reported as not examined.
  */
 export const inspectManagedMembersBytes = (
   bytes: Buffer,
   target: BinaryTarget,
-  { typeNames }: { readonly typeNames?: readonly string[] } = {},
+  {
+    typeNames,
+    userStrings: readUserStrings = true,
+  }: {
+    readonly typeNames?: readonly string[];
+    readonly userStrings?: boolean;
+  } = {},
 ): ManagedMemberInspection => {
   const pe = readManagedPeLayout(bytes);
   if (pe.cli === null)
@@ -190,19 +198,18 @@ export const inspectManagedMembersBytes = (
       selected,
     });
     appendManagedParseIssues(issues, fields.issues, methods.issues);
-    // #US literals sit beside the member inventory: their issues make coverage
-    // partial without making the member metadata incomplete.
-    const userStrings = parseUserStrings(bytes, layout, methods.methods);
+    // #US literals sit beside the member inventory and carry their own
+    // coverage, so their issues never make member facts partial.
+    const userStrings = readUserStrings
+      ? parseUserStrings(bytes, layout, methods.methods)
+      : null;
     const targets = edgeTargets(bytes, layout, methods.methods, [
       fields.core,
       memberRefs.core,
       methods.core,
     ]);
     appendManagedParseIssues(issues, targets.issues);
-    const coverageIssues = uniqueManagedParseIssues([
-      ...issues,
-      ...userStrings.issues,
-    ]);
+    const coverageIssues = uniqueManagedParseIssues(issues);
     const incompleteMembers =
       [...fields.fields, ...memberRefs.refs, ...methods.methods].some(
         (member) => member.signature.parse_status !== "decoded",
@@ -247,11 +254,11 @@ export const inspectManagedMembersBytes = (
           member_refs: memberRefs.refs,
           call_edges: related.callEdges,
           field_accesses: related.fieldAccesses,
-          user_strings: userStrings.userStrings,
+          user_strings: userStrings,
           selection,
           coverage: {
             state:
-              coverageIssues.length === 0 && !incompleteMembers
+              issues.length === 0 && !incompleteMembers
                 ? "complete"
                 : "partial",
             issues: coverageIssues,
@@ -260,7 +267,7 @@ export const inspectManagedMembersBytes = (
             "Metadata tokens are build-local coordinates and are only meaningful with the reported artifact SHA-256 and MVID.",
             "CIL instruction anchors are decoded from file-backed method bodies only; no target assembly is loaded or executed.",
             "Exported types are reported from ExportedType rows as declared; forwarded types are not resolved in their implementing assemblies.",
-            "User strings are the #US literals loaded by ldstr in the inspected method bodies; instruction anchors and normalized CIL digests keep their build-local tokens.",
+            "User strings are the #US literals loaded by ldstr in the inspected method bodies, with their own coverage; instruction anchors and normalized CIL digests keep their build-local tokens.",
             "Member signatures decode ECMA-335 primitive, class, valuetype, generic instantiation, generic variable, pointer, byref, single-dimension and general array, function pointer, custom modifier, and typed reference forms; class and valuetype operands keep their encoded TypeDefOrRefOrSpec values, and unsupported forms such as vararg sentinels retain raw signature hashes.",
             ...(selection === null
               ? []
