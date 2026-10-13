@@ -68,6 +68,38 @@ const moduleName = (source: RecoveryInputSnapshot, single: boolean): string => {
   return /\.(?:[cm]?js|jsx)$/i.test(name) ? name : `${name}.js`;
 };
 
+/** Allocate the complete output layout before any producer can overwrite a selected input's output. */
+const moduleNames = (
+  sources: RecoveryWorkspace["sources"],
+): readonly string[] => {
+  const desired = sources.map((source) =>
+    moduleName(source, sources.length === 1),
+  );
+  const allocated = new Set<string>();
+  const overlaps = (left: string, right: string): boolean =>
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`);
+  return desired.map((name, index) => {
+    let candidate = name;
+    let suffix = 0;
+    while (
+      [...allocated].some((used) => overlaps(used, candidate)) ||
+      desired.some(
+        (reserved, other) =>
+          other !== index &&
+          reserved !== candidate &&
+          overlaps(reserved, candidate),
+      )
+    ) {
+      suffix += 1;
+      candidate = `__rea_recovered_${String(index + 1)}_${String(suffix)}/${basename(name)}`;
+    }
+    allocated.add(candidate);
+    return candidate;
+  });
+};
+
 /** Validity gate read from jsbeautify's stderr phase log. */
 const gate = (run: CommandResult, deobfuscated: boolean) => {
   const reparse = Object.fromEntries(
@@ -166,7 +198,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     };
   };
   const deobfuscated = input.rewrite_level !== "minimal";
-  const single = sources.length === 1;
+  const names = moduleNames(sources);
   const published: JavaScriptRecoveryResult["source"][] = [];
   const modules: JavaScriptRecoveryResult["modules"] = [];
   const warnings: JavaScriptRecoveryResult["warnings"] = [];
@@ -174,7 +206,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const logs: string[] = [];
   let retainedLogBytes = 0;
   const formats = new Set<string>();
-  for (const source of sources) {
+  for (const [sourceIndex, source] of sources.entries()) {
     const snapshot = await readRecoveryFile(
       source.snapshot_path,
       source.bytes,
@@ -190,7 +222,9 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       ...selected,
       published_copy: await write(`inputs/${relative_path}`, snapshot),
     });
-    const name = moduleName(source, single);
+    const name = names[sourceIndex];
+    if (name === undefined)
+      throw new AnalysisOutputError(OPERATION, "Missing allocated module name");
     const output = join(root, "modules", name);
     await mkdir(dirname(output), { recursive: true, mode: 0o700 });
     const argumentsList = [

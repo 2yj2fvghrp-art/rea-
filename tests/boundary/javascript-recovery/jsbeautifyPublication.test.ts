@@ -148,3 +148,23 @@ it("does not claim successful reparsing when every file fails its gate", async (
   expect(result.analysis_input).toBeNull();
   expect(result.reported_safety).toContain("No output passed");
 });
+
+it("allocates distinct discoverable outputs for an extension collision", async () => {
+  const evidence = await recover(["bundle", "bundle.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(result.modules).toHaveLength(2);
+  expect(
+    new Set(result.modules.map((module) => module.artifact.path)).size,
+  ).toBe(2);
+  expect(
+    result.modules.every((module) => module.reported_filename.endsWith(".js")),
+  ).toBe(true);
+  expect(
+    result.modules.map((module) =>
+      module.provenance.original_path.split("/").at(-1),
+    ),
+  ).toEqual(["bundle", "bundle.js"]);
+});

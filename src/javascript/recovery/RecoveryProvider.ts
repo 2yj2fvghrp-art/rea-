@@ -59,6 +59,10 @@ export class RecoveryProvider implements JavaScriptRecoveryPort {
     this.#engines = new Map(engines.map((engine) => [engine.id, engine]));
   }
 
+  get engines(): readonly JavaScriptRecoveryInput["engine"][] {
+    return [...this.#engines.keys()];
+  }
+
   /** Recover selected scripts using validated reports and verified output bytes. */
   recover(
     input: JavaScriptRecoveryInput,

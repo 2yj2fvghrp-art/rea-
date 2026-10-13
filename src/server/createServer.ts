@@ -200,14 +200,25 @@ const installSessionToolAvailability = (
         options.firmwareAnalysis !== undefined ||
         (linux && isAbsolute(environment.REA_UNBLOB_COMMAND ?? "")),
       browserObservationEnabled: options.browserObservation !== undefined,
-      javascriptRecoveryEngines: {
-        wakaru:
-          options.javascriptRecovery !== undefined ||
-          (linuxX64 && isAbsolute(environment.REA_WAKARU_COMMAND ?? "")),
-        jsbeautify:
-          options.javascriptRecovery !== undefined ||
-          (linux && isAbsolute(environment.REA_JSBEAUTIFY_COMMAND ?? "")),
-      },
+      ...(options.javascriptRecovery === undefined ||
+      options.javascriptRecovery.engines !== undefined
+        ? {
+            javascriptRecoveryEngines: {
+              wakaru:
+                options.javascriptRecovery === undefined
+                  ? linuxX64 && isAbsolute(environment.REA_WAKARU_COMMAND ?? "")
+                  : options.javascriptRecovery.engines?.includes("wakaru") ===
+                    true,
+              jsbeautify:
+                options.javascriptRecovery === undefined
+                  ? linux &&
+                    isAbsolute(environment.REA_JSBEAUTIFY_COMMAND ?? "")
+                  : options.javascriptRecovery.engines?.includes(
+                      "jsbeautify",
+                    ) === true,
+            },
+          }
+        : {}),
       javascriptRecoveryEnabled:
         options.javascriptRecovery !== undefined ||
         (linuxX64 && isAbsolute(environment.REA_WAKARU_COMMAND ?? "")) ||
