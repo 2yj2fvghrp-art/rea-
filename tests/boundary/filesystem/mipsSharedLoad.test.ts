@@ -124,6 +124,28 @@ for (const little of [true, false]) {
   });
 }
 
+it.each([3, 21])("selects the lowest nonzero load address among only the first 20 headers (%s headers)", async (count) => {
+  const bytes = fixture(true);
+  const base = 0x800000;
+  bytes.copy(bytes, 1024, 256, 288);
+  bytes.writeUInt16LE(count, 44);
+  bytes.writeUInt32LE(base, 60);
+  bytes.writeUInt32LE(1024, 88);
+  bytes.writeUInt32LE(base + 1024, 92);
+  bytes.writeUInt32LE(base + relOffset, 1028);
+  bytes.writeUInt32LE(base + 512, relOffset + 8);
+  bytes.writeUInt32LE(1, 116);
+  bytes.writeUInt32LE(0x400000, 124);
+  if (count === 21) {
+    bytes.writeUInt32LE(1, 52 + 20 * 32);
+    bytes.writeUInt32LE(0x200000, 52 + 20 * 32 + 8);
+  }
+  const target = await resolve(bytes);
+  assert.equal(target.mips.sharedLoad?.status, "complete");
+  if (target.mips.sharedLoad?.status === "complete")
+    assert.equal(target.mips.sharedLoad.linkBase, 0x400000);
+});
+
 it("examines relocation records beyond a read chunk before deciding completeness", async () => {
   const count = 8194;
   const bytes = fixture(true, count);

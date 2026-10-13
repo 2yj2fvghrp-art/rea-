@@ -33,6 +33,7 @@ import {
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import type { EvidenceLocation } from "../domain/evidence.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -700,10 +701,12 @@ export const createGhidraProviderClient = (input: {
     normalized: JsonValue,
     rawResult: JsonValue,
     observationLimitations: readonly string[] = [],
+    locations: readonly EvidenceLocation[] = [],
   ) => {
     const relationshipCoverage = relationshipCoverageFor(operation);
     return createAnalysisExecution(normalized, committedProfile.provider, {
       rawResult,
+      locations,
       analysisProfile: committedProfile,
       ...(relationshipCoverage === undefined ? {} : { relationshipCoverage }),
       limitations: [
@@ -798,11 +801,13 @@ export const createGhidraProviderClient = (input: {
         );
       let normalized: JsonValue;
       let observationLimitations: readonly string[] = [];
+      let observationLocations: readonly EvidenceLocation[] = [];
       if (isGhidraFunctionOperation(operation)) {
         const result = parseGhidraFunctionResult(operation, called.value);
         if (!result.ok) return result;
         normalized = result.value.value;
         observationLimitations = result.value.limitations;
+        observationLocations = result.value.locations ?? [];
       } else {
         const result = parseGhidraInventoryResult(operation, called.value);
         if (!result.ok) return result;
@@ -897,6 +902,7 @@ export const createGhidraProviderClient = (input: {
           normalized,
           called.value,
           observationLimitations,
+          observationLocations,
         ),
       );
     },
