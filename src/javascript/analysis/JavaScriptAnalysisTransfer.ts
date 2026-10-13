@@ -268,12 +268,18 @@ export async function readJavaScriptAnalysisTransfer(
   const admittedSources = new Map<string, string>();
   for (const admitted of [source, ...companions]) {
     const previous = admittedSources.get(admitted.path);
-    if (previous !== undefined && previous !== admitted.sha256) throw new TypeError("Conflicting admitted JavaScript source identities");
+    if (previous !== undefined && previous !== admitted.sha256)
+      throw new TypeError("Conflicting admitted JavaScript source identities");
     admittedSources.set(admitted.path, admitted.sha256);
   }
-  const requireAdmittedSource = (identity: {readonly module_path: string; readonly artifact_sha256: string}): void => {
+  const requireAdmittedSource = (identity: {
+    readonly module_path: string;
+    readonly artifact_sha256: string;
+  }): void => {
     if (admittedSources.get(identity.module_path) !== identity.artifact_sha256)
-      throw new TypeError("JavaScript transfer node belongs to a source outside the admitted artifact identities");
+      throw new TypeError(
+        "JavaScript transfer node belongs to a source outside the admitted artifact identities",
+      );
   };
   const expected = javaScriptAnalysisTransferDescriptorSchema.parse(descriptor);
   if ((await stat(path)).size !== expected.bytes)
@@ -383,7 +389,8 @@ export async function readJavaScriptAnalysisTransfer(
               "fingerprint",
             ].includes(record.kind)
           ) {
-            if (record.kind === "node") requireAdmittedSource(record.value.identity);
+            if (record.kind === "node")
+              requireAdmittedSource(record.value.identity);
             records += 1;
             continue;
           }

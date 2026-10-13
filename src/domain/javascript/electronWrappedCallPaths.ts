@@ -937,10 +937,17 @@ const addIpcFinding = (
   if (finding.invocation_location !== undefined)
     for (let index = accumulator.ipc.length - 1; index >= 0; index--) {
       const raw = accumulator.ipc[index]?.value;
-      if (raw !== undefined && raw.resolution_basis === undefined && raw.invocation_location === undefined &&
-          raw.side === finding.side && raw.operation === finding.operation && raw.channel === finding.channel &&
-          JSON.stringify(raw.location) === JSON.stringify(finding.location) &&
-          JSON.stringify(raw.linked_operation ?? null) === JSON.stringify(finding.linked_operation ?? null))
+      if (
+        raw !== undefined &&
+        raw.resolution_basis === undefined &&
+        raw.invocation_location === undefined &&
+        raw.side === finding.side &&
+        raw.operation === finding.operation &&
+        raw.channel === finding.channel &&
+        JSON.stringify(raw.location) === JSON.stringify(finding.location) &&
+        JSON.stringify(raw.linked_operation ?? null) ===
+          JSON.stringify(finding.linked_operation ?? null)
+      )
         accumulator.ipc.splice(index, 1);
     }
   const duplicate = accumulator.ipc.some(

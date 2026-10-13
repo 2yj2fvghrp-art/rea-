@@ -233,7 +233,9 @@ const joinedPolicyText = (
       ? undefined
       : policyText(element, constants),
   );
-  const known = parts.map((part): PolicyText => part ?? { text: DYNAMIC_SOURCE, dynamicParts: 1 });
+  const known = parts.map(
+    (part): PolicyText => part ?? { text: DYNAMIC_SOURCE, dynamicParts: 1 },
+  );
   return {
     text: known.map(({ text }) => text).join(joiner),
     dynamicParts: known.reduce(

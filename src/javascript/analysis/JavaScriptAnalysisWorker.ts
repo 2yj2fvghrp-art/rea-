@@ -389,7 +389,10 @@ export class JavaScriptAnalysisWorker {
           file,
           deadline.signal,
           retainGraph,
-          companions.map(({path, text}) => ({path, sha256: createHash("sha256").update(text).digest("hex")})),
+          companions.map(({ path, text }) => ({
+            path,
+            sha256: createHash("sha256").update(text).digest("hex"),
+          })),
         );
         module = decoded.module;
         projection = decoded.projection;
