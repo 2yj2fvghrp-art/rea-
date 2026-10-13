@@ -118,6 +118,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private static final int MAX_HIGH_PCODE_OPS = 3000;
     private static final int MAX_HIGH_PCODE_INPUTS_PER_OP = 64;
     private static final int MAX_HIGH_PCODE_DEF_USE_EDGES = 12000;
+    // Instructions retained behind the SEH triple window: the xor reg,reg that
+    // proves an fs:[reg] slot is FS:[0] sits a few instructions before the
+    // prologue (for example "xor eax,eax; push ebp; push imm32").
+    private static final int SEH_HISTORY_LIMIT = 12;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
     private final Map<FileBytes, Boolean> targetSourceIdentity = new IdentityHashMap<>();
     private String admittedTargetSha256;
@@ -3341,13 +3345,19 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private List<String> functionBoundaryLimitations(
             Iterable<Instruction> instructions, Function function) throws Exception {
         List<String> limitations = new ArrayList<>();
+        List<Instruction> history = new ArrayList<>();
         Instruction windowFirst = null;
         Instruction windowSecond = null;
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
             noReturnCallLimitation(instruction, limitations);
+            history.add(instruction);
+            if (history.size() > SEH_HISTORY_LIMIT) {
+                history.remove(0);
+            }
             if (windowFirst != null && windowSecond != null) {
-                sehHandlerLimitation(windowFirst, windowSecond, instruction, function, limitations);
+                sehHandlerLimitation(
+                        windowFirst, windowSecond, instruction, history, function, limitations);
             }
             windowFirst = windowSecond;
             windowSecond = instruction;
@@ -3365,9 +3375,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Instruction pushImmediate,
             Instruction pushSegment,
             Instruction moveSegment,
+            List<Instruction> history,
             Function function,
             List<String> limitations) throws Exception {
-        Address handler = sehHandlerAddress(pushImmediate, pushSegment, moveSegment);
+        Address handler = sehHandlerAddress(pushImmediate, pushSegment, moveSegment, history);
         if (handler == null || function.getBody().contains(handler)) {
             return;
         }
@@ -3389,13 +3400,21 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * Win32 thread-information block), so anything else — including 16-bit
      * x86, where an operand-size prefix still yields a 32-bit immediate — is
      * reported as no registration. The triple must be address-consecutive and
-     * chain FS:[0], the exception-list head — any other slot (for example the
-     * FS:[0x18] TEB self-pointer) is not an SEH registration; anything looser
-     * is reported as no registration rather than risk a misleading handler
-     * warning.
+     * chain the FS:[0] exception-list head: a literal zero in any spelling
+     * Ghidra renders ({@code fs:[0]}, {@code fs:[0x0]}) or a register proven
+     * zero by a preceding {@code xor reg,reg} with no intervening writer. Any
+     * other slot (for example the FS:[0x18] TEB self-pointer) is not an SEH
+     * registration; anything looser is reported as no registration rather than
+     * risk a misleading handler warning.
+     *
+     * @param history scanned instructions ending with the prologue triple
+     *     itself; only the instructions before the triple prove the slot
      */
     private Address sehHandlerAddress(
-            Instruction pushImmediate, Instruction pushSegment, Instruction moveSegment) {
+            Instruction pushImmediate,
+            Instruction pushSegment,
+            Instruction moveSegment,
+            List<Instruction> history) {
         if (!isWin32SehTarget()
                 || !isPushMnemonic(pushImmediate)
                 || pushImmediate.getNumOperands() != 1
@@ -3406,7 +3425,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             return null;
         }
         String pushSlot = fsSegmentSlot(pushSegment, 0);
-        if (!"fs:[0]".equals(pushSlot) || !pushSlot.equals(fsSegmentSlot(moveSegment, 0))) {
+        if (pushSlot == null
+                || !pushSlot.equals(fsSegmentSlot(moveSegment, 0))
+                || !isFsZeroSlot(pushSlot, history)) {
             return null;
         }
         Object[] operands = pushImmediate.getOpObjects(0);
@@ -3481,6 +3502,70 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         int end = representation.indexOf(']', start);
         return end < 0 ? representation.substring(start) : representation.substring(start, end + 1);
+    }
+
+    /**
+     * Reports whether an {@code fs:[slot]} operand addresses the FS:[0]
+     * exception-list head: a literal zero in any spelling Ghidra renders
+     * ({@code fs:[0]}, {@code fs:[0x0]}) or a register proven zero by a
+     * preceding {@code xor reg,reg}. The history tail holds the prologue triple
+     * itself, so only the instructions before it are examined. Anything else —
+     * including the FS:[0x18] TEB self-pointer — is not an SEH registration.
+     */
+    private static boolean isFsZeroSlot(String slot, List<Instruction> history) {
+        if (!slot.startsWith("fs:[") || !slot.endsWith("]") || slot.length() <= 5) {
+            return false;
+        }
+        String inner = slot.substring(4, slot.length() - 1);
+        try {
+            return parseInteger(inner) == 0;
+        } catch (NumberFormatException notNumeric) {
+            return inner.matches("[a-z][a-z0-9]*") && isZeroedByXor(history, inner);
+        }
+    }
+
+    /**
+     * Reports whether {@code register}'s latest writer in {@code history}
+     * (whose tail is the SEH prologue triple) is {@code xor reg,reg}, proving
+     * the register holds zero when the triple executes. Scanning stops at a
+     * call, whose volatile-register clobbers Ghidra does not model in result
+     * objects.
+     */
+    private static boolean isZeroedByXor(List<Instruction> history, String register) {
+        String target = normalizedRegister(register);
+        for (int index = history.size() - 4; index >= 0; index -= 1) {
+            Instruction candidate = history.get(index);
+            if (mnemonic(candidate).equals("CALL")) {
+                return false;
+            }
+            boolean writes = false;
+            for (Object result : candidate.getResultObjects()) {
+                if (result instanceof Register written
+                        && normalizedRegister(written.getBaseRegister().getName()).equals(target)) {
+                    writes = true;
+                    break;
+                }
+            }
+            if (!writes) {
+                continue;
+            }
+            return isXorSelf(candidate, target);
+        }
+        return false;
+    }
+
+    private static boolean isXorSelf(Instruction instruction, String register) {
+        if (!mnemonic(instruction).equals("XOR") || instruction.getNumOperands() != 2) {
+            return false;
+        }
+        Object[] first = instruction.getOpObjects(0);
+        Object[] second = instruction.getOpObjects(1);
+        return first.length == 1
+                && second.length == 1
+                && first[0] instanceof Register firstRegister
+                && second[0] instanceof Register secondRegister
+                && normalizedRegister(firstRegister.getName()).equals(register)
+                && normalizedRegister(secondRegister.getName()).equals(register);
     }
 
     private boolean isPushMnemonic(Instruction instruction) {
