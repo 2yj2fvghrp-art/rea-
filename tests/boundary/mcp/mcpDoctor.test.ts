@@ -175,6 +175,21 @@ describe("production MCP doctor", () => {
 });
 
 describe("mcp doctor full-output envelope", () => {
+  it.each([{ arguments: ["--bogus"] }, { arguments: ["--format", "invalid"] }])(
+    "preserves full-output through validation: %j",
+    async ({ arguments: suffix }) => {
+      const result = await runProductionMcpDoctorCli(
+        ["--json", "--full-output", ...suffix],
+        { dispatcherPath: "not-started", packageRoot: process.cwd() },
+      );
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.output)).toMatchObject({
+        ok: false,
+        error: { code: "VALIDATION_ERROR" },
+      });
+    },
+  );
+
   it("wraps the diagnostic report when the envelope is requested", async () => {
     const input = {
       dispatcherPath: resolve("tests/fixtures/mcpDoctorExit.mjs"),
@@ -201,13 +216,10 @@ describe("mcp doctor full-output envelope", () => {
   }, 30_000);
 
   it("wraps a healthy diagnostic report in the requested envelope", async () => {
-    const full = await runProductionMcpDoctorCli(
-      ["--json", "--full-output"],
-      {
-        dispatcherPath: resolve("scripts/rea.mjs"),
-        packageRoot: process.cwd(),
-      },
-    );
+    const full = await runProductionMcpDoctorCli(["--json", "--full-output"], {
+      dispatcherPath: resolve("scripts/rea.mjs"),
+      packageRoot: process.cwd(),
+    });
     expect(full.exitCode).toBe(0);
     const envelope = JSON.parse(full.output) as Record<string, unknown>;
     expect(envelope.ok).toBe(true);

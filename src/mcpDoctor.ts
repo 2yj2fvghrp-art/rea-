@@ -284,11 +284,9 @@ export const runProductionMcpDoctorCli = async (
   if (!parsed.ok) {
     if (parsed.help)
       return { output: `${renderMcpDoctorHelp()}\n`, exitCode: 0 };
+    const error = { code: "VALIDATION_ERROR", message: parsed.message };
     return {
-      output: `${Formatter.format(
-        { code: "VALIDATION_ERROR", message: parsed.message },
-        parsed.format,
-      )}\n`,
+      output: `${Formatter.format(parsed.fullOutput ? { ok: false, error } : error, parsed.format)}\n`,
       exitCode: 1,
     };
   }
@@ -383,12 +381,17 @@ const parseIdentityToolResult = (
  * flag is an output selector declared in `MCP_DOCTOR_OPTIONS`.
  */
 type McpDoctorArguments =
-  | { readonly ok: true; readonly format: OutputFormat; readonly fullOutput: boolean }
+  | {
+      readonly ok: true;
+      readonly format: OutputFormat;
+      readonly fullOutput: boolean;
+    }
   | { readonly ok: false; readonly help: true }
   | {
       readonly ok: false;
       readonly help: false;
       readonly format: OutputFormat;
+      readonly fullOutput: boolean;
       readonly message: string;
     };
 
@@ -419,6 +422,7 @@ const parseOutputArguments = (
           ok: false,
           help: false,
           format,
+          fullOutput,
           message: `Invalid output format: ${candidate ?? "missing"}`,
         };
       format = candidate;
@@ -433,6 +437,7 @@ const parseOutputArguments = (
       ok: false,
       help: false,
       format,
+      fullOutput,
       message: `Unknown mcp doctor option: ${argument ?? "missing"}`,
     };
   }
