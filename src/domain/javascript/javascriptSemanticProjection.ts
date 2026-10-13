@@ -578,13 +578,15 @@ const addModuleLink = (
 ): void => {
   const resolutionMode =
     link.resolutionMode ??
-    (link.kind === "import" ||
-    link.kind === "re-export" ||
-    link.kind === "type-import"
-      ? state.staticImportResolutionMode
-      : link.kind === "require"
-        ? "require"
-        : undefined);
+    (link.specifier === null
+      ? undefined
+      : link.kind === "import" ||
+          link.kind === "re-export" ||
+          link.kind === "type-import"
+        ? state.staticImportResolutionMode
+        : link.kind === "require"
+          ? "require"
+          : undefined);
   const collected = {
     ...link,
     ...(resolutionMode === undefined ? {} : { resolutionMode }),

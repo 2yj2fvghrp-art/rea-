@@ -44,7 +44,11 @@ import {
 import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { collectSemanticMemberMutationsSteps } from "./javascriptSemanticMemberMutations.js";
 import { indexJavaScriptAmbientWritesSteps } from "./javascriptSemanticAmbientWrites.js";
-import { hasUncertainTypeOnlyModuleSideEffect } from "./javascriptModuleDeclaration.js";
+import {
+  hasUncertainTypeOnlyModuleSideEffect,
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 import {
   collectSemanticReturns,
   resolveSemanticModuleCallables,
@@ -1126,11 +1130,9 @@ const bindImports = (
         ...(resolutionMode === undefined ? {} : { resolutionMode }),
       },
       runtimeImport:
-        node.importKind !== "type" &&
-        node.importKind !== "typeof" &&
+        !isTypeOnlyImportDeclaration(node) &&
         (!t.isImportSpecifier(specifier) ||
-          (specifier.importKind !== "type" &&
-            specifier.importKind !== "typeof")),
+          !isTypeOnlyImportSpecifier(specifier)),
     });
   }
 };

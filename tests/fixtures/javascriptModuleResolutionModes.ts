@@ -42,6 +42,15 @@ const nativeSource = [
   "const namespace: NativeNamespace = {}; void namespace;",
   "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, nested.source]));",
 ].join("\n");
+const nativeTemplateSource = [
+  'type Required = import("native-mode/addon.node", { with: { "resolution-mode": `require` } }).NativeMode;',
+  'type Imported = import("native-mode/addon.node", { with: { "resolution-mode": `import` } }).NativeMode;',
+  'type Cooked = import("native-mode/addon.node", { with: { "resolution-mode": `req\\u0075ire` } }).NativeMode;',
+  'const required: Required = { source: "require" };',
+  'const imported: Imported = { source: "import" };',
+  'const cooked: Cooked = { source: "require" };',
+  "console.log(JSON.stringify([required.source, imported.source, cooked.source]));",
+].join("\n");
 const nativeDefaultSource = (mode: "import" | "require") =>
   [
     'type DefaultNative = import("native-mode/addon.node").NativeMode;',
@@ -102,6 +111,7 @@ export const modeSourceFiles = {
   "cts/same.cts": sameSource,
   "cts/unresolved.cts": unresolvedSource,
   "cts/native.mts": nativeSource,
+  "cts/native-template.mts": nativeTemplateSource,
   "cts/recovered.cts": recoveredSource,
   "cts/native-default.cts": nativeDefaultSource("require"),
   "cts/native-default.mts": nativeDefaultSource("import"),
@@ -152,6 +162,23 @@ export const modeSourceFiles = {
     'type Native = import("native-mode/addon.node", { with: { "resolution-mode": "import", "resolution-mode": "require" } }).NativeMode;',
   "cts/native-export-equals.cts":
     'export import Native = require("native-mode/addon.node");',
+  "cts/native-declaration.d.cts":
+    'export import Native = require("native-mode/addon.node");',
+  "cts/native-declaration.d.mts":
+    'export import Native = require("native-mode/addon.node");',
+  "cts/native-declaration.d.ts":
+    'export import Native = require("native-mode/addon.node");',
+  "cts/native-declaration-values.d.mts": [
+    'import { NativeMode } from "native-mode/addon.node";',
+    'export { NativeMode as Reexported } from "native-mode/addon.node";',
+    'export * from "native-mode/addon.node";',
+  ].join("\n"),
+  "cts/native-ambient.ts": [
+    'declare module "ambient-native" {',
+    'import Native = require("native-mode/addon.node");',
+    "export = Native;",
+    "}",
+  ].join("\n"),
   "cts/native-export-type-equals.cts":
     'export import type Native = require("native-mode/addon.node"); const value: Native.NativeMode = { source: "require" }; console.log(JSON.stringify(value.source));',
 };
@@ -227,6 +254,7 @@ export const expectReviewModeEvidence = (
   }
   for (const source of [
     "cts/native.mts",
+    "cts/native-template.mts",
     "cts/native-default.cts",
     "cts/native-default.mts",
     "cts/native-default.ts",
@@ -249,7 +277,9 @@ export const expectReviewModeEvidence = (
       .toEqual([]);
   expectNativeMixedEvidence(graph);
   expectNativeTypeSelections(graph);
+  expectNativeTemplateEvidence(graph);
   expectNativeImportEqualsExports(graph);
+  expectErasedNativeDeclarationEvidence(graph);
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
@@ -325,6 +355,101 @@ export const expectReviewModeEvidence = (
         }),
       }),
     );
+};
+
+const expectNativeTemplateEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const [line, mode] of [
+    [1, "require"],
+    [2, "import"],
+    [3, "require"],
+  ] as const)
+    expect(
+      graph.nodes.flatMap(({ observations }) => observations),
+    ).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          specifier: "native-mode/addon.node",
+          module_kind: mode,
+          type_only: true,
+          requested_members: ["NativeMode"],
+          resolved_path: `node_modules/native-mode/${mode}.node`,
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            sha256: createHash("sha256")
+              .update(nativeTemplateSource)
+              .digest("hex"),
+          }),
+          location: expect.objectContaining({
+            value: expect.objectContaining({
+              source: "cts/native-template.mts",
+              start: expect.objectContaining({ line }),
+            }),
+          }),
+        }),
+      }),
+    );
+};
+
+const expectErasedNativeDeclarationEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  const declarationValues = graph.nodes
+    .flatMap(({ observations }) => observations)
+    .filter(
+      ({ properties, evidence }) =>
+        properties.module_kind === "import" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source ===
+          "cts/native-declaration-values.d.mts",
+    );
+  expect(declarationValues).toHaveLength(3);
+  for (const observation of declarationValues)
+    expect(observation.properties).toMatchObject({
+      type_only: true,
+      resolved_path: "node_modules/native-mode/import.node",
+    });
+  for (const path of [
+    "cts/native-declaration.d.cts",
+    "cts/native-declaration.d.mts",
+    "cts/native-declaration.d.ts",
+    "cts/native-ambient.ts",
+  ] as const) {
+    expect(
+      graph.nodes.flatMap(({ observations }) => observations),
+    ).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          specifier: "native-mode/addon.node",
+          module_kind: "require",
+          type_only: true,
+          resolved_path: "node_modules/native-mode/require.node",
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            sha256: createHash("sha256")
+              .update(modeSourceFiles[path])
+              .digest("hex"),
+          }),
+          location: expect.objectContaining({
+            value: expect.objectContaining({ source: path }),
+          }),
+        }),
+      }),
+    );
+    expect(
+      graph.edges.filter(
+        ({ relation, evidence }) =>
+          (relation === "imports" || relation === "loads") &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === path,
+      ),
+    ).toEqual([]);
+  }
 };
 
 const expectNativeDefaultEvidence = (

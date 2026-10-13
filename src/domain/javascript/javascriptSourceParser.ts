@@ -1,6 +1,7 @@
 import { parse, type ParserOptions, type ParserPlugin } from "@babel/parser";
 import * as t from "@babel/types";
 import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
+import { recordTypeScriptModuleErasure } from "./javascriptModuleDeclaration.js";
 
 /** Babel AST produced by REA's inert JavaScript parser boundary. */
 export type ParsedJavaScriptSource = ReturnType<typeof parse>;
@@ -60,7 +61,7 @@ const preserveModuleAttributePresence = (
  */
 export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
   const path = sourcePath ?? "";
-  const dts = /\.d\.(?:ts|mts|cts)$/iu.test(path);
+  const dts = isTypeScriptDeclarationSourcePath(path);
   const isTsLike = /\.(?:ts|cts|mts)$/iu.test(path);
   const isTsx = /\.tsx$/iu.test(path);
   const isMts = /\.mts$/iu.test(path);
@@ -76,6 +77,10 @@ export const parserPluginsForPath = (sourcePath?: string): ParserPlugin[] => {
     ? ["decorators-legacy", "jsx", typescript]
     : ["decorators-legacy", typescript];
 };
+
+/** Source suffix that selects TypeScript's declaration-file parser context. */
+const isTypeScriptDeclarationSourcePath = (path?: string): boolean =>
+  /\.d\.(?:ts|mts|cts)$/iu.test(path ?? "");
 
 /** `.mjs` and `.mts` explicitly select module mode. */
 export const isExplicitModuleSourcePath = (path?: string): boolean =>
@@ -170,12 +175,17 @@ export const parseJavaScriptSource = (
     });
     // Unambiguous mode retains module-only diagnostics after choosing a script.
     // The .cjs extension establishes wrapper mode, so obtain its own diagnostics.
-    return preserveModuleAttributePresence(
+    const recovered = preserveModuleAttributePresence(
       commonjs && file.program.sourceType === "script" && file.errors.length > 0
         ? parse(source, { ...options, sourceType: "commonjs" })
         : file,
       source,
     );
+    recordTypeScriptModuleErasure(
+      recovered.program,
+      isTypeScriptDeclarationSourcePath(sourcePath),
+    );
+    return recovered;
   } catch (cause: unknown) {
     // Unparseable source is represented by the null return.
     void cause;

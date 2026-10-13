@@ -486,9 +486,103 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
   },
 );
 
+const expectNativeTemplateModes = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
+  const result = await worker.analyze(
+    source(
+      "cts/native-template.mts",
+      modeSourceFiles["cts/native-template.mts"],
+    ),
+    100,
+  );
+  if (!result.ok) throw result.error.error;
+  expect(
+    result.value.javascript.electron.native_addon_bindings.map(
+      ({ module_kind, type_only }) => [module_kind, type_only],
+    ),
+  ).toEqual([
+    ["require", true],
+    ["import", true],
+    ["require", true],
+  ]);
+  expect(
+    result.value.module?.moduleLinks.map(
+      ({ resolutionMode }) => resolutionMode,
+    ),
+  ).toEqual(["require", "import", "require"]);
+  expect(result.value.javascript.references).toEqual([]);
+  for (const selector of ["``", "`typo`", '`req${"uire"}`']) {
+    const invalid = await worker.analyze(
+      source(
+        "invalid.cts",
+        `type Native = import("native-mode/addon.node", { with: { "resolution-mode": ${selector} } }).NativeMode;`,
+      ),
+      100,
+    );
+    if (!invalid.ok) throw invalid.error.error;
+    expect(
+      invalid.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([{ module_kind: "compiler-dependent", type_only: true }]);
+    expect(invalid.value.module?.moduleLinks).toMatchObject([
+      { resolutionMode: "compiler-dependent", kind: "type-import" },
+    ]);
+  }
+};
+
+const expectErasedNativeDeclarations = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
+  for (const path of [
+    "cts/native-declaration.d.cts",
+    "cts/native-declaration.d.mts",
+    "cts/native-declaration.d.ts",
+    "cts/native-ambient.ts",
+  ] as const) {
+    const erased = await worker.analyze(
+      source(path, modeSourceFiles[path]),
+      100,
+    );
+    if (!erased.ok) throw erased.error.error;
+    expect(
+      erased.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([
+      { module_kind: "require", type_only: true, namespace_access: true },
+    ]);
+    expect(
+      erased.value.javascript.references.filter(
+        ({ kind }) => kind === "require",
+      ),
+    ).toEqual([]);
+    expect(erased.value.module?.moduleLinks).toMatchObject([
+      { kind: "type-import", resolutionMode: "require" },
+    ]);
+  }
+  const declarationValues = await worker.analyze(
+    source(
+      "cts/native-declaration-values.d.mts",
+      modeSourceFiles["cts/native-declaration-values.d.mts"],
+    ),
+    100,
+  );
+  if (!declarationValues.ok) throw declarationValues.error.error;
+  expect(
+    declarationValues.value.javascript.electron.native_addon_bindings.map(
+      ({ module_kind, type_only }) => [module_kind, type_only],
+    ),
+  ).toEqual([
+    ["import", true],
+    ["import", true],
+    ["import", true],
+  ]);
+  expect(declarationValues.value.javascript.references).toEqual([]);
+};
+
 const expectNativeTypeSelections = async (
   worker: JavaScriptAnalysisWorker,
 ): Promise<void> => {
+  await expectErasedNativeDeclarations(worker);
+  await expectNativeTemplateModes(worker);
   const importEquals = await worker.analyze(
     source(
       "cts/native-import-equals.cts",

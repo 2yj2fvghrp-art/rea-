@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { isErasedTypeScriptModuleDeclaration } from "./javascriptModuleDeclaration.js";
 import {
   readExactJavaScriptLiteral,
   semanticStaticPropertyKey,
@@ -27,7 +28,8 @@ export const typescriptImportEqualsRequest = (
       : undefined;
   return {
     specifier: node.moduleReference.expression.value,
-    typeOnly: node.importKind === "type",
+    typeOnly:
+      node.importKind === "type" || isErasedTypeScriptModuleDeclaration(node),
     resolutionMode: "require",
     exportedName: exported === undefined ? null : node.id.name,
     locationNode: exported ?? node,
@@ -41,7 +43,10 @@ export const typescriptImportResolutionMode = (
   if (t.isTSImportType(node)) {
     if (node.options === null || node.options === undefined) return undefined;
     const attributes = literalProperty(node.options, "with");
-    return resolutionModeValue(literalProperty(attributes, "resolution-mode"));
+    return resolutionModeValue(
+      literalProperty(attributes, "resolution-mode"),
+      true,
+    );
   }
   if (
     !t.isImportDeclaration(node) &&
@@ -49,6 +54,7 @@ export const typescriptImportResolutionMode = (
     !t.isExportAllDeclaration(node)
   )
     return undefined;
+  if (t.isExportNamedDeclaration(node) && node.source == null) return undefined;
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
   if (kind !== "type")
     return node.attributes?.some(
@@ -69,11 +75,20 @@ export const typescriptImportResolutionMode = (
 
 const resolutionModeValue = (
   node: t.Node | undefined,
-): "import" | "require" | "compiler-dependent" =>
-  t.isStringLiteral(node) &&
-  (node.value === "import" || node.value === "require")
-    ? node.value
+  inlineTypeOptions = false,
+): "import" | "require" | "compiler-dependent" => {
+  // Inline type options accept cooked templates; declaration attributes require strings.
+  const literal =
+    node !== undefined &&
+    (t.isStringLiteral(node) ||
+      (inlineTypeOptions && t.isTemplateLiteral(node)))
+      ? readExactJavaScriptLiteral(node)
+      : undefined;
+  return literal?.found &&
+    (literal.value === "import" || literal.value === "require")
+    ? literal.value
     : "compiler-dependent";
+};
 
 const literalProperty = (
   node: t.Node | null | undefined,

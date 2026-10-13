@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -186,6 +186,51 @@ const createModuleLookupFixture = async () => {
   return root;
 };
 
+const expectErasedNativeDeclarationRuntime = async (
+  root: string,
+  emitted: string,
+): Promise<void> => {
+  // The ambient-module control has script context rather than augmentation context.
+  await execute(
+    process.execPath,
+    [
+      compiler,
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--moduleDetection",
+      "legacy",
+      "--target",
+      "ES2022",
+      "--skipLibCheck",
+      "--rootDir",
+      join(root, "cts"),
+      "--outDir",
+      emitted,
+      join(root, "cts/native-ambient.ts"),
+    ],
+    { cwd: root, timeout: 10_000 },
+  );
+  const emittedNames = await readdir(emitted);
+  for (const name of [
+    "native-declaration.cjs",
+    "native-declaration.mjs",
+    "native-declaration.js",
+    "native-declaration-values.mjs",
+  ])
+    expect(emittedNames).not.toContain(name);
+  expect(
+    await readFile(join(emitted, "native-ambient.js"), "utf8"),
+  ).not.toContain("native-mode/addon.node");
+  const ambientRuntime = await execute(
+    process.execPath,
+    ["-e", 'console.log(JSON.stringify(require("./native-ambient.js")))'],
+    { cwd: emitted, timeout: 10_000 },
+  );
+  expect(ambientRuntime.stdout.trim()).toBe("{}");
+};
+
 const expectCtsRuntime = async (root: string): Promise<void> => {
   const emitted = await createTestTempDirectory("rea-cts-module-output-");
   await writeFixtureFiles(emitted, {
@@ -215,6 +260,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/script.ts"),
       join(root, "cts/same.cts"),
       join(root, "cts/native.mts"),
+      join(root, "cts/native-template.mts"),
       join(root, "cts/native-default.cts"),
       join(root, "cts/native-default.mts"),
       join(root, "cts/native-default.ts"),
@@ -226,11 +272,16 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/native-commented-omission.cts"),
       join(root, "cts/native-nested.d.cts"),
       join(root, "cts/native-export-equals.cts"),
+      join(root, "cts/native-declaration.d.cts"),
+      join(root, "cts/native-declaration.d.mts"),
+      join(root, "cts/native-declaration.d.ts"),
+      join(root, "cts/native-declaration-values.d.mts"),
       join(root, "cts/native-export-type-equals.cts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
   );
+  await expectErasedNativeDeclarationRuntime(root, emitted);
   const mixedOutput = await readFile(join(emitted, "native-mixed.mjs"), "utf8");
   expect(mixedOutput).toContain("NativeMode as runtimeNative");
   expect(mixedOutput).toContain("NativeMode as runtimeNativeExport");
@@ -275,6 +326,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
   for (const [file, expected] of [
     ["inline.cjs", ["import", "require", "nested-import", "import"]],
     ["native.mjs", ["require", "import", "require", "import", "import"]],
+    ["native-template.mjs", ["require", "import", "require"]],
     ["native-default.cjs", "require"],
     ["native-default.mjs", "import"],
     ["native-default.js", "require"],
@@ -565,7 +617,15 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     ]);
     expectNodeRuntimeControls(esmControl.stdout, cjsControl.stdout);
 
-    const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
+    const { graph, summary } = await analyzeJavaScriptDirectory(
+      surface,
+      cli,
+      root,
+    );
+    expect(summary).toMatchObject({
+      native_addon_bindings: 5,
+      resolved_native_addon_bindings: 3,
+    });
     const expectations = [
       ["import", "./extensionless", null, "not-found"],
       ["import", "./directory", null, "not-found"],

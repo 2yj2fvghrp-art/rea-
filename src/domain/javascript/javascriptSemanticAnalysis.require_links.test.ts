@@ -95,6 +95,10 @@ describe("TypeScript type-only module links", () => {
     expect(ir.limitations).toContain(
       "Compiler options are unavailable; inline type-only imports or re-exports may preserve a module side-effect dependency.",
     );
+    for (const link of ir.moduleLinks.filter(
+      ({ specifier }) => specifier === null,
+    ))
+      expect(link).not.toHaveProperty("resolutionMode");
   });
 });
 
