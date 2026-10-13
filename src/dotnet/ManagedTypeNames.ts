@@ -80,7 +80,7 @@ export const typeNameLookup = (
     }
     const cursor = metadataRowCursor(bytes, layout, 1, row);
     cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
-    validateScopeChain(row);
+    readManagedValue(() => validateScopeChain(row), issues);
     const name = cursor.readIndex(layout.stringIndexSize);
     const namespace = cursor.readIndex(layout.stringIndexSize);
     return fullName(
