@@ -112,6 +112,8 @@ console.log(JSON.stringify({
   observedRejections,
   reasons: results.map((result) => result.ok ? null : result.error.reason ?? null),
   ok: results.map((result) => result.ok),
+  causeReasons: results.map((result) => result.ok ? null : result.error.cause?.reason ?? null),
+  cleanupResources: results.map((result) => result.ok ? null : result.error.cleanupResources ?? null),
   causes: results.map((result) => result.ok ? null : String(result.error.cause?.message).split("\\n")[0]),
 }));
 `;
@@ -124,6 +126,8 @@ type Outcome = {
   readonly causes: readonly (string | null)[];
   readonly observedRejections: number;
   readonly reasons: readonly (string | null)[];
+  readonly causeReasons: readonly (string | null)[];
+  readonly cleanupResources: readonly (readonly string[] | null)[];
 };
 
 const run = async (
@@ -281,10 +285,18 @@ processTest(
     expect(observed.causes[0]).toBe("electron.launch: alpha failed");
     expect(observed.reasons).toEqual([
       null,
-      "process_ownership_unavailable",
-      "process_ownership_unavailable",
-      "process_ownership_unavailable",
-      "process_ownership_unavailable",
+      "cleanup_failed",
+      "cleanup_failed",
+      "cleanup_failed",
+      "cleanup_failed",
+    ]);
+    expect(observed.causeReasons).toEqual([
+      null,
+      ...Array.from({ length: 4 }, () => "process_ownership_unavailable"),
+    ]);
+    expect(observed.cleanupResources).toEqual([
+      null,
+      ...Array.from({ length: 4 }, () => ["owned_process_group"]),
     ]);
   },
 );
