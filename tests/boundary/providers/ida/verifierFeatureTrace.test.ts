@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The verifier library is plain JavaScript without declarations.
-import { assertFeatureTrace } from "../../../../scripts/lib/ida-feature-trace.mjs";
+import {
+  assertFeatureTrace,
+  findMappedNonFunction,
+} from "../../../../scripts/lib/ida-feature-trace.mjs";
 
 const procedure = { address: "0x1000", name: "main" };
 
@@ -132,5 +135,79 @@ describe("the real IDA lane's feature trace assertions", () => {
         procedure,
       ),
     ).toThrow();
+  });
+});
+
+describe("the real IDA lane's mapped non-function probe", () => {
+  const inFunction = {
+    query_address: "0x1100",
+    found: true,
+    procedure: { address: "0x1000", name: "main" },
+  };
+  const data = {
+    query_address: "0x3000",
+    found: false,
+    procedure: null,
+    reason: "not_in_procedure",
+  };
+  const resolver =
+    (answers: Readonly<Record<string, unknown>>, asked: string[] = []) =>
+    async (address: string) => {
+      asked.push(address);
+      return answers[address];
+    };
+
+  it("skips a string inside a function chunk and uses the next one", async () => {
+    const asked: string[] = [];
+
+    await expect(
+      findMappedNonFunction(
+        [{ address: "0x1100" }, { address: "0x3000" }],
+        resolver({ "0x1100": inFunction, "0x3000": data }, asked),
+      ),
+    ).resolves.toBe("0x3000");
+    expect(asked, "strings are tried in order until one qualifies").toEqual([
+      "0x1100",
+      "0x3000",
+    ]);
+  });
+
+  it("stops at the first string that qualifies", async () => {
+    const asked: string[] = [];
+
+    await expect(
+      findMappedNonFunction(
+        [{ address: "0x3000" }, { address: "0x3100" }],
+        resolver({ "0x3000": data, "0x3100": data }, asked),
+      ),
+    ).resolves.toBe("0x3000");
+    expect(asked).toEqual(["0x3000"]);
+  });
+
+  it("reports no qualifying string when every string is inside a function", async () => {
+    await expect(
+      findMappedNonFunction(
+        [{ address: "0x1100" }, { address: "0x1200" }],
+        resolver({ "0x1100": inFunction, "0x1200": inFunction }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("reports no qualifying string when the target has no strings", async () => {
+    await expect(
+      findMappedNonFunction([], resolver({})),
+    ).resolves.toBeUndefined();
+  });
+
+  it("skips a string that resolves as unmapped, since it proves no mapped data", async () => {
+    await expect(
+      findMappedNonFunction(
+        [{ address: "0x4000" }, { address: "0x3000" }],
+        resolver({
+          "0x4000": { ...data, reason: "outside_segments" },
+          "0x3000": data,
+        }),
+      ),
+    ).resolves.toBe("0x3000");
   });
 });
