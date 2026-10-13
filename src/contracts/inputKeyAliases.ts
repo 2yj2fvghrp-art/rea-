@@ -41,7 +41,7 @@ export const canonicalInputKeys = (
  */
 export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
   schema: Schema,
-): z.ZodType<z.output<Schema>> => {
+): z.ZodType<z.output<Schema>, z.input<Schema>> => {
   const aliases = inputKeyAliasesFor(schema);
   if (Object.keys(aliases).length === 0) return schema;
   let shapes: z.ZodRawShape[] = [schema.shape];
