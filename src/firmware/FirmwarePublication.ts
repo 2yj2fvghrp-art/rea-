@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import type { z } from "zod";
@@ -16,18 +17,21 @@ type ExtractionGap = z.infer<typeof extractionGap>;
 /** Static, truthful continuations that use already configured capabilities. */
 const GAP_CONTINUATIONS: Record<ExtractionGap["kind"], string> = {
   "missing-extractor-dependency":
-    "REA installs nothing. Add the named dependency to your own environment and rerun extract_firmware on the same immutable input to re-evaluate the affected region; otherwise it stays unextracted.",
+    "REA installs nothing. Add the named dependency to your own environment and rerun extract_firmware on the same immutable input with a fresh output_directory to re-evaluate the affected region; otherwise it stays unextracted.",
   "unknown-chunk-handler":
-    "Run inspect_firmware_regions on the same input for signature hypotheses, or select a narrower range with extract_firmware; the region is not decoded content.",
+    "Run inspect_firmware_regions on the same input for signature hypotheses, or select a materially narrower range with extract_firmware and a fresh output_directory; the region is not decoded content.",
   "encrypted-chunk":
     "No static extraction continues past encryption; treat the region as unexamined rather than empty or corrupt.",
   "extractor-failure":
-    "The producer retained this chunk's extraction problem in diagnostics. Review the reported failure, then rerun extract_firmware on the same immutable input; the region is not decoded content.",
+    "The producer retained this chunk's extraction problem in diagnostics. Review the reported failure, then rerun extract_firmware on the same immutable input with a fresh output_directory; the region is not decoded content.",
   "depth-limited":
-    "Rerun extract_firmware with a higher max_depth (up to 10) to descend into this path.",
+    "Rerun extract_firmware with a higher max_depth (up to 10) and a fresh output_directory to descend into this path.",
   "unpublished-entry":
     "The entry is retained as metadata; only regular files are published, without executable permission bits.",
 };
+
+const UNNAMED_DEPENDENCY_CONTINUATION =
+  "REA installs nothing. Review the retained dependency diagnostic to identify the unnamed missing executable. After configuring it in your own environment, rerun extract_firmware on the same immutable input with a fresh output_directory; the affected task remains unextracted.";
 
 import { FIRMWARE_LIMITS } from "./FirmwareRelease.js";
 
@@ -44,8 +48,8 @@ const depthContinuation = (
       ? `This extraction already ran at the lane's maximum depth. To continue, rerun extract_firmware with path set to the published child ${JSON.stringify(publishedChildPath)} and a fresh output directory; a fresh run on that child restarts the depth budget.`
       : `This extraction already ran at the lane's maximum depth, and no published child under this path is both nonempty and within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
 
-// A nested unknown chunk reruns only through its published child, and a
-// fresh firmware input must actually accept that child.
+// Use a different analyzer on the actual published child; repeating the same
+// whole-child extraction with unchanged handlers would reproduce this gap.
 const nestedUnknownContinuation = (
   inputPath: string,
   publishedFile: { readonly path: string; readonly size: number } | undefined,
@@ -54,8 +58,8 @@ const nestedUnknownContinuation = (
   return publishedFile !== undefined &&
     publishedFile.size > 0 &&
     publishedFile.size <= FIRMWARE_LIMITS.inputBytes
-    ? `${base} Rerun extract_firmware with path ${JSON.stringify(publishedFile.path)} and a fresh output directory to evaluate the child-local region.`
-    : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so extract_firmware cannot accept it as a fresh input; treat the region as unexamined.`;
+    ? `${base} Run inspect_firmware_regions with path ${JSON.stringify(publishedFile.path)} for signature hypotheses on that child; repeating the same whole-child extraction with unchanged handlers would not advance analysis.`
+    : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so inspect_firmware_regions cannot accept it as a fresh input; treat the region as unexamined.`;
 };
 
 const emptyGap = {
@@ -160,7 +164,7 @@ export const publishFirmwareExtraction = async (context: {
       derivations: context.normalized.derivations,
       depth_limited_paths: context.normalized.depth_limited_paths,
       diagnostics: context.normalized.diagnostics,
-      extraction_gaps: extractionGaps(
+      ...extractionGaps(
         unpublished,
         files,
         context.normalized,
@@ -213,6 +217,7 @@ export const publishFirmwareExtraction = async (context: {
 /** Gap rows for missing-dependency reports: chunk-nested rows keep their owning chunk. */
 const dependencyExtractionGaps = (
   normalized: ReturnType<typeof normalizeUnblobReport>,
+  continuation: (instruction: string) => string,
 ): ExtractionGap[] => {
   // Chunk-nested dependency reports name the chunk that could not extract;
   // task-wide reports (standalone or multi-file) attach to the task.
@@ -243,7 +248,11 @@ const dependencyExtractionGaps = (
                   root_file_range: affected.root_file_range,
                 }),
             dependencies,
-            continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
+            continuation_id: continuation(
+              dependencies.length > 0
+                ? GAP_CONTINUATIONS["missing-extractor-dependency"]
+                : UNNAMED_DEPENDENCY_CONTINUATION,
+            ),
           },
         ];
       },
@@ -263,7 +272,9 @@ const dependencyExtractionGaps = (
           handler,
           provider_id,
           dependencies: [...dependencies],
-          continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
+          continuation_id: continuation(
+            GAP_CONTINUATIONS["missing-extractor-dependency"],
+          ),
         }),
       ),
     // Standalone reports name only the task; do not borrow another stage's id.
@@ -273,7 +284,11 @@ const dependencyExtractionGaps = (
         input_path,
         ...emptyGap,
         dependencies,
-        continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
+        continuation_id: continuation(
+          dependencies.length > 0
+            ? GAP_CONTINUATIONS["missing-extractor-dependency"]
+            : UNNAMED_DEPENDENCY_CONTINUATION,
+        ),
       }),
     ),
   ];
@@ -288,11 +303,31 @@ const extractionGaps = (
   >["files"][number][],
   normalized: ReturnType<typeof normalizeUnblobReport>,
   maxDepth: number,
-): ExtractionGap[] => {
-  const dependencyGaps: ExtractionGap[] = dependencyExtractionGaps(normalized);
+) => {
+  // Intern before row construction: N gaps retain N identities, while K unique
+  // recovery instructions consume prose only K times in the public result.
+  const instructions = new Map<string, string>();
+  const continuation = (instruction: string): string => {
+    const known = instructions.get(instruction);
+    if (known !== undefined) return known;
+    const id = createHash("sha256").update(instruction).digest("hex");
+    instructions.set(instruction, id);
+    return id;
+  };
+  const dependencyGaps = dependencyExtractionGaps(normalized, continuation);
   const publishedFiles = new Map(
     files.map((file) => [`$output/${file.relative_path}`, file]),
   );
+  const nestedContinuations = new Map<string, string>();
+  const nestedContinuationId = (inputPath: string): string => {
+    const existing = nestedContinuations.get(inputPath);
+    if (existing !== undefined) return existing;
+    const id = continuation(
+      nestedUnknownContinuation(inputPath, publishedFiles.get(inputPath)),
+    );
+    nestedContinuations.set(inputPath, id);
+    return id;
+  };
   const chunkGaps = (
     kind: ExtractionGap["kind"],
     matches: (chunk: (typeof normalized.chunks)[number]) => boolean,
@@ -306,14 +341,11 @@ const extractionGaps = (
       range: chunk.range,
       root_file_range: chunk.root_file_range,
       dependencies: [],
-      continuation:
+      continuation_id:
         kind === "unknown-chunk-handler" &&
         chunk.input_path.startsWith("$output/")
-          ? nestedUnknownContinuation(
-              chunk.input_path,
-              publishedFiles.get(chunk.input_path),
-            )
-          : GAP_CONTINUATIONS[kind],
+          ? nestedContinuationId(chunk.input_path)
+          : continuation(GAP_CONTINUATIONS[kind]),
     }));
   // Chunks whose failure a dependency row already covers stay out of the
   // generic extractor-failure emission.
@@ -354,8 +386,9 @@ const extractionGaps = (
         handler,
         provider_id,
         dependencies: [],
-        continuation:
-          "The producer retained this extraction stage's failure in diagnostics. Review the stage report and rerun extract_firmware on the same immutable input with a fresh output directory; this report establishes no byte-region ownership.",
+        continuation_id: continuation(
+          "The producer retained this extraction stage's failure in diagnostics. Review the stage report and correct the reported cause before rerunning extract_firmware on the same immutable input with a fresh output_directory; this report establishes no byte-region ownership.",
+        ),
       })),
     ...chunkGaps("unknown-chunk-handler", (chunk) => chunk.handler === null),
     ...chunkGaps("encrypted-chunk", (chunk) => chunk.encrypted === true),
@@ -376,9 +409,8 @@ const extractionGaps = (
       input_path,
       ...emptyGap,
       dependencies: [],
-      continuation: depthContinuation(
-        maxDepth,
-        reRootablePaths.get(input_path),
+      continuation_id: continuation(
+        depthContinuation(maxDepth, reRootablePaths.get(input_path)),
       ),
     })),
     ...unpublished.map((entry): ExtractionGap => ({
@@ -387,14 +419,21 @@ const extractionGaps = (
       ...emptyGap,
       relative_path: entry.relative_path,
       dependencies: [],
-      continuation: GAP_CONTINUATIONS["unpublished-entry"],
+      continuation_id: continuation(GAP_CONTINUATIONS["unpublished-entry"]),
     })),
   ];
-  return gaps.sort((left, right) =>
+  gaps.sort((left, right) =>
     gapSortKey(left) < gapSortKey(right)
       ? -1
       : gapSortKey(left) > gapSortKey(right)
         ? 1
         : 0,
   );
+  return {
+    extraction_gaps: gaps,
+    extraction_continuations: [...instructions].map(([instruction, id]) => ({
+      id,
+      instruction,
+    })),
+  };
 };

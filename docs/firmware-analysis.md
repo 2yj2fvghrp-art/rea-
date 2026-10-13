@@ -108,8 +108,14 @@ build's source revision, so that field remains unknown.
   byte range, plus its original-file range when it belongs to the selected input.
   A multi-file stage retains its reported ID and handler with unknown byte ranges;
   a standalone task failure keeps unavailable stage identity null. Rows retain exact dependency names from
-  the producer's missing-dependency reports, and a supported continuation that
-  uses already configured capabilities where one exists. A listed gap does not
+  the producer's missing-dependency reports; an accepted report with no names
+  remains a failure with unknown dependencies. Each row's `continuation_id`
+  references one instruction in `extraction_continuations`, so many regions
+  share recovery prose without losing any region identity. Instructions use
+  already configured capabilities where one exists. Every extraction rerun
+  requires a fresh absent `output_directory`, preserving the prior evidence.
+  Nested unknown chunks use `inspect_firmware_regions` on the actual published
+  child rather than repeating the same extraction with unchanged handlers. A listed gap does not
   mean the target is corrupt or that a retained region is empty; REA installs
   nothing.
 - The destination must be absent, absolute, with an existing parent. Publication
@@ -179,7 +185,8 @@ content parity and unchanged source bytes. No binary fixture is committed.
 The optional missing-extractor lane asserts dependency names and the owning
 handler in `extraction_gaps`. Those assertions must be run against the pinned
 Unblob release to establish real-provider coverage; synthetic producer fixtures
-alone do not verify Unblob's report nesting or stage identities.
+alone do not verify Unblob's report nesting or stage identities. The gap ownership
+claims remain unverified against real Unblob until that lane runs.
 
 Additional lanes are explicit, so the base lane stays small:
 

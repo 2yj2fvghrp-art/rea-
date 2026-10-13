@@ -117,7 +117,8 @@ export const extractionGap = z.strictObject({
   root_file_range: range.nullable(),
   /** Extractor executables named by the producer; empty when it named none. */
   dependencies: z.array(z.string()),
-  continuation: z.string(),
+  /** Lookup key in the result's extraction_continuations table. */
+  continuation_id: z.string(),
 });
 
 /** Completed firmware result retained when private-runtime cleanup cannot be confirmed. */
@@ -184,6 +185,10 @@ export const firmwareResultSchemas = {
     depth_limited_paths: z.array(z.string()),
     diagnostics: z.array(jsonValueSchema),
     extraction_gaps: z.array(extractionGap),
+    /** Each distinct recovery instruction is serialized once, shared by gap ID. */
+    extraction_continuations: z.array(
+      z.strictObject({ id: z.string(), instruction: z.string() }),
+    ),
     published_bytes: bytes,
   }),
 } as const;

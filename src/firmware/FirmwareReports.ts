@@ -255,7 +255,13 @@ export const normalizeUnblobReport = (
     reports: readonly unknown[],
   ): void => {
     const names = dependencyNames(reports);
-    if (names.length === 0) return;
+    // An accepted dependency report is a definite failure even when the
+    // producer did not name an executable. Keep that task fact with [] names.
+    if (
+      names.length === 0 &&
+      !reports.some((item) => missingDependency.safeParse(item).success)
+    )
+      return;
     const known = missingDependencies.get(path) ?? new Set<string>();
     for (const name of names) known.add(name);
     missingDependencies.set(path, known);

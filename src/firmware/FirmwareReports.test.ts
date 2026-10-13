@@ -250,27 +250,32 @@ describe("firmware producer chunk failures", () => {
     });
     expect(normalized.coverage).toBe("partial");
   });
-  it("keeps dependency reports without dependency names out of the derivation", () => {
-    const record = root();
-    const normalized = normalizeUnblobReport(
-      [
-        {
-          ...record,
-          reports: [
-            ...record.reports,
-            {
-              __typename__: "ExtractorDependencyNotFoundReport",
-              severity: "ERROR",
-              dependencies: [],
-            },
-          ],
-        },
-      ],
-      context,
-    );
-    expect(normalized.missing_dependencies).toEqual([]);
-    expect(normalized.diagnostics).toHaveLength(1);
-  });
+  it.each([{ dependencies: [] }, { dependencies: ["", ""] }])(
+    "retains unnamed dependency failures ($dependencies)",
+    ({ dependencies }) => {
+      const record = root();
+      const normalized = normalizeUnblobReport(
+        [
+          {
+            ...record,
+            reports: [
+              ...record.reports,
+              {
+                __typename__: "ExtractorDependencyNotFoundReport",
+                severity: "ERROR",
+                dependencies,
+              },
+            ],
+          },
+        ],
+        context,
+      );
+      expect(normalized.missing_dependencies).toEqual([
+        { input_path: "$input", dependencies: [] },
+      ]);
+      expect(normalized.diagnostics).toHaveLength(1);
+    },
+  );
   it("preserves unfamiliar report types as explicit diagnostics", () => {
     const record = root();
     const normalized = normalizeUnblobReport(

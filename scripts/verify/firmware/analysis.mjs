@@ -262,7 +262,12 @@ async function stageMcp(cli) {
       (gap) =>
         gap.kind === "depth-limited" &&
         gap.dependencies.length === 0 &&
-        gap.continuation.includes("max_depth"),
+        depthParsed.extraction_continuations.some(
+          ({ id, instruction }) =>
+            id === gap.continuation_id &&
+            instruction.includes("max_depth") &&
+            instruction.includes("fresh output_directory"),
+        ),
     ),
     "Depth-limited paths must carry the explicit depth continuation",
   );

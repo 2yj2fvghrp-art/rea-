@@ -342,6 +342,28 @@ if (args.includes("--version")) {
         subtasks: [childTask],
       },
     ];
+    if (mode === "many-unknown") {
+      records[1].reports = [
+        ...records[1].reports,
+        ...Array.from({ length: 1000 }, (_, index) => ({
+          __typename__: "UnknownChunkReport",
+          id: `unknown-${index}`,
+          start_offset: 0,
+          end_offset: 1,
+          size: 1,
+        })),
+      ];
+    }
+    if (mode === "unnamed-dependency") {
+      records[1].reports = [
+        ...records[1].reports,
+        {
+          __typename__: "ExtractorDependencyNotFoundReport",
+          severity: "ERROR",
+          dependencies: [],
+        },
+      ];
+    }
     if (
       mode !== "depth-reentry" &&
       mode !== "depth-orphan" &&
