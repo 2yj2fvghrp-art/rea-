@@ -70,7 +70,9 @@ describe("production MCP doctor", () => {
     },
     30_000,
   );
+});
 
+describe("production MCP doctor diagnostics", () => {
   it("rejects a schema-invalid probe while retaining the discovered inventory", async () => {
     const root = await createTestTempDirectory("rea-mcp-doctor-reply-");
     const snapshotPath = join(root, "reply.json");
