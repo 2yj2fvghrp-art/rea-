@@ -11,7 +11,7 @@ if ([Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalPath("\\server\share\sample.exe
 }
 
 $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-$startInfo.FileName = Join-Path $PSHOME "powershell.exe"
+$startInfo.FileName = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 $startInfo.Arguments = '-NoLogo -NoProfile -Command "[Console]::WriteLine(''stdout-marker''); [Console]::Error.WriteLine(''stderr-marker''); exit 7"'
 $runner = New-Object Rea.WindowsGui.ReaGuiProcessRunner($startInfo)
 $runner.Start()
