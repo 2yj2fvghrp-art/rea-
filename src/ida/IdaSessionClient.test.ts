@@ -965,6 +965,80 @@ describe("headless IDA cleanup diagnostics", () => {
     expect(result).toMatchObject(reportsSessions());
   });
 
+  it("retains peers and confirmed ownership from successful startup when close fails", async () => {
+    const { producer, client } = await fixture("headless");
+    producer.overrideCall = (name) => {
+      if (name === "idb_list")
+        return {
+          sessions: [
+            {
+              session_id: producer.database,
+              input_path: producer.inputPath,
+              owned: true,
+              backend: "worker",
+              is_active: true,
+            },
+            {
+              session_id: "startup-peer",
+              input_path: producer.inputPath,
+              owned: false,
+              backend: "worker",
+              is_active: false,
+            },
+          ],
+        };
+      if (name === "idb_close") return { error: "close rejected" };
+      return undefined;
+    };
+    expect((await client.execute("health", {})).ok).toBe(true);
+    const result = await client.close();
+    expect(result).toMatchObject(
+      reportsSessions(
+        {
+          session_id: producer.database,
+          backend: "worker",
+          owned: true,
+          input_path: producer.inputPath,
+        },
+        {
+          session_id: "startup-peer",
+          backend: "worker",
+          owned: false,
+          input_path: producer.inputPath,
+        },
+      ),
+    );
+  });
+
+  it("preserves an observed conflicting input binding after close", async () => {
+    const { producer, client } = await fixture("headless");
+    expect((await client.execute("health", {})).ok).toBe(true);
+    const requested = producer.database;
+    producer.overrideCall = (name) =>
+      name === "idb_list"
+        ? {
+            sessions: [
+              {
+                session_id: requested,
+                input_path: "/different/input",
+                owned: false,
+                backend: "worker",
+                is_active: true,
+              },
+            ],
+          }
+        : undefined;
+    const result = await client.close();
+    expect(result).toMatchObject(
+      reportsSessions({
+        session_id: requested,
+        backend: "worker",
+        owned: false,
+        input_path: "/different/input",
+      }),
+    );
+  });
+
   it("keeps peers seen beside the requested worker when its close fails", async () => {
     const { producer, client, requested, entry } = await failedOpenFixture();
     producer.overrideCall = (name) => {

@@ -97,6 +97,8 @@ interface UpstreamSession {
   readonly backend: "worker" | "gui";
   /** Upstream ownership; null when no inventory has reported it. */
   readonly owned: boolean | null;
+  /** Last inventoried input binding; null until upstream reports it. */
+  readonly input_path: string | null;
 }
 
 /** A failed cleanup retains its private workspace and reports the remaining resource. */
@@ -120,13 +122,16 @@ class IdaCleanupError extends ProviderAdapterError {
           : {
               upstream_sessions: {
                 state: "unverified",
-                sessions: sessions.map(({ session_id, backend, owned }) => ({
-                  session_id,
-                  backend,
-                  owned,
-                })),
+                sessions: sessions.map(
+                  ({ session_id, backend, owned, input_path }) => ({
+                    session_id,
+                    backend,
+                    owned,
+                    input_path,
+                  }),
+                ),
                 reason:
-                  "Release of the upstream sessions using the private input was not confirmed. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; owned is null when no inventory has reported ownership; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
+                  "Release of upstream sessions matching the requested session ID or private input was not confirmed; input_path preserves the last observed binding and is null when no inventory has reported it. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; owned is null when no inventory has reported ownership; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
               },
             }),
       },
@@ -493,6 +498,14 @@ export class IdaSessionClient implements AnalysisClient {
         await this.connection.call("idb_list", {}),
       );
       this.#lifecycle.push(jsonValueSchema.parse(inventory));
+      const workspace = this.#workspace;
+      this.#recordBlockingSessions(
+        inventory.sessions.filter(
+          (entry) =>
+            entry.session_id === workspace.sessionId ||
+            sameIdaHostPath(entry.input_path, workspace.inputPath),
+        ),
+      );
       const entry = inventory.sessions.find(
         ({ session_id }) => session_id === opened.session.session_id,
       );
@@ -608,6 +621,7 @@ export class IdaSessionClient implements AnalysisClient {
             session_id: this.#workspace.sessionId,
             backend: "worker",
             owned: null,
+            input_path: null,
           },
         ];
   }
@@ -627,10 +641,11 @@ export class IdaSessionClient implements AnalysisClient {
   ): boolean {
     this.#blockingSessions =
       entries.length > 0
-        ? entries.map(({ session_id, backend, owned }) => ({
+        ? entries.map(({ session_id, backend, owned, input_path }) => ({
             session_id,
             backend,
             owned,
+            input_path,
           }))
         : undefined;
     return entries.length > 0;
