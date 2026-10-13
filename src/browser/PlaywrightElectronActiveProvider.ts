@@ -381,23 +381,47 @@ const safeElectronEnvironment = (
   ]);
 
 const PLAYWRIGHT_INTERNAL_FRAME = /playwright-core[\\/]lib[\\/]/;
+const absorbedRejections = new WeakSet<object>();
 
-/** Playwright rejects launch promises nobody awaits; absorb only those while it launches. */
+/** Playwright leaves rejected launch promises unhandled; absorb only those that repeat this launch's failure. */
 const containLaunchRejections = async <T>(
   launch: () => Promise<T>,
 ): Promise<T> => {
-  const absorb = (reason: unknown): void => {
+  const held: { readonly reason: Error; readonly promise: Promise<unknown> }[] =
+    [];
+  const hold = (reason: unknown, promise: Promise<unknown>): void => {
     if (
       !(reason instanceof Error) ||
       !PLAYWRIGHT_INTERNAL_FRAME.test(reason.stack ?? "")
     )
       throw reason;
+    held.push({ reason, promise });
   };
-  process.on("unhandledRejection", absorb);
+  let failure: unknown;
+  process.on("unhandledRejection", hold);
   try {
     return await launch();
+  } catch (cause: unknown) {
+    failure = cause;
+    throw cause;
   } finally {
-    process.off("unhandledRejection", absorb);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    process.off("unhandledRejection", hold);
+    for (const { reason, promise } of held) {
+      if (
+        failure instanceof Error &&
+        reason.message !== "" &&
+        failure.message.includes(reason.message)
+      )
+        absorbedRejections.add(reason);
+      else if (
+        !absorbedRejections.has(reason) &&
+        !process.emit("unhandledRejection", reason, promise)
+      )
+        process.nextTick(() => {
+          throw reason;
+        });
+    }
   }
 };
 
