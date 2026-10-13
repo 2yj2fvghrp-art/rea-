@@ -346,9 +346,9 @@ const checkSymlinks = (
       // The inventory root is implicit rather than an entry with path ".".
       (resolved !== "." &&
         lookupPath.resolve(resolved) === undefined &&
-        // Recorded exclusions explain omitted targets without re-reading
-        // their contents or reinterpreting the source ignore patterns.
-        excludedPaths.resolveAncestor(resolved) === undefined)
+        // Exclusions do not preserve whether the omitted entry was a
+        // directory, so only an exact excluded target can be established.
+        excludedPaths.resolve(resolved) === undefined)
     )
       context.addIssue({
         code: "custom",
