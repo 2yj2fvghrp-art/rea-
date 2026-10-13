@@ -210,3 +210,19 @@ it("keeps version diagnostics in the phase report instead of inline Evidence", a
     "# jsbeautify --version\nloaded 3 plugins from ~/.jsbeautify",
   );
 });
+
+it.skipIf(process.platform === "win32")(
+  "encodes module names in phase report headings",
+  async () => {
+    const evidence = await recover(["foo\n# other.js"]);
+    if (!evidence.ok) throw evidence.error;
+    const result = javascriptRecoveryResultSchema.parse(
+      evidence.value.normalized_result,
+    );
+    const name = result.modules[0]?.reported_filename;
+    expect(name).toBe("foo\n# other.js");
+    const lines = (await readFile(result.report.path, "utf8")).split("\n");
+    expect(lines[0]).toBe(`# ${JSON.stringify(name)}`);
+    expect(lines).not.toContain("# other.js");
+  },
+);

@@ -321,7 +321,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
-    phases.retain(`# ${name}\n`, run.stderr, !verdict.passed);
+    phases.retain(`# ${JSON.stringify(name)}\n`, run.stderr, !verdict.passed);
     runs.push({
       module: name,
       input: source.snapshot_path,
