@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
 import { createDirectAnalysis } from "../../../../src/composition/directAnalysis.js";
 import { artifactInspectionResultSchema } from "../../../../src/domain/artifactInspection.js";
+import { nativeAotPeFixture } from "../../../fixtures/nativeaotPe.js";
 import { parseEvidence } from "../../../../src/domain/evidence.js";
 
 const { runProviderAnalysis } = createDirectAnalysis({});
@@ -80,6 +81,37 @@ describe("directory inspection probes", () => {
       "inspect_plist",
     ]);
   });
+
+  it.each([false, true])(
+    "keeps packed PE members out of direct probes while preserving a physical duplicate: %s",
+    async (physicalCopy) => {
+      const root = await createTestTempDirectory("rea-artifact-packed-pe-");
+      const source = join(root, "source");
+      const bundle = join(root, "Fixture.app");
+      const pe = nativeAotPeFixture();
+      await writeTree(source, {
+        "main.js": "export const value = 1;",
+        "vendor/helper.exe": pe,
+      });
+      await mkdir(join(bundle, "Contents/Resources"), { recursive: true });
+      await createPackageWithOptions(
+        source,
+        join(bundle, "Contents/Resources/app.asar"),
+        {},
+      );
+      if (physicalCopy)
+        await writeTree(bundle, { "Contents/Helpers/helper.exe": pe });
+      expect(await probeOperations(bundle)).toEqual(
+        physicalCopy
+          ? [
+              "analyze_javascript_application",
+              "inspect_managed_artifact",
+              "open_binary",
+            ]
+          : ["analyze_javascript_application"],
+      );
+    },
+  );
 
   it.each(["cjs", "cts", "mjs", "mts", "js", "jsx", "ts", "tsx"])(
     "proposes JavaScript analysis for .%s sources the analyzer reads",
