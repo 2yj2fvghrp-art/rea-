@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   format-once:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'rel/first-lab-foundations' && github.event.pull_request.head.sha == 'bafb9b797c0a0b2f5c5eeea0774bf5bdeaaa3985'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'rel/first-lab-foundations' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
