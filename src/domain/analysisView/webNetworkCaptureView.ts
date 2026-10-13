@@ -73,9 +73,9 @@ const HEADLINE_FIELDS = [
 ];
 // Native mitmproxy flows report the request target in parts and the status
 // as status_code. They are previewed only for mitmproxy records, only as
-// scalars, and the path only in origin form: an absolute or authority-bearing
-// spelling may carry userinfo the native redaction does not recognise, so it
-// stays in complete record pages.
+// scalars, and the path only in origin or asterisk form: an absolute or
+// authority-bearing spelling may carry userinfo the native redaction does not
+// recognise, so it stays in complete record pages.
 const MITMPROXY_HEADLINE_FIELDS = [
   "scheme",
   "host",
@@ -89,8 +89,7 @@ const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
   if (field === "path")
     return (
       typeof value === "string" &&
-      value.startsWith("/") &&
-      !value.startsWith("//")
+      (value === "*" || (value.startsWith("/") && !value.startsWith("//")))
     );
   return field !== "authority" || !String(value).includes("@");
 };

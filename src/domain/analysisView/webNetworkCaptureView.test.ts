@@ -291,6 +291,13 @@ it("previews the mitmproxy request target and status code as headline fields", (
   expect(JSON.stringify(preview)).not.toContain("omitted body");
 });
 
+it("previews the asterisk-form OPTIONS target", () => {
+  expect(
+    nativePreview("mitmproxy", { method: "OPTIONS", path: "*" }).items[0]
+      ?.reported,
+  ).toMatchObject({ request: { method: "OPTIONS", path: "*" } });
+});
+
 it.each([
   [
     "an ambiguous absolute path",
