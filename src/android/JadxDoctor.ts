@@ -7,9 +7,11 @@ import type { JsonValue } from "../domain/jsonValue.js";
 import { inspectJadxAvailability } from "./JadxConfiguration.js";
 import {
   JADX_JAR_CONFIGURATION_REMEDIATION,
+  JADX_JAVA_PROBE_REMEDIATION,
   JADX_JAVA_RUNTIME_REMEDIATION,
   JADX_JVM_OPTIONS_REMEDIATION,
   JADX_UNSUPPORTED_HOST_REMEDIATION,
+  JADX_WINDOWS_NATIVE_REMEDIATION,
 } from "./JadxRelease.js";
 
 /** Project the validated JADX configuration into the doctor contract. */
@@ -110,15 +112,20 @@ const configurationCheck = (
 /**
  * Select remediation from the failing phase, not just the failure code:
  * `open_options_invalid` covers both malformed JVM resource overrides and a
- * non-absolute JAVA_HOME, and `unsupported_version` covers both a stale JDK
- * and a JAR missing bridge classes.
+ * non-absolute JAVA_HOME; `unsupported_version` covers both a stale JDK and a
+ * JAR missing bridge classes; `runtime_missing` covers both Java selection
+ * and Windows process ownership; `version_unresolved` covers both unreadable
+ * JAR archives and failed Java probes.
  */
 const selectRemediation = (
   code: string | null,
   diagnostics: Readonly<Record<string, JsonValue>>,
 ): string | null => {
   if (code === "unsupported_host") return JADX_UNSUPPORTED_HOST_REMEDIATION;
-  if (code === "runtime_missing") return JADX_JAVA_RUNTIME_REMEDIATION;
+  if (code === "runtime_missing")
+    return diagnostics["phase"] === "process-ownership"
+      ? JADX_WINDOWS_NATIVE_REMEDIATION
+      : JADX_JAVA_RUNTIME_REMEDIATION;
   if (code === "open_options_invalid")
     return typeof diagnostics["setting"] === "string"
       ? JADX_JVM_OPTIONS_REMEDIATION
@@ -127,5 +134,9 @@ const selectRemediation = (
     return diagnostics["phase"] === "jar-inspection"
       ? JADX_JAR_CONFIGURATION_REMEDIATION
       : JADX_JAVA_RUNTIME_REMEDIATION;
+  if (code === "version_unresolved")
+    return diagnostics["phase"] === "module-inspection"
+      ? JADX_JAVA_PROBE_REMEDIATION
+      : JADX_JAR_CONFIGURATION_REMEDIATION;
   return JADX_JAR_CONFIGURATION_REMEDIATION;
 };

@@ -266,6 +266,58 @@ it("remediates an unsupported host with platform guidance", async () => {
   }
 });
 
+it("guides Windows native package correction when process ownership is unavailable", async () => {
+  const originalPlatform = process.platform;
+  const originalArch = process.arch;
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  });
+  Object.defineProperty(process, "arch", { value: "x64", configurable: true });
+  try {
+    const inspection = await inspectJadxProvider({
+      REA_JADX_MCP_JAR: "/opt/jadx-headless-mcp.jar",
+    });
+
+    expect(inspection.checks[0]?.code).toBe("runtime_missing");
+    expect(inspection.checks[0]?.remediation).toContain(
+      "Windows x64 REA package",
+    );
+    expect(inspection.checks[0]?.remediation).not.toContain("JAVA_HOME");
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: originalArch,
+      configurable: true,
+    });
+  }
+});
+
+it("guides Java probe correction when the module listing is unparseable", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-unparseable-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  await writeJadxJarInventory(jar);
+  // Fake JDK whose module listing lacks a parseable java.base version.
+  const javaHome = join(root, "fake-jdk");
+  const bin = join(javaHome, "bin");
+  const java = join(bin, "java");
+  await mkdir(bin, { recursive: true });
+  await writeFile(java, "#!/bin/sh\nprintf 'jdk.compiler@21\\n'\n");
+  await chmod(java, 0o700);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.checks[0]?.code).toBe("version_unresolved");
+  expect(inspection.checks[0]?.remediation).toContain("java --list-modules");
+  expect(inspection.checks[0]?.remediation).not.toContain("REA_JADX_MCP_JAR");
+});
+
 const createFakeJdk = async (root: string, major = "21"): Promise<string> => {
   const javaHome = join(root, "fake-jdk");
   const bin = join(javaHome, "bin");

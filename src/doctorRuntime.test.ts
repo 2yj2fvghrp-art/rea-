@@ -4,11 +4,16 @@ import { join } from "node:path";
 import { expect, it as test } from "vitest";
 
 import { createSystemDoctorHost } from "./doctorRuntime.js";
+import { DOCTOR_PROVIDER_IDS } from "./application/DoctorProviderIds.js";
 import { providerRegistrationEnvironment } from "./application/SetupRegistrationEnvironment.js";
 import { createTestTempDirectory } from "../tests/fixtures/temporaryDirectory.js";
 import { writeJadxJarInventory } from "../tests/fixtures/android/jadxJar.js";
 
 const it = test.skipIf(process.platform === "win32");
+
+it("exposes jadx through the doctor provider selector", () => {
+  expect(DOCTOR_PROVIDER_IDS).toContain("jadx");
+});
 
 it("carries a validated REA_JADX_MCP_JAR into the provider registration environment", async () => {
   const root = await createTestTempDirectory("rea-jadx-registration-");
