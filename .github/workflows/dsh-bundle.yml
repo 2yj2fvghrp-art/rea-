@@ -31,6 +31,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
+      - name: Install bundle contract dependencies
+        working-directory: integrations/deepseek-harness
+        run: npm install --ignore-scripts --no-audit --no-fund
       - run: node --test integrations/deepseek-harness/tests/*.test.mjs
       - run: node integrations/deepseek-harness/scripts/verify-package.mjs
       - name: Verify Git-root plugin tree (no prepare scripts)
@@ -130,8 +133,10 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           elif [ "$count" = 1 ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
-            complete="$(jq --arg name "dsh-rea-bundle-${version}.tgz" '.[0] | (.draft == false) and any(.assets[]; .name == $name) and any(.assets[]; .name == "SHA256SUMS")' "$RUNNER_TEMP/dsh-release.json")"
-            echo "exists=${complete}" >> "$GITHUB_OUTPUT"
+            # Always rebuild the candidate before accepting an existing
+            # release. The publication step compares both remote asset bytes
+            # against the candidate before it can skip or edit the release.
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           else
             echo 'Ambiguous release identity; publication refused' >&2
             exit 1

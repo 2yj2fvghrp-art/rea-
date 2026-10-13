@@ -95,6 +95,22 @@ test("does not pass ambient credentials into the generated MCP env", () =>
     assert.deepEqual(Object.keys(result.env), ["REA_MCP_INPUT_SCHEMA_PROFILE"]);
   }));
 
+test("forwards the caller's supported Ghidra heap controls", () =>
+  withFixture((launcher) => {
+    const result = resolveReaLauncher({
+      env: {
+        REA_DSH_ENTRYPOINT: launcher,
+        GHIDRA_HEADLESS_MAXMEM: "4G",
+        GHIDRA_MAXMEM: "2G",
+      },
+    });
+    assert.deepEqual(result.env, {
+      GHIDRA_HEADLESS_MAXMEM: "4G",
+      GHIDRA_MAXMEM: "2G",
+      REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
+    });
+  }));
+
 test("the Cordis adapter provides its owned service", () =>
   withFixture((launcher) => {
     const previous = process.env.REA_DSH_ENTRYPOINT;
