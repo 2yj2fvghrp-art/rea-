@@ -353,3 +353,11 @@ it("keeps existing network endpoint recognition unchanged", () => {
     },
   ]);
 });
+
+it("reads route properties with expression-free template literals in static analysis", () => {
+  expect(endpoints("const routes = [{ path: `score-board` }];")).toContain({
+    kind: "route",
+    value: "score-board",
+    mechanism: "property:path",
+  });
+});
