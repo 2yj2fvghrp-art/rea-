@@ -339,7 +339,11 @@ const unresolvedSignatureAmbiguities = <Item extends Declared>(
 ): Ambiguous<Item>[] => {
   const key = (member: Keyed<Item>): string =>
     competitionIdentityKey(member, member.rawSignatureKey) ?? "";
-  const contested = ownerlessContested([left, right], (member) => key(member));
+  // ownerlessContested scopes the key by name itself, so pass the raw key.
+  const contested = ownerlessContested(
+    [left, right],
+    (member) => member.rawSignatureKey,
+  );
   const leftGroups = groupBy(left, key);
   const rightGroups = groupBy(right, key);
   const groups: Ambiguous<Item>[] = [];
