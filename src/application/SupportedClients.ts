@@ -26,6 +26,8 @@ export interface SetupClient {
   };
   /** Unresolved path evidence only; consumers must not perform I/O on it. */
   readonly configPathError?: string;
+  /** Same-scope fallback ZCode stops loading after its first native server. */
+  readonly zcodeFallbackPath?: string;
   readonly markerPath?: string;
   readonly format?:
     | "json"
@@ -38,6 +40,7 @@ export interface SetupClient {
     | "omp"
     | "pi"
     | "hermes"
+    | "zcode"
     | "dsh"
     | "unsupported";
 }
@@ -64,12 +67,17 @@ interface ClientDefinition {
   readonly configPath: ClientPath;
   readonly markerPath: ClientPath;
   readonly format: NonNullable<SetupClient["format"]>;
+  readonly zcodeFallbackPath?: (context: ClientPathContext) => string;
   readonly skillPath?: ClientPath;
   readonly configPaths?: (context: ClientPathContext) => readonly string[];
   readonly geminiSettings?: (
     context: ClientPathContext,
   ) => NonNullable<SetupClient["geminiSettings"]>;
 }
+
+/** XDG treats an empty config-home value as unset. */
+const xdgConfigHome = ({ home, env }: ClientPathContext): string =>
+  env.XDG_CONFIG_HOME || join(home, ".config");
 
 const vscodeUserDirectory = ({
   home,
@@ -84,7 +92,23 @@ const vscodeUserDirectory = ({
     );
   if (platform === "darwin")
     return join(home, "Library", "Application Support", "Code", "User");
-  return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "Code", "User");
+  return join(xdgConfigHome({ home, platform, env }), "Code", "User");
+};
+
+const traeUserDirectory = ({
+  home,
+  platform,
+  env,
+}: ClientPathContext): string => {
+  if (platform === "win32")
+    return join(
+      env.APPDATA ?? join(home, "AppData", "Roaming"),
+      "Trae",
+      "User",
+    );
+  if (platform === "darwin")
+    return join(home, "Library", "Application Support", "Trae", "User");
+  return join(xdgConfigHome({ home, platform, env }), "Trae", "User");
 };
 
 const claudeDesktopDirectory = ({
@@ -95,7 +119,7 @@ const claudeDesktopDirectory = ({
   if (platform === "win32")
     return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude");
   if (platform === "linux")
-    return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "Claude");
+    return join(xdgConfigHome({ home, platform, env }), "Claude");
   return join(home, "Library", "Application Support", "Claude");
 };
 
@@ -107,6 +131,9 @@ const claudeCodeMarkerDirectory = ({ home, env }: ClientPathContext): string =>
 
 const codexDirectory = ({ home, env }: ClientPathContext): string =>
   env.CODEX_HOME || join(home, ".codex");
+
+const qoderDirectory = ({ home, env }: ClientPathContext): string =>
+  env.QODER_CONFIG_DIR || join(home, ".qoder");
 
 /** Match Qwen Code's home override, including tilde and cwd-relative paths. */
 const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
@@ -130,8 +157,27 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
 
+/** Match Harness home-paths for both independent roots; trim only to detect blanks. */
+const dshDirectory = (
+  home: string,
+  override: string | undefined,
+  fallback: string,
+): string => {
+  const selected =
+    override !== undefined && override.trim().length > 0
+      ? override
+      : join(home, fallback);
+  const expanded =
+    selected === "~"
+      ? home
+      : selected.startsWith("~/") || selected.startsWith("~\\")
+        ? join(home, selected.slice(2))
+        : selected;
+  return resolve(expanded);
+};
+
 const dshHomeDirectory = ({ home, env }: ClientPathContext): string =>
-  env.DSH_HOME ?? join(home, ".dsh");
+  dshDirectory(home, env.DSH_HOME, ".dsh");
 
 const dshPatchDirectory = (context: ClientPathContext): string =>
   join(dshHomeDirectory(context), "cordis.patch.yml");
@@ -245,19 +291,13 @@ const openCodeOverrideDirectory = (
 
 const opencodeDirectory = (context: ClientPathContext): string =>
   openCodeOverrideDirectory(context.env) ??
-  join(
-    context.env.XDG_CONFIG_HOME ?? join(context.home, ".config"),
-    "opencode",
-  );
+  join(xdgConfigHome(context), "opencode");
 
 /** OpenCode loads global JSON before JSONC, then explicit file and directory overrides. */
 const openCodeConfigurationPaths = (
   context: ClientPathContext,
 ): readonly string[] => {
-  const directory = join(
-    context.env.XDG_CONFIG_HOME ?? join(context.home, ".config"),
-    "opencode",
-  );
+  const directory = join(xdgConfigHome(context), "opencode");
   const overrideDirectory = openCodeOverrideDirectory(context.env);
   const paths = [
     join(directory, "config.json"),
@@ -461,6 +501,15 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "vscode",
   },
   {
+    name: "trae",
+    displayName: "Trae",
+    skillPath: [".trae", "skills"],
+    configPath: (context: ClientPathContext) =>
+      join(traeUserDirectory(context), "mcp.json"),
+    markerPath: traeUserDirectory,
+    format: "json",
+  },
+  {
     name: "grok_build",
     displayName: "Grok Build",
     configPath: (context: ClientPathContext) =>
@@ -500,12 +549,32 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "hermes",
   },
   {
+    name: "qoder",
+    displayName: "Qoder",
+    skillPath: (context: ClientPathContext) =>
+      join(qoderDirectory(context), "skills"),
+    configPath: (context: ClientPathContext) =>
+      join(qoderDirectory(context), "settings.json"),
+    markerPath: qoderDirectory,
+    format: "json",
+  },
+  {
+    name: "zcode",
+    zcodeFallbackPath: ({ home }: ClientPathContext) =>
+      join(home, ".agents", "mcp.json"),
+    displayName: "ZCode",
+    configPath: [".zcode", "cli", "config.json"],
+    markerPath: [".zcode", "cli"],
+    skillPath: [".zcode", "skills"],
+    format: "zcode",
+  },
+  {
     name: "dsh",
     displayName: "DeepSeek Harness",
     // The home Cordis patch applies to every profile; the skill directory is
     // shared agent storage Harness discovers.
     skillPath: ({ home, env }: ClientPathContext) =>
-      join(env.DSH_AGENTS_HOME ?? join(home, ".agents"), "skills"),
+      join(dshDirectory(home, env.DSH_AGENTS_HOME, ".agents"), "skills"),
     configPath: dshPatchDirectory,
     markerPath: dshHomeDirectory,
     format: "dsh",
@@ -590,6 +659,9 @@ export const supportedClients = (
                 ...new Set([...definition.configPaths(context), configPath]),
               ],
             }),
+        ...(definition.zcodeFallbackPath === undefined
+          ? {}
+          : { zcodeFallbackPath: definition.zcodeFallbackPath(context) }),
         markerPath: marker.value,
         format: definition.format,
       };

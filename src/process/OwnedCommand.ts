@@ -9,6 +9,7 @@ import {
 } from "./ProviderProcess.js";
 import {
   cleanupOwnedProcessGroup,
+  type OwnedProcessGroup,
   type ProcessCleanupFailure,
 } from "./ProcessOwnership.js";
 import {
@@ -34,6 +35,17 @@ export class OwnedCommandFailure extends Error {
   }
 }
 
+/** Report recorded launch identities; these labels do not authorize signaling. */
+export const ownedCommandResources = (
+  ownership: OwnedProcessGroup,
+  directory?: string,
+): readonly string[] => [
+  ownership.runId,
+  ...(directory === undefined ? [] : [directory]),
+  `pid:${ownership.leaderPid}`,
+  `process-group:${ownership.processGroupId}`,
+];
+
 /** Execute a single owned process with independent cleanup and bounded diagnostic retention. */
 export const runOwnedCommand = async (
   spawn: OwnedProviderProcessSpawnOptions,
@@ -45,6 +57,8 @@ export const runOwnedCommand = async (
   },
   options: {
     readonly signal?: AbortSignal;
+    /** Synchronously accept unresolved cleanup ownership; execution still returns its original outcome. Must not throw. */
+    readonly retainCleanup?: (owner: ProviderProcessSupervisor) => void;
     readonly launcher?: (
       input: OwnedProviderProcessSpawnOptions,
     ) => Promise<SpawnedOwnedProviderProcess>;
@@ -64,6 +78,7 @@ export const runOwnedCommand = async (
       options.launcher ?? spawnOwnedProviderProcess,
       deadline,
       callerSignal,
+      options.retainCleanup,
     );
   } finally {
     deadline.dispose();
@@ -82,6 +97,7 @@ const collectOwnedCommand = async (
   ) => Promise<SpawnedOwnedProviderProcess>,
   deadline: ProviderStartupDeadline,
   callerSignal?: AbortSignal,
+  retainCleanup?: (owner: ProviderProcessSupervisor) => void,
 ): Promise<ProviderProcessSnapshot> => {
   const signal = deadline.signal;
   let launched: SpawnedOwnedProviderProcess;
@@ -190,7 +206,9 @@ const collectOwnedCommand = async (
   }
   const stopped = await supervisor.stop();
   const snapshot = supervisor.snapshot();
-  if (stopped.status === "incomplete")
+  if (stopped.status === "incomplete" && retainCleanup !== undefined)
+    retainCleanup(supervisor);
+  else if (stopped.status === "incomplete")
     throw new OwnedCommandFailure(
       failure?.reason ?? "process",
       failure?.message ?? "Command cleanup failed.",
@@ -202,12 +220,7 @@ const collectOwnedCommand = async (
           ? {}
           : { cleanupResult: stopped.cleanupResult }),
       },
-      [
-        spawn.runId,
-        ...(spawn.cwd === undefined ? [] : [spawn.cwd]),
-        `pid:${launched.ownership.leaderPid}`,
-        `process-group:${launched.ownership.processGroupId}`,
-      ],
+      ownedCommandResources(launched.ownership, spawn.cwd),
       supervisor,
     );
   if (failure !== undefined)
