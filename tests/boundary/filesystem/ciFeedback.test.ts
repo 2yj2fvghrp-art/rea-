@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { runInNewContext } from "node:vm";
 import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -70,19 +71,10 @@ it("starts source feedback before build and requires both groups without waiving
         step.run === "npm run test:fast -- --reporter=default --reporter=blob",
     ),
   ).toBe(true);
-  expect(
-    jobs["test-source"]?.steps?.flatMap(
-      (step) => step.env?.VITEST_BLOB_LABEL ?? [],
-    ),
-  ).toEqual(["source"]);
-  expect(
-    jobs["test-shard"]?.steps?.flatMap(
-      (step) => step.env?.VITEST_BLOB_LABEL ?? [],
-    ),
-  ).toEqual(["built"]);
   const required = fileURLToPath(
     new URL("../../../scripts/ci/required.mjs", import.meta.url),
   );
+  const flags = await scopeFlags();
   for (const tier of ["fast", "full"]) {
     for (const result of [
       "success",
@@ -98,10 +90,7 @@ it("starts source feedback before build and requires both groups without waiving
       );
       const outputs = {
         ...Object.fromEntries(
-          (await scopeFlags()).map((flag) => [
-            flag,
-            tier === "full" ? "true" : "false",
-          ]),
+          flags.map((flag) => [flag, tier === "full" ? "true" : "false"]),
         ),
         tier,
         code: "true",
@@ -211,7 +200,39 @@ it("collects basic CI telemetry before optional dependency installation can fail
   ).toContain("steps.failure-deps.outcome == 'success'");
 });
 
-it("merges one unsharded source run with five built shards without missing or duplicate files", async () => {
+it("merges source and built reports exactly once using the workflow's shard matrix", async () => {
+  const jobs = await workflow();
+  const matrix = z
+    .object({
+      matrix: z.object({ shard: z.string().regex(/^\$\{\{.*\}\}$/u) }),
+    })
+    .parse(jobs["test-shard"]?.strategy).matrix.shard;
+  const shards = z
+    .array(z.string().regex(/^\d+\/\d+$/u))
+    .min(1)
+    .parse(
+      runInNewContext(
+        matrix.slice(3, -2),
+        {
+          fromJSON: JSON.parse,
+          needs: { changes: { outputs: { tier: "fast" } } },
+        },
+        { timeout: 1_000 },
+      ),
+    );
+  const labels = Object.fromEntries(
+    ["source", "built"].map((group) => [
+      group,
+      z
+        .string()
+        .min(1)
+        .parse(
+          jobs[group === "source" ? "test-source" : "test-shard"]?.steps?.find(
+            (step) => step.env?.VITEST_BLOB_LABEL,
+          )?.env?.VITEST_BLOB_LABEL,
+        ),
+    ]),
+  );
   const root = await createTestTempDirectory("rea-ci-group-merge-");
   const config = join(root, "vitest.config.mjs");
   await writeFile(
@@ -220,7 +241,10 @@ it("merges one unsharded source run with five built shards without missing or du
   );
   const files = [
     "source.test.js",
-    ...Array.from({ length: 5 }, (_, index) => `built-${index}.test.js`),
+    ...Array.from(
+      { length: shards.length },
+      (_, index) => `built-${index}.test.js`,
+    ),
   ];
   for (const file of files)
     await writeFile(
@@ -233,10 +257,7 @@ it("merges one unsharded source run with five built shards without missing or du
   const blobs = new Map<string, Buffer>();
   const runs = [
     { group: "source", shard: [] },
-    ...Array.from({ length: 5 }, (_, index) => ({
-      group: "built",
-      shard: [`--shard=${index + 1}/5`],
-    })),
+    ...shards.map((shard) => ({ group: "built", shard: [`--shard=${shard}`] })),
   ];
   for (const { group, shard } of runs) {
     await execute(
@@ -253,7 +274,7 @@ it("merges one unsharded source run with five built shards without missing or du
       ],
       {
         cwd: root,
-        env: { ...process.env, VITEST_BLOB_LABEL: group },
+        env: { ...process.env, VITEST_BLOB_LABEL: labels[group]! },
         timeout: 20_000,
       },
     );
@@ -264,7 +285,7 @@ it("merges one unsharded source run with five built shards without missing or du
     // Separate hosted jobs start with independent report directories.
     await rm(join(root, ".vitest/blob"), { recursive: true });
   }
-  expect(blobs.size).toBe(6);
+  expect(blobs.size).toBe(runs.length);
   await mkdir(join(root, ".vitest/blob"), { recursive: true });
   for (const [filename, bytes] of blobs)
     await writeFile(join(root, ".vitest/blob", filename), bytes);

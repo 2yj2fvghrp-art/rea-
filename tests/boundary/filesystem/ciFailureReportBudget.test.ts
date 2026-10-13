@@ -1,8 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { expect, it } from "vitest";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import {
   reportCiFailures,
   type CiRun,
@@ -71,9 +68,10 @@ function fixture(mainIds: readonly number[], prCount: number) {
         path: ".github/workflows/ci.yml@main",
         head_sha: mainIds.includes(Number(id)) ? mainSha : prSha,
         repository: { full_name: repository },
-        pull_requests: [
-          { base: { sha: mainSha, repo: { full_name: repository } } },
-        ],
+        pull_requests:
+          selected.event === "pull_request"
+            ? [{ base: { sha: mainSha, repo: { full_name: repository } } }]
+            : [],
       };
     },
     async getJobs(_repository, id, attempt) {
@@ -107,18 +105,13 @@ function fixture(mainIds: readonly number[], prCount: number) {
 }
 
 async function report(input: ReturnType<typeof fixture>) {
-  const directory = await mkdtemp(join(tmpdir(), "rea-ci-budget-"));
-  try {
-    return await reportCiFailures({
-      repository,
-      defaultBranch: "main",
-      batchManifest: { repository, runs: input.runs },
-      api: input.api,
-      outputDirectory: directory,
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  return await reportCiFailures({
+    repository,
+    defaultBranch: "main",
+    batchManifest: { repository, runs: input.runs },
+    api: input.api,
+    outputDirectory: await createTestTempDirectory("rea-ci-budget-"),
+  });
 }
 
 it("selects PR failures before the cap even after a day of scheduled main failures", async () => {
@@ -198,14 +191,22 @@ it.each(["missing", "artifact error", "job error", "wrong job attempt"])(
   },
 );
 
-it("refreshes main observations for the next report and attempt", async () => {
-  const input = fixture([20], 1);
-  expect((await report(input)).counts["matching-main-diagnostics"]).toBe(1);
-  input.runs[0]!.runAttempt = 2;
-  expect((await report(input)).counts["matching-main-diagnostics"]).toBe(1);
-  expect(input.jobs.filter((id) => id === 20)).toHaveLength(2);
-  expect(input.artifacts.filter((id) => id === 20)).toHaveLength(2);
-});
+it.each([1, 2])(
+  "refreshes unavailable main evidence in the next report (attempt %s)",
+  async (attempt) => {
+    const input = fixture([20], 1);
+    expect((await report(input)).counts["matching-main-diagnostics"]).toBe(1);
+    input.runs[0]!.runAttempt = attempt;
+    const load = input.api.getStaticEvidence;
+    input.api.getStaticEvidence = async (...args) => {
+      const result = await load(...args);
+      return Number(args[1].id) === 20 ? null : result;
+    };
+    expect((await report(input)).counts.unknown).toBe(1);
+    expect(input.jobs.filter((id) => id === 20)).toHaveLength(2);
+    expect(input.artifacts.filter((id) => id === 20)).toHaveLength(2);
+  },
+);
 
 it.each([1, 51])(
   "fetches only PR paths with %s PR diagnostics and noisy main evidence",
@@ -275,7 +276,7 @@ it.each(["jobs", "artifact", "comparison"])(
         {
           runId: 20,
           runAttempt: 1,
-          reason: `main_${failure === "jobs" ? "jobs" : failure}_unavailable`,
+          reason: `main_${failure}_unavailable`,
         },
       ]);
     }

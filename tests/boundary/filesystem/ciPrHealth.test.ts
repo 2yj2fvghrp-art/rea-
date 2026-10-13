@@ -50,25 +50,46 @@ it("classifies workflow states without confusing absent, pending, and completed 
     ],
   ] as const;
   for (const [category, evidence] of cases) {
+    for (const runsComplete of [true, false]) {
+      const result = classifyPrCi({
+        pull,
+        runs: [
+          {
+            run: { ...evidence, run_attempt: 1 },
+            basis: "event_pr_number_and_head_sha",
+          },
+        ],
+        runsComplete,
+        pullRequestInventoryComplete: true,
+        ambiguousRuns: [],
+      });
+      expect(result).toMatchObject({
+        category: runsComplete ? category : "unknown",
+        ...(runsComplete
+          ? {}
+          : { reason: "workflow_run_inventory_incomplete" }),
+        runs: [
+          {
+            id: 77,
+            attempt: 1,
+            status: evidence.status,
+            conclusion: evidence.conclusion,
+          },
+        ],
+      });
+    }
+  }
+  for (const runsComplete of [true, false]) {
     expect(
       classifyPrCi({
-        pull,
-        runs: [{ run: evidence, basis: "event_pr_number_and_head_sha" }],
-        runsComplete: true,
+        pull: { ...pull, mergeable: false },
+        runs: [],
+        runsComplete,
         pullRequestInventoryComplete: true,
         ambiguousRuns: [],
       }).category,
-    ).toBe(category);
+    ).toBe("merge_conflict");
   }
-  expect(
-    classifyPrCi({
-      pull: { ...pull, mergeable: false },
-      runs: [],
-      runsComplete: true,
-      pullRequestInventoryComplete: true,
-      ambiguousRuns: [],
-    }).category,
-  ).toBe("merge_conflict");
 });
 
 it("requires complete inventories, known mergeability, and immutable head identity to report missing", () => {
@@ -103,39 +124,6 @@ it("requires complete inventories, known mergeability, and immutable head identi
     "unknown",
   );
 });
-
-it.each([
-  { status: "completed", conclusion: "success" },
-  { status: "completed", conclusion: "failure" },
-  { status: "completed", conclusion: "cancelled" },
-  { status: "in_progress", conclusion: null },
-  { status: "waiting", conclusion: null },
-  { status: "completed", conclusion: "startup_failure" },
-])(
-  "retains observed $status/$conclusion as evidence without claiming current state from a partial scan",
-  (state) => {
-    const observed = run({ ...state, run_attempt: 1 });
-    const result = classifyPrCi({
-      pull: validPull(),
-      runs: [{ run: observed, basis: "event_pr_number_and_head_sha" }],
-      runsComplete: false,
-      pullRequestInventoryComplete: true,
-      ambiguousRuns: [],
-    });
-    expect(result).toMatchObject({
-      category: "unknown",
-      reason: "workflow_run_inventory_incomplete",
-      runs: [
-        {
-          id: 77,
-          attempt: 1,
-          status: state.status,
-          conclusion: state.conclusion,
-        },
-      ],
-    });
-  },
-);
 
 it("accepts event PR/head evidence for merge-SHA runs and refuses ambiguous branch identities", () => {
   const pull = validPull();
