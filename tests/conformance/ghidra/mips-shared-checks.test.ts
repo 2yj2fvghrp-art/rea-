@@ -138,6 +138,7 @@ describe("MIPS32 shared-library real-verifier expectations", () => {
       rel32_external: 1,
       tls: 2,
       got_local: 0,
+      got_local_zero: 0,
       got_defined: 2,
       got_external: 3,
       got_lazy_stub: 0,

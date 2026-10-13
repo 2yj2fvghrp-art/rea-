@@ -181,6 +181,10 @@ async function verifyFixture(byteOrder, softFloat) {
     assert.ok(coverage.got_external >= 3, "Global GOT entries for imports");
     // Page entries for .text (zero in the file) and for the data segment.
     assert.equal(coverage.got_local, 2, "Local GOT page entries");
+    assert.ok(
+      coverage.got_local_zero > 0,
+      "Zero-valued non-reserved GOT page entry",
+    );
     const procedures = await call("list_procedures");
     const named = (name) => {
       const found = procedures.filter((item) => item.value === name);

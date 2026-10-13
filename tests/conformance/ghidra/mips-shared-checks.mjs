@@ -229,6 +229,7 @@ export function assertMipsSharedLoad({
     rel32_external: 0,
     tls: 0,
     got_local: 0,
+    got_local_zero: 0,
     got_defined: 0,
     got_external: 0,
     got_lazy_stub: 0,
@@ -289,6 +290,7 @@ export function assertMipsSharedLoad({
     const original = BigInt(read32(fileBytes, fileOffset(address)));
     assert.equal(loaded(place), original + delta, `Local GOT entry ${index}`);
     coverage.got_local += 1;
+    if (original === 0n) coverage.got_local_zero += 1;
   }
   for (let offset = 0; offset < globalCount; offset += 1) {
     const index = localCount + offset;

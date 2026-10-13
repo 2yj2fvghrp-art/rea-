@@ -31,6 +31,7 @@ export interface MipsSharedCoverage {
   rel32_external: number;
   tls: number;
   got_local: number;
+  got_local_zero: number;
   got_defined: number;
   got_external: number;
   got_lazy_stub: number;
