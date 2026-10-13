@@ -194,28 +194,32 @@ async function verifySearchModes(call, address) {
     }),
     expected,
   );
-  const objects = await verifyHopperStringObjects(call, [
-    {
-      value: "REA_UTF8_é_😀",
-      encoding: "utf-8",
-      symbol: `${fixtureSymbolPrefix}rea_utf8_literal`,
-      recognitionOptional: linux,
-    },
-    { value: 'REA_ESCAPED_"\\line\nend\t\r', encoding: "utf-8" },
-    { value: "REA_LITERAL_BACKSLASH_\\n", encoding: "utf-8" },
-    {
-      value: "REA_LITERAL_…",
-      encoding: "utf-8",
-      symbol: `${fixtureSymbolPrefix}rea_ellipsis_literal`,
-      recognitionOptional: linux,
-    },
-    {
-      value: "REA_LATIN1_ÿ",
-      encoding: "latin-1",
-      symbol: `${fixtureSymbolPrefix}rea_latin1_literal`,
-      recognitionOptional: linux,
-    },
-  ]);
+  const objects = await verifyHopperStringObjects(
+    call,
+    [
+      {
+        value: "REA_UTF8_é_😀",
+        encoding: "utf-8",
+        symbol: `${fixtureSymbolPrefix}rea_utf8_literal`,
+        recognitionOptional: linux,
+      },
+      { value: 'REA_ESCAPED_"\\line\nend\t\r', encoding: "utf-8" },
+      { value: "REA_LITERAL_BACKSLASH_\\n", encoding: "utf-8" },
+      {
+        value: "REA_LITERAL_…",
+        encoding: "utf-8",
+        symbol: `${fixtureSymbolPrefix}rea_ellipsis_literal`,
+        recognitionOptional: linux,
+      },
+      {
+        value: "REA_LATIN1_ÿ",
+        encoding: "latin-1",
+        symbol: `${fixtureSymbolPrefix}rea_latin1_literal`,
+        recognitionOptional: linux,
+      },
+    ],
+    strings,
+  );
   return {
     fullLiteralSourceBytes: fullBytes.length,
     fragmentedLiteralSourceBytes: Buffer.byteLength(long),
@@ -233,8 +237,14 @@ async function verifySearchModes(call, address) {
 }
 
 /** Compare native string identities and values with the source fixture's bytes. */
-export async function verifyHopperStringObjects(call, expectations) {
-  const strings = await call("list_strings");
+export async function verifyHopperStringObjects(
+  call,
+  expectations,
+  inventory = null,
+) {
+  // Reuse only the caller's inventory for this unchanged document, never live
+  // state from an earlier session. Address-filter and search checks remain real.
+  const strings = inventory ?? (await call("list_strings"));
   const recognition = [];
   for (const {
     value,
@@ -246,20 +256,20 @@ export async function verifyHopperStringObjects(call, expectations) {
       value + "\0",
       encoding.replaceAll("-", ""),
     );
-    let sourceAddress;
+    let sourceBytes;
     if (symbol !== undefined) {
       const raw = await call("read_bytes", {
         address: symbol,
         length: expectedBytes.length,
       });
-      sourceAddress = raw.address;
+      sourceBytes = raw;
       assert.equal(raw.complete, true);
       assert.equal(raw.bytes_hex, expectedBytes.toString("hex"));
     }
     const item = strings.find((candidate) =>
-      sourceAddress === undefined
+      sourceBytes === undefined
         ? candidate.value === value
-        : candidate.address === sourceAddress,
+        : candidate.address === sourceBytes.address,
     );
     if (item === undefined && recognitionOptional) {
       assert.ok(
@@ -268,6 +278,7 @@ export async function verifyHopperStringObjects(call, expectations) {
       );
       recognition.push({
         value,
+        address: sourceBytes.address,
         state: "not_observed",
         decodedObject: "unverified",
       });
@@ -282,15 +293,23 @@ export async function verifyHopperStringObjects(call, expectations) {
       value,
       "native string decoding changed the source value",
     );
-    recognition.push({ value, state: "observed", decodedObject: "verified" });
+    recognition.push({
+      value,
+      address: item.address,
+      state: "observed",
+      decodedObject: "verified",
+    });
     assert.equal(item.string.encoding, encoding);
     assert.equal(item.string.encoding_status, "inferred");
     assert.equal(item.string.termination, "present_or_not_required");
     assert.equal(item.string.byte_length, expectedBytes.length);
-    const bytes = await call("read_bytes", {
-      address: item.address,
-      length: expectedBytes.length,
-    });
+    const bytes =
+      sourceBytes ??
+      (await call("read_bytes", {
+        address: item.address,
+        length: expectedBytes.length,
+      }));
+    assert.equal(bytes.complete, true);
     assert.equal(bytes.bytes_hex, expectedBytes.toString("hex"));
     assert.deepEqual(await call("list_strings", { address: item.address }), [
       item,
