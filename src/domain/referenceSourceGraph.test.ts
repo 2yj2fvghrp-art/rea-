@@ -509,3 +509,31 @@ it("rejects NUL in observed symlink targets before graph identity", () => {
     /normalized POSIX symlink target/u,
   );
 });
+
+it.each(["C:\\outside\\file.js", "\\\\server\\share.js"])(
+  "preserves unowned recorded Windows absolute target policy %j",
+  (target) => {
+    const external = graphInput();
+    external.inventory_state = "partial";
+    external.entries[2] = symlinkEntry({ target, target_state: "external" });
+    expect(createHistoricalSourceGraph(external).entries).toContainEqual(
+      expect.objectContaining({ target, target_state: "external" }),
+    );
+    const internal = graphInput();
+    internal.entries[2] = symlinkEntry({ target, target_state: "internal" });
+    expect(() => createHistoricalSourceGraph(internal)).toThrow(
+      /target path does not match its target state/u,
+    );
+  },
+);
+
+it("refuses an absolute POSIX internal target even when lexical joining would name an inventoried file", () => {
+  const input = graphInput();
+  input.entries[2] = symlinkEntry({
+    target: "/main.ts",
+    target_state: "internal",
+  });
+  expect(() => createHistoricalSourceGraph(input)).toThrow(
+    /target path does not match its target state/u,
+  );
+});

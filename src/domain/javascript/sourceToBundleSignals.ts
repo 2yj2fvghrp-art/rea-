@@ -212,7 +212,12 @@ const projectCurrentNode = (node: ApplicationNode): CurrentProjection => {
         addJsonPath(
           paths,
           observation.properties[key],
-          key === "path" || key === "module_path" || key === "resolved_path"
+          key === "resolved_path" ||
+            ((key === "path" || key === "module_path") &&
+              !(
+                typeof observation.properties[key] === "string" &&
+                SCHEME_URL.test(observation.properties[key])
+              ))
             ? "artifact"
             : "reference",
         );

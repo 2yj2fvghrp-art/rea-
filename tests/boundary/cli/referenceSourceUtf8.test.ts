@@ -171,3 +171,51 @@ cliTest.skipIf(process.platform === "win32")(
     );
   },
 );
+
+cliTest.skipIf(process.platform === "win32")(
+  "imports an inventory-owned POSIX UNC-looking symlink target",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-reference-unc-literal-");
+    const config = await createTestTempDirectory("rea-reference-unc-config-");
+    const literal = "\\\\server\\share.js";
+    const literalBytes = "export const value = 'literal';\n";
+    const slashBytes = "export const value = 'slash';\n";
+    await mkdir(join(root, "server"));
+    await writeFile(join(root, literal), literalBytes);
+    await writeFile(join(root, "server", "share.js"), slashBytes);
+    await symlink(literal, join(root, "link.js"));
+    const result = await cli.run({
+      arguments: ["import-reference-source", root, "--json"],
+      environment: {
+        HOME: config,
+        XDG_CONFIG_HOME: config,
+        XDG_CACHE_HOME: config,
+      },
+    });
+    expect(result.exitCode, result.stderr + JSON.stringify(result.json)).toBe(
+      0,
+    );
+    const graph = historicalSourceGraphSchema.parse(result.json);
+    expect(graph.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "symlink",
+        path: "link.js",
+        target: literal,
+        target_state: "internal",
+      }),
+    );
+    for (const [path, bytes] of [
+      [literal, literalBytes],
+      ["server/share.js", slashBytes],
+    ]) {
+      expect(graph.entries).toContainEqual(
+        expect.objectContaining({
+          path,
+          sha256: createHash("sha256").update(bytes!).digest("hex"),
+        }),
+      );
+      expect(await readFile(join(root, path!), "utf8")).toBe(bytes);
+    }
+    expect(await readlink(join(root, "link.js"))).toBe(literal);
+  },
+);
