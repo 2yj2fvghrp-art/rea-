@@ -7,6 +7,35 @@ as `mcp__rea__*` tools, using the current `dsh.bundle`/Cordis composition API.
 The full REA engine remains authoritative; this adapter has no second reverse-
 engineering engine or parallel tool schema to keep synchronized.
 
+## Desktop “Add plugin” — the supported Git installation spec
+
+**Paste this exact URL**, including the `#dsh-plugin-v0.2.0` tag,
+into DeepSeek Harness Desktop → **Plugins → Add plugin**:
+
+```text
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+```
+
+Do **not** paste the repository's untagged URL. It resolves to the
+build-required `rea-agents` CLI on `main` and triggers
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. The **plugin tag** contains only
+`dsh-rea-bundle` files at the repository root, including `dsh.bundle`,
+and has no install-time scripts. This uses the Git-hosted package support in
+the current Desktop plugin manager; it does not require `allowBuilds`.
+
+Alternatively paste the versioned GitHub Release tarball URL directly:
+
+```text
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+```
+
+The URL is a plugin-install source, not a page to open in the browser.
+After installing, enable **dsh-rea-bundle** and fully restart Desktop.
+If an earlier mistaken installation created a `rea-agents` Git dependency,
+remove only that item (preserving other plugins) before retrying.
+For the separate `web` CLI profile, substitute `--profile web` in
+`dsh plugin` commands; Desktop uses its own `desktop` profile.
+
 ## Requirements
 
 - A DeepSeek Harness installation with the `dsh` CLI and `pnpm` on `PATH`.

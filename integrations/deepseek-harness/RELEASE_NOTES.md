@@ -1,49 +1,49 @@
-# REA for DeepSeek Harness — plugin bundle v0.1.0
+# REA DeepSeek Harness plugin v0.2.0 — Desktop Git install fix
 
-First standalone DeepSeek Harness plugin bundle for this repository.
+The previous REA repository URL downloaded the main `rea-agents` package,
+whose Git `prepare` script was blocked by pnpm and which was not a Harness
+bundle. This release provides a dedicated **build-free Git distribution tag**
+containing the actual `dsh-rea-bundle` package at the Git checkout root.
 
-## Included
+## Desktop — paste into “Add plugin”
 
-- Native `dsh.bundle` Cordis package for Harness plugin profiles.
-- REA MCP integration through the built-in `@deepseek-ai/dsh-mcp-client` bridge.
-- Build-free runtime launcher that resolves a pinned prebuilt
-  `rea-agents@6.4.0` npm package without shell/npm execution at startup.
-- Optional `REA_DSH_ENTRYPOINT` absolute-path override for this fork's
-  compiled `scripts/rea.mjs` instead of the upstream npm runtime.
-- `compact` or `full` advertised MCP schema profile, fail-closed startup,
-  scoped process environment, and Harness-owned reconnect/disposal.
-- Automated tests for manifest, launcher, MCP initialization/tool listing,
-  and current upstream Harness bundle composition.
-
-## Install
-
-Download the attached `dsh-rea-bundle-0.1.0.tgz` and run:
-
-```sh
-dsh plugin --profile web add /absolute/path/to/dsh-rea-bundle-0.1.0.tgz
-dsh --profile web --dump-config
+```text
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
 ```
 
-The recommended installation is the published release tarball above; install
-the repository subdirectory from a **local checkout** only after installing
-its plugin dependencies. See the plugin guide for that development path.
+Or use the GitHub shorthand:
 
-macOS/Linux users can also download and verify the artifact directly:
-
-```sh
-curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
-dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+```text
+github:xxxxxwater/rea#dsh-plugin-v0.2.0
 ```
 
-Read the [plugin guide](https://github.com/xxxxxwater/rea/blob/main/integrations/deepseek-harness/README.md)
-for Desktop environment/profile semantics, migrating a legacy home-level
-`rea-mcp` patch, and using this fork's locally compiled REA runtime.
+The `dsh-plugin-v0.2.0` tag points to a separate orphan Git commit containing
+only `package.json`, `cordis.patch.yml`, `launcher.mjs`, both guides and
+`LICENSE`. It is not the REA `main` checkout and has **no prepare/install
+scripts**. Desktop's plugin manager accepts versioned Git URLs and should
+install the profile bundle without changing `allowBuilds`.
 
-## Scope
+Alternate direct Release asset, also accepted by the current plugin manager:
 
-This `dsh-v*` GitHub release distributes **only the Harness plugin bundle**.
-It does not change or publish the root `rea-agents` npm package or MCP
-Registry package; those use the repository's separate, reviewed Release Please
-workflow. Live DeepSeek paid-model calls and optional third-party engines
-remain outside CI acceptance.
+```text
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+```
+
+Install either one, not both. If your Desktop profile already contains the
+*wrong* `rea-agents` Git dependency from the former attempt, remove only that
+dependency first through Desktop's plugin manager. Existing users of
+`rea setup --client dsh` should also remove the obsolete home-level
+`rea-mcp` patch **after a backup**, otherwise it shadows the new bundle.
+
+## Changes
+
+- Git tag packaging that can be pasted directly into Desktop “Add plugin”
+- Versioned `dsh-v0.2.0` GitHub Release archive
+- No install-time build hooks; pinned npm `rea-agents@6.4.0` runtime
+- Separate checks for the minimal Git tag and tarball, plus real Harness MCP
+  initialization and tool composition
+- Desktop recovery instructions and reproducible distribution tests
+
+The REA core in `main` and its npm/registry release process remain unchanged.
+Native Desktop GUI and live model API acceptance require validation on a
+real installed Desktop application.

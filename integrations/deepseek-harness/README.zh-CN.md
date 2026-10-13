@@ -4,6 +4,35 @@
 截至 2026-10-13，npm 的 `@deepseek-ai/dsh@latest` 指向 `0.2.0-rc.2`，
 而上游 `master` 仍在快速迭代。安装 REA 时建议使用正式发布、版本固定的插件压缩包。
 
+## Desktop「添加插件」直接安装（推荐）
+
+**直接复制整行地址到 DeepSeek Harness Desktop → 插件 → 添加插件**：
+
+```text
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+```
+
+这个 `#dsh-plugin-v0.2.0` **不能省略**。它指向独立的、根目录
+就是 `dsh-rea-bundle` 的 Git 发行快照，具备 Harness 要求的
+`dsh.bundle`，并且没有 `prepare` 或其他安装期构建脚本。
+
+如果输入 `https://github.com/xxxxxwater/rea`（不含上述标签），
+仍会安装仓库 `main` 上的 `rea-agents` CLI，触发
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。**不要开放 `allowBuilds`**。
+
+也可以在「添加插件」直接输入这个 Release 安装包 URL：
+
+```text
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+```
+
+这两个地址任选一个，不需要同时安装。安装后启用
+`dsh-rea-bundle`，再**完全退出并重新启动** Desktop。
+如果之前的错误 Git 安装留下了 `rea-agents` 依赖，备份后只删除
+这项错误依赖，保留其余插件配置。
+若旧 `rea setup --client dsh` 曾写入全局 `rea-mcp`，也应先备份
+`$DSH_HOME/cordis.patch.yml`，只清理旧 REA 条目以免覆盖新版。
+
 ## Desktop 修复：`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 错误若出现 `rea-agents@6.4.0` 和
