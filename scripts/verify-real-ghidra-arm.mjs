@@ -25,6 +25,7 @@ import {
   requireMcpOperationResult,
 } from "./lib/mcp-verifier-results.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
+import { selectArmObjcopy } from "./lib/arm-objcopy.mjs";
 
 // Optional cross-target lane. No tool acquisition and no target execution.
 if (!["linux", "darwin"].includes(process.platform))
@@ -45,6 +46,13 @@ if (installation.status !== "available")
     `Ghidra prerequisite unavailable: ${JSON.stringify(installation)}`,
   );
 const execute = promisify(execFile);
+const objcopyCandidates = [
+  process.env.REA_ARM_OBJCOPY,
+  "llvm-objcopy",
+  "llvm-objcopy-21",
+  "objcopy",
+].filter((candidate) => candidate !== undefined);
+const objcopyTool = await selectArmObjcopy(objcopyCandidates, execute);
 const entrypoint = fileURLToPath(new URL("./rea.mjs", import.meta.url));
 const run = createVerifierRun();
 const workspace = await mkdtemp(join(tmpdir(), "rea-arm-proof-"));
@@ -276,12 +284,6 @@ try {
   // real armv8-a build (attributes declare v8) and the same v7 fixture with
   // its .ARM.attributes removed, so neither a newer ISA nor an absent
   // declaration can slip into the v7-pinned lane.
-  const objcopyCandidates = [
-    process.env.REA_ARM_OBJCOPY,
-    "llvm-objcopy",
-    "llvm-objcopy-21",
-    "objcopy",
-  ].filter((candidate) => candidate !== undefined);
   const compiler = process.env.REA_ARM_CLANG ?? "clang";
   const v8Path = join(workspace, "arm-v8a.elf");
   // Built from the same conformance sources as the fixture: pure assembly
@@ -350,20 +352,6 @@ try {
   );
   const noAttributesPath = join(workspace, "arm-v7-noattributes.elf");
   await writeFile(noAttributesPath, await readFile(fixture.path));
-  let objcopyTool;
-  for (const candidate of objcopyCandidates) {
-    try {
-      await execute(candidate, ["--version"], { timeout: 10000 });
-      objcopyTool = candidate;
-      break;
-    } catch {
-      // Try the next candidate name.
-    }
-  }
-  if (objcopyTool === undefined)
-    throw new Error(
-      "Missing prerequisite: llvm-objcopy or GNU objcopy (set REA_ARM_OBJCOPY)",
-    );
   await execute(
     objcopyTool,
     ["--remove-section", ".ARM.attributes", noAttributesPath],
