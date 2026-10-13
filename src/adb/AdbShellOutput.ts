@@ -236,7 +236,11 @@ export const parseDumpsysPackageOutput = (
       inPermissions = true;
       continue;
     }
-    if (inPermissions && /^\s{2,}[A-Za-z0-9._]+$/.test(line)) {
+    // Android 10 and 11 mark restricted entries as "NAME: restricted=true".
+    if (
+      inPermissions &&
+      /^\s{2,}[A-Za-z0-9._]+(?:: restricted=true)?$/u.test(line)
+    ) {
       permissions += 1;
       continue;
     }
@@ -320,69 +324,81 @@ export const parseResolveActivityOutput = (stdout: string): string | null => {
   return lines.length === 0 ? null : lines[lines.length - 1]!;
 };
 
+/** Parsed facts and verdict from the full `am start -W` report. */
+export interface AmStartOutput {
+  readonly status: "started" | "refused";
+  readonly startedActivity: string | null;
+  readonly activity: string | null;
+  readonly reportedStatus: string | null;
+  readonly reason: string | null;
+}
+
 /**
- * Parse the full `am start -W` verdict: `Starting:` reports an attempt,
- * while a later Status or Error can report its failure. Keep the intent,
- * activity and status separately; the attempt does not prove completion.
+ * Parse the complete `am start -W` report. `Starting:` records an attempt;
+ * hard errors and any non-ok Activity Manager status determine the verdict.
  */
 export const parseAmStartOutput = (
   stdout: string,
   stderr = "",
-): {
-  readonly status: "started" | "timed_out" | "refused";
-  readonly startedActivity: string | null;
-  /** The concrete activity reported by `am start -W`, when present. */
-  readonly activity: string | null;
-  /** The raw Activity Manager status value, when present. */
-  readonly reportedStatus: string | null;
-  readonly reason: string | null;
-} => {
-  const text = `${stdout}\n${stderr}`.replaceAll("\r\n", "\n").trim();
-  const starting = /^Starting:[ \t]+Intent[ \t]*\{(.*)\}[ \t]*$/mu.exec(text);
-  const startingIntent = starting?.[1]?.trim() ?? null;
-  const activity = /^Activity:[ \t]*(.*)$/mu.exec(text)?.[1]?.trim() ?? null;
-  const statuses = [...text.matchAll(/^Status:[ \t]*(.*)$/gmu)].map((match) =>
-    match[1]!.trim(),
+): AmStartOutput => {
+  const normalizedStdout = stdout.replaceAll("\r\n", "\n");
+  const starting = /^Starting:[ \t]+Intent[ \t]*\{(.*)\}[ \t]*$/mu.exec(
+    normalizedStdout,
   );
-  const reportedStatus =
-    statuses.find((status) => status.toLowerCase() !== "ok") ??
-    statuses[0] ??
-    null;
-  const error = /^(?:Error|Exception)(?::|\b)(.*)$/mu.exec(text);
-  const warning = /^Warning:(.*)$/mu.exec(text);
-  const normalizedStatus = reportedStatus?.toLowerCase();
+  const startedActivity = starting?.[1]?.trim() ?? null;
+  const activityMatch = /^Activity:[ \t]*(.*)$/mu.exec(normalizedStdout);
+  const activity = activityMatch?.[1]?.trim() || null;
+  const statuses = [...normalizedStdout.matchAll(/^Status:[ \t]*(.*)$/gmu)].map(
+    (match) => match[1]!.trim(),
+  );
+  const nonOkStatus = statuses.find((status) => status.toLowerCase() !== "ok");
+  const reportedStatus = nonOkStatus ?? statuses[0] ?? null;
+  const error = [normalizedStdout, stderr.replaceAll("\r\n", "\n")]
+    .flatMap((stream) => stream.split("\n"))
+    .map((line) => line.trim())
+    .map((line) => ({
+      line,
+      match: /^(?:Error|Exception)(?::|\b)(.*)$/iu.exec(line),
+    }))
+    .find(({ match }) => match !== null);
+  const errorReason = error?.match?.[1]?.trim() || error?.line || null;
+  const statusReason =
+    nonOkStatus === ""
+      ? "am start reported an empty status"
+      : nonOkStatus === undefined
+        ? null
+        : `am start reported status: ${nonOkStatus}`;
   const reason =
-    error?.[1]?.trim() ??
-    (reportedStatus !== null && normalizedStatus !== "ok"
-      ? `am start reported status: ${reportedStatus}`
-      : (warning?.[1]?.trim() ??
-        (text === "" ? "am start returned no activity" : text.slice(0, 512))));
-  if (error === null && normalizedStatus === "timeout")
+    errorReason ??
+    statusReason ??
+    (/^Warning:/mu.test(normalizedStdout.trim())
+      ? normalizedStdout.trim().slice(0, 512)
+      : null);
+  if (errorReason !== null || nonOkStatus !== undefined)
     return {
-      status: "timed_out",
-      startedActivity: startingIntent,
+      status: "refused",
+      startedActivity,
       activity,
       reportedStatus,
-      reason,
+      reason: reason ?? "am start did not report a successful launch",
     };
-  if (
-    startingIntent !== null &&
-    error === null &&
-    (reportedStatus === null || normalizedStatus === "ok")
-  )
+  if (startedActivity !== null)
     return {
       status: "started",
-      startedActivity: startingIntent,
+      startedActivity,
       activity,
       reportedStatus,
       reason: null,
     };
+  const text = `${normalizedStdout}\n${stderr.replaceAll("\r\n", "\n")}`.trim();
   return {
     status: "refused",
-    startedActivity: startingIntent,
+    startedActivity,
     activity,
     reportedStatus,
-    reason,
+    reason:
+      reason ??
+      (text === "" ? "am start returned no activity" : text.slice(0, 512)),
   };
 };
 

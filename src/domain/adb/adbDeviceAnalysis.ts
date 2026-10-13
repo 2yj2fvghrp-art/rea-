@@ -30,6 +30,25 @@ const packageNameSchema = z
     "Package name must be dot-separated Java identifiers",
   );
 
+/** Text states emitted by adb's ConnectionState formatter. */
+export const ADB_DEVICE_STATES = [
+  "no permissions",
+  "unauthorized",
+  "authorizing",
+  "offline",
+  "recovery",
+  "sideload",
+  "connecting",
+  "bootloader",
+  "device",
+  "unknown",
+  "host",
+  "rescue",
+  "detached",
+] as const;
+export const adbDeviceStateSchema = z.enum(ADB_DEVICE_STATES);
+export type AdbDeviceState = (typeof ADB_DEVICE_STATES)[number];
+
 const keyStringSchema = z.string().min(1).max(256);
 const keyPattern = /^[A-Za-z0-9._\x2d]+$/u;
 
@@ -412,7 +431,7 @@ const client = z.strictObject({
 
 const device = z.strictObject({
   serial: z.string().min(1),
-  state: z.string().min(1),
+  state: adbDeviceStateSchema,
   transport: z.enum(["usb", "tcp", "unknown"]),
   product: z.string().nullable(),
   model: z.string().nullable(),
@@ -706,7 +725,7 @@ export const adbResultSchemas = {
   }),
 } as const;
 
-/** A launch attempt whose Activity Manager verdict did not establish success. */
+/** Launch-attempt facts retained when Activity Manager does not report success. */
 export type AdbActivityStartPartialObservation =
   | {
       readonly provider_id: "adb";
@@ -726,7 +745,7 @@ export type AdbPackagePullPartialObservation = {
   readonly result: z.infer<typeof adbResultSchemas.pull_adb_package>;
 };
 
-/** A completed acquisition whose digest read was cancelled before verification. */
+/** Acquired file facts retained when publication, digest verification or cleanup fails. */
 export type AdbAcquiredFilePartialObservation =
   | {
       readonly provider_id: "adb";
@@ -744,13 +763,15 @@ export type AdbAcquiredFilePartialObservation =
   | {
       readonly provider_id: "adb";
       readonly operation: "collect_adb_bugreport";
-      readonly result: {
-        readonly client: z.infer<
-          typeof adbResultSchemas.collect_adb_bugreport
-        >["client"];
-        readonly serial: string;
-        readonly local_path: string;
-        readonly adb_reported_path: string;
-        readonly digest_status: "unknown";
-      };
+      readonly result:
+        | z.infer<typeof adbResultSchemas.collect_adb_bugreport>
+        | {
+            readonly client: z.infer<
+              typeof adbResultSchemas.collect_adb_bugreport
+            >["client"];
+            readonly serial: string;
+            readonly local_path: string;
+            readonly adb_reported_path: string;
+            readonly digest_status: "unknown";
+          };
     };

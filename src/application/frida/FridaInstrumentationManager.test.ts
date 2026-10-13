@@ -809,6 +809,42 @@ it("keeps an active script message bucket after its last message is evicted", as
   await manager.closeAll();
 });
 
+it("retains the newest contiguous messages across repeated budget evictions", async () => {
+  const { bindings, manager, started } = await startLocalAttachedSession();
+  expect(started.ok).toBe(true);
+  if (!started.ok) return;
+  bindings.device.session.nextPayload = { index: -1 };
+  const loaded = await manager.loadScript(started.value.sessionId, {
+    sourceKind: "inline",
+    source: "send({index: -1});",
+  });
+  expect(loaded.ok).toBe(true);
+  const script = bindings.device.session.scripts[0];
+  expect(script).toBeDefined();
+  if (script === undefined) return;
+
+  // About 500 of these fit the 16 MiB budget, so 2,000 sends evict and
+  // compact the queue several times.
+  const filler = "x".repeat(32_000);
+  for (let index = 0; index < 2_000; index += 1)
+    script.message.emit({ type: "send", payload: { index, filler } }, null);
+
+  const status = manager.status(started.value.sessionId);
+  expect(status?.messagesTruncated).toBe(true);
+  const indexes = (status?.messages ?? []).map(
+    (message) => (message as { payload: { index: number } }).payload.index,
+  );
+  expect(indexes.length).toBeGreaterThan(400);
+  expect(indexes.at(-1)).toBe(1_999);
+  expect(indexes).toEqual(
+    Array.from(
+      { length: indexes.length },
+      (_, offset) => 2_000 - indexes.length + offset,
+    ),
+  );
+  await manager.closeAll();
+});
+
 it("serializes a final remote release against a new same-endpoint session", async () => {
   const bindings = new FakeDeviceManager();
   let enteredRemoval: (() => void) | undefined;
@@ -985,4 +1021,40 @@ it("serializes script loading against concurrent close and unloads the loaded sc
   expect((await closing).ok).toBe(true);
   expect(bindings.device.session.scripts[0]?.isDestroyed).toBe(true);
   expect(bindings.device.session.isDetached()).toBe(true);
+});
+
+it("names the unknown session or script ID it rejects", async () => {
+  const { manager, started } = await startLocalAttachedSession();
+  if (!started.ok) throw started.error;
+  const missing = "00000000-0000-4000-8000-000000000009";
+  const sessionIssue = {
+    path: ["session_id"],
+    reason: "invalid_value",
+    message: `No open Frida session ${missing}; start one with start_frida_session.`,
+  };
+  for (const result of [
+    await manager.closeSession(missing),
+    await manager.resumeSession(missing),
+    await manager.loadScript(missing, { sourceKind: "inline", source: "" }),
+    await manager.unloadScript(missing, missing),
+  ])
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisInputError", issues: [sessionIssue] },
+    });
+  expect(
+    await manager.unloadScript(started.value.sessionId, missing),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      issues: [
+        {
+          path: ["script_id"],
+          reason: "invalid_value",
+          message: `No loaded Frida script ${missing} in this session.`,
+        },
+      ],
+    },
+  });
+  await manager.closeAll();
 });

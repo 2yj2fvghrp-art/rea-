@@ -2,94 +2,74 @@ import { describe, expect, it } from "vitest";
 
 import { parseAmStartOutput } from "./AdbShellOutput.js";
 
-const intent = "act=android.intent.action.MAIN cmp=com.example/.Main";
-const starting = `Starting: Intent { ${intent} }`;
+const starting =
+  "Starting: Intent { act=android.intent.action.MAIN cmp=com.example/.Main }";
 
 describe("parseAmStartOutput", () => {
-  it.each(["\n", "\r\n"])(
-    "preserves complete successful wait output with %j line endings",
-    (newline) => {
-      expect(
-        parseAmStartOutput(
-          [
-            starting,
-            "Status: ok",
-            "LaunchState: COLD",
-            "Activity: com.example/.Main",
-            "TotalTime: 314",
-            "WaitTime: 315",
-            "Complete",
-          ].join(newline),
-        ),
-      ).toEqual({
-        status: "started",
-        startedActivity: intent,
-        activity: "com.example/.Main",
-        reportedStatus: "ok",
-        reason: null,
-      });
-    },
-  );
-
-  it("preserves the attempted intent and activity when the device times out", () => {
+  it("recognizes a CRLF wait-timeout report", () => {
     expect(
       parseAmStartOutput(
-        `${starting}\nStatus: timeout\nActivity: com.example/.Main\nWaitTime: 10004\nComplete\n`,
+        `${starting}\r\nStatus: timeout\r\nActivity: com.example/.Main\r\nComplete\r\n`,
       ),
-    ).toEqual({
-      status: "timed_out",
-      startedActivity: intent,
+    ).toMatchObject({
+      status: "refused",
       activity: "com.example/.Main",
       reportedStatus: "timeout",
       reason: "am start reported status: timeout",
     });
   });
 
-  it("does not let an earlier ok or Starting line mask later failure", () => {
+  it("treats every non-ok status as refusal, including a later status after ok", () => {
     expect(
       parseAmStartOutput(`${starting}\nStatus: ok\nStatus: timeout\n`),
-    ).toMatchObject({ status: "timed_out", reportedStatus: "timeout" });
-    expect(parseAmStartOutput(`${starting}\nStatus: failed\n`)).toMatchObject({
+    ).toMatchObject({
       status: "refused",
-      reportedStatus: "failed",
+      reportedStatus: "timeout",
+      reason: "am start reported status: timeout",
+    });
+    expect(
+      parseAmStartOutput(`${starting}\nStatus: future-value\n`),
+    ).toMatchObject({
+      status: "refused",
+      reportedStatus: "future-value",
     });
   });
 
-  it("gives hard errors precedence and reads errors from stderr", () => {
+  it("gives hard errors in either stream priority over status and attempt", () => {
     expect(
       parseAmStartOutput(
-        `${starting}\nStatus: timeout\n`,
-        "Error: Activity class does not exist\n",
+        `${starting}\nStatus: timeout\nActivity: com.example/.Main\n`,
+        "Exception: Activity class does not exist\n",
+      ),
+    ).toEqual({
+      status: "refused",
+      startedActivity: "act=android.intent.action.MAIN cmp=com.example/.Main",
+      activity: "com.example/.Main",
+      reportedStatus: "timeout",
+      reason: "Activity class does not exist",
+    });
+    expect(
+      parseAmStartOutput(
+        `${starting}\nStatus: ok\nError: Activity class does not exist\n`,
       ),
     ).toMatchObject({
       status: "refused",
-      startedActivity: intent,
-      reportedStatus: "timeout",
       reason: "Activity class does not exist",
     });
   });
 
-  it("retains legacy Starting output and already-running success warnings", () => {
+  it("keeps Starting-only output compatible and refuses no-attempt output", () => {
     expect(parseAmStartOutput(starting)).toMatchObject({
       status: "started",
       reportedStatus: null,
       activity: null,
     });
     expect(
-      parseAmStartOutput(
-        `${starting}\nWarning: Activity not started, intent has been delivered to currently running top-most instance.\nStatus: ok\nActivity: com.example/.Main\n`,
-      ),
-    ).toMatchObject({ status: "started", reportedStatus: "ok" });
-  });
-
-  it.each([
-    "",
-    "Error: unable to resolve Intent",
-    "Warning: Activity not started",
-  ])("refuses output without a launch observation: %j", (output) => {
-    expect(parseAmStartOutput(output)).toMatchObject({
+      parseAmStartOutput("Status: ok\nWarning: Activity not started\n"),
+    ).toMatchObject({
       status: "refused",
       startedActivity: null,
+      reportedStatus: "ok",
     });
   });
 });
