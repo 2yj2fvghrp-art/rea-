@@ -54,6 +54,7 @@ const sessionEvidence = effects({ mutatesSession: true });
 /** Explicit effect audit for every public tool. */
 export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   inspect_go_binary: evidence,
+  inspect_rust_binary: evidence,
   inspect_sqlite_database: effects({
     mutatesSession: true,
     writesFilesystem: true,
@@ -438,6 +439,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   inspect_native_data_type: evidence,
   resolve_native_call_targets: evidence,
   read_bytes: evidence,
+  search_bytes: evidence,
   address_to_file_offset: evidence,
   procedure_references: evidence,
   procedure_pseudo_code: evidence,
@@ -622,6 +624,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   }),
   compare_process_captures: sessionEvidence,
   compare_artifacts: sessionEvidence,
+  compare_wasm_interfaces: sessionEvidence,
   compare_functions: sessionEvidence,
   compare_bundles: effects({ mutatesSession: true }),
   find_changed_behavior: sessionEvidence,
