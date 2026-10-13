@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
+import { mergeUserConfig, readUserConfig } from "./config/userConfig.js";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 
@@ -50,7 +51,18 @@ const runtimeDependencies = (): RuntimeDependencies => ({
 export const run = async (
   dependencies: RuntimeDependencies = runtimeDependencies(),
 ): Promise<number> => {
-  const environment = snapshotEnvironment(dependencies.env);
+  const userConfig = await readUserConfig(dependencies.env);
+  const userConfigMerge = mergeUserConfig(
+    snapshotEnvironment(dependencies.env),
+    userConfig,
+  );
+  if (!userConfigMerge.ok) {
+    dependencies.writeStderr(
+      `${projectAnalysisError(userConfigMerge.error).message}\n`,
+    );
+    return 1;
+  }
+  const environment = userConfigMerge.value;
   const config = parseConfig(environment);
   if (!config.ok) {
     dependencies.writeStderr(`${projectAnalysisError(config.error).message}\n`);
