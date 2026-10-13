@@ -12,10 +12,10 @@
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](../mcp-contracts.md#generated-catalog)
 [![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
-[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../LICENSE)
+[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 [![Discord](https://img.shields.io/discord/1556595354999332884?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/GkcryMnJDM)
 
-<a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&utm_medium=badge&utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
+<a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
 
 **[वेबसाइट](https://rea.tools/) · [गाइड](https://rea.tools/guides/) · [उदाहरण](https://rea.tools/showcase/)**
 
@@ -25,7 +25,7 @@
 
 <br />
 
-<img src="docs/assets/rea-hopper-analysis.png" alt="REA, Hopper के अंदर अपना विश्लेषण ब्रिज शुरू करते हुए एक नेटिव बायनरी का निरीक्षण करता हुआ" width="1200" />
+<img src="../assets/rea-hopper-analysis.png" alt="REA, Hopper के अंदर अपना विश्लेषण ब्रिज शुरू करते हुए एक नेटिव बायनरी का निरीक्षण करता हुआ" width="1200" />
 
 <br /><br />
 
@@ -33,7 +33,7 @@
 <tr>
 <td align="center" width="360">
   <a href="https://discord.gg/GkcryMnJDM">
-    <img src="docs/assets/discord.svg" height="42" alt="Discord" /><br />
+    <img src="../assets/discord.svg" height="42" alt="Discord" /><br />
     <strong>रिवर्स इंजीनियरिंग समुदाय से जुड़ें</strong>
   </a><br />
   <sub>Discord · प्रश्नोत्तर · शोकेस और डेमो</sub>
@@ -122,9 +122,9 @@ npx rea-agents@latest setup
 
 आपका एजेंट MCP के माध्यम से REA को बुलाकर लक्ष्य का निरीक्षण करता है और संबंधित कोड का अनुगमन करता है। REA अपने निष्कर्ष उनके प्रमाण के साथ लौटाता है। एजेंट इनका उपयोग अनुवर्ती प्रश्न पूछने, व्यवहार समझाने, या कोई कार्यान्वयन लिखकर परीक्षण करने के लिए करता है। CLI कमांड भी वही वर्कफ़्लो अपनाते हैं।
 
-![REA जाँच प्रवाह: एजेंट किसी स्थानीय लक्ष्य के बारे में पूछता है, REA विश्लेषण औज़ारों से उसे जाँचकर अनुगमन करता है, और एजेंट लौटाए गए कोड, संदर्भों तथा अज्ञात बिंदुओं का उपयोग करके समझाता, लागू करता और परीक्षण करता है।](../website/public/assets/figures/rea-investigation-flow.svg)
+![REA जाँच प्रवाह: एजेंट किसी स्थानीय लक्ष्य के बारे में पूछता है, REA विश्लेषण औज़ारों से उसे जाँचकर अनुगमन करता है, और एजेंट लौटाए गए कोड, संदर्भों तथा अज्ञात बिंदुओं का उपयोग करके समझाता, लागू करता और परीक्षण करता है।](../../website/public/assets/figures/rea-investigation-flow.svg)
 
-[पूर्ण आकार का चित्र खोलें](../website/public/assets/figures/rea-investigation-flow.svg).
+[पूर्ण आकार का चित्र खोलें](../../website/public/assets/figures/rea-investigation-flow.svg).
 
 <a id="current-status"></a>
 
@@ -132,30 +132,30 @@ npx rea-agents@latest setup
 
 REA को Node.js 22.x (>=22.19), 24.x (>=24.11), या 26+ और npm चाहिए। अतिरिक्त औज़ार और होस्ट समर्थन लक्ष्य पर निर्भर करते हैं:
 
-| लक्ष्य                      | REA क्या लौटाता है                                                  | आवश्यकताएँ और गाइड                                                                                                          |
-| ------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| नेटिव बायनरी               | स्यूडोकोड, असेंबली, स्ट्रिंग्स, प्रतीक, कॉल और संदर्भ                        | Hopper, Ghidra या IDA; [नेटिव विश्लेषण](https://rea.tools/guides/native/)                                                    |
-| ऑफ़लाइन ELF लेआउट           | सेक्शन, सेगमेंट, मूल प्रतीक/रिलोकेशन और स्थैतिक शमन-उपायों के उम्मीदवार        | Linux x64 पर कॉलर-प्रदत्त pwntools; [बायनरी डायग्नोस्टिक्स](../binary-diagnostics.md)                                          |
-| Go बायनरी                 | एम्बेडेड कंपाइलर संस्करण, मॉड्यूल, रिप्लेसमेंट और बिल्ड सेटिंग्स                  | अंतर्निहित स्थैतिक ELF/PE/thin Mach-O निरीक्षण; किसी Go इंस्टॉलेशन की आवश्यकता नहीं                                                 |
-| WASM आर्टिफ़ैक्ट              | सत्यापन, सेक्शन, सटीक इम्पोर्ट/एक्सपोर्ट WAT रूप और डिकोड किया हुआ WAT     | कॉलर-प्रदत्त WABT 1.0.42; `inspect_wasm_artifact`                                                                           |
-| EVM बाइटकोड               | डिस्पैच सेलेक्टर, बाइट ऑफ़सेट, अनुमानित आर्ग्यूमेंट और म्यूटेबिलिटी               | Linux x64 पर स्थानीय कच्चा/हेक्स वाहक; [ऑफ़लाइन EVM गाइड](../evm-bytecode.md)                                                  |
-| SQLite डेटाबेस              | टेबल, कॉलम, इंडेक्स, व्यू, ट्रिगर और चुनी हुई साधारण-टेबल पंक्तियाँ            | स्थानीय डेटाबेस/WAL स्नैपशॉट; नेटिव SQLite सीमाओं सहित Node.js 24.x >=24.15 या 26+                                               |
-| रिकॉर्ड किए गए Linux क्रैश   | कच्चे नोट, हर रिकॉर्ड किए थ्रेड के रजिस्टर/सिग्नल और वैकल्पिक मैपिंग उम्मीदवार | Linux x64 पर कॉलर-प्रदत्त pwntools; वैकल्पिक GDB/pwndbg; [रिकॉर्ड किए क्रैश](../recorded-crashes.md)                             |
-| JavaScript / Electron     | मॉड्यूल, इम्पोर्ट, सोर्स मैप, रूट, IPC और नेटिव ऐड-ऑन के संबंध               | Node.js और npm; [ऐप्लिकेशन विश्लेषण](https://rea.tools/guides/javascript/)                                                    |
-| वेबसाइटें                    | पृष्ठ की संरचना, स्क्रिप्ट, नेटवर्क अवलोकन और अनुरोधित स्क्रीनशॉट            | Chrome परिवार का ब्राउज़र; [ब्राउज़र विश्लेषण](https://rea.tools/guides/browser/)                                               |
-| सहेजे गए नेटवर्क कैप्चर         | अनुरोध, प्रतिक्रियाएँ, उपलब्ध पेलोड और स्रोत स्थान                        | HAR या Fiddler Everywhere SAZ; नेटिव mitmproxy कैप्चर के लिए Linux पर mitmdump; [कैप्चर गाइड](../web-network-captures.md)       |
-| .NET असेंबली                | मेटाडेटा, CIL निर्देश, घोषित नेटिव निर्भरताएँ और बिल्ड तुलना               | कोई नहीं (केवल स्थैतिक); [मैनेज्ड-कोड गाइड](../managed-code-analysis.md)                                                         |
-| Android APK               | मेनिफ़ेस्ट घोषणाएँ, क्लासेस, डिकंपाइल किए गए मेथड और संदर्भ                  | Linux/macOS/Windows x64 पर हेडलेस JADX और पूर्ण JDK; [Android गाइड](../android-analysis.md)                                   |
-| Android डिवाइस            | डिवाइस, पैकेज, प्रोसेस, लॉग, डंप, स्क्रीन कैप्चर, और APK/फ़ाइल स्थानांतरण     | कॉलर-प्रदत्त adb (एम्युलेटर या हार्डवेयर); [ADB गाइड](../adb-device-analysis.md)                                                 |
-| JEB प्रोजेक्ट                | इंजन-आधारित प्रोजेक्ट यूनिट, आर्टिफ़ैक्ट डाइजेस्ट और टाइप/मेथड स्यूडोकोड        | कॉलर-शुरू किया हुआ MCP परोसने वाला JEB क्लाइंट, REA_JEB_MCP_URL से चुना जाता है; [JEB गाइड](../jeb-analysis.md)                    |
-| Android संसाधन             | डिकोड किया हुआ मेनिफ़ेस्ट, स्ट्रिंग टेबल, लोकल और संस्करण तथ्य                | कॉलर-प्रदत्त Apktool लॉन्चर; [संसाधन गाइड](../apktool-resource-analysis.md)                                                   |
-| Flutter ऐप                | Dart स्नैपशॉट हैश, प्रति-ABI लाइब्रेरी डाइजेस्ट और इंजन बिल्ड प्रोवेनेन्स       | कोई नहीं (स्थैतिक APK पार्सिंग); [Flutter गाइड](../flutter-analysis.md)                                                        |
-| फ़र्मवेयर                    | क्षेत्र, निष्कर्षण परिणाम और नेटिव-विश्लेषण हैंडऑफ़                          | Linux पर Binwalk / Unblob; [फ़र्मवेयर गाइड](../firmware-analysis.md)                                                         |
-| रिकॉर्ड किए गए पैकेट         | चुने हुए फ़ील्ड, दोहराए गए मान, फ़िल्टर और decode-as नियम                | Linux: TShark 4.x + prlimit; [पैकेट कैप्चर](../packet-captures.md)                                                            |
-| पैकेट सारांश                 | एंडपॉइंट, DNS, TLS SNI, प्रोटोकॉल वितरण और HTTP अनुरोध                | कॉलर-प्रदत्त tshark और capinfos (Linux पर सत्यापित); [pcap गाइड](../pcap-analysis.md)                                        |
-| रिकॉर्ड किए गए लॉजिक सिग्नल | डिकोडर टिप्पणियाँ, नमूना रेंज और निदान                                 | Linux: sigrok-cli 0.7.2 + prlimit; [सिग्नल रिकॉर्डिंग](../signal-recordings.md)                                              |
-| पैकेज और संसाधन              | फ़ाइल सूची, डाइजेस्ट, plist, Apple बंडल की संरचना और निकाले गए संसाधन     | [आर्टिफ़ैक्ट और JavaScript गाइड](../javascript-artifact-reconstruction.md), [Apple ऐप्लिकेशन](../apple-application-analysis.md) |
-| प्रोसेस व्यवहार              | टर्मिनल आउटपुट, अंतःक्रियाएँ, निकास और फ़ाइलसिस्टम अवलोकन, और रन तुलना    | नेटिव PTY वाले Linux/macOS; [प्रोसेस कैप्चर](../process-capture.md)                                                             |
+| लक्ष्य                            | REA क्या लौटाता है                                                                                                  | आवश्यकताएँ और गाइड                                                                                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| नेटिव बायनरी                     | स्यूडोकोड, असेंबली, स्ट्रिंग्स, प्रतीक, कॉल और संदर्भ                                                              | Hopper, Ghidra या IDA; [नेटिव विश्लेषण](https://rea.tools/guides/native/)                                                                                     |
+| ऑफ़लाइन ELF लेआउट                | सेक्शन, सेगमेंट, मूल प्रतीक/रिलोकेशन और स्थैतिक शमन-उपायों के उम्मीदवार                                              | Linux x64 पर कॉलर-प्रदत्त pwntools; [बायनरी डायग्नोस्टिक्स](../binary-diagnostics.md)                                                                       |
+| Go बायनरी                         | एम्बेडेड कंपाइलर संस्करण, मॉड्यूल, रिप्लेसमेंट और बिल्ड सेटिंग्स                                                  | अंतर्निहित स्थैतिक ELF/PE/thin Mach-O निरीक्षण; किसी Go इंस्टॉलेशन की आवश्यकता नहीं                                                                          |
+| WASM आर्टिफ़ैक्ट                  | सत्यापन, सेक्शन, सटीक इम्पोर्ट/एक्सपोर्ट WAT रूप और डिकोड किया हुआ WAT                                              | कॉलर-प्रदत्त WABT 1.0.42; `inspect_wasm_artifact`                                                                                                            |
+| EVM बाइटकोड                       | डिस्पैच सेलेक्टर, बाइट ऑफ़सेट, अनुमानित आर्ग्यूमेंट और म्यूटेबिलिटी                                                | Linux x64 पर स्थानीय कच्चा/हेक्स वाहक; [ऑफ़लाइन EVM गाइड](../evm-bytecode.md)                                                                               |
+| SQLite डेटाबेस                    | टेबल, कॉलम, इंडेक्स, व्यू, ट्रिगर और चुनी हुई साधारण-टेबल पंक्तियाँ                                             | स्थानीय डेटाबेस/WAL स्नैपशॉट; नेटिव SQLite सीमाओं सहित Node.js 24.x >=24.15 या 26+                                                       |
+| रिकॉर्ड किए गए Linux क्रैश       | कच्चे नोट, हर रिकॉर्ड किए थ्रेड के रजिस्टर/सिग्नल और वैकल्पिक मैपिंग उम्मीदवार                                     | Linux x64 पर कॉलर-प्रदत्त pwntools; वैकल्पिक GDB/pwndbg; [रिकॉर्ड किए क्रैश](../recorded-crashes.md)                                                        |
+| JavaScript / Electron             | मॉड्यूल, इम्पोर्ट, सोर्स मैप, रूट, IPC और नेटिव ऐड-ऑन के संबंध                                                    | Node.js और npm; [ऐप्लिकेशन विश्लेषण](https://rea.tools/guides/javascript/)                                                                                   |
+| वेबसाइटें                         | पृष्ठ की संरचना, स्क्रिप्ट, नेटवर्क अवलोकन और अनुरोधित स्क्रीनशॉट                                                  | Chrome परिवार का ब्राउज़र; [ब्राउज़र विश्लेषण](https://rea.tools/guides/browser/)                                                                             |
+| सहेजे गए नेटवर्क कैप्चर          | अनुरोध, प्रतिक्रियाएँ, उपलब्ध पेलोड और स्रोत स्थान                                                                  | HAR या Fiddler Everywhere SAZ; नेटिव mitmproxy कैप्चर के लिए Linux पर mitmdump; [कैप्चर गाइड](../web-network-captures.md)                                                             |
+| .NET असेंबली                     | मेटाडेटा, CIL निर्देश, घोषित नेटिव निर्भरताएँ और बिल्ड तुलना                                                       | कोई नहीं (केवल स्थैतिक); [मैनेज्ड-कोड गाइड](../managed-code-analysis.md)                                                                                   |
+| Android APK                       | मेनिफ़ेस्ट घोषणाएँ, क्लासेस, डिकंपाइल किए गए मेथड और संदर्भ                                                        | Linux/macOS/Windows x64 पर हेडलेस JADX और पूर्ण JDK; [Android गाइड](../android-analysis.md)                                                                  |
+| Android डिवाइस                    | डिवाइस, पैकेज, प्रोसेस, लॉग, डंप, स्क्रीन कैप्चर, और APK/फ़ाइल स्थानांतरण                                          | कॉलर-प्रदत्त adb (एम्युलेटर या हार्डवेयर); [ADB गाइड](../adb-device-analysis.md)                                                                            |
+| JEB प्रोजेक्ट                    | इंजन-आधारित प्रोजेक्ट यूनिट, आर्टिफ़ैक्ट डाइजेस्ट और टाइप/मेथड स्यूडोकोड                                          | कॉलर-शुरू किया हुआ MCP परोसने वाला JEB क्लाइंट, REA_JEB_MCP_URL से चुना जाता है; [JEB गाइड](../jeb-analysis.md)                                               |
+| Android संसाधन                    | डिकोड किया हुआ मेनिफ़ेस्ट, स्ट्रिंग टेबल, लोकल और संस्करण तथ्य                                                     | कॉलर-प्रदत्त Apktool लॉन्चर; [संसाधन गाइड](../apktool-resource-analysis.md)                                                                                |
+| Flutter ऐप                       | Dart स्नैपशॉट हैश, प्रति-ABI लाइब्रेरी डाइजेस्ट और इंजन बिल्ड प्रोवेनेन्स                                            | कोई नहीं (स्थैतिक APK पार्सिंग); [Flutter गाइड](../flutter-analysis.md)                                                                                    |
+| फ़र्मवेयर                         | क्षेत्र, निष्कर्षण परिणाम और नेटिव-विश्लेषण हैंडऑफ़                                                               | Linux पर Binwalk / Unblob; [फ़र्मवेयर गाइड](../firmware-analysis.md)                                                                                       |
+| रिकॉर्ड किए गए पैकेट                | चुने हुए फ़ील्ड, दोहराए गए मान, फ़िल्टर और decode-as नियम                                                     | Linux: TShark 4.x + prlimit; [पैकेट कैप्चर](../packet-captures.md)                                                                             |
+| पैकेट सारांश                        | एंडपॉइंट, DNS, TLS SNI, प्रोटोकॉल वितरण और HTTP अनुरोध                                                         | कॉलर-प्रदत्त tshark और capinfos (Linux पर सत्यापित); [pcap गाइड](../pcap-analysis.md)                                                          |
+| रिकॉर्ड किए गए लॉजिक सिग्नल         | डिकोडर टिप्पणियाँ, नमूना रेंज और निदान                                                                         | Linux: sigrok-cli 0.7.2 + prlimit; [सिग्नल रिकॉर्डिंग](../signal-recordings.md)                                                                |
+| पैकेज और संसाधन                  | फ़ाइल सूची, डाइजेस्ट, plist, Apple बंडल की संरचना और निकाले गए संसाधन                                                | [आर्टिफ़ैक्ट और JavaScript गाइड](../javascript-artifact-reconstruction.md), [Apple ऐप्लिकेशन](../apple-application-analysis.md)                            |
+| प्रोसेस व्यवहार                  | टर्मिनल आउटपुट, अंतःक्रियाएँ, निकास और फ़ाइलसिस्टम अवलोकन, और रन तुलना                                              | नेटिव PTY वाले Linux/macOS; [प्रोसेस कैप्चर](../process-capture.md)                                                                                         |
 
 स्थैतिक JavaScript और .NET निरीक्षण दी गई फ़ाइलों को पढ़ते हैं, ऐप्लिकेशन को चलाए बिना। रनटाइम कैप्चर आपकी उपयोगकर्ता अनुमतियों का उपयोग करके चुने हुए लक्ष्य को चलाता या उसके साथ अंतःक्रिया करता है; हर रनटाइम गाइड अपने प्रभाव बताती है।
 
@@ -265,7 +265,7 @@ npx rea-agents@latest setup
 - [औज़ार सूची](../mcp-contracts.md#generated-catalog): बिल्ड पर जनित औज़ारों, प्रदाताओं और CLI कमांड की सूची।
 - [रोडमैप](../roadmap.md): नियोजित कार्य और क्षमता ट्रैकर।
 
-कमज़ोरियाँ [SECURITY.md](SECURITY.md) के माध्यम से रिपोर्ट करें।
+कमज़ोरियाँ [SECURITY.md](../../SECURITY.md) के माध्यम से रिपोर्ट करें।
 
 ## स्टार इतिहास
 
@@ -273,17 +273,17 @@ npx rea-agents@latest setup
 
 REA का उपयोग करने, बग रिपोर्ट करने, सुविधाएँ माँगने, बिल्ड परीक्षण करने और फ़िक्स योगदान करने वाले सभी लोगों का धन्यवाद।
 
-<a href="https://www.star-history.com/?repos=morluto%2Frea&type=date">
+<a href="https://www.star-history.com/?repos=morluto%2Frea&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto%2Frea&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto%2Frea&type=date" />
-    <img alt="REA की GitHub स्टार इतिहास" src="https://api.star-history.com/chart?repos=morluto%2Frea&type=date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date&amp;theme=dark&amp;legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
+    <img alt="REA की GitHub स्टार इतिहास" src="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
   </picture>
 </a>
 
 ## अस्वीकरण
 
-ज़िम्मेदार उपयोग मार्गदर्शन के लिए [DISCLAIMER.md](DISCLAIMER.md) देखें।
+ज़िम्मेदार उपयोग मार्गदर्शन के लिए [DISCLAIMER.md](../../DISCLAIMER.md) देखें।
 
 प्रोजेक्ट की अवैध या अनधिकृत उपयोग पर स्थिति सभी REA संस्करणों, वितरण चैनलों और प्लेटफ़ॉर्मों पर लागू होती है; हर प्रति अपने लागू होने वाले लाइसेंस बनाए रखती है।
 
@@ -293,15 +293,15 @@ REA कानूनी अनुसंधान, शिक्षा, अंत�
 
 REA के लिए आपकी मदद की हम कद्र करते हैं! बग रिपोर्ट करने या सुविधा सुझाने के लिए [एक issue खोलें](https://github.com/morluto/rea/issues), या कोड या दस्तावेज़ बेहतर करने के लिए [एक pull request भेजें](https://github.com/morluto/rea/pulls).
 
-विकास सेटअप और जाँच के लिए [CONTRIBUTING.md](../CONTRIBUTING.md), सत्यापन पथ के लिए [परीक्षण गाइड](../testing.md), और प्रोजेक्ट संरचना के लिए [आर्किटेक्चर मानचित्र](../architecture.mermaid) देखें।
+विकास सेटअप और जाँच के लिए [CONTRIBUTING.md](../../CONTRIBUTING.md), सत्यापन पथ के लिए [परीक्षण गाइड](../testing.md), और प्रोजेक्ट संरचना के लिए [आर्किटेक्चर मानचित्र](../architecture.mermaid) देखें।
 
 ## लाइसेंस
 
-[MIT](../LICENSE)
+[MIT](../../LICENSE)
 
 REA-authored code is licensed under MIT. Third-party material retains its own
 licenses and copyright notices; see
-[Third-party notices](../THIRD_PARTY_NOTICES.md) for the dependency inventory,
+[Third-party notices](../../THIRD_PARTY_NOTICES.md) for the dependency inventory,
 preserved license texts, and external-tool terms.
 
 **You must legally obtain and be authorized to use commercial tools**, including
