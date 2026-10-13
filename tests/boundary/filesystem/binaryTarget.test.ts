@@ -906,7 +906,9 @@ it.each([
   ],
   [
     "leading comments",
-    Buffer.from(`<!-- preface --><!-- second -->${xmlKeyedArchive}`),
+    Buffer.from(
+      xmlKeyedArchive.replace("?>", "?><!-- preface --><!-- second -->"),
+    ),
   ],
   ["an XML declaration and doctype", Buffer.from(xmlKeyedArchive, "utf8")],
   [
