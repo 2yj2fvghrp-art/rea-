@@ -463,6 +463,22 @@ class PcapGraderWorkflowTests(unittest.TestCase):
             answer, records, reference = self.fixture();records[index]['operation'] = 'inspect_pcap_capture'
             self.assertFalse(self.grade(answer, records, reference)['all_factual_checks_pass'])
 
+    def test_workflow_citation_count_must_match_the_planned_calls(self):
+        for count, made_page_call in [(1, False), (1, True), (3, True)]:
+            with self.subTest(count=count, made_page_call=made_page_call):
+                answer, records, reference = self.fixture()
+                if count == 1:
+                    answer['delivery_observations'] = answer['delivery_observations'][:1]
+                    answer['evidence_ids'] = answer['evidence_ids'][:1]
+                else:
+                    extra = copy.deepcopy(answer['delivery_observations'][-1])
+                    extra['evidence_id'] = 'ev_' + 'e' * 64
+                    answer['delivery_observations'].append(extra)
+                    answer['evidence_ids'].append(extra['evidence_id'])
+                report = self.grade(answer, records if made_page_call else records[:1], reference)
+                self.assertFalse(report['all_factual_checks_pass'])
+                self.assertFalse(report['all_workflow_checks_pass'])
+
     def test_unreadable_planned_reply_does_not_pass_workflow_acceptance(self):
         answer, records, reference = self.fixture()
         report = self.grade(answer, records, reference,

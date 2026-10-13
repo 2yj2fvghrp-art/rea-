@@ -297,7 +297,8 @@ def main():
             check('pcap_cited_call_arguments', json.dumps([entry[1] if entry is not None else None for entry in entries], sort_keys=True),
                   json.dumps(expected_arguments, sort_keys=True))
             workflow_checks['pcap_exact_call_sequence'] = (
-                json.dumps(pcap_attempts, sort_keys=True) == json.dumps([
+                len(identities) == len(expected_tools)
+                and json.dumps(pcap_attempts, sort_keys=True) == json.dumps([
                     {'tool': tool, 'arguments': arguments, 'status': 'completed',
                      'evidence_id': identity, 'readable_evidence': True}
                     for tool, arguments, identity in zip(expected_tools, expected_arguments, identities)
