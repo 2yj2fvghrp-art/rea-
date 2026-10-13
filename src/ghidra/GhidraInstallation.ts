@@ -697,14 +697,20 @@ const javaCheck = (
 ): GhidraInstallationCheck => {
   const requirement = ghidraJavaRequirement(properties);
   const range = ghidraJavaRangeLabel(requirement);
-  if (observation !== undefined && "status" in observation)
+  if (observation !== undefined && "status" in observation) {
+    const hasKnownMismatch =
+      (observation.major !== null &&
+        !ghidraJavaMajorAccepted(observation.major, requirement)) ||
+      observation.bits === 32 ||
+      observation.runtime === "jre";
     return installationCheck({
       name: "java",
       passed: false,
-      code: "version_unresolved",
-      detail: `Java reported empty required ${observation.issues.join(" and ")}; java.version=${JSON.stringify(observation.version)}; java.home=${JSON.stringify(observation.home)}; ${javaBitnessDetail(observation)}${observation.vmName === undefined ? "" : `; ${observation.vmName}`}`,
+      code: hasKnownMismatch ? "unsupported_version" : "version_unresolved",
+      detail: `Java reported empty required ${observation.issues.join(" and ")}; java.version=${JSON.stringify(observation.version)}; java.home=${JSON.stringify(observation.home)}; ${javaBitnessDetail(observation)}${observation.runtime === undefined ? "" : `; ${observation.runtime === "jdk" ? "JDK" : "runtime only"}`}${observation.vmName === undefined ? "" : `; ${observation.vmName}`}`,
       remediation: javaRemediation(requirement, configuredHome, range),
     });
+  }
   const otherwiseSupported =
     observation !== undefined &&
     ghidraJavaMajorAccepted(observation.major, requirement) &&
