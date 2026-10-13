@@ -80,11 +80,73 @@ google-chrome \
 
 REA does not launch, own, or terminate this browser. Use a dedicated profile and stop it yourself when the investigation is complete. Do not expose the debugging port on a non-loopback interface.
 
+Other Chromium-family browsers, such as Chromium or Brave, work the same way
+with the same two flags. On macOS, run the executable inside the application
+bundle, for example
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` or
+`"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"`. Fedora installs
+Chromium as `chromium-browser`.
+
+REA needs the browser's HTTP discovery endpoint on a loopback port. A browser
+driven over `--remote-debugging-pipe` or a private channel, for example by an
+automation SDK, exposes no such endpoint, so `list_browser_targets` has nothing
+to attach to. Connection failures report `endpoint_unreachable`; a reachable
+HTTP service that returns a non-200 or non-JSON discovery response reports
+`invalid_endpoint_response`.
+Reproduce that flow in a Chromium-family browser started with
+`--remote-debugging-port`.
+
+In a minimal Linux container, headed Chromium under Xvfb can keep running while
+its DevTools port never opens. Install the GLES, EGL, and Mesa DRI libraries
+(on Fedora: `libglvnd-gles`, `mesa-libEGL`, and `mesa-dri-drivers`), then
+restart the browser.
+
 On Linux, a reachable but locked desktop keyring can stall Chrome before its
 first navigation. For a dedicated investigation profile, add
 `--password-store=basic` to bypass that keyring. Empty or placeholder frame URLs
 then describe an unloaded page; REA continues to require an allowed, committed
 URL. See [the startup investigation](https://github.com/morluto/rea/issues/1384#issuecomment-6093781686).
+
+### Browsers without HTTP discovery
+
+Some browsers expose a loopback browser WebSocket but no `/json/version` or
+`/json/list`. Chrome 144 and later can enable remote debugging on a running
+browser from `chrome://inspect/#remote-debugging`; this mode is reported to
+serve only the browser socket. Since Chrome 136, `--remote-debugging-port` is
+ignored for the default profile, so this is the remaining way to inspect a page
+in an existing profile.
+
+For such a browser, pass the browser socket instead of the HTTP endpoint:
+
+```bash
+rea list-browser-targets ws://127.0.0.1:9222/devtools/browser/<id>
+```
+
+Chrome writes the port and the `/devtools/browser/<id>` path to the
+`DevToolsActivePort` file in its user data directory. REA does not read that
+file for you.
+
+- Only `list_browser_targets`, `inspect_web_page`, `analyze_web_bundle`,
+  `observe_web_session`, `discover_webmcp_tools`, and `capture_web_screenshot`
+  accept a browser socket. Website runtime attribution, Electron inspection,
+  and scenario attach mode still require HTTP discovery.
+- Each call opens one WebSocket and uses it for discovery
+  (`Browser.getVersion`, `Target.getTargets`) and for the selected page.
+  Discovery must finish within the same 10-second deadline as HTTP discovery.
+  Chrome may ask you to approve each connection.
+- The browser identifier controls access to the socket. Evidence records the
+  endpoint as `ws://127.0.0.1:9222/devtools/browser/[REDACTED]`.
+- `browser.revision` is the socket's `Browser.getVersion` value, such as
+  `@e533e98…`. HTTP discovery reports `WebKit-Version`, such as
+  `537.36 (@e533e98…)`.
+- `Target.getTargets` reports whether each target is attached. Chrome's
+  `/json/list` can omit it, so HTTP discovery may report `attached` as `null`.
+- An existing profile can hold many unrelated pages. Target listing returns
+  each eligible page's URL and title, so pass `--allowed-origins` to list only
+  the origins you are investigating.
+
+A browser driven only through `--remote-debugging-pipe` or a vendor's private
+automation channel has neither endpoint, and REA cannot attach to it.
 
 ## Request boundary
 
@@ -95,9 +157,13 @@ decoded strings or JSON objects.
 
 Discovery supplies a literal loopback CDP endpoint and returns all eligible
 page targets unless an exact HTTP(S) origin filter narrows the result. Follow-up
-inspection requests select one target; their default scope is its current origin. `localhost`, private-LAN
-addresses, HTTPS CDP endpoints, credentials, paths, queries, fragments, and
-implicit ports are not valid CDP endpoints. Origin filters contain only scheme,
+inspection requests select one target; their default scope is its current origin.
+The endpoint is either `http://127.0.0.1:PORT` or a
+[browser socket](#browsers-without-http-discovery),
+`ws://127.0.0.1:PORT/devtools/browser/ID`; `[::1]` may replace `127.0.0.1`.
+`localhost`, private-LAN addresses, HTTPS and `wss:` endpoints, credentials,
+queries, fragments, implicit ports, and any other path are not valid CDP
+endpoints. Origin filters contain only scheme,
 host, and port; paths, credentials, queries, fragments, and wildcards are not
 valid origins.
 
@@ -177,6 +243,7 @@ REA retains local observation data and removes only URL userinfo credentials, ex
 - Console observations with a stack source retain call type, argument types, timestamp, and source location. When console text capture is selected, already-delivered primitive values are retained verbatim; objects, getters, and remote properties are never expanded.
 - WebSocket observations retain direction, opcode, and payload byte length. When shape capture is selected, text frames are classified as text or complete value-free JSON shape; binary bytes, hashes, prefixes, and raw frames are never retained.
 - Storage observations always redact values. Key names, IndexedDB names, and cache names require `include_storage_keys`; stable content fingerprints require the additional `include_storage_fingerprints` selection. Cookie fingerprints cover cookies applicable to the current main-frame URL, including its path, rather than every cookie path on that origin. Other storage remains scoped to the origin. Cache bodies above 64 KiB and partial IndexedDB remote objects make fingerprint coverage incomplete, so identical observations remain `unknown`.
+- Unavailable or malformed storage inventories mark `storage_keys` unavailable, even without fingerprints. Comparisons suppress inferred key additions and removals while preserving modifications proven by complete fingerprints on both sides. Previously exported captures are not retroactively corrected; recapture them to obtain these coverage markers.
 - Script metadata is included only when CDP supplies a URL on an allowed origin. Stable keys exclude transient CDP script IDs, and exact transient raw URLs are used only during script/resource reconciliation. URL-less scripts are excluded because their origin cannot be established. When CDP supplies an execution-context association, the accepted script retains its authorized frame ID for later attribution. Script metadata admission bounds retained identity and source-map strings to 8 MiB and 50,000 records. When a source-map URL cannot fit, the script identity remains and source-map coverage reports `resource_budget_exhausted`; rejected script observations are counted without retaining their IDs. Source content is omitted unless explicitly requested and is returned inline as a self-verifying artifact with its SHA-256 digest.
 
 Frames, resources, scripts, events, and workers outside the selected origin scope are excluded. An explicit `allowed_origins` list can include additional origins; excluded target details are counted without being exposed.
@@ -207,7 +274,7 @@ commands fail closed. A correlated reply's session ID must match the command's
 selected session. An optional method is unavailable only when the browser
 rejects it as unknown; other command rejections retain their reported failure.
 
-Network and console coverage starts only after REA attaches and enables the relevant CDP domains. `prior_activity_available` is always `false`; absence from these arrays is not evidence that an event never occurred. If CDP reuses a request ID without supplying redirect metadata, REA retains the predecessor observation and marks network coverage incomplete.
+Network and console coverage starts only after REA attaches and enables the relevant CDP domains. `prior_activity_available` is always `false`; absence from these arrays is not evidence that an event never occurred. Scripts are different: scripts the page parsed before REA attached are still reported under `scripts`. A page that loaded before attach can therefore list its scripts while `network.requests` lacks the requests that fetched them. If CDP reuses a request ID without supplying redirect metadata, REA retains the predecessor observation and marks network coverage incomplete.
 
 Source maps are not fetched by inspection. Bundle analysis fetches them only when `fetch_source_maps` is selected, with exact-origin redirect checks and no credentials, cookies, or referrer. Each fetch operation has a 30-second deadline and a 64 MiB aggregate streamed-response budget across redirects. A deadline or byte-limit failure remains explicitly unavailable and makes bundle completeness partial. Source-map decoding also bounds raw resolved identities to 64 MiB and aggregate inline evidence to 32 MiB. Failed maps preserve their failure context when it fits; if another context cannot fit, collection stops with the full requested count, the returned processed count, and an explicit unknown-results limitation. Retained mappings and original sources are returned inline. See [source-location limits](web-source-location.md) for the structural decoder bounds. Original source artifacts with `.ts`, `.tsx`, `.mts`, or `.cts` suffixes carry `text/typescript`; other source names retain `text/javascript`.
 
