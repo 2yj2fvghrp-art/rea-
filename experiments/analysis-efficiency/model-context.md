@@ -179,3 +179,31 @@ as equivalent completed work. Two trials per treatment on one question/applicati
 remain a preliminary signal, not a general default recommendation. The hint stays
 opt-in; wider questions/domains, count/coverage representation and client round
 behavior need further verification before promoting it into general guidance.
+
+## Real Android follow-up: the primary outcomes are mixed
+
+Checkpoint `22834c7d73056e2480b426848f58c31af0c307bc` checks the pinned real
+NewPipe 0.29.1 APK using actual configured JADX 0.7.1/Java, the original Android
+question and the same frozen candidate runtime. First a fresh SDK workflow
+validates three live advertised operations and produces the comparison facts:
+package/version identity, every case-sensitive MainActivity match and all
+reported onCreate entries, preserving signatures, overload indices and null DEX
+descriptors. It takes 26.961 seconds; the owned scope samples 1,234,735,104 bytes.
+
+Both subsequent actual Codex trials use the same three selected tool names,
+capture mode, model/reasoning, question and provider settings. Only discovery
+guidance changes. Each makes three successful MCP calls and five observed model
+responses, passes selected facts against the fresh actual producer, preserves
+source bytes and removes its temporary profile. No APK execution is requested.
+
+| Trial    |  Input | Cached | Uncached | Output | Wall seconds | Sampled peak bytes |
+| -------- | -----: | -----: | -------: | -----: | -----------: | -----------------: |
+| Unguided | 99,913 | 80,640 |   19,273 |  1,527 |       66.797 |      1,405,829,120 |
+| Guided   | 89,220 | 62,464 |   26,756 |  2,142 |       76.936 |      1,345,576,960 |
+
+Total input falls about 10.7%, but uncached input increases and wall time is
+longer. One pair does not demonstrate improved Android performance or memory.
+No guard abort occurs; final counters remain unknown and full resource gates
+remain false. This second domain is a concrete counterexample to generalizing
+the favorable managed comparison. Keep both flags optional and continue
+task-specific experiments before changing installed/default agent guidance.
