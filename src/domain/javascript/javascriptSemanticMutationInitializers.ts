@@ -12,6 +12,37 @@ interface StatementPosition {
   readonly declaratorIndex: number;
 }
 
+/**
+ * Initializer positions depend only on a node and its parent map, which one
+ * analysis builds once and never changes. Different mutations and initializers
+ * re-derive the same positions along shared ancestry, so retain the first
+ * result for as long as its parent map is reachable.
+ */
+interface InitializerPositionCache {
+  readonly direct: WeakMap<t.Node, StatementPosition | null>;
+  readonly mutation: WeakMap<t.Node, StatementPosition | null>;
+  readonly reference: WeakMap<t.Node, StatementPosition | null>;
+}
+
+const initializerPositionCaches = new WeakMap<
+  WeakMap<t.Node, t.Node>,
+  InitializerPositionCache
+>();
+
+const initializerPositionCache = (
+  parents: WeakMap<t.Node, t.Node>,
+): InitializerPositionCache => {
+  const cached = initializerPositionCaches.get(parents);
+  if (cached !== undefined) return cached;
+  const created: InitializerPositionCache = {
+    direct: new WeakMap(),
+    mutation: new WeakMap(),
+    reference: new WeakMap(),
+  };
+  initializerPositionCaches.set(parents, created);
+  return created;
+};
+
 const statementPosition = (
   statement: t.Statement,
   parents: WeakMap<t.Node, t.Node>,
@@ -42,7 +73,7 @@ const positionPrecedes = (
       left.declaratorIndex >= 0 &&
       left.declaratorIndex < right.declaratorIndex));
 
-const directInitializerPosition = (
+const computeDirectInitializerPosition = (
   node: t.Node,
   parents: WeakMap<t.Node, t.Node>,
 ): StatementPosition | null => {
@@ -67,7 +98,19 @@ const directInitializerPosition = (
   return null;
 };
 
-const directMutationPosition = (
+const directInitializerPosition = (
+  node: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): StatementPosition | null => {
+  const cache = initializerPositionCache(parents);
+  const cached = cache.direct.get(node);
+  if (cached !== undefined) return cached;
+  const computed = computeDirectInitializerPosition(node, parents);
+  cache.direct.set(node, computed);
+  return computed;
+};
+
+const computeDirectMutationPosition = (
   node: t.Node,
   parents: WeakMap<t.Node, t.Node>,
 ): StatementPosition | null => {
@@ -115,7 +158,19 @@ const directMutationPosition = (
   }
 };
 
-const referenceInitializerPosition = (
+const directMutationPosition = (
+  node: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): StatementPosition | null => {
+  const cache = initializerPositionCache(parents);
+  const cached = cache.mutation.get(node);
+  if (cached !== undefined) return cached;
+  const computed = computeDirectMutationPosition(node, parents);
+  cache.mutation.set(node, computed);
+  return computed;
+};
+
+const computeReferenceInitializerPosition = (
   node: t.Node,
   parents: WeakMap<t.Node, t.Node>,
 ): StatementPosition | null => {
@@ -137,6 +192,18 @@ const referenceInitializerPosition = (
   }
 };
 
+const referenceInitializerPosition = (
+  node: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): StatementPosition | null => {
+  const cache = initializerPositionCache(parents);
+  const cached = cache.reference.get(node);
+  if (cached !== undefined) return cached;
+  const computed = computeReferenceInitializerPosition(node, parents);
+  cache.reference.set(node, computed);
+  return computed;
+};
+
 /** Resolve origins at their use or capture, never at a later transitive effect. */
 export const semanticMutationInitializers = (
   binding: JavaScriptSemanticBindingState,
@@ -149,7 +216,50 @@ export const semanticMutationInitializers = (
   const mutationPosition =
     directMutationPosition(mutation, parents) ??
     referenceInitializerPosition(mutation, parents);
-  if (mutationPosition === null) return binding;
+  return selectInitializers(binding, mutationPosition, parents);
+};
+
+/** Select a local alias at its read, before any later straight-line reassignment. */
+export const semanticReadInitializers = (
+  binding: JavaScriptSemanticBindingState,
+  read: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): Pick<
+  JavaScriptSemanticBindingState,
+  "initializers" | "referenceInitializers"
+> => {
+  let position: StatementPosition | null = null;
+  let current = read;
+  for (
+    let parent = parents.get(current);
+    parent;
+    parent = parents.get(current)
+  ) {
+    if (t.isLoop(parent)) return binding;
+    if (t.isFunction(parent)) break;
+    if (position === null) {
+      if (t.isVariableDeclarator(parent)) {
+        const declaration = parents.get(parent);
+        if (t.isVariableDeclaration(declaration))
+          position = statementPosition(declaration, parents, parent);
+      } else if (t.isStatement(parent))
+        position = statementPosition(parent, parents);
+    }
+    current = parent;
+  }
+  return selectInitializers(binding, position, parents, true);
+};
+
+const selectInitializers = (
+  binding: JavaScriptSemanticBindingState,
+  position: StatementPosition | null,
+  parents: WeakMap<t.Node, t.Node>,
+  atRead = false,
+): Pick<
+  JavaScriptSemanticBindingState,
+  "initializers" | "referenceInitializers"
+> => {
+  if (position === null) return binding;
   const origins = [
     ...binding.initializers.map((initializer) => ({
       initializer,
@@ -169,12 +279,20 @@ export const semanticMutationInitializers = (
   ];
   if (
     origins.some(
-      ({ position }) =>
-        position === null || !positionPrecedes(position, mutationPosition),
+      ({ position: origin }) =>
+        origin === null ||
+        origin.body !== position.body ||
+        (!atRead && !positionPrecedes(origin, position)),
     )
   )
     return binding;
-  const latest = origins.reduce<StatementPosition | null>(
+  const preceding = atRead
+    ? origins.filter(
+        ({ position: origin }) =>
+          origin !== null && positionPrecedes(origin, position),
+      )
+    : origins;
+  const latest = preceding.reduce<StatementPosition | null>(
     (latest, { position }) =>
       position !== null &&
       (latest === null || positionPrecedes(latest, position))
@@ -183,7 +301,7 @@ export const semanticMutationInitializers = (
     null,
   );
   const retained = new Set(
-    origins
+    preceding
       .filter(
         ({ position }) =>
           position?.index === latest?.index &&

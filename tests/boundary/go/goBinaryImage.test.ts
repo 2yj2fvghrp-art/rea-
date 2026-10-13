@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
+import { javaClassFile } from "../../fixtures/javaClassFile.js";
+import {
+  CPU,
+  fatImage,
+  machoImage,
+} from "../../../src/artifacts/apple/MachoImage.fixture.js";
 import { readGoBinaryImage } from "../../../src/go/GoBinaryImage.js";
+import { readGoMachoImage } from "../../../src/go/GoMachoImage.js";
 import {
   createGoBinaryFixture,
   GO_MODULE_TEXT,
@@ -219,6 +226,35 @@ it("distinguishes unsupported containers from malformed recognized images", () =
   const pe = createGoBinaryFixture({ format: "pe" });
   pe.bytes.writeUInt32LE(0xfffffff0, 60);
   expect(() => readGoBinaryImage(pe.bytes)).toThrowError(/range|truncated/i);
+});
+
+it("reports JVM class files as unsupported images instead of fat Mach-O containers", () => {
+  expect(() => readGoBinaryImage(javaClassFile())).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000, true))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+});
+
+it("keeps the thin-slice failure for confirmed universal Mach-O containers", () => {
+  const slices = [
+    { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+    { cpu: CPU.arm64, bytes: machoImage({ cpu: CPU.arm64 }) },
+  ];
+  for (const universal of [
+    fatImage(slices),
+    fatImage(slices, true),
+    fatImage(slices, false, true),
+    fatImage(slices, true, true),
+  ]) {
+    expect(() => readGoBinaryImage(Buffer.from(universal))).toThrowError(
+      /fat Mach-O containers require selecting a thin slice/,
+    );
+  }
 });
 
 it("rejects ELF header tables overlapping the native header", () => {
@@ -482,6 +518,26 @@ it("rejects build-info declared inside an unmapped Mach-O segment", () => {
   fixture.bytes.writeBigUInt64LE(0n, section + 40);
   fixture.bytes.writeUInt32LE(3072, section + 48);
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(/unmapped/i);
+});
+
+it("does not mark Mach-O section bytes outside their owning segment as read-only", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  const command = 32;
+  const section = command + 72;
+  fixture.bytes.write("__TEXT", command + 8, "ascii");
+  fixture.bytes.writeBigUInt64LE(1024n, command + 48);
+  fixture.bytes.writeUInt32LE(1, command + 56);
+  fixture.bytes.writeUInt32LE(1, command + 60);
+  fixture.bytes.write("__debug_info", section, "ascii");
+  fixture.bytes.write("__TEXT", section + 16, "ascii");
+  fixture.bytes.writeBigUInt64LE(0x10c00n, section + 32);
+  fixture.bytes.writeBigUInt64LE(128n, section + 40);
+  fixture.bytes.writeUInt32LE(3072, section + 48);
+  const image = readGoMachoImage(fixture.bytes);
+  expect(image.sections[0]).toMatchObject({
+    file_backed: false,
+    read_only: false,
+  });
 });
 
 it.each(["elf", "pe", "macho"] as const)(
