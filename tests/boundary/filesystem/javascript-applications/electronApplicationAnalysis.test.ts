@@ -171,12 +171,14 @@ new BrowserWindow({ webPreferences: { preload: "./entry" } });
 new BrowserWindow().loadURL("file:///renderer/index.html");
 new BrowserWindow().loadURL("renderer/bare.html");
 new BrowserWindow().loadURL("#home");
+new BrowserWindow().loadURL("");
 new BrowserWindow().loadURL("./renderer/other.html?theme=dark#home");
 new BrowserWindow().loadURL("./renderer/missing.html");
 new BrowserWindow().loadFile("./renderer/page");
 new BrowserWindow({ webPreferences: { preload: path.join(__dirname, "preload") } });
 new BrowserWindow({ webPreferences: { preload: "./explicit-preload.js" } });
 utilityProcess.fork("./worker");
+utilityProcess.fork("./worker#v1.js");
 utilityProcess.fork("./service.js");
 `,
     ),
@@ -184,10 +186,16 @@ utilityProcess.fork("./service.js");
     writeFile(join(root, "preload.html"), "<title>sibling</title>"),
     writeFile(join(root, "worker.js"), "module.exports = {};"),
     writeFile(join(root, "renderer/index.html"), "<title>renderer</title>"),
-    writeFile(join(root, "renderer/bare.html"), "<title>bare renderer URL</title>"),
+    writeFile(
+      join(root, "renderer/bare.html"),
+      "<title>bare renderer URL</title>",
+    ),
     writeFile(join(root, "renderer/other.html"), "<title>other</title>"),
     writeFile(join(root, "renderer/missing.html.js"), "module.exports = {};"),
-    writeFile(join(root, "renderer/page/index.html"), "<title>directory</title>"),
+    writeFile(
+      join(root, "renderer/page/index.html"),
+      "<title>directory</title>",
+    ),
     writeFile(join(root, "explicit-preload.js"), "module.exports = {};"),
     writeFile(join(root, "service.js"), "module.exports = {};"),
   ]);
@@ -216,21 +224,36 @@ utilityProcess.fork("./service.js");
       }),
       expect.objectContaining({
         declared_path: "#home",
-        resolved_path: "main.cjs",
-        resolution_status: "resolved",
+        resolved_path: null,
+        resolution_status: "unavailable",
       }),
     ]),
   );
+  for (const declaredPath of ["#home", ""]) {
+    const renderer = graph.nodes.find(
+      ({ kind, observations }) =>
+        kind === "electron-renderer" &&
+        observations[0]?.properties.declared_path === declaredPath,
+    );
+    expect(renderer?.observations[0]?.properties).toMatchObject({
+      resolved_path: null,
+      resolution_status: "unavailable",
+    });
+    expect(
+      graph.edges.some(
+        (edge) =>
+          edge.source_node_id === renderer?.node_id &&
+          edge.relation === "maps_to",
+      ),
+    ).toBe(false);
+  }
   expectExactRendererPaths(graph);
   const roles = graph.nodes.filter(({ kind }) => kind === "electron-preload");
   const roleByDeclaration = new Map(
-    roles.map((role) => [
-      role.observations[0]?.properties.declared_path,
-      role,
-    ]),
+    roles.map((role) => [role.observations[0]?.properties.declared_path, role]),
   );
 
-  expect(result.electron_summary.resolved_utility_entrypoints).toBe(2);
+  expect(result.electron_summary.resolved_utility_entrypoints).toBe(1);
   for (const [declaredPath, candidatePath] of [
     ["./entry", "entry"],
     ["preload", "preload"],
@@ -280,8 +303,15 @@ utilityProcess.fork("./service.js");
       expect.objectContaining({
         properties: expect.objectContaining({
           declared_path: "./worker",
-          resolved_path: "worker.js",
-          resolution_status: "resolved",
+          resolved_path: null,
+          resolution_status: "not-found",
+        }),
+      }),
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          declared_path: "./worker#v1.js",
+          resolved_path: null,
+          resolution_status: "not-found",
         }),
       }),
       expect.objectContaining({

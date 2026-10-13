@@ -159,6 +159,7 @@ export const summarizeElectronBoundaries = (
           file,
           specifier: finding.module_path,
           context: finding.module_resolution_context,
+          runtimeEntrypoint: true,
           files,
         }),
     ).length,

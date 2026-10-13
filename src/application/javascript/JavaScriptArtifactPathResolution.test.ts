@@ -2378,7 +2378,11 @@ describe("exact Electron runtime entrypoint resolution", () => {
       file("app/worker.js", "root"),
       file("app/worker", "root"),
       file("app/worker#v1.js", "root"),
-      file("node_modules/exported/package.json", "root", '{"exports":{"./parser":"./parser.cjs"}}'),
+      file(
+        "node_modules/exported/package.json",
+        "root",
+        '{"exports":{"./parser":"./parser.cjs"}}',
+      ),
       file("node_modules/exported/parser.cjs", "root"),
       file("app/fallback/index.js", "root"),
     ]);
@@ -2465,3 +2469,22 @@ describe("exact Electron runtime entrypoint resolution", () => {
     });
   });
 });
+
+it.each(["#home", "?theme=dark", ""])(
+  "does not invent a document base for runtime URL %s",
+  (declaredPath) => {
+    expect(
+      resolve({
+        declaredPath,
+        sourcePath: "main.cjs",
+        context: "url-reference",
+        exactUrlResource: true,
+        files: fileMap([file("main.cjs", "root")]),
+      }),
+    ).toMatchObject({
+      declared_path: declaredPath,
+      resolution_status: "unavailable",
+      resolved_path: null,
+    });
+  },
+);

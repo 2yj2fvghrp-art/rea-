@@ -292,9 +292,7 @@ const resolveExactUrlResource = (
   );
 };
 
-const isRuntimePathDeclaration = (
-  input: ResolveArtifactPathInput,
-): boolean =>
+const isRuntimePathDeclaration = (input: ResolveArtifactPathInput): boolean =>
   input.context === "filesystem-expression" ||
   (input.context === "module-specifier" &&
     (isRelativeJavaScriptModuleSpecifier(input.declaredPath) ||
@@ -383,7 +381,11 @@ const contextualCandidate = (
       ? stripQueryAndFragment(input.declaredPath)
       : input.declaredPath;
   if (context === "url-reference" && declared.length === 0)
-    return input.sourcePath;
+    return input.exactUrlResource === true
+      ? unresolvedCandidate("unavailable", [
+          "A suffix-only runtime URL requires the window's current document URL; the calling script does not establish that base.",
+        ])
+      : input.sourcePath;
   if (context === "module-specifier" && /^file:/iu.test(declared)) {
     const fileUrl = fileUrlPath(declared);
     if (fileUrl === null)
