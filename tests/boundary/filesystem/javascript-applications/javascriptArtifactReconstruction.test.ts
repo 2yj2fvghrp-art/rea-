@@ -213,7 +213,7 @@ const rejectInvalidTransfer = async (
       ...file,
       sha256: "0".repeat(64),
     }),
-  ).rejects.toThrow("different artifact source");
+  ).rejects.toThrow("source outside the admitted artifact identities");
   await expect(
     readJavaScriptAnalysisTransfer(
       wirePath,
