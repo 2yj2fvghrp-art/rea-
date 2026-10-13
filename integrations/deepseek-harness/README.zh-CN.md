@@ -4,6 +4,32 @@
 截至 2026-10-13，npm 的 `@deepseek-ai/dsh@latest` 指向 `0.2.0-rc.2`，
 而上游 `master` 仍在快速迭代。安装 REA 时建议使用正式发布、版本固定的插件压缩包。
 
+## Desktop 候选版本：先配置宿主 Node 路径
+
+原生 Desktop 支持尚未验证。不可变的 0.2.0 启动器使用 Electron 应用可执行文件
+启动 MCP 子进程，不适用于 Desktop；启用开关不能修复它。源码中的 0.2.1
+候选版本尚未作为经过验证的版本发布。以下步骤和地址用于候选版本验证，
+不是受支持的 Desktop 安装建议。
+
+启用候选版本前，需要让 Desktop 宿主进程继承 `REA_DSH_NODE_PATH`，
+其值为已经安装、符合 REA 版本要求的独立 Node 可执行文件绝对路径。
+安装 Node 不会自动设置该变量。在 macOS 上完全退出 Desktop，
+然后从同一个终端直接启动应用内的可执行文件：
+
+```sh
+# 填写已有的本机安装路径；这些命令不安装任何运行时。
+REA_DSH_NODE_PATH="/absolute/path/to/node"
+DSH_DESKTOP_APP="/absolute/path/to/DeepSeek Harness.app"
+DSH_DESKTOP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$DSH_DESKTOP_APP/Contents/Info.plist")"
+export REA_DSH_NODE_PATH
+"$REA_DSH_NODE_PATH" --version
+"$DSH_DESKTOP_APP/Contents/MacOS/$DSH_DESKTOP_EXECUTABLE"
+```
+
+之后从 Finder 打开的应用不会继承此终端变量。启用 bundle 或执行激活辅助脚本
+都不会设置宿主变量。此启动步骤及原生 Desktop 工具发现仍待验证；
+只有实际会话中发现 `mcp__rea__*` 工具后才能判断运行时是否可用。
+
 ## Desktop 已安装，但没有启用：修复 dsh.profile.bundles
 
 适用的典型症状：Desktop 中的 `package.json` 已声明 `dsh-rea-bundle`，
@@ -22,8 +48,8 @@ dsh-rea-bundle**，将该包的开关**开启**，不是去修改 `rea-agents`
 
 ### 如果界面找不到开关：使用安全激活脚本（仅本机 macOS）
 
-候选版本 0.2.1 包含这个脚本。旧版 0.2.0 用户可继续使用 Desktop 的启用开关，
-或在候选版本完成验证并发布后升级。
+候选版本 0.2.1 包含这个脚本。不可变的 0.2.0 启动器不适用于 Electron Desktop，
+不能通过启用开关修复；请等待修复版本完成验证并发布。
 
 此脚本在当前仓库的
 [`scripts/activate-installed.mjs`](scripts/activate-installed.mjs)。
@@ -69,7 +95,7 @@ node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-i
 **170** 是之前安装的 `rea-agents@6.4.0` 在该次握手返回的工具数量，
 并非所有 Harness 版本都必须恰好暴露 170 个工具。
 
-## Desktop「添加插件」直接安装（推荐）
+## Desktop 候选版本安装来源（尚未验证和发布）
 
 **直接复制整行地址到 DeepSeek Harness Desktop → 插件 → 添加插件**：
 
@@ -92,7 +118,8 @@ https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1
 ```
 
 这两个地址任选一个，不需要同时安装。安装后启用
-`dsh-rea-bundle`，再**完全退出并重新启动** Desktop。
+`dsh-rea-bundle`，先完成上面的独立 Node 宿主配置，
+再**完全退出并从带有该环境变量的终端启动** Desktop。
 如果之前的错误 Git 安装留下了 `rea-agents` 依赖，备份后只删除
 这项错误依赖，保留其余插件配置。
 若旧 `rea setup --client dsh` 曾写入全局 `rea-mcp`，也应先备份

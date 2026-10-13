@@ -2,10 +2,39 @@
 
 中文安装说明：`README.zh-CN.md`
 
-A native **installable Harness bundle** exposing REA's existing local MCP server
+An experimental Harness bundle candidate exposing REA's existing local MCP server
 as `mcp__rea__*` tools, using the current `dsh.bundle`/Cordis composition API.
 The full REA engine remains authoritative; this adapter has no second reverse-
 engineering engine or parallel tool schema to keep synchronized.
+
+## Desktop candidate prerequisites and host launch
+
+Native Desktop support remains unqualified. Immutable 0.2.0 uses Electron's
+application executable as the MCP child and must not be installed for Desktop.
+Candidate 0.2.1 fixes that selection but is not a qualified published release.
+The commands and URLs below document candidate qualification, not a supported
+Desktop installation recommendation.
+
+Before enabling the candidate, provide an existing standalone Node executable
+accepted by REA. Installing Node does not set `REA_DSH_NODE_PATH`; the variable
+must reach the Desktop host process. On macOS, fully quit Desktop, then launch
+its installed executable directly from the same terminal:
+
+```sh
+# Set both paths to existing caller-owned installations; no runtime is installed.
+REA_DSH_NODE_PATH="/absolute/path/to/node"
+DSH_DESKTOP_APP="/absolute/path/to/DeepSeek Harness.app"
+DSH_DESKTOP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$DSH_DESKTOP_APP/Contents/Info.plist")"
+export REA_DSH_NODE_PATH
+"$REA_DSH_NODE_PATH" --version
+"$DSH_DESKTOP_APP/Contents/MacOS/$DSH_DESKTOP_EXECUTABLE"
+```
+
+Keep using this explicit host launch while qualifying the candidate. Starting
+Desktop later from Finder does not inherit this terminal's exported variable.
+Enabling a bundle or running the recovery helper does not configure the host
+variable. This launch procedure and native runtime tool discovery remain
+unverified; confirm `mcp__rea__*` tools in a live session before relying on it.
 
 ## Desktop installed the bundle but did not activate it
 
@@ -17,11 +46,11 @@ Symptoms: `~/.dsh/profiles/desktop/package.json` lists
 plugin manager separates **install** from **enable now**; closing the
 post-install dialog without enabling can leave an installed, disabled bundle.
 Prefer **Desktop → Plugins → Installed plugins → dsh-rea-bundle → Enable**,
-then fully quit and restart Desktop.
+then fully quit and relaunch with the host environment described above.
 
-The packaged recovery helper is included in candidate 0.2.1; older installed
-0.2.0 bundles should use the Desktop enable switch, or update after the candidate
-is qualified and published.
+The packaged recovery helper is included in candidate 0.2.1. The immutable
+0.2.0 launcher is unsuitable for Electron Desktop; its enable switch does not
+repair that launch behavior. Wait for a qualified fixed release.
 
 If the UI toggle is missing or unusable, use this repository's
 [`activate-installed.mjs`](scripts/activate-installed.mjs) recovery script
@@ -51,7 +80,7 @@ reports that runtime state as unverified and exits nonzero until a supported
 inspection path is qualified. Confirm tool discovery in a live Desktop session. A prior local REA 6.4.0
 handshake listed 170 tools, which is **not a universal runtime guarantee**.
 
-## Desktop “Add plugin” — the supported Git installation spec
+## Candidate Desktop package sources (not yet qualified/published)
 
 **Paste this exact URL**, including the `#dsh-plugin-v0.2.1` tag,
 into DeepSeek Harness Desktop → **Plugins → Add plugin**:
@@ -74,7 +103,8 @@ https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1
 ```
 
 The URL is a plugin-install source, not a page to open in the browser.
-After installing, enable **dsh-rea-bundle** and fully restart Desktop.
+After candidate installation, complete the standalone Node host setup above,
+enable **dsh-rea-bundle**, and relaunch Desktop with that host environment.
 If an earlier mistaken installation created a `rea-agents` Git dependency,
 remove only that item (preserving other plugins) before retrying.
 For the separate `web` CLI profile, substitute `--profile web` in

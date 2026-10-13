@@ -38,6 +38,7 @@ test("tag staging is valid and creates a standalone build-free package tree", ()
     "launcher.mjs",
     "package.json",
     "scripts/activate-installed.mjs",
+    "scripts/cordis-contract.mjs",
   ]);
   const metadata = spawnSync("git", ["show", `${tree}:package.json`], {
     cwd: repo,

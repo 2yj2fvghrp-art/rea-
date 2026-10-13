@@ -30,17 +30,17 @@ for (const key of ["prepare", "prepack", "postinstall", "install", "preinstall"]
 assert.equal(pkg.dependencies?.["rea-agents"], "6.4.0");
 NODE
 
-# GIT_INDEX_FILE gives a completely isolated index. Stage only the seven files
+# GIT_INDEX_FILE gives a completely isolated index. Stage only the eight files
 # that define the installable plugin, at the ROOT of a new orphan tree.
 GIT_INDEX_FILE="$INDEX" git read-tree --empty
-for NAME in package.json launcher.mjs cordis.patch.yml README.md README.zh-CN.md LICENSE scripts/activate-installed.mjs; do
+for NAME in package.json launcher.mjs cordis.patch.yml README.md README.zh-CN.md LICENSE scripts/activate-installed.mjs scripts/cordis-contract.mjs; do
   SOURCE="$PLUGIN/$NAME"
   [[ -f "$SOURCE" ]] || { echo "Missing plugin file: $SOURCE" >&2; exit 1; }
   BLOB="$(git hash-object -w "$SOURCE")"
   GIT_INDEX_FILE="$INDEX" git update-index --add --cacheinfo "100644,$BLOB,$NAME"
 done
 TREE="$(GIT_INDEX_FILE="$INDEX" git write-tree)"
-[[ "$(git ls-tree -r --name-only "$TREE" | wc -l | tr -d ' ')" == '7' ]] || {
+[[ "$(git ls-tree -r --name-only "$TREE" | wc -l | tr -d ' ')" == '8' ]] || {
   echo 'Invalid standalone plugin distribution tree' >&2; exit 1;
 }
 git ls-tree --name-only "$TREE"

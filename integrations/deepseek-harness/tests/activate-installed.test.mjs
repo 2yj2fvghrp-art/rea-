@@ -34,7 +34,7 @@ function fixture(fn, options = {}) {
         ? {}
         : {
             "dsh-rea-bundle":
-              "https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz",
+              "https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz",
           }),
     },
     dsh: {
@@ -50,14 +50,14 @@ function fixture(fn, options = {}) {
       join(bundleDir, "package.json"),
       JSON.stringify({
         name: "dsh-rea-bundle",
-        version: "0.2.0",
+        version: "0.2.1",
         dsh: { bundle: { patch: "./cordis.patch.yml" } },
       }),
     );
     writeFileSync(
       join(bundleDir, "cordis.patch.yml"),
-      "- insert:\n    - id: rea-launcher\n      name: dsh-rea-bundle/launcher\n" +
-        "    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n",
+      options.patch ??
+        readFileSync(resolve(dirname(script), "../cordis.patch.yml"), "utf8"),
     );
   }
   const run = (args) =>
@@ -171,4 +171,40 @@ test("duplicate bundle selection is rejected without modifying any file", () => 
     assert.deepEqual(readFileSync(manifest), before);
     assert.deepEqual(backups(profile), []);
   });
+});
+
+test("activation refuses invalid or incomplete owned patches before profile mutation", () => {
+  const valid = readFileSync(
+    resolve(dirname(script), "../cordis.patch.yml"),
+    "utf8",
+  );
+  for (const patch of [
+    "- insert: [", // malformed YAML
+    "- insert:\n    - id: rea-launcher\n      name: dsh-rea-bundle/launcher\n    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n",
+    valid.replace("inject: [reaLauncher]", "inject: []"),
+    valid.replace(
+      "command: !!js ctx.reaLauncher.command",
+      "command: ctx.reaLauncher.command",
+    ),
+    valid.replace(
+      "args: !!js ctx.reaLauncher.args",
+      "args: !!js ctx.other.args",
+    ),
+    valid.replace("transport: stdio", "transport: sse"),
+    valid.replace("failOnStartupError: true", "failOnStartupError: false"),
+    valid.replace(
+      "serverName: rea",
+      "serverName: rea\n        serverName: other",
+    ),
+  ])
+    fixture(
+      ({ manifest, profile, run }) => {
+        const original = readFileSync(manifest);
+        const result = run(["--activate"]);
+        assert.notEqual(result.status, 0);
+        assert.deepEqual(readFileSync(manifest), original);
+        assert.deepEqual(backups(profile), []);
+      },
+      { patch },
+    );
 });

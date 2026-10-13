@@ -259,7 +259,10 @@ and restart. If that UI control is unavailable, the
 checks the installed files, backs up the manifest, then appends only
 the missing bundle name. It is opt-in; default mode only reports status.
 The recovery helper is included in candidate 0.2.1 after qualification and
-publication; immutable 0.2.0 installations must use the Desktop enable UI.
+publication; immutable 0.2.0 is unsuitable for Electron Desktop and its enable UI does not
+repair the launcher. Native Desktop support remains unqualified. Candidate
+qualification requires the standalone `REA_DSH_NODE_PATH` host setup described
+in the linked integration guide.
 After restart, confirm live `mcp__rea__*` tool discovery. The helper's
 `--status` reports stored selection only; `--verify` reports runtime
 composition as unverified and exits nonzero.

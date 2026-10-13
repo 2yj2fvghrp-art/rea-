@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseReaCordisPatch } from "./cordis-contract.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -25,17 +26,12 @@ for (const file of [
   "README.zh-CN.md",
   "LICENSE",
   "scripts/activate-installed.mjs",
+  "scripts/cordis-contract.mjs",
 ]) {
   assert(existsSync(join(root, file)), `missing bundled file ${file}`);
   assert(pkg.files.includes(file), `missing packlist file ${file}`);
 }
 const patch = readFileSync(join(root, "cordis.patch.yml"), "utf8");
-assert.match(patch, /id: rea-launcher\s+name: dsh-rea-bundle\/launcher/);
-assert.match(patch, /id: rea-mcp\s+name: ['"]?@deepseek-ai\/dsh-mcp-client/);
-assert.match(patch, /inject: \[reaLauncher\]/);
-for (const path of ["command", "args", "env"]) {
-  assert(patch.includes(`${path}: !!js ctx.reaLauncher.${path}`));
-}
-assert.match(patch, /serverName: rea/);
-assert.match(patch, /transport: stdio/);
+const parsed = parseReaCordisPatch(patch);
+assert.ok(parsed.ok, parsed.ok ? undefined : parsed.error);
 console.log("dsh-rea-bundle manifest/patch contract: OK");

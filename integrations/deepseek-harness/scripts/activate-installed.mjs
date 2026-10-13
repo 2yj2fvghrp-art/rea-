@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { parseReaCordisPatch } from "./cordis-contract.mjs";
 
 const name = "dsh-rea-bundle";
 const usage = [
@@ -36,13 +37,6 @@ function parseJson(path) {
   } catch (error) {
     fail("Cannot read or parse " + path + ": " + error.message);
   }
-}
-
-function hasRow(text, id) {
-  return new RegExp(
-    "(?:^|\\n)\\s*-?\\s*id:\\s*['\\\"]?" + id + "['\\\"]?(?=\\s|$)",
-    "m",
-  ).test(text);
 }
 
 function inspect(profileDir) {
@@ -82,10 +76,8 @@ function inspect(profileDir) {
   const patch = existsSync(patchPath) ? readFileSync(patchPath, "utf8") : "";
   const correctBundle =
     pkg?.name === name && pkg?.dsh?.bundle?.patch === "./cordis.patch.yml";
-  const correctPatch =
-    hasRow(patch, "rea-launcher") &&
-    hasRow(patch, "rea-mcp") &&
-    patch.includes("@deepseek-ai/dsh-mcp-client");
+  const parsedPatch = parseReaCordisPatch(patch);
+  const correctPatch = parsedPatch.ok;
   return {
     manifest,
     original,
@@ -95,6 +87,7 @@ function inspect(profileDir) {
     active,
     correctBundle,
     correctPatch,
+    patchFailure: parsedPatch.ok ? undefined : parsedPatch.error,
     version: pkg?.version,
     profileDir,
   };
@@ -142,7 +135,8 @@ function activate(info) {
   }
   if (!info.correctBundle || !info.correctPatch) {
     fail(
-      "The installed REA plugin is missing required bundle files; activation refused",
+      "The installed REA plugin is missing required bundle files; activation refused" +
+        (info.patchFailure ? ": " + info.patchFailure : ""),
     );
   }
   if (info.active) {
