@@ -167,6 +167,12 @@ geometry-semantics guarantee. The six existing context/driver regression tests
 pass; Python compilation and JavaScript syntax checks pass. No new product test
 or production implementation is added for this measurement-only finding.
 
+Manual review tightens the SQLite grader to distinguish missing fields from
+explicit null and preserve JSON scalar types. Regrading all four stored model
+answers still passes every selected fact; deliberate omission of `wal` and a
+boolean substituted for numeric `row_limit` both fail. Original transcripts,
+usage and previous review receipts stay intact; no model trial is rerun.
+
 Heavy tasks remain serial under one CPU, unchanged 3 GiB early stop / 4 GiB hard
 memory, no swap, owned task scopes and host guards. SDK payload observations
 verify cleanup and zero phase limit events; final whole-scope counters remain

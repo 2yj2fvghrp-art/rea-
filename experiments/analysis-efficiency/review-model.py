@@ -135,7 +135,9 @@ def main():
         check('evm_original_limitations', answer.get('limitations'), n['limitations'])
     elif domain == 'sqlite':
         for key in ['artifact', 'wal', 'engine', 'database_encoding', 'schema', 'rows', 'producer_limitations', 'limitations']:
-            check(key, answer.get(key), reference[key])
+            # Missing is not SQL/JSON null; booleans are not numeric counters.
+            check(key, (key in answer, json.dumps(answer.get(key), sort_keys=True)),
+                  (True, json.dumps(reference[key], sort_keys=True)))
     elif domain == 'flutter-aot':
         for key in ['target', 'abi', 'libapp', 'string_pool', 'coverage', 'limitations']:
             check(key, answer.get(key), reference[key])
