@@ -252,7 +252,8 @@ export const systemUninstallHost = (
         ? undefined
         : item(client.name, "failed", blocker);
     },
-    removeClient: (client) => removeClient(client, fileSystem, () => clientWriteBlocker(client)),
+    removeClient: (client) =>
+      removeClient(client, fileSystem, () => clientWriteBlocker(client)),
     inspectSkill: async () => {
       for (const destination of skillDestinations(
         home,
@@ -273,7 +274,13 @@ export const systemUninstallHost = (
       return undefined;
     },
     removeSkill: () =>
-      removeManagedSkills(home, fileSystem, environment, platform, skillWriteBlocker),
+      removeManagedSkills(
+        home,
+        fileSystem,
+        environment,
+        platform,
+        skillWriteBlocker,
+      ),
     purgeData: () => purgeManagedData(join(home, ".rea"), fileSystem),
     close: async () => {
       try {
@@ -388,7 +395,10 @@ const clientRegistrationRemoval = (
   client: SetupClient,
 ): { readonly removeNative: boolean; readonly removeLegacy: boolean } => {
   const name = PRODUCT_IDENTITY.mcpServerKey;
-  if (parsed.dialect === "dsh" && dshDocument(parsed.document).hasUnknownStructure)
+  if (
+    parsed.dialect === "dsh" &&
+    dshDocument(parsed.document).hasUnknownStructure
+  )
     return { removeNative: false, removeLegacy: false };
   return {
     removeNative:
@@ -422,7 +432,10 @@ const removeClient = async (
     );
   if (!registrationPresent(parsed))
     return item(client.name, "skipped", "REA registration is absent.");
-  const { removeNative, removeLegacy } = clientRegistrationRemoval(parsed, client);
+  const { removeNative, removeLegacy } = clientRegistrationRemoval(
+    parsed,
+    client,
+  );
   if (!removeNative && !removeLegacy)
     return item(
       client.name,

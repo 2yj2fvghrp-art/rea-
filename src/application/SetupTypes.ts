@@ -25,7 +25,12 @@ export type ClientConfigurationResult =
     }
   | {
       readonly status: "failed";
-      readonly reason: "path" | "target_changed" | "backup" | "write" | "readback";
+      readonly reason:
+        | "path"
+        | "target_changed"
+        | "backup"
+        | "write"
+        | "readback";
     }
   | {
       readonly status: "failed";
