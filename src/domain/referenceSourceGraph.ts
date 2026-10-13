@@ -137,6 +137,8 @@ const exclusionSchema = z.discriminatedUnion("reason", [
       "caller-excluded",
     ]),
     pattern: boundedTextSchema,
+    // Absent in older graphs: only exact-path exclusion is established.
+    entry_kind: z.literal("directory").exactOptional(),
   }),
   z.strictObject({
     path: relativePathSchema,
@@ -323,6 +325,13 @@ const checkSymlinks = (
   const excludedPaths = createReferenceSourcePathLookup(
     graph.exclusions.map(({ path }) => path),
   );
+  const excludedDirectories = new Set(
+    graph.exclusions.flatMap((entry) =>
+      "entry_kind" in entry && entry.entry_kind === "directory"
+        ? [entry.path]
+        : [],
+    ),
+  );
   for (const [index, entry] of graph.entries.entries()) {
     if (entry.kind !== "symlink") continue;
     if (entry.target === null) continue;
@@ -340,15 +349,17 @@ const checkSymlinks = (
     const resolved = posix.normalize(
       posix.join(posix.dirname(entry.path), entry.target),
     );
+    const excludedAncestor = excludedPaths.resolveAncestor(resolved);
     if (
       resolved.startsWith("../") ||
       resolved === ".." ||
       // The inventory root is implicit rather than an entry with path ".".
       (resolved !== "." &&
         lookupPath.resolve(resolved) === undefined &&
-        // Exclusions do not preserve whether the omitted entry was a
-        // directory, so only an exact excluded target can be established.
-        excludedPaths.resolve(resolved) === undefined)
+        excludedPaths.resolve(resolved) === undefined &&
+        // Only observed directory exclusions establish subtree coverage.
+        (excludedAncestor === undefined ||
+          !excludedDirectories.has(excludedAncestor)))
     )
       context.addIssue({
         code: "custom",

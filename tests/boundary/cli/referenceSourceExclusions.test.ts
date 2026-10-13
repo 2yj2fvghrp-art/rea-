@@ -43,6 +43,7 @@ describe.skipIf(process.platform === "win32")(
           path: "dist",
           reason: "default-ignored",
           pattern: "dist/",
+          entry_kind: "directory",
         });
         expect(graph.entries).toEqual(
           expect.arrayContaining([

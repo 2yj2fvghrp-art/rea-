@@ -30,13 +30,12 @@ export const createReferenceSourcePathLookup = (
       candidates.find((path) => exact.has(path)) ??
       candidates.map(equivalent).find((path) => path !== undefined),
     resolveAncestor: (path) => {
-      for (
-        let candidate = path;
-        candidate !== "." && candidate !== "/";
-        candidate = posix.dirname(candidate)
-      ) {
+      for (let candidate = path; candidate !== "." && candidate !== "/";) {
         const found = resolve(candidate);
         if (found !== undefined) return found;
+        const parent = posix.dirname(candidate);
+        if (parent === candidate) break;
+        candidate = parent;
       }
       return undefined;
     },

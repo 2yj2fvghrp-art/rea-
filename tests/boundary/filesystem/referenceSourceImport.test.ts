@@ -93,6 +93,7 @@ describe("reference source symlink import", () => {
     { target: "dist", reason: "default-ignored", pattern: "dist/" },
     { target: "generated", reason: "project-ignored", pattern: "generated/" },
     { target: "cache", reason: "caller-excluded", pattern: "cache/" },
+    { target: "private", reason: "configured-secret", pattern: "private/" },
   ])(
     "retains links into a $reason directory without importing it",
     async ({ target, reason, pattern }) => {
@@ -113,7 +114,9 @@ describe("reference source symlink import", () => {
       const result = await importReferenceSource({
         root,
         caller: "reference-import-test",
-        policy: { secretPatterns: [] },
+        policy: {
+          secretPatterns: reason === "configured-secret" ? [pattern] : [],
+        },
         ...(reason === "caller-excluded" ? { excludePaths: [pattern] } : {}),
       });
       if (!result.ok) throw result.error;
@@ -122,6 +125,7 @@ describe("reference source symlink import", () => {
         path: target,
         reason,
         pattern,
+        entry_kind: "directory",
       });
       expect(result.value.entries).toEqual(
         expect.arrayContaining([
@@ -585,31 +589,37 @@ describe.skipIf(process.platform === "win32")(
               path: "dist",
               reason: "default-ignored",
               pattern: "dist/",
+              entry_kind: "directory",
             },
             {
               path: "node_modules",
               reason: "default-ignored",
               pattern: "node_modules/",
+              entry_kind: "directory",
             },
             {
               path: "empty-ignored",
               reason: "project-ignored",
               pattern: "empty-ignored/",
+              entry_kind: "directory",
             },
             {
               path: "project-parent",
               reason: "project-ignored",
               pattern: "project-parent/",
+              entry_kind: "directory",
             },
             {
               path: "caller-parent",
               reason: "caller-excluded",
               pattern: "caller-parent/",
+              entry_kind: "directory",
             },
             {
               path: "secret-dir",
               reason: "configured-secret",
               pattern: "secret-dir/",
+              entry_kind: "directory",
             },
           ]),
         );

@@ -153,6 +153,7 @@ const createShouldExclude =
         path,
         reason: "configured-secret",
         pattern: secretMatch.rule.pattern,
+        ...(kind === "directory" ? { entry_kind: kind } : {}),
       });
       return true;
     }
@@ -167,7 +168,12 @@ const createShouldExclude =
       reason !== "caller-excluded"
     )
       throw new Error(`Ignored path has unknown rule origin: ${path}`);
-    exclusions.push({ path, reason, pattern: match.rule.pattern });
+    exclusions.push({
+      path,
+      reason,
+      pattern: match.rule.pattern,
+      ...(kind === "directory" ? { entry_kind: kind } : {}),
+    });
     return true;
   };
 

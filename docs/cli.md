@@ -251,9 +251,13 @@ tree matches that commit remains unknown. It honors the source tree's `.gitignor
 and applies default exclusions for common generated and dependency paths such
 as `node_modules/`, `dist/`, and `*.log`. Pattern-based exclusions record the
 matched pattern and whether it came from project, default, caller, or sensitive
-path policy. Links into excluded paths retain their internal target metadata;
-the exclusion explains why the target has no inventory entry, and the inventory
-remains partial. Set `REA_REFERENCE_SECRET_PATTERNS_JSON` to a JSON array of ignore
+path policy. Observed directory exclusions also record `entry_kind: "directory"`,
+which establishes coverage of their omitted descendants. Links into those paths
+retain their internal target metadata, and the inventory remains partial. Older
+exclusions without directory evidence establish only exact-path coverage; ignore
+pattern spelling alone does not establish a directory. The optional field is
+committed by the graph digest; older graphs without it keep their existing digest.
+Set `REA_REFERENCE_SECRET_PATTERNS_JSON` to a JSON array of ignore
 patterns when you want to mark selected paths as sensitive; those patterns are
 reported separately as configured-secret exclusions.
 
