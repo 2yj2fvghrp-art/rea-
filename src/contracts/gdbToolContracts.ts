@@ -16,6 +16,7 @@ const gdbCommandResult = z.strictObject({
   process_exit_code: z.number().int().nullable().optional(),
   process_exit_signal: z.string().nullable().optional(),
   output_truncated: z.boolean(),
+  output_invalid_utf8: z.boolean(),
   completion_status: z.enum(["complete", "unknown"]),
 });
 
@@ -76,6 +77,7 @@ export const GDB_TOOL_CONTRACTS = [
       state: z.enum(["ready", "closed"]),
       recent_mi_records: z.array(z.string()),
       recent_mi_records_truncated: z.boolean(),
+      recent_mi_records_invalid_utf8: z.boolean(),
       stderr: z.string(),
       stderr_observed_bytes: z.number().int().nonnegative(),
       stderr_truncated: z.boolean(),

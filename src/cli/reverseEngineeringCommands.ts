@@ -193,7 +193,7 @@ export const registerReverseEngineeringCommands = (
                   path: ["command"],
                   reason: "invalid_value",
                   message:
-                    "This command can invalidate the verified inferior output route; use the persistent GDB session workflow.",
+                    "This command can alter target state or outlive one-shot cleanup; use the persistent GDB session workflow.",
                 },
               ]),
             );

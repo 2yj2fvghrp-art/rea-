@@ -32,6 +32,19 @@ const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 const DEFAULT_MAX_SESSIONS = 8;
 const MAX_PENDING_GDB_COMMANDS = 16;
 const RECENT_RECORD_TRUNCATION_MARKER = "[recent record truncated]";
+const STRICT_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+const decodeGdbRecord = (
+  record: Buffer,
+): { readonly text: string; readonly invalidUtf8: boolean } => {
+  const text = record.toString("utf8");
+  try {
+    STRICT_UTF8_DECODER.decode(record);
+    return { text, invalidUtf8: false };
+  } catch {
+    return { text, invalidUtf8: true };
+  }
+};
 
 export const GDB_PROVIDER_IDENTITY = {
   id: "gnu.gdb",
@@ -46,6 +59,7 @@ interface PendingCommand {
   readonly lines: string[];
   outputBytes: number;
   outputTruncated: boolean;
+  outputInvalidUtf8: boolean;
   readonly resolve: (result: GdbCommandResult) => void;
   readonly reject: (error: Error) => void;
   readonly cleanup: () => void;
@@ -63,6 +77,7 @@ export interface GdbCommandResult {
   readonly process_exit_code?: number | null;
   readonly process_exit_signal?: NodeJS.Signals | null;
   readonly output_truncated: boolean;
+  readonly output_invalid_utf8: boolean;
   readonly completion_status: "complete" | "unknown";
 }
 
@@ -204,7 +219,7 @@ interface GdbSession {
   readonly pending: Map<number, PendingCommand>;
   readonly cleanupFailures: Set<AnalysisError>;
   readonly lines: string[];
-  readonly bufferChunks: string[];
+  readonly bufferChunks: Buffer[];
   bufferBytes: number;
   promptTail: string;
   ready: boolean;
@@ -218,6 +233,7 @@ interface GdbSession {
   pendingCommandCount: number;
   protocolFailure: GdbProtocolFailure | undefined;
   recentRecordsTruncated: boolean;
+  recentRecordsInvalidUtf8: boolean;
 }
 
 /** Owns persistent GDB/MI sessions independently from the active binary target. */
@@ -433,7 +449,9 @@ export class GdbSessionManager {
       stdoutSettled,
       settleStdout,
       inferiorTtyVerified: false,
-      noInferiorVerified: false,
+      // GDB starts with no target: --nx suppresses startup commands and this
+      // provider supplies no executable or attach arguments.
+      noInferiorVerified: true,
       stopAttempt: undefined,
       pending: new Map(),
       cleanupFailures: new Set(),
@@ -452,10 +470,13 @@ export class GdbSessionManager {
       pendingCommandCount: 0,
       protocolFailure: undefined,
       recentRecordsTruncated: false,
+      recentRecordsInvalidUtf8: false,
     };
-    launched.process.stdout?.setEncoding("utf8");
     launched.process.stdout?.on("data", (chunk: string | Buffer) =>
-      this.#receive(session, String(chunk)),
+      this.#receive(
+        session,
+        typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk,
+      ),
     );
     launched.process.stdout?.on("error", (cause: Error) =>
       this.#failProtocol(session, `GDB stdout stream failed: ${cause.message}`),
@@ -594,6 +615,7 @@ export class GdbSessionManager {
                 process_exit_code: session.exitCode,
                 process_exit_signal: session.exitSignal,
                 output_truncated: session.recentRecordsTruncated,
+                output_invalid_utf8: session.recentRecordsInvalidUtf8,
                 completion_status: "unknown" as const,
               }
             : undefined;
@@ -614,6 +636,7 @@ export class GdbSessionManager {
                 .filter((line) => line.startsWith("&"))
                 .join("\n"),
               output_truncated: session.recentRecordsTruncated,
+              output_invalid_utf8: session.recentRecordsInvalidUtf8,
               completion_status: "unknown" as const,
             }
           : undefined);
@@ -639,6 +662,11 @@ export class GdbSessionManager {
                 "No usable debugger session became ready during GDB startup.",
               limitations: [
                 "GDB startup failed before a usable session could be established; captured startup records are incomplete.",
+                ...(startupEvidenceResult.output_invalid_utf8
+                  ? [
+                      "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                    ]
+                  : []),
               ],
             });
       const processOutput = session.supervisor.snapshot();
@@ -767,7 +795,8 @@ export class GdbSessionManager {
         async () => {
           if (session.exited || session.protocolFailure !== undefined)
             return err(new AnalysisInputError("gdb_console"));
-          session.noInferiorVerified = false;
+          if (gdbCommandMayCreateInferior(command))
+            session.noInferiorVerified = false;
           if (commandMayChangeInferiorOutput(command))
             session.inferiorTtyVerified = false;
           try {
@@ -793,6 +822,7 @@ export class GdbSessionManager {
                   target: result.target,
                   log: result.log,
                   output_truncated: result.output_truncated,
+                  output_invalid_utf8: result.output_invalid_utf8,
                   completion_status: result.completion_status,
                 },
                 rawResult: {
@@ -803,6 +833,7 @@ export class GdbSessionManager {
                   target: result.target,
                   log: result.log,
                   output_truncated: result.output_truncated,
+                  output_invalid_utf8: result.output_invalid_utf8,
                   completion_status: result.completion_status,
                 },
                 subjectUnavailableReason:
@@ -810,6 +841,11 @@ export class GdbSessionManager {
                 limitations: [
                   "MI records are preserved raw; their semantics depend on GDB version and target.",
                   "The unrestricted GDB console can access local shell, filesystem, network, and target controls.",
+                  ...(result.output_invalid_utf8
+                    ? [
+                        "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                      ]
+                    : []),
                 ],
               },
             );
@@ -854,6 +890,11 @@ export class GdbSessionManager {
                     "The active GDB inferior identity is not established by the debugger session identifier.",
                   limitations: [
                     "GDB exited before returning a correlated MI result record; only records retained for the active command are returned raw.",
+                    ...(result.output_invalid_utf8
+                      ? [
+                          "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                        ]
+                      : []),
                     ...(result.output_truncated
                       ? [
                           "Retained MI records are a truncated prefix; output completeness is unknown.",
@@ -894,6 +935,7 @@ export class GdbSessionManager {
         readonly state: "ready" | "closed";
         readonly recent_mi_records: readonly string[];
         readonly recent_mi_records_truncated: boolean;
+        readonly recent_mi_records_invalid_utf8: boolean;
         readonly stderr: string;
         readonly stderr_observed_bytes: number;
         readonly stderr_truncated: boolean;
@@ -917,6 +959,7 @@ export class GdbSessionManager {
           : "ready",
       recent_mi_records: [...session.lines],
       recent_mi_records_truncated: session.recentRecordsTruncated,
+      recent_mi_records_invalid_utf8: session.recentRecordsInvalidUtf8,
       stderr: diagnostics.stderr.text,
       stderr_observed_bytes: diagnostics.stderr.observedBytes,
       stderr_truncated:
@@ -949,6 +992,7 @@ export class GdbSessionManager {
             "gdb",
             "close_gdb_session",
             stopped.reason,
+            { cleanup: { reason: stopped.reason, resources: [session.id] } },
           ),
         );
       this.#sessions.delete(sessionId);
@@ -966,6 +1010,9 @@ export class GdbSessionManager {
                   "gdb",
                   "close_gdb_session",
                   stopped.reason,
+                  {
+                    cleanup: { reason: stopped.reason, resources: [session.id] },
+                  },
                 ),
               );
             this.#sessions.delete(sessionId);
@@ -1023,6 +1070,7 @@ export class GdbSessionManager {
                 "gdb",
                 "close_gdb_session",
                 stopped.reason,
+                { cleanup: { reason: stopped.reason, resources: [session.id] } },
               ),
             );
           this.#sessions.delete(sessionId);
@@ -1105,9 +1153,9 @@ export class GdbSessionManager {
     }
   }
 
-  #receive(session: GdbSession, data: string): void {
+  #receive(session: GdbSession, data: Buffer): void {
     if (session.startupResolve !== undefined) {
-      const prompt = session.promptTail + data;
+      const prompt = session.promptTail + data.toString("utf8");
       if (prompt.includes("(gdb)")) {
         const resolve = session.startupResolve;
         session.startupResolve = undefined;
@@ -1115,31 +1163,44 @@ export class GdbSessionManager {
       }
       session.promptTail = prompt.slice(-4);
     }
-    const lines: string[] = [];
+    const lines: Array<{ readonly text: string; readonly invalidUtf8: boolean }> = [];
     let offset = 0;
     while (offset < data.length) {
-      const newline = data.indexOf("\n", offset);
-      const piece = data.slice(offset, newline < 0 ? data.length : newline);
-      session.bufferBytes += Buffer.byteLength(piece, "utf8");
+      const newline = data.indexOf(0x0a, offset);
+      const piece = data.subarray(offset, newline < 0 ? data.length : newline);
+      session.bufferBytes += piece.length;
+      const previousPiece = session.bufferChunks.at(-1);
+      const lineEndsInCarriageReturn =
+        piece.length > 0
+          ? piece[piece.length - 1] === 0x0d
+          : previousPiece?.[previousPiece.length - 1] === 0x0d;
       const lineBytes =
-        session.bufferBytes - (newline >= 0 && piece.endsWith("\r") ? 1 : 0);
+        session.bufferBytes -
+        (newline >= 0 && lineEndsInCarriageReturn ? 1 : 0);
       if (lineBytes > MAX_MI_LINE_BYTES) {
+        session.recentRecordsTruncated = true;
+        for (const pending of session.pending.values())
+          pending.outputTruncated = true;
         this.#failProtocol(
           session,
           "GDB emitted an MI line exceeding the 16 MiB protocol limit.",
         );
         return;
       }
-      if (piece.length > 0) session.bufferChunks.push(piece);
+      if (piece.length > 0) session.bufferChunks.push(Buffer.from(piece));
       if (newline < 0) break;
-      const record = session.bufferChunks.join("");
-      const line = record.endsWith("\r") ? record.slice(0, -1) : record;
+      let record = Buffer.concat(session.bufferChunks, session.bufferBytes);
+      if (record[record.length - 1] === 0x0d)
+        record = record.subarray(0, record.length - 1);
+      const decoded = decodeGdbRecord(record);
       session.bufferChunks.length = 0;
       session.bufferBytes = 0;
-      if (line.length > 0) lines.push(line);
+      if (decoded.text.length > 0)
+        lines.push({ text: decoded.text, invalidUtf8: decoded.invalidUtf8 });
       offset = newline + 1;
     }
-    for (const line of lines) {
+    for (const { text: line, invalidUtf8 } of lines) {
+      session.recentRecordsInvalidUtf8 ||= invalidUtf8;
       if (Buffer.byteLength(line, "utf8") > MAX_RECENT_MI_LINE_BYTES) {
         session.lines.push(truncateUtf8RecordPrefix(line));
         session.recentRecordsTruncated = true;
@@ -1151,17 +1212,18 @@ export class GdbSessionManager {
     }
     for (const line of lines) {
       for (const pending of session.pending.values()) {
-        const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+        const lineBytes = Buffer.byteLength(line.text, "utf8") + 1;
+        pending.outputInvalidUtf8 ||= line.invalidUtf8;
         if (
           pending.outputBytes + lineBytes <= MAX_COMMAND_OUTPUT_BYTES &&
           pending.lines.length < MAX_COMMAND_OUTPUT_RECORDS
         ) {
-          pending.lines.push(line);
+          pending.lines.push(line.text);
           pending.outputBytes += lineBytes;
         } else pending.outputTruncated = true;
       }
       const match = /^(\d+)\^(done|running|connected|error|exit)(?:,|$)/u.exec(
-        line,
+        line.text,
       );
       if (match === null) continue;
       const token = Number(match[1]);
@@ -1176,12 +1238,13 @@ export class GdbSessionManager {
       const records = [...pending.lines];
       pending.resolve({
         command: "",
-        mi: line,
+        mi: line.text,
         records,
         console: records.filter((record) => record.startsWith("~")).join("\n"),
         target: records.filter((record) => record.startsWith("@")).join("\n"),
         log: records.filter((record) => record.startsWith("&")).join("\n"),
         output_truncated: pending.outputTruncated,
+        output_invalid_utf8: pending.outputInvalidUtf8,
         completion_status: "complete",
       });
     }
@@ -1211,6 +1274,7 @@ export class GdbSessionManager {
       target: records.filter((line) => line.startsWith("@")).join("\n"),
       log: records.filter((line) => line.startsWith("&")).join("\n"),
       output_truncated: pending.outputTruncated,
+      output_invalid_utf8: pending.outputInvalidUtf8,
       completion_status: "unknown",
     };
   }
@@ -1239,6 +1303,11 @@ export class GdbSessionManager {
             limitations: [
               "The GDB MI protocol failed; retained records are partial and command completion is unknown.",
               "The unrestricted GDB console can access local shell, filesystem, network, and target controls.",
+              ...(partial.output_invalid_utf8
+                ? [
+                    "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                  ]
+                : []),
             ],
           });
     return new AnalysisCapabilityUnavailableError(
@@ -1363,6 +1432,7 @@ export class GdbSessionManager {
           process_exit_code: code,
           process_exit_signal: signalCode,
           output_truncated: pending.outputTruncated,
+          output_invalid_utf8: pending.outputInvalidUtf8,
           completion_status: "unknown",
         }),
       );
@@ -1455,6 +1525,11 @@ export class GdbSessionManager {
             "The GDB command exceeded its deadline; retained MI and stream records are partial and command completion is unknown.",
             "Cleanup of the owned GDB process was requested because output correlation could no longer be guaranteed.",
             "The unrestricted GDB console can access local shell, filesystem, network, and target controls.",
+            ...(partial.output_invalid_utf8
+              ? [
+                  "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                ]
+              : []),
           ],
         });
         void this.#stopDebuggerOnly(session).then(
@@ -1533,6 +1608,7 @@ export class GdbSessionManager {
         timer,
         outputBytes: 0,
         outputTruncated: false,
+        outputInvalidUtf8: false,
       };
       session.pending.set(token, pending);
       abortListener = (): void => {
@@ -1554,6 +1630,11 @@ export class GdbSessionManager {
             "The GDB command was cancelled; retained MI records are partial and command completion is unknown.",
             "Shutdown of the owned GDB process was requested because output correlation could no longer be guaranteed.",
             "The unrestricted GDB console can access local shell, filesystem, network, and target controls.",
+            ...(partial.output_invalid_utf8
+              ? [
+                  "GDB stdout contained invalid UTF-8; replacement characters in retained record text are lossy.",
+                ]
+              : []),
           ],
         });
         session.pending.delete(token);
@@ -1693,18 +1774,41 @@ const miStringField = (record: string, field: string): string | undefined => {
 export const gdbOneShotCommandMayInvalidateDetachProof = (
   command: string,
 ): boolean => {
-  if (commandMayChangeInferiorOutput(command)) return true;
   const firstToken = /^\s*([^\s;]+)/u.exec(command)?.[1]?.toLowerCase();
   if (
     firstToken !== undefined &&
-    (["source", "define"].some((name) => name.startsWith(firstToken)) ||
-      firstToken === "py" ||
-      "python".startsWith(firstToken))
+    ([
+      "source",
+      "define",
+      "run",
+      "start",
+      "starti",
+      "continue",
+      "next",
+      "nexti",
+      "step",
+      "stepi",
+      "finish",
+      "until",
+      "advance",
+      "target",
+      "attach",
+      "add-inferior",
+      "inferior",
+      "restore",
+      "load",
+      "jump",
+      "signal",
+      "py",
+      "python",
+    ].some((name) => name.startsWith(firstToken)))
   )
     return true;
   // One-shot execution cannot establish which shell/GDB context interprets
   // redirections, nor safely track multiline command definitions.
-  return /[<>]{1,2}|&>|[\r\n;]/u.test(command);
+  return (
+    commandMayChangeInferiorOutput(command) || /[<>]{1,2}|&>|[\r\n;]/u.test(command)
+  );
 };
 
 const commandMayChangeInferiorOutput = (command: string): boolean => {
@@ -1712,6 +1816,8 @@ const commandMayChangeInferiorOutput = (command: string): boolean => {
   const maySetInferiorTty =
     setting !== undefined && "inferior-tty".startsWith(setting.toLowerCase());
   const firstToken = /^\s*([^\s;]+)/u.exec(command)?.[1]?.toLowerCase();
+  const mayRunSourceScript =
+    firstToken !== undefined && "source".startsWith(firstToken);
   const mayBeTtyCommand =
     firstToken !== undefined && "tty".startsWith(firstToken);
   const mayRunWithOutputRedirection =
@@ -1722,11 +1828,25 @@ const commandMayChangeInferiorOutput = (command: string): boolean => {
     maySetInferiorTty ||
     mayBeTtyCommand ||
     /\binferior-tty\b/iu.test(command) ||
-    /^\s*(?:wit(?:h)?(?:\s|$)|tty(?:\s|$)|source\b|py\w*|define\b)/iu.test(
-      command,
-    ) ||
+    mayRunSourceScript ||
+    /^\s*(?:wit(?:h)?(?:\s|$)|tty(?:\s|$)|py\w*|define\b)/iu.test(command) ||
     mayRunWithOutputRedirection
   );
+};
+
+const gdbCommandMayCreateInferior = (command: string): boolean => {
+  const firstToken = /^\s*([^\s;]+)/u.exec(command)?.[1]?.toLowerCase();
+  if (firstToken === undefined || /[<>]|[\r\n;]/u.test(command)) return true;
+  return ![
+    "info",
+    "show",
+    "help",
+    "apropos",
+    "version",
+    "echo",
+    "printf",
+    "pwd",
+  ].includes(firstToken);
 };
 
 /** Terminate only the directly owned debugger process, never its process group or inferiors. */
