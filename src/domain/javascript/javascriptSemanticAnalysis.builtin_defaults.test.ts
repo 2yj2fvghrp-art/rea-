@@ -2,6 +2,72 @@ import { expect, it } from "vitest";
 
 import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
 
+it("retains direct require effects without poisoning later cached receivers", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    require('node:fs').readFileSync('first');
+    const fs = require('fs'); fs.readFileSync('second');
+    require('node:fs').createReadStream('stream');
+    require('node:child_process').spawn('tool', []);
+    require('node:timers').setTimeout(callback, 1);
+    require('node:http').get('http://example.test');
+    require('fs').readFileSync = custom;
+    require('node:fs').readFileSync('wrong'); fs.readFileSync('wrong');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual([
+    "first",
+    "second",
+  ]);
+  expect(ir.resourceOperations).toHaveLength(1);
+  expect(ir.childProcessSpawns).toHaveLength(1);
+  expect(ir.timerOperations).toHaveLength(1);
+  expect(ir.requestOperations).toHaveLength(1);
+});
+
+it.each([
+  "const fs = require('fs'); fs.promises.open = custom;",
+  "require('node:fs').promises.open = custom;",
+  "const fsp = require('fs/promises'); fsp.open = custom;",
+])("shares fs.promises object writes with fs/promises: %s", (write) => {
+  const ir = analyzeJavaScriptSemantics(`
+    const before = require('node:fs/promises'); before.open('before');
+    ${write}
+    const after = require('node:fs/promises'); after.open('wrong');
+  `);
+  expect(ir.resourceOperations).toHaveLength(1);
+});
+
+it.each([
+  "require = () => ({ readFileSync() {} });",
+  "({ loader: require } = other);",
+  "for (require of loaders) {}",
+])("rejects provenance from an overwritten ambient loader: %s", (write) => {
+  const ir = analyzeJavaScriptSemantics(`${write}
+    const fs = require('node:fs'); fs.readFileSync('wrong');
+    require('node:fs').readFileSync('also-wrong');
+  `);
+  expect(ir.configurationOperations).toEqual([]);
+  expect(
+    ir.bindings.find(({ name }) => name === "fs")?.provenance.status,
+  ).not.toBe("module");
+});
+
+it("keeps local loader reassignment separate from the ambient loader", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    function local(require) { require = replacement; }
+    const fs = require('node:fs'); fs.readFileSync('kept');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
+it("keeps wrapper require separate from global-object property writes", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    globalThis.require = replacement;
+    function polyfill(key) { globalThis[key] = replacement; }
+    require('node:fs').readFileSync('kept');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
 it.each(["import fs from 'node:fs';", "const fs = require('node:fs');"])(
   "retains reads and saved methods before a later write: %s",
   (declaration) => {

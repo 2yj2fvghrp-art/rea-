@@ -1,5 +1,8 @@
 import * as t from "@babel/types";
-import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
+import {
+  semanticRequireOrigin,
+  semanticRequireExportsIdentity,
+} from "./javascriptSemanticRequireOrigin.js";
 
 import {
   resolveSemanticBindingState,
@@ -112,8 +115,10 @@ export function* collectSemanticMemberMutationsSteps(
         // Literal built-in requires return one cached exports object. Follow
         // the captured initializer first so writes after reassignment do not
         // invalidate an unrelated original module object.
-        const path = [...required.origin.importedPath, ...current.path];
-        const name = required.origin.specifier.replace(/^node:/u, "");
+        const { specifier: name, path } = semanticRequireExportsIdentity(
+          required.origin.specifier,
+          [...required.origin.importedPath, ...current.path],
+        );
         const identity = JSON.stringify([
           "required",
           name,

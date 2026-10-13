@@ -39,6 +39,19 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
      saved('saved.json'); savedDestructured('saved-destructured.json');
      late('wrong-late.json'); lateMember('wrong-member.json');`,
   );
+  await writeFile(
+    join(root, "direct.cjs"),
+    `require('node:fs').readFileSync('direct.json');
+     const fs = require('fs'); fs.readFileSync('later.json');
+     require('fs/promises').open('before');
+     fs.promises.open = custom; require('node:fs/promises').open('wrong');`,
+  );
+  await writeFile(
+    join(root, "loader.cjs"),
+    `require = () => ({ readFileSync() {} });
+     const fs = require('node:fs'); fs.readFileSync('wrong-loader.json');
+     require('node:fs').readFileSync('wrong-direct-loader.json');`,
+  );
   const { stdout } = await execute(
     process.execPath,
     ["scripts/rea.mjs", "analyze-javascript-application", root, "--json"],
@@ -56,13 +69,15 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
   ).toEqual([
     "before-write.json",
     "before.json",
+    "direct.json",
+    "later.json",
     "saved-destructured.json",
     "saved.json",
     "sibling.json",
   ]);
   expect(
     result.semantic_graph.nodes.filter(({ kind }) => kind === "resource"),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(
     result.semantic_graph.relations.filter(
       ({ relation }) => relation === "releases",

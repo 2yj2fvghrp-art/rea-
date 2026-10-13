@@ -90,7 +90,7 @@ export interface JavaScriptSemanticAnalysisState {
     JavaScriptSemanticBindingState
   >;
   readonly conditionalInitializers: WeakSet<t.Node>;
-  /** Source-local writes, tagged by global-object or import.meta identity. */
+  /** Source-local writes, tagged by unbound binding, global object or import.meta. */
   readonly ambientWrites: SemanticPropertyPathCoverage;
 }
 
