@@ -257,6 +257,7 @@ export const createJavaScriptSemanticGraphProjection = (
   let unavailableFiles = 0;
   let omittedFiles = 0;
   let resourceTruncatedFiles = 0;
+  let unavailableBudgetTruncatedFiles = 0;
   const executionLimits = new Map<
     string,
     ApplicationCoverage["limits"][number]
@@ -446,7 +447,10 @@ export const createJavaScriptSemanticGraphProjection = (
             ? "partial"
             : "unknown",
         truncated:
-          truncatedFiles > 0 || resourceTruncatedFiles > 0 || omittedFiles > 0,
+          truncatedFiles > 0 ||
+          resourceTruncatedFiles > 0 ||
+          unavailableBudgetTruncatedFiles > 0 ||
+          omittedFiles > 0,
         omitted_nodes: exactNodes
           ? files.reduce(
               (total, { omitted_nodes: omitted }) => total + (omitted ?? 0),
@@ -461,7 +465,9 @@ export const createJavaScriptSemanticGraphProjection = (
           : null,
         limits: [
           ...executionLimits.values(),
-          ...(truncatedFiles > 0 || omittedFiles > 0
+          ...(truncatedFiles > 0 ||
+          unavailableBudgetTruncatedFiles > 0 ||
+          omittedFiles > 0
             ? [...budgetLimits, ...nodeLimits]
             : []),
         ],
@@ -624,6 +630,7 @@ export const createJavaScriptSemanticGraphProjection = (
           Buffer.byteLength(JSON.stringify(coverage)) + 1;
       } else omittedFiles += 1;
       unavailableFiles += 1;
+      if (budget.closed) unavailableBudgetTruncatedFiles += 1;
       if (unknownReason === "resource-limit" && retainedLimits.length > 0)
         resourceTruncatedFiles += 1;
     },

@@ -328,6 +328,7 @@ const escapedClassValues = (
         expressions.push(member.value);
       if (
         (t.isClassMethod(member) || t.isClassPrivateMethod(member)) &&
+        member.kind === "get" &&
         member.static === (lookup.kind === "static")
       )
         for (const { node } of semanticCallableResultExpressions(member))

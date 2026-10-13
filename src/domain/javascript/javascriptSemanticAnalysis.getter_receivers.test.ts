@@ -240,3 +240,19 @@ it("widens private receiver aliases through repeated unknown getter reads", () =
   `)?.status,
   ).toBe("unknown");
 });
+
+it("does not invoke ordinary or private method returns while widening a getter property read", () => {
+  expect(
+    resultValue(`
+    const shared = { x: 1 };
+    class R {
+      method() { return shared; }
+      #privateMethod() { return shared; }
+      get a() { return this[k1].x; }
+      get b() { return this[k2].y; }
+    }
+    new R().a.x = 2;
+    return shared.x;
+  `),
+  ).toMatchObject({ status: "literal", value: 1 });
+});

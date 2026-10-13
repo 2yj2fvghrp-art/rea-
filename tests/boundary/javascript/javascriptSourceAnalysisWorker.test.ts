@@ -278,3 +278,30 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
     }
   },
 );
+
+it("does not retain a complete static checkpoint outside the shared Evidence ceiling", async () => {
+  const worker = new JavaScriptAnalysisWorker({
+    heapMb: 128,
+    timeoutMs: 30_000,
+  });
+  const available = worker.evidenceBudget.remainingBytes();
+  expect(worker.evidenceBudget.reserveBytes(available)).toBe(true);
+  try {
+    const result = await worker.analyze(
+      source(
+        "imports.mjs",
+        "import value from 'dependency'; export { value };",
+      ),
+      null,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected Evidence capacity failure");
+    expect(result.error.javascript).toBeNull();
+    expect(result.error.error).toMatchObject({
+      reportedLimits: { parent_result_budget_exhausted: true },
+    });
+    expect(worker.evidenceBudget.remainingBytes()).toBe(0);
+  } finally {
+    await worker.close();
+  }
+});

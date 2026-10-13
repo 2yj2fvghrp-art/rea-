@@ -304,9 +304,7 @@ export class JavaScriptAnalysisWorker {
               },
             );
           offeredResultBudget =
-            this.#applicationProjectionFailure !== undefined &&
-            this.#sourcesRemaining !== undefined &&
-            this.#sourcesRemaining > 0
+            this.#applicationProjectionFailure !== undefined
               ? 0
               : this.#remainingResultBudget();
           const admission = javaScriptWorkerAdmissionSchema.parse({
@@ -473,6 +471,7 @@ export class JavaScriptAnalysisWorker {
       if (
         cleanup === undefined &&
         javascript === null &&
+        !this.#parentCapacityExhausted &&
         this.#root !== undefined
       ) {
         try {
@@ -693,7 +692,29 @@ export class JavaScriptAnalysisWorker {
       this.evidenceBudget.reserveBytes(expandedBytes)
     ) {
       this.#estimatedRetainedBytes += expandedBytes;
-    } else
+    } else {
+      // The fallback is an observation containing the complete static record,
+      // not a license to bypass the shared Evidence owner. No module facts are
+      // requested after choosing it, so the file observation cannot expand again.
+      const fallbackBytes =
+        bytes * 4 + 2048 + Buffer.byteLength(sourcePath) * 4;
+      if (
+        fallbackBytes > availableResultBudget ||
+        !this.evidenceBudget.reserveBytes(fallbackBytes)
+      ) {
+        this.#parentCapacityExhausted = true;
+        throw new AnalysisResourceConstraintError(
+          OPERATION,
+          "memory",
+          `Static facts for ${sourcePath} exceed the remaining Evidence capacity; remaining sources were not analyzed`,
+          {
+            ...this.#limits(),
+            parent_result_budget_exhausted: true,
+            static_fallback_required_bytes: fallbackBytes,
+          },
+        );
+      }
+      this.#estimatedRetainedBytes += fallbackBytes;
       this.#applicationProjectionFailure = new AnalysisResourceConstraintError(
         OPERATION,
         "memory",
@@ -708,6 +729,7 @@ export class JavaScriptAnalysisWorker {
             "Read the complete static facts on the file node or analyze fewer source files. Expanded application relationships exceed the parent result budget; increasing the worker heap alone does not increase it.",
         },
       );
+    }
     return facts;
   }
 

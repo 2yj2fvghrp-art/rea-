@@ -402,7 +402,7 @@ describe("JavaScript application cleanup diagnostics", () => {
 it("reserves node capacity for a selected source before earlier unselected inventory", async () => {
   const root = await createTestTempDirectory("rea-js-selected-capacity-");
   await writeFile(join(root, "a-unselected.mjs"), "export const unused = 1;");
-  await writeFile(join(root, "z-selected.mjs"), "export const answer = 42;");
+  await writeFile(join(root, "z-selected.mjs"), "");
   const result = await analyzeJavaScriptApplication({
     input_path: root,
     source_paths: ["z-selected.mjs"],
@@ -416,4 +416,13 @@ it("reserves node capacity for a selected source before earlier unselected inven
     analysis.semantic_graph.nodes.map(({ identity }) => identity.module_path),
   ).toEqual(["z-selected.mjs"]);
   expect(analysis.semantic_graph.coverage.truncated).toBe(true);
+  expect(analysis.semantic_graph.coverage.files).toContainEqual(
+    expect.objectContaining({
+      module_path: "z-selected.mjs",
+      status: "complete",
+    }),
+  );
+  expect(analysis.semantic_graph.coverage.limits).toContainEqual(
+    expect.objectContaining({ name: "semantic_graph_node_ceiling", value: 1 }),
+  );
 });

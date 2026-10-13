@@ -644,7 +644,8 @@ HTML script source ranges follow the HTML parser across LF, CRLF, and bare CR
 line endings, preserving UTF-16 columns.
 
 Unavailable sources and coverage rows use the same Evidence admission owner as
-analyzed sources. If no row fits, `semantic_graph.coverage.omitted_files` counts
+analyzed sources. Complete static fallback records also require a reservation;
+if they cannot fit, their source remains unavailable and remaining analysis stops. If no row fits, `semantic_graph.coverage.omitted_files` counts
 unrepresented sources; their individual coverage remains unknown. Selected sources
 receive semantic capacity before unavailable inventory files. Source paths
 remain available in the application inventory. Exported module observations are
