@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { WindowsNativeAuthority } from "./WindowsNativeLoader.js";
 import {
@@ -176,5 +176,43 @@ describe("Windows Job Object memory limits", () => {
       appliedLimit: () => LIMIT - 4096,
     });
     expect(() => launch(native, LIMIT)).toThrow();
+  });
+});
+
+describe("Windows output capture drain", () => {
+  it("repolls without the 25ms idle delay while the child keeps producing output", async () => {
+    vi.useFakeTimers();
+    try {
+      const chunk = Buffer.alloc(8192, 0x61);
+      const polls: Array<{
+        stdout: Buffer;
+        stderr: Buffer;
+        stdoutEnded: boolean;
+        stderrEnded: boolean;
+        exitCode: number | null;
+        activeProcesses: number;
+      }> = Array.from({ length: 10 }, () => ({
+        stdout: chunk,
+        stderr: Buffer.alloc(0),
+        stdoutEnded: false,
+        stderrEnded: false,
+        exitCode: null,
+        activeProcesses: 1,
+      }));
+      polls.push({ ...settledPoll });
+      const { native, calls } = authority({ polls });
+      const child = launch(native);
+      const closed = once(child, "close");
+      // 100ms of simulated time: the fixed 25ms poll cadence can complete
+      // at most ~4 polls, so all 10 data polls plus the settle poll must
+      // still be pending. Draining repolls immediately while data flows.
+      await vi.advanceTimersByTimeAsync(100);
+      expect(
+        calls.filter((call) => call.operation === "process_poll"),
+      ).toHaveLength(11);
+      await closed;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
