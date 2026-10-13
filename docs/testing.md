@@ -314,7 +314,10 @@ unknowns, so PR runs cannot consume the eligible-main comparison budget.
 Its static failure report compares supported lint/duplication diagnostics with
 failed main runs using exact source, ancestry, task hashes, and toolchain proof.
 A match describes those diagnostics only; it does not establish that every
-failure in a job came from main. Missing historical receipts remain unknown.
+failure in a job came from main. Duplication reports retain the actual checker
+exit result, so passing duplication checks preserve lint failures and caller
+thresholds remain owned by the producer. Missing checker outcomes leave
+those duplication diagnostics unclassified. Missing historical receipts remain unknown.
 The reporter executes only trusted default-branch code and parses whitelisted
 JSON artifact members without executing artifact content. Reports and limits
 are retained in `ci-health-diagnostics`; its ten-minute job limit covers the

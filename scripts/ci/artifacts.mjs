@@ -277,10 +277,16 @@ function normalizeDuplicates(report) {
   if (report === undefined) return [];
   if (
     !Array.isArray(report?.duplicates) ||
-    typeof report.statistics?.total?.percentage !== "number" ||
-    report.statistics.total.percentage <= 3.5
+    !Number.isFinite(report.statistics?.total?.percentage) ||
+    report.statistics.total.percentage < 0
   )
-    throw new Error("jscpd threshold evidence is malformed or non-failing");
+    throw new Error("jscpd report is malformed");
+  // The producer owns the checker outcome; do not copy or infer its threshold.
+  const exitCode = report.reaCheck?.exitCode;
+  if (exitCode === undefined || exitCode === 0) return [];
+  if (!Number.isSafeInteger(exitCode) || exitCode < 0)
+    throw new Error("jscpd checker outcome is malformed");
+  if (exitCode !== 1) return [];
   return report.duplicates.map((item) => {
     const paths = [item.firstFile?.name, item.secondFile?.name].sort();
     if (paths.some((path) => !repoPath(path)))

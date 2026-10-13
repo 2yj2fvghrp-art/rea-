@@ -166,23 +166,79 @@ it("rejects mutation methods at the shared GitHub transport before invoking the 
   ).rejects.toThrow("read-only GET");
 });
 
-it("merges independently executed source and built blobs without a filename collision", async () => {
+it("collects basic CI telemetry before optional dependency installation can fail", async () => {
+  const { jobs } = z
+    .object({
+      jobs: z.object({
+        report: z.object({
+          steps: z.array(
+            z.object({
+              id: z.string().optional(),
+              run: z.string().optional(),
+              if: z.string().optional(),
+              "continue-on-error": z.boolean().optional(),
+            }),
+          ),
+        }),
+      }),
+    })
+    .parse(
+      parse(
+        await readFile(
+          new URL("../../../.github/workflows/ci-timings.yml", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
+  const steps = jobs.report.steps;
+  const installation = steps.findIndex((step) => step.id === "failure-deps");
+  for (const script of ["pr-ci-health.mjs", "job-timings-batch.mjs"]) {
+    const collection = steps.findIndex(
+      (step) => step.run === `node scripts/ci/${script}`,
+    );
+    expect(collection).toBeGreaterThanOrEqual(0);
+    expect(installation).toBeGreaterThan(collection);
+  }
+  expect(steps[installation]).toMatchObject({
+    run: "npm ci",
+    "continue-on-error": true,
+  });
+  expect(
+    steps.find((step) => step.id === "npm-cache")?.["continue-on-error"],
+  ).toBe(true);
+  expect(
+    steps.find((step) => step.run === "node scripts/ci/failure-report.mjs")?.if,
+  ).toContain("steps.failure-deps.outcome == 'success'");
+});
+
+it("merges one unsharded source run with five built shards without missing or duplicate files", async () => {
   const root = await createTestTempDirectory("rea-ci-group-merge-");
   const config = join(root, "vitest.config.mjs");
   await writeFile(
     config,
-    `export default { test: { maxWorkers: 1, projects: [${["source", "built"].map((name) => `{ test: { name: "${name}", globals: true, include: ["${name}.test.js"] } }`).join(",")}] } };`,
+    `export default { test: { maxWorkers: 1, projects: [${["source", "built"].map((name) => `{ test: { name: "${name}", globals: true, include: ["${name}*.test.js"] } }`).join(",")}] } };`,
   );
-  for (const group of ["source", "built"])
+  const files = [
+    "source.test.js",
+    ...Array.from({ length: 5 }, (_, index) => `built-${index}.test.js`),
+  ];
+  for (const file of files)
     await writeFile(
-      join(root, `${group}.test.js`),
+      join(root, file),
       'it("runs its selected group", () => expect(true).toBe(true));',
     );
   const vitest = fileURLToPath(
     new URL("../../../node_modules/vitest/vitest.mjs", import.meta.url),
   );
   const blobs = new Map<string, Buffer>();
-  for (const group of ["source", "built"]) {
+  const runs = [
+    { group: "source", shard: [] },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      group: "built",
+      shard: [`--shard=${index + 1}/5`],
+    })),
+  ];
+  for (const { group, shard } of runs) {
     await execute(
       process.execPath,
       [
@@ -193,7 +249,7 @@ it("merges independently executed source and built blobs without a filename coll
         "--project",
         group,
         "--reporter=blob",
-        "--shard=1/1",
+        ...shard,
       ],
       {
         cwd: root,
@@ -208,7 +264,7 @@ it("merges independently executed source and built blobs without a filename coll
     // Separate hosted jobs start with independent report directories.
     await rm(join(root, ".vitest/blob"), { recursive: true });
   }
-  expect(blobs.size).toBe(2);
+  expect(blobs.size).toBe(6);
   await mkdir(join(root, ".vitest/blob"), { recursive: true });
   for (const [filename, bytes] of blobs)
     await writeFile(join(root, ".vitest/blob", filename), bytes);
@@ -232,5 +288,5 @@ it("merges independently executed source and built blobs without a filename coll
     .parse(JSON.parse(await readFile(join(root, "merged.json"), "utf8")));
   expect(
     merged.testResults.map(({ name }) => name.split("/").at(-1)).sort(),
-  ).toEqual(["built.test.js", "source.test.js"]);
+  ).toEqual(files.toSorted());
 });

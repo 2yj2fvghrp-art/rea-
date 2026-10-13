@@ -30,8 +30,8 @@ jobs:
           node-version-file: .nvmrc
       - name: Cache npm package downloads
         id: npm-cache
+        continue-on-error: true
         uses: ./.github/actions/npm-cache
-      - run: npm ci
       - name: Diagnose missing and startup-failed PR CI
         continue-on-error: true
         env:
@@ -57,8 +57,13 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 14
-      - name: Attribute supported static failures against main
+      - name: Install dependencies for static failure attribution
+        id: failure-deps
         if: ${{ !cancelled() && hashFiles('.cache/ci-job-timings/batch-manifest.json') != '' }}
+        continue-on-error: true
+        run: npm ci
+      - name: Attribute supported static failures against main
+        if: ${{ !cancelled() && steps.failure-deps.outcome == 'success' && hashFiles('.cache/ci-job-timings/batch-manifest.json') != '' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
