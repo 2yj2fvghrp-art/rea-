@@ -240,12 +240,16 @@ const collectMembersAt = (
     )
       continue;
     const segments = [...prefix, name];
-    for (const [key, member] of state.members)
-      if (
-        segments.every((segment, index) => member.segments[index] === segment)
-      )
-        state.members.delete(key);
-    state.members.set(compositeKey(segments), { segments, conditional });
+    const key = compositeKey(segments);
+    // A nested member is recorded only below its recorded parent, so a key
+    // that is not yet a member has no subtree to replace.
+    if (state.members.has(key))
+      for (const [existing, member] of state.members)
+        if (
+          segments.every((segment, index) => member.segments[index] === segment)
+        )
+          state.members.delete(existing);
+    state.members.set(key, { segments, conditional });
     const nested = t.isObjectProperty(property)
       ? boundObject(property.value, state)
       : undefined;
