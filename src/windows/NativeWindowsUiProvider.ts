@@ -451,13 +451,23 @@ const captureFailure = (
     return new AnalysisAccessDeniedError(OPERATION, path, "EACCES", { cause });
   if (code === 1460 || code === 258)
     return new AnalysisTimeoutError(OPERATION, 5000, { cause });
-  if ([8, 14, 1455, 0x80030070, 0x8007000e, 0x80070008].includes(code))
+  // STG_E_MEDIUMFULL is the fixed retained PNG stream's capacity refusal.
+  if (code === 0x80030070)
+    return new AnalysisResourceConstraintError(
+      OPERATION,
+      "capacity",
+      nativeFailureReason(cause),
+      { maximum_png_bytes: MAX_WINDOWS_WINDOW_PNG_BYTES },
+      { cause, remediationAction: "Retry with a smaller max_dimension." },
+    );
+  // Native allocation failures and HRESULT_FROM_WIN32 allocation failures.
+  if ([8, 14, 1455, 0x8007000e, 0x80070008].includes(code))
     return new AnalysisResourceConstraintError(
       OPERATION,
       "memory",
       nativeFailureReason(cause),
-      { maximum_png_bytes: MAX_WINDOWS_WINDOW_PNG_BYTES },
-      { cause, remediationAction: "Retry with a smaller max_dimension." },
+      null,
+      { cause },
     );
   if (code === 1400 || code === 6 || code === 87)
     return analysisInputErrorFromIssues(
