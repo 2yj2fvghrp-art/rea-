@@ -71,10 +71,13 @@ describe("JavaScript semantic analysis: structure 1", () => {
       resolutionMode: "require",
     });
     const shadow = onlyBinding(ir, "ipcRenderer");
-    expect(shadow.provenance).toEqual({
-      status: "local",
+    // A parameter is not a locally constructed value: nothing in this body
+    // establishes its origin, so it stays unknown instead of resolving to the
+    // module it shadows. c7a890d made parameters explicitly unknown and left
+    // this expectation asserting the superseded local fallback.
+    expect(shadow.provenance).toMatchObject({
+      status: "unknown",
       origins: [],
-      reason: null,
     });
     const shadowReference = ir.references.find(
       ({ name, bindingId, role }) =>
