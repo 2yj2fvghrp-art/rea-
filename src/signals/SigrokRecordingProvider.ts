@@ -162,6 +162,9 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
       this.#resources.retain(root, undefined);
       const snapshotPath = join(root.path, "recording");
       const execute = async (args: readonly string[]) => {
+        // A command that fails before producing output must not report the
+        // version probe's output as its own.
+        capturedOutput = undefined;
         const output = await runOwnedCommand(
           {
             command: limiter,
