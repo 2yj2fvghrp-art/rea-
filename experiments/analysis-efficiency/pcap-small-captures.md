@@ -74,7 +74,7 @@ on completed output directories. Original replies, catalogs, comparison receipts
 and exact measured driver source stay private. Repeated deliveries in the same
 mode also compare the ordered receipt observations, including limitations, view
 parameters, coverage and unknowns; only receipt/parent IDs are invocation-specific.
-Comparator regressions run with `node --test experiments/analysis-efficiency/test_compare.mjs`
+Comparator regressions run with `npm run test:local -- tests/evaluation/analysisEfficiencyComparison.test.ts`
 using synthetic measurement directories; they do not establish provider behavior.
 
 ## Actual model tasks
@@ -278,3 +278,8 @@ Workflow citation cardinality must equal the planned call count before binding
 per-call IDs. A shorter or longer answer list cannot silently shorten Python
 zip’s expected plan; missing URI calls and extra citations are rejected.
 Original complete/summary model workflows continue to pass unchanged.
+
+The six comparator CLI regressions now live in the normally discovered Vitest
+evaluation suite, so routine local/PR/CI gates execute them. The original six
+scenarios and CLI assertions are retained; the former manual Node suite is
+removed. They remain synthetic consumer checks, not provider evidence.
