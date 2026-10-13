@@ -25,7 +25,7 @@
 
 <br />
 
-<img src="docs/assets/rea-hopper-analysis.png" alt="একটি native বাইনারি পরীক্ষার সময় Hopper-এর ভেতরে REA তার analysis bridge চালু করছে" width="1200" />
+<img src="../assets/rea-hopper-analysis.png" alt="একটি native বাইনারি পরীক্ষার সময় Hopper-এর ভেতরে REA তার analysis bridge চালু করছে" width="1200" />
 
 <br /><br />
 
@@ -33,7 +33,7 @@
 <tr>
 <td align="center" width="360">
   <a href="https://discord.gg/GkcryMnJDM">
-    <img src="docs/assets/discord.svg" height="42" alt="Discord" /><br />
+    <img src="../assets/discord.svg" height="42" alt="Discord" /><br />
     <strong>Reverse Engineering কমিউনিটিতে যোগ দিন</strong>
   </a><br />
   <sub>Discord · প্রশ্নোত্তর · Show and Tell</sub>
