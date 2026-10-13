@@ -700,37 +700,87 @@ it("retains semantic coverage and limitations in a summary", () => {
   });
 });
 
-it("bounds parent limitations in every JavaScript view", () => {
-  const analysis = analysisViewJavaScriptAnalysis();
-  const many = Array.from(
-    { length: 10_000 },
-    (_, index) => `Module ${String(index).padStart(5, "0")} was not parsed.`,
-  );
-  const parent = {
-    ...javascriptParent({ ...analysis, limitations: many }),
-    limitations: many,
-  };
-  for (const view of [
-    { kind: "summary" },
-    { kind: "page", collection: "modules", offset: 0, limit: 1 },
-  ] as const) {
-    const result = projectAnalysisView(parent, view);
-    if (!result.ok) throw result.error;
-    expect(result.value.limitations).toHaveLength(
-      ANALYSIS_VIEW_MESSAGE_LIMIT + 1,
+it.each([63, 64, 65, 10_000])(
+  "bounds and deduplicates %i messages in JavaScript and layout views",
+  (count) => {
+    const messages = Array.from(
+      { length: count },
+      (_, index) => `Module ${String(index).padStart(5, "0")} was not parsed.`,
     );
-    const omission = result.value.limitations.at(-1) ?? "";
-    expect(omission).toContain(
-      `additional limitations omitted from this view; the complete list remains in parent Evidence ${parent.evidenceId}`,
-    );
-    expect(Number.parseInt(omission, 10)).toBeGreaterThanOrEqual(
-      10_000 - ANALYSIS_VIEW_MESSAGE_LIMIT,
-    );
-    expect(result.value.unknowns.length).toBeLessThanOrEqual(
-      ANALYSIS_VIEW_MESSAGE_LIMIT + 1,
-    );
-  }
-});
+    const analysis = analysisViewJavaScriptAnalysis();
+    const { graph_id: _graphId, ...semantic } = analysis.semantic_graph;
+    const parent = javascriptParent({
+      ...analysis,
+      limitations: messages,
+      semantic_graph: createJavaScriptSemanticGraph({
+        ...semantic,
+        limitations: [],
+      }),
+    });
+    const duplicatedParent = { ...parent, limitations: messages };
+    const notice = (
+      omitted: number,
+      field: "limitations" | "unknowns",
+      evidenceId: string,
+    ) =>
+      `${String(omitted)} additional ${field} omitted from this view; the complete list remains in parent Evidence ${evidenceId} (get_evidence_bundle or export_evidence_bundle).`;
+    const retained = messages.slice(0, ANALYSIS_VIEW_MESSAGE_LIMIT);
+    const expectedLimitations = (evidenceId: string) =>
+      count > ANALYSIS_VIEW_MESSAGE_LIMIT
+        ? [
+            ...retained,
+            notice(
+              count - ANALYSIS_VIEW_MESSAGE_LIMIT,
+              "limitations",
+              evidenceId,
+            ),
+          ]
+        : messages;
+    for (const view of [
+      { kind: "summary" },
+      { kind: "page", collection: "modules", offset: 0, limit: 1 },
+    ] as const) {
+      const result = projectAnalysisView(duplicatedParent, view);
+      if (!result.ok) throw result.error;
+      expect(result.value.limitations).toEqual(
+        expectedLimitations(parent.evidenceId),
+      );
+      // The minimal source has exactly one semantic-coverage unknown in
+      // addition to these messages; it sorts after the padded Module strings.
+      expect(result.value.unknowns).toEqual(
+        count < ANALYSIS_VIEW_MESSAGE_LIMIT
+          ? [...messages, "semantic_graph.coverage.status is unknown"]
+          : [
+              ...retained,
+              notice(
+                count + 1 - ANALYSIS_VIEW_MESSAGE_LIMIT,
+                "unknowns",
+                parent.evidenceId,
+              ),
+            ],
+      );
+    }
+    const layout = layoutParent();
+    const layoutWithMessages = {
+      ...layout,
+      limitations: messages,
+      normalizedResult: {
+        ...analysisViewLayoutFixture(),
+        limitations: messages,
+      },
+    };
+    for (const view of [
+      { kind: "summary" },
+      { kind: "page", collection: "sections", offset: 0, limit: 1 },
+    ] as const) {
+      const result = projectAnalysisView(layoutWithMessages, view);
+      if (!result.ok) throw result.error;
+      expect(result.value.limitations).toEqual(
+        expectedLimitations(layout.evidenceId),
+      );
+    }
+  },
+);
 
 it("does not match unavailable layout names using a display placeholder", () => {
   const layout = analysisViewLayoutFixture();
