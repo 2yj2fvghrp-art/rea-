@@ -452,6 +452,12 @@ Handle openCaptureExecutable(const std::wstring& path) {
 void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::wstring& path,
                                 const std::wstring& expectedSha256, const std::wstring& expectedFileIdentity,
                                 const CaptureControl& control) {
+  BY_HANDLE_FILE_INFORMATION nodeIdentity{};
+  require(GetFileInformationByHandle(target, &nodeIdentity), "Read executable stat identity failed", path);
+  const uint64_t index = (static_cast<uint64_t>(nodeIdentity.nFileIndexHigh) << 32) | nodeIdentity.nFileIndexLow;
+  require(std::to_wstring(nodeIdentity.dwVolumeSerialNumber) + L":" + std::to_wstring(index) == expectedFileIdentity,
+          "Active executable identity changed before capture", path, ERROR_INVALID_HANDLE,
+          FailureKind::ArtifactChanged);
   FILE_ID_INFO expected{}, observed{};
   require(GetFileInformationByHandleEx(target, FileIdInfo, &expected, sizeof(expected)) &&
           GetFileInformationByHandleEx(processImage, FileIdInfo, &observed, sizeof(observed)),
@@ -460,12 +466,6 @@ void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::w
           std::memcmp(expected.FileId.Identifier, observed.FileId.Identifier, sizeof(expected.FileId.Identifier)) == 0,
           "Selected process does not execute the active target file", path, ERROR_ACCESS_DENIED,
           FailureKind::ProcessIdentityMismatch);
-  BY_HANDLE_FILE_INFORMATION nodeIdentity{};
-  require(GetFileInformationByHandle(target, &nodeIdentity), "Read executable stat identity failed", path);
-  const uint64_t index = (static_cast<uint64_t>(nodeIdentity.nFileIndexHigh) << 32) | nodeIdentity.nFileIndexLow;
-  require(std::to_wstring(nodeIdentity.dwVolumeSerialNumber) + L":" + std::to_wstring(index) == expectedFileIdentity,
-          "Active executable identity changed before capture", path, ERROR_INVALID_HANDLE,
-          FailureKind::ArtifactChanged);
   LARGE_INTEGER size{};
   require(GetFileSizeEx(target, &size), "Read executable size failed", path);
   require(size.QuadPart >= 0 && size.QuadPart <= 256LL * 1024LL * 1024LL,
@@ -524,6 +524,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   const UINT flags = PRF_CLIENT | PRF_ERASEBKGND;
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
+  // Keep the revalidated process object alive through rendering and encoding.
   auto paintProcess = validateProcessIdentity(pid, startToken, imagePath);
   const LRESULT delivered = SendMessageTimeoutW(window, WM_PRINT,
                                                  reinterpret_cast<WPARAM>(dc.get()), flags,
