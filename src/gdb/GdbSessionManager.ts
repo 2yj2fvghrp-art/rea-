@@ -738,28 +738,42 @@ export class GdbSessionManager {
               completion_status: "unknown" as const,
             }
           : undefined);
-      const startupEvidence =
+      const startupEvidencePayload =
         startupEvidenceResult === undefined
+          ? undefined
+          : {
+              ...startupEvidenceResult,
+              ...(session.invalidUtf8Observed
+                ? { output_invalid_utf8: true as const }
+                : {}),
+            };
+      const startupEvidence =
+        startupEvidencePayload === undefined
           ? undefined
           : createEvidence(undefined, GDB_PROVIDER_IDENTITY, {
               predicateType: "rea.debugger.startup-observation",
               operation: "start_gdb_session",
               parameters: {
                 mi_version: miVersion,
-                command: startupEvidenceResult.command,
+                command: startupEvidencePayload.command,
               },
               result: {
-                ...startupEvidenceResult,
-                records: [...startupEvidenceResult.records],
+                ...startupEvidencePayload,
+                records: [...startupEvidencePayload.records],
               },
               rawResult: {
-                ...startupEvidenceResult,
-                records: [...startupEvidenceResult.records],
+                ...startupEvidencePayload,
+                records: [...startupEvidencePayload.records],
               },
               subjectUnavailableReason:
                 "No usable debugger session became ready during GDB startup.",
               limitations: [
                 "GDB startup failed before a usable session could be established; captured startup records are incomplete.",
+                ...(session.invalidUtf8Observed
+                  ? [
+                      "GDB startup output contained invalid UTF-8 bytes; decoded records contain replacement characters.",
+                    ]
+                  : []),
               ],
             });
       const processOutput = session.supervisor.snapshot();

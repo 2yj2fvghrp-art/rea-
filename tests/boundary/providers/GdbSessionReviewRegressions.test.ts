@@ -220,6 +220,62 @@ process.stdin.on("data", (chunk) => {
 );
 
 it.skipIf(process.platform === "win32")(
+  "preserves invalid UTF-8 in startup Evidence when cleanup remains incomplete",
+  async () => {
+    directory = await mkdtemp(join(tmpdir(), "rea-gdb-startup-invalid-utf8-"));
+    const provider = join(directory, "fake-gdb-startup-invalid-utf8.mjs");
+    await writeFile(
+      provider,
+      `#!${process.execPath}
+process.stdout.write("(gdb)\\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    const match = /^(\\d+)/.exec(line);
+    if (match && line.includes("auto-load off")) {
+      const output = Buffer.concat([
+        Buffer.from("~startup invalid byte "),
+        Buffer.from([0xff]),
+        Buffer.from("\\n"),
+      ]);
+      process.stdout.write(output, () => process.exit(7));
+    }
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    let retainedSessionId: string | undefined;
+    const manager = createGdbManagerForInjectedPlatform({
+      environment: { REA_GDB_COMMAND: provider },
+      stopProcess: async (session) => {
+        retainedSessionId = session.id;
+        return { status: "incomplete", reason: "startup cleanup is retained" };
+      },
+    });
+    managers.push(manager);
+
+    const started = await manager.start();
+
+    expect(started.ok).toBe(false);
+    if (!started.ok) {
+      expect(started.error.cleanupIncomplete).toBe(true);
+      expect(started.error.partialObservation).toMatchObject({
+        normalized_result: { output_invalid_utf8: true },
+        raw_result: {
+          output_invalid_utf8: true,
+          process_exit_observed: true,
+        },
+        limitations: expect.arrayContaining([
+          expect.stringContaining("invalid UTF-8 bytes"),
+        ]),
+      });
+    }
+    expect(manager.status(retainedSessionId ?? "")?.mi_invalid_utf8).toBe(true);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
   "bounds persistent GDB sessions before spawning another process",
   async () => {
     directory = await mkdtemp(join(tmpdir(), "rea-gdb-session-limit-"));
