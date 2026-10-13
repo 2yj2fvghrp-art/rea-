@@ -6,6 +6,7 @@ import { expect, it as test } from "vitest";
 import { inspectJadxProvider } from "../../../src/android/JadxDoctor.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { writeJadxJarInventory } from "../../fixtures/android/jadxJar.js";
+import { writeOrderedZip } from "../../fixtures/artifactEntryOrder.js";
 
 const it = test.skipIf(process.platform === "win32");
 
@@ -174,14 +175,105 @@ it("classifies a missing Java runtime as a missing dependency", async () => {
   });
 });
 
-const createFakeJdk = async (root: string): Promise<string> => {
+it("guides JVM option correction when REA_JADX_HEAP_MIB is invalid", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-heap-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+    REA_JADX_HEAP_MIB: "not-a-number",
+  });
+
+  expect(inspection.checks[0]?.code).toBe("open_options_invalid");
+  expect(inspection.checks[0]?.remediation).toContain("REA_JADX_HEAP_MIB");
+  expect(inspection.checks[0]?.remediation).not.toContain("JAVA_HOME");
+});
+
+it("publishes validated JVM resource overrides in the registration environment", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-overrides-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+    REA_JADX_HEAP_MIB: "4096",
+    REA_JADX_ACTIVE_PROCESSOR_COUNT: "8",
+  });
+
+  expect(inspection.available).toBe(true);
+  expect(inspection.registrationEnvironment).toEqual({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+    REA_JADX_HEAP_MIB: "4096",
+    REA_JADX_ACTIVE_PROCESSOR_COUNT: "8",
+  });
+});
+
+it("guides JDK selection when the Java runtime is older than 17", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-oldjdk-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root, "11");
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.checks[0]?.code).toBe("unsupported_version");
+  expect(inspection.checks[0]?.remediation).toContain("JDK");
+  expect(inspection.checks[0]?.remediation).not.toContain("REA_JADX_MCP_JAR");
+});
+
+it("guides JAR replacement when the JAR misses bridge classes", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-classes-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeOrderedZip(jar, ["com/atxx/jhmcp/JadxSession.class"]);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.checks[0]?.code).toBe("unsupported_version");
+  expect(inspection.checks[0]?.remediation).toContain("REA_JADX_MCP_JAR");
+});
+
+it("remediates an unsupported host with platform guidance", async () => {
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", {
+    value: "sunos",
+    configurable: true,
+  });
+  try {
+    const inspection = await inspectJadxProvider({
+      REA_JADX_MCP_JAR: "/opt/jadx-headless-mcp.jar",
+    });
+
+    expect(inspection.checks[0]?.code).toBe("unsupported_host");
+    expect(inspection.checks[0]?.remediation).toContain("Linux");
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
+  }
+});
+
+const createFakeJdk = async (root: string, major = "21"): Promise<string> => {
   const javaHome = join(root, "fake-jdk");
   const bin = join(javaHome, "bin");
   const java = join(bin, "java");
   await mkdir(bin, { recursive: true });
   await writeFile(
     java,
-    "#!/bin/sh\nprintf 'java.base@21\\njdk.compiler@21\\n'\n",
+    `#!/bin/sh\nprintf 'java.base@${major}\\njdk.compiler@${major}\\n'\n`,
   );
   await chmod(java, 0o700);
   return javaHome;

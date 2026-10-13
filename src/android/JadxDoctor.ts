@@ -3,10 +3,13 @@ import type {
   DoctorProviderInspection,
 } from "../application/Doctor.js";
 import type { ProviderAvailability } from "../application/AnalysisProvider.js";
+import type { JsonValue } from "../domain/jsonValue.js";
 import { inspectJadxAvailability } from "./JadxConfiguration.js";
 import {
   JADX_JAR_CONFIGURATION_REMEDIATION,
   JADX_JAVA_RUNTIME_REMEDIATION,
+  JADX_JVM_OPTIONS_REMEDIATION,
+  JADX_UNSUPPORTED_HOST_REMEDIATION,
 } from "./JadxRelease.js";
 
 /** Project the validated JADX configuration into the doctor contract. */
@@ -38,13 +41,28 @@ export const inspectJadxProvider = async (
         ? {}
         : {
             REA_JADX_MCP_JAR: configuredJar,
-            ...(environment.JAVA_HOME === undefined
-              ? {}
-              : { JAVA_HOME: environment.JAVA_HOME }),
+            ...optionalEntry("JAVA_HOME", environment.JAVA_HOME),
+            ...optionalEntry(
+              "REA_JADX_HEAP_MIB",
+              environment.REA_JADX_HEAP_MIB,
+            ),
+            ...optionalEntry(
+              "REA_JADX_ACTIVE_PROCESSOR_COUNT",
+              environment.REA_JADX_ACTIVE_PROCESSOR_COUNT,
+            ),
           },
     checks: [configurationCheck(configured, availability, jarPath)],
   };
 };
+
+/**
+ * Publish a caller-selected variable only when explicitly set; never persist
+ * ambient inheritance. Values are validated before this point.
+ */
+const optionalEntry = (
+  name: string,
+  value: string | undefined,
+): Record<string, string> => (value === undefined ? {} : { [name]: value });
 
 const configurationCheck = (
   configured: boolean,
@@ -70,14 +88,14 @@ const configurationCheck = (
       availability.status === "available"
         ? "Validated JADX configuration reported no JAR path."
         : availability.reason,
-    // Point at the failed requirement: Java selection failures need JDK
-    // guidance, and an unsupported host is already explained by the reason.
-    remediation:
-      code === "runtime_missing" || code === "open_options_invalid"
-        ? JADX_JAVA_RUNTIME_REMEDIATION
-        : code === "unsupported_host"
-          ? null
-          : JADX_JAR_CONFIGURATION_REMEDIATION,
+    // Point at the failed requirement, selected from the failing phase: the
+    // failure codes cover multiple phases (JVM options vs Java selection,
+    // JAR inspection vs module inspection), and the diagnostics name the
+    // failed setting or phase. Every failed check keeps a remediation.
+    remediation: selectRemediation(
+      code,
+      availability.status === "unavailable" ? availability.diagnostics : {},
+    ),
     classification:
       code === "unsupported_host"
         ? "unsupported_host"
@@ -87,4 +105,27 @@ const configurationCheck = (
             ? "config_drift"
             : "missing_analysis_engine",
   };
+};
+
+/**
+ * Select remediation from the failing phase, not just the failure code:
+ * `open_options_invalid` covers both malformed JVM resource overrides and a
+ * non-absolute JAVA_HOME, and `unsupported_version` covers both a stale JDK
+ * and a JAR missing bridge classes.
+ */
+const selectRemediation = (
+  code: string | null,
+  diagnostics: Readonly<Record<string, JsonValue>>,
+): string | null => {
+  if (code === "unsupported_host") return JADX_UNSUPPORTED_HOST_REMEDIATION;
+  if (code === "runtime_missing") return JADX_JAVA_RUNTIME_REMEDIATION;
+  if (code === "open_options_invalid")
+    return typeof diagnostics["setting"] === "string"
+      ? JADX_JVM_OPTIONS_REMEDIATION
+      : JADX_JAVA_RUNTIME_REMEDIATION;
+  if (code === "unsupported_version")
+    return diagnostics["phase"] === "jar-inspection"
+      ? JADX_JAR_CONFIGURATION_REMEDIATION
+      : JADX_JAVA_RUNTIME_REMEDIATION;
+  return JADX_JAR_CONFIGURATION_REMEDIATION;
 };

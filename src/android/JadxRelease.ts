@@ -19,6 +19,14 @@ export const JADX_JAR_CONFIGURATION_REMEDIATION = `Set REA_JADX_MCP_JAR to the a
 export const JADX_JAVA_RUNTIME_REMEDIATION =
   "Select a full JDK including jdk.compiler via JAVA_HOME or PATH, then verify it with java --list-modules. REA does not install Java.";
 
+/** Remediation when a JADX JVM resource override is malformed. */
+export const JADX_JVM_OPTIONS_REMEDIATION =
+  "Set REA_JADX_HEAP_MIB to a positive integer (heap size in MiB) and REA_JADX_ACTIVE_PROCESSOR_COUNT to a positive integer within the JVM's signed 32-bit range.";
+
+/** Remediation when the host cannot run the Android JADX subprocess. */
+export const JADX_UNSUPPORTED_HOST_REMEDIATION =
+  "Use Linux, macOS, or Windows x64 with its bundled native controls for Android JADX analysis.";
+
 /** Producing engine identity used by Evidence and the generated product catalog. */
 export const JADX_PROVIDER_IDENTITY = Object.freeze({
   id: "jadx",
