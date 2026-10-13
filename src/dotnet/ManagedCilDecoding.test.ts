@@ -345,6 +345,31 @@ describe("managed exception region prefix boundaries", () => {
     });
   });
 
+  it("decodes the no. prefix and keeps it with its opcode", () => {
+    // ldarg.0; no. nullcheck; ldfld 0x04000001; pop; ret
+    const il = Buffer.from([2, 0xfe, 0x19, 4, 0x7b, 1, 0, 0, 4, 0x26, 0x2a]);
+    expect(
+      managedBodyWithRegion({ il, tryLength: 10, handlerOffset: 10 }),
+    ).toMatchObject({
+      status: "present",
+      issue: null,
+      decoded_instruction_count: 5,
+      opcode_counts: { "ldarg.0": 1, "no.": 1, ldfld: 1, pop: 1, ret: 1 },
+    });
+    expect(
+      managedBodyWithRegion({
+        il,
+        tryOffset: 4,
+        tryLength: 5,
+        handlerOffset: 10,
+      }),
+    ).toMatchObject({
+      status: "malformed",
+      issue:
+        "Exception clause try range does not align with CIL instruction boundaries",
+    });
+  });
+
   it.each([
     ["start", { tryOffset: 5, tryLength: 1, handlerOffset: 6 }],
     [
@@ -511,37 +536,48 @@ describe("managed exception section decoding", () => {
   });
 });
 
-describe("managed CIL operand truncation", () => {
-  it.each([
-    ["ldc.i4 operand", [0x20], "Instruction ldc.i4 at IL offset 0", 0],
-    ["ldc.i4 after nop", [0x00, 0x20], "Instruction ldc.i4 at IL offset 1", 1],
-    ["br.s operand", [0x2b], "Instruction br.s at IL offset 0", 0],
-    [
-      "ldloc operand",
-      [0xfe, 0x0c, 0x00],
-      "Instruction ldloc at IL offset 0",
-      0,
-    ],
-    ["switch count", [0x45, 0x02], "Instruction switch at IL offset 0", 0],
-    ["two-byte opcode", [0x00, 0xfe], "Two-byte CIL opcode at IL offset 1", 1],
-  ])(
-    "names the instruction when a truncated %s leaves the method body",
-    (_case, il, issue, decoded) => {
-      const bytes = buildManagedPeFixture({
-        ilBody: Buffer.from([0x02 | (il.length << 2), ...il]),
-      });
-      const result = inspectManagedMembersBytes(
-        bytes,
-        managedPeFixtureTarget(bytes),
-      );
+describe("managed CIL truncated operands", () => {
+  const tinyBody = (il: readonly number[]) => {
+    const bytes = buildManagedPeFixture({
+      ilBody: Buffer.from([(il.length << 2) | 0x02, ...il]),
+    });
+    const inspection = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    return { body: inspection.methods[0]?.body, coverage: inspection.coverage };
+  };
 
-      expect(result.methods[0]?.body).toMatchObject({
-        status: "malformed",
-        il_size: il.length,
-        normalized_il_sha256: null,
-        decoded_instruction_count: decoded,
-        issue: `${issue} leaves method body`,
-      });
-    },
-  );
+  it.each([
+    [[0x20], 0, "Instruction ldc.i4 at IL offset 0 leaves method body"],
+    [[0x00, 0x20], 1, "Instruction ldc.i4 at IL offset 1 leaves method body"],
+    [
+      [0x00, 0x20, 0x01],
+      1,
+      "Instruction ldc.i4 at IL offset 1 leaves method body",
+    ],
+    [[0x2b], 0, "Instruction br.s at IL offset 0 leaves method body"],
+    [[0x45, 0x02], 0, "Instruction switch at IL offset 0 leaves method body"],
+    [
+      [0xfe, 0x09, 0x00],
+      0,
+      "Instruction ldarg at IL offset 0 leaves method body",
+    ],
+    [
+      [0xfe, 0x0c, 0x00],
+      0,
+      "Instruction ldloc at IL offset 0 leaves method body",
+    ],
+    [[0x00, 0xfe], 1, "Two-byte CIL opcode at IL offset 1 leaves method body"],
+  ])("names the instruction and IL offset for IL %j", (il, decoded, issue) => {
+    const { body, coverage } = tinyBody(il);
+    expect(body).toMatchObject({
+      status: "malformed",
+      il_size: il.length,
+      normalized_il_sha256: null,
+      decoded_instruction_count: decoded,
+      issue,
+    });
+    expect(coverage.state).toBe("partial");
+  });
 });
