@@ -12,6 +12,7 @@ const PREFIX_OPCODES = new Set([
   "tail.",
   "constrained.",
   "readonly.",
+  "no.",
 ]);
 
 const OPCODES = new Map<
@@ -232,6 +233,7 @@ const OPCODES = new Map<
   [0xfe16, { name: "constrained.", operand: "type" }],
   [0xfe17, { name: "cpblk", operand: "none" }],
   [0xfe18, { name: "initblk", operand: "none" }],
+  [0xfe19, { name: "no.", operand: "short-i" }],
   [0xfe1a, { name: "rethrow", operand: "none" }],
   [0xfe1c, { name: "sizeof", operand: "type" }],
   [0xfe1d, { name: "refanytype", operand: "none" }],
@@ -453,6 +455,10 @@ export const decodeInstructions = (
       const start = offset;
       const first = il.readUInt8(offset);
       offset += 1;
+      if (first === 0xfe && offset >= il.length) {
+        issue = `Two-byte CIL opcode at IL offset ${String(start)} leaves method body`;
+        break;
+      }
       const code = first === 0xfe ? 0xfe00 + il.readUInt8(offset++) : first;
       const descriptor = OPCODES.get(code);
       if (descriptor === undefined) {
