@@ -181,23 +181,6 @@ describe("Hermes YAML shape diagnostics", () => {
 });
 
 describe("Hermes YAML registration", () => {
-  it("rejects multiple YAML documents before treating an empty first root as absent", async () => {
-    const { client } = await hermesClient();
-    const original =
-      "---\n---\nmcp_servers:\n  rea:\n    command: rea\n    args: [mcp]\n";
-    await writeFile(client.configPath, original);
-    expect(await inspectClientConfiguration(client, {}, command)).toMatchObject(
-      { status: "invalid" },
-    );
-    expect(await configureClientConfiguration(client, {}, command)).toEqual({
-      status: "failed",
-      reason: "readback",
-    });
-    expect(await readFile(client.configPath, "utf8")).toBe(original);
-    await expect(
-      readFile(`${client.configPath}.rea.backup`, "utf8"),
-    ).rejects.toThrow();
-  });
   it("writes mcp_servers, preserves comments, reads back, and uninstalls", async () => {
     const { home, client } = await hermesClient();
     await writeFile(
@@ -316,6 +299,27 @@ mcp_servers:
 
   // Comments and a bare document marker parse to a null document, like an
   // empty file, and are kept ahead of the new registration.
+});
+
+describe("Hermes YAML empty configurations", () => {
+  it("rejects multiple YAML documents before treating an empty first root as absent", async () => {
+    const { client } = await hermesClient();
+    const original =
+      "---\n---\nmcp_servers:\n  rea:\n    command: rea\n    args: [mcp]\n";
+    await writeFile(client.configPath, original);
+    expect(await inspectClientConfiguration(client, {}, command)).toMatchObject(
+      { status: "invalid" },
+    );
+    expect(await configureClientConfiguration(client, {}, command)).toEqual({
+      status: "failed",
+      reason: "readback",
+    });
+    expect(await readFile(client.configPath, "utf8")).toBe(original);
+    await expect(
+      readFile(`${client.configPath}.rea.backup`, "utf8"),
+    ).rejects.toThrow();
+  });
+
   it.each([
     "",
     "\n",
