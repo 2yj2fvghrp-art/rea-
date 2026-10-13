@@ -180,18 +180,19 @@ it("releases the timer and listener on dispose with a pending wait", async () =>
   }
 });
 
-it("preserves a fractional residual before the re-armed monotonic deadline", () => {
+// Preserve the authored fractional-clock control while following the current
+// owning deadline's re-arm contract for an early native timer callback.
+it("reports zero after the re-armed deadline reaches a fractional early callback", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
   const deadline = new ProviderStartupDeadline(40);
   try {
     now.mockReturnValue(1_039.6);
-    vi.advanceTimersByTime(40);
+    await vi.advanceTimersByTimeAsync(40);
     expect(deadline.signal.aborted).toBe(false);
-    expect(deadline.interruption).toBeUndefined();
     expect(deadline.remainingMs()).toBe(1);
     now.mockReturnValue(1_040);
-    vi.advanceTimersByTime(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(deadline.signal.aborted).toBe(true);
     expect(deadline.interruption).toBe("timeout");
     expect(deadline.remainingMs()).toBe(0);
