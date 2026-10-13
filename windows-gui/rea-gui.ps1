@@ -196,6 +196,7 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -Path (Join-Path $PSScriptRoot "ReaGuiProcessRunner.cs")
 
 $packageRoot = Split-Path -Parent $PSScriptRoot
 $reaEntryPoint = Join-Path $packageRoot "scripts\rea.mjs"
@@ -214,7 +215,7 @@ $form = New-Object System.Windows.Forms.Form
 $form.Text = "REA Windows 데스크톱 GUI"
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $form.ClientSize = New-Object System.Drawing.Size(980, 720)
-$form.MinimumSize = New-Object System.Drawing.Size(820, 600)
+$form.MinimumSize = New-Object System.Drawing.Size(1020, 600)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
 $title = New-Object System.Windows.Forms.Label
@@ -311,74 +312,40 @@ $resultsBox.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windo
 $form.Controls.Add($resultsBox)
 $resultsBox.Text = "작업과 대상을 선택한 다음 '분석 실행'을 누르세요.`r`n분석 대상 프로그램 자체는 실행하지 않습니다."
 
-$worker = New-Object System.ComponentModel.BackgroundWorker
-$worker.WorkerReportsProgress = $true
+$processState = [pscustomobject]@{
+  Runner = $null
+  IsRunning = $false
+}
+$outputTimer = New-Object System.Windows.Forms.Timer
+$outputTimer.Interval = 100
 $providerLabel.Enabled = $script:GuiCommands[0].UsesProvider
 $providerCombo.Enabled = $script:GuiCommands[0].UsesProvider
 $folderButton.Enabled = $script:GuiCommands[0].AllowsDirectory
 
-$worker.add_DoWork({
-  param($sender, $eventArgs)
-  $request = $eventArgs.Argument
-  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $startInfo.FileName = $request.NodePath
-  $startInfo.WorkingDirectory = $request.WorkingDirectory
-  $startInfo.UseShellExecute = $false
-  $startInfo.CreateNoWindow = $true
-  $startInfo.RedirectStandardOutput = $true
-  $startInfo.RedirectStandardError = $true
-  $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-  $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-  $allArguments = @($request.EntryPoint) + @($request.Arguments)
-  $startInfo.Arguments = [string]::Join(" ", [string[]]@(
-    $allArguments | ForEach-Object { ConvertTo-WindowsArgument ([string]$_) }
-  ))
-  $process = New-Object System.Diagnostics.Process
-  $process.StartInfo = $startInfo
-  try {
-    $backgroundWorker = $sender
-    $process.add_OutputDataReceived({
-      param($processSender, $lineEventArgs)
-      if ($null -ne $lineEventArgs.Data) {
-        $backgroundWorker.ReportProgress(0, [pscustomobject]@{
-          Stream = "표준 출력"
-          Text = $lineEventArgs.Data
-        })
-      }
-    }.GetNewClosure())
-    $process.add_ErrorDataReceived({
-      param($processSender, $lineEventArgs)
-      if ($null -ne $lineEventArgs.Data) {
-        $backgroundWorker.ReportProgress(0, [pscustomobject]@{
-          Stream = "오류"
-          Text = $lineEventArgs.Data
-        })
-      }
-    }.GetNewClosure())
-    if (-not $process.Start()) {
-      throw "REA CLI 프로세스를 시작하지 못했습니다."
-    }
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
-    $process.WaitForExit()
-    $process.WaitForExit()
-    $eventArgs.Result = $process.ExitCode
+$outputTimer.add_Tick({
+  $line = $null
+  while ($processState.Runner.TryDequeue([ref]$line)) {
+    $streamLabel = if ($line.Stream -eq "stdout") { "표준 출력" } else { "오류" }
+    $resultsBox.AppendText("[$streamLabel] $($line.Text)`r`n")
+    $line = $null
   }
-  finally {
-    $process.Dispose()
-  }
-}.GetNewClosure())
-
-$worker.add_ProgressChanged({
-  param($sender, $eventArgs)
-  $line = $eventArgs.UserState
-  $resultsBox.AppendText("[$($line.Stream)] $($line.Text)`r`n")
   $resultsBox.SelectionStart = $resultsBox.TextLength
   $resultsBox.ScrollToCaret()
-}.GetNewClosure())
+  if (-not $processState.Runner.HasExited) {
+    return
+  }
 
-$worker.add_RunWorkerCompleted({
-  param($sender, $eventArgs)
+  $processState.Runner.WaitForExit()
+  while ($processState.Runner.TryDequeue([ref]$line)) {
+    $streamLabel = if ($line.Stream -eq "stdout") { "표준 출력" } else { "오류" }
+    $resultsBox.AppendText("[$streamLabel] $($line.Text)`r`n")
+    $line = $null
+  }
+  $exitCode = $processState.Runner.ExitCode
+  $processState.Runner.Dispose()
+  $processState.Runner = $null
+  $processState.IsRunning = $false
+  $outputTimer.Stop()
   $selectedCommand = $script:GuiCommands[$commandCombo.SelectedIndex]
   $runButton.Enabled = $true
   $commandCombo.Enabled = $true
@@ -387,15 +354,11 @@ $worker.add_RunWorkerCompleted({
   $folderButton.Enabled = $selectedCommand.AllowsDirectory
   $providerLabel.Enabled = $selectedCommand.UsesProvider
   $providerCombo.Enabled = $selectedCommand.UsesProvider
-  if ($null -ne $eventArgs.Error) {
-    $statusLabel.Text = "실행 실패"
-    $resultsBox.AppendText("[오류] $($eventArgs.Error.Exception.Message)`r`n")
-  }
-  elseif ($eventArgs.Result -eq 0) {
+  if ($exitCode -eq 0) {
     $statusLabel.Text = "완료 (종료 코드 0)"
   }
   else {
-    $statusLabel.Text = "실패 (종료 코드 $($eventArgs.Result))"
+    $statusLabel.Text = "실패 (종료 코드 $exitCode)"
   }
 }.GetNewClosure())
 
@@ -403,8 +366,8 @@ $commandCombo.add_SelectedIndexChanged({
   $selectedCommand = $script:GuiCommands[$commandCombo.SelectedIndex]
   $description.Text = $selectedCommand.Description
   $providerLabel.Enabled = $selectedCommand.UsesProvider
-  $providerCombo.Enabled = $selectedCommand.UsesProvider -and -not $worker.IsBusy
-  $folderButton.Enabled = $selectedCommand.AllowsDirectory -and -not $worker.IsBusy
+  $providerCombo.Enabled = $selectedCommand.UsesProvider -and -not $processState.IsRunning
+  $folderButton.Enabled = $selectedCommand.AllowsDirectory -and -not $processState.IsRunning
 }.GetNewClosure())
 
 $fileButton.add_Click({
@@ -453,6 +416,15 @@ $runButton.add_Click({
     ) | Out-Null
     return
   }
+  if (-not [Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalPath($targetPath)) {
+    [System.Windows.Forms.MessageBox]::Show(
+      "네트워크 경로는 지원하지 않습니다. 로컬 드라이브의 파일 또는 폴더를 선택하세요.",
+      "로컬 경로 필요",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Warning
+    ) | Out-Null
+    return
+  }
   if (-not (Test-Path -LiteralPath $targetPath)) {
     [System.Windows.Forms.MessageBox]::Show(
       "분석 대상을 찾을 수 없습니다:`r`n$targetPath",
@@ -497,16 +469,39 @@ $runButton.add_Click({
   $fileButton.Enabled = $false
   $folderButton.Enabled = $false
   $providerCombo.Enabled = $false
-  $worker.RunWorkerAsync([pscustomobject]@{
-    NodePath = $nodeCommand.Source
-    EntryPoint = $reaEntryPoint
-    WorkingDirectory = $packageRoot
-    Arguments = $arguments
-  })
+  $processState.IsRunning = $true
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $nodeCommand.Source
+  $startInfo.WorkingDirectory = $packageRoot
+  $allArguments = @($reaEntryPoint) + @($arguments)
+  $startInfo.Arguments = [string]::Join(" ", [string[]]@(
+    $allArguments | ForEach-Object { ConvertTo-WindowsArgument ([string]$_) }
+  ))
+  try {
+    $processState.Runner = New-Object Rea.WindowsGui.ReaGuiProcessRunner($startInfo)
+    $processState.Runner.Start()
+    $outputTimer.Start()
+  }
+  catch {
+    if ($null -ne $processState.Runner) {
+      $processState.Runner.Dispose()
+      $processState.Runner = $null
+    }
+    $processState.IsRunning = $false
+    $runButton.Enabled = $true
+    $commandCombo.Enabled = $true
+    $targetTextBox.Enabled = $true
+    $fileButton.Enabled = $true
+    $folderButton.Enabled = $selectedCommand.AllowsDirectory
+    $providerLabel.Enabled = $selectedCommand.UsesProvider
+    $providerCombo.Enabled = $selectedCommand.UsesProvider
+    $statusLabel.Text = "실행 실패"
+    $resultsBox.AppendText("[오류] $($_.Exception.Message)`r`n")
+  }
 }.GetNewClosure())
 
 $clearButton.add_Click({
-  if (-not $worker.IsBusy) {
+  if (-not $processState.IsRunning) {
     $resultsBox.Clear()
     $statusLabel.Text = "준비됨"
   }
@@ -514,7 +509,7 @@ $clearButton.add_Click({
 
 $form.add_FormClosing({
   param($sender, $eventArgs)
-  if ($worker.IsBusy) {
+  if ($processState.IsRunning) {
     [System.Windows.Forms.MessageBox]::Show(
       "분석이 끝날 때까지 기다린 뒤 창을 닫으세요. 현재 실행 중인 CLI 작업은 이 GUI에서 취소할 수 없습니다.",
       "분석 진행 중",
@@ -526,5 +521,5 @@ $form.add_FormClosing({
 }.GetNewClosure())
 
 [void]$form.ShowDialog()
-$worker.Dispose()
+$outputTimer.Dispose()
 $form.Dispose()

@@ -562,6 +562,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Verify Windows GUI process output and completion
+        run: .\tests\windows-gui-process-runner.ps1
       - uses: actions/download-artifact@v4
         with:
           name: rea-build-cache

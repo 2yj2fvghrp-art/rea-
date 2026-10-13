@@ -85,7 +85,8 @@ selected REA provider; the target executable itself is not launched. Provider
 availability, format support, and setup requirements remain those of the
 underlying REA command.
 
-This MVP accepts local file and directory paths only; it does not accept URLs,
+This MVP accepts local file and directory paths only; UNC and mapped network
+drives are rejected before checking whether a target exists. It does not accept URLs,
 arbitrary REA commands, MCP sessions, or commands that mutate targets, capture
 live processes, or install/configure software. SQLite row selection and the
 full command catalog remain available through the CLI. Large analysis results
