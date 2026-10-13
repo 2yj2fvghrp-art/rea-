@@ -298,6 +298,7 @@ describe("safe CDP response metadata referrer policy", () => {
     ["+12", null],
     ["0x10", null],
     ["1e3", null],
+    ["9007199254740991", 9007199254740991],
     ["9007199254740992", null],
     [undefined, null],
   ])("declares Content-Length %j only for decimal digits", (raw, expected) => {
