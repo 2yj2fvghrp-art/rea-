@@ -58,6 +58,9 @@ export const ghidraJavaLaunch = async (options: {
     [...supportArguments, "-envvars"],
     {
       env: environment,
+      // Wait for the helper's exit on abort so a cancelled or timed-out
+      // startup never leaves the probe running without an owning process.
+      stopSignal: "SIGTERM",
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     },
   );
@@ -75,11 +78,33 @@ export const ghidraJavaLaunch = async (options: {
     if ((environment[key] ?? "") === "")
       environment[key] = line.slice(separator + 1);
   }
+  // The merged environment becomes the analysis JVM's environment, and the
+  // JVM applies these options variables automatically. An injected
+  // -Dos.arch/-Dos.name there selects an unvalidated native directory without
+  // appearing in vmArguments, so reject the effective values as well.
+  for (const key of [
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+  ] as const) {
+    const value = environment[key] ?? "";
+    if (
+      value
+        .split(/\s+/u)
+        .some((option) => /^-Dos\.(?:arch|name)(?:=|$)/u.test(option))
+    )
+      throw new Error(
+        "Ghidra LaunchSupport may not override os.arch or os.name; the native decompiler was validated for the inspected JVM platform.",
+      );
+  }
   const configuredArguments = await execFileOutput(
     command,
     [...supportArguments, "-vmargs"],
     {
       env: environment,
+      // Wait for the helper's exit on abort so a cancelled or timed-out
+      // startup never leaves the probe running without an owning process.
+      stopSignal: "SIGTERM",
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     },
   );

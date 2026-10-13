@@ -43,6 +43,7 @@ const headerProbe = (bytes: Buffer): GhidraExecutableHeaderProbe => ({
 
 const JAVA: GhidraJavaObservation = {
   osArch: "amd64",
+  osName: "Linux",
   version: "21.0.11",
   major: SUPPORTED_GHIDRA_JAVA_MAJOR,
   home: "/usr/lib/jvm/jdk-21",
@@ -188,6 +189,7 @@ describe("Ghidra installation inspection", () => {
               probeJava: () => ({
                 ...JAVA,
                 osArch: architecture === "arm64" ? "aarch64" : "amd64",
+                osName: platform === "darwin" ? "Mac OS X" : "Linux",
               }),
             }),
           ),
@@ -217,6 +219,7 @@ describe("Ghidra installation inspection", () => {
         return {
           ...JAVA,
           home: "C:\\Java\\jdk-21",
+          osName: "Windows 11",
         };
       },
     };
@@ -737,7 +740,7 @@ describe("Ghidra FAT native decompiler admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "aarch64" }),
+        probeJava: () => ({ ...JAVA, osArch: "aarch64", osName: "Mac OS X" }),
         executableHeader: () => headerProbe(bytes),
       }),
     );
@@ -758,7 +761,7 @@ describe("Ghidra FAT native decompiler admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "aarch64" }),
+        probeJava: () => ({ ...JAVA, osArch: "aarch64", osName: "Mac OS X" }),
         executableHeader: () => headerProbe(bytes),
       }),
     );
@@ -813,6 +816,7 @@ describe("Ghidra native decompiler admission", () => {
         probeJava: () => ({
           ...JAVA,
           osArch: options.architecture === "arm64" ? "aarch64" : "amd64",
+          osName: options.platform === "darwin" ? "Mac OS X" : "Linux",
         }),
         executableHeader,
       }),
@@ -876,7 +880,7 @@ describe("Ghidra native decompiler admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "aarch64" }),
+        probeJava: () => ({ ...JAVA, osArch: "aarch64", osName: "Mac OS X" }),
         executableHeader: (path: string) =>
           path === MAC_DECOMPILER ? headerProbe(bytes) : undefined,
       }),
@@ -900,7 +904,7 @@ describe("Ghidra native decompiler admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "aarch64" }),
+        probeJava: () => ({ ...JAVA, osArch: "aarch64", osName: "Mac OS X" }),
         executableHeader: (path: string) =>
           path === MAC_DECOMPILER ? headerProbe(elf(2, 1, 62)) : undefined,
       }),
@@ -929,7 +933,7 @@ describe("Ghidra JVM native directory admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "x86_64" }),
+        probeJava: () => ({ ...JAVA, osArch: "x86_64", osName: "Mac OS X" }),
       }),
     );
     expect(result.status).toBe("unavailable");
@@ -955,7 +959,7 @@ describe("Ghidra JVM native directory admission", () => {
         architecture: "arm64",
       },
       host({
-        probeJava: () => ({ ...JAVA, osArch: "aarch64" }),
+        probeJava: () => ({ ...JAVA, osArch: "aarch64", osName: "Mac OS X" }),
       }),
     );
     expect(result.status).toBe("available");
@@ -1006,6 +1010,82 @@ describe("Ghidra JVM native directory admission", () => {
       });
     },
   );
+
+  it("rejects a JDK whose os.name selects a different host OS", () => {
+    const result = inspectGhidraInstallation(
+      {
+        environment: {},
+        installDir: INSTALL,
+        platform: "darwin",
+        architecture: "arm64",
+      },
+      host({
+        probeJava: () => ({
+          ...JAVA,
+          osArch: "aarch64",
+          osName: "Windows 11",
+        }),
+      }),
+    );
+    expect(result.status).toBe("unavailable");
+    if (result.status !== "unavailable") return;
+    expect(
+      result.checks.find(({ name }) => name === "native_decompiler"),
+    ).toMatchObject({
+      status: "failed",
+      code: "executable_missing",
+      detail: expect.stringContaining("JVM reports os.name=Windows 11"),
+      remediation: expect.stringContaining("JAVA_HOME"),
+    });
+  });
+});
+
+describe("Ghidra JVM OS admission", () => {
+  it("rejects a successful Java probe that omits os.name", () => {
+    const { osName: _observedOsName, ...withoutOsName } = JAVA;
+    const result = inspectGhidraInstallation(
+      {
+        environment: {},
+        installDir: INSTALL,
+        platform: "linux",
+        architecture: "x64",
+      },
+      host({ probeJava: () => withoutOsName }),
+    );
+    expect(result.status).toBe("unavailable");
+    expect(
+      result.checks.find(({ name }) => name === "native_decompiler"),
+    ).toMatchObject({
+      status: "failed",
+      detail: expect.stringContaining("did not report os.name"),
+    });
+    expect(projectGhidraDoctorInspection(result).available).toBe(false);
+  });
+
+  it.each(["SunOS", "FreeBSD", ""])(
+    "refuses an unrecognized JVM os.name (%s) instead of assuming alignment",
+    (osName) => {
+      const result = inspectGhidraInstallation(
+        {
+          environment: {},
+          installDir: INSTALL,
+          platform: "linux",
+          architecture: "x64",
+        },
+        host({
+          probeJava: () => ({ ...JAVA, osName }),
+        }),
+      );
+      expect(result.status).toBe("unavailable");
+      if (result.status !== "unavailable") return;
+      expect(
+        result.checks.find(({ name }) => name === "native_decompiler"),
+      ).toMatchObject({
+        status: "failed",
+        detail: expect.stringContaining("os.name="),
+      });
+    },
+  );
 });
 
 describe("Ghidra Java probe os.arch extraction", () => {
@@ -1020,6 +1100,7 @@ describe("Ghidra Java probe os.arch extraction", () => {
         "    java.version = 21.0.11",
         "    java.vm.name = OpenJDK 64-Bit Server VM",
         "    os.arch = x86_64",
+        "    os.name = Linux",
         "    sun.arch.data.model = 64",
         "",
       ].join("\n"),
@@ -1036,6 +1117,7 @@ describe("Ghidra Java probe os.arch extraction", () => {
       });
       expect(ghidraInstallationDiagnostics(inspection)).toMatchObject({
         java_os_arch: "x86_64",
+        java_os_name: "Linux",
       });
     } finally {
       vi.mocked(spawnSync).mockReset();

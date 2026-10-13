@@ -30,6 +30,7 @@ const host: GhidraInstallationHost = {
   executable: () => true,
   probeJava: () => ({
     osArch: "amd64",
+    osName: "Linux",
     version: "21.0.11",
     major: 21,
     home: "/jdk-21",
