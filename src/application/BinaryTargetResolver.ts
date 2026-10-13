@@ -344,15 +344,16 @@ const detectArtifactFormat = async (
     xmlState = xmlProbe.write(chunk.subarray(0, read.bytesRead));
     if (xmlState === "matched") return "plist";
   }
-  if (
-    bytesRead === MAX_XML_PLIST_PROBE_BYTES &&
-    (await handle.stat()).size > bytesRead
-  )
-    throw new BinaryTargetError(
-      path,
-      "XML plist prolog was not found within the 1 MiB format probe limit",
-      { constraint: "file_format_rejected" },
-    );
+  if (bytesRead === MAX_XML_PLIST_PROBE_BYTES) {
+    const { size } = await handle.stat();
+    throwIfTargetResolutionCancelled(signal);
+    if (size > bytesRead)
+      throw new BinaryTargetError(
+        path,
+        "XML plist prolog was not found within the 1 MiB format probe limit",
+        { constraint: "file_format_rejected" },
+      );
+  }
   return undefined;
 };
 

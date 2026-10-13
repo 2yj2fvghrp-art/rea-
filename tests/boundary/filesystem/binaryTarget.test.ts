@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { open } from "node:fs/promises";
 import {
   chmod,
   mkdir,
@@ -11,7 +12,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { buildBinary } from "plist";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
 import {
@@ -326,6 +327,50 @@ describe("binary target I/O: XML plist probe", () => {
       kind: "artifact",
       format: "plist",
     });
+  });
+
+  it("preserves cancellation while checking the XML probe size limit", async () => {
+    const directory = await createTestTempDirectory("rea-xml-probe-cancel-");
+    const path = join(directory, "Model.archive");
+    await writeFile(
+      path,
+      Buffer.concat([
+        Buffer.from("<!--"),
+        Buffer.alloc(1024 * 1024 - 8, 0x78),
+        Buffer.from("-->x"),
+      ]),
+    );
+    const probe = await open(path, "r");
+    const handlePrototype = Object.getPrototypeOf(probe) as Pick<
+      typeof probe,
+      "stat"
+    >;
+    await probe.close();
+    const originalStat = handlePrototype.stat;
+    const controller = new AbortController();
+    let statCalls = 0;
+    vi.spyOn(handlePrototype, "stat").mockImplementation(async function (
+      this: typeof probe,
+      ...args
+    ) {
+      statCalls += 1;
+      const result = await originalStat.apply(this, args);
+      if (statCalls === 3) controller.abort();
+      return result;
+    });
+
+    try {
+      const result = await parseBinaryTarget(path, {
+        signal: controller.signal,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisCancelledError" },
+      });
+      expect(statCalls).toBe(3);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 
