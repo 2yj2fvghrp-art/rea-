@@ -1,8 +1,6 @@
 import { boundedViewMessages } from "./analysisViewCoverage.js";
 import { expect, it } from "vitest";
 
-import { uniqueSorted } from "../canonicalOrdering.js";
-
 import { functionDossierSchema } from "../hopperValues.js";
 import { ghidraFunctionDossier } from "../ghidraValues.fixture.js";
 import { JAVASCRIPT_APPLICATION_EVIDENCE_EXAMPLE } from "../../contracts/javascript/javascriptRuntimeReconciliationExample.js";
@@ -959,12 +957,11 @@ it("keeps the complete unique set when it fits the byte budget", () => {
 it("does not impose a message-count cutoff below the byte budget", () => {
   const messages = Array.from(
     { length: 100 },
-    (_, index) => `message ${index}`,
+    (_, index) => `message ${String(index).padStart(2, "0")}`,
   );
-  // Retained messages are returned in canonical code-point order.
   expect(
     boundedViewMessages(messages, `ev_${"a".repeat(64)}`, "limitations"),
-  ).toEqual(uniqueSorted(messages));
+  ).toEqual(messages);
 });
 
 it("bounds repeated view messages even when fewer than 64 source strings are huge", () => {
