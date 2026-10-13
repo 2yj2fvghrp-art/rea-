@@ -122,6 +122,31 @@ export const collectElectronWrappedCallPaths = (
   };
   const hasConditions = (value: SymbolicValue): boolean =>
     symbolicVariants(value).some((variant) => variant.conditions?.length);
+  const bridgeMemberFunctions = (
+    value: SymbolicValue,
+    prefix = "",
+    active = new Set<SymbolicValue>(),
+  ): readonly { readonly name: string; readonly fn: SymbolicFunction }[] => {
+    if (active.has(value)) return [];
+    if (active.size >= 128) {
+      remainingVisits = -1;
+      return [];
+    }
+    const nested = new Set(active);
+    nested.add(value);
+    const functions: { name: string; fn: SymbolicFunction }[] = [];
+    for (const member of [...resolver.members(value)].sort()) {
+      if (--remainingVisits < 0) return functions;
+      const name = prefix ? `${prefix}.${member}` : member;
+      for (const variant of symbolicVariants(resolver.property(value, member))) {
+        if (variant.kind === "function") functions.push({ name, fn: variant });
+        else if (resolver.members(variant).length > 0)
+          functions.push(...bridgeMemberFunctions(variant, name, nested));
+      }
+      if (remainingVisits < 0) return functions;
+    }
+    return functions;
+  };
   const isolatedBridgeCall = (
     node: t.CallExpression | t.OptionalCallExpression,
   ):
@@ -405,27 +430,24 @@ export const collectElectronWrappedCallPaths = (
         offset: node.start ?? -1,
         value: finding,
       });
-    for (const name of members) {
-      const value = resolver.property(object, name);
-      for (const fn of symbolicVariants(value))
-        if (fn.kind === "function") {
-          const memberContext = metadataContext(keyContext, fn);
-          if (!memberContext) continue;
-          functionBody(
-            fn,
-            fn.node.params.map(() => symbolicUnknown("public API argument")),
-            {
-              ...memberContext,
-              entryNode: node,
-              entryKind: "bridge-member",
-              entry: `${key.value}.${name}`,
-              channel: null,
-              steps: [step(node, "exposure", `${key.value}.${name}`)],
-              active: new Set(),
-            },
-            node,
-          );
-        }
+    for (const { name, fn } of bridgeMemberFunctions(object)) {
+      const memberContext = metadataContext(keyContext, fn);
+      if (!memberContext) continue;
+      const entry = `${key.value}.${name}`;
+      functionBody(
+        fn,
+        fn.node.params.map(() => symbolicUnknown("public API argument")),
+        {
+          ...memberContext,
+          entryNode: node,
+          entryKind: "bridge-member",
+          entry,
+          channel: null,
+          steps: [step(node, "exposure", entry)],
+          active: new Set(),
+        },
+        node,
+      );
     }
   };
   const call = (
