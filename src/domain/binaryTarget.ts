@@ -7,6 +7,7 @@ import type {
   UniversalMachOSlice,
 } from "./binaryTargetTypes.js";
 import { err, ok, type Result } from "./result.js";
+import { readElfFixedHeader } from "./elfFixedHeader.js";
 import { observeMzWindowsHeader, parseDosMzHeader } from "./dosMz.js";
 import { decodePeMachine } from "./peMachine.js";
 import {
@@ -191,20 +192,14 @@ const parseElf = (
   bytes: Buffer,
   fileSize: number,
 ): Result<ExecutableMetadata, string> => {
-  if (bytes.length < 6) return err("truncated ELF header");
-  if (bytes[4] !== 1 && bytes[4] !== 2) return err("unsupported ELF class");
-  const little = bytes[5] === 1;
-  if (!little && bytes[5] !== 2) return err("unsupported ELF endianness");
-  const headerSize = bytes[4] === 1 ? 52 : 64;
-  if (bytes.length < headerSize)
-    return err(
-      `truncated ELF header: an ELF${bytes[4] === 1 ? 32 : 64} header needs ${headerSize} bytes; the file has ${fileSize}`,
-    );
+  const fixedHeader = readElfFixedHeader(bytes, fileSize);
+  if (!fixedHeader.ok) return fixedHeader;
+  const { elfClass, byteOrder } = fixedHeader.value;
+  const little = byteOrder === "little";
   const machine = little ? bytes.readUInt16LE(18) : bytes.readUInt16BE(18);
   const architecture = elfArchitecture(machine);
   if (architecture === undefined) return err("unsupported ELF architecture");
   if (architecture === "mips" || architecture === "riscv") {
-    const elfClass = bytes[4] === 1 ? 32 : 64;
     const flagsOffset = elfClass === 32 ? 36 : 48;
     const metadata: ElfFamilyMetadata = {
       elfClass,
@@ -283,8 +278,12 @@ export const parsePeRecord = (
     record.toString("binary", 0, 4) !== "PE\u0000\u0000"
   )
     return err("invalid or truncated PE header");
-  const machine = decodePeMachine(record.readUInt16LE(4));
-  if (machine === undefined) return err("unsupported PE architecture");
+  const machineType = record.readUInt16LE(4);
+  const machine = decodePeMachine(machineType);
+  if (machine === undefined)
+    return err(
+      `unsupported PE architecture (COFF machine 0x${machineType.toString(16).padStart(4, "0")})`,
+    );
   const { architecture } = machine;
   const optionalHeaderSize = record.readUInt16LE(20);
   if (optionalHeaderSize > 4096 || record.length < 24 + optionalHeaderSize)

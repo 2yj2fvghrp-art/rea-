@@ -37,6 +37,10 @@ export default defineConfig({
             link: "/javascript-application-workflows",
           },
           { text: "Browser observation", link: "/browser-observation" },
+          {
+            text: "Web network captures",
+            link: "/web-network-captures",
+          },
           { text: "Electron observation", link: "/electron-observation" },
           { text: "Process capture", link: "/process-capture" },
           { text: ".NET assemblies", link: "/managed-code-analysis" },
@@ -45,6 +49,7 @@ export default defineConfig({
           { text: "Firmware", link: "/firmware-analysis" },
           { text: "SQLite databases", link: "/sqlite-databases" },
           { text: "Packet captures", link: "/packet-captures" },
+          { text: "Signal recordings", link: "/signal-recordings" },
         ],
       },
       {

@@ -6,6 +6,12 @@ for the reviewed setup transaction and [client IDs](installation.md#supported-ag
 The versioned verification notes below describe their stated runs; live service
 acceptance is verified only where explicitly recorded.
 
+## Fiddler Everywhere alongside REA
+
+Connect Fiddler Everywhere's MCP server separately for HTTP traffic debugging,
+preserving your REA client entry. See the
+[setup instructions and public skills](web-network-captures.md#fiddler-everywhere-mcp-and-public-skills).
+
 ## GitHub Copilot CLI
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
@@ -94,6 +100,11 @@ user-level `~/.qwen/settings.json`, or `$QWEN_HOME/settings.json` when configure
 Setup and doctor follow Qwen Code's tilde and working-directory-relative home
 overrides. Qwen Code also discovers personal skills in `~/.agents/skills`,
 where setup installs the bundled workflow.
+
+## Antigravity
+
+Antigravity 2.0 discovers personal skills in `~/.gemini/config/skills`.
+Setup installs its selected skill copy there.
 
 ## Gemini CLI
 
@@ -198,8 +209,15 @@ replaces) the REA entry in the home patch `$DSH_HOME/cordis.patch.yml`
 patches and comments. `rea doctor --client dsh` checks that same entry id.
 `rea uninstall` removes it by scanning supported clients; uninstall takes no
 `--client` flag. The home patch applies to every Harness profile, so the
-registration is written once and no per-profile edit is needed. The written
-entry is:
+registration is written once and no per-profile edit is needed.
+
+Setup, doctor and uninstall resolve `DSH_HOME` and `DSH_AGENTS_HOME` as Harness
+does: unset, empty or whitespace-only values use `~/.dsh` and `~/.agents`,
+respectively. Bare `~`, `~/` and `~\` expand to the user home; other relative
+values resolve against the command's working directory. Nonblank values retain
+their original spaces, and the agents root is independent of the Harness home.
+Run REA and Harness from the same working directory when using relative overrides.
+The written entry is:
 
 ```yaml
 - insert:
