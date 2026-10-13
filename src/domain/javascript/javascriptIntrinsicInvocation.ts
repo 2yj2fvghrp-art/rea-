@@ -79,6 +79,7 @@ export const resolveJavaScriptIntrinsicInvocation = (
     expandJavaScriptInvocationArguments(node.arguments);
   let receiver: t.Node | undefined;
   let explicitReceiver = false;
+  let boundPrefixApplied = false;
   for (;;) {
     callee = unwrapJavaScriptExpression(callee).node;
     if (t.isSequenceExpression(callee)) {
@@ -137,6 +138,7 @@ export const resolveJavaScriptIntrinsicInvocation = (
         bound.arguments === undefined
           ? undefined
           : [...bound.arguments, ...(arguments_ ?? [])];
+      boundPrefixApplied = bound.arguments !== undefined;
     }
     const method = path.length > 3 ? path.at(-1) : undefined;
     if (method === "bind") {
@@ -145,9 +147,13 @@ export const resolveJavaScriptIntrinsicInvocation = (
         return {
           ...bound,
           arguments:
-            bound.kind === "known" && bound.arguments !== undefined
-              ? [...bound.arguments, ...(arguments_ ?? [])]
-              : undefined,
+            bound.kind !== "known"
+              ? undefined
+              : boundPrefixApplied
+                ? arguments_
+                : bound.arguments === undefined
+                  ? undefined
+                  : [...bound.arguments, ...(arguments_ ?? [])],
         };
       const callable = explicitReceiver
         ? receiver

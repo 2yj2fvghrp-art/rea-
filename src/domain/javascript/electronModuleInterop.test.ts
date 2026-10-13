@@ -21,6 +21,19 @@ const BLOCK_MODULE_INTEROP = ROLLDOWN_MODULE_INTEROP.replace(
   .replace("  return to;", "  }\n  return to;");
 
 describe("Electron module interop identity", () => {
+  it("does not apply a nested bound prefix twice", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const make = Function.prototype.bind.bind(Object.defineProperty, null);
+      const decorate = make(metadata, "x");
+      decorate({value: 1});
+      const electron = require("electron");
+      new electron.BrowserWindow({webPreferences:{preload:"./preload.js"}});
+    `);
+    expect(analysis.electron.browser_windows).toMatchObject([
+      { preload_path: "./preload.js" },
+    ]);
+  });
+
   it("preserves named APIs through the released Rolldown namespace conversion", () => {
     const analysis = analyzeJavaScriptStaticSource(`${ROLLDOWN_MODULE_INTEROP}
       ${IMPORT} ${WRAP} ${WINDOW}
