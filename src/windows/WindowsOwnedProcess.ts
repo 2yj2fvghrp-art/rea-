@@ -291,10 +291,14 @@ export class WindowsOwnedProcess extends EventEmitter {
       this.#failure = undefined;
       // Drain while the child produces: a poll that returned data is
       // followed immediately instead of after the idle delay, so capture
-      // runs at pipe speed rather than one chunk per 25ms.
+      // runs at pipe speed rather than one chunk per 25ms. Writes that the
+      // consumer is not draining report backpressure, so slow readers fall
+      // back to the idle cadence instead of filling the parent heap.
       const idle = state.stdout.length === 0 && state.stderr.length === 0;
-      if (state.stdout.length > 0) this.stdout.write(state.stdout);
-      if (state.stderr.length > 0) this.stderr.write(state.stderr);
+      const stdoutAccepted =
+        state.stdout.length === 0 || this.stdout.write(state.stdout);
+      const stderrAccepted =
+        state.stderr.length === 0 || this.stderr.write(state.stderr);
       if (state.exitCode !== null && this.exitCode === null) {
         this.exitCode = state.exitCode;
         this.emit("exit", state.exitCode, null);
@@ -306,7 +310,7 @@ export class WindowsOwnedProcess extends EventEmitter {
         state.activeProcesses === 0
       ) {
         this.#release();
-      } else this.#schedule(idle ? 25 : 0);
+      } else this.#schedule(idle || !stdoutAccepted || !stderrAccepted ? 25 : 0);
     } catch (cause: unknown) {
       const failure = cause instanceof Error ? cause : new Error(String(cause));
       this.#failure = failure.message;

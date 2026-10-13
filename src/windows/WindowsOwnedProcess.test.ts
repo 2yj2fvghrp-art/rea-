@@ -281,4 +281,51 @@ describe("Windows output capture drain", () => {
       vi.useRealTimers();
     }
   });
+
+  it("backs off to the 25ms delay when the consumer stops accepting output", async () => {
+    vi.useFakeTimers();
+    try {
+      const chunk = Buffer.alloc(8192, 0x63);
+      const { native, calls } = authority({
+        polls: [
+          {
+            stdout: chunk,
+            stderr: Buffer.alloc(0),
+            stdoutEnded: false,
+            stderrEnded: false,
+            exitCode: null,
+            activeProcesses: 1,
+          },
+          {
+            stdout: chunk,
+            stderr: Buffer.alloc(0),
+            stdoutEnded: false,
+            stderrEnded: false,
+            exitCode: null,
+            activeProcesses: 1,
+          },
+          { ...settledPoll },
+        ],
+      });
+      const child = launch(native);
+      const closed = once(child, "close");
+      // The consumer stops draining: writes report backpressure.
+      vi.spyOn(child.stdout, "write").mockReturnValue(false);
+      const pollCount = () =>
+        calls.filter((call) => call.operation === "process_poll").length;
+      await vi.advanceTimersByTimeAsync(25);
+      expect(pollCount()).toBe(1);
+      // Data flowed but the consumer is not keeping up, so the next poll
+      // must wait out the 25ms idle delay instead of repolling at once.
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pollCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(24);
+      expect(pollCount()).toBe(2);
+      // Reach the settle poll so the child closes.
+      await vi.advanceTimersByTimeAsync(25);
+      await closed;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
