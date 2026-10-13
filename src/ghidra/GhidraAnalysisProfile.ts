@@ -15,7 +15,7 @@ import { err, ok, type Result } from "../domain/result.js";
 import type { GhidraInstallationInspection } from "./GhidraInstallation.js";
 import {
   ghidraMipsProfileParameters,
-  ghidraMipsSharedLanguageOverride,
+  ghidraMipsLanguageOverride,
 } from "./GhidraMipsProfile.js";
 import {
   ghidraRiscvLanguageOverride,
@@ -44,8 +44,7 @@ import {
 export const ghidraPinnedLanguage = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  ghidraMipsSharedLanguageOverride(target) ??
-  ghidraRiscvLanguageOverride(target);
+  ghidraMipsLanguageOverride(target) ?? ghidraRiscvLanguageOverride(target);
 
 /** Reason an existing project cannot open this target, or null when it can. */
 const ghidraExistingProjectUnsupportedReason = (
@@ -151,8 +150,7 @@ export const resolveGhidraAnalysisProfile = async (
           target_format: target.format,
           architecture: target.architecture,
           available_architectures: [...target.availableArchitectures].sort(),
-          import_mode: "ephemeral-source-immutable",
-          annotation_policy: "atomic-function-entry-metadata-v1",
+            annotation_policy: "atomic-function-entry-metadata-v1",
           load_image_observations: "source-mappings-entry-context-v2",
           function_body_evidence: "complete-inclusive-ranges-v1",
           function_references: "complete-body-and-entry-reference-manager-v2",
@@ -163,7 +161,7 @@ export const resolveGhidraAnalysisProfile = async (
             "address-first-unique-target-source-mapping-v2",
           instruction_flow_evidence: "decoded-return-pcode-v1",
           instruction_references: "exact-address-incoming-v1",
-          function_boundary_observations: "ghidra-terminal-call-limitations-v1",
+          function_boundary_observations: "ghidra-terminal-call-limitations-v2",
           no_return_repair:
             installation.platform === "win32"
               ? "disabled-windows-p0"
@@ -172,7 +170,7 @@ export const resolveGhidraAnalysisProfile = async (
             installation.platform === "win32"
               ? "official-headless-script-v1"
               : "inspected-jvm-launch-support-v1",
-          load_image_evidence: "independent-raw-mapping-context-v2",
+          load_image_evidence: "independent-raw-mapping-context-v4",
           jump_table_evidence: "typed-case-default-blocks-v1",
           decompiler_jump_loads: true,
           loader: "BinaryLoader",
@@ -204,7 +202,7 @@ export const resolveGhidraAnalysisProfile = async (
         `The caller-selected processor or compiler specification is outside the verified ${
           target.architecture === "riscv"
             ? "generic little-endian RISC-V"
-            : "endian-matched MIPS32 shared-image"
+            : "endian-matched MIPS32"
         } profile. The requested override has not been changed.`,
       ),
     );
@@ -246,6 +244,10 @@ export const resolveGhidraAnalysisProfile = async (
           existingProject === true
             ? "existing-project-copy"
             : "ephemeral-source-immutable",
+        import_mode: "ephemeral-source-immutable",
+        ...(target.format === "pe"
+          ? { pdb_observations: "program-info-v1" }
+          : {}),
         annotation_policy: "atomic-function-entry-metadata-v1",
         load_image_observations: "source-mappings-entry-context-v2",
         function_body_evidence: "complete-inclusive-ranges-v1",
@@ -257,7 +259,7 @@ export const resolveGhidraAnalysisProfile = async (
           "address-first-unique-target-source-mapping-v2",
         instruction_flow_evidence: "decoded-return-pcode-v1",
         instruction_references: "exact-address-incoming-v1",
-        function_boundary_observations: "ghidra-terminal-call-limitations-v1",
+        function_boundary_observations: "ghidra-terminal-call-limitations-v2",
         no_return_repair:
           installation.platform === "win32"
             ? "disabled-windows-p0"
@@ -312,7 +314,7 @@ export const resolveGhidraAnalysisProfile = async (
             }
           : {}),
         ...analyzerParameters,
-        ...ghidraMipsProfileParameters(target),
+        ...ghidraMipsProfileParameters(target, languageOverride),
         ...ghidraRiscvProfileParameters(target),
         ...(pspExtension?.ok === true
           ? {

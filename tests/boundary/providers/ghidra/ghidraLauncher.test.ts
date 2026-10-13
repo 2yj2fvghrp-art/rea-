@@ -753,7 +753,9 @@ describe("Ghidra Windows launcher", () => {
       }),
     ).toThrow(/metacharacters/u);
   });
+});
 
+describe("Ghidra Windows launcher runtime", () => {
   it.skipIf(process.platform !== "win32").each([
     {
       properties:
