@@ -160,6 +160,32 @@ export const createGoSplitElfFixture = (
   return fixture;
 };
 
+/** Many file-backed ELF loads sharing a small input, without any metadata marker. */
+export const createGoOverlappingElfFixture = (duplicate = false): Buffer => {
+  const count = 257;
+  const size = 1024 * 1024;
+  const dataStart = 65536;
+  const bytes = Buffer.alloc(dataStart + size + count * 16);
+  createGoBinaryFixture({ sectionless: true, omitBuildInfo: true }).bytes.copy(
+    bytes,
+    0,
+    0,
+    64,
+  );
+  bytes.writeUInt16LE(count, 56);
+  for (let index = 0; index < count; index++) {
+    const header = 128 + index * 56;
+    const offset = dataStart + (duplicate ? 0 : index * 16);
+    bytes.writeUInt32LE(1, header);
+    bytes.writeUInt32LE(6, header + 4);
+    bytes.writeBigUInt64LE(BigInt(offset), header + 8);
+    bytes.writeBigUInt64LE(0x400000n + BigInt(offset), header + 16);
+    bytes.writeBigUInt64LE(BigInt(size), header + 32);
+    bytes.writeBigUInt64LE(BigInt(size), header + 40);
+  }
+  return bytes;
+};
+
 /** Embedded invalid UTF-8 alongside valid records, with exact independent byte expectations. */
 export const createGoBinaryByteStringFixture = () => {
   const version = Buffer.from("xgo1.26.0");

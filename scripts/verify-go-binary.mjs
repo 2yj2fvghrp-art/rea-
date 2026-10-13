@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { isUtf8 } from "node:buffer";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -211,7 +211,7 @@ try {
 }
 const verifier = await completeVerifierRun(run);
 try {
-  await assert.rejects(readFile(join(root.path, "go.mod")), { code: "ENOENT" });
+  await assert.rejects(lstat(root.path), { code: "ENOENT" });
   if (verifier.process_lineage.status === "verified")
     assert.deepEqual(verifier.process_lineage.descendants, []);
 } catch (cause) {

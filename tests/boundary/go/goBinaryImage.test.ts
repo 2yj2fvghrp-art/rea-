@@ -1,10 +1,42 @@
 import { expect, it } from "vitest";
-import { readGoBinaryImage } from "../../../src/go/GoBinaryImage.js";
+import {
+  readGoBinaryImage,
+  GoBinaryResourceFailure,
+} from "../../../src/go/GoBinaryImage.js";
 import {
   createGoBinaryFixture,
   createGoSplitElfFixture,
+  createGoOverlappingElfFixture,
   GO_MODULE_TEXT,
 } from "../../fixtures/go/image.js";
+
+it("bounds cumulative header searches across overlapping ELF file spans", () => {
+  const bytes = createGoOverlappingElfFixture();
+  expect(() => readGoBinaryImage(bytes)).toThrow(GoBinaryResourceFailure);
+  expect(() => readGoBinaryImage(bytes)).toThrow(/256 MiB.*search/);
+});
+
+it("does not charge duplicate ELF search spans repeatedly", () => {
+  expect(
+    readGoBinaryImage(createGoOverlappingElfFixture(true)).build_info,
+  ).toBeNull();
+});
+
+it("accepts a search exactly at the cumulative byte limit", () => {
+  const bytes = createGoOverlappingElfFixture();
+  bytes.writeUInt16LE(256, 56);
+  expect(readGoBinaryImage(bytes).build_info).toBeNull();
+});
+
+it("keeps different virtual alignments distinct when file spans match", () => {
+  const fixture = createGoBinaryFixture({ sectionless: true });
+  fixture.bytes.copy(fixture.bytes, 184, 128, 184);
+  fixture.bytes.writeUInt16LE(2, 56);
+  fixture.bytes.writeBigUInt64LE(0x200001n, 128 + 16);
+  expect(readGoBinaryImage(fixture.bytes).build_info?.header_offset).toBe(
+    fixture.headerOffset,
+  );
+});
 
 it.each([
   [32, "little", "inline"],

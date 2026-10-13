@@ -21,6 +21,7 @@ const MAGIC = Buffer.from("ff20476f206275696c64696e663a", "hex");
 const MODULE_START = Buffer.from("3077af0c9274080241e1c107e6d618e6", "hex");
 const MODULE_END = Buffer.from("f932433186182072008242104116d8f2", "hex");
 const MAX_BUILD_INFO_BYTES = 1024 * 1024;
+const MAX_HEADER_SEARCH_BYTES = 256 * 1024 * 1024;
 
 /** Exact file span of one embedded string's contents, excluding its length/header. */
 export interface GoStringLocation {
@@ -54,7 +55,21 @@ export const readGoBinaryImage = (bytes: Buffer): GoBinaryImage => {
   const container = readContainer(bytes);
   const { format, architecture, bits, byte_order } = container;
   let selected: { search: GoFileMapping; header: number } | null = null;
+  const searched = new Set<string>();
+  let remainingSearchBytes = MAX_HEADER_SEARCH_BYTES;
   for (const search of container.search) {
+    // Identical file spans and alignment inspect the same candidate bytes.
+    // Partially overlapping spans still consume a cumulative work budget.
+    const identity = `${search.offset}:${search.size}:${search.address % 16n}`;
+    if (searched.has(identity)) continue;
+    searched.add(identity);
+    if (search.size > remainingSearchBytes)
+      throw new GoBinaryResourceFailure(
+        "search",
+        MAX_HEADER_SEARCH_BYTES,
+        "Go build-info discovery exceeds the cumulative 256 MiB header-search budget",
+      );
+    remainingSearchBytes -= search.size;
     const header = findHeader(bytes, search);
     if (header !== null) {
       selected = { search, header };

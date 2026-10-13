@@ -12,7 +12,7 @@ export class GoBinaryFormatFailure extends Error {
 /** Resource boundary exceeded while decoding metadata or native container structure. */
 export class GoBinaryResourceFailure extends Error {
   constructor(
-    readonly boundary: "build-info" | "structure",
+    readonly boundary: "build-info" | "structure" | "search",
     readonly maximum_bytes: number,
     message: string,
   ) {

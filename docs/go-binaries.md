@@ -84,9 +84,13 @@ host permission denial, changed artifacts and cancellation retain distinct
 errors. The selected file is never modified; this inspection creates no
 temporary files, starts no subprocesses and accesses no network endpoint.
 
-Resource guards bound the selected file to 256 MiB, aggregate embedded strings
+Resource guards bound the selected file and cumulative header searches to 256 MiB
+each, aggregate embedded strings
 to 1 MiB, structural table decoding to 16 MiB and the complete normalized metadata
-report to 8 MiB. Oversized results fail without partial success. MCP also applies
+report to 8 MiB. Identical search spans with the same virtual alignment are
+searched once; partially overlapping spans consume the cumulative search budget
+and fail with a CPU resource constraint when it is exhausted. Oversized results
+fail without partial success. MCP also applies
 its [response transport budget](mcp-contracts.md), which counts both text and
 structured content; a report within the metadata limit can still require export
 from retained Evidence. These limits are not operating-system memory or CPU
