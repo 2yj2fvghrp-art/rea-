@@ -41,10 +41,9 @@ it
     }
     // A rejection must come from the fixture we are about to launch. An
     // existing Xvfb would otherwise mask a broken executable-identity check.
-    await assertCleanLinuxHopperRuntime(
-      alternateMode ? [launcher] : [],
-      procRoot,
-    );
+    // Keep the preflight limited to display collisions: unrelated restricted
+    // runner processes can fail closed during a full executable inventory.
+    await assertCleanLinuxHopperRuntime([], procRoot);
     const command = alternateMode ? alternate : process.execPath;
     const arguments_ = alternateMode ? ["30"] : ["-e", childCode];
     const parentCode = `
