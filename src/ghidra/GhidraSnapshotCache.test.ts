@@ -190,13 +190,18 @@ describe("Ghidra snapshot profile admission", () => {
     },
     {
       parameter: "call_relationship_coverage",
-      current: "decoded-call-target-coverage-v3",
+      current: "function-body-call-coverage-v4",
       legacy: "resolved-call-reference-diagnostics-v1",
     },
     {
       parameter: "call_relationship_coverage",
-      current: "decoded-call-target-coverage-v3",
+      current: "function-body-call-coverage-v4",
       legacy: "decoded-call-target-coverage-v2",
+    },
+    {
+      parameter: "call_relationship_coverage",
+      current: "function-body-call-coverage-v4",
+      legacy: "decoded-call-target-coverage-v3",
     },
   ])(
     "refuses snapshots with outdated $parameter semantics",

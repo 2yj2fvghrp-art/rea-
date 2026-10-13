@@ -133,6 +133,11 @@ public class ReaNoReturnProbe extends GhidraScript {
             callees.setAccessible(true);
             JsonObject inventory = (JsonObject) callees.invoke(bridge, query, false);
             require("omitted_callee_inventory_stays_partial", inventory.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
+            require("interior_caller_omitted_by_entry_getter", !target.getCallingFunctions(monitor).contains(caller));
+            query.addProperty("procedure", target.getName());
+            JsonObject incoming = (JsonObject) callees.invoke(bridge, query, true);
+            require("off_entry_caller_inventory_stays_partial",
+                incoming.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
         } finally {
             if (changed != null) references.delete(changed);
             for (MemoryCallReference reference : saved) {

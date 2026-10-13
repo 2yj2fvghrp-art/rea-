@@ -406,7 +406,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             case "xrefs" -> xrefs(request.params);
             case "analyze_function" -> {
                 FunctionAnalysisObservation observation = analyzeFunctionObservation(request.params);
-                yield callRelationshipObservation(observation.dossier(), observation.calls());
+                JsonObject result = functionObservation(observation.dossier(), observation.limitations());
+                result.add("relationship_coverage", observation.relationshipCoverage());
+                yield result;
             }
             case "set_address_name", "set_addresses_names" -> {
                 if (!descriptor.transport.equals("unix-socket"))
@@ -1021,9 +1023,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
             JsonObject observation = functionObservation(result, noReturnCallLimitations(
                 currentProgram.getListing().getInstructions(function.getBody(), true)
             ));
-            // This query enumerates existing incoming call references. Targetless
-            // outgoing sites in this function belong to the callee observation.
-            observation.add("relationship_coverage", completeResolvedCallCoverage());
+            observation.add("relationship_coverage", callRelationshipCoverage(null,
+                unrepresentedIncomingCalls(function, observed)));
             monitor.checkCancelled();
             return observation;
         }
@@ -1501,15 +1502,16 @@ public final class ReaGhidraBridge extends HeadlessScript {
         if (pseudocode == null) {
             pseudocode = "";
         }
-        List<Reference> incomingReferences = collectReferences(function, "incoming")
-            .stream()
+        List<Reference> bodyIncoming = collectReferences(function, "incoming");
+        List<Reference> incomingReferences = bodyIncoming.stream()
             .filter(reference -> !function.getBody().contains(reference.getFromAddress()))
             .toList();
         List<Reference> outgoingReferences = collectReferences(function, "outgoing");
         JsonArray incoming = referenceEdges(incomingReferences);
         JsonArray outgoing = referenceEdges(outgoingReferences);
         JsonArray comments = comments(function);
-        JsonArray callers = procedureIdentities(function.getCallingFunctions(monitor));
+        Set<Function> callerFunctions = function.getCallingFunctions(monitor);
+        JsonArray callers = procedureIdentities(callerFunctions);
         Set<Function> calleeFunctions = function.getCalledFunctions(monitor);
         JsonArray callees = procedureIdentities(calleeFunctions);
         JsonArray referencedStrings = referencedStrings(outgoingReferences);
@@ -1592,7 +1594,13 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         result.add("limitations", limitations);
         monitor.checkCancelled();
-        return new FunctionAnalysisObservation(result, calls);
+        int missingCallers = 0;
+        for (Reference reference : bodyIncoming) {
+            monitor.checkCancelled();
+            if (unrepresentedCaller(reference, callerFunctions)) missingCallers++;
+        }
+        return new FunctionAnalysisObservation(result, calls.limitations(),
+            callRelationshipCoverage(calls, missingCallers));
     }
 
     private JsonObject nativeValueFlow(DecompileResults decompilation) throws Exception {
@@ -3307,20 +3315,35 @@ public final class ReaGhidraBridge extends HeadlessScript {
             throws Exception {
         monitor.checkCancelled();
         JsonObject result = functionObservation(value, calls.limitations());
+        result.add("relationship_coverage", callRelationshipCoverage(calls, null));
+        return result;
+    }
+
+    private static JsonObject callRelationshipCoverage(
+            CallBoundaryObservation calls, Integer missingCallers) {
         JsonObject coverage = completeResolvedCallCoverage();
-        Integer omitted = calls.unrepresentedCalleeSites();
-        if (omitted == null) {
+        Integer omitted = calls == null ? null : calls.unrepresentedCalleeSites();
+        String callerLimitation = missingCallers != null && missingCallers > 0
+            ? "Ghidra's caller inventory omits sources of " + missingCallers +
+                " call reference(s) into this function's body." : null;
+        if ((calls != null && omitted == null) || (calls == null && missingCallers == null)) {
             coverage.addProperty("status", "unknown");
-            coverage.addProperty("reason", "The callee inventory was not examined alongside decoded call targets.");
-        } else if (omitted > 0) {
-            coverage.addProperty("status", "partial");
-            JsonArray limitations = new JsonArray();
+            String reason = calls == null ? "No call inventory was examined."
+                : "The callee inventory was not examined alongside decoded call targets.";
+            coverage.addProperty("reason", reason + (callerLimitation == null ? "" : " " + callerLimitation));
+            return coverage;
+        }
+        JsonArray limitations = new JsonArray();
+        if (callerLimitation != null) limitations.add(callerLimitation);
+        if (omitted != null && omitted > 0) {
             limitations.add("Ghidra's callee inventory does not represent all targets of " + omitted +
                 " decoded call site(s).");
+        }
+        if (!limitations.isEmpty()) {
+            coverage.addProperty("status", "partial");
             coverage.add("limitations", limitations);
         }
-        result.add("relationship_coverage", coverage);
-        return result;
+        return coverage;
     }
 
     private static JsonObject completeResolvedCallCoverage() {
@@ -3332,6 +3355,29 @@ public final class ReaGhidraBridge extends HeadlessScript {
         );
         coverage.add("diagnostics", diagnostics);
         return coverage;
+    }
+
+    private boolean unrepresentedCaller(Reference reference, Set<Function> callers) {
+        if (!reference.getReferenceType().isCall()) return false;
+        Function caller = containingFunction(reference.getFromAddress());
+        return caller == null || !callers.contains(caller);
+    }
+
+    private int unrepresentedIncomingCalls(Function function, Set<Function> callers)
+            throws Exception {
+        var references = currentProgram.getReferenceManager();
+        AddressIterator destinations = references.getReferenceDestinationIterator(
+            functionObservationScope(function), true);
+        int omitted = 0;
+        while (destinations.hasNext()) {
+            monitor.checkCancelled();
+            ReferenceIterator incoming = references.getReferencesTo(destinations.next());
+            while (incoming.hasNext()) {
+                monitor.checkCancelled();
+                if (unrepresentedCaller(incoming.next(), callers)) omitted++;
+            }
+        }
+        return omitted;
     }
 
     private List<String> noReturnCallLimitations(Iterable<Instruction> instructions)
@@ -3453,8 +3499,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             String direction) throws Exception {
         // References can target instruction interiors or originate in embedded
         // data. Use actual body ownership, including an external's exact entry.
-        AddressSet scope = new AddressSet(function.getBody());
-        scope.add(function.getEntryPoint());
+        AddressSet scope = functionObservationScope(function);
         boolean outgoing = direction.equals("outgoing");
         AddressIterator addresses = outgoing
             ? currentProgram.getReferenceManager().getReferenceSourceIterator(scope, true)
@@ -3494,6 +3539,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
             reference.getOperandIndex() + "\u0000" +
             reference.isPrimary();
         observed.putIfAbsent(key, reference);
+    }
+
+    private static AddressSet functionObservationScope(Function function) {
+        AddressSet scope = new AddressSet(function.getBody());
+        scope.add(function.getEntryPoint());
+        return scope;
     }
 
     private JsonArray referenceEdges(List<Reference> references) {
@@ -3651,8 +3702,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
 
     private JsonArray comments(Function function) throws Exception {
         Listing listing = currentProgram.getListing();
-        AddressSet scope = new AddressSet(function.getBody());
-        scope.add(function.getEntryPoint());
+        AddressSet scope = functionObservationScope(function);
         AddressIterator addresses = listing.getCommentAddressIterator(scope, true);
         TreeMap<String, JsonObject> observed = new TreeMap<>();
         while (addresses.hasNext()) {
@@ -4607,7 +4657,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private record InventoryItem(Address address, String value, JsonObject facts) {}
     private record AddressNameRequest(String inputAddress, Address address, String name) {}
     private record FunctionEntry(Function function, InventoryItem item) {}
-    private record FunctionAnalysisObservation(JsonObject dossier, CallBoundaryObservation calls) {}
+    private record FunctionAnalysisObservation(JsonObject dossier, List<String> limitations, JsonObject relationshipCoverage) {}
     private record CallBoundaryObservation(List<String> limitations, Integer unrepresentedCalleeSites, JsonArray unresolvedCalls) {}
     private record SwiftStringLiteralDecode(JsonArray literals, JsonArray omissions) {}
     private record SwiftLiteralLayout(
