@@ -1,17 +1,16 @@
 import { existsSync, statSync } from "node:fs";
-import { join, win32 } from "node:path";
+import { resolve, win32 } from "node:path";
 
-/** Resolve Windows bare command names against the captured child environment. */
+/** Resolve Windows provider paths and bare names before native launch. */
 export const resolveWindowsProviderExecutable = (
   executable: string,
   environment: Readonly<NodeJS.ProcessEnv>,
 ): string => {
-  if (
-    win32.isAbsolute(executable) ||
-    executable.includes("/") ||
-    executable.includes("\\")
-  )
+  const root = win32.parse(executable).root;
+  if (/^[A-Za-z]:[\\/]/u.test(root) || root.startsWith("\\\\"))
     return executable;
+  if (root !== "" || executable.includes("/") || executable.includes("\\"))
+    return resolve(executable);
 
   const pathValue = environment.PATH ?? environment.Path ?? environment.path;
   if (pathValue === undefined) return executable;
@@ -31,7 +30,7 @@ export const resolveWindowsProviderExecutable = (
   for (const entry of pathEntries) {
     if (entry.length === 0) continue;
     for (const extension of extensions) {
-      const candidate = join(entry, `${executable}${extension}`);
+      const candidate = resolve(entry, `${executable}${extension}`);
       // The captured PATH is Windows-formatted even when this resolver is unit-tested elsewhere.
       try {
         if (existsSync(candidate) && statSync(candidate).isFile())

@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -56,6 +56,30 @@ describe("resolveWindowsProviderExecutable", () => {
       expect(
         commands.objdump({ path: "artifact", operation: "file_headers" })
           .executable,
+      ).toBe(executable);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves relative explicit paths and PATH entries before launch", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "rea-win-provider-relative-"),
+    );
+    const executable = join(directory, "rizin.EXE");
+    await writeFile(executable, "fixture");
+    try {
+      expect(
+        resolveWindowsProviderExecutable(
+          relative(process.cwd(), executable),
+          {},
+        ),
+      ).toBe(executable);
+      expect(
+        resolveWindowsProviderExecutable("rizin", {
+          PATH: relative(process.cwd(), directory),
+          PATHEXT: ".EXE",
+        }),
       ).toBe(executable);
     } finally {
       await rm(directory, { recursive: true, force: true });
