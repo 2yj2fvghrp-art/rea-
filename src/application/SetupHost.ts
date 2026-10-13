@@ -66,18 +66,24 @@ export const setupRegistrationCommand = (
         ]
       : [resolve(process.argv[1] ?? PRODUCT_IDENTITY.cliBinary), "mcp"];
 
-export const filterClientsNeedingConfigure = async (
+export const revalidateSetupClients = async (
   host: SetupHost,
   detectedClients: readonly SetupClient[],
   providerEnvironment: SetupProviderEnvironment,
   command: readonly string[],
-): Promise<readonly SetupClient[]> => {
+): Promise<{
+  readonly clientsToConfigure: readonly SetupClient[];
+  readonly alreadyCurrent: readonly SetupClient[];
+}> => {
   const needs = await Promise.all(
     detectedClients.map((client) =>
       host.clientNeedsConfigure(client, providerEnvironment, command),
     ),
   );
-  return detectedClients.filter((_, index) => needs[index]);
+  return {
+    clientsToConfigure: detectedClients.filter((_, index) => needs[index]),
+    alreadyCurrent: detectedClients.filter((_, index) => !needs[index]),
+  };
 };
 
 export const hostRemediation = async (
