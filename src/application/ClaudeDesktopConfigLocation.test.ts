@@ -1,4 +1,4 @@
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -313,7 +313,7 @@ describe("writes from a redirected AppData view", () => {
       "uninstall",
       (path) => {
         if (path === alias) return join(env.APPDATA, "dsh");
-        if (path.startsWith(`${alias}/`)) throw failure("ENOENT");
+        if (path.startsWith(`${alias}${sep}`)) throw failure("ENOENT");
         return path;
       },
     );

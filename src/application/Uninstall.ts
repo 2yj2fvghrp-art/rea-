@@ -244,7 +244,8 @@ export const systemUninstallHost = (
       if (read.kind === "item")
         return read.item.status === "failed" ? read.item : undefined;
       const removal = clientRegistrationRemoval(read.parsed, client);
-      if (!removal.removeNative && !removal.removeLegacy) return undefined;
+      if (!removal.removeNative && removal.legacyPath === undefined)
+        return undefined;
       // A removal the running package would revert, or redirect into its
       // private storage, would leave the registration in place.
       const blocker = clientWriteBlocker(client);
@@ -389,25 +390,35 @@ const itemRead = (result: UninstallItem): ClientConfigurationRead => ({
   item: result,
 });
 
-/** Share the exact ownership and applicability decision with preflight. */
+/**
+ * Share the exact ownership and applicability decision with preflight. A
+ * removable legacy entry carries its document path, so removal edits exactly
+ * the entry this decision admitted.
+ */
 const clientRegistrationRemoval = (
   parsed: ClientConfigurationDocument,
   client: SetupClient,
-): { readonly removeNative: boolean; readonly removeLegacy: boolean } => {
+): {
+  readonly removeNative: boolean;
+  readonly legacyPath: readonly string[] | undefined;
+} => {
   const name = PRODUCT_IDENTITY.mcpServerKey;
   if (
     parsed.dialect === "dsh" &&
     dshDocument(parsed.document).hasUnknownStructure
   )
-    return { removeNative: false, removeLegacy: false };
+    return { removeNative: false, legacyPath: undefined };
+  const legacyPath = legacyClientServerPath(parsed, name);
   return {
     removeNative:
       (parsed.dialect === "dsh" && dshDocument(parsed.document).carriesEntry) ||
       (Object.hasOwn(parsed.servers, name) &&
         isOwnedRegistration(parsed.servers[name], client)),
-    removeLegacy:
-      legacyClientServerPath(parsed, name) !== undefined &&
-      isOwnedRegistration(parsed.legacyServers[name], client),
+    legacyPath:
+      legacyPath !== undefined &&
+      isOwnedRegistration(parsed.legacyServers[name], client)
+        ? legacyPath
+        : undefined,
   };
 };
 
@@ -420,7 +431,6 @@ const removeClient = async (
   if (read.kind === "item") return read.item;
   const { transactionPath, original, parsed } = read;
   const name = PRODUCT_IDENTITY.mcpServerKey;
-  const legacyPath = legacyClientServerPath(parsed, name);
   if (
     parsed.dialect === "dsh" &&
     dshDocument(parsed.document).hasUnknownStructure
@@ -432,10 +442,11 @@ const removeClient = async (
     );
   if (!registrationPresent(parsed))
     return item(client.name, "skipped", "REA registration is absent.");
-  const { removeNative, removeLegacy } = clientRegistrationRemoval(
+  const { removeNative, legacyPath } = clientRegistrationRemoval(
     parsed,
     client,
   );
+  const removeLegacy = legacyPath !== undefined;
   if (!removeNative && !removeLegacy)
     return item(
       client.name,
@@ -453,7 +464,7 @@ const removeClient = async (
   );
   const editedPaths = [
     ...(removeNative ? [clientServerPath(parsed, name)] : []),
-    ...(removeLegacy ? [legacyPath] : []),
+    ...(legacyPath === undefined ? [] : [legacyPath]),
   ];
   const backupPath = `${client.configPath}.rea.backup`;
   try {
