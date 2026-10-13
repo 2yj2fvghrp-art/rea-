@@ -2183,6 +2183,38 @@ describe("DeepSeek Harness uninstall of a shared operation", () => {
     expect(text).toContain("# caller group patch");
   });
 
+  it("keeps an operation's own fields when setup removes a second REA row from it", async () => {
+    // Setup refuses a REA row in a group patch, so the setup path meets the
+    // keep rule only on an operation without a selector.
+    const { home, client } = await harnessClient();
+    const entry = canonicalEntry();
+    const row = (launcher: string) => `    - id: rea-mcp
+      name: "${entry.name}"
+      config:
+        serverName: rea
+        transport: stdio
+        command: ${launcher}
+        args: [mcp]
+`;
+    await writeFile(
+      client.configPath,
+      `- insert:
+${row("first-launcher")}# caller operation
+- disabled: false
+  insert:
+${row("second-launcher")}`,
+    );
+
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    const text = await readFile(client.configPath, "utf8");
+    expect(text).toContain("# caller operation");
+    expect(loadedInserts(text)).toHaveLength(1);
+    expect((parseYaml(text) as unknown[]).at(-1)).toEqual({ disabled: false });
+    expect(await dshStatus(home)).toMatchObject({ state: "aligned" });
+  });
+
   it("drops an emptied operation that targets REA's own row", async () => {
     const { home, client } = await harnessClient();
     await writeFile(
