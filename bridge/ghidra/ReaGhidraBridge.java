@@ -3527,15 +3527,16 @@ public final class ReaGhidraBridge extends HeadlessScript {
     /**
      * Reports whether {@code register}'s latest writer in {@code history}
      * (whose tail is the SEH prologue triple) is {@code xor reg,reg}, proving
-     * the register holds zero when the triple executes. Scanning stops at a
-     * call, whose volatile-register clobbers Ghidra does not model in result
-     * objects.
+     * the register holds zero when the triple executes. Scanning stops at any
+     * control-flow instruction — address order is not execution order, so a
+     * branch between the xor and the triple means the xor may never have run.
      */
     private static boolean isZeroedByXor(List<Instruction> history, String register) {
         String target = normalizedRegister(register);
         for (int index = history.size() - 4; index >= 0; index -= 1) {
             Instruction candidate = history.get(index);
-            if (mnemonic(candidate).equals("CALL")) {
+            FlowType flow = candidate.getFlowType();
+            if (flow.isCall() || flow.isJump() || flow.isTerminal()) {
                 return false;
             }
             boolean writes = false;
