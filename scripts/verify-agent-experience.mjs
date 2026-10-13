@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -258,7 +267,7 @@ try {
       await prepared.arguments(
         answerInstructions.length === 0
           ? scenario.prompt
-          : `${scenario.prompt}\n\nThis closed factual rubric needs complete producer Evidence in the transcript. Request complete detail on each initial application analysis when supported; summary or view records alone are not accepted by this rubric.\n\n${answerInstructions}`,
+          : `${scenario.prompt}\n\nThis closed factual rubric needs complete producer Evidence in the transcript. Request complete detail on each initial inspection or analysis when supported; summary or view records alone are not accepted by this rubric.\n\n${answerInstructions}`,
         scenario.approvedTools ?? [],
       ),
       scenario.id,
@@ -475,6 +484,13 @@ async function createTargets(root, includeManaged) {
     ...fixtures,
     largeJavascript,
     managed: join(managedOutput, "AgentEval.dll"),
+    ...(includeManaged
+      ? {
+          managedSha256: createHash("sha256")
+            .update(await readFile(join(managedOutput, "AgentEval.dll")))
+            .digest("hex"),
+        }
+      : {}),
   };
 }
 
@@ -596,9 +612,7 @@ async function runOwnedCommand({
       `${command} process cleanup incomplete; ownership and resources retained at ${evaluationRoot}: ${JSON.stringify(stopped)}`,
     );
   if (!exited)
-    throw new Error(
-      `${command} timed out after ${String(processTimeoutMs)}ms`,
-    );
+    throw new Error(`${command} timed out after ${String(processTimeoutMs)}ms`);
   return { snapshot: supervisor.snapshot() };
 }
 
@@ -699,7 +713,9 @@ async function readCommandVersion(command, environment) {
       `${command} --version failed with ${String(snapshot.exitCode)}: ${snapshot.stderr.text}`,
     );
   if (snapshot.diagnosticTruncated === true)
-    throw new Error(`${command} --version output exceeded its retention budget`);
+    throw new Error(
+      `${command} --version output exceeded its retention budget`,
+    );
   const version = snapshot.stdout.text.trim();
   if (version.length === 0)
     throw new Error(`${command} --version returned empty output`);

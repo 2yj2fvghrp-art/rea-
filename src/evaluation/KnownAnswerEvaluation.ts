@@ -6,6 +6,12 @@ import type { AgentToolCall } from "./AgentTranscript.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { canonicalJson } from "../domain/comparisonSemantics.js";
 
+/** Only authenticated, successful, non-conflicting transcript deliveries. */
+export interface FixtureClaimContext {
+  readonly evidence: Evidence;
+  readonly deliveredEvidence: readonly Evidence[];
+}
+
 /** One closed fixture assertion and the producer facts that must support it. */
 export interface FixtureClaimExpectation {
   readonly id: string;
@@ -21,7 +27,10 @@ export interface FixtureClaimExpectation {
       readonly path: string;
       readonly sha256?: string;
     }[];
-    readonly select: (normalizedResult: JsonValue) => JsonValue | undefined;
+    readonly select: (
+      normalizedResult: JsonValue,
+      context: FixtureClaimContext,
+    ) => JsonValue | undefined;
   };
 }
 
@@ -314,7 +323,12 @@ const assessClaim = (
     try {
       if (
         !sameJson(
-          expected.source.select(evidence.normalized_result),
+          expected.source.select(evidence.normalized_result, {
+            evidence,
+            deliveredEvidence: [...delivered.records.values()].filter(
+              (record) => !delivered.conflicts.has(record.evidence_id),
+            ),
+          }),
           expected.expectedValue,
         )
       )
