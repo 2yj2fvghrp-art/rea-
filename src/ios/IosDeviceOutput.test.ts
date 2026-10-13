@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 import {
+  IOS_JAILBREAK_PATH_SCRIPT,
   parseIosDeviceIds,
   parseIosProcessList,
   parseIosRemoteTools,
@@ -49,3 +51,14 @@ describe("iOS device output parsing", () => {
     expect(parseIosStopReason("connected\n")).toBeNull();
   });
 });
+
+it.skipIf(process.platform === "win32")(
+  "composes the jailbreak path prefix as a valid shell command",
+  () => {
+    expect(() =>
+      execFileSync("/bin/sh", ["-n"], {
+        input: `${IOS_JAILBREAK_PATH_SCRIPT}; printf 'ready\\n'`,
+      }),
+    ).not.toThrow();
+  },
+);

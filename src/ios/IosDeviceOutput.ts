@@ -88,7 +88,7 @@ for rea_root in /var/jb /var/containers/Bundle/Application/.jbroot-*; do
   PATH="$PATH:$rea_root/usr/bin:$rea_root/bin:$rea_root/usr/sbin:$rea_root/sbin"
 done
 export PATH
-`;
+`.trimEnd();
 
 /** Parse the tab-delimited tool inventory emitted by a jailbreak shell probe. */
 export const parseIosRemoteTools = (output: string) => {

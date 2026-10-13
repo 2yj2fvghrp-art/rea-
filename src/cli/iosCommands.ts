@@ -66,7 +66,10 @@ export const registerIosCommands = (
     description: "List installed apps and jailbreak filesystem paths",
     args: z.object({ deviceId }),
     options: z.object({
-      scope: z.enum(["all", "user", "system"]).default("all"),
+      scope: z
+        .enum(["all", "user", "system"])
+        .default("all")
+        .describe("Installed application scope"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.listIosApps, "list_ios_apps", {
@@ -84,7 +87,15 @@ export const registerIosCommands = (
   });
   cli.command(CLI_COMMANDS.inspectIosProcess, {
     description: "Inspect one jailbreak process with ps and lsof",
-    args: z.object({ deviceId, pid: z.coerce.number().int().positive(), user }),
+    args: z.object({
+      deviceId,
+      pid: z.coerce
+        .number()
+        .int()
+        .positive()
+        .describe("Process ID observed on the device"),
+      user,
+    }),
     run: ({ args }) =>
       execute(CLI_COMMANDS.inspectIosProcess, "inspect_ios_process", {
         device_id: args.deviceId,
@@ -96,10 +107,25 @@ export const registerIosCommands = (
     description: "Read a bounded live iOS syslog window",
     args: z.object({ deviceId }),
     options: z.object({
-      count: z.coerce.number().int().min(1).max(20_000).default(500),
-      "duration-ms": z.coerce.number().int().min(250).max(60_000).default(5000),
-      match: z.string().optional(),
-      process: z.string().optional(),
+      count: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(20_000)
+        .default(500)
+        .describe("Maximum number of retained log lines"),
+      "duration-ms": z.coerce
+        .number()
+        .int()
+        .min(250)
+        .max(60_000)
+        .default(5000)
+        .describe("Live log capture duration in milliseconds"),
+      match: z.string().optional().describe("Optional syslog text filter"),
+      process: z
+        .string()
+        .optional()
+        .describe("Optional syslog process name filter"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.readIosLog, "read_ios_log", {
@@ -114,8 +140,14 @@ export const registerIosCommands = (
     description: "Pull a jailbroken device file and digest it",
     args: z.object({
       deviceId,
-      remotePath: z.string().min(1),
-      outputDirectory: z.string().min(1),
+      remotePath: z
+        .string()
+        .min(1)
+        .describe("Absolute path on the jailbroken device"),
+      outputDirectory: z
+        .string()
+        .min(1)
+        .describe("Local directory for the acquired file"),
       user,
     }),
     run: ({ args }) =>
@@ -128,9 +160,22 @@ export const registerIosCommands = (
   });
   cli.command(CLI_COMMANDS.runIosCommand, {
     description: "Run an explicitly selected jailbreak SSH command",
-    args: z.object({ deviceId, command: z.string().min(1), user }),
+    args: z.object({
+      deviceId,
+      command: z
+        .string()
+        .min(1)
+        .describe("Explicitly selected remote shell command"),
+      user,
+    }),
     options: z.object({
-      timeout: z.coerce.number().int().min(250).max(300_000).default(30_000),
+      timeout: z.coerce
+        .number()
+        .int()
+        .min(250)
+        .max(300_000)
+        .default(30_000)
+        .describe("Operation timeout in milliseconds"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.runIosCommand, "run_ios_command", {
@@ -153,8 +198,12 @@ export const registerIosCommands = (
     description: "Run LLDB commands through debugserver",
     args: z.object({
       deviceId,
-      pid: z.coerce.number().int().positive(),
-      commands: z.string().min(1),
+      pid: z.coerce
+        .number()
+        .int()
+        .positive()
+        .describe("Process ID observed on the device"),
+      commands: z.string().min(1).describe("Newline-separated LLDB commands"),
       user,
     }),
     options: z.object({
@@ -163,8 +212,15 @@ export const registerIosCommands = (
         .int()
         .min(1024)
         .max(65535)
-        .default(12345),
-      timeout: z.coerce.number().int().min(250).max(300_000).default(30_000),
+        .default(12345)
+        .describe("Remote debugger listening port"),
+      timeout: z.coerce
+        .number()
+        .int()
+        .min(250)
+        .max(300_000)
+        .default(30_000)
+        .describe("Operation timeout in milliseconds"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.runIosLldbCommand, "run_ios_lldb_command", {
@@ -180,28 +236,44 @@ export const registerIosCommands = (
     description: "Run a Frida JavaScript agent against a jailbroken process",
     args: z.object({
       deviceId,
-      script: z.string().min(1),
-      pid: z.coerce.number().int().positive().optional(),
-      process: z.string().min(1).optional(),
-      user,
+      script: z.string().min(1).describe("Frida JavaScript agent source"),
     }),
     options: z.object({
+      pid: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Target process ID; select this or --process"),
+      process: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Target process name; select this or --pid"),
+      user,
       "remote-port": z.coerce
         .number()
         .int()
         .min(1024)
         .max(65535)
-        .default(27042),
-      timeout: z.coerce.number().int().min(250).max(300_000).default(30_000),
+        .default(27042)
+        .describe("Remote Frida server listening port"),
+      timeout: z.coerce
+        .number()
+        .int()
+        .min(250)
+        .max(300_000)
+        .default(30_000)
+        .describe("Operation timeout in milliseconds"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.runIosFridaScript, "run_ios_frida_script", {
         device_id: args.deviceId,
         script: args.script,
-        ...(args.pid === undefined ? {} : { pid: args.pid }),
-        ...(args.process === undefined ? {} : { process: args.process }),
+        ...(options.pid === undefined ? {} : { pid: options.pid }),
+        ...(options.process === undefined ? {} : { process: options.process }),
         remote_port: options["remote-port"],
-        user: args.user,
+        user: options.user,
         timeout_ms: options.timeout,
       }),
   });
@@ -209,19 +281,39 @@ export const registerIosCommands = (
     description: "Read a bounded process memory range through LLDB",
     args: z.object({
       deviceId,
-      pid: z.coerce.number().int().positive(),
-      address: z.string().regex(/^0x[0-9a-f]+$/iu),
+      pid: z.coerce
+        .number()
+        .int()
+        .positive()
+        .describe("Process ID observed on the device"),
+      address: z
+        .string()
+        .regex(/^0x[0-9a-f]+$/iu)
+        .describe("Hexadecimal address in the selected process"),
       user,
     }),
     options: z.object({
-      size: z.coerce.number().int().min(1).max(1_048_576).default(256),
+      size: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(1_048_576)
+        .default(256)
+        .describe("Maximum number of memory bytes to read"),
       "remote-port": z.coerce
         .number()
         .int()
         .min(1024)
         .max(65535)
-        .default(12345),
-      timeout: z.coerce.number().int().min(250).max(300_000).default(30_000),
+        .default(12345)
+        .describe("Remote debugger listening port"),
+      timeout: z.coerce
+        .number()
+        .int()
+        .min(250)
+        .max(300_000)
+        .default(30_000)
+        .describe("Operation timeout in milliseconds"),
     }),
     run: ({ args, options }) =>
       execute(CLI_COMMANDS.dumpIosProcessMemory, "dump_ios_process_memory", {

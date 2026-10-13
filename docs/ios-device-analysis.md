@@ -57,7 +57,7 @@ The debugger and instrumentation lane has structured operations:
 rea inspect-ios-runtime UDID
 rea run-ios-lldb-command UDID PID $'register read\nimage list\nbreakpoint set -n objc_msgSend' root
 rea dump-ios-process-memory UDID PID 0x100000000 root --size 256
-rea run-ios-frida-script UDID 'console.log(Process.enumerateModules()[0].name)' PID root
+rea run-ios-frida-script UDID 'console.log(Process.enumerateModules()[0].name)' --pid PID --user root
 ```
 
 `inspect_ios_runtime` checks the host `lldb` and `frida` clients and searches

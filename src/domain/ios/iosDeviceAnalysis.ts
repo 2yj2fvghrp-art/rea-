@@ -137,9 +137,12 @@ export const iosInputSchemas = {
       user: sshUserSchema,
       timeout_ms: z.number().int().min(250).max(300_000).default(30_000),
     })
-    .refine((value) => value.pid !== undefined || value.process !== undefined, {
-      message: "Either pid or process is required",
-    }),
+    .refine(
+      (value) => (value.pid !== undefined) !== (value.process !== undefined),
+      {
+        message: "Select exactly one of pid or process",
+      },
+    ),
   dump_ios_process_memory: z.strictObject({
     device_id: deviceIdSchema.describe("UDID exactly as idevice_id reports it"),
     pid: z
