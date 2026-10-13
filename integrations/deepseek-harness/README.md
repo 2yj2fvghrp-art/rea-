@@ -42,8 +42,7 @@ Symptoms: `~/.dsh/profiles/desktop/package.json` lists
 `dsh-rea-bundle` in `dependencies`, but **not** in
 `dsh.profile.bundles`. There are no `mcp__rea__*` tools in the live session. The stored `cordis.yml` is an empty loader root and does not describe effective composition.
 
-**Do not reinstall the already working package.** The upstream Harness
-plugin manager separates **install** from **enable now**; closing the
+The upstream Harness plugin manager separates **install** from **enable now**; closing the
 post-install dialog without enabling can leave an installed, disabled bundle.
 Prefer **Desktop → Plugins → Installed plugins → dsh-rea-bundle → Enable**,
 then fully quit and relaunch with the host environment described above.
