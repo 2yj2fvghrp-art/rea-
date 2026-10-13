@@ -33,6 +33,8 @@ jobs:
           node-version: "24.11.0"
       - run: node --test integrations/deepseek-harness/tests/*.test.mjs
       - run: node integrations/deepseek-harness/scripts/verify-package.mjs
+      - name: Verify Git-root plugin tree (no prepare scripts)
+        run: bash integrations/deepseek-harness/scripts/stage-git-plugin.sh --check
       - name: Verify install artifact without build hooks
         working-directory: integrations/deepseek-harness
         run: |
@@ -70,9 +72,16 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-      - name: Install local source bundle in a real Harness profile
+      - name: Pack standalone Git distribution snapshot
+        run: |
+          tree="$(bash integrations/deepseek-harness/scripts/stage-git-plugin.sh --check | sed -n 's/^Standalone DSH tree: //p')"
+          mkdir -p "$RUNNER_TEMP/dsh-git-root"
+          git archive "$tree" | tar -xf - -C "$RUNNER_TEMP/dsh-git-root"
+          node -e 'const p=require(process.env.RUNNER_TEMP+"/dsh-git-root/package.json");if(p.name!=="dsh-rea-bundle"||!p.dsh?.bundle?.patch||p.scripts?.prepare)process.exit(1)'
+          npm pack "$RUNNER_TEMP/dsh-git-root" --ignore-scripts --pack-destination "$RUNNER_TEMP"
+      - name: Install standalone plugin tarball in real Harness profile
         working-directory: harness-upstream
-        run: pnpm dsh plugin --profile web add "$GITHUB_WORKSPACE/integrations/deepseek-harness"
+        run: pnpm dsh plugin --profile web add "$RUNNER_TEMP/dsh-rea-bundle-0.2.0.tgz"
       - name: Verify native bundle composition
         working-directory: harness-upstream
         run: |
@@ -95,7 +104,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: true
       - uses: actions/setup-node@v4
         with:
           node-version: "24.11.0"
@@ -114,6 +123,8 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Publish immutable standalone Git plugin tag
+        run: bash integrations/deepseek-harness/scripts/stage-git-plugin.sh --publish
       - name: Package audited plugin sources without build hooks
         if: steps.release-version.outputs.exists == 'false'
         working-directory: integrations/deepseek-harness
@@ -138,3 +149,44 @@ jobs:
         run: |
           echo "Standalone Harness plugin: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
           echo "The root REA npm/MCP Registry publication remains governed by release.yml." >> "$GITHUB_STEP_SUMMARY"
+
+  direct-git-install:
+    name: Test Desktop Add-plugin Git URL with pnpm
+    needs: release-plugin
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.0"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.0
+      - name: Install the exact Desktop URL in a fresh empty profile
+        env:
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/desktop-like-profile"
+          cd "$RUNNER_TEMP/desktop-like-profile"
+          printf '%s\n' '{"name":"test-desktop-install","private":true}' > package.json
+          pnpm add "https://github.com/${REPO}#dsh-plugin-v0.2.0"
+          node - <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const pkg = require('./node_modules/dsh-rea-bundle/package.json');
+          assert.equal(pkg.name, 'dsh-rea-bundle');
+          assert.equal(pkg.version, '0.2.0');
+          assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
+          assert.equal(pkg.scripts?.prepare, undefined);
+          assert(fs.existsSync('./node_modules/dsh-rea-bundle/launcher.mjs'));
+          assert(fs.existsSync('./node_modules/dsh-rea-bundle/cordis.patch.yml'));
+          assert(fs.existsSync('./node_modules/dsh-rea-bundle/node_modules/rea-agents/scripts/rea.mjs')
+            || fs.existsSync('./node_modules/rea-agents/scripts/rea.mjs'));
+          console.log('Desktop input Git URL installs dsh-rea-bundle without an allowBuilds exception');
+          NODE
+      - name: Report scope
+        run: |
+          echo 'Validated: exact Desktop Git install URL with pnpm, expected plugin identity, no prepare hooks.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Not validated here: macOS Electron GUI rendering or application-level enablement.' >> "$GITHUB_STEP_SUMMARY"

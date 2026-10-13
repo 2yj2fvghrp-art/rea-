@@ -50,6 +50,12 @@ if [[ "$MODE" == '--check' ]]; then
   exit 0
 fi
 
+# Check remote tags before creating anything; checkout is intentionally shallow
+# in Actions and does not fetch existing tags. Published tags are immutable.
+if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+  git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+fi
+
 # Never move an existing published tag. A version change is required for any
 # changed distribution bytes.
 if git rev-parse --verify -q "refs/tags/$TAG" >/dev/null; then
