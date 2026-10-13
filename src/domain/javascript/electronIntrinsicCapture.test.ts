@@ -153,6 +153,25 @@ describe("captured intrinsic invocation reads", () => {
 
 describe("identifier-aliased intrinsic invocation members", () => {
   it.each(["call", "apply"])(
+    "preserves a detached bound %s member's explicit receiver",
+    (method) => {
+      const source = `const change = Object.defineProperty.bind(null,Object,"create");
+      const noop = () => {}; Reflect.apply(change.${method}, noop,
+      [null, ${method === "apply" ? "[{value:customCreate}]" : "{value:customCreate}"}]);`;
+      expect(invocationKinds(source).invocations).not.toContainEqual(
+        expect.objectContaining({
+          kind: "known",
+          path: ["intrinsic", "Object", "defineProperty"],
+        }),
+      );
+      const result = analyzeJavaScriptStaticSource(
+        `${source}\n${ROLLDOWN_MODULE_INTEROP}\n${WINDOW}`,
+      );
+      expect(result.electron.browser_windows).not.toEqual([]);
+    },
+  );
+
+  it.each(["call", "apply"])(
     "keeps a detached bound %s member opaque",
     (method) => {
       const source = `const change = Object.defineProperty.bind(null,Object,"create");
