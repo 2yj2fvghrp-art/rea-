@@ -175,6 +175,25 @@ describe("production MCP doctor", () => {
 });
 
 describe("mcp doctor full-output envelope", () => {
+  it.each([
+    { arguments: ["--json", "--bogus", "--full-output"] },
+    { arguments: ["--bogus", "--full-output", "--json"] },
+    { arguments: ["--format", "invalid", "--full-output", "--json"] },
+  ])(
+    "collects output selectors after validation errors: %j",
+    async ({ arguments: args }) => {
+      const result = await runProductionMcpDoctorCli(args, {
+        dispatcherPath: "not-started",
+        packageRoot: process.cwd(),
+      });
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.output)).toMatchObject({
+        ok: false,
+        error: { code: "VALIDATION_ERROR" },
+      });
+    },
+  );
+
   it.each([{ arguments: ["--bogus"] }, { arguments: ["--format", "invalid"] }])(
     "preserves full-output through validation: %j",
     async ({ arguments: suffix }) => {
