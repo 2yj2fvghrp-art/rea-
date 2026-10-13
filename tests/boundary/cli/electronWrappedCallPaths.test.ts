@@ -372,3 +372,44 @@ cliTest(
     ).toBe(true);
   },
 );
+
+cliTest(
+  "preserves empty bridge member segments in nested paths",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-empty-bridge-key-");
+    await writeFixtureFiles(root, {
+      "preload.js": `const { contextBridge, ipcRenderer } = require("electron");
+        contextBridge.exposeInMainWorld("desktop", {
+          "": { nested: { call: () => ipcRenderer.send("empty:key") } }
+        });`,
+      "main.js": `const { ipcMain } = require("electron");
+        ipcMain.on("empty:key", event => event.sender.copy());`,
+    });
+    const output = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+    });
+    expect(output.exitCode).toBe(0);
+    const { normalized_result: application } = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(output.json);
+    const observations = application.graph.nodes.flatMap(
+      (node) => node.observations,
+    );
+    expect(
+      observations.some(
+        (observation) =>
+          observation.properties.entry === "desktop..nested.call" &&
+          observation.properties.step_kind === "exposure",
+      ),
+    ).toBe(true);
+    expect(
+      application.graph.edges
+        .filter(
+          (edge) =>
+            edge.evidence.extractor.operation ===
+            "join-electron-wrapper-paths",
+        )
+        .map((edge) => edge.properties.channel),
+    ).toEqual(["empty:key"]);
+  },
+);

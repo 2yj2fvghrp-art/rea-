@@ -124,7 +124,7 @@ export const collectElectronWrappedCallPaths = (
     symbolicVariants(value).some((variant) => variant.conditions?.length);
   const bridgeMemberFunctions = (
     value: SymbolicValue,
-    prefix = "",
+    prefix?: string,
     active = new Set<SymbolicValue>(),
   ): readonly { readonly name: string; readonly fn: SymbolicFunction }[] => {
     if (active.has(value)) return [];
@@ -137,7 +137,7 @@ export const collectElectronWrappedCallPaths = (
     const functions: { name: string; fn: SymbolicFunction }[] = [];
     for (const member of [...resolver.members(value)].sort()) {
       if (--remainingVisits < 0) return functions;
-      const name = prefix ? `${prefix}.${member}` : member;
+      const name = prefix === undefined ? member : `${prefix}.${member}`;
       for (const variant of symbolicVariants(resolver.property(value, member))) {
         if (variant.kind === "function") functions.push({ name, fn: variant });
         else if (resolver.members(variant).length > 0)
