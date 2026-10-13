@@ -26,6 +26,61 @@ describe("raw-binary Ghidra language binding", () => {
 });
 
 describe("raw-binary independent load-image checks", () => {
+  it.each([
+    ["initialized", false],
+    ["loaded", false],
+    ["overlay", true],
+    ["address_space", "overlay"],
+  ] as const)(
+    "retains a mismatch when the file mapping declares %s=%s",
+    (property, value) => {
+      const f = fixtureRawBinaryLoadImage();
+      const mapping = f.observation.mappings[0];
+      if (mapping === undefined)
+        throw new Error("Missing source mapping fixture");
+      Object.assign(mapping, { [property]: value });
+      expect(
+        attestGhidraRawBinaryLoadImage(f.snapshot, f.target, f.observation),
+      ).toMatchObject({
+        ok: true,
+        value: {
+          status: "mismatch",
+          observations: f.observation,
+          checks: expect.arrayContaining([
+            expect.objectContaining({
+              name: `mapping.${property}`,
+              matched: false,
+              observed: value,
+            }),
+          ]),
+        },
+      });
+    },
+  );
+  it("does not verify a foreign default address space even when its mapping agrees", () => {
+    const f = fixtureRawBinaryLoadImage();
+    f.observation.default_address_space = "foreign";
+    const mapping = f.observation.mappings[0];
+    if (mapping === undefined)
+      throw new Error("Missing source mapping fixture");
+    mapping.address_space = "foreign";
+    expect(
+      attestGhidraRawBinaryLoadImage(f.snapshot, f.target, f.observation),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        status: "mismatch",
+        observations: f.observation,
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "default_address_space",
+            matched: false,
+            observed: "foreign",
+          }),
+        ]),
+      },
+    });
+  });
   it("retains uninitialized language memory without treating it as file-backed bytes", () => {
     const f = fixtureRawBinaryLoadImage();
     const zeroPage = {

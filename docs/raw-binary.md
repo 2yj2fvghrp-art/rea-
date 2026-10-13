@@ -66,6 +66,9 @@ in the default address space rather than an overlay. Non-conflicting uninitializ
 blocks remain observations, not file-backed bytes.
 Independent raw verification streams the complete private snapshot digest and
 extent with bounded memory and supports cancellation during the read.
+It also requires the source-backed block to be initialized, loaded, and
+non-overlay in the bound language's default address space. Contradictory mapping
+observations are retained with `mismatch`, even when the source hashes agree.
 
 Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 admits native PE
 applications/DLLs and explicitly selected raw 6502 images. Other raw CPU families

@@ -214,6 +214,7 @@ describe("Ghidra raw-binary profile", () => {
       compiler_spec_id: "default",
       entry_point: "0x8001",
       language_selection: "caller-supplied-v1",
+      load_image_evidence: "independent-raw-mapping-context-v3",
     });
     expect(
       ghidra
@@ -851,10 +852,21 @@ describe("Ghidra relationship coverage", () => {
 });
 
 describe("Ghidra measured load-image projection", () => {
-  it.each(["verified", "changed-snapshot", "cancelled"] as const)(
+  it.each([
+    "verified",
+    "mapping-mismatch",
+    "changed-snapshot",
+    "cancelled",
+  ] as const)(
     "streams raw snapshot identity and preserves %s outcomes",
     async (state) => {
       const fixture = fixtureRawBinaryLoadImage();
+      if (state === "mapping-mismatch") {
+        const mapping = fixture.observation.mappings[0];
+        if (mapping === undefined)
+          throw new Error("Missing source mapping fixture");
+        mapping.overlay = true;
+      }
       const controller = new AbortController();
       const signals: (AbortSignal | undefined)[] = [];
       const ghidra = provider(installationHost(), () => ({
@@ -910,12 +922,23 @@ describe("Ghidra measured load-image projection", () => {
           { signal: controller.signal },
         );
         expect(signals).toEqual([controller.signal]);
-        if (state === "verified") {
+        if (state === "verified" || state === "mapping-mismatch") {
           if (!result.ok) throw result.error;
           expect(result.value.result).toMatchObject({
-            status: "verified",
+            status: state === "verified" ? "verified" : "mismatch",
             observations: fixture.observation,
           });
+          if (state === "mapping-mismatch") {
+            expect(result.value.result).toMatchObject({
+              checks: expect.arrayContaining([
+                expect.objectContaining({
+                  name: "mapping.overlay",
+                  observed: true,
+                  matched: false,
+                }),
+              ]),
+            });
+          }
         } else {
           expect(result).toMatchObject({
             ok: false,
