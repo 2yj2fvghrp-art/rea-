@@ -329,11 +329,19 @@ const managedClaims = (
       expectedValue: ["AgentEval.Profile", "AgentEval.Program"],
       source: {
         ...source,
-        select: (_value, context) =>
-          managedMembers(context)
-            ?.types.filter((type) => (type.flags & 7) === 1)
+        select: (_value, context) => {
+          const members = managedMembers(context);
+          if (
+            members === undefined ||
+            members.selection !== null ||
+            Object.hasOwn(context.evidence.parameters, "type_names")
+          )
+            return undefined;
+          return members.types
+            .filter((type) => (type.flags & 7) === 1)
             .map((type) => type.full_name)
-            .sort(compareUnicodeCodePoints),
+            .sort(compareUnicodeCodePoints);
+        },
       },
     },
     {
@@ -397,7 +405,7 @@ export const agentFixtureClaims = (
 
 const answerValueDescriptions: Readonly<Record<string, readonly string[]>> = {
   managed: [
-    "public_types: string[], listing the exact public top-level type full names in Unicode code-point order.",
+    "public_types: string[], listing the exact public top-level type full names in Unicode code-point order from unfiltered member Evidence (omit type_names).",
     'entry_point: {"declaring_type": string, "name": string}, resolving the CLI metadata entry-point token against the member inventory from the same artifact SHA-256 and module MVID. Cite member Evidence; both artifact and member Evidence must be delivered.',
   ],
   asar: [

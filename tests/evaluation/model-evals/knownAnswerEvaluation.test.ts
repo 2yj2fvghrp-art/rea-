@@ -261,6 +261,40 @@ describe("managed known-answer fixture grading", () => {
   });
 });
 
+describe("managed inventory scope", () => {
+  it.each(["selection", "parameters", "both"])(
+    "rejects selected public-type inventories while retaining entry-point grounding: %s",
+    (kind) => {
+      const fixture = managedTranscript();
+      const typeNames = ["AgentEval.Profile", "AgentEval.Program"];
+      const members = {
+        ...fixture.result,
+        selection:
+          kind === "parameters"
+            ? null
+            : { type_names: typeNames, unmatched_type_names: [] },
+      };
+      const evidence = fixture.evidenceFor("inspect_managed_members", members, {
+        parameters: kind === "selection" ? {} : { type_names: typeNames },
+      });
+      expect(
+        fixture.grade(
+          [delivered(fixture.artifactEvidence), delivered(evidence)],
+          fixture.textFor(evidence),
+        ),
+      ).toMatchObject({
+        factualCorrectness: "failed",
+        factualAssessment: {
+          claims: [
+            { id: "public_types", status: "failed" },
+            { id: "entry_point", status: "passed" },
+          ],
+        },
+      });
+    },
+  );
+});
+
 describe("managed member grounding", () => {
   it.each([
     "selected",
