@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
@@ -110,12 +111,26 @@ const hostLike = (value: JsonValue, maxLength: number): boolean =>
 type NumericSidecar = WebNetworkCaptureRecord["numeric_literals"][number];
 type BinaryField = WebNetworkCaptureRecord["binary_fields"][number];
 const MITMPROXY_INTEGER_FIELDS = new Set(["port", "status_code"]);
+/** Retained native producer bytes whose content, length and digest are all the text's UTF-8. */
+const describesText = (descriptor: BinaryField, text: string): boolean => {
+  if (
+    descriptor.representation !== "producer-bytes" ||
+    descriptor.state !== "retained"
+  )
+    return false;
+  const utf8 = Buffer.from(text, "utf8");
+  return (
+    descriptor.bytes === utf8.length &&
+    descriptor.content_base64 === utf8.toString("base64") &&
+    descriptor.sha256 === createHash("sha256").update(utf8).digest("hex")
+  );
+};
 /**
  * Integer slots need exactly one integer sidecar whose literal is the value's
  * canonical decimal, and no byte descriptor. String slots need no sidecar and
- * at most one byte descriptor: retained native producer bytes whose content
- * is the value's UTF-8. Selecting a field also selects its sidecars, so this
- * keeps every copied literal small and consistent.
+ * at most one byte descriptor, which must describe the value's own UTF-8.
+ * Selecting a field also selects its sidecars, so this keeps every copied
+ * literal small and consistent.
  */
 const representationMatches = (
   field: string,
@@ -135,11 +150,7 @@ const representationMatches = (
   const [descriptor] = bytes;
   return (
     descriptor === undefined ||
-    (typeof value === "string" &&
-      descriptor.representation === "producer-bytes" &&
-      descriptor.state === "retained" &&
-      descriptor.content_base64 ===
-        Buffer.from(value, "utf8").toString("base64"))
+    (typeof value === "string" && describesText(descriptor, value))
   );
 };
 const headlineShape = (field: string, value: JsonValue): boolean => {

@@ -711,6 +711,18 @@ it.each([
     "bytes that are not its text",
     { binaryFields: [retainedBytes("/request/path", "/b")] },
   ],
+  [
+    "a byte count that is not its text",
+    { binaryFields: [{ ...retainedBytes("/request/path", "/a"), bytes: 3 }] },
+  ],
+  [
+    "a digest that is not its text",
+    {
+      binaryFields: [
+        { ...retainedBytes("/request/path", "/a"), sha256: "0".repeat(64) },
+      ],
+    },
+  ],
 ] as const)(
   "keeps a mitmproxy path with %s out of the preview",
   (_label, facets) => {
