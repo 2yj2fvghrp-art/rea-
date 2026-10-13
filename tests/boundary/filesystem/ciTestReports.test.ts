@@ -17,6 +17,17 @@ import { workflowGit } from "../../support/workflowGit.js";
 
 const execute = promisify(execFile);
 const script = new URL("../../../scripts/ci/test-report.mjs", import.meta.url);
+// Report fixtures own their publication destinations and group outcomes. A
+// hosted runner's summary path must not divert fixture stdout into the live job
+// summary, and its classification must not change fixture completeness.
+const reportEnvironment = {
+  ...process.env,
+  GITHUB_STEP_SUMMARY: "",
+  SOURCE_REQUIRED: "false",
+  SOURCE_RESULT: "",
+  CI_VERIFY_TEST_INVENTORY: "false",
+  CI_TEST_SELECTION: "",
+};
 const stepsSchema = z.array(
   z.object({
     name: z.string().optional(),
@@ -228,7 +239,7 @@ it("rejects successful shard reports with missing or duplicate portable files", 
     return execute(process.execPath, [fileURLToPath(script)], {
       cwd: root,
       env: {
-        ...process.env,
+        ...reportEnvironment,
         SHARD_RESULT: "success",
         MERGE_RESULT: "success",
         CI_VERIFY_TEST_INVENTORY: "true",
@@ -312,7 +323,7 @@ it("exports portable timing history and removes it on a failed, partial, or inva
     return execute(process.execPath, [fileURLToPath(script)], {
       cwd: root,
       env: {
-        ...process.env,
+        ...reportEnvironment,
         GITHUB_STEP_SUMMARY: summary,
         SHARD_RESULT: shards,
         SOURCE_REQUIRED: String(source !== undefined),
@@ -461,7 +472,7 @@ it("recovers complete module costs from real blob reports without executing test
   const partial = await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
     env: {
-      ...process.env,
+      ...reportEnvironment,
       SHARD_RESULT: "skipped",
       SOURCE_REQUIRED: "true",
       SOURCE_RESULT: "success",
@@ -475,7 +486,11 @@ it("recovers complete module costs from real blob reports without executing test
   ).rejects.toMatchObject({ code: "ENOENT" });
   await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
-    env: { ...process.env, SHARD_RESULT: "success", MERGE_RESULT: "success" },
+    env: {
+      ...reportEnvironment,
+      SHARD_RESULT: "success",
+      MERGE_RESULT: "success",
+    },
   });
   expect(
     parseTestDurations(
@@ -510,7 +525,11 @@ it("recovers complete module costs from real blob reports without executing test
   // Even a caller accidentally marking the merge successful cannot publish this report.
   await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
-    env: { ...process.env, SHARD_RESULT: "success", MERGE_RESULT: "success" },
+    env: {
+      ...reportEnvironment,
+      SHARD_RESULT: "success",
+      MERGE_RESULT: "success",
+    },
   });
   await expect(
     readFile(join(root, ".cache/ci-test-history/test-results.json")),
@@ -546,7 +565,7 @@ it("records failed omissions from full reports without treating partial or unhan
     await execute(process.execPath, [fileURLToPath(script)], {
       cwd: root,
       env: {
-        ...process.env,
+        ...reportEnvironment,
         SHARD_RESULT: "failure",
         SOURCE_REQUIRED: "true",
         SOURCE_RESULT: source,
