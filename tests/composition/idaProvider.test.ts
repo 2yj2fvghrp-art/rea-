@@ -192,7 +192,7 @@ describe("IDA binary_overview execution", () => {
         providerId: "ida",
         operation: "list_documents",
         message: expect.stringContaining(
-          "This integration admits read-only analysis operations only.",
+          "operation is not declared by this provider",
         ),
       },
     });
