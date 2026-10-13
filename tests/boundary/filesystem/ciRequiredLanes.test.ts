@@ -262,8 +262,8 @@ it("binds provider build reuse to the current run while keeping standalone dispa
         ),
       ),
     );
-  const download = action.runs.steps.find(
-    (step) => step.uses?.startsWith("actions/download-artifact@"),
+  const download = action.runs.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@"),
   );
   expect(download?.with).toEqual({
     name: "${{ inputs.build_cache_artifact }}",
