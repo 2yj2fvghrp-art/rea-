@@ -262,12 +262,20 @@ const isShadowedRequireCallee = (
   if (binding === undefined) return false;
   // A bundle factory whose loader parameter is named `require` (e.g.
   // webpack's `(module, exports, require)`) is the recovered module loader,
-  // not a shadow. Only the exact factory binding qualifies: a nested binding
+  // not a shadow. Only a binding that still holds the loader parameter
+  // qualifies: a hoisted `function`/`class` or initialized variable
+  // declaration in the same scope replaces the parameter for the whole body,
+  // so a merged binding is a local shadow, not the loader. A nested binding
   // with the same name resolves to a different scope and stays shadowed.
+  // Assignments keep the current positional behavior; they do not prove the
+  // loader is gone at this call.
   if (
     module?.requireName === "require" &&
     module.loaderScopeId !== null &&
-    binding.scopeId === module.loaderScopeId
+    binding.scopeId === module.loaderScopeId &&
+    binding.definitions.every(
+      ({ kind }) => kind === "parameter" || kind === "assignment",
+    )
   )
     return false;
   return !isRetainedRequireLoader(binding, node, bindings);
@@ -292,6 +300,10 @@ const isDirectCreateRequireBinding = (
 ): boolean => {
   const initializer = semanticStableInitializer(binding, state);
   if (initializer === undefined) return false;
+  // Only a direct alias holds the loader: a destructured property of the
+  // created require (e.g. `const { missing: require } = createRequire(...)`)
+  // keeps a non-empty projection and is not the loader itself.
+  if (initializer.projection.length > 0) return false;
   const init = unwrapJavaScriptExpression(initializer.node).node;
   if (!t.isCallExpression(init)) return false;
   if (!isImportMetaUrl(init.arguments[0])) return false;
@@ -430,6 +442,12 @@ const computeRetainedRequireFacts = (
     ) &&
     // A declaration initializer means the loader was replaced at declaration.
     binding.initializers.length === assignmentCount &&
+    // A rest-element declaration (`var {...require} = {}`) copies an object
+    // or array into the binding through a reference initializer instead of a
+    // value initializer, so the binding never holds the wrapper loader.
+    !binding.referenceInitializers.some(
+      (initializer) => initializer.copyKind !== undefined,
+    ) &&
     state.scopesById.get(binding.scopeId)?.kind === "program";
   if (!declarationsOk) return { declarationsOk, writes: [] };
   // Each assignment pushes exactly one initializer holding the full
@@ -442,7 +460,16 @@ const computeRetainedRequireFacts = (
     const initializer = binding.initializers[assignmentIndex];
     assignmentIndex += 1;
     if (initializer === undefined) continue;
-    const { line, column } = range(initializer.node).end;
+    // A `for...of`/`for...in` write assigns the loop variable before each
+    // body execution, so model the write at body entry: the statement end
+    // would place a call inside the body before the write and invent a false
+    // dependency. The iterable expression still evaluates before the write.
+    const writeNode = initializer.node;
+    const writePosition =
+      t.isForOfStatement(writeNode) || t.isForInStatement(writeNode)
+        ? range(writeNode.body).start
+        : range(writeNode).end;
+    const { line, column } = writePosition;
     writes.push({
       endLine: line,
       endColumn: column,
