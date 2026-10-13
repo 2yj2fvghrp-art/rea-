@@ -232,7 +232,7 @@ const browserWorkerSchema = z.object({
       ),
       scripts: z.array(
         z.object({
-          script_id: z.string(),
+          script_id: z.string().min(1),
           is_module: z.boolean().nullable(),
           language: z.string().nullable(),
           source_map_url: z.string().nullable(),

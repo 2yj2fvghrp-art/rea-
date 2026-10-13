@@ -326,8 +326,13 @@ export class CdpWorkerCapture {
         return;
       const info = recordValue(params.targetInfo);
       const sessionId = cdpStringValue(params.sessionId);
+      if (sessionId === undefined || sessionId.length === 0)
+        throw new BrowserObservationError(
+          this.context.operation,
+          "protocol_error",
+        );
       const worker = info === undefined ? undefined : this.#admit(info);
-      if (worker === undefined || sessionId === undefined) return;
+      if (worker === undefined) return;
       if (
         worker.item.type === "worker" &&
         (parent === undefined ||
@@ -470,6 +475,7 @@ export class CdpWorkerCapture {
         version.controlledClients.every((client) => typeof client === "string")
           ? version.controlledClients.includes(this.context.target.id)
           : null;
+      const previouslyControlled = this.#controlled.has(id);
       if (controls === true) this.#controlled.add(id);
       else if (controls === false) this.#controlled.delete(id);
       const lifecycle: Observation["lifecycle"][number] = {
@@ -485,6 +491,28 @@ export class CdpWorkerCapture {
         pending.push(lifecycle);
         this.#versionsByTarget.set(id, pending);
         continue;
+      }
+      if (
+        previouslyControlled &&
+        controls === false &&
+        worker.enabled &&
+        !worker.item.observation.selected_explicitly
+      ) {
+        for (const section of [
+          "scripts",
+          "network_requests",
+          "metadata",
+        ] as const)
+          worker.events.completeness.exclude(
+            section,
+            "out_of_target_scope",
+            null,
+          );
+        worker.events.completeness.unavailable("scripts");
+        worker.events.completeness.unavailable("network_requests");
+        worker.item.observation.limitations.push(
+          "Service-worker control was revoked during capture; later runtime events outside the selected page scope were excluded.",
+        );
       }
       if (controls) {
         worker.item.observation.ownership = "service_worker_client";
@@ -547,7 +575,8 @@ export class CdpWorkerCapture {
           worker.item.observation.limitations,
         );
         worker.autoAttach = attached !== undefined;
-        if (!worker.autoAttach) worker.events.completeness.unavailable("workers");
+        if (!worker.autoAttach)
+          worker.events.completeness.unavailable("workers");
       }
       for (const domain of ["Runtime", "Debugger", "Network"]) {
         if (worker.detached) return;

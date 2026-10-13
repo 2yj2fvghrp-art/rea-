@@ -151,8 +151,6 @@ const captureAuthorizedPage = async (
     resources,
     frameIds: new Set(frames.map((frame) => frame.frame_id)),
   });
-  const workers = (await state.workers?.finish()) ?? [];
-  limitations.push(...(state.workers?.limitations ?? []));
   const storageCapture = await captureStorage(
     context,
     attachedUrl,
@@ -169,6 +167,8 @@ const captureAuthorizedPage = async (
     operation: context.operation,
   });
   const completedUrl = mainFrameUrl(completedFrameResult) ?? "";
+  const workers = (await state.workers?.finish()) ?? [];
+  limitations.push(...(state.workers?.limitations ?? []));
   if (state.events.originViolation)
     throw new BrowserObservationError("inspect_web_page", "target_not_allowed");
   if (state.events.navigationDuringCapture || completedUrl !== attachedUrl)

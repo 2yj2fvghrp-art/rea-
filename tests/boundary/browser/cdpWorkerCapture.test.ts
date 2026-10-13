@@ -1,4 +1,12 @@
 import { expect, it, onTestFinished, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { selectScriptCapture } from "../../../src/browser/assets/ScriptCaptureAdapters.js";
+import { reconcileJavaScriptRuntimeEvidence } from "../../../src/application/javascript/JavaScriptRuntimeReconciliationService.js";
+import { javascriptRuntimeReconciliationResultSchema } from "../../../src/domain/javascript/javascriptRuntimeReconciliationSchemas.js";
+import {
+  applicationFixture,
+  analyzeFixture,
+} from "../../fixtures/javascriptRuntimeReconciliation.js";
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -818,4 +826,72 @@ it("reconciliation retains unknown workers without asserting page containment", 
       ownership: worker.runtimeKey === "own" ? "page_related" : "unknown",
     });
   }
+});
+
+it("reconciles retained worker sources against static artifacts", async () => {
+  const { provider, input } = await fixture();
+  const captured = await provider.inspectPage(input);
+  if (!captured.ok) throw captured.error;
+  const evidence = createBrowserEvidence(
+    "inspect_web_page",
+    input,
+    captured.value,
+    provider.identity(),
+  );
+  const projection = projectRuntimeCaptures(parseRuntimeCaptures([evidence]));
+  const workerScript = projection.entities.find(
+    (entity) => entity.parentWorkerKey === "own",
+  );
+  expect(workerScript?.sourceSha256).toBe(
+    createHash("sha256").update(source).digest("hex"),
+  );
+  const root = await applicationFixture();
+  await writeFile(join(root, "worker.js"), source);
+  const reconciled = reconcileJavaScriptRuntimeEvidence({
+    static_layers: [
+      { role: "application", analysis: await analyzeFixture(root) },
+    ],
+    runtime_observations: [evidence],
+  });
+  if (!reconciled.ok) throw reconciled.error;
+  const result = javascriptRuntimeReconciliationResultSchema.parse(
+    reconciled.value.normalized_result,
+  );
+  expect(result.reconciliations).toContainEqual(
+    expect.objectContaining({
+      entity_kind: "script",
+      runtime_node_id: workerScript?.node.node_id,
+      status: "matched",
+    }),
+  );
+  expect(result.graph.edges).toContainEqual(
+    expect.objectContaining({
+      target_node_id: workerScript?.node.node_id,
+      relation: "loads",
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({ target_key: "own" }),
+        }),
+      }),
+    }),
+  );
+});
+
+it("preserves page-script export from legacy unidentified workers", async () => {
+  const { provider, input } = await fixture();
+  const captured = await provider.inspectPage(input);
+  if (!captured.ok) throw captured.error;
+  const original = captured.value.workers[0];
+  if (original === undefined) throw new Error("Expected an inventoried worker");
+  const { observation: _observation, ...metadata } = original;
+  const legacy = {
+    ...captured.value,
+    workers: [{ ...metadata, target_id: "" }],
+  };
+  const selected = selectScriptCapture(legacy);
+  expect(selected.workerCoverage).toEqual([]);
+  expect(selected.scripts).toHaveLength(legacy.scripts.items.length);
+  expect(selected.limitations.join(" ")).toContain(
+    "Worker identity was unavailable for 1 observations",
+  );
 });

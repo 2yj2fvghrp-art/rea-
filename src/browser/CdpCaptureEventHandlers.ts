@@ -67,7 +67,7 @@ export const handleScriptParsed = (
   const scriptId = cdpStringValue(params.scriptId);
   const rawUrl = cdpStringValue(params.url) ?? "";
   const sanitized = allowedSanitizedUrl(rawUrl, state.allowedOrigins);
-  if (scriptId === undefined) {
+  if (scriptId === undefined || scriptId.length === 0) {
     state.completeness.exclude("scripts", "invalid_protocol_value");
     return;
   }
