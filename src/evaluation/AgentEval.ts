@@ -4,11 +4,8 @@ import {
   type FixtureClaimExpectation,
   type KnownAnswerAssessment,
 } from "./KnownAnswerEvaluation.js";
-import {
-  canonicalValue,
-  type AgentToolCall,
-  type AgentTranscript,
-} from "./AgentTranscript.js";
+import { type AgentToolCall, type AgentTranscript } from "./AgentTranscript.js";
+import { canonicalJson } from "../domain/comparisonSemantics.js";
 import { TOOL_CONTRACTS } from "../contracts/toolContracts.js";
 
 /** One REA MCP invocation measured in an agent transcript. */
@@ -111,7 +108,7 @@ const countRepeatedCalls = (calls: readonly AgentMcpCall[]): number => {
     // useful verification, not a duplicate analysis or unchanged failed retry.
     const context =
       call.tool === "binary_session" ? `${String(targetRevision)}:` : "";
-    const signature = `${context}${call.tool}:${JSON.stringify(canonicalValue(call.arguments))}`;
+    const signature = `${context}${call.tool}:${canonicalJson(call.arguments)}`;
     signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
     if (
       call.delivered &&
@@ -139,7 +136,7 @@ export const evaluateAgentTranscript = (
   } = {},
 ): AgentMetrics => {
   const reaCalls = transcript.calls
-    .filter(({ server }) => server === null || server.toLowerCase() === "rea")
+    .filter(({ server }) => server?.toLowerCase() === "rea")
     .map(measuredCall);
   const repeatedCallCount = countRepeatedCalls(reaCalls);
   const inputValidationFailureCount = reaCalls.filter(

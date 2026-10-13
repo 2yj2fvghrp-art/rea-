@@ -1,9 +1,5 @@
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
-import {
-  memberListIndexSize,
-  memberListRowLookup,
-  memberListTable,
-} from "./ManagedMemberPointers.js";
+import { memberDeclaringTypeRowLookup } from "./ManagedMemberOwnership.js";
 
 import type {
   ManagedArtifactInspection,
@@ -22,11 +18,7 @@ import {
   readMetadataGuid,
   readMetadataString,
 } from "./ManagedMetadataHeaps.js";
-import {
-  managedFailure,
-  ManagedReaderFailure,
-  readManagedValue,
-} from "./ManagedReaderFailure.js";
+import { managedFailure, readManagedValue } from "./ManagedReaderFailure.js";
 import type { ManagedResourceDirectory } from "./ManagedMetadataInventory.js";
 
 type ModuleIdentity = NonNullable<ManagedArtifactInspection["module"]>;
@@ -34,6 +26,13 @@ type AssemblyIdentity = NonNullable<ManagedArtifactInspection["assembly"]>;
 type AssemblyReference = ManagedArtifactInspection["references"][number];
 type ManagedResource = ManagedArtifactInspection["resources"][number];
 type CustomAttribute = ManagedArtifactInspection["attributes"][number];
+
+const HAS_CUSTOM_ATTRIBUTE_TABLES = [
+  6, 4, 1, 2, 8, 9, 10, 0, 14, 23, 20, 17, 26, 27, 32, 35, 38, 39, 40, 42, 44,
+  43,
+] as const;
+
+const CUSTOM_ATTRIBUTE_TYPE_TABLES = [undefined, undefined, 6, 10] as const;
 
 const publicKeyIdentity = (
   bytes: Buffer,
@@ -244,103 +243,15 @@ const readTypeName = ({
   return namespace.length === 0 ? name : `${namespace}.${name}`;
 };
 
-const methodOwners = new WeakMap<
-  ManagedMetadataLayout,
-  Uint32Array | ManagedReaderFailure
->();
-
-/**
- * Index the first TypeDef whose method list contains each list position, once
- * per layout. Malformed lists may overlap; skipping already-owned positions
- * keeps first-match ownership without rescanning TypeDef rows per attribute.
- */
-const methodOwnerRows = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  types: number,
-  positions: number,
-): Uint32Array => {
-  const cached = methodOwners.get(layout);
-  if (cached instanceof ManagedReaderFailure) throw cached;
-  if (cached !== undefined) return cached;
-  try {
-    managedDecodeBudget(layout).reserve(
-      (2 * positions + 3) * Uint32Array.BYTES_PER_ELEMENT + 256,
-      layout.table(2)?.offset ?? null,
-    );
-    const owners = new Uint32Array(positions + 1);
-    // next[p] leads to the first unowned position at or after p.
-    const next = Uint32Array.from({ length: positions + 2 }, (_, p) => p);
-    const unowned = (position: number): number => {
-      let root = position;
-      while (next[root] !== root) root = next[root] ?? root;
-      for (let p = position; p !== root;) {
-        const following = next[p] ?? root;
-        next[p] = root;
-        p = following;
-      }
-      return root;
-    };
-    let start = types === 0 ? 0 : methodListForType(bytes, layout, 1);
-    for (let row = 1; row <= types; row += 1) {
-      const end =
-        row === types
-          ? positions + 1
-          : methodListForType(bytes, layout, row + 1);
-      const limit = Math.min(end, positions + 1);
-      for (
-        let p = unowned(Math.min(Math.max(start, 1), positions + 1));
-        p < limit;
-        p = unowned(p + 1)
-      ) {
-        owners[p] = row;
-        next[p] = p + 1;
-      }
-      start = end;
-    }
-    methodOwners.set(layout, owners);
-    return owners;
-  } catch (cause: unknown) {
-    // Invalid metadata must not rebuild the index for every attribute.
-    if (cause instanceof ManagedReaderFailure) methodOwners.set(layout, cause);
-    throw cause;
-  }
-};
-
 const declaringTypeForMethod = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   methodRow: number,
   heapExtent: number,
 ): string | null => {
-  const types = layout.table(2);
-  const methods = memberListTable(layout, 6);
-  if (types === undefined || methods === undefined) return null;
-  if (methodRow < 1 || methodRow > (layout.table(6)?.rowCount ?? 0))
-    return null;
-  const position = memberListRowLookup(bytes, layout, 6)(methodRow);
-  const owner = methodOwnerRows(
-    bytes,
-    layout,
-    types.rowCount,
-    methods.rowCount,
-  )[position];
-  if (owner === undefined || owner === 0) return null;
+  const owner = memberDeclaringTypeRowLookup(bytes, layout, 6)(methodRow);
+  if (owner === 0) return null;
   return readTypeName({ bytes, layout, table: 2, row: owner, heapExtent });
-};
-
-const methodListForType = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  row: number,
-): number => {
-  const cursor = metadataRowCursor(bytes, layout, 2, row);
-  cursor.readUInt32();
-  cursor.readIndex(layout.stringIndexSize);
-  cursor.readIndex(layout.stringIndexSize);
-  cursor.readIndex(layout.codedIndexSize("TypeDefOrRef"));
-  cursor.readIndex(memberListIndexSize(layout, 4));
-  return cursor.readIndex(memberListIndexSize(layout, 6));
 };
 
 const attributeTypeName = (
@@ -456,56 +367,56 @@ export const readCustomAttribute = (
   const parent = metadataCodedToken(
     parentRaw,
     5,
-    [
-      6, 4, 1, 2, 8, 9, 10, 0, 14, 23, 20, 17, 26, 27, 32, 35, 38, 39, 40, 42,
-      44, 43,
-    ],
+    HAS_CUSTOM_ATTRIBUTE_TABLES,
     layout.rowCounts,
   );
-  const parentReason = metadataCodedTokenInvalidReason(
-    parentRaw,
-    5,
-    [
-      6, 4, 1, 2, 8, 9, 10, 0, 14, 23, 20, 17, 26, 27, 32, 35, 38, 39, 40, 42,
-      44, 43,
-    ],
-    layout.rowCounts,
-  );
-  if (parent === null)
+  if (parent === null) {
+    const parentReason = metadataCodedTokenInvalidReason(
+      parentRaw,
+      5,
+      HAS_CUSTOM_ATTRIBUTE_TABLES,
+      layout.rowCounts,
+    );
     throw managedFailure(
       "invalid-row",
       `metadata.CustomAttribute:${metadataToken(12, row)}`,
       `CustomAttribute parent coded index 0x${parentRaw.toString(16)} is invalid${parentReason === null ? " because the required parent is null" : `: ${parentReason}`}`,
       cursor.start,
     );
-  const typeReason = metadataCodedTokenInvalidReason(
+  }
+  const constructor = metadataCodedToken(
     typeRaw,
     3,
-    [undefined, undefined, 6, 10],
+    CUSTOM_ATTRIBUTE_TYPE_TABLES,
     layout.rowCounts,
   );
-  if (typeReason !== null || typeRaw === 0)
-    throw managedFailure(
-      "invalid-row",
-      `metadata.CustomAttribute:${metadataToken(12, row)}`,
-      typeReason === null
-        ? "CustomAttribute constructor coded index 0x0 is null, but Type must reference a MethodDef or MemberRef row"
-        : `CustomAttribute constructor coded index 0x${typeRaw.toString(16)} is invalid: ${typeReason}`,
-      typeOffset,
-    );
-  const typeName =
-    readManagedValue(
-      () => attributeTypeName(bytes, layout, typeRaw, heapExtent),
-      issues,
-    ) ?? null;
-  return {
-    parent_token: parent,
-    constructor_token: metadataCodedToken(
+  if (constructor === null) {
+    const typeReason = metadataCodedTokenInvalidReason(
       typeRaw,
       3,
-      [undefined, undefined, 6, 10],
+      CUSTOM_ATTRIBUTE_TYPE_TABLES,
       layout.rowCounts,
-    ),
+    );
+    issues.push({
+      code: "invalid-row",
+      scope: `metadata.CustomAttribute:${metadataToken(12, row)}`,
+      offset: typeOffset,
+      detail:
+        typeReason === null
+          ? "CustomAttribute constructor coded index 0x0 is null, but Type must reference a MethodDef or MemberRef row"
+          : `CustomAttribute constructor coded index 0x${typeRaw.toString(16)} is invalid: ${typeReason}`,
+    });
+  }
+  let typeName: string | null = null;
+  if (constructor !== null)
+    typeName =
+      readManagedValue(
+        () => attributeTypeName(bytes, layout, typeRaw, heapExtent),
+        issues,
+      ) ?? null;
+  return {
+    parent_token: parent,
+    constructor_token: constructor,
     type_name: typeName,
     value_length: value.length,
     value_sha256: managedDecodeBudget(layout).digest(value, "sha256"),

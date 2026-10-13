@@ -1,4 +1,5 @@
-import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import { canonicalJson } from "../domain/comparisonSemantics.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
 
 /** One MCP result in the representations the client retained in its transcript. */
 export interface AgentToolResult {
@@ -58,21 +59,11 @@ const textValue = (value: unknown): string | undefined =>
 const numberValue = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
 
-/** Key-order independent value used for call identity and repetition signatures. */
-export const canonicalValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  const object = record(value);
-  if (object === undefined) return value;
-  return Object.fromEntries(
-    Object.entries(object)
-      .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
-      .map(([key, child]) => [key, canonicalValue(child)]),
-  );
-};
-
 const sameValue = (left: unknown, right: unknown): boolean =>
-  JSON.stringify(canonicalValue(left)) ===
-  JSON.stringify(canonicalValue(right));
+  left === right ||
+  (left !== undefined &&
+    right !== undefined &&
+    canonicalJson(left) === canonicalJson(right));
 
 const absent = (value: unknown): boolean =>
   value === undefined || value === null;
@@ -112,7 +103,7 @@ const mcpResult = (value: unknown): AgentToolResult | undefined => {
 
 const callIdentity = (call: AgentToolCall): string =>
   call.id ??
-  `${call.server ?? ""}:${call.tool}:${JSON.stringify(canonicalValue(call.arguments))}`;
+  `${call.server ?? ""}:${call.tool}:${canonicalJson(call.arguments)}`;
 
 /**
  * Clients may report one call more than once. The first report is retained;
@@ -131,6 +122,18 @@ const uniqueCalls = (calls: readonly AgentToolCall[]): AgentToolCall[] => {
       unique.set(identity, { ...previous, delivered: false });
   }
   return [...unique.values()];
+};
+
+/** Retain the first report and preserve uncertainty if the same call later conflicts. */
+const retainResult = <T>(
+  results: Map<string, T>,
+  conflicts: Set<string>,
+  id: string,
+  value: T,
+): void => {
+  const previous = results.get(id);
+  if (previous === undefined) results.set(id, value);
+  else if (!sameValue(previous, value)) conflicts.add(id);
 };
 
 const NO_USAGE: AgentTokenUsage = {
@@ -162,9 +165,30 @@ const codexCall = (
   const tool = textValue(item.tool) ?? textValue(item.name);
   if (tool === undefined) return undefined;
   const consistent =
-    consistentAliases(item, "server", "server_name") &&
-    consistentAliases(item, "tool", "name") &&
+    (item.server === undefined ||
+      item.server_name === undefined ||
+      item.server === item.server_name) &&
+    (item.tool === undefined ||
+      item.name === undefined ||
+      item.tool === item.name) &&
+    (item.arguments === undefined ||
+      item.input === undefined ||
+      sameValue(item.arguments, item.input)) &&
     consistentAliases(item, "result", "output");
+  const server = item.server ?? item.server_name;
+  const argumentsValue = jsonValueSchema.safeParse(
+    item.arguments !== undefined
+      ? item.arguments
+      : item.input !== undefined
+        ? item.input
+        : {},
+  );
+  if (
+    ((item.server !== undefined || item.server_name !== undefined) &&
+      typeof server !== "string") ||
+    !argumentsValue.success
+  )
+    return undefined;
   const resultValue = record(item.result ?? item.output);
   const clientError = codexClientError(item, resultValue);
   // A bare streaming item has no completion until it reports one.
@@ -175,7 +199,7 @@ const codexCall = (
     id: textValue(item.id) ?? null,
     server: textValue(item.server) ?? textValue(item.server_name) ?? null,
     tool,
-    arguments: item.arguments ?? item.input ?? {},
+    arguments: argumentsValue.data,
     delivered: consistent && completed && clientError === undefined,
     clientFailed: item.status === "failed" || !absent(item.error),
     clientError,
@@ -268,6 +292,7 @@ const mcpRequest = (
 const CLAUDE_MCP_NAME = /^mcp__(.+?)__(.+)$/u;
 
 interface ClaudeState {
+  readonly conflicts: Set<string>;
   readonly requests: McpRequest[];
   readonly results: Map<
     string,
@@ -315,8 +340,11 @@ const consumeClaudeUser = (
   const raw = toolResults.length === 1 ? event.tool_use_result : undefined;
   for (const block of toolResults) {
     const id = textValue(block.tool_use_id);
-    if (id !== undefined && !state.results.has(id))
-      state.results.set(id, { isError: block.is_error === true, raw });
+    if (id !== undefined)
+      retainResult(state.results, state.conflicts, id, {
+        isError: block.is_error === true,
+        raw,
+      });
   }
 };
 
@@ -339,6 +367,7 @@ export const parseClaudeCodeEvents = (
   events: readonly unknown[],
 ): AgentTranscript => {
   const state: ClaudeState = {
+    conflicts: new Set(),
     requests: [],
     results: new Map(),
     messages: [],
@@ -357,7 +386,10 @@ export const parseClaudeCodeEvents = (
     const reported = state.results.get(request.id);
     return {
       ...request,
-      delivered: reported !== undefined && !reported.isError,
+      delivered:
+        reported !== undefined &&
+        !reported.isError &&
+        !state.conflicts.has(request.id),
       clientFailed: reported?.isError === true,
       clientError: undefined,
       result: mcpResult(reported?.raw),
@@ -409,6 +441,7 @@ export const parseGeminiCliEvents = (
 ): AgentTranscript => {
   const requests: McpRequest[] = [];
   const results = new Map<string, Record<string, unknown>>();
+  const conflicts = new Set<string>();
   // Assistant text between tool calls; the last non-empty segment is the answer.
   const segments: string[] = [];
   let segmentOpen = false;
@@ -430,12 +463,20 @@ export const parseGeminiCliEvents = (
       if (request !== undefined) requests.push(request);
     } else if (event.type === "tool_result") {
       const id = textValue(event.tool_id);
-      if (id !== undefined && !results.has(id)) results.set(id, event);
+      if (id !== undefined)
+        retainResult(results, conflicts, id, {
+          status: event.status,
+          output: event.output,
+          error: event.error,
+        });
     } else if (event.type === "result") usage = geminiUsage(event);
   }
   return {
     calls: uniqueCalls(
-      requests.map((request) => geminiCall(request, results.get(request.id))),
+      requests.map((request) => {
+        const call = geminiCall(request, results.get(request.id));
+        return conflicts.has(request.id) ? { ...call, delivered: false } : call;
+      }),
     ),
     finalMessage:
       segments.filter((segment) => segment.trim().length > 0).at(-1) ?? "",

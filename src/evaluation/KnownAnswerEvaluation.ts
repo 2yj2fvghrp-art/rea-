@@ -4,7 +4,7 @@ import { z } from "zod";
 import { parseEvidence, type Evidence } from "../domain/evidence.js";
 import type { AgentToolCall } from "./AgentTranscript.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
-import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+import { canonicalJson } from "../domain/comparisonSemantics.js";
 
 /** One closed fixture assertion and the producer facts that must support it. */
 export interface FixtureClaimExpectation {
@@ -105,23 +105,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const record = (value: unknown): Record<string, unknown> | undefined =>
   isRecord(value) ? value : undefined;
-const canonicalValue = (value: JsonValue): JsonValue => {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
-      .map(([key, child]) => [key, canonicalValue(child)]),
-  );
-};
 const sameJson = (left: unknown, right: unknown): boolean => {
   const parsedLeft = jsonValueSchema.safeParse(left);
   const parsedRight = jsonValueSchema.safeParse(right);
   return (
     parsedLeft.success &&
     parsedRight.success &&
-    JSON.stringify(canonicalValue(parsedLeft.data)) ===
-      JSON.stringify(canonicalValue(parsedRight.data))
+    canonicalJson(parsedLeft.data) === canonicalJson(parsedRight.data)
   );
 };
 

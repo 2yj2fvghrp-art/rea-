@@ -53,7 +53,14 @@ const account = join(evaluationRoot, "account");
 const authPaths = [];
 
 try {
-  const clientVersion = await readCommandVersion(client.command);
+  const clientVersion = await readCommandVersion(
+    client.command,
+    agentEvalEnvironment({
+      account,
+      runId: verifierRun.run_id,
+      client: { environment: {} },
+    }),
+  );
   await Promise.all([mkdir(fixtureRoot, { recursive: true }), mkdir(account)]);
   // Reuse authentication only. User config, plugins, rules, history and skills
   // must not make a fresh installed-skill trial pass accidentally.
@@ -191,6 +198,7 @@ try {
     },
     {
       id: "browser",
+      approvedTools: ["list_browser_targets"],
       expectedFirstTool: "list_browser_targets",
       requiresEvidence: false,
       requiredAnswerTermGroups: [
@@ -555,8 +563,9 @@ async function runProcess(
     throw new Error(`${command} failed with ${String(code)}: ${stderr}`);
 }
 
-async function readCommandVersion(command) {
+async function readCommandVersion(command, environment) {
   const child = spawn(command, ["--version"], {
+    env: environment,
     cwd: repositoryRoot,
     stdio: ["ignore", "pipe", "pipe"],
   });

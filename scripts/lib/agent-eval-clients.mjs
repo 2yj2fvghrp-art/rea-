@@ -187,7 +187,7 @@ const claudeCodeClient = (profile, model) => ({
     // Read-only built-ins match the Codex read-only sandbox: no shell, edits,
     // web access, or subagents.
     "--tools",
-    "Read,Grep,Glob,Skill,ToolSearch",
+    "Read,Grep,Glob,Skill,ToolSearch,WaitForMcpServers",
     "--permission-mode",
     "dontAsk",
     "--settings",
@@ -195,6 +195,7 @@ const claudeCodeClient = (profile, model) => ({
       permissions: {
         allow: [
           "Skill",
+          "WaitForMcpServers",
           ...allowedTools(approvedTools).map((name) => `mcp__rea__${name}`),
         ],
       },

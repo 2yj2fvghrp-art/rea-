@@ -4,6 +4,7 @@ import { createEvidence } from "../../../src/domain/evidence.js";
 import { evaluateAgentTranscript } from "../../../src/evaluation/AgentEval.js";
 import {
   parseClaudeCodeEvents,
+  parseCodexEvents,
   parseGeminiCliEvents,
 } from "../../../src/evaluation/AgentTranscript.js";
 
@@ -237,4 +238,101 @@ describe("Gemini CLI transcripts", () => {
     expect(metrics.evidenceIds).toEqual([]);
     expect(metrics.inputTokens).toBe(0);
   });
+});
+
+describe("Codex normalized input authority", () => {
+  it.each([
+    { arguments: null, input: {} },
+    { server: null, server_name: "rea" },
+    { tool: null, name: "open_binary" },
+  ])("does not authenticate conflicting input aliases: %j", (aliases) => {
+    const transcript = parseCodexEvents([
+      {
+        type: "item.completed",
+        item: {
+          id: "call",
+          type: "mcp_tool_call",
+          server: "rea",
+          tool: "open_binary",
+          arguments: {},
+          result: { structuredContent: { opened: true } },
+          ...aliases,
+        },
+      },
+    ]);
+    expect(transcript.calls.every((call) => !call.delivered)).toBe(true);
+  });
+});
+
+it.each(["claude-code", "gemini-cli"])(
+  "%s rejects conflicting duplicate results while retaining identical reports",
+  (client) => {
+    for (const report of ["same", "error", "different"]) {
+      const conflicting = report !== "same";
+      const laterEvidence =
+        report === "different"
+          ? { ...evidence, normalized_result: { observed: false } }
+          : evidence;
+      const transcript =
+        client === "claude-code"
+          ? parseClaudeCodeEvents([
+              claudeToolUse("call", "mcp__rea__analyze_javascript_application"),
+              claudeToolResult("call", { structuredContent: evidence }),
+              claudeToolResult(
+                "call",
+                { structuredContent: laterEvidence },
+                report === "error",
+              ),
+            ])
+          : parseGeminiCliEvents([
+              {
+                type: "tool_use",
+                tool_id: "call",
+                tool_name: "mcp_rea_analyze_javascript_application",
+                parameters: {},
+              },
+              {
+                type: "tool_result",
+                tool_id: "call",
+                status: "success",
+                output: JSON.stringify(evidence),
+              },
+              {
+                type: "tool_result",
+                tool_id: "call",
+                status: report === "error" ? "error" : "success",
+                output: JSON.stringify(laterEvidence),
+              },
+            ]);
+      const metrics = evaluateAgentTranscript(
+        transcript,
+        "analyze_javascript_application",
+        { requiredToolSubsequence: ["analyze_javascript_application"] },
+      );
+      expect(metrics.requiredToolSubsequenceMet).toBe(!conflicting);
+      expect(metrics.evidenceIds).toEqual(
+        conflicting ? [] : [evidence.evidence_id],
+      );
+    }
+  },
+);
+
+it("does not count an unidentified MCP server as a REA workflow", () => {
+  const transcript = parseCodexEvents([
+    {
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        tool: "open_binary",
+        arguments: {},
+        result: { structuredContent: { opened: true } },
+      },
+    },
+  ]);
+  const metrics = evaluateAgentTranscript(transcript, "open_binary", {
+    requiredToolSubsequence: ["open_binary"],
+  });
+  expect(metrics.reaCalls).toEqual([]);
+  expect(metrics.correctFirstTool).toBe(false);
+  expect(metrics.requiredToolSubsequenceMet).toBe(false);
 });
