@@ -65,6 +65,13 @@ const transport = new StdioClientTransport({
   stderr: "pipe",
 });
 const contract = toolContract("inspect_web_network_capture");
+const maxMcpStderrBytes = 64 * 1024;
+let mcpStderr = Buffer.alloc(0);
+transport.stderr?.on("data", (chunk) => {
+  mcpStderr = Buffer.concat([mcpStderr, chunk]);
+  if (mcpStderr.length > maxMcpStderrBytes)
+    mcpStderr = mcpStderr.subarray(-maxMcpStderrBytes);
+});
 const checks = [];
 const retainedEvidence = [];
 const originals = new Map();
@@ -335,6 +342,13 @@ try {
       },
     ]),
     [
+      "mcp-stderr-diagnostics",
+      async () => {
+        if (directory)
+          await writeFile(join(directory, "mcp.stderr.log"), mcpStderr);
+      },
+    ],
+    [
       "failed-command-diagnostics",
       async () => {
         if (directory && primaryError?.snapshot) {
@@ -363,7 +377,12 @@ const report = {
   run_id: run.run_id,
   status: primaryError || cleanupFailures.length ? "failed" : "passed",
   finished_at: new Date().toISOString(),
-  ...(primaryError ? { error: describeError(primaryError) } : {}),
+  ...(primaryError
+    ? {
+        error: describeError(primaryError),
+        mcp_stderr_log: "mcp.stderr.log",
+      }
+    : {}),
   cleanup_failures: cleanupFailures,
   checks,
   verifier,
