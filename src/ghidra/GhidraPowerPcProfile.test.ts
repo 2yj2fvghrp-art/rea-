@@ -44,6 +44,8 @@ const host: GhidraInstallationHost = {
     home: "/jdk-21",
     bits: 64,
     runtime: "jdk",
+    osArch: "amd64",
+    osName: "Linux",
   }),
 };
 const configFor = (environment: NodeJS.ProcessEnv) => {
