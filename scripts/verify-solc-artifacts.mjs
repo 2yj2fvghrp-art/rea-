@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -14,6 +14,8 @@ import { parseEvidence } from "../dist/domain/evidence.js";
 import { mcpTextValue } from "./lib/mcp-verifier-results.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 import {
+  createEvmVerifierGate,
+  withEvmVerifierCli,
   waitForEvmVerifierWorker,
   assertEvmVerifierWorkerReleased,
 } from "./lib/evm-verifier-cancellation.mjs";
@@ -71,6 +73,7 @@ try {
   const inspect = async (mode, path, encoding, options = {}) => {
     const {
       selection,
+      mcpClient = client,
       expectedError = false,
       expectedCategory = "invalid_input",
       detail,
@@ -90,7 +93,7 @@ try {
       );
     let value;
     if (mode === "mcp") {
-      const reply = await client.callTool({
+      const reply = await mcpClient.callTool({
         name: "inspect_evm_interface",
         arguments: input,
       });
@@ -452,95 +455,139 @@ try {
       [warning],
     );
   }
-  // Cancel after real worker admission, then prove exit/root cleanup and recovery.
-  const cliChild = spawn(
-    process.execPath,
-    [
-      entrypoint,
-      "inspect-evm-interface",
-      expandedPath,
-      "solc-json",
-      "--source-unit",
-      selection.source_unit,
-      "--contract-name",
-      selection.contract_name,
-      "--bytecode-kind",
-      selection.bytecode_kind,
-      "--json",
-    ],
-    { env: environment, stdio: ["ignore", "pipe", "pipe"] },
+  // Cancel an admitted, gated real worker; this does not assert active inference.
+  const gate = await createEvmVerifierGate(root.path, environment);
+  const cliArguments = [
+    entrypoint,
+    "inspect-evm-interface",
+    expandedPath,
+    "solc-json",
+    "--source-unit",
+    selection.source_unit,
+    "--contract-name",
+    selection.contract_name,
+    "--bytecode-kind",
+    selection.bytecode_kind,
+    "--json",
+  ];
+  await withEvmVerifierCli(
+    cliArguments,
+    gate.environment,
+    async (pid, owner) => {
+      const identity = await observeProcessStartIdentity(pid);
+      assert.equal(identity?.state, "readable");
+      const worker = await waitForEvmVerifierWorker(
+        pid,
+        () => owner.snapshot().exitCode !== undefined,
+      );
+      assert.equal(
+        await signalProcessWithStartIdentity(pid, identity.identity, "SIGINT"),
+        "signaled",
+      );
+      assert.equal(await owner.waitForOutputClose(10_000), true);
+      const output = owner.snapshot();
+      assert.equal(output.exitCode, 130);
+      assert.equal(JSON.parse(output.stdout.text).code, "cancelled");
+      assert.equal(output.diagnosticTruncated, undefined);
+      for (const line of output.stderr.text.split("\n").filter(Boolean)) {
+        const log = JSON.parse(line);
+        assert.equal(log.application, "rea");
+        assert.equal(log.mode, "cli");
+        assert.equal(typeof log.level, "number");
+      }
+      await assertEvmVerifierWorkerReleased(worker);
+    },
   );
-  let cliOutput = "",
-    cliDiagnostics = "",
-    cliSettled = false;
-  cliChild.stdout.on("data", (chunk) => (cliOutput += chunk.toString()));
-  cliChild.stderr.on("data", (chunk) => (cliDiagnostics += chunk.toString()));
-  const cliCompleted = new Promise((resolve, reject) => {
-    cliChild.once("error", reject);
-    cliChild.once("close", (code) => {
-      cliSettled = true;
-      resolve(code);
-    });
-  });
-  const cliIdentity = await observeProcessStartIdentity(cliChild.pid);
-  assert.equal(cliIdentity?.state, "readable");
-  const cliWorker = await waitForEvmVerifierWorker(
-    cliChild.pid,
-    () => cliSettled,
-  );
-  assert.equal(
-    await signalProcessWithStartIdentity(
-      cliChild.pid,
-      cliIdentity.identity,
-      "SIGINT",
-    ),
-    "signaled",
-  );
-  assert.equal(await cliCompleted, 130);
-  assert.equal(JSON.parse(cliOutput).code, "cancelled");
-  for (const line of cliDiagnostics.split("\n").filter(Boolean)) {
-    const log = JSON.parse(line);
-    assert.equal(log.application, "rea");
-    assert.equal(log.mode, "cli");
-    assert.equal(typeof log.level, "number");
-  }
-  await assertEvmVerifierWorkerReleased(cliWorker);
   cases++;
-  const controller = new AbortController();
-  let mcpSettled = false;
-  const cancelled = client
-    .callTool(
-      {
-        name: "inspect_evm_interface",
-        arguments: {
-          path: expandedPath,
-          encoding: { kind: "solc-json", ...selection },
+  // Observation failures must still await the CLI and release an admitted worker.
+  for (const phase of ["identity", "worker"]) {
+    const failure = new Error(`Injected ${phase} observation failure`);
+    let pid, worker;
+    await assert.rejects(
+      withEvmVerifierCli(
+        cliArguments,
+        gate.environment,
+        async (childPid, owner) => {
+          pid = childPid;
+          if (phase === "worker")
+            worker = await waitForEvmVerifierWorker(
+              pid,
+              () => owner.snapshot().exitCode !== undefined,
+            );
+          throw failure;
         },
-      },
-      { signal: controller.signal },
-    )
-    .then(
-      (value) => {
-        mcpSettled = true;
-        return { value };
-      },
-      (error) => {
-        mcpSettled = true;
-        return { error };
-      },
+      ),
+      (cause) => cause === failure,
     );
-  const mcpWorker = await waitForEvmVerifierWorker(
-    transport.pid,
-    () => mcpSettled,
-  );
-  controller.abort(new Error("Owned compiler inspection cancellation"));
-  assert.match(
-    (await cancelled).error?.message ?? "",
-    /Owned compiler inspection cancellation/u,
-  );
-  await inspect("mcp", linkedPath, "solc-json", { selection });
-  await assertEvmVerifierWorkerReleased(mcpWorker);
-  cases++;
+    assert.equal(await observeProcessStartIdentity(pid), undefined);
+    if (worker !== undefined) await assertEvmVerifierWorkerReleased(worker);
+    cases++;
+  }
+  const cancellationClient = new Client({
+    name: "solc-cancellation-verifier",
+    version: "1",
+  });
+  const cancellationTransport = new StdioClientTransport({
+    command: process.execPath,
+    args: [entrypoint, "mcp"],
+    env: gate.environment,
+    stderr: "pipe",
+  });
+  // Drain the cancellation session's diagnostics even when an assertion fails.
+  cancellationTransport.stderr?.on("data", (chunk) => {
+    transportDiagnostics = (transportDiagnostics + chunk.toString()).slice(
+      -4096,
+    );
+  });
+  const controller = new AbortController();
+  try {
+    await cancellationClient.connect(cancellationTransport);
+    let settled = false;
+    const cancelled = cancellationClient
+      .callTool(
+        {
+          name: "inspect_evm_interface",
+          arguments: {
+            path: expandedPath,
+            encoding: { kind: "solc-json", ...selection },
+          },
+        },
+        { signal: controller.signal },
+      )
+      .then(
+        (value) => {
+          settled = true;
+          return { value };
+        },
+        (error) => {
+          settled = true;
+          return { error };
+        },
+      );
+    const worker = await waitForEvmVerifierWorker(
+      cancellationTransport.pid,
+      () => settled,
+    );
+    controller.abort(new Error("Owned compiler inspection cancellation"));
+    assert.match(
+      (await cancelled).error?.message ?? "",
+      /Owned compiler inspection cancellation/u,
+    );
+    await gate.release();
+    await inspect("mcp", linkedPath, "solc-json", {
+      selection,
+      mcpClient: cancellationClient,
+    });
+    await assertEvmVerifierWorkerReleased(worker);
+    cases++;
+  } finally {
+    controller.abort();
+    try {
+      await cancellationClient.close();
+    } finally {
+      await cancellationTransport.close();
+    }
+  }
   for (const name of [
     "/lib.sol:L",
     "./lib.sol:L",
