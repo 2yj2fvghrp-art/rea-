@@ -141,8 +141,9 @@ lists the feature gates of encodings actually present, such as `async` or
 
 Inputs are limited to 8 MiB, nested components to 16 levels and nested type
 declarations to 32 levels. Complete results are inline and limited to 8 MiB.
-Bindings of lowered functions to core imports can multiply, so more than 65,536
-of them fail with the same resource-constraint error before the result is
-built. Relationship tracing is linear in the decoded entries, and cancellation
-is checked between sections. Apart from the stable file read, the decoder owns
+Every decoded section and vector entry is counted before it is decoded; more
+than 524,288 of them, or more than 65,536 bindings of lowered functions to core
+imports, fail with a resource-constraint error before the result is built.
+Relationship tracing is linear in the decoded entries, and cancellation is
+checked between sections. Apart from the stable file read, the decoder owns
 no processes, temporary files or other resources.
