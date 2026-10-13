@@ -397,3 +397,35 @@ it("retains opaque worker and utility entrypoint resolution before optional asse
     );
   }
 });
+
+it("retains the canonical opaque candidate on nested package roles", async () => {
+  const root = await createTestTempDirectory("rea-opaque-package-role-");
+  await mkdir(join(root, "nested"));
+  await Promise.all([
+    writeFile(
+      join(root, "nested/package.json"),
+      JSON.stringify({ main: "./core.jsc", renderer: "./core.jsc" }),
+    ),
+    writeFile(join(root, "nested/core.jsc"), "opaque"),
+  ]);
+  const { graph } = await analyze(root);
+  const roles = graph.nodes.filter(
+    ({ kind }) => kind === "electron-main" || kind === "electron-renderer",
+  );
+  expect(roles.length).toBe(2);
+  for (const role of roles) {
+    expect(role.observations[0]?.properties).toMatchObject({
+      candidate_path: "nested/core.jsc",
+      resolution_status: "unavailable",
+    });
+    expect(
+      graph.edges.find(
+        ({ relation, target_node_id }) =>
+          relation === "loads" && target_node_id === role.node_id,
+      )?.properties,
+    ).toMatchObject({
+      candidate_path: "nested/core.jsc",
+      resolution_status: "unavailable",
+    });
+  }
+});
