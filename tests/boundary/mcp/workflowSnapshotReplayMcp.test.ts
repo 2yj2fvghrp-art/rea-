@@ -21,6 +21,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { createAnalysisProfile } from "../../../src/domain/analysisProfile.js";
 import { readAnalysisSnapshot } from "../../../src/application/binary/AnalysisSnapshotFiles.js";
 import { ok } from "../../../src/domain/result.js";
+import { evidenceBundleSchema } from "../../../src/domain/evidenceBundle.js";
 import { silentLogger } from "../../../src/logger.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
@@ -41,9 +42,9 @@ afterEach(async () => {
   await Promise.all(resources.splice(0).map((resource) => resource.close()));
 });
 
-describe("MCP composed workflow target admission", () => {
+describe("MCP external command snapshot retirement", () => {
   it.skipIf(process.platform === "win32")(
-    "drains a reverse-engineering call and records its Evidence before close_binary snapshots the ledger",
+    "rejects a queued snapshot after mutation and preserves Evidence through explicit reopening",
     async () => {
       const { targetPaths, snapshotPath } = await createWorkflowFiles(
         "rea-mcp-admitted-reverse-",
@@ -106,7 +107,36 @@ describe("MCP composed workflow target admission", () => {
         analyzed.structuredContent,
       );
       const closed = await closeRequest;
-      expect(closed.isError, JSON.stringify(closed.content)).not.toBe(true);
+      expect(closed.isError).toBe(true);
+      expect(JSON.stringify(closed.content)).toContain(
+        "Analysis snapshots are unavailable",
+      );
+      expect(session.activeTarget()).toBeUndefined();
+      await expect(access(snapshotPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      const exported = await mcp.callTool({
+        name: "export_evidence_bundle",
+        arguments: { path: join(fixtureDirectory, "observations.json") },
+      });
+      expect(exported.isError ?? false).toBe(false);
+      const observations = evidenceBundleSchema.parse(
+        JSON.parse(
+          await readFile(join(fixtureDirectory, "observations.json"), "utf8"),
+        ),
+      );
+      expect(observations.records).toContainEqual(
+        expect.objectContaining({ evidence_id: evidence.evidence_id }),
+      );
+
+      // The provider process has completed; explicitly open fresh analysis
+      // before saving an immutable snapshot of the new binding.
+      await openWorkflowTarget(mcp, targetPath);
+      const saved = await mcp.callTool({
+        name: "close_binary",
+        arguments: { snapshot_path: snapshotPath },
+      });
+      expect(saved.isError ?? false).toBe(false);
       const snapshot = await readAnalysisSnapshot(snapshotPath);
       if (!snapshot.ok) throw snapshot.error;
       expect(snapshot.value.evidence_bundle.records).toContainEqual(
@@ -118,7 +148,9 @@ describe("MCP composed workflow target admission", () => {
       );
     },
   );
+});
 
+describe("MCP composed workflow target admission", () => {
   it("keeps a composed result and snapshot on its admitted target across queued close and open", async () => {
     const { targetPaths, snapshotPath } = await createWorkflowFiles(
       "rea-mcp-admitted-workflow-",

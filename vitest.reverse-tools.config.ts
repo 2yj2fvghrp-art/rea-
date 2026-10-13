@@ -47,6 +47,7 @@ export default defineConfig({
       "tests/boundary/mcp/cutterCancellationMcp.test.ts",
       "tests/boundary/mcp/reverseEngineeringEnvironmentMcp.test.ts",
       "tests/boundary/mcp/reverseEngineeringPartialMcp.test.ts",
+      "tests/boundary/mcp/workflowSnapshotReplayMcp.test.ts",
       "tests/boundary/cli/gdbStartupCleanupCli.test.ts",
       "tests/composition/reverseEngineering.test.ts",
       "tests/composition/reverseEngineeringAdmission.test.ts",
