@@ -235,16 +235,20 @@ it.skipIf(process.platform !== "win32")(
     await writeFile(path, Buffer.from("a92a60", "hex"));
     await symlink(actual, linked, "junction");
     const created: string[] = [];
+    const executed: string[] = [];
     const fixture = createCacheProvider([]);
     const { client } = await connect({
       ...fixture,
       createClient: (target) => {
         created.push(target.sourcePath ?? target.path);
         return {
-          execute: (operation) =>
-            Promise.resolve(
+          execute: (operation) => {
+            if (operation === "address_name")
+              executed.push(target.sourcePath ?? target.path);
+            return Promise.resolve(
               observed(operation === "address_name" ? "entry" : null),
-            ),
+            );
+          },
           close: () => Promise.resolve(ok(null)),
         };
       },
@@ -267,5 +271,6 @@ it.skipIf(process.platform !== "win32")(
       expect(address.isError, JSON.stringify(address)).not.toBe(true);
     }
     expect(created).toEqual([path, join(linked, "image.bin")]);
+    expect(executed).toEqual([path, join(linked, "image.bin")]);
   },
 );
