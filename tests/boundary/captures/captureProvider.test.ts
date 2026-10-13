@@ -1,5 +1,6 @@
 import { packetFieldsCatalogSchema } from "../../../src/domain/captures/packetFields.js";
 import { OwnedCommandFailure } from "../../../src/process/OwnedCommand.js";
+import { ArtifactAnalysisResources } from "../../../src/process/ArtifactAnalysisResources.js";
 import { it, expect, onTestFinished } from "vitest";
 import { EventEmitter } from "node:events";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
@@ -765,3 +766,34 @@ it.each(["process", "workspace", "process-then-workspace"] as const)(
     );
   },
 );
+
+it("preserves the public pending workspace paths through cleanup retries", async () => {
+  const directory = await createTestTempDirectory("rea-capture-path-view-");
+  let settled = false;
+  const resources = new ArtifactAnalysisResources(
+    "tshark",
+    "inspect_packet_capture",
+    readStableArtifact,
+    async (limits) => limits,
+    { message: "fixture capacity", details: {} },
+  );
+  const root = {
+    path: join(directory, "workspace"),
+    close: async () => {
+      if (!settled) throw new Error("workspace removal unavailable");
+    },
+  };
+  onTestFinished(async () => {
+    settled = true;
+    await resources.close();
+  });
+  resources.retain(root);
+  expect(resources.pendingPaths).toEqual([root.path]);
+  await expect(resources.release()).rejects.toMatchObject({
+    cleanupResources: [root.path],
+  });
+  expect(resources.pendingPaths).toEqual([root.path]);
+  settled = true;
+  await resources.release();
+  expect(resources.pendingPaths).toEqual([]);
+});

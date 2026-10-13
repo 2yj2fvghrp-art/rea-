@@ -125,6 +125,10 @@ export class ArtifactAnalysisResources {
     });
   }
 
+  get pendingPaths(): readonly string[] {
+    return [...this.#pending.keys()].map((root) => root.path);
+  }
+
   #resourcesFor(root: ArtifactAnalysisRuntime): readonly string[] {
     // Recorded launch coordinates identify the retained owner; they do not
     // establish that a process is alive or authorize signaling that PID.
