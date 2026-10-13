@@ -59,9 +59,23 @@ export interface ManagedPeLayout {
   rvaAvailableBytes(rva: number, scope: string): number;
 }
 
+/**
+ * Disjoint intervals over the nonzero-virtual-size section extents. Each
+ * interval records how many sections cover it (capped at two), the sole
+ * covering section when unique, and the farthest end among covering sections,
+ * so one binary search answers containment and ambiguity for any RVA range.
+ */
+interface SectionCoverage {
+  readonly bounds: readonly number[];
+  readonly counts: readonly number[];
+  readonly owners: readonly (PeSection | null)[];
+  readonly maxEnds: readonly number[];
+  readonly starts: readonly number[];
+}
+
 interface RvaMapping {
   readonly bytes: Buffer;
-  readonly sections: readonly PeSection[];
+  readonly coverage: SectionCoverage;
   readonly rva: number;
   readonly size: number;
   readonly scope: string;
@@ -134,11 +148,85 @@ const architectureFor = (
   return decoded.architecture;
 };
 
+/** Smallest index whose value exceeds the target in an ascending array. */
+const upperBound = (values: readonly number[], target: number): number => {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((values[middle] ?? Number.POSITIVE_INFINITY) <= target)
+      low = middle + 1;
+    else high = middle;
+  }
+  return low;
+};
+
+/** Sweep the section extents once so each RVA lookup stays logarithmic. */
+const buildSectionCoverage = (
+  sections: readonly PeSection[],
+): SectionCoverage => {
+  const mapped = sections.filter((section) => section.virtualSize > 0);
+  const sectionEnd = (section: PeSection): number =>
+    section.virtualAddress + section.virtualSize;
+  const byStart = [...mapped].sort(
+    (left, right) => left.virtualAddress - right.virtualAddress,
+  );
+  const byEnd = [...mapped].sort(
+    (left, right) => sectionEnd(left) - sectionEnd(right),
+  );
+  const bounds = [
+    ...new Set(
+      mapped.flatMap((section) => [
+        section.virtualAddress,
+        sectionEnd(section),
+      ]),
+    ),
+  ].sort((left, right) => left - right);
+  const counts: number[] = [];
+  const owners: (PeSection | null)[] = [];
+  const maxEnds: number[] = [];
+  const active = new Set<PeSection>();
+  // Ended sections never outrank an active one, so a running maximum suffices.
+  let maxEnd = 0;
+  let started = 0;
+  let ended = 0;
+  for (let interval = 0; interval + 1 < bounds.length; interval += 1) {
+    const point = bounds[interval] ?? 0;
+    for (let next = byEnd[ended]; next !== undefined; next = byEnd[ended]) {
+      if (sectionEnd(next) > point) break;
+      active.delete(next);
+      ended += 1;
+    }
+    for (
+      let next = byStart[started];
+      next !== undefined;
+      next = byStart[started]
+    ) {
+      if (next.virtualAddress > point) break;
+      active.add(next);
+      maxEnd = Math.max(maxEnd, sectionEnd(next));
+      started += 1;
+    }
+    counts.push(Math.min(active.size, 2));
+    owners.push(
+      active.size === 1 ? (active.values().next().value ?? null) : null,
+    );
+    maxEnds.push(maxEnd);
+  }
+  return {
+    bounds,
+    counts,
+    owners,
+    maxEnds,
+    starts: byStart.map((section) => section.virtualAddress),
+  };
+};
+
 /** Resolve one section identity for both exact reads and available-byte queries. */
 const resolveRva = (
   mapping: RvaMapping,
 ): { readonly offset: number; readonly available: number } => {
-  const { bytes, sections, rva, size, scope } = mapping;
+  const { bytes, coverage, rva, size, scope } = mapping;
   if (
     !Number.isSafeInteger(rva) ||
     !Number.isSafeInteger(size) ||
@@ -152,36 +240,39 @@ const resolveRva = (
       scope,
       `${scope} has an invalid RVA range`,
     );
-  // VirtualSize owns RVA containment; raw size also includes alignment padding.
-  const selected = sections.find((section) => {
-    const within = rva - section.virtualAddress;
-    return (
-      section.virtualSize > 0 &&
-      within >= 0 &&
-      within < section.virtualSize &&
-      size <= section.virtualSize - within
-    );
-  });
-  if (selected === undefined)
-    throw managedFailure(
+  const notCovered = (): ManagedReaderFailure =>
+    managedFailure(
       "invalid-directory",
       scope,
       `${scope} RVA is not covered by one PE section`,
     );
-  for (const section of sections) {
-    if (section === selected || section.virtualSize === 0) continue;
-    const end = section.virtualAddress + section.virtualSize;
-    const intersects =
-      size === 0
-        ? rva >= section.virtualAddress && rva < end
-        : rva < end && rva + size > section.virtualAddress;
-    if (intersects)
-      throw managedFailure(
-        "invalid-directory",
-        scope,
-        `${scope} RVA range has ambiguous overlapping PE section mappings`,
-      );
-  }
+  const ambiguous = (): ManagedReaderFailure =>
+    managedFailure(
+      "invalid-directory",
+      scope,
+      `${scope} RVA range has ambiguous overlapping PE section mappings`,
+    );
+  // VirtualSize owns RVA containment; raw size also includes alignment padding.
+  // A zero-size query claims one byte so containment and intersection agree.
+  const rangeEnd = rva + Math.max(size, 1);
+  const interval = upperBound(coverage.bounds, rva) - 1;
+  const intervalEnd = coverage.bounds[interval + 1];
+  if (
+    interval < 0 ||
+    intervalEnd === undefined ||
+    coverage.counts[interval] === 0
+  )
+    throw notCovered();
+  const selected = coverage.owners[interval] ?? null;
+  if (selected === null)
+    // Overlapping sections cover this RVA; the range is ambiguous when one of
+    // them still contains it, and uncovered when none does.
+    throw (coverage.maxEnds[interval] ?? 0) >= rangeEnd
+      ? ambiguous()
+      : notCovered();
+  if (rangeEnd > selected.virtualAddress + selected.virtualSize)
+    throw notCovered();
+  if (rangeEnd > intervalEnd) throw ambiguous();
   const within = rva - selected.virtualAddress;
   if (within > selected.rawSize || size > selected.rawSize - within)
     throw managedFailure(
@@ -198,13 +289,8 @@ const resolveRva = (
     0x1_0000_0000 - rva,
   );
   // A future overlap ends the uniquely mapped extent even if the current byte is unique.
-  for (const section of sections)
-    if (
-      section !== selected &&
-      section.virtualAddress > rva &&
-      section.virtualSize > 0
-    )
-      available = Math.min(available, section.virtualAddress - rva);
+  const nextStart = coverage.starts[upperBound(coverage.starts, rva)];
+  if (nextStart !== undefined) available = Math.min(available, nextStart - rva);
   return { offset, available };
 };
 
@@ -221,7 +307,7 @@ const readDirectory = (bytes: Buffer, offset: number): PeDataDirectory => {
 
 const readCliHeader = (
   bytes: Buffer,
-  sections: readonly PeSection[],
+  coverage: SectionCoverage,
   directory: PeDataDirectory,
 ): ManagedCliHeader => {
   if (directory.size < 72)
@@ -232,7 +318,7 @@ const readCliHeader = (
     );
   const offset = mapRva({
     bytes,
-    sections,
+    coverage,
     rva: directory.rva,
     size: 72,
     scope: "cli.header",
@@ -259,7 +345,7 @@ const readCliHeader = (
   if (managedNativeHeader.rva !== 0 && managedNativeHeader.size >= 4) {
     const nativeOffset = mapRva({
       bytes,
-      sections,
+      coverage,
       rva: managedNativeHeader.rva,
       size: 4,
       scope: "cli.managed-native-header",
@@ -421,6 +507,7 @@ export const readManagedPeLayout = (bytes: Buffer): ManagedPeLayout => {
   const coff = readCoffHeader(bytes);
   const optional = readOptionalHeader(bytes, coff);
   const sections = readSections(bytes, coff, optional);
+  const coverage = buildSectionCoverage(sections);
   const cliDirectoryRead = readCliDirectory(bytes, coff, optional);
   const cliDirectoryState = cliDirectoryRead.kind;
   let cli: ManagedCliHeader | null = null;
@@ -428,7 +515,7 @@ export const readManagedPeLayout = (bytes: Buffer): ManagedPeLayout => {
     cliDirectoryRead.kind === "unreadable" ? cliDirectoryRead.issue : null;
   if (cliDirectoryRead.kind === "present") {
     try {
-      cli = readCliHeader(bytes, sections, cliDirectoryRead.directory);
+      cli = readCliHeader(bytes, coverage, cliDirectoryRead.directory);
     } catch (cause: unknown) {
       if (!(cause instanceof ManagedReaderFailure)) throw cause;
       cliIssue = cause.issue;
@@ -445,8 +532,8 @@ export const readManagedPeLayout = (bytes: Buffer): ManagedPeLayout => {
     cliDirectoryState,
     cliIssue,
     rvaToOffset: (rva, size, scope) =>
-      mapRva({ bytes, sections, rva, size, scope }),
+      mapRva({ bytes, coverage, rva, size, scope }),
     rvaAvailableBytes: (rva, scope) =>
-      resolveRva({ bytes, sections, rva, size: 1, scope }).available,
+      resolveRva({ bytes, coverage, rva, size: 1, scope }).available,
   };
 };
