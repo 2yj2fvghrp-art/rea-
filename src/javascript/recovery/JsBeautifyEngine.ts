@@ -34,6 +34,7 @@ const OPERATION = "recover_javascript_sources";
 const REQUIREMENT =
   "Provide an absolute REA_JSBEAUTIFY_COMMAND pointing to a jsbeautify binary on Linux; no tool is installed by REA. See docs/javascript-recovery.md#jsbeautify.";
 const REPARSE_PHASES = ["19.6", "21.5"] as const;
+const FILE_NAME_MAX_BYTES = 255;
 const LEVEL_ARGUMENTS = {
   minimal: [],
   standard: ["--deobfuscate"],
@@ -44,6 +45,11 @@ const LEVEL_ARGUMENTS = {
 >;
 
 type CommandResult = Awaited<ReturnType<typeof runRecoveryCommand>>;
+type JsBeautifyRunReport = {
+  readonly module: string;
+  readonly input: string;
+  readonly arguments: readonly string[];
+} & ReturnType<typeof gate>;
 
 /** The parse goal of the original file; snapshots of a single input lose its extension. */
 const sourceTypeArguments = (path: string): readonly string[] =>
@@ -65,7 +71,13 @@ const moduleName = (source: RecoveryInputSnapshot, single: boolean): string => {
       // The snapshot already owns a safe fallback for a native-only basename.
     }
   }
-  return /\.(?:[cm]?js|jsx)$/i.test(name) ? name : `${name}.js`;
+  const withExtension = /\.(?:[cm]?js|jsx)$/i.test(name) ? name : `${name}.js`;
+  if (Buffer.byteLength(basename(withExtension)) <= FILE_NAME_MAX_BYTES)
+    return withExtension;
+  const replacement = `__rea_${source.sha256.slice(0, 16)}.js`;
+  return dirname(withExtension) === "."
+    ? replacement
+    : join(dirname(withExtension), replacement);
 };
 
 /** Allocate the complete output layout before any producer can overwrite a selected input's output. */
@@ -220,7 +232,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const published: JavaScriptRecoveryResult["source"][] = [];
   const modules: JavaScriptRecoveryResult["modules"] = [];
   const warnings: JavaScriptRecoveryResult["warnings"] = [];
-  const runs: Record<string, unknown>[] = [];
+  const runs: JsBeautifyRunReport[] = [];
   const logs: string[] = [];
   let retainedLogBytes = 0;
   const formats = new Set<string>();
