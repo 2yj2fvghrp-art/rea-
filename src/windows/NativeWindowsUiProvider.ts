@@ -231,7 +231,7 @@ export const captureWindowsWindowScreenshot = async (
   try {
     before = await host.identifyExecutable(target.path, options.signal);
   } catch (cause) {
-    return err(identityError(target.path, cause));
+    return err(identityError(target.path, cause, options.signal));
   }
   if (before.sha256 !== target.sha256)
     return err(
@@ -308,9 +308,17 @@ export const captureWindowsWindowScreenshot = async (
     host.identifyExecutable(raw.process_image_path, options.signal),
   ]);
   if (targetIdentity.status === "rejected")
-    return err(identityError(target.path, targetIdentity.reason));
+    return err(
+      identityError(target.path, targetIdentity.reason, options.signal),
+    );
   if (processIdentity.status === "rejected")
-    return err(identityError(raw.process_image_path, processIdentity.reason));
+    return err(
+      identityError(
+        raw.process_image_path,
+        processIdentity.reason,
+        options.signal,
+      ),
+    );
   const afterTarget = targetIdentity.value;
   const processImage = processIdentity.value;
   if (options.signal?.aborted)
@@ -389,13 +397,13 @@ const hashExecutable = async (
 ): Promise<ExecutableIdentity> => {
   const handle = await openRegularFile(path, { symlinks: "follow", signal });
   try {
-    const metadata = await handle.stat();
-    if (metadata.ino === 0)
+    const metadata = await handle.stat({ bigint: true });
+    if (metadata.ino === 0n)
       throw new AnalysisOutputError(
         OPERATION,
         "The host did not report stable executable file identity.",
       );
-    if (metadata.size > MAX_EXECUTABLE_BYTES)
+    if (metadata.size > BigInt(MAX_EXECUTABLE_BYTES))
       throw new AnalysisResourceConstraintError(
         OPERATION,
         "file-size",
@@ -405,7 +413,7 @@ const hashExecutable = async (
     const digest = createHash("sha256");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
-    const size = metadata.size;
+    const size = Number(metadata.size);
     while (position < size) {
       if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       const { bytesRead } = await handle.read(
@@ -420,11 +428,10 @@ const hashExecutable = async (
       position += bytesRead;
     }
     if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
-    if (position !== size)
-      throw new RegularFileChangedError(path);
+    if (position !== size) throw new RegularFileChangedError(path);
     const [opened, currentPath] = await Promise.all([
-      handle.stat(),
-      stat(path),
+      handle.stat({ bigint: true }),
+      stat(path, { bigint: true }),
     ]);
     if (
       !sameRegularFileState(metadata, opened) ||
@@ -440,8 +447,21 @@ const hashExecutable = async (
   }
 };
 
-const identityError = (path: string, cause: unknown): AnalysisError => {
+const identityError = (
+  path: string,
+  cause: unknown,
+  signal?: AbortSignal,
+): AnalysisError => {
+  if (
+    signal?.aborted === true ||
+    (cause instanceof Error && cause.name === "AbortError")
+  )
+    return new AnalysisCancelledError(OPERATION, { cause });
   if (cause instanceof AnalysisError) return cause;
+  if (cause instanceof RegularFileChangedError)
+    return new AnalysisArtifactChangedError(OPERATION, path, cause.message, {
+      cause,
+    });
   const filesystem = z.object({ code: z.string() }).safeParse(cause);
   if (filesystem.success) {
     if (filesystem.data.code === "EACCES" || filesystem.data.code === "EPERM")
@@ -451,7 +471,7 @@ const identityError = (path: string, cause: unknown): AnalysisError => {
         filesystem.data.code,
         { cause },
       );
-    if (filesystem.data.code === "ENOENT")
+    if (filesystem.data.code === "ENOENT" || filesystem.data.code === "ESTALE")
       return new AnalysisArtifactChangedError(
         OPERATION,
         path,
@@ -510,7 +530,11 @@ const captureFailure = (
       "capacity",
       nativeFailureReason(cause),
       { maximum_source_pixels: 4 * 1024 * 1024 },
-      { cause },
+      {
+        cause,
+        remediationAction:
+          "Resize the selected window below maximum_source_pixels, then retry. Lowering max_dimension does not reduce the source area.",
+      },
     );
   if (
     native.data.failureKind === "window_owner_mismatch" ||
