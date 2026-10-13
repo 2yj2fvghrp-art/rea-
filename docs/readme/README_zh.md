@@ -1,6 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · **简体中文** · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
+· [Ελληνικά](README_el.md)
 
 # REA：逆向一切
 
@@ -21,11 +22,11 @@
 
 [快速开始](#快速开始) · [REA 的工作原理](#rea-的工作原理) · [可以分析什么](#可以分析什么) · [案例](#案例) · [常见问题](#常见问题) · [GNU objdump 和 Rizin 工具](../reverse-engineering-tools.md) · [文档](#文档)
 
+<code>npx rea-agents setup</code>
+
 > [!IMPORTANT]
 > REA 官方来源： [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm).
 > 请通过这些官方来源提供的安装和发布链接获取 REA。相似的仓库名称或复制的 README 不能证明下载内容来自官方。
-
-<code>npx rea-agents setup</code>
 
 <br />
 
