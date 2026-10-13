@@ -244,7 +244,6 @@ export const resolveGhidraAnalysisProfile = async (
           existingProject === true
             ? "existing-project-copy"
             : "ephemeral-source-immutable",
-        import_mode: "ephemeral-source-immutable",
         ...(target.format === "pe"
           ? { pdb_observations: "program-info-v1" }
           : {}),
