@@ -95,6 +95,11 @@ it.each([
     code: "version_unresolved",
   },
   {
+    dataModel: "",
+    bitness: 'bitness unknown (sun.arch.data.model = "")',
+    code: "version_unresolved",
+  },
+  {
     dataModel: "64junk",
     bitness: 'bitness unknown (sun.arch.data.model = "64junk")',
     code: "version_unresolved",

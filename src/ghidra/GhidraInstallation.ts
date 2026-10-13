@@ -790,7 +790,8 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
         ? Number(dataModel)
         : null;
     const unparsedBits = bits === null ? dataModel : null;
-    if (version === null || home === null) return undefined;
+    // An empty version or home cannot identify the runtime.
+    if (!version || !home) return undefined;
     return {
       version,
       major: javaMajor(version),
@@ -822,9 +823,11 @@ const executablePath = (path: string): boolean => {
   }
 };
 
+// Horizontal whitespace only: an empty value must not absorb the next line.
+// Absent properties are null; explicitly empty values are "".
 const javaProperty = (output: string, name: string): string | null =>
   new RegExp(
-    `^\\s*${name.replaceAll(".", "\\.")}\\s*=\\s*(.+?)\\s*$`,
+    `^[ \\t]*${name.replaceAll(".", "\\.")}[ \\t]*=[ \\t]*([^\\r\\n]*?)[ \\t]*$`,
     "mu",
   ).exec(output)?.[1] ?? null;
 
