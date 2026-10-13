@@ -81,8 +81,8 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const run = createVerifierRun();
 const root = await PrivateRuntimeRoot.create({ prefix: "rea-wabt-verifier-" });
 const client = new Client({ name: "wabt-artifact-verifier", version: "1" });
-// The default response budget matches the client's default receive buffer.
-// Windows environment names are case-insensitive.
+// Drop every spelling of the budget override so the server default matches
+// the client's receive buffer.
 const mcpEnvironment = Object.fromEntries(
   Object.entries(environment).filter(
     ([name]) => name.toUpperCase() !== "REA_MCP_MAX_RESPONSE_BYTES",
@@ -411,11 +411,34 @@ try {
   );
   assert.equal(largeError.category, "resource_constraint");
   assert.equal(largeError.details.resource, "transport");
+  const largeReference = largeError.details.reported_limits.evidence_reference;
+  assert.deepEqual(largeReference, {
+    kind: "retained-evidence",
+    evidence_id: largeCli.evidence_id,
+  });
+  const largeSummary = await client.callTool({
+    name: "inspect_wasm_artifact",
+    arguments: { ...largeInput, detail: "summary" },
+  });
+  assert.notEqual(largeSummary.isError, true, mcpTextValue(largeSummary));
+  const summary = parseEvidence(
+    largeSummary.structuredContent,
+  ).normalized_result;
+  assert.equal(summary.parent_evidence_id, largeCli.evidence_id);
+  assert.equal(summary.summary.wat.sha256, sha256(largeWat));
+  const largePage = await client.callTool({
+    name: "inspect_analysis_view",
+    arguments: {
+      source: largeReference,
+      view: { kind: "wasm", facet: "wat", offset: 0, limit: 16 },
+    },
+  });
+  assert.notEqual(largePage.isError, true, mcpTextValue(largePage));
   assert.equal(
-    largeError.details.reported_limits.evidence_reference.evidence_id,
-    largeCli.evidence_id,
+    parseEvidence(largePage.structuredContent).normalized_result.item.text,
+    largeWat.slice(0, 16),
   );
-  cases += 2;
+  cases += 3;
 } catch (cause) {
   failures.push(cause);
 }

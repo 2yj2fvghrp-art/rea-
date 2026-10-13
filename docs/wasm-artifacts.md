@@ -58,7 +58,7 @@ checked again after each command. Caller-supplied tools are trusted programs;
 version and digest recording are not publisher authentication or an OS sandbox.
 Each subprocess has a 30-second deadline and 128 MiB combined output budget,
 chosen from measured public modules (canvaskit-wasm's 7.0 MiB module decodes to
-about 83 MB of WAT); truncation fails. All commands use existing owned-process
+79 MiB of WAT); truncation fails. All commands use existing owned-process
 cancellation and cleanup. Workspace cleanup failures remain explicit errors with
 resource paths.
 
