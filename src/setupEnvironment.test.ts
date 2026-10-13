@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -98,6 +98,42 @@ it("composes provider diagnostics from selected configuration rather than ambien
   expect(JSON.stringify(inspections)).toContain("http://127.0.0.1:8425/mcp");
   expect(JSON.stringify(inspections)).not.toContain("/ambient/");
   expect(JSON.stringify(inspections)).not.toContain("127.0.0.1:9999");
+});
+
+it("writes a configured JEB endpoint from the reviewed plan into the client registration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rea-jeb-setup-"));
+  const endpoint = "http://127.0.0.1:9999/mcp";
+  const environment = {
+    HOME: join(root, "home"),
+    USERPROFILE: join(root, "home"),
+    CODEX_HOME: join(root, "codex"),
+    REA_JEB_MCP_URL: endpoint,
+  };
+  vi.stubEnv("REA_JEB_MCP_URL", "http://127.0.0.1:8888/mcp");
+  try {
+    const host = systemSetupHost(
+      createSystemDoctorHost(environment),
+      environment,
+    );
+    const result = await runSetup(
+      { ...options(true), clientIds: ["codex"], installSkill: false },
+      host,
+    );
+    expect(result.status).toBe("ready");
+    const plan = result.plannedActions.find(
+      ({ id }) => id === "configure_client:codex",
+    );
+    expect(plan?.detail).toContain(endpoint);
+    const saved = await readFile(
+      join(environment.CODEX_HOME, "config.toml"),
+      "utf8",
+    );
+    expect(saved).toContain("REA_JEB_MCP_URL");
+    expect(saved).toContain(endpoint);
+    expect(saved).not.toContain("8888");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it("passes only selected environment to updater subprocesses and drops npm invocation identity", async () => {
