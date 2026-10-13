@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import {
   linuxHopperInstallDisclosure,
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
   type LinuxPackageFamily,
 } from "./LinuxHopper.js";
 import type { SkillDestination } from "./SetupSkill.js";
@@ -47,14 +48,18 @@ export const discoverSetupState = async (input: {
   // A launcher explicitly configured through HOPPER_LAUNCHER_PATH is the
   // user's chosen provider: never propose a repair reinstall over it when the
   // pinned demo-build digest or the demo runtime probe fails. Repair only
-  // applies to the REA-managed system install when nothing was configured.
+  // applies to the REA-managed system install when nothing was configured:
+  // an existing third-party launcher (e.g. /usr/bin/hopper) keeps its own
+  // remediation instead of being replaced by a REA-managed reinstall.
   const linuxHopperRepairNeeded =
     !input.hopperLauncherConfigured &&
+    initialDoctor.hopperPath === REA_MANAGED_LINUX_HOPPER_LAUNCHER &&
     initialDoctor.checks.some(
       ({ name, ok, detail }) =>
         !ok &&
         (name === "hopper-demo-runtime" ||
-          (name === "hopper-version" && detail === "/opt/hopper/bin/Hopper")),
+          (name === "hopper-version" &&
+            detail === REA_MANAGED_LINUX_HOPPER_LAUNCHER)),
     );
   const linuxDistribution =
     input.host.platform === "linux"

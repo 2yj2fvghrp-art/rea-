@@ -228,7 +228,7 @@ export const installLinuxHopper = async (
     await host.writeArchive(archive, archiveDownload.bytes);
     if (!(await host.installPackage(distribution.packageFamily, archive)))
       return { status: "failed", reason: "authorization_or_package_manager" };
-    const launcherPath = "/opt/hopper/bin/Hopper";
+    const launcherPath = REA_MANAGED_LINUX_HOPPER_LAUNCHER;
     const launcherStatus = await host.launcherStatus(launcherPath);
     if (launcherStatus !== "ready")
       return {
@@ -248,6 +248,20 @@ export const installLinuxHopper = async (
 /** Canonical launcher path for a legacy user-local Linux Hopper installation. */
 export const linuxHopperLauncherPath = (home: string): string =>
   join(home, ".local/share/rea/hopper/bin/Hopper");
+
+/** Launcher path produced by the REA-managed Linux Hopper installation. */
+export const REA_MANAGED_LINUX_HOPPER_LAUNCHER = "/opt/hopper/bin/Hopper";
+
+/**
+ * Ordered system-wide Linux Hopper launcher candidates shared by discovery
+ * (doctor) and runtime configuration, so both select the same launcher. The
+ * REA-managed install path stays first.
+ */
+export const systemLinuxHopperLauncherCandidates: readonly string[] = [
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  "/opt/hopper-v4/bin/hopper",
+  "/usr/bin/hopper",
+];
 
 /** Compose package-manager and linker checks from the selected caller environment. */
 export const systemLinuxHopperInstallHost = (

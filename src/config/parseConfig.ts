@@ -7,10 +7,13 @@ import { parseEnvironment } from "./environment.js";
 import { homeDirectoryFromEnvironment } from "./homeDirectory.js";
 import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
+import {
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  systemLinuxHopperLauncherCandidates,
+} from "../application/LinuxHopper.js";
 
 const DEFAULT_HOPPER_LAUNCHER_PATH =
   "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
-const SYSTEM_LINUX_HOPPER = "/opt/hopper/bin/Hopper";
 
 const executableAvailable = (path: string): boolean => {
   try {
@@ -21,15 +24,21 @@ const executableAvailable = (path: string): boolean => {
   }
 };
 
-const defaultHopperLauncherPath = (
+/** Default Hopper launcher, shared with doctor discovery's candidate order. Exported for tests. */
+export const defaultHopperLauncherPath = (
   platform: NodeJS.Platform,
   homeDirectory: string,
   executable: (path: string) => boolean = executableAvailable,
 ): string => {
   if (platform !== "linux") return DEFAULT_HOPPER_LAUNCHER_PATH;
-  if (executable(SYSTEM_LINUX_HOPPER)) return SYSTEM_LINUX_HOPPER;
+  // Search the same ordered system candidates as doctor discovery so both
+  // select the same launcher.
+  const system = systemLinuxHopperLauncherCandidates.find((candidate) =>
+    executable(candidate),
+  );
+  if (system !== undefined) return system;
   const userLocal = join(homeDirectory, ".local/share/rea/hopper/bin/Hopper");
-  return executable(userLocal) ? userLocal : SYSTEM_LINUX_HOPPER;
+  return executable(userLocal) ? userLocal : REA_MANAGED_LINUX_HOPPER_LAUNCHER;
 };
 
 /** Parse provider configuration and runtime prerequisites at the composition root. */

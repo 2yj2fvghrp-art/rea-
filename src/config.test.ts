@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseConfig } from "./config/parseConfig.js";
+import {
+  defaultHopperLauncherPath,
+  parseConfig,
+} from "./config/parseConfig.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
 
 it("reports a configuration failure for a NUL in Hopper loader arguments", () => {
@@ -288,5 +291,43 @@ describe("configuration failure diagnostics", () => {
           ],
         },
       });
+  });
+});
+
+describe("default Hopper launcher path (#2270)", () => {
+  const home = "/fixture/home";
+  const executable = (present: readonly string[]) => (path: string) =>
+    present.includes(path);
+
+  it("selects each newly discovered Linux launcher when it is the only one present", () => {
+    for (const candidate of ["/opt/hopper-v4/bin/hopper", "/usr/bin/hopper"]) {
+      expect(
+        defaultHopperLauncherPath("linux", home, executable([candidate])),
+      ).toBe(candidate);
+    }
+  });
+
+  it("prefers the REA-managed install over the newly discovered launchers", () => {
+    expect(
+      defaultHopperLauncherPath(
+        "linux",
+        home,
+        executable([
+          "/opt/hopper/bin/Hopper",
+          "/opt/hopper-v4/bin/hopper",
+          "/usr/bin/hopper",
+        ]),
+      ),
+    ).toBe("/opt/hopper/bin/Hopper");
+  });
+
+  it("falls back to the user-local launcher, then the REA-managed path", () => {
+    const userLocal = `${home}/.local/share/rea/hopper/bin/Hopper`;
+    expect(
+      defaultHopperLauncherPath("linux", home, executable([userLocal])),
+    ).toBe(userLocal);
+    expect(defaultHopperLauncherPath("linux", home, executable([]))).toBe(
+      "/opt/hopper/bin/Hopper",
+    );
   });
 });
