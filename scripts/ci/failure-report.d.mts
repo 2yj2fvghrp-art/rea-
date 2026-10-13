@@ -57,6 +57,11 @@ export interface CiFailureReport {
     readonly runAttempt: number;
     readonly classification: "matching-main-diagnostics" | "unknown";
     readonly reason: string;
+    readonly candidateFailures?: readonly {
+      readonly runId: number | string;
+      readonly runAttempt: number;
+      readonly reason: string;
+    }[];
     readonly runHead?: string | null;
     readonly event?: string | null;
     readonly job?: string;

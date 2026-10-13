@@ -189,21 +189,33 @@ async function attributeToMain({
   if (baseSha === null || evidence === null)
     return outcome("unknown", "no_matching_verified_main_failure");
   let result = outcome("unknown", "no_matching_verified_main_failure");
+  const candidateFailures = [];
   for (const candidate of mainCandidates) {
-    const main = await compareCandidate({
-      repository,
-      defaultBranch,
-      run,
-      job,
-      evidence,
-      baseSha,
-      candidate,
-      api,
-    });
-    if (main?.classification === "matching-main-diagnostics") return main;
-    if (main !== null) result = main;
+    try {
+      const main = await compareCandidate({
+        repository,
+        defaultBranch,
+        run,
+        job,
+        evidence,
+        baseSha,
+        candidate,
+        api,
+      });
+      if (main !== null) result = main;
+      if (main?.classification === "matching-main-diagnostics") break;
+    } catch (error) {
+      candidateFailures.push({
+        runId: candidate.run.id,
+        runAttempt: candidate.run.run_attempt,
+        reason: errorCode(error),
+      });
+    }
   }
-  return result;
+  return {
+    ...result,
+    ...(candidateFailures.length > 0 ? { candidateFailures } : {}),
+  };
 }
 
 async function compareCandidate({

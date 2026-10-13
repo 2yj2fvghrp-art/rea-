@@ -236,3 +236,54 @@ it.each([1, 51])(
     );
   },
 );
+
+it.each(["jobs", "artifact", "comparison"])(
+  "continues after an isolated main %s failure and preserves its provenance",
+  async (failure) => {
+    const input = fixture([20, 21], 3);
+    const jobs = input.api.getJobs;
+    const load = input.api.getStaticEvidence;
+    input.api.getJobs = async (...args) => {
+      const result = await jobs(...args);
+      if (Number(args[1]) === 20 && failure === "jobs")
+        throw new Error("main_jobs_unavailable");
+      return result;
+    };
+    input.api.getStaticEvidence = async (...args) => {
+      const result = await load(...args);
+      if (Number(args[1].id) === 20 && failure === "artifact")
+        throw new Error("main_artifact_unavailable");
+      return Number(args[1].id) === 20 && failure === "comparison"
+        ? {
+            ...result!,
+            context: { ...result!.context, sourceSha: "d".repeat(40) },
+          }
+        : result;
+    };
+    input.api.verifyExecutionSource = async (_repository, run, context) => {
+      if (Number(run.id) === 20 && context.sourceSha !== run.head_sha)
+        throw new Error("main_comparison_unavailable");
+      return true;
+    };
+    const result = await report(input);
+    expect(result.counts).toEqual({
+      "matching-main-diagnostics": 3,
+      unknown: 0,
+    });
+    for (const item of result.failures) {
+      expect(item.candidateFailures).toEqual([
+        {
+          runId: 20,
+          runAttempt: 1,
+          reason: `main_${failure === "jobs" ? "jobs" : failure}_unavailable`,
+        },
+      ]);
+    }
+    expect(input.jobs.filter((id) => id === 20)).toHaveLength(1);
+    expect(input.jobs.filter((id) => id === 21)).toHaveLength(1);
+    expect(input.artifacts.filter((id) => id === 20)).toHaveLength(
+      failure === "jobs" ? 0 : 1,
+    );
+    expect(input.artifacts.filter((id) => id === 21)).toHaveLength(1);
+  },
+);
