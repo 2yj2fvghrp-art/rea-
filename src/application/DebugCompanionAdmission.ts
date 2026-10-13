@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type Dir, type Stats } from "node:fs";
+import type { Dir, Stats } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
