@@ -444,6 +444,7 @@ export const createServer = (
     toolLogger,
     recordEvidence,
     analysisAdmission,
+    evidenceById,
   );
   registerApktoolTools(
     server,
@@ -515,6 +516,7 @@ const registerConfiguredAnalysisTools = (
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
+    evidenceById,
   );
   registerJebTools(
     server,
@@ -616,6 +618,7 @@ const registerConfiguredAnalysisTools = (
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
+    evidenceById,
   );
   registerJavaScriptRecoveryTool(
     server,
