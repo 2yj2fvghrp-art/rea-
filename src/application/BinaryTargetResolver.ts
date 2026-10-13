@@ -303,9 +303,6 @@ const detectArtifactFormat = async (
     return "plist";
   const named = namedArtifactFormat(lower);
   if (named !== undefined) return named;
-  // XML plist documents can also use archive-specific suffixes such as .archive.
-  if (hasXmlPlistSignature(magic.subarray(0, observed.bytesRead)))
-    return "plist";
   if (
     lower.endsWith(".pkg") &&
     observed.bytesRead >= 4 &&
@@ -324,6 +321,10 @@ const detectArtifactFormat = async (
         return "dmg";
     }
   }
+  // XML plist documents can also use archive-specific suffixes such as .archive.
+  // Keep this after container trailer checks so a DMG retains its authority.
+  if (hasXmlPlistSignature(magic.subarray(0, observed.bytesRead)))
+    return "plist";
   return undefined;
 };
 

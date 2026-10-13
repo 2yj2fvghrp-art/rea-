@@ -8,6 +8,9 @@ import { z } from "zod";
 import { createBinarySession } from "../../../src/composition/binary.js";
 import { parseConfig } from "../../../src/config/parseConfig.js";
 import { keyedArchiveResultSchema } from "../../../src/domain/apple/keyedArchive.js";
+import { artifactInventoryResultSchema } from "../../../src/domain/artifactGraph.js";
+import { artifactInspectionResultSchema } from "../../../src/domain/artifactInspection.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import { silentLogger } from "../../../src/logger.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -45,6 +48,24 @@ mcpTest(
       arguments: { path },
     });
     expect(opened.isError, JSON.stringify(opened.content)).not.toBe(true);
+    const inventoryReply = await client.callTool({
+      name: "inspect_artifact",
+      arguments: {},
+    });
+    expect(
+      inventoryReply.isError,
+      JSON.stringify(inventoryReply.content),
+    ).not.toBe(true);
+    const inspectionEvidence = parseEvidence(inventoryReply.structuredContent);
+    const inspection = artifactInspectionResultSchema.parse(
+      inspectionEvidence.normalized_result,
+    );
+    const inventory = artifactInventoryResultSchema.parse(
+      inspection.substeps[0]?.evidence.normalized_result,
+    );
+    expect(inventory.manifest.root_format).toBe("plist");
+    expect(inventory.occurrences[0]?.artifact_format).toBe("plist");
+
     const result = await client.callTool({
       name: "inspect_keyed_archive",
       arguments: {},

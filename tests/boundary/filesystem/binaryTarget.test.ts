@@ -279,6 +279,21 @@ describe("binary target I/O: package classification", () => {
     });
   });
 
+  it("keeps a DMG classification when its data starts with an XML plist prolog", async () => {
+    const directory = await createTestTempDirectory("rea-xml-dmg-target-");
+    const path = join(directory, "image.dmg");
+    const image = Buffer.alloc(512);
+    Buffer.from('<?xml version="1.0"?><plist>').copy(image);
+    image.write("koly", image.length - 512, "ascii");
+    await writeFile(path, image);
+
+    const result = await parseBinaryTarget(path);
+    expect(result.ok && result.value).toMatchObject({
+      kind: "archive",
+      format: "dmg",
+    });
+  });
+
   it.each(["utf8", "utf16le", "utf16be"] as const)(
     "accepts XML plists when a Unicode character crosses the probe boundary (%s)",
     async (encoding) => {
