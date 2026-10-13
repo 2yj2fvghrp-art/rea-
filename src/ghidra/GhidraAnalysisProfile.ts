@@ -82,6 +82,11 @@ export const resolveGhidraAnalysisProfile = async (
       err(new ProviderAdapterError(identity.id, "resolve_analysis_profile")),
     );
   if (existingProject === true) {
+    if (languageOverride !== undefined || (disabledAnalyzers?.length ?? 0) > 0)
+      return err(new AnalysisUnsupportedTargetError(
+        "resolve_analysis_profile", target.path,
+        "Existing Ghidra projects retain their imported language and analysis; caller-selected import overrides do not apply.",
+      ));
     const reason = ghidraExistingProjectUnsupportedReason(
       target,
       installation.platform,

@@ -553,7 +553,7 @@ export const createGhidraProviderClient = (input: {
       ...(pspExtension?.success === true
         ? { pspExtension: pspExtension.data }
         : {}),
-      ...(softFloat ? { mipsSoftFloat: true as const } : {}),
+      ...(softFloat && config.ghidraExistingProject === undefined ? { mipsSoftFloat: true as const } : {}),
       ...(target.format === "dos-mz" ? { dosMz: true } : {}),
       ...(target.format === "dos-com" ? { dosCom: true } : {}),
       ...(rawLanguage === undefined || target.format !== "raw-binary"
@@ -565,7 +565,7 @@ export const createGhidraProviderClient = (input: {
               baseAddr: target.entryPoint,
             },
           }),
-      ...(languageOverride === undefined ? {} : { languageOverride }),
+      ...(languageOverride === undefined || config.ghidraExistingProject !== undefined ? {} : { languageOverride }),
       ...(config.ghidraDisabledAnalyzers === undefined
         ? {}
         : { disabledAnalyzers: config.ghidraDisabledAnalyzers }),

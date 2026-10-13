@@ -6,7 +6,10 @@ import {
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
 import type { GhidraExistingProject } from "../config/ghidraExistingProject.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
-import { cp, mkdir, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, mkdir, readdir, realpath } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { withRegularFile } from "../application/RegularFileRead.js";
+import { pipeline } from "node:stream/promises";
 import { basename, dirname, join, posix, win32 } from "node:path";
 
 import writeFileAtomic from "write-file-atomic";
@@ -234,6 +237,7 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         await copyExistingGhidraProject(
           existingProject.projectPath,
           paths.projectRoot,
+          options.signal,
         );
       const seedPath =
         this.options.analysisSeeds === undefined
@@ -828,27 +832,43 @@ const createGhidraRuntimeDirectories = async (
 export const copyExistingGhidraProject = async (
   sourcePath: string,
   destinationRoot: string,
+  signal?: AbortSignal,
 ): Promise<void> => {
-  const source = await stat(sourcePath).catch(() => undefined);
-  if (source === undefined || !source.isDirectory())
-    throw new Error(
-      `Existing Ghidra project directory does not exist: ${sourcePath}`,
-    );
-  const entries = await readdir(sourcePath);
-  if (
-    !entries.includes("rea-project.grez") &&
-    !entries.includes("rea-project.rep")
-  )
-    throw new Error(
-      `Existing Ghidra project directory must hold rea-project.grez or rea-project.rep: ${sourcePath}`,
-    );
-  await Promise.all(
-    entries.map((entry) =>
-      cp(join(sourcePath, entry), join(destinationRoot, entry), {
-        recursive: true,
-      }),
-    ),
+  signal?.throwIfAborted();
+  const source = await lstat(sourcePath).catch(() => undefined);
+  if (source === undefined || !source.isDirectory() || source.isSymbolicLink())
+    throw new Error(`Existing Ghidra project must be a regular directory: ${sourcePath}`);
+  const entries = (await readdir(sourcePath)).filter((entry) =>
+    ["rea-project.gpr", "rea-project.grez", "rea-project.rep"].includes(entry),
   );
+  if (!entries.includes("rea-project.grez") && !entries.includes("rea-project.rep"))
+    throw new Error(`Existing Ghidra project directory must hold rea-project.grez or rea-project.rep: ${sourcePath}`);
+  // Sequential streaming gives cancellation ownership to this copy operation.
+  // A rejected copy has settled its streams before launch cleanup removes it.
+  const copyEntry = async (from: string, to: string): Promise<void> => {
+    signal?.throwIfAborted();
+    const entry = await lstat(from);
+    if (entry.isSymbolicLink())
+      throw new Error(`Existing Ghidra project contains a symbolic link: ${from}`);
+    if (entry.isDirectory()) {
+      await mkdir(to, { recursive: true });
+      for (const name of await readdir(from))
+        await copyEntry(join(from, name), join(to, name));
+    } else if (entry.isFile()) {
+      await withRegularFile(from, async (handle) => {
+        await pipeline(
+          handle.createReadStream({ autoClose: false }),
+          createWriteStream(to, { flags: "wx", mode: 0o600 }),
+          { ...(signal === undefined ? {} : { signal }) },
+        );
+      }, { symlinks: "reject", signal });
+    } else {
+      throw new Error(`Existing Ghidra project contains a non-regular entry: ${from}`);
+    }
+    signal?.throwIfAborted();
+  };
+  for (const entry of entries)
+    await copyEntry(join(sourcePath, entry), join(destinationRoot, entry));
 };
 
 const writeGhidraRuntimeFile = async (
