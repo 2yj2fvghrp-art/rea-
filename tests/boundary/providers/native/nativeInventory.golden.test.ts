@@ -266,8 +266,11 @@ it("splits re-export rows at the source library", () => {
       [
         "[re-export] _call_renamed (operator() from libfoo)",
         "[re-export] _g (from lib from foo)",
+        "[re-export] _nested (from lib (from foo))",
       ].join("\n"),
       "exports",
+      null,
+      new Set(["_call_renamed", "_g", "_nested"]),
     ),
   ).toEqual([
     {
@@ -284,6 +287,13 @@ it("splits re-export rows at the source library", () => {
       weak: null,
       reexport: true,
       source: "lib from foo",
+    },
+    {
+      name: "_nested",
+      address: null,
+      weak: null,
+      reexport: true,
+      source: "lib (from foo)",
     },
   ]);
 });
