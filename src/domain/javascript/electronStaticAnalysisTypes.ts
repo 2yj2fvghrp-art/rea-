@@ -306,7 +306,10 @@ export interface ElectronWebviewAttachFinding {
   /** Static preload path written to the webview's preferences, if exact. */
   readonly preload_path: string | null;
   readonly preload_resolution_context: JavaScriptStaticPathContext | null;
-  /** Writes with computed keys, or handler bodies that were not examined. */
+  /**
+   * Writes with computed keys, writes in nested functions or through a
+   * reassigned parameter, or handler bodies that were not examined.
+   */
   readonly unknown_writes: number;
   readonly module_key: string | null;
   /** Recovered factory runtime; absent in older or unbundled findings. */

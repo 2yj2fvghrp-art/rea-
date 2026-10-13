@@ -536,9 +536,9 @@ export function* classifyParsedJavaScriptElectronBindingsSteps(
 ): Generator<void, JavaScriptElectronSemanticFacts> {
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
-  const { callees, apiObjects, loaders, bindingId } =
+  const { callees, apiObjects, loaders, bindingId, reassigned } =
     yield* indexJavaScriptElectronIdentitySteps(file.program, state);
-  return { callees, apiObjects, loaders, bindingId };
+  return { callees, apiObjects, loaders, bindingId, reassigned };
 }
 
 /**
@@ -682,6 +682,10 @@ export function* indexJavaScriptElectronIdentitySteps(
   return {
     bindingId: (node) =>
       resolveSemanticBindingState(state, node, node.name)?.bindingId,
+    reassigned: (node) =>
+      resolveSemanticBindingState(state, node, node.name)?.definitions.some(
+        ({ kind }) => kind === "assignment",
+      ) ?? false,
     callees: facts,
     apiObjects: resolveElectronApiObjects(
       state,

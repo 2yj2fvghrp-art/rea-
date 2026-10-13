@@ -17,7 +17,10 @@ import {
   staticPathResolutionContext,
 } from "./javascriptStaticAnalysisHelpers.js";
 import { childNodes } from "./javascriptSemanticTraversal.js";
-import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
+import type {
+  JavaScriptElectronSemanticFacts,
+  JavaScriptFindingContext,
+} from "./javascriptStaticAnalysisState.js";
 
 const LISTENERS = new Set(["on", "once", "addListener", "prependListener"]);
 
@@ -69,6 +72,8 @@ export const inspectElectronWebviewNode = (
 
 // Writes through the listener's second (webPreferences) and third (params)
 // parameters, resolved by their parsed lexical owners across nested scopes.
+// Writes inside nested functions may never run, and a reassigned parameter may
+// no longer hold the webview's object, so both count only as unknown writes.
 const collectWrites = (
   handler: t.Function,
   context: JavaScriptFindingContext,
@@ -78,55 +83,53 @@ const collectWrites = (
   /** The last preload value written in source order. */
   readonly preload: t.Expression | undefined;
 } => {
-  const names = new Map<string, ElectronWebviewAttachWrite["target"]>();
-  const [, preferences, params] = handler.params;
-  const bindingId = context.electron?.bindingId;
-  if (bindingId === undefined)
+  const electron = context.electron;
+  if (electron === undefined)
     return { writes: [], unknown: 1, preload: undefined };
-  if (t.isIdentifier(preferences)) {
-    const id = bindingId(preferences);
-    if (id !== undefined) names.set(id, "web-preferences");
-  }
-  if (t.isIdentifier(params)) {
-    const id = bindingId(params);
-    if (id !== undefined) names.set(id, "params");
-  }
+  const names = parameterOwners(handler, electron);
   const writes: ElectronWebviewAttachWrite[] = [];
   let unknown = 0;
   let preload:
     | { readonly start: number; readonly value: t.Expression | undefined }
     | undefined;
-  const pending: t.Node[] = [handler.body];
+  const pending: { readonly node: t.Node; readonly nested: boolean }[] = [
+    { node: handler.body, nested: false },
+  ];
   while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) break;
+    const entry = pending.pop();
+    if (entry === undefined) break;
+    const { node } = entry;
+    const nested = entry.nested || t.isFunction(node);
     const write = writeTarget(node);
-    if (write !== undefined && t.isIdentifier(write.member.object)) {
-      const id = bindingId(write.member.object);
-      const target = id === undefined ? undefined : names.get(id);
-      if (target !== undefined) {
-        const name = semanticStaticPropertyKey(
-          write.member.property,
-          write.member.computed,
-        );
+    const id =
+      write !== undefined && t.isIdentifier(write.member.object)
+        ? electron.bindingId(write.member.object)
+        : undefined;
+    const owner = id === undefined ? undefined : names.get(id);
+    if (write !== undefined && owner !== undefined) {
+      const name = semanticStaticPropertyKey(
+        write.member.property,
+        write.member.computed,
+      );
+      if (name === null || nested || owner.reassigned) unknown += 1;
+      else {
         if (
-          target === "web-preferences" &&
+          owner.target === "web-preferences" &&
           name === "preload" &&
           (node.start ?? -1) >= (preload?.start ?? -1)
         )
           preload = { start: node.start ?? -1, value: write.value };
-        if (name === null) unknown += 1;
-        else
-          writes.push({
-            target,
-            name,
-            operation: write.operation,
-            value: writtenValue(name, write.value, context),
-            location: range(node),
-          });
+        writes.push({
+          target: owner.target,
+          name,
+          operation: write.operation,
+          value: writtenValue(name, write.value, context),
+          location: range(node),
+        });
       }
     }
-    pending.push(...childNodes(node).toReversed());
+    for (const child of childNodes(node).toReversed())
+      pending.push({ node: child, nested });
   }
   writes.sort(
     (left, right) =>
@@ -134,6 +137,30 @@ const collectWrites = (
       left.location.start.column - right.location.start.column,
   );
   return { writes, unknown, preload: preload?.value };
+};
+
+interface ParameterOwner {
+  readonly target: ElectronWebviewAttachWrite["target"];
+  readonly reassigned: boolean;
+}
+
+/** The listener's webPreferences and params parameters by lexical owner. */
+const parameterOwners = (
+  handler: t.Function,
+  electron: JavaScriptElectronSemanticFacts,
+): ReadonlyMap<string, ParameterOwner> => {
+  const [, preferences, params] = handler.params;
+  const owners = new Map<string, ParameterOwner>();
+  for (const [parameter, target] of [
+    [preferences, "web-preferences"],
+    [params, "params"],
+  ] as const) {
+    if (!t.isIdentifier(parameter)) continue;
+    const id = electron.bindingId(parameter);
+    if (id !== undefined)
+      owners.set(id, { target, reassigned: electron.reassigned(parameter) });
+  }
+  return owners;
 };
 
 const writtenValue = (

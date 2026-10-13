@@ -90,6 +90,8 @@ export interface JavaScriptNativeLoaderCall {
 export interface JavaScriptElectronSemanticFacts {
   /** Parsed lexical owner of an identifier, shared by finding consumers. */
   readonly bindingId: (node: t.Identifier) => string | undefined;
+  /** Whether that owner is assigned again after its declaration. */
+  readonly reassigned: (node: t.Identifier) => boolean;
   readonly callees: ReadonlyMap<number, ElectronCalleeBinding>;
   /** Bound API objects by identifier offset. */
   readonly apiObjects: ReadonlyMap<number, ElectronApiObject>;
