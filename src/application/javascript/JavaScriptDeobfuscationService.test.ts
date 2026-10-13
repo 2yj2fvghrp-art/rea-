@@ -49,6 +49,35 @@ const result = (): JavaScriptDeobfuscationResult => ({
 });
 
 describe("JavaScript deobfuscation workflow", () => {
+  it.each(["changed", "unchanged"] as const)(
+    "rejects %s status that contradicts source/output digests",
+    async (status) => {
+      const returned = result();
+      returned.status = status;
+      if (status === "unchanged") {
+        returned.output = { ...returned.output, sha256: "b".repeat(64) };
+        returned.proof.analysis_source_sha256 = returned.output.sha256;
+      }
+      const service = new JavaScriptDeobfuscationService({
+        deobfuscate: async () =>
+          ok(
+            createAnalysisExecution(returned, provider, {
+              subject: {
+                path: file.path,
+                sha256: file.sha256,
+                format: "javascript",
+              },
+            }),
+          ),
+      });
+      const response = await service.deobfuscate({
+        path: file.path,
+        output_directory: "/tmp/out",
+      });
+      if (response.ok) throw new Error("expected status binding rejection");
+      expect(response.error._tag).toBe("AnalysisOutputError");
+    },
+  );
   it.each([
     [64, 64],
     [1, 2],

@@ -432,3 +432,55 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     await assertDeobfuscationCleanup(fixture.launches);
   },
 );
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "retains observed version and stderr when a successful probe reports an unsupported version",
+  async () => {
+    const fixture = await deobfuscationFixture("wrong-version");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (response.ok) throw new Error("expected unsupported version");
+    expect(response.error).toMatchObject({
+      _tag: "AnalysisCapabilityUnavailableError",
+      diagnostics: {
+        observed_version: "9.9.9",
+        configured_executable: fixture.command,
+      },
+      capturedOutput: {
+        stdout: "jsvm-lift 9.9.9\n",
+        stderr: "unsupported engine diagnostic\n",
+        truncated: false,
+      },
+    });
+    await expect(access(fixture.output)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64").each([
+  ["diagnostic-overflow", "capacity"],
+  ["cpu-signal", "cpu"],
+  ["file-signal", "file-size"],
+])("classifies %s as a %s resource observation", async (mode, resource) => {
+  const fixture = await deobfuscationFixture(mode);
+  onTestFinished(async () => fixture.provider.close?.());
+  const response = await fixture.service.deobfuscate({
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (response.ok) throw new Error("expected resource refusal");
+  expect(response.error).toMatchObject({
+    _tag: "AnalysisResourceConstraintError",
+    resource,
+  });
+  expect(response.error.diagnostics).toHaveProperty("exit_signal");
+  await expect(access(fixture.output)).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  await assertDeobfuscationCleanup(fixture.launches);
+});

@@ -82,15 +82,35 @@ export const executeJsRedox = async (input: {
 
   const versionRun = await runWithinDeadline(versionEnginePath, ["--version"]);
   const version = parseJsRedoxVersion(versionRun.stdout.text);
-  if (version !== JS_REDOX_RELEASE.version)
+  if (version !== JS_REDOX_RELEASE.version) {
+    const maximumDiagnosticCharacters = 4_096;
+    const stdout = versionRun.stdout.text.slice(0, maximumDiagnosticCharacters);
+    const stderr = versionRun.stderr.text.slice(0, maximumDiagnosticCharacters);
     throw new AnalysisCapabilityUnavailableError(
       JS_REDOX_PROVIDER_IDENTITY.id,
       OPERATION,
-      `Unsupported js-redox version ${version ?? (versionRun.stdout.text.trim() || "missing")}; verified version is ${JS_REDOX_RELEASE.version}.`,
+      `Unsupported js-redox version ${version ?? "unrecognized"}; verified version is ${JS_REDOX_RELEASE.version}.`,
       {
-        userMessage: `Provide js-redox deobfuscate-safe ${JS_REDOX_RELEASE.version}.`,
+        userMessage: `Provide js-redox deobfuscate-safe ${JS_REDOX_RELEASE.version}; the configured executable reported ${version ?? "an unrecognized version"}.`,
+        diagnostics: {
+          configured_executable: input.engine.configuredCommand,
+          observed_version: version,
+        },
+        capturedOutput: {
+          stdout,
+          stderr,
+          stdout_bytes: versionRun.stdout.observedBytes,
+          stderr_bytes: versionRun.stderr.observedBytes,
+          exit_code: versionRun.exitCode ?? null,
+          signal: versionRun.signal ?? null,
+          truncated:
+            versionRun.diagnosticTruncated === true ||
+            stdout.length < versionRun.stdout.text.length ||
+            stderr.length < versionRun.stderr.text.length,
+        },
       },
     );
+  }
 
   // runOwnedCommand has settled the complete version process family. A fresh
   // exclusive copy cannot follow a pathname the version probe replaced.

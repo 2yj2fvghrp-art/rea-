@@ -74,13 +74,15 @@ export class JavaScriptDeobfuscationService {
       result.data.options.max_iterations !== parsed.data.max_iterations ||
       result.data.proof.iterations > parsed.data.max_iterations ||
       result.data.proof.analysis_source_sha256 !== result.data.output.sha256 ||
+      (result.data.status === "unchanged") !==
+        (result.data.source.sha256 === result.data.output.sha256) ||
       execution.value.provider.id !== result.data.engine.id ||
       execution.value.provider.version !== result.data.engine.version
     )
       return err(
         new AnalysisOutputError(
           OPERATION,
-          "Deobfuscation source, engine identity, or iteration bound disagrees with its Evidence binding",
+          "Deobfuscation source, output status, proof digest, engine identity, or iteration bound disagrees with its Evidence binding",
         ),
       );
     return ok(

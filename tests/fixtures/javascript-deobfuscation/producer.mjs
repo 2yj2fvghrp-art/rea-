@@ -11,8 +11,13 @@ if (mode === "nonzero") {
   console.error("fixture stderr diagnostic");
   process.exit(23);
 }
+if (mode === "cpu-signal") process.kill(process.pid, "SIGXCPU");
+if (mode === "file-signal") process.kill(process.pid, "SIGXFSZ");
+if (mode === "diagnostic-overflow")
+  process.stdout.write("x".repeat(9 * 1024 * 1024));
 if (args.includes("--version")) {
   console.log(mode === "wrong-version" ? "jsvm-lift 9.9.9" : "jsvm-lift 0.1.0");
+  if (mode === "wrong-version") console.error("unsupported engine diagnostic");
   if (mode === "replace-version-snapshot")
     await writeFile(
       process.env.REA_DEOBFUSCATION_PRIVATE_ENGINE,

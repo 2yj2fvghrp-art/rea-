@@ -17,6 +17,7 @@ import {
   AnalysisCapabilityUnavailableError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 import type { JavaScriptDeobfuscationInput } from "../../domain/javascript/javascriptDeobfuscation.js";
@@ -334,8 +335,28 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
         return new AnalysisTimeoutError(OPERATION, JS_REDOX_LIMITS.timeoutMs, {
           cause,
         });
-      if (cause.reason === "output-limit")
-        return new AnalysisOutputError(OPERATION, cause.message, { cause });
+      const resource =
+        cause.reason === "output-limit"
+          ? "capacity"
+          : cause.snapshot?.signal === "SIGXCPU"
+            ? "cpu"
+            : cause.snapshot?.signal === "SIGXFSZ"
+              ? "file-size"
+              : undefined;
+      if (resource !== undefined)
+        return new AnalysisResourceConstraintError(
+          OPERATION,
+          resource,
+          resource === "capacity"
+            ? "Owned worker exceeded the bounded diagnostic output capacity."
+            : `Owned worker exited with ${cause.snapshot?.signal}; consistent with the configured ${resource} limit, but the signal alone does not prove limit enforcement.`,
+          {
+            diagnostic_bytes_ceiling: JS_REDOX_LIMITS.diagnosticBytes,
+            cpu_seconds_ceiling: JS_REDOX_LIMITS.cpuSeconds,
+            file_bytes_ceiling: JS_REDOX_LIMITS.outputBytes,
+          },
+          { cause, diagnostics: ownedCommandDiagnostics(cause) },
+        );
     }
     return new ProviderAdapterError(JS_REDOX_PROVIDER_IDENTITY.id, OPERATION, {
       cause,
