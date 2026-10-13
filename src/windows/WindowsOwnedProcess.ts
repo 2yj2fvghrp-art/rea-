@@ -70,7 +70,6 @@ export class WindowsOwnedProcess extends EventEmitter {
   #blockedWake: NodeJS.Timeout | undefined;
   readonly #blockedOutput = new Set<PassThrough>();
   #unreferenced = false;
-  #discardOutput = false;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
   #memoryLimitReached = false;
@@ -245,7 +244,6 @@ export class WindowsOwnedProcess extends EventEmitter {
     let timer: NodeJS.Timeout | undefined;
     try {
       const signaled = this.kill();
-      this.#discardOutput = true;
       this.#discardBlockedOutput();
       this.#schedule();
       const settled = await Promise.race([
@@ -360,13 +358,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #writeOutput(stream: PassThrough, bytes: Buffer): void {
-    if (
-      this.#discardOutput ||
-      bytes.length === 0 ||
-      stream.destroyed ||
-      stream.writableEnded
-    )
-      return;
+    if (bytes.length === 0 || stream.destroyed || stream.writableEnded) return;
     if (stream.write(bytes)) return;
     this.#blockedOutput.add(stream);
     const unblock = () => {
