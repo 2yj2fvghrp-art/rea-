@@ -884,3 +884,61 @@ it.each([
     });
   },
 );
+
+const xmlKeyedArchive = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+  '<plist version="1.0"><dict><key>$archiver</key><string>NSKeyedArchiver</string>',
+  "<key>$objects</key><array><string>$null</string></array>",
+  "<key>$top</key><dict/><key>$version</key><integer>100000</integer></dict></plist>",
+].join("\n");
+
+it.each([
+  ["an XML declaration and doctype", Buffer.from(xmlKeyedArchive, "utf8")],
+  [
+    "a UTF-8 BOM and leading whitespace",
+    Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from(`\n  ${xmlKeyedArchive}`, "utf8"),
+    ]),
+  ],
+  [
+    "a UTF-16LE BOM",
+    Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from(
+        xmlKeyedArchive.replace('encoding="UTF-8"', 'encoding="UTF-16"'),
+        "utf16le",
+      ),
+    ]),
+  ],
+  [
+    "a bare plist root element",
+    Buffer.from('<plist version="1.0"><dict/></plist>', "utf8"),
+  ],
+])(
+  "opens an XML property list named without .plist by content (%s)",
+  async (_name, bytes) => {
+    const directory = await createTestTempDirectory("rea-xml-plist-target-");
+    const path = join(directory, "state.archive");
+    await writeFile(path, bytes);
+    expect(await parseBinaryTarget(path)).toMatchObject({
+      ok: true,
+      value: { kind: "artifact", format: "plist" },
+    });
+  },
+);
+
+it.each([
+  ["other XML", "state.xml", '<?xml version="1.0"?><svg/>'],
+  ["a JavaScript name", "bundle.js", '<plist version="1.0"><dict/></plist>'],
+])(
+  "does not classify %s as a property list by content",
+  async (_name, file, text) => {
+    const directory = await createTestTempDirectory("rea-non-plist-target-");
+    const path = join(directory, file);
+    await writeFile(path, text);
+    const resolved = await parseBinaryTarget(path);
+    expect(resolved.ok && resolved.value.format).not.toBe("plist");
+  },
+);

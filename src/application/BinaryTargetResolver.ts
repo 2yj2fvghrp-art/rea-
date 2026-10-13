@@ -32,7 +32,11 @@ import {
 } from "../domain/rawBinary.js";
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
 import { observeMzWindowsHeader } from "../domain/dosMz.js";
-import { hasBinaryPlistSignature } from "../domain/apple/appleArchiveFormat.js";
+import {
+  hasBinaryPlistSignature,
+  hasXmlPlistSignature,
+  XML_PLIST_SIGNATURE_PREFIX_BYTES,
+} from "../domain/apple/appleArchiveFormat.js";
 import {
   hasZipSignature,
   isZipPackageFormat,
@@ -298,6 +302,13 @@ const detectArtifactFormat = async (
   // Binary plists, including keyed archives, often use other extensions.
   if (hasBinaryPlistSignature(magic.subarray(0, observed.bytesRead)))
     return "plist";
+  // XML keyed archives are recognized by content for the same reason.
+  if (
+    observed.bytesRead > 0 &&
+    !namedArtifactFormatIsNonPlist(lower) &&
+    (await hasXmlPlistPrefix(handle, signal))
+  )
+    return "plist";
   const named = namedArtifactFormat(lower);
   if (named !== undefined) return named;
   if (
@@ -319,6 +330,22 @@ const detectArtifactFormat = async (
     }
   }
   return undefined;
+};
+
+/** Names that select another text format keep that classification. */
+const namedArtifactFormatIsNonPlist = (lowerPath: string): boolean => {
+  const named = namedArtifactFormat(lowerPath);
+  return named !== undefined && named !== "plist";
+};
+
+const hasXmlPlistPrefix = async (
+  handle: FileHandle,
+  signal: AbortSignal | undefined,
+): Promise<boolean> => {
+  const prefix = Buffer.alloc(XML_PLIST_SIGNATURE_PREFIX_BYTES);
+  const read = await handle.read(prefix, 0, prefix.length, 0);
+  throwIfTargetResolutionCancelled(signal);
+  return hasXmlPlistSignature(prefix.subarray(0, read.bytesRead));
 };
 
 const namedArtifactFormat = (
