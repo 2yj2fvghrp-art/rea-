@@ -4,6 +4,7 @@ import type {
   AnalysisClientContext,
   AnalysisProfileResolutionOptions,
   AnalysisProviderCandidate,
+  AnalysisProviderReadinessSnapshot,
   CapabilityDescriptor,
   ProviderAvailability,
   ProviderIdentity,
@@ -56,6 +57,7 @@ import {
 } from "./GhidraProviderClient.js";
 import {
   inspectWindowsNativeReadiness,
+  type WindowsNativeReadiness,
   windowsNativeCapabilities,
 } from "../process/WindowsAuthority.js";
 
@@ -98,13 +100,30 @@ export class GhidraProvider implements AnalysisProviderCandidate {
   }
 
   inspectAvailability(): ProviderAvailability {
+    return this.inspectReadinessSnapshot().availability;
+  }
+
+  inspectReadinessSnapshot(): AnalysisProviderReadinessSnapshot {
     const installation = this.#inspectInstallation();
-    const diagnostics = ghidraInstallationDiagnostics(installation);
     const readiness =
-      installation.status === "available" && installation.platform === "win32"
+      installation.platform === "win32"
         ? inspectWindowsNativeReadiness(installation.platform)
         : undefined;
-    if (readiness?.available === false)
+    return {
+      availability: this.#availability(installation, readiness),
+      capabilities:
+        readiness === undefined
+          ? CAPABILITIES
+          : windowsP0Capabilities(readiness),
+    };
+  }
+
+  #availability(
+    installation: GhidraInstallationInspection,
+    readiness: WindowsNativeReadiness | undefined,
+  ): ProviderAvailability {
+    const diagnostics = ghidraInstallationDiagnostics(installation);
+    if (installation.status === "available" && readiness?.available === false)
       return {
         status: "unavailable",
         code: readiness.code,
