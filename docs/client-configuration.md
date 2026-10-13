@@ -86,8 +86,11 @@ beside it, which would read the `%APPDATA%` file, is not detected.
 The package identity, both file locations, the redirected view, and these
 setup and doctor results were observed on Windows 11 with the MSIX build
 2.31226.1.0, using read-only `doctor` and `setup --dry-run` runs both inside
-and outside the app. A setup write, its loading by the running app, and
-uninstall against the real app are unverified.
+and outside the app. On that host, setup run from an ordinary terminal with
+the app quit wrote the package-private copy; after the app restarted, the
+entry was still present, doctor reported it aligned, and Claude Desktop's MCP
+log showed REA starting and answering `tools/list`. Uninstall against the real
+app is unverified.
 
 ## Claude Code
 
