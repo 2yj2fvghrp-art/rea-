@@ -167,7 +167,6 @@ const verifyInactiveJournal = async (
   }
 };
 
-/** Freeze a stable offline file set without ever opening the source through SQLite. */
 // Absence is a caller value to correct, not malformed path or content.
 const missingDatabase = (path: string): AnalysisInputError =>
   new AnalysisInputError("inspect_sqlite_database", undefined, [
@@ -178,6 +177,7 @@ const missingDatabase = (path: string): AnalysisInputError =>
     },
   ]);
 
+/** Freeze a stable offline file set without ever opening the source through SQLite. */
 export const captureSqliteDatabaseSnapshot = async (
   path: string,
   root: string,
