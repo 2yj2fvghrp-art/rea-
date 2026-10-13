@@ -4,7 +4,7 @@ import { signalRecordingSchema } from "./signalRecording.js";
 export const inspectSignalDecodersInputSchema = z.strictObject({
   decoder: z
     .string()
-    .regex(/^[a-zA-Z0-9_+-]+$/u)
+    .regex(/^[a-zA-Z0-9_+\x2d]+$/u)
     .max(256)
     .nullable()
     .default(null)
@@ -23,7 +23,10 @@ export const inspectSignalDecodersInputSchema = z.strictObject({
     .int()
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER)
-    .default(0),
+    .default(0)
+    .describe(
+      "Number of matching decoders or help lines to skip; defaults to 0",
+    ),
   limit: z
     .number()
     .int()

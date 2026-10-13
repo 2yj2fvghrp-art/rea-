@@ -62,7 +62,10 @@ export const registerSignalCommands = (
           .int()
           .positive()
           .max(Number.MAX_SAFE_INTEGER)
-          .optional(),
+          .optional()
+          .describe(
+            "Maximum matching decoders or help lines to return; defaults to 50",
+          ),
         all: z
           .boolean()
           .default(false)
