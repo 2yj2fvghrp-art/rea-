@@ -235,6 +235,10 @@ export const readMetadataUserString = (
       "User string leaves #US",
       start,
     );
+  // ECMA-335 II.24.2.4: offset 0 is the heap's empty entry, a zero length
+  // with no terminal flag byte; every other item carries the flag.
+  if (index === 0 && decoded.length === 0)
+    return { offset: start, value: "", issue: null };
   if (decoded.length % 2 !== 1)
     throw managedFailure(
       "invalid-string",

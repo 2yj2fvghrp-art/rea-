@@ -638,10 +638,13 @@ describe("managed user strings", () => {
       "\ud800",
     ]);
     const [path, , unicode, lone] = tokens as [string, string, string, string];
-    const ilBody = ldstrBody([unicode, path, lone, path]);
+    // 0x70000000 names the heap's empty entry at offset 0.
+    const empty = "0x70000000";
+    const ilBody = ldstrBody([unicode, path, lone, path, empty]);
     const result = inspect({ ilBody, userStringHeap: heap });
 
     expect(result.user_strings).toEqual([
+      { token: empty, offset: expect.any(Number), value: "" },
       { token: path, offset: expect.any(Number), value: "quicksave.peak" },
       { token: unicode, offset: expect.any(Number), value: "Ünïcødé 𝄞" },
       { token: lone, offset: expect.any(Number), value: "\ud800" },
@@ -653,6 +656,7 @@ describe("managed user strings", () => {
       path,
       lone,
       path,
+      empty,
     ]);
     expect(body?.normalized_il_sha256).toBe(
       inspect({ ilBody }).methods[0]?.body.normalized_il_sha256,
