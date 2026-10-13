@@ -12,6 +12,8 @@ import ghidra.program.model.listing.FlowOverride;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.RefType;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -20,9 +22,12 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 
 /** Injects reported analysis flags into imported ELF/Mach-O functions; never executes target code. */
 public class ReaNoReturnProbe extends GhidraScript {
+    private record MemoryCallReference(Address source, Address target, RefType type,
+        SourceType sourceType, int operandIndex, boolean primary) {}
     private final JsonArray checks = new JsonArray();
     private final Map<Function, Address> originalEnds = new LinkedHashMap<>();
     private final Map<Function, String> originalSignatures = new LinkedHashMap<>();
@@ -83,6 +88,59 @@ public class ReaNoReturnProbe extends GhidraScript {
         GhidraScript instance = GhidraScriptUtil.getProvider(source).getScriptInstance(source, errorWriter);
         instance.set(getState(), getControls());
         return instance;
+    }
+
+    private void knownInteriorCall(GhidraScript bridge) throws Exception {
+        Function caller = function("rea_tls_chain");
+        Function target = function("rea_tls");
+        Address interior = target.getEntryPoint().add(1);
+        require("interior_target_is_owned", currentProgram.getFunctionManager().getFunctionAt(interior) == null &&
+            target.equals(currentProgram.getFunctionManager().getFunctionContaining(interior)));
+        Instruction call = null;
+        for (Instruction instruction : currentProgram.getListing().getInstructions(caller.getBody(), true)) {
+            if (instruction.getFlowType().isCall()) { call = instruction; break; }
+        }
+        if (call == null) throw new IllegalStateException("Missing real call instruction");
+        var references = currentProgram.getReferenceManager();
+        List<Reference> originals = new ArrayList<>();
+        List<MemoryCallReference> saved = new ArrayList<>();
+        for (Reference reference : call.getReferencesFrom()) {
+            if (!reference.getReferenceType().isCall()) continue;
+            originals.add(reference);
+            saved.add(new MemoryCallReference(reference.getFromAddress(), reference.getToAddress(),
+                reference.getReferenceType(), reference.getSource(), reference.getOperandIndex(), reference.isPrimary()));
+        }
+        require("original_call_reference_present", !originals.isEmpty());
+        Reference changed = null;
+        try {
+            for (Reference reference : originals) references.delete(reference);
+            changed = references.addMemoryReference(call.getAddress(), interior,
+                RefType.UNCONDITIONAL_CALL, SourceType.USER_DEFINED, 0);
+            require("interior_target_omitted_by_callee_getter", !caller.getCalledFunctions(monitor).contains(target));
+            JsonObject query = new JsonObject();
+            query.addProperty("document", currentProgram.getName());
+            query.addProperty("procedure", caller.getName());
+            query.addProperty("direction", "outgoing");
+            Method read = bridge.getClass().getDeclaredMethod("procedureReferences", JsonObject.class);
+            read.setAccessible(true);
+            JsonObject output = (JsonObject) read.invoke(bridge, query);
+            require("interior_reference_keeps_known_procedure", output.getAsJsonArray("references").asList().stream().anyMatch(
+                edge -> !edge.getAsJsonObject().get("target_procedure").isJsonNull() &&
+                    edge.getAsJsonObject().getAsJsonObject("target_procedure").get("name").getAsString().equals(target.getName())));
+            require("known_reference_is_not_also_unresolved", output.getAsJsonArray("unresolved_calls").isEmpty());
+            query.remove("direction");
+            Method callees = bridge.getClass().getDeclaredMethod("procedureCalls", JsonObject.class, boolean.class);
+            callees.setAccessible(true);
+            JsonObject inventory = (JsonObject) callees.invoke(bridge, query, false);
+            require("omitted_callee_inventory_stays_partial", inventory.getAsJsonObject("relationship_coverage").get("status").getAsString().equals("partial"));
+        } finally {
+            if (changed != null) references.delete(changed);
+            for (MemoryCallReference reference : saved) {
+                Reference restored = references.addMemoryReference(reference.source(), reference.target(),
+                    reference.type(), reference.sourceType(), reference.operandIndex());
+                references.setPrimary(restored, reference.primary());
+            }
+        }
     }
 
     @Override
@@ -171,6 +229,7 @@ public class ReaNoReturnProbe extends GhidraScript {
         for (var item : imports.entrySet()) bodies.put(function(item.getKey()), new AddressSet(function(item.getKey()).getBody()));
         repair.invoke(fix);
         require("idempotent_body_repair", bodies.entrySet().stream().allMatch(item -> item.getValue().equals(item.getKey().getBody())));
+        knownInteriorCall(bridge);
         JsonObject report = new JsonObject();
         report.addProperty("status", "passed");
         report.addProperty("ghidra_version", Application.getApplicationVersion());

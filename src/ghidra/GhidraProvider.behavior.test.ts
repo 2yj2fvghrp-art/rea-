@@ -627,7 +627,7 @@ describe("Ghidra client projection", () => {
     expect(resolved.value.profile.parameters).toMatchObject({
       language_id: "auto-from-header",
       compiler_spec_id: "auto-default",
-      call_relationship_coverage: "decoded-call-target-coverage-v2",
+      call_relationship_coverage: "decoded-call-target-coverage-v3",
     });
 
     const result = await ghidra

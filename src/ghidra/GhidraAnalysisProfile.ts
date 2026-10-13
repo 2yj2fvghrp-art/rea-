@@ -36,7 +36,7 @@ import {
   NATIVE_AOT_PROFILE_CONTRACT_REVISION,
 } from "../domain/native/nativeAotPe.js";
 
-const callRelationshipCoverage = "decoded-call-target-coverage-v2";
+const callRelationshipCoverage = "decoded-call-target-coverage-v3";
 
 /**
  * The processor language REA pins for this target, or undefined when Ghidra may

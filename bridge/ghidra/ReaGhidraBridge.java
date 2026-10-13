@@ -1028,7 +1028,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             return observation;
         }
         CallBoundaryObservation calls = callBoundaryObservation(
-            currentProgram.getListing().getInstructions(function.getBody(), true), false
+            currentProgram.getListing().getInstructions(function.getBody(), true), observed, false
         );
         return callRelationshipObservation(result, calls);
     }
@@ -1082,7 +1082,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.addProperty("reference_kinds_available", true);
         JsonArray unresolvedCalls = direction.equals("outgoing")
             ? callBoundaryObservation(
-                currentProgram.getListing().getInstructions(function.getBody(), true), true
+                currentProgram.getListing().getInstructions(function.getBody(), true), null, true
             ).unresolvedCalls() : new JsonArray();
         result.add("unresolved_calls", unresolvedCalls);
         return result;
@@ -1510,7 +1510,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         JsonArray outgoing = referenceEdges(outgoingReferences);
         JsonArray comments = comments(function);
         JsonArray callers = procedureIdentities(function.getCallingFunctions(monitor));
-        JsonArray callees = procedureIdentities(function.getCalledFunctions(monitor));
+        Set<Function> calleeFunctions = function.getCalledFunctions(monitor);
+        JsonArray callees = procedureIdentities(calleeFunctions);
         JsonArray referencedStrings = referencedStrings(outgoingReferences);
         JsonArray referencedNames = referencedNames(outgoingReferences);
         JsonArray blocks = basicBlockValues(function);
@@ -1580,7 +1581,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Swift String literal decoding is implemented for AArch64 register pairs only; no Swift literals were decoded for this architecture."
             );
         }
-        CallBoundaryObservation calls = callBoundaryObservation(scan.instructions, true);
+        CallBoundaryObservation calls = callBoundaryObservation(scan.instructions, calleeFunctions, true);
         result.add("unresolved_calls", calls.unresolvedCalls());
         for (String limitation : calls.limitations()) {
             limitations.add(limitation);
@@ -3307,12 +3308,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
         monitor.checkCancelled();
         JsonObject result = functionObservation(value, calls.limitations());
         JsonObject coverage = completeResolvedCallCoverage();
-        int unresolved = calls.unresolvedCallCount();
-        coverage.addProperty("status", unresolved == 0 ? "complete" : "partial");
-        if (unresolved > 0) {
+        Integer omitted = calls.unrepresentedCalleeSites();
+        if (omitted == null) {
+            coverage.addProperty("status", "unknown");
+            coverage.addProperty("reason", "The callee inventory was not examined alongside decoded call targets.");
+        } else if (omitted > 0) {
+            coverage.addProperty("status", "partial");
             JsonArray limitations = new JsonArray();
-            limitations.add("Ghidra decoded " + unresolved +
-                " call site(s) without fully resolved procedure targets; the callee inventory is incomplete.");
+            limitations.add("Ghidra's callee inventory does not represent all targets of " + omitted +
+                " decoded call site(s).");
             coverage.add("limitations", limitations);
         }
         result.add("relationship_coverage", coverage);
@@ -3342,37 +3346,45 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     private CallBoundaryObservation callBoundaryObservation(
-            Iterable<Instruction> instructions, boolean includeUnresolvedSites)
+            Iterable<Instruction> instructions, Set<Function> returnedCallees,
+            boolean includeUnresolvedSites)
             throws Exception {
         List<String> limitations = new ArrayList<>();
         JsonArray unresolved = includeUnresolvedSites ? new JsonArray() : null;
-        int unresolvedCount = 0;
+        int unrepresentedCount = 0;
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
             String limitation = terminalCallLimitation(instruction);
             if (limitation != null) limitations.add(limitation);
             if (!instruction.getFlowType().isCall()) continue;
             boolean destination = false;
-            boolean missingProcedure = false;
+            boolean missingCallee = false;
+            boolean unresolvedTarget = false;
             for (Reference reference : instruction.getReferencesFrom()) {
                 if (!reference.getReferenceType().isCall()) continue;
                 destination = true;
-                if (currentProgram.getFunctionManager().getFunctionAt(reference.getToAddress()) == null)
-                    missingProcedure = true;
+                // Match referenceEdge's owner lookup, including known interiors.
+                // A resolved reference target may still be absent from the getter's
+                // exact-entry callee set; coverage and target identity are distinct.
+                Function target = containingFunction(reference.getToAddress());
+                if (target == null) unresolvedTarget = true;
+                if (returnedCallees != null && (target == null || !returnedCallees.contains(target)))
+                    missingCallee = true;
             }
-            if (!destination || missingProcedure) {
-                unresolvedCount++;
+            if (!destination || missingCallee) unrepresentedCount++;
+            if (!destination || unresolvedTarget) {
                 if (unresolved != null) {
                     JsonObject site = new JsonObject();
                     site.addProperty("address", canonicalAddress(instruction.getAddress()));
                     site.addProperty("reason", !destination
                         ? "Instruction decoder identifies a call but ReferenceManager supplies no call destination"
-                        : "A call destination has no Ghidra FunctionManager procedure identity");
+                        : "A call destination has no known containing Ghidra procedure");
                     unresolved.add(site);
                 }
             }
         }
-        return new CallBoundaryObservation(List.copyOf(limitations), unresolvedCount, unresolved);
+        return new CallBoundaryObservation(List.copyOf(limitations),
+            returnedCallees == null ? null : unrepresentedCount, unresolved);
     }
 
     private String terminalCallLimitation(Instruction instruction) {
@@ -4596,7 +4608,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private record AddressNameRequest(String inputAddress, Address address, String name) {}
     private record FunctionEntry(Function function, InventoryItem item) {}
     private record FunctionAnalysisObservation(JsonObject dossier, CallBoundaryObservation calls) {}
-    private record CallBoundaryObservation(List<String> limitations, int unresolvedCallCount, JsonArray unresolvedCalls) {}
+    private record CallBoundaryObservation(List<String> limitations, Integer unrepresentedCalleeSites, JsonArray unresolvedCalls) {}
     private record SwiftStringLiteralDecode(JsonArray literals, JsonArray omissions) {}
     private record SwiftLiteralLayout(
         String representation,
