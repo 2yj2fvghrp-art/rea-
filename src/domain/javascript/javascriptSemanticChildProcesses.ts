@@ -326,8 +326,11 @@ const resolveChildCandidates = (
 };
 
 const spawnOptions = (candidate: SpawnCandidate): t.ObjectExpression | null => {
-  const index = candidate.method === "exec" ? 1 : 2;
-  const value = candidate.node.arguments[index];
+  const second = candidate.node.arguments[1];
+  const value =
+    candidate.method === "exec" || t.isObjectExpression(second)
+      ? second
+      : candidate.node.arguments[2];
   return t.isObjectExpression(value) ? value : null;
 };
 
