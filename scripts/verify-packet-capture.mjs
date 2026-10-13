@@ -338,7 +338,7 @@ try {
   await mkdir(nativeProfile);
   const native = (
     await execute(process.env.REA_TSHARK_COMMAND, ["-G", "fields"], {
-      env: environment,
+      env: { ...environment, WIRESHARK_CONFIG_DIR: nativeProfile },
       timeout: 30000,
       maxBuffer: 32 * 1024 * 1024,
     })
