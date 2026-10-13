@@ -43,11 +43,15 @@ export const parseUserStrings = (
     readonly methods: readonly ManagedMethod[];
     /** Methods that may be in scope but whose CIL was not fully scanned. */
     readonly unscannedMethods: number;
+    /** Unreadable selected type names may hide a requested type. */
+    readonly unreadableSelectedTypes?: number;
   },
 ): UserStringInventory => {
   const { methods } = parsed;
   const budget = managedDecodeBudget(layout);
-  const scanned = parsed.unscannedMethods === 0;
+  const scanned =
+    parsed.unscannedMethods === 0 &&
+    (parsed.unreadableSelectedTypes ?? 0) === 0;
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   const tokens = new Set<string>();

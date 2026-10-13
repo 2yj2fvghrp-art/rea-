@@ -1029,6 +1029,19 @@ describe("managed user string scan completeness", () => {
     });
   });
 
+  it("marks user strings partial when selected type identity is unreadable", () => {
+    const layout = {
+      userStrings: { name: "#US", offset: 0, size: 1 },
+    } as unknown as ManagedMetadataLayout;
+    expect(
+      parseUserStrings(Buffer.from([0]), layout, {
+        methods: [],
+        unscannedMethods: 0,
+        unreadableSelectedTypes: 1,
+      }),
+    ).toEqual({ state: "partial", literals: [], issues: [] });
+  });
+
   it("marks user strings partial when an inspected method row was not read", () => {
     const layout = {
       userStrings: { name: "#US", offset: 0, size: 1 },
