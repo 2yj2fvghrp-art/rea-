@@ -502,6 +502,24 @@ it("keeps a mitmproxy headline the record marks as redacted out of the preview",
   });
 });
 
+it("rejects a non-number integer headline without throwing", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a", port: { toString: null } },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      sidecars: [
+        { pointer: "/request/port", producer_type: "integer", literal: "443" },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toEqual({
+    type: "http",
+    request: { method: "GET", path: "/a" },
+    response: { http_version: "HTTP/1.1", reason: "OK" },
+  });
+});
+
 it("selects mitmproxy target fields from the request and the status from the response only", () => {
   const reported = nativePreview(
     "mitmproxy",

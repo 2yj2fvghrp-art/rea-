@@ -120,7 +120,8 @@ const sidecarsMatch = (
   sidecars: readonly NumericSidecar[],
 ): boolean =>
   MITMPROXY_INTEGER_FIELDS.has(field)
-    ? sidecars.length === 1 &&
+    ? typeof value === "number" &&
+      sidecars.length === 1 &&
       sidecars[0]?.producer_type === "integer" &&
       sidecars[0].literal === String(value)
     : sidecars.length === 0;
