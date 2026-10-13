@@ -4,31 +4,46 @@ import { semanticStaticPropertyKey } from "./javascriptAstValues.js";
 /** Literal external-module target for either value or erased import-equals syntax. */
 export const typescriptImportEqualsRequest = (
   node: t.TSImportEqualsDeclaration,
+  parents?: Pick<WeakMap<t.Node, t.Node>, "get">,
 ): {
   readonly specifier: string;
   readonly typeOnly: boolean;
   readonly resolutionMode: "require";
-} | null =>
-  t.isTSExternalModuleReference(node.moduleReference) &&
-  t.isStringLiteral(node.moduleReference.expression)
-    ? {
-        specifier: node.moduleReference.expression.value,
-        typeOnly: node.importKind === "type",
-        resolutionMode: "require",
-      }
-    : null;
+  readonly exportedName: string | null;
+  readonly locationNode: t.Node;
+} | null => {
+  if (
+    !t.isTSExternalModuleReference(node.moduleReference) ||
+    !t.isStringLiteral(node.moduleReference.expression)
+  )
+    return null;
+  const parent = parents?.get(node);
+  const exported =
+    t.isExportNamedDeclaration(parent) && parent.declaration === node
+      ? parent
+      : undefined;
+  return {
+    specifier: node.moduleReference.expression.value,
+    typeOnly: node.importKind === "type",
+    resolutionMode: "require",
+    exportedName: exported === undefined ? null : node.id.name,
+    locationNode: exported ?? node,
+  };
+};
 
 /** Read only explicit type-reference attributes; never evaluate an options expression. */
 export const typescriptImportResolutionMode = (
   node: t.Node,
-): "import" | "require" | undefined => {
+): "import" | "require" | "compiler-dependent" | undefined => {
   if (t.isTSImportType(node)) {
     const attributes = literalProperty(node.options, "with");
     const mode = literalProperty(attributes, "resolution-mode");
-    return t.isStringLiteral(mode) &&
-      (mode.value === "import" || mode.value === "require")
-      ? mode.value
-      : undefined;
+    return mode === undefined
+      ? undefined
+      : t.isStringLiteral(mode) &&
+          (mode.value === "import" || mode.value === "require")
+        ? mode.value
+        : "compiler-dependent";
   }
   if (
     !t.isImportDeclaration(node) &&
@@ -42,7 +57,11 @@ export const typescriptImportResolutionMode = (
     ({ key }) =>
       (t.isStringLiteral(key) ? key.value : key.name) === "resolution-mode",
   )?.value.value;
-  return mode === "import" || mode === "require" ? mode : undefined;
+  return mode === undefined
+    ? undefined
+    : mode === "import" || mode === "require"
+      ? mode
+      : "compiler-dependent";
 };
 
 const literalProperty = (

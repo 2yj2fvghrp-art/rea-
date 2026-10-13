@@ -55,16 +55,16 @@ export const inspectElectronNativeNode = (
   else if (t.isTSImportType(node))
     inspectTypeImport(node, context, resolutionMode);
   else if (t.isTSImportEqualsDeclaration(node)) {
-    const request = typescriptImportEqualsRequest(node);
+    const request = typescriptImportEqualsRequest(node, context.parentsByNode);
     if (
       request !== null &&
       isNativeSpecifier(request.specifier, request.resolutionMode)
     )
       addBinding({
         context,
-        node,
+        node: request.locationNode,
         specifier: request.specifier,
-        kind: "require",
+        kind: request.exportedName === null ? "require" : "re-export",
         moduleKind: request.resolutionMode,
         typeOnly: request.typeOnly,
         members: [],

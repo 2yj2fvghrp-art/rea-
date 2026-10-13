@@ -138,18 +138,22 @@ const collectImportEquals = (
   node: t.TSImportEqualsDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const request = typescriptImportEqualsRequest(node);
+  const request = typescriptImportEqualsRequest(node, state.parentsByNode);
   if (request === null) return;
   addModuleLink(
     state,
     {
-      kind: request.typeOnly ? "type-import" : "require",
+      kind: request.typeOnly
+        ? "type-import"
+        : request.exportedName === null
+          ? "require"
+          : "re-export",
       specifier: request.specifier,
       resolutionMode: request.resolutionMode,
       importedName: null,
       localName: node.id.name,
-      exportedName: null,
-      location: range(node),
+      exportedName: request.exportedName,
+      location: range(request.locationNode),
     },
     node,
   );
@@ -356,6 +360,12 @@ const collectNamedExports = (
   node: t.ExportNamedDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
+  if (
+    t.isTSImportEqualsDeclaration(node.declaration) &&
+    typescriptImportEqualsRequest(node.declaration, state.parentsByNode) !==
+      null
+  )
+    return;
   const resolutionMode = typescriptImportResolutionMode(node);
   const declarationTypeOnly = isTypeOnlyExportDeclaration(node);
   if (node.declaration !== null && node.declaration !== undefined)

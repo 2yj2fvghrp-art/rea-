@@ -88,6 +88,12 @@ export const modeSourceFiles = {
   "cts/native-import-equals.cts": nativeImportEqualsSource,
   "cts/native-import-equals.mts": nativeImportEqualsSource,
   "cts/native-indexed.mts": nativeIndexedSource,
+  "cts/native-invalid-mode.cts":
+    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "typo" };',
+  "cts/native-export-equals.cts":
+    'export import Native = require("native-mode/addon.node");',
+  "cts/native-export-type-equals.cts":
+    'export import type Native = require("native-mode/addon.node"); const value: Native.NativeMode = { source: "require" }; console.log(JSON.stringify(value.source));',
 };
 
 export const modePackageFiles = {
@@ -183,6 +189,7 @@ export const expectReviewModeEvidence = (
       .toEqual([]);
   expectNativeMixedEvidence(graph);
   expectNativeTypeSelections(graph);
+  expectNativeImportEqualsExports(graph);
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
@@ -445,6 +452,58 @@ const expectNativeTypeSelections = (
         location: expect.objectContaining({
           value: expect.objectContaining({
             source: "cts/native-import-equals.cts",
+          }),
+        }),
+      }),
+    }),
+  );
+};
+
+const expectNativeImportEqualsExports = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  const observations = graph.nodes.flatMap((node) => node.observations);
+  for (const [source, typeOnly] of [
+    ["cts/native-export-equals.cts", false],
+    ["cts/native-export-type-equals.cts", true],
+  ] as const) {
+    expect(observations).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          binding_kind: "re-export",
+          module_kind: "require",
+          type_only: typeOnly,
+          namespace_access: true,
+        }),
+        evidence: expect.objectContaining({
+          location: expect.objectContaining({
+            value: expect.objectContaining({ source }),
+          }),
+        }),
+      }),
+    );
+  }
+  expect(observations).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        semantic_role: "source-module",
+        path: "cts/native-export-type-equals.cts",
+        type_export_names: ["Native"],
+        export_names: [],
+      }),
+    }),
+  );
+  expect(observations).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        module_kind: "compiler-dependent",
+        type_only: true,
+        resolved_path: null,
+      }),
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({
+            source: "cts/native-invalid-mode.cts",
           }),
         }),
       }),
