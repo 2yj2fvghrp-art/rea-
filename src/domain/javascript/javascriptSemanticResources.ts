@@ -1,5 +1,9 @@
 import * as t from "@babel/types";
 
+import {
+  BUILTIN_RESOURCE_SPECIFIERS,
+  BUILTIN_RESOURCE_ACQUIRE_METHODS,
+} from "./javascriptBuiltinResourceMethods.js";
 import type {
   JavaScriptSemanticCallable,
   JavaScriptSemanticResourceOperation,
@@ -19,14 +23,6 @@ import {
 } from "./javascriptSemanticDataEffectHelpers.js";
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 
-const ACQUIRE_METHODS = [
-  "open",
-  "openSync",
-  "createReadStream",
-  "createWriteStream",
-  "connect",
-  "createConnection",
-] as const;
 const RELEASE_METHODS = ["close", "destroy", "end"] as const;
 
 interface ResourceCandidate {
@@ -136,17 +132,16 @@ const acquisitionMethod = (
   callee: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): JavaScriptSemanticResourceOperation["method"] | null => {
-  const method = builtinDataEffectMethod(callee, state, [
-    "fs",
-    "fs/promises",
-    "net",
-    "node:fs",
-    "node:fs/promises",
-    "node:net",
-    "node:tls",
-    "tls",
-  ]);
-  return ACQUIRE_METHODS.find((candidate) => candidate === method) ?? null;
+  const method = builtinDataEffectMethod(
+    callee,
+    state,
+    BUILTIN_RESOURCE_SPECIFIERS,
+  );
+  return (
+    BUILTIN_RESOURCE_ACQUIRE_METHODS.find(
+      (candidate) => candidate === method,
+    ) ?? null
+  );
 };
 const resourceCandidateId = (candidate: ResourceCandidate): string =>
   `resource:acquire:${String(candidate.node.start ?? -1)}:${String(candidate.node.end ?? -1)}`;

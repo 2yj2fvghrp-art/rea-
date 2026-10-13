@@ -42,6 +42,45 @@ const positionPrecedes = (
       left.declaratorIndex >= 0 &&
       left.declaratorIndex < right.declaratorIndex));
 
+/** Sequence operands evaluate left to right, independently of their source offsets. */
+const sequencePrecedes = (
+  left: t.Node,
+  right: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): boolean => {
+  const positions = new Map<t.SequenceExpression, number>();
+  let child = left;
+  for (
+    let parent = parents.get(child);
+    parent !== undefined;
+    parent = parents.get(child)
+  ) {
+    if (t.isSequenceExpression(parent))
+      positions.set(
+        parent,
+        parent.expressions.findIndex((expression) => expression === child),
+      );
+    child = parent;
+  }
+  child = right;
+  for (
+    let parent = parents.get(child);
+    parent !== undefined;
+    parent = parents.get(child)
+  ) {
+    if (t.isSequenceExpression(parent)) {
+      const before = positions.get(parent);
+      const after = parent.expressions.findIndex(
+        (expression) => expression === child,
+      );
+      if (before !== undefined && before >= 0 && after >= 0 && before !== after)
+        return before < after;
+    }
+    child = parent;
+  }
+  return false;
+};
+
 /** Order effects only in a non-repeating top-level activation. */
 export const semanticTopLevelEffectFollowsCapture = (
   capture: t.Node,
@@ -73,7 +112,16 @@ export const semanticTopLevelEffectFollowsCapture = (
   };
   const before = position(capture);
   const after = position(effect);
-  return before !== null && after !== null && positionPrecedes(before, after);
+  return (
+    before !== null &&
+    after !== null &&
+    (positionPrecedes(before, after) ||
+      (effect !== undefined &&
+        before.body === after.body &&
+        before.index === after.index &&
+        before.declaratorIndex === after.declaratorIndex &&
+        sequencePrecedes(capture, effect, parents)))
+  );
 };
 
 const directInitializerPosition = (

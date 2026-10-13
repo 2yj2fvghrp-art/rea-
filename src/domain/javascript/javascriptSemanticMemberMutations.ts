@@ -4,6 +4,7 @@ import {
   semanticRequireExportsIdentity,
   semanticGlobalProcessOrigin,
   semanticMutableBuiltinOrigin,
+  semanticOriginalGlobalProcessAt,
 } from "./javascriptSemanticRequireOrigin.js";
 
 import {
@@ -77,6 +78,16 @@ export function* collectSemanticMemberMutationsSteps(
     effects.push({ path: identity.path, node, kind: effect });
     state.requiredModuleEffects.set(identity.specifier, effects);
   };
+  // The ambient owner already parsed global-object aliases and exact write paths.
+  for (const { path, node } of state.ambientWriteEffects)
+    if (
+      node !== undefined &&
+      path.length > 2 &&
+      path[0] === "global" &&
+      semanticPropertyPathKeyMatches(path[1]!, "process") &&
+      semanticOriginalGlobalProcessAt(node, state)
+    )
+      recordRequiredEffect("node:process", path.slice(2), "write", node);
   const selections = new Map<string, readonly string[]>();
   const coveringPaths = new Map<string, SemanticPropertyPathCoverage>();
   let arrayIterationUnknown = false;
@@ -338,11 +349,11 @@ export function* collectSemanticMemberMutationsSteps(
                 );
         if (!primitiveWrite) {
           for (const origin of origins.directOrigins) {
-            const shared = semanticMutableBuiltinOrigin(origin);
+            const shared = semanticMutableBuiltinOrigin(origin, path);
             if (shared !== undefined)
               recordRequiredEffect(
                 shared.specifier,
-                [...shared.importedPath, ...path],
+                shared.path,
                 effect,
                 mutation,
               );

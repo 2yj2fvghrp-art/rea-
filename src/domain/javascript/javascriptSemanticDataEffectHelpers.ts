@@ -1,5 +1,6 @@
 import * as t from "@babel/types";
 
+import { BUILTIN_RESOURCE_METHODS } from "./javascriptBuiltinResourceMethods.js";
 import { semanticBuiltinNamespacePath } from "./javascriptSemanticProvenance.js";
 import {
   semanticRequireOrigin,
@@ -167,9 +168,7 @@ export const builtinDataEffectMethod = (
         required.origin.specifier,
         required.origin.importedPath,
         callee,
-        undefined,
         state,
-        specifiers,
         true,
       )
       ? (origin.importedPath[0] ?? null)
@@ -261,7 +260,7 @@ const computeBuiltinBindingPath = (
           state.parentsByNode,
         ),
     ) ||
-    builtinEscapes(binding, state, specifiers).some(
+    builtinEscapes(binding, state).some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
         // A function-value escape cannot replace its native [[Call]]. An
@@ -287,16 +286,14 @@ const computeBuiltinBindingPath = (
     return null;
   let resolvedPath: readonly string[] = importedPath;
   for (const origin of binding.directOrigins) {
-    const shared = semanticMutableBuiltinOrigin(origin);
+    const shared = semanticMutableBuiltinOrigin(origin, selectedPath);
     if (
       shared !== undefined &&
       requiredModuleChanged(
         shared.specifier,
-        [...shared.importedPath, ...selectedPath],
+        shared.path,
         capture,
-        binding,
         state,
-        specifiers,
         callableValue,
       )
     )
@@ -308,7 +305,12 @@ const computeBuiltinBindingPath = (
       {
         node: initializer.node,
         path: [...initializer.projection.map(String), ...selectedPath],
-        capture: initializer.projection.length > 0 ? initializer.node : capture,
+        capture:
+          callableValue &&
+          selectedPath.length === 0 &&
+          initializer.projection.length > 0
+            ? initializer.node
+            : capture,
       },
     ];
     while (pending.length > 0) {
@@ -341,7 +343,9 @@ const computeBuiltinBindingPath = (
         pending.push({
           node: node.object,
           path: [key, ...current.path],
-          capture: node,
+          // Freeze a selected function, not later member reads through a saved object.
+          capture:
+            callableValue && selectedPath.length === 0 ? node : current.capture,
         });
       } else if (t.isSequenceExpression(node)) {
         const final = node.expressions.at(-1);
@@ -367,9 +371,7 @@ const computeBuiltinBindingPath = (
             required.origin.specifier,
             [...required.origin.importedPath, ...current.path],
             current.capture,
-            binding,
             state,
-            specifiers,
             callableValue,
           )
         )
@@ -422,15 +424,17 @@ const BUILTIN_RECEIVER_METHODS: Readonly<Record<string, ReadonlySet<string>>> =
       "readFileSync",
       "writeFile",
       "writeFileSync",
-      "open",
-      "openSync",
       "close",
       "closeSync",
-      "createReadStream",
-      "createWriteStream",
+      ...BUILTIN_RESOURCE_METHODS.fs,
     ]),
-    "fs/promises": new Set(["readFile", "writeFile", "open"]),
-    net: new Set(["connect", "createConnection"]),
+    "fs/promises": new Set([
+      "readFile",
+      "writeFile",
+      ...BUILTIN_RESOURCE_METHODS["fs/promises"],
+    ]),
+    net: new Set(BUILTIN_RESOURCE_METHODS.net),
+    tls: new Set(BUILTIN_RESOURCE_METHODS.tls),
     http: new Set(["request", "get"]),
     https: new Set(["request", "get"]),
     child_process: new Set(["spawn", "exec", "execFile", "fork"]),
@@ -458,7 +462,7 @@ interface BuiltinEffectIndex {
     string,
     readonly JavaScriptSemanticMemberEffect[]
   >;
-  readonly receivers: WeakMap<t.Node, Map<string, boolean>>;
+  readonly receivers: WeakMap<t.Node, boolean>;
 }
 
 // Derived passes run after mutation collection. These indexes share that state's
@@ -492,36 +496,30 @@ const builtinEffectIndex = (
 const builtinEscapes = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
-  specifiers: readonly string[],
 ): readonly JavaScriptSemanticMemberEffect[] => {
   const cache = builtinEffectIndex(state).bindingEscapes;
-  const key = JSON.stringify([binding.bindingId, specifiers]);
-  let effects = cache.get(key);
+  let effects = cache.get(binding.bindingId);
   if (effects === undefined) {
     effects = binding.escapedPaths.filter(
-      ({ node }) => !originalBuiltinReceiver(node, binding, state, specifiers),
+      ({ node }) => !originalBuiltinReceiver(node, state),
     );
-    cache.set(key, effects);
+    cache.set(binding.bindingId, effects);
   }
   return effects;
 };
 
 const builtinModuleEffects = (
   specifier: string,
-  binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
-  specifiers: readonly string[],
 ): readonly JavaScriptSemanticRequiredModuleEffect[] => {
   const cache = builtinEffectIndex(state).moduleEffects;
-  const key = JSON.stringify([specifier, binding?.bindingId, specifiers]);
-  let effects = cache.get(key);
+  let effects = cache.get(specifier);
   if (effects === undefined) {
     effects = (state.requiredModuleEffects.get(specifier) ?? []).filter(
       ({ kind, node }) =>
-        kind === "write" ||
-        !originalBuiltinReceiver(node, binding, state, specifiers),
+        kind === "write" || !originalBuiltinReceiver(node, state),
     );
-    cache.set(key, effects);
+    cache.set(specifier, effects);
   }
   return effects;
 };
@@ -531,18 +529,11 @@ const requiredModuleChanged = (
   specifier: string,
   selected: readonly string[],
   capture: t.Node,
-  binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
-  specifiers: readonly string[],
   callableValue = false,
 ): boolean => {
   const identity = semanticRequireExportsIdentity(specifier, selected);
-  return builtinModuleEffects(
-    identity.specifier,
-    binding,
-    state,
-    specifiers,
-  ).some(
+  return builtinModuleEffects(identity.specifier, state).some(
     ({ path, node, kind }) =>
       affectsBuiltinPath(path, identity.path) &&
       !semanticTopLevelEffectFollowsCapture(
@@ -559,35 +550,20 @@ const requiredModuleChanged = (
 /** Calling an unchanged built-in as a member is not an escape to unknown code. */
 const originalBuiltinReceiver = (
   node: t.Node | undefined,
-  binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
-  specifiers: readonly string[],
 ): boolean => {
   if (node === undefined) return false;
   const receivers = builtinEffectIndex(state).receivers;
-  let cached = receivers.get(node);
-  if (cached === undefined) {
-    cached = new Map();
-    receivers.set(node, cached);
-  }
-  const key = JSON.stringify([binding?.bindingId, specifiers]);
-  const previous = cached.get(key);
+  const previous = receivers.get(node);
   if (previous !== undefined) return previous;
-  const result = computeOriginalBuiltinReceiver(
-    node,
-    binding,
-    state,
-    specifiers,
-  );
-  cached.set(key, result);
+  const result = computeOriginalBuiltinReceiver(node, state);
+  receivers.set(node, result);
   return result;
 };
 
 const computeOriginalBuiltinReceiver = (
   node: t.Node | undefined,
-  binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
-  specifiers: readonly string[],
 ): boolean => {
   if (!t.isCallExpression(node) && !t.isOptionalCallExpression(node))
     return false;
@@ -608,13 +584,7 @@ const computeOriginalBuiltinReceiver = (
         semanticGlobalProcessOrigin(callee.object, state));
   if (sourceOrigin === undefined) return false;
   const origin = builtinNamespaceOrigin(sourceOrigin);
-  if (
-    !specifiers.some(
-      (specifier) => specifier.replace(/^node:/u, "") === origin.specifier,
-    ) ||
-    origin.importedPath.length !== 0
-  )
-    return false;
+  if (origin.importedPath.length !== 0) return false;
   const method = semanticStaticPropertyKey(callee.property, callee.computed);
   const identity = semanticRequireExportsIdentity(sourceOrigin.specifier, [
     ...sourceOrigin.importedPath,
@@ -641,7 +611,6 @@ const computeOriginalBuiltinReceiver = (
     if (!t.isIdentifier(argument)) return false;
     const passed = resolveSemanticBindingState(state, argument, argument.name);
     if (passed === undefined) return false;
-    if (passed.bindingId === binding?.bindingId) return true;
     const passedOrigin = evaluateSemanticProvenance(passed, state);
     return (
       passedOrigin.status === "module" &&
@@ -663,10 +632,7 @@ export const isSemanticProcessObject = (
   if (binding === undefined)
     return (
       semanticGlobalProcessOrigin(node, state) !== undefined &&
-      !requiredModuleChanged("process", [family], node, undefined, state, [
-        "process",
-        "node:process",
-      ])
+      !requiredModuleChanged("process", [family], node, state)
     );
   return (
     builtinBindingPath(binding, state, ["process", "node:process"], node, [

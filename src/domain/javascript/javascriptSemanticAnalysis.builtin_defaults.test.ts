@@ -474,3 +474,55 @@ it("shares equivalent alias subproblems and repeated intact receiver facts", () 
   );
   expect(ir.configurationOperations).toHaveLength(128);
 });
+
+it.each([
+  `import tls from 'node:tls'; const socket = tls.connect(443, 'example.test'); socket.end();`,
+  `import * as tls from 'node:tls'; const socket = tls.connect(443, 'example.test'); socket.end();`,
+  `const tls = require('tls'); const socket = tls.connect(443, 'example.test'); socket.end();`,
+])("retains TLS acquisitions and their release: %s", (source) => {
+  expect(
+    analyzeJavaScriptSemantics(source).resourceOperations.map(
+      ({ kind, method }) => ({ kind, method }),
+    ),
+  ).toEqual([
+    { kind: "acquire", method: "connect" },
+    { kind: "release", method: "end" },
+  ]);
+});
+
+it.each([
+  `globalThis.process.env = {}; const proc = require('process'); const value = proc.env.MODE;`,
+  `const host = globalThis; host.process.env = {}; const proc = require('process'); const value = proc.env.MODE;`,
+  `import * as procNs from 'node:process'; procNs.default.env = {}; const value = process.env.MODE;`,
+])("shares writes through the original process object: %s", (source) => {
+  expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
+    [],
+  );
+});
+
+it.each([
+  `const fs = require('fs'); const result = (fs.readFileSync('kept'), fs.readFileSync = custom);`,
+  `const fs = require('fs'); const read = fs.readFileSync; const result = (read('kept'), fs.readFileSync = custom);`,
+])("retains reads before a later sequence operand: %s", (source) => {
+  expect(
+    analyzeJavaScriptSemantics(source).configurationOperations.map(
+      ({ key }) => key,
+    ),
+  ).toEqual(["kept"]);
+});
+
+it("checks a saved child object's method when that function is selected", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const fs = require('fs'); const fsp = fs.promises;
+    fs.promises.open = custom; const open = fsp.open; open('wrong');`);
+  expect(ir.resourceOperations).toEqual([]);
+});
+
+it("retains an earlier captured function after its object method is replaced", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const fs = require('fs'); const fsp = fs.promises;
+    const open = fsp.open; fs.promises.open = custom; open('kept');`);
+  expect(ir.resourceOperations).toMatchObject([
+    { kind: "acquire", method: "open" },
+  ]);
+});

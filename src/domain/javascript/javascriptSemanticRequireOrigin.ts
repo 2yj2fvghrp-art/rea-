@@ -1,5 +1,6 @@
 import * as t from "@babel/types";
 
+import { BUILTIN_RESOURCE_METHODS } from "./javascriptBuiltinResourceMethods.js";
 import type { JavaScriptModuleOrigin } from "./javascriptSemanticIr.js";
 import {
   resolveSemanticBindingState,
@@ -19,6 +20,43 @@ interface JavaScriptRequireOrigin {
   readonly call: t.CallExpression;
 }
 
+// Ambient indexing finishes before these derived facts are consumed. Keep only
+// replacement sites, rather than rescanning unrelated global member writes.
+const globalProcessReplacements = new WeakMap<
+  JavaScriptSemanticAnalysisState,
+  readonly (t.Node | undefined)[]
+>();
+
+/** Whether the original global process object can still own effects at this source site. */
+export const semanticOriginalGlobalProcessAt = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let replacements = globalProcessReplacements.get(state);
+  if (replacements === undefined) {
+    replacements = [
+      ...state.ambientWriteEffects
+        .filter(
+          ({ path }) =>
+            path.length <= 2 &&
+            path.every((key, index) =>
+              semanticPropertyPathKeyMatches(
+                key,
+                ["global", "process"][index]!,
+              ),
+            ),
+        )
+        .map(({ node: write }) => write),
+      ...(state.ambientBindingWrites.get("process") ?? []),
+    ];
+    globalProcessReplacements.set(state, replacements);
+  }
+  return !replacements.some(
+    (write) =>
+      !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
+  );
+};
+
 /** Node's unbound process reference shares the cached process exports object. */
 export const semanticGlobalProcessOrigin = (
   node: t.Node,
@@ -27,18 +65,7 @@ export const semanticGlobalProcessOrigin = (
   t.isIdentifier(node, { name: "process" }) &&
   resolveSemanticBindingState(state, node, "process") === undefined &&
   !semanticResolutionBlocked(state, node, "process") &&
-  !state.ambientWriteEffects.some(
-    ({ path, node: write }) =>
-      path.length <= 2 &&
-      path.every((key, index) =>
-        semanticPropertyPathKeyMatches(key, ["global", "process"][index]!),
-      ) &&
-      !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
-  ) &&
-  !(state.ambientBindingWrites.get("process") ?? []).some(
-    (write) =>
-      !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
-  )
+  semanticOriginalGlobalProcessAt(node, state)
     ? { specifier: "node:process", importedPath: [], resolutionMode: "require" }
     : undefined;
 
@@ -108,9 +135,7 @@ export const semanticRequireExportsIdentity = <Key>(
 };
 
 const MUTABLE_BUILTIN_DEFAULTS = new Set([
-  "fs",
-  "fs/promises",
-  "net",
+  ...Object.keys(BUILTIN_RESOURCE_METHODS),
   "http",
   "https",
   "child_process",
@@ -118,16 +143,20 @@ const MUTABLE_BUILTIN_DEFAULTS = new Set([
   "process",
 ]);
 
-/** Mutable default objects share CommonJS identity; namespace/function imports do not. */
-export const semanticMutableBuiltinOrigin = (
+/** Mutable default/object selections share CommonJS identity; namespace slots do not. */
+export const semanticMutableBuiltinOrigin = <Key>(
   origin: JavaScriptModuleOrigin,
-): JavaScriptModuleOrigin | undefined => {
-  if (origin.resolutionMode === "require") return origin;
+  selected: readonly Key[] = [],
+):
+  | { readonly specifier: string; readonly path: readonly (Key | string)[] }
+  | undefined => {
+  const path = [...origin.importedPath, ...selected];
+  if (origin.resolutionMode === "require")
+    return { specifier: origin.specifier, path };
   const specifier = origin.specifier.replace(/^node:/u, "");
   if (!MUTABLE_BUILTIN_DEFAULTS.has(specifier)) return undefined;
-  if (origin.importedPath[0] === "default")
-    return { ...origin, importedPath: origin.importedPath.slice(1) };
-  return specifier === "fs" && origin.importedPath[0] === "promises"
-    ? origin
+  if (path[0] === "default") return { specifier, path: path.slice(1) };
+  return specifier === "fs" && path[0] === "promises"
+    ? { specifier, path }
     : undefined;
 };
