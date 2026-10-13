@@ -1,3 +1,4 @@
+import type { NormalizedWorkflowRun } from "./workflow-run.mjs";
 import type { StaticDiagnostic } from "./artifacts.mjs";
 export type { StaticDiagnostic } from "./artifacts.mjs";
 import type { StaticTaskContext } from "./static-task-context.mjs";
@@ -44,6 +45,8 @@ export interface CiFailureReport {
     readonly candidateRuns: number;
     readonly limit: number;
     readonly mainCandidateLimit: number;
+    readonly mainCandidateRuns: number;
+    readonly mainRunLookupLimit: number;
     readonly manifestTruncated: boolean;
   };
   readonly counts: Readonly<
@@ -94,11 +97,11 @@ export interface FailureReportApi {
 export function classifyFailure(input: {
   repository: string;
   defaultBranch: string;
-  run: CiRun;
+  run: CiRun & NormalizedWorkflowRun;
   job: CiJob;
   diagnostics: readonly StaticDiagnostic[];
   context: StaticTaskContext;
-  mainRun: CiRun;
+  mainRun: CiRun & NormalizedWorkflowRun;
   mainJob: CiJob;
   mainDiagnostics: readonly StaticDiagnostic[];
   mainContext: StaticTaskContext;
@@ -119,6 +122,8 @@ export function reportCiFailures(options: {
       readonly id: number | string;
       readonly runAttempt: number;
       readonly workflow: string;
+      readonly event?: string | null;
+      readonly headBranch?: string | null;
       readonly conclusion: string | null;
       readonly status: string;
     }[];

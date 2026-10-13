@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { expect, it } from "vitest";
+import { normalizeWorkflowRun } from "../../../scripts/ci/workflow-run.mjs";
 
 import {
   readStaticCheckArtifact,
@@ -38,21 +39,22 @@ const context = (
   architecture: "x64",
   taskHashes: { "lint:built": taskHash },
 });
-const run = (overrides: Record<string, unknown> = {}) => ({
-  id: 10,
-  run_attempt: 1,
-  status: "completed",
-  conclusion: "failure",
-  event: "pull_request",
-  path: ".github/workflows/ci.yml",
-  head_sha: sha("a"),
-  head_branch: "feature",
-  repository: { full_name: "owner/rea" },
-  pull_requests: [
-    { base: { sha: sha("b"), repo: { full_name: "owner/rea" } } },
-  ],
-  ...overrides,
-});
+const run = (overrides: Record<string, unknown> = {}) =>
+  normalizeWorkflowRun({
+    id: 10,
+    run_attempt: 1,
+    status: "completed",
+    conclusion: "failure",
+    event: "pull_request",
+    path: ".github/workflows/ci.yml@main",
+    head_sha: sha("a"),
+    head_branch: "feature",
+    repository: { full_name: "owner/rea" },
+    pull_requests: [
+      { base: { sha: sha("b"), repo: { full_name: "owner/rea" } } },
+    ],
+    ...overrides,
+  });
 const job = (overrides: Record<string, unknown> = {}) => ({
   name: "Static checks",
   status: "completed",
@@ -208,95 +210,115 @@ it("writes informational JSON and Markdown from the supplied manifest using only
   }
 });
 
-it("attributes a PR failure only after the injected API proves the identical main failure and blob", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "rea-ci-main-proof-"));
-  try {
-    const mainSha = sha("c");
-    const prHeadSha = sha("a");
-    const mergeSha = sha("d");
-    const mainRun = run({
-      id: 20,
-      event: "push",
-      head_sha: mainSha,
-      head_branch: "main",
-      pull_requests: [],
-    });
-    const prRun = run({
-      head_sha: prHeadSha,
-      pull_requests: [
-        { base: { sha: mainSha, repo: { full_name: "owner/rea" } } },
-      ],
-    });
-    const evidence = (sourceSha: string, prHead?: string) => ({
-      context: context(sourceSha, undefined, prHead),
-      diagnostics: [diagnostic],
-    });
-    const api = {
-      async getRun(_repository: string, id: number) {
-        return id === 10 ? prRun : mainRun;
-      },
-      async getJobs(_repository: string, id: number) {
-        return [{ ...job(), run_id: id, run_attempt: 1 }];
-      },
-      async getStaticEvidence(
-        _repository: string,
-        selectedRun: { id: number },
-      ) {
-        return selectedRun.id === 10
-          ? evidence(mergeSha, prHeadSha)
-          : evidence(mainSha);
-      },
-      async verifyExecutionSource(
-        _repository: string,
-        selectedRun: { event: string; head_sha: string },
-        sourceContext: { sourceSha: string; prHeadSha?: string },
-      ) {
-        return selectedRun.event === "pull_request"
-          ? sourceContext.sourceSha === mergeSha &&
-              sourceContext.prHeadSha === selectedRun.head_sha
-          : sourceContext.sourceSha === selectedRun.head_sha;
-      },
-      async getAncestry() {
-        return { status: "ahead", mergeBaseSha: mainSha };
-      },
-      async getBlobIdentity() {
-        return { "src/example.ts": true };
-      },
-    };
-    const result = await reportCiFailures({
-      repository: "owner/rea",
-      defaultBranch: "main",
-      batchManifest: {
-        repository: "owner/rea",
-        runs: [
-          {
-            id: 10,
-            runAttempt: 1,
-            workflow: "CI",
-            conclusion: "failure",
-            status: "collected",
-          },
-          {
-            id: 20,
-            runAttempt: 1,
-            workflow: "CI",
-            conclusion: "failure",
-            status: "collected",
-          },
+it.each([
+  [1, false],
+  [6, false],
+  [22, false],
+  [6, true],
+] as const)(
+  "finds verified main evidence after %s newer PR runs (incorrect main hints: %s)",
+  async (prCount, incorrectMainHints) => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-ci-main-proof-"));
+    try {
+      const mainSha = sha("c");
+      const prHeadSha = sha("a");
+      const mergeSha = sha("d");
+      const mainRun = run({
+        id: 20,
+        event: "push",
+        head_sha: mainSha,
+        head_branch: "main",
+        pull_requests: [],
+      });
+      const prRun = run({
+        head_sha: prHeadSha,
+        pull_requests: [
+          { base: { sha: mainSha, repo: { full_name: "owner/rea" } } },
         ],
-      },
-      api: api as never,
-      outputDirectory: directory,
-    });
-    expect(result.failures[0]).toMatchObject({
-      classification: "matching-main-diagnostics",
-      reason:
-        "supported_diagnostics_match_failed_task_and_source_on_verified_main_ancestor",
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+      });
+      const evidence = (sourceSha: string, prHead?: string) => ({
+        context: context(sourceSha, undefined, prHead),
+        diagnostics: [diagnostic],
+      });
+      const lookups: number[] = [];
+      const api = {
+        async getRun(_repository: string, id: number) {
+          lookups.push(id);
+          return id === 20 ? mainRun : { ...prRun, id };
+        },
+        async getJobs(_repository: string, id: number) {
+          return [{ ...job(), run_id: id, run_attempt: 1 }];
+        },
+        async getStaticEvidence(
+          _repository: string,
+          selectedRun: { id: number },
+        ) {
+          return selectedRun.id === 20
+            ? evidence(mainSha)
+            : evidence(mergeSha, prHeadSha);
+        },
+        async verifyExecutionSource(
+          _repository: string,
+          selectedRun: { event: string; head_sha: string },
+          sourceContext: { sourceSha: string; prHeadSha?: string },
+        ) {
+          return selectedRun.event === "pull_request"
+            ? sourceContext.sourceSha === mergeSha &&
+                sourceContext.prHeadSha === selectedRun.head_sha
+            : sourceContext.sourceSha === selectedRun.head_sha;
+        },
+        async getAncestry() {
+          return { status: "ahead", mergeBaseSha: mainSha };
+        },
+        async getBlobIdentity() {
+          return { "src/example.ts": true };
+        },
+      };
+      const result = await reportCiFailures({
+        repository: "owner/rea",
+        defaultBranch: "main",
+        batchManifest: {
+          repository: "owner/rea",
+          runs: [
+            ...Array.from({ length: prCount }, (_, index) => ({
+              id: 100 + index,
+              runAttempt: 1,
+              workflow: "CI",
+              event: incorrectMainHints ? "push" : "pull_request",
+              headBranch: incorrectMainHints ? "main" : "feature",
+              conclusion: "failure",
+              status: "collected",
+            })),
+            {
+              id: 20,
+              runAttempt: 1,
+              workflow: "CI",
+              event: "push",
+              headBranch: "main",
+              conclusion: "failure",
+              status: "collected",
+            },
+          ],
+        },
+        api: api as never,
+        outputDirectory: directory,
+      });
+      expect(result.failures[0]).toMatchObject({
+        runId: 100,
+        classification: "matching-main-diagnostics",
+        reason:
+          "supported_diagnostics_match_failed_task_and_source_on_verified_main_ancestor",
+      });
+      expect(lookups).toHaveLength(Math.min(prCount, 20) + 1);
+      expect(lookups[0]).toBe(incorrectMainHints ? 100 : 20);
+      expect(new Set(lookups).size).toBe(lookups.length);
+      expect(result.boundedInput.mainCandidateRuns).toBe(1);
+      expect(result.failures).toHaveLength(Math.min(prCount + 1, 20));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it("proves checkout merge parents in base-then-PR-head order and rejects false identities", async () => {
   const baseSha = sha("b");

@@ -409,7 +409,7 @@ function isEligibleStaticRun(run) {
     isFailedConclusion(run.conclusion) &&
     SHA.test(run.head_sha ?? "") &&
     typeof run.repository?.full_name === "string" &&
-    run.path === ".github/workflows/ci.yml"
+    run.workflowPath?.file === ".github/workflows/ci.yml"
   );
 }
 function isCompletedFailure(run) {

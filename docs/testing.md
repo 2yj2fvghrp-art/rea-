@@ -309,6 +309,8 @@ The separate `CI timings` workflow also diagnoses missing, startup-failed,
 queued/running, approval-required, canceled, and failed PR CI through bounded,
 read-only API scans. Incomplete pagination or changing identity stays unknown.
 It never closes/reopens PRs, reruns workflows, posts comments, or changes gates.
+The timing manifest retains each run's event and head branch, including explicit
+unknowns, so PR runs cannot consume the eligible-main comparison budget.
 Its static failure report compares supported lint/duplication diagnostics with
 failed main runs using exact source, ancestry, task hashes, and toolchain proof.
 A match describes those diagnostics only; it does not establish that every

@@ -14,12 +14,14 @@ import {
   validRepoPath,
 } from "./artifacts.mjs";
 import { createGhApiRequest } from "./github-api.mjs";
+import { normalizeWorkflowRun } from "./workflow-run.mjs";
 
 const OUTPUT_DIRECTORY = join(".cache", "ci-failures");
 const BATCH_DIRECTORY = join(".cache", "ci-job-timings");
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_FAILED_RUNS = 20;
 const MAX_MAIN_CANDIDATES = 5;
+const MAX_MAIN_RUN_LOOKUPS = 100;
 const MAX_PATHS_PER_COMPARISON = 50;
 const MAX_API_REQUESTS = 250;
 
@@ -45,15 +47,30 @@ export async function reportCiFailures({
   )
     throw new Error("timing manifest repository or runs are invalid");
 
-  const candidates = batchManifest.runs
-    .filter(
-      (entry) =>
-        entry.workflow === "CI" &&
-        entry.status === "collected" &&
-        isFailedConclusion(entry.conclusion),
-    )
-    .slice(0, MAX_FAILED_RUNS);
-  const mainCandidates = candidates.slice(0, MAX_MAIN_CANDIDATES);
+  const failedRuns = batchManifest.runs.filter(
+    (entry) =>
+      entry.workflow === "CI" &&
+      entry.status === "collected" &&
+      isFailedConclusion(entry.conclusion),
+  );
+  const candidates = failedRuns.slice(0, MAX_FAILED_RUNS);
+  const mainEntries = failedRuns.filter(
+    (entry) =>
+      entry.headBranch === defaultBranch &&
+      ["push", "schedule", "workflow_dispatch"].includes(entry.event),
+  );
+  const lookupRun = verifiedRunLookup(repository, api);
+  const mainCandidates = [];
+  for (const entry of mainEntries.slice(0, MAX_MAIN_RUN_LOOKUPS)) {
+    try {
+      const run = await lookupRun(entry);
+      if (isEligibleMainRun(run, defaultBranch, repository))
+        mainCandidates.push({ entry, run });
+      if (mainCandidates.length === MAX_MAIN_CANDIDATES) break;
+    } catch {
+      // Unverified metadata cannot consume the eligible-main candidate budget.
+    }
+  }
   const entries = [];
   for (const entry of candidates) {
     try {
@@ -62,6 +79,7 @@ export async function reportCiFailures({
           repository,
           defaultBranch,
           entry,
+          run: await lookupRun(entry),
           mainCandidates,
           api,
         })),
@@ -86,7 +104,10 @@ export async function reportCiFailures({
       candidateRuns: candidates.length,
       limit: MAX_FAILED_RUNS,
       mainCandidateLimit: MAX_MAIN_CANDIDATES,
+      mainCandidateRuns: mainCandidates.length,
+      mainRunLookupLimit: MAX_MAIN_RUN_LOOKUPS,
       manifestTruncated:
+        failedRuns.length > MAX_FAILED_RUNS ||
         batchManifest.truncation?.length > 0 ||
         batchManifest.selection?.exhaustive === false ||
         batchManifest.coverage?.exhaustive === false,
@@ -107,12 +128,10 @@ async function analyzeFailedRun({
   repository,
   defaultBranch,
   entry,
+  run,
   mainCandidates,
   api,
 }) {
-  const run = await api.getRun(repository, entry.id);
-  if (!hasRunIdentity(run, entry))
-    throw new Error("workflow_run_identity_mismatch");
   const jobs = await api.getJobs(repository, entry.id, entry.runAttempt);
   if (jobs.some((job) => !hasJobIdentity(job, entry)))
     throw new Error("workflow_job_identity_mismatch");
@@ -193,18 +212,9 @@ async function compareCandidate({
   candidate,
   api,
 }) {
-  const mainRun = await api.getRun(repository, candidate.id);
-  if (
-    !hasRunIdentity(mainRun, candidate) ||
-    !isEligibleMainRun(mainRun, defaultBranch, repository)
-  )
-    return null;
-  const jobs = await api.getJobs(
-    repository,
-    candidate.id,
-    candidate.runAttempt,
-  );
-  if (jobs.some((item) => !hasJobIdentity(item, candidate))) return null;
+  const { entry, run: mainRun } = candidate;
+  const jobs = await api.getJobs(repository, entry.id, entry.runAttempt);
+  if (jobs.some((item) => !hasJobIdentity(item, entry))) return null;
   const mainJob = jobs.find(
     (item) =>
       item.name === job.name &&
@@ -256,11 +266,32 @@ async function compareCandidate({
   });
 }
 
+// Selection and attribution share one immutable API observation per run/attempt.
+function verifiedRunLookup(repository, api) {
+  const runs = new Map();
+  return (entry) => {
+    const key = `${positiveId(entry.id)}:${positiveId(entry.runAttempt)}`;
+    if (!runs.has(key))
+      runs.set(
+        key,
+        Promise.resolve().then(async () => {
+          const run = normalizeWorkflowRun(
+            await api.getRun(repository, entry.id),
+          );
+          if (!hasRunIdentity(run, entry))
+            throw new Error("workflow_run_identity_mismatch");
+          return run;
+        }),
+      );
+    return runs.get(key);
+  };
+}
+
 function hasRunIdentity(run, entry) {
   return (
     String(run?.id) === String(entry.id) &&
     Number(run.run_attempt) === Number(entry.runAttempt) &&
-    run.path === ".github/workflows/ci.yml"
+    run.workflowPath?.file === ".github/workflows/ci.yml"
   );
 }
 function hasJobIdentity(job, entry) {

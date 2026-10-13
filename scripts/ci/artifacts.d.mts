@@ -1,3 +1,4 @@
+import type { NormalizedWorkflowRun } from "./workflow-run.mjs";
 import type { StaticTaskContext } from "./static-task-context.mjs";
 export type { StaticTaskContext } from "./static-task-context.mjs";
 
@@ -13,11 +14,11 @@ export interface StaticDiagnostic {
 export function classifyFailure(input: {
   repository: string;
   defaultBranch: string;
-  run: Record<string, unknown>;
+  run: Record<string, unknown> & NormalizedWorkflowRun;
   job: Record<string, unknown>;
   diagnostics: readonly StaticDiagnostic[];
   context: StaticTaskContext;
-  mainRun: Record<string, unknown>;
+  mainRun: Record<string, unknown> & NormalizedWorkflowRun;
   mainJob: Record<string, unknown>;
   mainDiagnostics: readonly StaticDiagnostic[];
   mainContext: StaticTaskContext;
