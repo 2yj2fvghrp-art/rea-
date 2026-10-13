@@ -1,10 +1,7 @@
 import { canonicalJson } from "./comparisonSemantics.js";
 import { diffLines } from "diff";
 
-import {
-  functionCallLimitations,
-  type FunctionSnapshot,
-} from "./functionDossierEvidence.js";
+import type { FunctionSnapshot } from "./functionDossierEvidence.js";
 import {
   commentProjection,
   identityProjection,
@@ -236,17 +233,17 @@ const compareCalls = (
 ): FunctionDimension => {
   const leftValues = callProjection(left);
   const rightValues = callProjection(right);
-  const limitations = [
-    ...functionCallLimitations(left).map((reason) => `Left: ${reason}`),
-    ...functionCallLimitations(right).map((reason) => `Right: ${reason}`),
+  const coverageLimitations = [
+    ...left.callCoverageLimitations.map((reason) => `Left: ${reason}`),
+    ...right.callCoverageLimitations.map((reason) => `Right: ${reason}`),
   ];
-  if (limitations.length > 0)
+  if (coverageLimitations.length > 0)
     return unresolvedDimension({
       dimension: "calls",
       links: context.links,
       leftCount: leftValues.length,
       rightCount: rightValues.length,
-      limitations,
+      limitations: coverageLimitations,
     });
   if ([...leftValues, ...rightValues].some(({ name }) => isAutoName(name)))
     return unresolvedDimension({
