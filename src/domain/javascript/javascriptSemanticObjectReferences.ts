@@ -370,10 +370,16 @@ const escapedClassValues = (
                 semanticStaticPropertyKey(member.key, member.computed) ===
                   methodName
               )
-                for (const {
-                  node: result,
-                } of semanticCallableResultExpressions(member))
-                  if (result !== null) expressions.push(result);
+                for (const reference of getterResultReferences(
+                  {
+                    getter: member,
+                    owner: candidate,
+                    receiver: lookup.receiver ?? lookup.owner,
+                  },
+                  [],
+                  state,
+                ))
+                  expressions.push(reference.node);
       }
     }
     if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
