@@ -86,7 +86,7 @@ export const fetchWebSourceMaps = async (
   signal?.addEventListener("abort", abortFromCaller, { once: true });
   const operationSignal = operationController.signal;
   const deadlineAt =
-    Date.now() + (host.timeoutMs ?? SOURCE_MAP_FETCH_TIMEOUT_MS);
+    performance.now() + (host.timeoutMs ?? SOURCE_MAP_FETCH_TIMEOUT_MS);
   const budget = {
     retainedBytes: 0,
     deadlineAt,
@@ -110,7 +110,7 @@ export const fetchWebSourceMaps = async (
       }
       const expandedBytesBeforeItem = budget.decodedRecords.expandedBytes;
       budget.decodedRecords.expandedBytes += reservation;
-      if (operationSignal.aborted || Date.now() >= deadlineAt) {
+      if (operationSignal.aborted || performance.now() >= deadlineAt) {
         items.push(
           emptySourceMapItem(
             request,
@@ -743,8 +743,8 @@ const originalModuleEdges = (
         check();
         const dependency = originalDependency(node);
         if (dependency === null) return;
-        const { kind, specifier } = dependency;
-        if (kind === "require" && t.isCallExpression(node)) {
+        const { kind, specifier, requireCallee } = dependency;
+        if (requireCallee !== undefined) {
           unboundRequires ??= new Set(
             analyzeParsedJavaScriptReferences(parsed, "require")
               .filter(
@@ -756,7 +756,7 @@ const originalModuleEdges = (
                   `${String(location.start.line)}:${String(location.start.column)}`,
               ),
           );
-          const location = node.callee.loc?.start;
+          const location = requireCallee.loc?.start;
           if (
             location === undefined ||
             !unboundRequires.has(
@@ -789,7 +789,7 @@ const checkOperation = (
 ): void => {
   if (callerSignal?.aborted === true) throw callerSignal.reason;
   if (operationSignal?.aborted === true) throw operationSignal.reason;
-  if (Date.now() >= deadlineAt) throw new SourceMapDeadlineError();
+  if (performance.now() >= deadlineAt) throw new SourceMapDeadlineError();
 };
 
 const approvedUrl = (
@@ -1039,6 +1039,7 @@ const originalDependency = (
 ): {
   readonly kind: ParsedSourceMapItem["original_module_edges"][number]["kind"];
   readonly specifier: string;
+  readonly requireCallee?: t.Identifier;
 } | null => {
   if (
     t.isImportDeclaration(node) ||
@@ -1051,11 +1052,15 @@ const originalDependency = (
   if (t.isImportExpression(node) && t.isStringLiteral(node.source))
     return { kind: "dynamic_import", specifier: node.source.value };
   if (
-    t.isCallExpression(node) &&
+    (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
     t.isIdentifier(node.callee, { name: "require" }) &&
     t.isStringLiteral(node.arguments[0])
   )
-    return { kind: "require", specifier: node.arguments[0].value };
+    return {
+      kind: "require",
+      specifier: node.arguments[0].value,
+      requireCallee: node.callee,
+    };
   // `import x = require("m")` is only legal at module top level and always
   // refers to the host loader, so it needs no unbound-`require` check. The
   // `moduleReference` is an entity name for a local alias instead, which

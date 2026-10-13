@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { moduleKindForJavaScriptReference } from "./JavaScriptArtifactPathResolution.js";
+import { moduleResolutionModeForJavaScriptReference } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 import { setImmediate } from "node:timers/promises";
 
 import { resolveJavaScriptSourceMapReferences } from "../../domain/javascript/javascriptSourceMapPaths.js";
@@ -384,7 +384,10 @@ function* analyzeArtifactFileSteps<
     analysis.parse_status === "complete" || analysis.parse_status === "partial"
       ? yield* analyzeParsedJavaScriptSemanticsSteps(
           parsed,
-          moduleKindForJavaScriptReference(file.path, "static-import"),
+          moduleResolutionModeForJavaScriptReference(
+            file.path,
+            "static-import",
+          ),
         )
       : null;
   const projected =
@@ -550,10 +553,10 @@ const collectSourceMapOriginals = (
     if (!Array.isArray(names))
       return invalidSourceMap(file, "Source map has no sources array.");
     const contents = map.sourcesContent;
-    if (!hasValidSourceMapContents(names.length, contents))
+    if (!hasValidSourceMapContents(contents))
       return invalidSourceMap(
         file,
-        "Source map sourcesContent must contain one string or null entry per source.",
+        "Source map sourcesContent must be an array of strings or null entries.",
       );
     if (map.sourceRoot != null && typeof map.sourceRoot !== "string")
       return invalidSourceMap(
