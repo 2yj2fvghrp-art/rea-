@@ -709,6 +709,17 @@ interface OriginalModuleEdges {
   readonly incomplete: readonly string[];
 }
 
+const parserPathForSource = (sourceName: string): string => {
+  try {
+    const pathname = new URL(sourceName).pathname;
+    if (pathname !== "") return pathname;
+  } catch {
+    // Relative or source-map-local identifiers are not absolute URLs.
+  }
+  const boundary = sourceName.search(/[?#]/u);
+  return boundary === -1 ? sourceName : sourceName.slice(0, boundary);
+};
+
 const originalModuleEdges = (
   sources: ParsedSourceMapItem["original_sources"],
   check: () => void,
@@ -729,7 +740,10 @@ const originalModuleEdges = (
       );
       continue;
     }
-    const parsed = parseJavaScriptSource(source.artifact.text);
+    const parsed = parseJavaScriptSource(
+      source.artifact.text,
+      parserPathForSource(sourceName),
+    );
     check();
     if (parsed === null) {
       incomplete.push(sourceName);
