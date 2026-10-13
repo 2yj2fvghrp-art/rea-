@@ -9,6 +9,7 @@ import {
   availableCategories,
 } from "./rel/intake.mjs";
 import { runStaticAnalysis } from "./rel/analyze-static.mjs";
+import { startLabServer, openLabInBrowser } from "./rel/lab-server.mjs";
 
 const repo = dirname(fileURLToPath(import.meta.url));
 const help = [
@@ -17,6 +18,7 @@ const help = [
   "node rel.mjs types                              Supported target families",
   "node rel.mjs inspect TARGET --question TEXT     Classify without running tools",
   "node rel.mjs demo                               Preview our own lab",
+  "node rel.mjs lab [--open]                       Open visual learning lab locally",
   "node rel.mjs demo --run --out DIR                Run our verified lab",
   "node rel.mjs analyze TARGET --authorized --out DIR [--question TEXT]",
   "                                                Static JavaScript/Electron folder or ASAR",
@@ -31,6 +33,7 @@ function options(args) {
     json: false,
     run: false,
     authorized: false,
+    open: false,
     out: null,
     question: null,
     positional: [],
@@ -40,6 +43,7 @@ function options(args) {
     if (arg === "--json") values.json = true;
     else if (arg === "--run") values.run = true;
     else if (arg === "--authorized") values.authorized = true;
+    else if (arg === "--open") values.open = true;
     else if (["--out", "--question", "-q"].includes(arg)) {
       if (!args[i + 1] || args[i + 1].startsWith("--"))
         throw new Error(arg + " requires a value.");
@@ -57,6 +61,7 @@ try {
   } else {
     const settings = options(args);
     const [mode, target] = settings.positional;
+    if (settings.open && mode !== "lab") throw new Error("--open is available only for the local visual lab.");
     if (mode === "types" && settings.positional.length === 1) {
       if (settings.run || settings.authorized || settings.out)
         throw new Error("types is preview-only.");
@@ -87,6 +92,15 @@ try {
       console.log(
         "Project settings are not your personal Codex config. Only this REL fork was changed.",
       );
+    } else if (mode === "lab" && settings.positional.length === 1) {
+      if (settings.run || settings.authorized || settings.out || settings.json || settings.question)
+        throw new Error("Use node rel.mjs lab [--open] with no analysis flags.");
+      const { url } = await startLabServer();
+      console.log("REL Visual Lab — learn by seeing what the code does.");
+      console.log("Open this local address: " + url);
+      console.log("No internet, target execution, global Codex installation, or other projects involved.");
+      console.log("Press Ctrl+C to close the local lab.");
+      if (settings.open) openLabInBrowser(url);
     } else if (mode === "demo" && settings.positional.length === 1) {
       const lab = resolve(repo, "experiments/rel-first-lab");
       if (settings.run) {
