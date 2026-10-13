@@ -274,3 +274,16 @@ it("rejects an unbounded version token without echoing it", async () => {
   expect(evidence.error.message.length).toBeLessThan(4096);
   expect(evidence.error.userMessage?.length).toBeLessThan(4096);
 });
+
+it("retains the stdout of a rewrite that fails its gate", async () => {
+  scenario.rejectArguments = true;
+  scenario.rejectStdout = "usage: wrapper <file>\n";
+  const evidence = await recover(["a.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(await readFile(result.report.path, "utf8")).toContain(
+    "usage: wrapper <file>",
+  );
+});

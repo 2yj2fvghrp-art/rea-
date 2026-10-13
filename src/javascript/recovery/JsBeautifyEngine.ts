@@ -276,6 +276,8 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
     phases.retain(`# ${JSON.stringify(name)}\n`, run.stderr, !verdict.passed);
+    if (!verdict.passed && run.stdout !== "")
+      phases.retain(`# ${JSON.stringify(name)} stdout\n`, run.stdout, true);
     runs.push({
       module: name,
       input: source.snapshot_path,
@@ -287,7 +289,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
         filename: name,
         kind: "validity-gate",
         is_error: true,
-        message: `jsbeautify exit ${String(run.exit_code)}${run.signal === null ? "" : ` (signal ${run.signal})`}; re-parse ${REPARSE_PHASES.map((phase) => `${phase}=${String(verdict.reparse[phase])}`).join(", ")}; the output was not published; its complete stderr is in reports/phases.log`,
+        message: `jsbeautify exit ${String(run.exit_code)}${run.signal === null ? "" : ` (signal ${run.signal})`}; re-parse ${REPARSE_PHASES.map((phase) => `${phase}=${String(verdict.reparse[phase])}`).join(", ")}; the output was not published; its complete stderr and stdout are in reports/phases.log`,
       });
       continue;
     }
