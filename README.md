@@ -51,6 +51,10 @@ REL is **not an AI model and not a replacement for the underlying reverse-engine
 
 A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful _small-sample_ test, not a universal capability claim.
 
+## MacBook-first setup
+
+We're developing REL primarily for macOS while preserving upstream cross-platform providers. **Start with `node rel.mjs doctor`** (read-only), then `node rel.mjs lab --open`. Doctor detects Intel versus Apple Silicon, supported Node versions, RAM, available disk space and optional tools on your actual machine. It doesn't install anything or enable global Codex integrations. See the [Mac setup and performance guide](rel/MAC_SETUP.md).
+
 ## First run in a terminal
 
 These commands are for macOS/Linux terminals. Windows users can use an appropriately configured Node terminal and choose a platform-specific output directory.

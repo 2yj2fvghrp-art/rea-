@@ -10,6 +10,7 @@ import {
 } from "./rel/intake.mjs";
 import { runStaticAnalysis } from "./rel/analyze-static.mjs";
 import { startLabServer, openLabInBrowser } from "./rel/lab-server.mjs";
+import { diagnoseMac, formatMacDiagnosis } from "./rel/mac-doctor.mjs";
 
 const repo = dirname(fileURLToPath(import.meta.url));
 const help = [
@@ -23,6 +24,7 @@ const help = [
   "node rel.mjs analyze TARGET --authorized --out DIR [--question TEXT]",
   "                                                Static JavaScript/Electron folder or ASAR",
   "node rel.mjs codex                              Check Codex project setup",
+  "node rel.mjs doctor [--json]                    Read-only Mac readiness check",
   "",
   "All output goes outside the REL repository. Other target families use REA's",
   "documented providers/MCP tools, not a fabricated universal analyzer.",
@@ -63,7 +65,12 @@ try {
     const [mode, target] = settings.positional;
     if (settings.open && mode !== "lab")
       throw new Error("--open is available only for the local visual lab.");
-    if (mode === "types" && settings.positional.length === 1) {
+    if (mode === "doctor" && settings.positional.length === 1) {
+      if (settings.run || settings.authorized || settings.out || settings.question || settings.open)
+        throw new Error("Use doctor [--json] without execution or analysis flags.");
+      const diagnosis = diagnoseMac();
+      console.log(settings.json ? JSON.stringify(diagnosis, null, 2) : formatMacDiagnosis(diagnosis));
+    } else if (mode === "types" && settings.positional.length === 1) {
       if (settings.run || settings.authorized || settings.out)
         throw new Error("types is preview-only.");
       const list = availableCategories();

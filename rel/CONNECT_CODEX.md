@@ -4,6 +4,10 @@ REL has two distinct interfaces. The beginner CLI (`node rel.mjs`) previews arbi
 
 **This document is a guide, not a claim that your machine or personal Codex session has been configured.** All steps below are optional and affect only the environment where you run them. Current development work remains limited to this REL repository.
 
+## Your Mac first
+
+Before installing a full REA toolchain, from this REL checkout run `node rel.mjs doctor`. It checks your actual Mac architecture, memory, free disk, Node version and optional commands. See [macOS setup](MAC_SETUP.md). **Neither GitHub CI nor the GitHub connector can remotely detect your physical Mac's CPU or RAM.**
+
 ## Step 1 — clone and build the actual fork
 
 From a macOS/Linux terminal, while the work is on a draft branch:
