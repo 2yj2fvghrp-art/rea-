@@ -152,8 +152,8 @@ REA-installed `~/.claude/skills/reverse-engineer-anything` directory. Preserve
 unrelated registrations and skills. `rea uninstall` applies to other clients
 as well, so it is broader than this Claude-only migration.
 
-**A separate Claude Code profile.** Claude Code keeps settings, skills, session
-history, and its login under `CLAUDE_CONFIG_DIR`. Setup follows the same
+**A separate Claude Code profile.** Claude Code keeps settings, skills and session
+history under `CLAUDE_CONFIG_DIR`. Setup follows the same
 variable: it writes the registration to `$CLAUDE_CONFIG_DIR/.claude.json` and
 the skill to `$CLAUDE_CONFIG_DIR/skills`.
 
@@ -162,8 +162,11 @@ CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents setup --client claude_code
 CLAUDE_CONFIG_DIR=~/.claude-rea claude
 ```
 
-The profile needs its own login. Sessions started without the variable use
-the default profile rather than this profile's registration, skill, and history.
+A new profile may need authentication. Console sign-ins without an API key use
+Anthropic profiles outside `CLAUDE_CONFIG_DIR`; see
+[Claude Code authentication](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
+Sessions started without the variable use the default profile's registration,
+skill and history.
 
 Inline assignments apply only to that command. Keep the same prefix for every
 profile check, setup rerun, update, or removal; bare commands use the current
