@@ -33,6 +33,8 @@ describe("browser observation contracts", () => {
       "https://*.example.com",
       "https://example.com/path",
       "https://example.com/?token=secret",
+      "https://example.com/?",
+      "https://example.com/#",
       "https://user:pass@example.com",
       "file:///tmp/page.html",
     ])
@@ -51,6 +53,8 @@ describe("browser observation contracts", () => {
       "http://192.168.1.2:9222",
       "https://127.0.0.1:9222",
       "http://127.0.0.1:9222/json/list",
+      "http://127.0.0.1:9222/?",
+      "http://127.0.0.1:9222/#",
       "http://user:pass@127.0.0.1:9222",
     ])
       expect(browserEndpointSchema.safeParse(value).success, value).toBe(false);
