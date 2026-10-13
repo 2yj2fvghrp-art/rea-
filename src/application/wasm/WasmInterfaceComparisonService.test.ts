@@ -178,3 +178,21 @@ it("resolves exact retained references and permits cancellation between comparis
     error: { _tag: "AnalysisCancelledError" },
   });
 });
+
+it.each([false, true])(
+  "keeps a one-sided unsupported interface unknown with reverse=%s",
+  async (reverse) => {
+    const empty: WasmInterface = { state: "complete", issues: [], entries: [] };
+    const unsupported = facts("exception");
+    unsupported.entries[0]!.signature = null;
+    unsupported.entries[0]!.issue = "Unsupported exnref global type";
+    const sides = reverse ? [unsupported, empty] : [empty, unsupported];
+    expect(await compare(evidence(sides[0]), evidence(sides[1]))).toMatchObject(
+      {
+        coverage: "partial",
+        summary: { added: 0, removed: 0, unknown: 1 },
+        changes: [{ state: "unknown" }],
+      },
+    );
+  },
+);

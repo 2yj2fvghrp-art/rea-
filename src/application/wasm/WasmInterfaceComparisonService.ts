@@ -150,33 +150,22 @@ export const compareWasmInterfaces = async (
         state = "unknown";
         reason =
           "Incomplete interface inventories cannot establish per-key uniqueness or absence";
-      } else if (l === undefined) {
-        state = knownInventory(left) ? "added" : "unknown";
-        reason =
-          state === "unknown"
-            ? "Left interface inventory was not completely examined"
-            : null;
-      } else if (r === undefined) {
-        state = knownInventory(right) ? "removed" : "unknown";
-        reason =
-          state === "unknown"
-            ? "Right interface inventory was not completely examined"
-            : null;
       } else if (
-        l.kind !== r.kind &&
-        l.kind !== "unknown" &&
-        r.kind !== "unknown"
-      )
-        state = "changed";
-      else if (
-        l.signature === null ||
-        r.signature === null ||
-        l.issue !== null ||
-        r.issue !== null
+        [l, r].some(
+          (entry) =>
+            entry !== undefined &&
+            (entry.signature === null ||
+              entry.issue !== null ||
+              entry.kind === "unknown"),
+        )
       ) {
         state = "unknown";
-        reason = "Signature/type semantics were not admitted on both sides";
-      } else
+        reason =
+          "Signature/type semantics were not admitted for every present entry";
+      } else if (l === undefined) state = "added";
+      else if (r === undefined) state = "removed";
+      else if (l.kind !== r.kind) state = "changed";
+      else
         state =
           JSON.stringify(l.signature) === JSON.stringify(r.signature)
             ? "unchanged"
