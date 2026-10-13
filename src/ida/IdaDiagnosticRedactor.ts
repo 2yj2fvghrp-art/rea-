@@ -1,6 +1,10 @@
-import { redactIdaJsonDiagnostic } from "./IdaJsonDiagnostic.js";
+import {
+  redactIdaJsonDiagnostic,
+  redactIdaUnclassifiedDiagnostic,
+} from "./IdaJsonDiagnostic.js";
 import {
   IDA_REDACTION_MARKER,
+  joinIdaDiagnosticParts,
   writeIdaDiagnostic,
   type IdaDiagnosticMatch,
 } from "./IdaDiagnosticWriter.js";
@@ -15,7 +19,7 @@ const boundedDiagnostic =
   (redact: (message: string) => string) =>
   (message: string): string =>
     Buffer.byteLength(message, "utf8") > IDA_DIAGNOSTIC_SOURCE_BYTES
-      ? omittedDiagnostic
+      ? redact(omittedDiagnostic)
       : redact(message);
 
 /** RFC 7617 user-pass candidates; the configured request carries no charset. */
@@ -135,12 +139,17 @@ const redactionMarker = (secrets: readonly string[]): string => {
 
 /** Own configured credential interpretation for all IDA error diagnostics. */
 export const createIdaDiagnosticRedactor = (
-  config: IdaConfiguration,
+  config?: IdaConfiguration,
 ): Readonly<{
   text(message: string): string;
   json(message: string): string;
+  blocks(messages: readonly string[]): string;
+  message(prefix: string, ownedBody: string): string;
 }> => {
-  const headers = "headers" in config ? Object.entries(config.headers) : [];
+  const headers =
+    config !== undefined && "headers" in config
+      ? Object.entries(config.headers)
+      : [];
   const values = headers.flatMap(([name, value]) => {
     if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
       return [];
@@ -158,18 +167,19 @@ export const createIdaDiagnosticRedactor = (
   const secrets = [...new Set(values.filter((value) => value.length > 0))].sort(
     (left, right) => right.length - left.length,
   );
-  if (secrets.length === 0) {
-    const unchanged = boundedDiagnostic((message) => message);
-    return { text: unchanged, json: unchanged };
-  }
-  const replacement = redactionMarker(secrets);
+  const replacement =
+    secrets.length === 0 ? IDA_REDACTION_MARKER : redactionMarker(secrets);
   const alternatives = secrets
     .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
     .join("|");
   // Look ahead at each source position; a global consuming match loses overlap.
   // Longest-first alternatives cover every shorter match at the same position.
-  const pattern = new RegExp("(?=(" + alternatives + "))", "gu");
+  const pattern =
+    alternatives.length === 0
+      ? undefined
+      : new RegExp("(?=(" + alternatives + "))", "gu");
   const matches = function* (value: string): Iterable<IdaDiagnosticMatch> {
+    if (pattern === undefined) return;
     let pending: IdaDiagnosticMatch | undefined;
     for (const match of value.matchAll(pattern)) {
       const credential = match[1];
@@ -190,12 +200,44 @@ export const createIdaDiagnosticRedactor = (
     }
     if (pending !== undefined) yield pending;
   };
+  const text = boundedDiagnostic((message) =>
+    writeIdaDiagnostic(message, matches(message), replacement),
+  );
+  const json = boundedDiagnostic((message) =>
+    secrets.length === 0
+      ? message
+      : redactIdaJsonDiagnostic(message, matches, replacement),
+  );
   return {
-    text: boundedDiagnostic((message) =>
-      writeIdaDiagnostic(message, matches(message), replacement),
-    ),
-    json: boundedDiagnostic((message) =>
-      redactIdaJsonDiagnostic(message, matches, replacement),
-    ),
+    text,
+    json,
+    blocks(messages) {
+      let bytes = 0;
+      let sourceUnits = 0;
+      for (let index = 0; index < messages.length; index++) {
+        const value = messages[index]!;
+        bytes += Buffer.byteLength(value, "utf8") + (index === 0 ? 0 : 1);
+        sourceUnits += value.length + (index === 0 ? 0 : 1);
+        if (bytes > IDA_DIAGNOSTIC_SOURCE_BYTES) return text(omittedDiagnostic);
+      }
+      function* parts(): Generator<string> {
+        for (let index = 0; index < messages.length; index++) {
+          if (index > 0) yield "\n";
+          const value = messages[index]!;
+          yield secrets.length === 0 || value.length === 0
+            ? value
+            : redactIdaUnclassifiedDiagnostic(value, matches, replacement);
+        }
+      }
+      return joinIdaDiagnosticParts(parts(), sourceUnits);
+    },
+    message(prefix, ownedBody) {
+      // Normalized wire headers and supported decoded candidates have no LF.
+      // Preserve the already-owned body without inspecting its replacement text.
+      return joinIdaDiagnosticParts(
+        [text(prefix), "\n", ownedBody],
+        prefix.length + 1 + ownedBody.length,
+      );
+    },
   };
 };

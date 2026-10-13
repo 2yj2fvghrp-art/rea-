@@ -523,3 +523,41 @@ describe("credential-safe redaction markers", () => {
     );
   });
 });
+
+describe("unclassified diagnostic blocks and message ownership", () => {
+  it.each<Readonly<Record<string, string>>>([{}, { Cookie: "a=Q" }])(
+    "budgets the entire source block list before redaction: %s",
+    (headers) => {
+      const redactor = createIdaDiagnosticRedactor({
+        url: "http://127.0.0.1:12345/mcp",
+        mode: "attached",
+        timeoutMs: 1000,
+        headers,
+      });
+      const first = "£".repeat(IDA_DIAGNOSTIC_SOURCE_BYTES / 4);
+      expect(redactor.blocks([first, first])).toBe(
+        "[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]",
+      );
+      expect(redactor.blocks([first, first.slice(1)])).toBe(
+        first + "\n" + first.slice(1),
+      );
+    },
+  );
+  it("keeps complete quoted plain credentials while preserving explicit JSON semantics", () => {
+    const redactor = redactorFor(String.raw`Custom folder\tmp`);
+    const source = String.raw`"folder\tmp at /caller/input"`;
+    expect(redactor.blocks([source])).toBe(
+      '"[redacted transport credential] at /caller/input"',
+    );
+    expect(redactor.json(source)).toBe(source);
+  });
+  it("sanitizes the omission notice as diagnostic text", () => {
+    const redactor = redactorFor("Custom omitted");
+    expect(
+      redactor.blocks(["Q".repeat(IDA_DIAGNOSTIC_SOURCE_BYTES + 1)]),
+    ).toContain("[redacted transport credential]");
+    expect(
+      redactor.text("Q".repeat(IDA_DIAGNOSTIC_SOURCE_BYTES + 1)),
+    ).not.toContain("omitted");
+  });
+});

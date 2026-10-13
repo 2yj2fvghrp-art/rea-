@@ -14,7 +14,7 @@ describe("upstream IDA tool result decoding", () => {
       headers: { Authorization: "Bearer fixture-secret" },
       mode: "attached",
       timeoutMs: 1000,
-    }).text;
+    });
     const evidence = "Caller-selected fixture-secret evidence";
     expect(
       decodeIdaToolResult(
@@ -44,7 +44,7 @@ describe("upstream IDA tool result decoding", () => {
       headers: { Authorization: "Bearer fixture-secret" },
       mode: "attached",
       timeoutMs: 1000,
-    }).text;
+    });
     expect(() =>
       decodeIdaToolResult(
         {
@@ -271,3 +271,53 @@ it.each([
     }
   },
 );
+
+it("redacts JSON character candidates in unclassified SDK errors", async () => {
+  const connection = failingHttpConnection(
+    'q"uote',
+    new Error(String.raw`network context {"error":"q\"uote"} at /caller/input`),
+  );
+  try {
+    const failure = await connection.connect().catch((cause: unknown) => cause);
+    if (!(failure instanceof Error)) throw new Error("Expected SDK failure");
+    expect(failure.message).toContain(
+      '{"error":"[redacted transport credential]"} at /caller/input',
+    );
+    expect(inspectRetainedError(failure)).not.toContain(String.raw`q\"uote`);
+  } finally {
+    await connection.close();
+  }
+});
+
+it("owns unclassified truncated-output hints separately from their context", () => {
+  const diagnostic = createIdaDiagnosticRedactor({
+    url: "http://127.0.0.1:12345/mcp",
+    mode: "attached",
+    timeoutMs: 1000,
+    headers: { Authorization: 'Custom q"uote' },
+  });
+  let failure: unknown;
+  try {
+    decodeIdaToolResult(
+      {
+        content: [],
+        _meta: {
+          ida_mcp: {
+            output_truncated: true,
+            download_hint: String.raw`{"error":"q\"uote","path":"/caller/output"}`,
+          },
+        },
+      },
+      undefined,
+      diagnostic,
+    );
+  } catch (cause: unknown) {
+    failure = cause;
+  }
+  if (!(failure instanceof Error))
+    throw new Error("Expected truncation failure");
+  expect(failure.message).toContain(
+    '{"error":"[redacted transport credential]","path":"/caller/output"}',
+  );
+  expect(inspectRetainedError(failure)).not.toContain(String.raw`q\"uote`);
+});

@@ -318,3 +318,20 @@ describe("overlapping raw and decoded JSON credential spans", () => {
     expect(result).toBe('"' + marker + '"');
   });
 });
+
+it("bounds the final multi-block diagnostic representation", () => {
+  runtime.limit = 64;
+  const redactor = forCredential("Q");
+  expect(() => redactor.blocks(["QQ", "QQ"])).toThrow(
+    IdaDiagnosticResourceError,
+  );
+});
+
+it("bounds context plus the already-owned diagnostic body before joining", () => {
+  runtime.limit = 64;
+  const redactor = forCredential("Q");
+  const body = redactor.text("QQ");
+  expect(() => redactor.message("ctx", body)).toThrow(
+    IdaDiagnosticResourceError,
+  );
+});

@@ -26,6 +26,7 @@ vi.mock("../../../src/ida/IdaDiagnosticRedactor.js", async (importOriginal) => {
     ) => {
       const redactor = actual.createIdaDiagnosticRedactor(config);
       return {
+        ...redactor,
         text: redactor.text,
         json: (message: string) => {
           if (message === "fixture-resource-boundary")
@@ -331,7 +332,7 @@ it.each([false, true])(
     const reason =
       "Rejected [redacted transport credential] / [redacted transport credential] / [redacted transport credential] / [redacted transport credential] / [redacted transport credential] at " +
       context;
-    expect(failure.message).toBe("IDA MCP tool failed: " + reason);
+    expect(failure.message).toBe("IDA MCP tool failed: \n" + reason);
     expect(projectAnalysisError(failure)).toMatchObject({
       code: "unreadable_output",
       details: { diagnostics: { reason } },
@@ -455,7 +456,7 @@ it.each(
       payloads.map(() => "[redacted transport credential]").join(" / ") +
       " at " +
       context;
-    expect(failure.message).toBe("IDA MCP tool failed: " + reason);
+    expect(failure.message).toBe("IDA MCP tool failed: \n" + reason);
     expect(projectAnalysisError(failure)).toMatchObject({
       code: "unreadable_output",
       details: { diagnostics: { reason } },
@@ -1217,7 +1218,7 @@ it.each(["tool rejection", "HTTP rejection", "malformed HTTP JSON"] as const)(
         : {
             toolStatus: source === "HTTP rejection" ? 500 : 200,
             toolResponseBody:
-              String.raw`{"reason":"Rejected X]SECRET at /caller/input"` +
+              String.raw`{"reason":"Rejected X\u005dSECRET at /caller/input"` +
               (source === "HTTP rejection" ? "}" : ",x"),
           }),
     });
@@ -1251,3 +1252,152 @@ it("does not introduce a credential at a redaction-marker boundary in a real HTT
     "]SECRET",
   );
 });
+
+it.each(
+  [
+    {
+      label: "Basic pair and leading-space password",
+      authorization: "Basic ZmFpbGVkOiBwdWJsaWM=",
+      forbidden: ["failed: public", " public"],
+    },
+    {
+      label: "opaque payload spanning the tool prefix and body",
+      authorization: "Custom failed: public",
+      forbidden: ["failed: public"],
+    },
+    {
+      label: "credential equal to the fixed tool prefix",
+      authorization: "Custom IDA MCP tool failed",
+      forbidden: ["IDA MCP tool failed"],
+    },
+  ].flatMap((testCase) =>
+    [false, true].map((native) => ({ ...testCase, native })),
+  ),
+)(
+  "keeps tool-error owners separate for $label (native: $native)",
+  async ({ authorization, forbidden, native }) => {
+    const { connection } = await fixture({
+      native,
+      configurationHeaders: { Authorization: authorization },
+      toolResult: {
+        isError: true,
+        content: [{ type: "text", text: "public" }],
+      },
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof AnalysisProtocolError))
+      throw new Error("Expected the tool rejection to remain a protocol error");
+    expect(failure.message).toContain("public");
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "unreadable_output",
+      details: { diagnostics: { reason: "public" } },
+    });
+    for (const credential of forbidden)
+      expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+        credential,
+      );
+  },
+);
+
+const toolDiagnosticBlockCases: readonly {
+  label: string;
+  headers: Readonly<Record<string, string>>;
+  blocks: readonly string[];
+  safeBlocks: readonly string[];
+}[] = [
+  {
+    label: "JSON-escaped quoted credential without rewriting other source",
+    headers: { Authorization: 'Custom q"uote' },
+    blocks: [
+      '{"error":"Rejected q\\"uote at /caller/input","amount":9007199254740993,"duplicate":1,"duplicate":2}',
+    ],
+    safeBlocks: [
+      '{"error":"Rejected [redacted transport credential] at /caller/input","amount":9007199254740993,"duplicate":1,"duplicate":2}',
+    ],
+  },
+  {
+    label: "independent JSON arrays, escaped keys and surrogate pairs",
+    headers: {
+      Authorization:
+        "Basic " + Buffer.from("user:😀", "utf8").toString("base64"),
+      Cookie: "token=<json-secret>; syntax=u003c",
+    },
+    blocks: [
+      "Plain status at /caller/plain",
+      '[{"path":"/caller/array"},"\\u003cjson-secret\\u003e"]',
+      '{"\\u003cjson-secret\\u003e":"key context","emoji":"\\uD83d\\uDE00 at /caller/emoji"}',
+      '{"public":"\\u003cpublic\\u003e","amount":9007199254740993}',
+    ],
+    safeBlocks: [
+      "Plain status at /caller/plain",
+      '[{"path":"/caller/array"},"[redacted transport credential]"]',
+      '{"[redacted transport credential]":"key context","emoji":"[redacted transport credential] at /caller/emoji"}',
+      '{"public":"\\[redacted transport credential]public\\u003e","amount":9007199254740993}',
+    ],
+  },
+  {
+    label:
+      "unclassified text retains both raw and decoded credential candidates",
+    headers: {
+      Authorization: "Custom folder\\tmp",
+      Cookie: "token=<public>",
+    },
+    blocks: [
+      "Rejected folder\\tmp at /caller/plain; literal \\u003cpublic\\u003e",
+    ],
+    safeBlocks: [
+      "Rejected [redacted transport credential] at /caller/plain; literal [redacted transport credential]",
+    ],
+  },
+  {
+    label: "quoted plain backslash credential despite valid JSON appearance",
+    headers: { Authorization: "Custom folder\\tmp" },
+    blocks: [String.raw`"folder\tmp at /caller/input"`],
+    safeBlocks: ['"[redacted transport credential] at /caller/input"'],
+  },
+  {
+    label: "malformed JSON quote escapes and independent context",
+    headers: { Authorization: 'Custom q"uote' },
+    blocks: [
+      String.raw`{"error":"Rejected q\"uote at /caller/input`,
+      "Second context at /caller/second",
+    ],
+    safeBlocks: [
+      '{"error":"Rejected [redacted transport credential] at /caller/input',
+      "Second context at /caller/second",
+    ],
+  },
+];
+
+it.each(
+  toolDiagnosticBlockCases.flatMap((testCase) =>
+    [false, true].map((native) => ({ ...testCase, native })),
+  ),
+)(
+  "owns each SDK tool diagnostic block as $label (native: $native)",
+  async ({ headers, blocks, safeBlocks, native }) => {
+    const { connection } = await fixture({
+      native,
+      configurationHeaders: headers,
+      toolResult: {
+        isError: true,
+        content: blocks.map((text) => ({ type: "text", text })),
+      },
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof AnalysisProtocolError))
+      throw new Error("Expected the tool rejection to remain a protocol error");
+    const reason = safeBlocks.join("\n");
+    expect(failure.message.endsWith(reason)).toBe(true);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "unreadable_output",
+      details: { diagnostics: { reason } },
+    });
+  },
+);

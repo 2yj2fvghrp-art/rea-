@@ -33,6 +33,23 @@ export class IdaDiagnosticResourceError extends AnalysisResourceConstraintError 
   }
 }
 
+/** Account for the complete representation before allocating its final string. */
+export const joinIdaDiagnosticParts = (
+  parts: Iterable<string>,
+  inputCodeUnits: number,
+): string => {
+  function* checkedParts(): Generator<string> {
+    let outputCodeUnits = 0;
+    for (const part of parts) {
+      outputCodeUnits += part.length;
+      if (outputCodeUnits > constants.MAX_STRING_LENGTH)
+        throw new IdaDiagnosticResourceError(inputCodeUnits, outputCodeUnits);
+      yield part;
+    }
+  }
+  return [...bufferedJsonParts(checkedParts())].join("");
+};
+
 /** Write ordered source spans without retaining a per-match collection. */
 export const writeIdaDiagnostic = (
   text: string,
@@ -41,13 +58,6 @@ export const writeIdaDiagnostic = (
 ): string => {
   function* parts(): Generator<string> {
     let cursor = 0;
-    let outputCodeUnits = 0;
-    const account = (part: string): string => {
-      outputCodeUnits += part.length;
-      if (outputCodeUnits > constants.MAX_STRING_LENGTH)
-        throw new IdaDiagnosticResourceError(text.length, outputCodeUnits);
-      return part;
-    };
     let pending: IdaDiagnosticMatch | undefined;
     for (const match of matches) {
       if (pending !== undefined && match.start < pending.end) {
@@ -58,18 +68,18 @@ export const writeIdaDiagnostic = (
         continue;
       }
       if (pending !== undefined) {
-        yield account(text.slice(cursor, pending.start));
-        yield account(replacement);
+        yield text.slice(cursor, pending.start);
+        yield replacement;
         cursor = pending.end;
       }
       pending = match;
     }
     if (pending !== undefined) {
-      yield account(text.slice(cursor, pending.start));
-      yield account(replacement);
+      yield text.slice(cursor, pending.start);
+      yield replacement;
       cursor = pending.end;
     }
-    yield account(text.slice(cursor));
+    yield text.slice(cursor);
   }
-  return [...bufferedJsonParts(parts())].join("");
+  return joinIdaDiagnosticParts(parts(), text.length);
 };

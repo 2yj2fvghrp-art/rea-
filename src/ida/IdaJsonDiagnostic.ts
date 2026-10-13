@@ -202,3 +202,15 @@ export const redactIdaJsonDiagnostic = (
     replacement,
   );
 };
+
+/** Untyped producer text retains both literal and JSON character interpretations. */
+export const redactIdaUnclassifiedDiagnostic = (
+  text: string,
+  matches: Matches,
+  replacement: string = IDA_REDACTION_MARKER,
+): string =>
+  writeIdaDiagnostic(
+    text,
+    mergeMatches(matches(text), decodedMatches(text, matches)),
+    replacement,
+  );

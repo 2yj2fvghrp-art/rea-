@@ -73,22 +73,29 @@ const parseIdaJsonText = (text: string): JsonValue => {
 export const decodeIdaToolResult = (
   input: unknown,
   protocol?: "native",
-  redactDiagnostic: (message: string) => string = (message) => message,
+  diagnostic: IdaDiagnosticRedactor = createIdaDiagnosticRedactor(),
 ): JsonValue => {
   const result = toolResultSchema.parse(input);
   const blocks = result.content.flatMap((block) =>
     block.type === "text" && block.text !== undefined ? [block.text] : [],
   );
   if (result.isError === true) {
-    const reason = redactDiagnostic(blocks.join("\n"));
-    throw new AnalysisProtocolError(`IDA MCP tool failed: ${reason}`, {
-      diagnostics: { reason },
-    });
+    const reason = diagnostic.blocks(blocks);
+    throw new AnalysisProtocolError(
+      diagnostic.message("IDA MCP tool failed: ", reason),
+      {
+        diagnostics: { reason },
+      },
+    );
   }
   if (result._meta?.ida_mcp?.output_truncated === true)
     throw new AnalysisProtocolError(
-      redactDiagnostic(
-        `IDA MCP truncated its output; the preview cannot establish a complete observation. ${result._meta.ida_mcp.download_hint ?? "Use the upstream output download workflow to retrieve the full result."}`,
+      diagnostic.message(
+        "IDA MCP truncated its output; the preview cannot establish a complete observation. ",
+        diagnostic.blocks([
+          result._meta.ida_mcp.download_hint ??
+            "Use the upstream output download workflow to retrieve the full result.",
+        ]),
       ),
     );
   // Native MCP retains the complete JSON text while structuredContent may
@@ -126,9 +133,10 @@ export const decodeIdaToolResult = (
 class IdaHttpJsonError extends Error {
   constructor(text: string, redactor: IdaDiagnosticRedactor) {
     super(
-      redactor.text("IDA MCP returned malformed HTTP JSON. Response body: ") +
-        "\n" +
+      redactor.message(
+        "IDA MCP returned malformed HTTP JSON. Response body: ",
         text,
+      ),
     );
   }
 }
@@ -215,8 +223,9 @@ const httpErrorBody = (
   text: string,
   redactor: IdaDiagnosticRedactor,
 ): string => {
-  const omitted =
-    "IDA MCP response body omitted: unsupported or unknown format or character encoding.";
+  const omitted = redactor.text(
+    "IDA MCP response body omitted: unsupported or unknown format or character encoding.",
+  );
   const contentType = response.headers.get("content-type");
   if (contentType === null) return omitted;
   const mediaType = parseIdaContentType(contentType);
@@ -312,8 +321,8 @@ export const createIdaMcpConnection = (
       // Normalized wire headers and supported decoded candidates have no LF.
       // Separating owners prevents their concatenation from spelling a credential.
       const safeMessage = ownedPostBody
-        ? redactor.text(prefix) + "\n" + body
-        : redactor.text(message);
+        ? redactor.message(prefix, body)
+        : redactor.blocks([message]);
       failure = new Error(safeMessage, {
         cause: retainedTransportCause(cause, safeMessage),
       });
@@ -327,7 +336,7 @@ export const createIdaMcpConnection = (
       diagnostics: { reason: failure.message },
       capturedOutput: {
         stdout: "",
-        stderr: redactor.text(stderr.subarray(start).toString("utf8")),
+        stderr: redactor.blocks([stderr.subarray(start).toString("utf8")]),
         truncated: stderrBytes > stderr.length - start,
         stdout_bytes: 0,
         stderr_bytes: stderrBytes,
@@ -386,7 +395,7 @@ export const createIdaMcpConnection = (
           .callTool({ name, arguments: args }, { timeout: config.timeoutMs })
           .catch(transportFailure),
         config.protocol,
-        redactor.text,
+        redactor,
       );
     },
     async readResource(uri) {

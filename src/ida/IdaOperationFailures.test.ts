@@ -1,6 +1,7 @@
 import { rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   createIdaTarget,
   RecordingIdaMcp,
@@ -35,7 +36,7 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
     timeoutMs: 1000,
     workspaceRoot: root,
   };
-  const redact = createIdaDiagnosticRedactor(config).text;
+  const redactor = createIdaDiagnosticRedactor(config);
   producer.beforeCall = async (name) => {
     if (name === "decompile")
       decodeIdaToolResult(
@@ -49,7 +50,7 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
           ],
         },
         undefined,
-        redact,
+        redactor,
       );
   };
   const safeReason =
@@ -73,7 +74,7 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
             observations: [expect.objectContaining({ tool: "lookup_funcs" })],
             target_binding: {
               status: "not_verified",
-              reason: "IDA MCP tool failed: " + safeReason,
+              reason: "IDA MCP tool failed: \n" + safeReason,
             },
           },
         },
@@ -101,6 +102,109 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
       code: "ENOENT",
     });
   }
+});
+
+describe("headless IDA tool diagnostics in partial evidence", () => {
+  const callerPath = "/caller/input?token=visible";
+  const marker = "[redacted transport credential]";
+  it.each([
+    {
+      name: "a decoded Basic password matching the tool failure prefix",
+      password: "failed",
+      upstream: "Rejected decompile request for " + callerPath,
+      safeReason: "Rejected decompile request for " + callerPath,
+      forbiddenInBinding: ["failed"],
+    },
+    {
+      name: "a JSON-encoded tool explanation",
+      password: "<secret>",
+      upstream: String.raw`{"reason":"\u003csecret\u003e","user":"user","path":"/caller/input?token=visible"}`,
+      safeReason:
+        '{"reason":"' +
+        marker +
+        '","user":"user","path":"/caller/input?token=visible"}',
+      forbiddenInBinding: ["<secret>", String.raw`\u003csecret\u003e`],
+    },
+  ])(
+    "redacts $name before retaining the public target-binding reason",
+    async ({ password, upstream, safeReason, forbiddenInBinding }) => {
+      const { root, target } = await createIdaTarget();
+      roots.push(root);
+      const producer = new RecordingIdaMcp(target, "headless");
+      const config = {
+        url: "http://127.0.0.1:12345/mcp",
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from("user:" + password, "utf8").toString("base64"),
+        },
+        mode: "headless" as const,
+        timeoutMs: 1000,
+        workspaceRoot: root,
+      };
+      const redactor = createIdaDiagnosticRedactor(config);
+      producer.beforeCall = async (name) => {
+        if (name === "decompile")
+          decodeIdaToolResult(
+            { isError: true, content: [{ type: "text", text: upstream }] },
+            undefined,
+            redactor,
+          );
+      };
+      const client = new IdaSessionClient(config, target, producer);
+      try {
+        const result = await client.execute("procedure_pseudo_code", {
+          procedure: "main",
+        });
+        if (result.ok) throw new Error("Expected the producer's tool error");
+        const projected = projectAnalysisError(result.error);
+        expect(projected).toMatchObject({
+          code: "unreadable_output",
+          details: {
+            partial_observation: {
+              provider: { id: "ida" },
+              operation: "procedure_pseudo_code",
+              normalized_result: {
+                status: "partial",
+                observations: [
+                  expect.objectContaining({ tool: "lookup_funcs" }),
+                ],
+                target_binding: {
+                  status: "not_verified",
+                  reason: expect.any(String),
+                },
+              },
+            },
+          },
+        });
+        const details = z
+          .object({
+            diagnostics: z.object({ reason: z.string() }),
+            partial_observation: z.object({
+              normalized_result: z.object({
+                target_binding: z.object({ reason: z.string() }),
+              }),
+            }),
+          })
+          .parse(projected.details);
+        const bindingReason =
+          details.partial_observation.normalized_result.target_binding.reason;
+        for (const credential of forbiddenInBinding)
+          expect.soft(bindingReason).not.toContain(credential);
+        expect.soft(bindingReason).toContain(marker);
+        expect(bindingReason).toContain(callerPath);
+        expect.soft(details.diagnostics.reason).toBe(safeReason);
+      } finally {
+        expect((await client.close()).ok).toBe(true);
+        expect(
+          producer.calls.filter(({ name }) => name === "idb_close"),
+        ).toHaveLength(1);
+        await expect(stat(dirname(producer.inputPath))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }
+    },
+  );
 });
 
 describe("headless IDA partial operation evidence", () => {
