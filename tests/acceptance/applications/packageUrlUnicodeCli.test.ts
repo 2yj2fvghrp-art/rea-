@@ -127,6 +127,16 @@ const requests = [
     path: "",
     status: "rejected" as const,
   },
+  {
+    specifier: "legacy/../../../outside.js",
+    path: "outside.js",
+    status: "root-legacy" as const,
+  },
+  {
+    specifier: "legacy/../../../absent.js",
+    path: "",
+    status: "not-found" as const,
+  },
   ...Object.entries(targets).flatMap(([name, target]) => [
     { specifier: `#${name}`, path: "feature.js", status: target.imports },
     {
@@ -158,6 +168,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const application = join(root, "application");
     await mkdir(application);
     const fixture = join(root, "source");
+    await writeFixtureFiles(fixture, { "outside.js": "export default 4;" });
     const prefixes = ["highxx", "lowxxx", "valid\ud83d\ude00"];
     for (const prefix of prefixes)
       await writeFixtureFiles(join(fixture, prefix), {
@@ -212,10 +223,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
           const base = `app.asar/${prefix}`;
           const available =
             prefix.startsWith("valid") ||
+            request.status === "root-legacy" ||
             (mode === "require" && request.status === "legacy");
           const fileStatus = available ? "resolved" : "unavailable";
           const status =
-            request.status === "relative" || request.status === "legacy"
+            request.status === "relative" ||
+            request.status === "legacy" ||
+            request.status === "root-legacy"
               ? fileStatus
               : request.status;
           expect(graph.edges).toContainEqual(
@@ -226,7 +240,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
                 specifier: request.specifier,
                 resolution_status: status,
                 resolved_path:
-                  status === "resolved" ? `${base}/${request.path}` : null,
+                  status === "resolved"
+                    ? `${request.status === "root-legacy" ? "app.asar" : base}/${request.path}`
+                    : null,
               }),
               evidence: expect.objectContaining({
                 limitations:

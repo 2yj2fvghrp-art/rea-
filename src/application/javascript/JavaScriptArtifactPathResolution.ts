@@ -114,7 +114,11 @@ const packageMetadataUrl = (
   relativeTarget: string,
 ): Result<
   URL,
-  { readonly structuralUrl: URL; readonly limitation: string }
+  {
+    readonly structuralUrl: URL;
+    readonly structuralSegments: ReadonlySet<string>;
+    readonly limitation: string;
+  }
 > => {
   try {
     return ok(encodePackageMetadataUrl(path));
@@ -125,6 +129,7 @@ const packageMetadataUrl = (
         /rea-opaque-\d+/gu,
       ) ?? [],
     );
+    const structuralSegments = new Set<string>();
     let nextIdentity = 0;
     const structuralPath = path
       .split("/")
@@ -137,12 +142,14 @@ const packageMetadataUrl = (
           do identity = `rea-opaque-${nextIdentity++}`;
           while (reserved.has(identity));
           reserved.add(identity);
+          structuralSegments.add(identity);
           return identity;
         }
       })
       .join("/");
     return err({
       structuralUrl: new URL(structuralPath, PACKAGE_ARTIFACT_ROOT_URL),
+      structuralSegments,
       limitation: `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
     });
   }
@@ -726,8 +733,14 @@ const resolveLegacyEsmSubpath = (
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${JSON.stringify(input.declaredPath)} has URL directory form; directory imports are unsupported and no exact-file, package main or index lookup was attempted.`,
     ]);
-  if (!metadataUrl.ok)
-    return unresolvedCandidate("unavailable", [metadataUrl.error.limitation]);
+  const unrepresentableBase = metadataUrl.ok ? undefined : metadataUrl.error;
+  if (
+    unrepresentableBase !== undefined &&
+    url.pathname
+      .split("/")
+      .some((segment) => unrepresentableBase.structuralSegments.has(segment))
+  )
+    return unresolvedCandidate("unavailable", [unrepresentableBase.limitation]);
   const file = resolveFileCandidates(input, [candidate]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
