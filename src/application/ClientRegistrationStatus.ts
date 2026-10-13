@@ -17,6 +17,7 @@ import { z } from "zod";
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import {
+  environmentKey,
   isOwnedClientRegistrationCommand,
   packageRunnerRegistrationCommand,
 } from "./ClientRegistrationIdentity.js";
@@ -267,10 +268,15 @@ const registrationAligned = (
   // Kimi Code starts REA with the full schema profile when none is set, and
   // Moonshot rejects an entire request while any advertised schema exceeds
   // its per-schema size cap (#1484). A profile-less entry is stale; an
-  // explicit value keeps the user's choice.
+  // explicit value keeps the user's choice under platform environment-key
+  // identity (Windows variable names are case-insensitive).
   if (
     client.name === "kimi_code" &&
-    registration.env?.REA_MCP_INPUT_SCHEMA_PROFILE === undefined
+    environmentKey(
+      registration.env ?? {},
+      "REA_MCP_INPUT_SCHEMA_PROFILE",
+      platform,
+    ) === undefined
   )
     return false;
   if (client.format === "vscode" && registration.type !== "stdio") return false;

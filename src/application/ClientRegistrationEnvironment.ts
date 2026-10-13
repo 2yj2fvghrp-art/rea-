@@ -7,18 +7,22 @@ import {
   effectiveClientServer,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
+import { environmentKey } from "./ClientRegistrationIdentity.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 import { dshDocument } from "./DshCordisPatch.js";
 
 /**
  * Read explicit REA overrides without dropping peers when one value is
- * invalid. Seeded `defaults` fill keys the existing entry does not configure.
+ * invalid. Seeded `defaults` fill keys the existing entry does not configure,
+ * matching platform environment-key identity so one Windows variable keeps
+ * one spelling.
  */
 export const clientRegistrationEnvironment = (
   parsed: ClientConfigurationDocument | undefined,
   overrides: Readonly<Record<string, string>> = {},
   defaults: Readonly<Record<string, string>> = {},
+  platform: NodeJS.Platform = process.platform,
 ): Result<Readonly<Record<string, string>>, ConfigurationError> => {
   if (parsed?.dialect === "dsh")
     return dshDocument(parsed.document).environment(overrides);
@@ -50,8 +54,16 @@ export const clientRegistrationEnvironment = (
   // Validate known settings with the runtime's parser, but retain the original
   // string overrides, including unknown client-specific keys and no defaults.
   // Seeded registration defaults sit beneath an explicitly configured value,
-  // so an existing entry keeps whatever the caller chose.
-  const environment = { ...defaults, ...existing.data, ...overrides };
+  // so an existing entry keeps whatever the caller chose. Layers collide under
+  // platform environment-key identity (Windows names are case-insensitive),
+  // and the winning layer keeps its own spelling.
+  const environment: Record<string, string> = {};
+  for (const layer of [defaults, existing.data, overrides])
+    for (const [key, value] of Object.entries(layer)) {
+      const prior = environmentKey(environment, key, platform);
+      if (prior !== undefined && prior !== key) delete environment[prior];
+      environment[key] = value;
+    }
   const validated = parseEnvironment(environment);
   if (!validated.ok) return validated;
   return ok(
