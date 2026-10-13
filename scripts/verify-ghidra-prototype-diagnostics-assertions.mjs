@@ -173,16 +173,37 @@ export function assertPrototypeDiagnosticsReport(report) {
   const cdecl = dossier("rea_cdecl_cleanup_conflict");
   assert.equal(cdecl.calling_convention, "__cdecl");
   assert.equal(has(cdecl, "stack-cleanup").classification, "conflict");
-  assert.match(has(cdecl, "stack-cleanup").evidence[0].detail, /4 bytes.*4 recovered/u);
-  for (const name of ["rea_named_undefined_return", "rea_undefined_pointer_return"])
-    assert.equal(has(dossier(name), "return-register-forwarding"), undefined,
-      `${name}: display spelling must not classify a known return type as undefined`);
+  assert.match(
+    has(cdecl, "stack-cleanup").evidence[0].detail,
+    /4 bytes.*4 recovered/u,
+  );
+  for (const name of [
+    "rea_named_undefined_return",
+    "rea_undefined_pointer_return",
+  ])
+    assert.equal(
+      has(dossier(name), "return-register-forwarding"),
+      undefined,
+      `${name}: display spelling must not classify a known return type as undefined`,
+    );
   const many = dossier("rea_many_forwarding");
-  const forwarding = many.prototype_diagnostics.filter((item) => item.kind === "return-register-forwarding");
-  assert.equal(forwarding.length, 1, "Forwarding paths must share one function-level diagnostic");
+  const forwarding = many.prototype_diagnostics.filter(
+    (item) => item.kind === "return-register-forwarding",
+  );
+  assert.equal(
+    forwarding.length,
+    1,
+    "Forwarding paths must share one function-level diagnostic",
+  );
   assert.ok(forwarding[0].evidence.length <= 256);
-  assert.equal(new Set(forwarding[0].evidence.map(({ address }) => address)).size, forwarding[0].evidence.length);
-  assert.match(many.prototype_check_limitations.join(" "), /256-fact evidence budget/u);
+  assert.equal(
+    new Set(forwarding[0].evidence.map(({ address }) => address)).size,
+    forwarding[0].evidence.length,
+  );
+  assert.match(
+    many.prototype_check_limitations.join(" "),
+    /256-fact evidence budget/u,
+  );
   const shared = dossier("rea_shared_cleanup");
   assert.ok(
     has(shared, "stack-cleanup").evidence.some(

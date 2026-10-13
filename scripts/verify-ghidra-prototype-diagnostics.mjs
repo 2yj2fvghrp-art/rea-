@@ -158,7 +158,9 @@ export async function verifyGhidraPrototypeDiagnostics({
       workspace,
       onCleanupComplete: async () => {
         assert.deepEqual(
-          (await readdir(runtime)).filter((name) => name.startsWith("rea-ghidra-")),
+          (await readdir(runtime)).filter((name) =>
+            name.startsWith("rea-ghidra-"),
+          ),
           [],
           "Owned runtime survived public close; workspace retained",
         );
