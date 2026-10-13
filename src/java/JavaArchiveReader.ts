@@ -80,7 +80,8 @@ export const admitJavaInput = async (
         "unsupported",
         "0xCAFEBABE with a class-file major version below 45 is a universal Mach-O header, not a JVM class file.",
       );
-  if (hasZipSignature(bytes)) return { path, bytes, sha256, container: "jar" };
+  if (hasZipSignature(bytes) || path.toLowerCase().endsWith(".jar"))
+    return { path, bytes, sha256, container: "jar" };
   throw new JavaArchiveFormatFailure(
     "unsupported",
     "Expected a JVM class file (0xCAFEBABE) or a ZIP-backed archive such as a JAR.",
@@ -121,6 +122,11 @@ export class JavaArchiveEntries {
 
   constructor(snapshot: JavaInputSnapshot) {
     this.#reader = new ZipArtifactReader(snapshot.bytes, "zip");
+  }
+
+  /** Remaining admitted class payload budget for inventory completeness. */
+  get remainingClassBytes(): number {
+    return Math.max(0, JAVA_ARCHIVE_LIMITS.totalClassBytes - this.#classBytes);
   }
 
   /** Enumerate central-directory occurrences once, bounded by entry count. */
@@ -175,7 +181,7 @@ export class JavaArchiveEntries {
     return bytes;
   }
 
-  /** Acquire only a bounded descriptor prefix, then cancel the unread stream. */
+  /** Retain a bounded descriptor prefix while draining for CRC/size validation. */
   async readPrefix(
     entry: ArtifactEntry,
     maximum: number,
@@ -188,10 +194,11 @@ export class JavaArchiveEntries {
       for await (const chunk of stream) {
         signal?.throwIfAborted();
         const bytes = chunk as Buffer;
-        const retained = bytes.subarray(0, maximum - total);
-        chunks.push(retained);
-        total += retained.length;
-        if (total === maximum) break;
+        if (total < maximum) {
+          const retained = bytes.subarray(0, maximum - total);
+          chunks.push(retained);
+          total += retained.length;
+        }
       }
     } finally {
       stream.destroy();

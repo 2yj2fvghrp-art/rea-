@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { digestSchema } from "../digests.js";
-import { jsonValueSchema } from "../jsonValue.js";
 import { localPathStringSchema } from "../localPath.js";
 
 /** Bundled class-file reader identity; observed bytecode versions are separate facts. */
@@ -38,13 +37,32 @@ export type JavaAnnotation = {
   elements: { name: string; value: JavaAnnotationValue }[];
 };
 
-const annotationSchema = z.strictObject({
-  type: z.string(),
-  visibility: z.enum(["runtime-visible", "runtime-invisible"]).nullable(),
-  elements: z.array(
-    z.strictObject({ name: z.string(), value: jsonValueSchema }),
-  ),
-});
+const annotationSchema: z.ZodType<JavaAnnotation> = z.lazy(() =>
+  z.strictObject({
+    type: z.string(),
+    visibility: z.enum(["runtime-visible", "runtime-invisible"]).nullable(),
+    elements: z.array(
+      z.strictObject({ name: z.string(), value: annotationValueSchema }),
+    ),
+  }),
+);
+const annotationValueSchema: z.ZodType<JavaAnnotationValue> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("constant"),
+      descriptor: z.string(),
+      value: z.union([z.string(), z.number()]),
+    }),
+    z.strictObject({
+      kind: z.literal("enum"),
+      type: z.string(),
+      name: z.string(),
+    }),
+    z.strictObject({ kind: z.literal("class"), descriptor: z.string() }),
+    z.strictObject({ kind: z.literal("annotation"), annotation: annotationSchema }),
+    z.strictObject({ kind: z.literal("array"), values: z.array(annotationValueSchema) }),
+  ]),
+);
 const constantSchema = z.union([z.string(), z.number()]).nullable();
 /** Selected bytes, classified by content: a ZIP-backed archive or one class file. */
 const artifactSchema = z.strictObject({

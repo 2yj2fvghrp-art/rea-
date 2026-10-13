@@ -135,6 +135,7 @@ export class JavaClassFileProvider implements Pick<
           snapshot,
           input.class_name,
           options?.signal,
+          false,
         );
         return {
           artifact: javaArtifactIdentity(snapshot),
@@ -196,6 +197,7 @@ export class JavaClassFileProvider implements Pick<
           signature_files: [],
         },
         malformed_classes: [],
+        omittedClasses: 0,
       },
     );
   }
@@ -221,6 +223,7 @@ export class JavaClassFileProvider implements Pick<
       let manifest: JavaArchive["manifest"] = null;
       const metadata: JavaArchive["metadata_files"] = [];
       let omittedMetadata = 0;
+      let omittedClasses = 0;
       const pathLists = [
         "native_libraries",
         "nested_archives",
@@ -262,6 +265,13 @@ export class JavaClassFileProvider implements Pick<
         }
         if (isClassEntry(entry)) {
           counts.classes += 1;
+          if (
+            entry.declaredSize === null ||
+            entry.declaredSize > archive.remainingClassBytes
+          ) {
+            omittedClasses += 1;
+            continue;
+          }
           try {
             const bytes = await archive.read(
               entry,
@@ -320,6 +330,7 @@ export class JavaClassFileProvider implements Pick<
         metadata_files: metadata,
         entries: counts,
         malformed_classes: malformed,
+        omittedClasses,
       });
       for (const kind of pathLists)
         if (omittedPaths[kind] > 0)
@@ -344,7 +355,7 @@ const summarize = (
   observed: Pick<
     JavaArchive,
     "manifest" | "metadata_files" | "entries" | "malformed_classes"
-  >,
+  > & { readonly omittedClasses: number },
 ): JavaArchive => {
   const versions = new Map<number, number>();
   const packages = new Map<string, { classes: number; short: number }>();
@@ -365,13 +376,22 @@ const summarize = (
     shortMembers += facts.shortMembers;
   }
   const limitations = [STRUCTURE_LIMITATION, HEURISTIC_LIMITATION];
-  const packageRows = [...packages.entries()]
+  if (observed.omittedClasses > 0)
+    limitations.push(
+      `${String(observed.omittedClasses)} class entries were not parsed because their declared sizes were unknown or exceeded the remaining ${String(JAVA_ARCHIVE_LIMITS.totalClassBytes)}-byte class inventory budget; class and package summaries are incomplete.`,
+    );
+  const allPackageRows = [...packages.entries()]
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([name, row]) => ({
       name,
       classes: row.classes,
       short_name_classes: row.short,
     }));
+  const packageRows = allPackageRows.slice(0, 100);
+  if (allPackageRows.length > packageRows.length)
+    limitations.push(
+      `${String(allPackageRows.length - packageRows.length)} package summaries were omitted after the 100-package output limit.`,
+    );
   const rows = classes
     .filter(({ row }) =>
       input.query === undefined
@@ -455,6 +475,7 @@ export const selectJavaClass = async (
   snapshot: JavaInputSnapshot,
   className: string | undefined,
   signal?: AbortSignal,
+  includeNested = true,
 ): Promise<SelectedJavaClass> => {
   if (snapshot.container === "class") {
     guardClassBytes(snapshot.bytes);
@@ -563,16 +584,17 @@ export const selectJavaClass = async (
     const { entry, bytes, parsed } = selected;
     const nestedPrefix = `${entry.path.slice(0, -".class".length)}$`;
     const nested = [];
-    for (const candidate of entries)
-      if (candidate.path.startsWith(nestedPrefix))
-        nested.push({
-          entry: candidate.path,
-          bytes: await archive.read(
-            candidate,
-            JAVA_ARCHIVE_LIMITS.classBytes,
-            signal,
-          ),
-        });
+    if (includeNested)
+      for (const candidate of entries)
+        if (candidate.path.startsWith(nestedPrefix))
+          nested.push({
+            entry: candidate.path,
+            bytes: await archive.read(
+              candidate,
+              JAVA_ARCHIVE_LIMITS.classBytes,
+              signal,
+            ),
+          });
     return {
       entry: entry.path,
       entryId: entry.adapterKey,
