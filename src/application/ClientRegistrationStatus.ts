@@ -1,3 +1,4 @@
+import { environmentKey } from "../config/environmentKey.js";
 import { readClientPolicyBlock } from "./GeminiClientSettings.js";
 import {
   effectiveClientConfiguration,
@@ -16,9 +17,7 @@ import { z } from "zod";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
-import { mcpInputSchemaProfileSchema } from "../config/mcpInputSchemaProfile.js";
 import {
-  environmentKey,
   isOwnedClientRegistrationCommand,
   packageRunnerRegistrationCommand,
 } from "./ClientRegistrationIdentity.js";
@@ -145,6 +144,7 @@ export const readClientRegistrationInspections = async (
       const files = await readClientConfigurationFiles(
         client,
         options.resources,
+        options.platform,
       );
       if (!files.ok) {
         record({
@@ -268,19 +268,18 @@ const registrationAligned = (
     return false;
   // Kimi Code starts REA with the full schema profile when none is set, and
   // Moonshot rejects an entire request while any advertised schema exceeds
-  // its per-schema size cap (#1484). A profile-less or invalid entry is
-  // stale; a valid explicit value keeps the user's choice under platform
-  // environment-key identity (Windows variable names are case-insensitive).
-  if (client.name === "kimi_code") {
-    const env = registration.env ?? {};
-    const profileKey = environmentKey(
-      env,
+  // its per-schema size cap (#1484). A profile-less entry is stale; an
+  // explicit value keeps the user's choice under platform environment-key
+  // identity (Windows variable names are case-insensitive).
+  if (
+    client.name === "kimi_code" &&
+    environmentKey(
+      registration.env ?? {},
       "REA_MCP_INPUT_SCHEMA_PROFILE",
       platform,
-    );
-    const profile = profileKey === undefined ? undefined : env[profileKey];
-    if (!mcpInputSchemaProfileSchema.safeParse(profile).success) return false;
-  }
+    ) === undefined
+  )
+    return false;
   if (client.format === "vscode" && registration.type !== "stdio") return false;
   // A Harness registration only connects as the rea stdio server; another
   // server name or transport leaves the session without REA tools.

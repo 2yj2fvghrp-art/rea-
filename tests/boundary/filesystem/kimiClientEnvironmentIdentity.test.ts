@@ -39,65 +39,86 @@ describe("Kimi Code environment-key identity", () => {
     expect(merged.value).toEqual({ rea_mcp_input_schema_profile: "full" });
   });
 
-  it("reads a case-variant explicit profile as aligned on Windows", async () => {
-    const home = await createTestTempDirectory("rea-kimi-");
-    const client = supportedClients(home, process.platform, {}).find(
-      ({ name }) => name === "kimi_code",
-    );
-    if (client?.markerPath === undefined)
-      throw new Error("missing Kimi Code client");
-    await mkdir(client.markerPath, { recursive: true });
-    await writeFile(
-      client.configPath,
+  it.each(["bogus", ""])(
+    "rejects a case-variant invalid profile %j on Windows",
+    (profile) => {
+      const parsed = parseClientConfiguration(
+        JSON.stringify({
+          mcpServers: {
+            rea: {
+              command: command[0],
+              args: command.slice(1),
+              env: {
+                rea_mcp_input_schema_profile: profile,
+                CallerChoice: "keep",
+              },
+            },
+          },
+        }),
+        "json",
+      );
+      const result = clientRegistrationEnvironment(
+        parsed,
+        {},
+        { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" },
+        "win32",
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { settings: [{ setting: "REA_MCP_INPUT_SCHEMA_PROFILE" }] },
+      });
+    },
+  );
+
+  it("uses Node's source-layer winner and preserves explicit override spelling", () => {
+    const parsed = parseClientConfiguration(
       JSON.stringify({
         mcpServers: {
           rea: {
             command: command[0],
             args: command.slice(1),
-            env: { rea_mcp_input_schema_profile: "full" },
+            env: {
+              rea_mcp_input_schema_profile: "bogus",
+              REA_MCP_INPUT_SCHEMA_PROFILE: "full",
+              CallerChoice: "keep",
+            },
           },
         },
       }),
+      "json",
     );
-    const status = (
-      await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
-        environment: {},
-        platform: "win32",
-      })
-    ).find(({ client: name }) => name === "kimi_code");
-    expect(status).toMatchObject({ state: "aligned" });
+    const existing = clientRegistrationEnvironment(parsed, {}, {}, "win32");
+    expect(existing).toMatchObject({
+      ok: true,
+      value: {
+        REA_MCP_INPUT_SCHEMA_PROFILE: "full",
+        CallerChoice: "keep",
+      },
+    });
+    if (existing.ok) expect(Object.keys(existing.value)).toHaveLength(2);
+    expect(
+      clientRegistrationEnvironment(
+        parsed,
+        { Rea_Mcp_Input_Schema_Profile: "compact" },
+        {},
+        "win32",
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        Rea_Mcp_Input_Schema_Profile: "compact",
+        CallerChoice: "keep",
+      },
+    });
   });
 
-  it.each([["bogus"], [""]])(
-    "rejects the case-variant invalid profile %j before retaining it",
-    (value) => {
-      const merged = clientRegistrationEnvironment(
-        parseClientConfiguration(
-          JSON.stringify({
-            mcpServers: {
-              rea: {
-                command: command[0],
-                args: command.slice(1),
-                env: { rea_mcp_input_schema_profile: value },
-              },
-            },
-          }),
-          "json",
-        ),
-        {},
-        { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" },
-        "win32",
-      );
-      expect(merged.ok).toBe(false);
-    },
-  );
-
   it.each([
-    ["win32", "rea_mcp_input_schema_profile", "bogus", "stale"],
-    ["linux", "REA_MCP_INPUT_SCHEMA_PROFILE", "bogus", "invalid"],
+    ["full", "aligned"],
+    ["bogus", "invalid"],
+    ["", "invalid"],
   ] as const)(
-    "reads the invalid profile on %j as %j",
-    async (platform, spelling, value, state) => {
+    "reports a case-variant %j profile as %s on Windows",
+    async (profile, state) => {
       const home = await createTestTempDirectory("rea-kimi-");
       const client = supportedClients(home, process.platform, {}).find(
         ({ name }) => name === "kimi_code",
@@ -105,15 +126,14 @@ describe("Kimi Code environment-key identity", () => {
       if (client?.markerPath === undefined)
         throw new Error("missing Kimi Code client");
       await mkdir(client.markerPath, { recursive: true });
-      const runner = npxRegistrationCommand(platform);
       await writeFile(
         client.configPath,
         JSON.stringify({
           mcpServers: {
             rea: {
-              command: runner[0],
-              args: runner.slice(1),
-              env: { [spelling]: value },
+              command: command[0],
+              args: command.slice(1),
+              env: { rea_mcp_input_schema_profile: profile },
             },
           },
         }),
@@ -121,7 +141,7 @@ describe("Kimi Code environment-key identity", () => {
       const status = (
         await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
           environment: {},
-          platform,
+          platform: "win32",
         })
       ).find(({ client: name }) => name === "kimi_code");
       expect(status).toMatchObject({ state });
