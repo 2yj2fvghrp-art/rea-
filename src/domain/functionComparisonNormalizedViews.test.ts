@@ -1065,36 +1065,51 @@ describe("normalized view static/runtime consumer", () => {
   });
 });
 
-it("preserves changed indirect branch displacements in normalized assembly", () => {
-  const pair = ["0x1000", "0x2000"].map((address, index) =>
-    observe(String(index + 1), {
-      ...ADD_PEOPLE_LEFT,
-      procedure: {
-        ...ADD_PEOPLE_LEFT.procedure,
-        address,
-        body: {
-          ...ADD_PEOPLE_LEFT.procedure.body,
-          ranges: [{ start: address, end: index === 0 ? "0x10ff" : "0x20ff" }],
-          span_bytes: 256,
-          total_bytes: 256,
+it.each([
+  [
+    "indirect branch displacement",
+    "[EAX + 0x1010]",
+    "[EAX + 0x2010]",
+    "changed",
+  ],
+  ["semicolon comment", "0x1010 ; loop", "0x2010 ; loop", "unchanged"],
+  ["line comment", "0x1010 // loop", "0x2010 // loop", "unchanged"],
+  ["block comment", "0x1010 /* loop */", "0x2010 /* loop */", "unchanged"],
+] as const)(
+  "normalizes only direct branch targets before %s",
+  (_name, leftOperand, rightOperand, status) => {
+    const pair = ["0x1000", "0x2000"].map((address, index) =>
+      observe(String(index + 1), {
+        ...ADD_PEOPLE_LEFT,
+        procedure: {
+          ...ADD_PEOPLE_LEFT.procedure,
+          address,
+          body: {
+            ...ADD_PEOPLE_LEFT.procedure.body,
+            ranges: [
+              { start: address, end: index === 0 ? "0x10ff" : "0x20ff" },
+            ],
+            span_bytes: 256,
+            total_bytes: 256,
+          },
         },
-      },
-      assembly: [
-        `${address}: JMP [EAX + ${index === 0 ? "0x1010" : "0x2010"}]`,
-      ],
-      callees: [],
-      outgoing_references: [],
-      incoming_references: [],
-    }),
-  );
-  const left = pair[0];
-  const right = pair[1];
-  if (left === undefined || right === undefined)
-    throw new Error("Expected both function snapshots");
-  expect(
-    view(
-      compareFunctions(left, right, { includeNormalizedViews: true }),
-      "assembly_normalized",
-    )?.status,
-  ).toBe("changed");
-});
+        assembly: [
+          `${address}: JMP ${index === 0 ? leftOperand : rightOperand}`,
+        ],
+        callees: [],
+        outgoing_references: [],
+        incoming_references: [],
+      }),
+    );
+    const left = pair[0];
+    const right = pair[1];
+    if (left === undefined || right === undefined)
+      throw new Error("Expected both function snapshots");
+    expect(
+      view(
+        compareFunctions(left, right, { includeNormalizedViews: true }),
+        "assembly_normalized",
+      )?.status,
+    ).toBe(status);
+  },
+);

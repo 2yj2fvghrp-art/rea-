@@ -214,6 +214,7 @@ const splitAssemblyOperands = (
   const stack: string[] = [];
   let quote: string | null = null;
   let start = 0;
+  let end = text.length;
   for (let index = 0; index < text.length; index += 1) {
     const current = text[index];
     if (quote !== null) {
@@ -235,6 +236,7 @@ const splitAssemblyOperands = (
           (text[index + 1] === "/" || text[index + 1] === "*"))) &&
       stack.length === 0
     ) {
+      end = index;
       break;
     } else if (current === "," && stack.length === 0) {
       addOperandRange(ranges, text, offset, start, index);
@@ -242,7 +244,7 @@ const splitAssemblyOperands = (
     }
   }
   if (quote !== null || stack.length > 0) return [];
-  addOperandRange(ranges, text, offset, start, text.length);
+  addOperandRange(ranges, text, offset, start, end);
   return ranges;
 };
 
