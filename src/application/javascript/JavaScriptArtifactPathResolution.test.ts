@@ -2327,3 +2327,85 @@ describe("exact HTML resource resolution", () => {
     });
   });
 });
+
+describe("exact Electron runtime entrypoint resolution", () => {
+  it("checks the caller-declared path before package lookup or suffix decoding", () => {
+    const files = fileMap([
+      file("app/main.cjs", "root"),
+      file("app/worker.js", "root"),
+      file("app/worker", "root"),
+      file("app/worker#v1.js", "root"),
+      file("app/node_modules/worker.js", "root"),
+      file("app/fallback/index.js", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "worker.js",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/worker.js",
+    });
+    expect(
+      resolve({
+        declaredPath: "./worker#v1.js",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/worker#v1.js",
+    });
+    expect(
+      resolve({
+        declaredPath: "./fallback",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "not-found",
+      resolved_path: null,
+    });
+  });
+
+  it("accepts an exact extensionless file but not a directory index", () => {
+    const files = fileMap([
+      file("app/main.cjs", "root"),
+      file("app/preload", "root"),
+      file("app/preload.js", "root"),
+      file("app/fallback/index.js", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./preload",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/preload",
+    });
+    expect(
+      resolve({
+        declaredPath: "./fallback",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "not-found",
+      resolved_path: null,
+    });
+  });
+});

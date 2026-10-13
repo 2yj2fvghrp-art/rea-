@@ -224,6 +224,7 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
           ],
         };
   }
+  if (input.runtimeEntrypoint) return resolveRuntimeEntrypoint(input);
   // Package import keys are literal lookup identities, not artifact paths.
   // The selected target is admitted separately by resolveExportTarget.
   if (
@@ -236,17 +237,6 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
   if (typeof confined !== "string") return confined;
-  if (input.runtimeEntrypoint)
-    return (
-      resolveFileCandidates(input, [confined]) ?? {
-        resolvedPath: null,
-        status: "not-found",
-        candidatePath: confined,
-        limitations: [
-          `The declared Electron runtime entrypoint ${confined} was not found as an exact file among the selected application files; extension and directory fallback were not attempted.`,
-        ],
-      }
-    );
   if (input.context === "html-reference" || input.context === "url-reference")
     return (
       resolveFileCandidates(input, [confined]) ??
@@ -272,6 +262,31 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
       ) ?? notFoundCandidate()
     );
   return resolveCandidate(input, confined, new Set(), emittedSourceCandidates);
+};
+
+const resolveRuntimeEntrypoint = (
+  input: ResolveArtifactPathInput,
+): CandidateResolution => {
+  const rejected = rejectDeclaration(input.declaredPath);
+  if (rejected !== null) return rejected;
+  if (hasScheme(input.declaredPath) || looksExternal(input.declaredPath))
+    return unresolvedCandidate("external", [
+      "Electron runtime entrypoints must identify local paths, not external URLs.",
+    ]);
+  const candidate = confineCandidate(
+    relativeCandidate(input.sourcePath, input.declaredPath),
+  );
+  if (typeof candidate !== "string") return candidate;
+  return (
+    resolveFileCandidates(input, [candidate]) ?? {
+      resolvedPath: null,
+      status: "not-found",
+      candidatePath: candidate,
+      limitations: [
+        `The declared Electron runtime entrypoint ${candidate} was not found as an exact file among the selected application files; extension and directory fallback were not attempted.`,
+      ],
+    }
+  );
 };
 
 const resolveRuntimeSourceCandidates = (
