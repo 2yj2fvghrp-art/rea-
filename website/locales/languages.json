@@ -49,7 +49,7 @@
   },
   { "code": "it", "name": "Italiano", "readme": "README_it.md", "dir": "ltr" },
   {
-    "code": "hi",
+    "code": "hi-Latn",
     "name": "Hinglish",
     "readme": "README_hi-Latn.md",
     "dir": "ltr"
