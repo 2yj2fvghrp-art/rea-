@@ -34,7 +34,10 @@ import type { ProgressReporter } from "../application/ProgressReporter.js";
 import { silentLogger } from "../logger.js";
 import type { Logger } from "pino";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
-import { ProviderStartupDeadline } from "../process/ProviderDeadline.js";
+import {
+  ProviderStartupDeadline,
+  waitForAbortableDelay,
+} from "../process/ProviderDeadline.js";
 import { redactCapturedTransportCredential } from "../process/ProviderDiagnosticRedaction.js";
 import { ProviderRunLineage } from "../process/ProviderRunLineage.js";
 import {
@@ -118,6 +121,7 @@ export class HopperClient {
   #launcherFailureDiagnostic: HopperStartupFailureDiagnostic | undefined;
   #operationFailure: OperationFailureRecord | undefined;
   #startupController: AbortController | undefined;
+  #ready = false;
   #startupFailureResult: AnalysisError | undefined;
   #runId: string | undefined;
   #startPromise: Promise<Result<HopperServerInfo, AnalysisError>> | undefined;
@@ -126,13 +130,9 @@ export class HopperClient {
     this.#responses.push(chunk);
   };
   readonly #onSocketError = (): void => {
-    const error = new HopperProcessError(
-      null,
-      undefined,
-      undefined,
-      undefined,
-      "unreachable",
-    );
+    const error = new HopperProcessError(null, {
+      providerState: "unreachable",
+    });
     this.#failAll(error);
     this.#rememberProcessFailure(error, []);
   };
@@ -148,25 +148,18 @@ export class HopperClient {
       setImmediate(() => {
         if (this.#closing || this.#launcherExitCode !== undefined) return;
         const exitCode = launch.process.exitCode ?? null;
-        const error = new HopperProcessError(
-          exitCode,
-          this.#launcherFailureDiagnostic,
-          undefined,
-          undefined,
-          exitCode !== null ? "exited" : "unreachable",
-        );
+        const error = new HopperProcessError(exitCode, {
+          diagnostic: this.#launcherFailureDiagnostic,
+          providerState: exitCode !== null ? "exited" : "unreachable",
+        });
         this.#failAll(error);
         this.#rememberProcessFailure(error, []);
       });
       return;
     }
-    const error = new HopperProcessError(
-      null,
-      undefined,
-      undefined,
-      undefined,
-      "unreachable",
-    );
+    const error = new HopperProcessError(null, {
+      providerState: "unreachable",
+    });
     this.#failAll(error);
     this.#rememberProcessFailure(error, []);
   };
@@ -265,6 +258,16 @@ export class HopperClient {
     };
   }
 
+  /** True only after the authenticated health handshake has completed. */
+  isReady(): boolean {
+    return (
+      this.#ready &&
+      this.#socket !== undefined &&
+      !this.#socket.destroyed &&
+      this.#closePromise === undefined
+    );
+  }
+
   /** Launch the bridge once and complete its authenticated health handshake. */
   start(
     signal?: AbortSignal,
@@ -300,7 +303,7 @@ export class HopperClient {
         if (!result.ok) {
           this.#rememberStartupFailure(result.error);
           reset();
-        }
+        } else this.#ready = true;
       },
       (cause: unknown) => {
         this.#logger.debug(
@@ -423,7 +426,7 @@ export class HopperClient {
     );
     if (!health.ok) {
       return this.#startupFailure(
-        deadline.signal.aborted
+        deadline.signal.aborted || health.error instanceof HopperTimeoutError
           ? await this.#startupInterruption(deadline)
           : health.error,
       );
@@ -474,7 +477,28 @@ export class HopperClient {
   ): Promise<Result<JsonValue, AnalysisError>> {
     const started = await this.start(options.signal);
     if (!started.ok) return started;
-    const result = await this.#request(name, arguments_, options);
+    return this.#normalizeToolResult(
+      name,
+      await this.#request(name, arguments_, options),
+    );
+  }
+
+  /** Dispatch against the connected bridge without invoking startup or retry. */
+  callToolIfReady(
+    name: string,
+    arguments_: Readonly<Record<string, JsonValue>> = {},
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<Result<JsonValue, AnalysisError> | undefined> {
+    if (!this.isReady()) return Promise.resolve(undefined);
+    return this.#request(name, arguments_, options).then((result) =>
+      this.#normalizeToolResult(name, result),
+    );
+  }
+
+  #normalizeToolResult(
+    name: string,
+    result: Result<JsonValue, AnalysisError>,
+  ): Result<JsonValue, AnalysisError> {
     return !result.ok &&
       result.error instanceof HopperRemoteError &&
       result.error.diagnosticType === "capability_unavailable"
@@ -542,11 +566,28 @@ export class HopperClient {
     );
     this.#closing = true;
     try {
-      const connected = await connectHopperSocketOnce(
-        join(root.path, "bridge.sock"),
+      const socketPath = join(root.path, "bridge.sock");
+      let connected = await connectHopperSocketOnce(
+        socketPath,
         controller.signal,
       );
-      if (!connected.ok) return;
+      while (!connected.ok) {
+        const cause = connected.error.cause;
+        if (
+          !(
+            cause instanceof Error &&
+            "code" in cause &&
+            (cause.code === "ENOENT" || cause.code === "ECONNREFUSED")
+          )
+        )
+          return;
+        if ((await waitForAbortableDelay(50, controller.signal)) === "aborted")
+          return;
+        connected = await connectHopperSocketOnce(
+          socketPath,
+          controller.signal,
+        );
+      }
       const socket = connected.value;
       this.#socket = socket;
       this.#attachSocket(socket);
@@ -570,6 +611,7 @@ export class HopperClient {
     options: HopperClientCloseOptions = {},
   ): Promise<Result<null, AnalysisError>> {
     this.#closing = true;
+    this.#ready = false;
     try {
       return await cleanupHopperSession({
         socket: this.#socket,
@@ -709,15 +751,12 @@ export class HopperClient {
       )) ?? false;
     const launcherFailure = this.#launcherOutcome(outputClosed);
     if (ownsProviderLifetime)
-      return new HopperProcessError(
-        exitCode,
-        this.#launcherFailureDiagnostic,
-        undefined,
-        undefined,
-        "exited",
-        "launch",
+      return new HopperProcessError(exitCode, {
+        diagnostic: this.#launcherFailureDiagnostic,
+        providerState: "exited",
+        stage: "launch",
         launcherFailure,
-      );
+      });
     if (
       this.#resources.launch?.authorizationDenialBeforeHandoff === true &&
       nativeHopperLaunchWasDenied(launcherFailure)
@@ -746,18 +785,34 @@ export class HopperClient {
     },
   ): Promise<Result<JsonValue, HopperError>> {
     const id = this.#nextId++;
+    if (
+      this.#resources.launch?.providerLifetime === "launcher-process" &&
+      this.#launcherExitCode !== undefined
+    ) {
+      return this.#unavailableRequest(
+        new HopperProcessError(this.#launcherExitCode, {
+          diagnostic: this.#launcherFailureDiagnostic,
+          operation: method,
+          requestId: id,
+          providerState: "exited",
+          stage: hopperOperationStage(method),
+          launcherFailure: this.#launcherOutcome(
+            (await this.#resources.processSupervisor?.waitForOutputClose(0)) ??
+              false,
+          ),
+        }),
+      );
+    }
     const socket = this.#socket;
     const token = this.#token;
     if (socket === undefined || socket.destroyed || token === undefined) {
       return this.#unavailableRequest(
-        new HopperProcessError(
-          null,
-          undefined,
-          method,
-          id,
-          "unreachable",
-          hopperOperationStage(method),
-        ),
+        new HopperProcessError(null, {
+          operation: method,
+          requestId: id,
+          providerState: "unreachable",
+          stage: hopperOperationStage(method),
+        }),
       );
     }
     if (options.signal?.aborted === true)
@@ -868,13 +923,11 @@ export class HopperClient {
     if (launch.providerLifetime === "launcher-process" && !this.#closing) {
       this.#rememberExit(event.code);
       this.#failAll(
-        new HopperProcessError(
-          event.code,
-          this.#launcherFailureDiagnostic,
-          undefined,
-          undefined,
-          "exited",
-        ),
+        new HopperProcessError(event.code, {
+          diagnostic: this.#launcherFailureDiagnostic,
+          providerState: "exited",
+          launcherFailure: this.#launcherOutcome(false),
+        }),
       );
     }
   }
