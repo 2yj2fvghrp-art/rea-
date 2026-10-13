@@ -6,7 +6,7 @@ import type { AnalysisError } from "../analysisErrorBase.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import { jsonObjectSchema, type JsonValue } from "../jsonValue.js";
-import type { JavaScriptApplicationAnalysisResult } from "../javascript/javascriptApplicationAnalysis.js";
+import type { StoredJavaScriptApplicationAnalysisResult } from "../javascript/javascriptApplicationAnalysis.js";
 import type { ApplicationNode } from "../javascript/javascriptApplicationGraphSchemas.js";
 import { err, ok, type Result } from "../result.js";
 import {
@@ -130,7 +130,7 @@ const moduleItem = (node: ApplicationNode): JsonValue => ({
 });
 
 const applicationUnknownCount = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
 ): number =>
   analysis.graph.nodes.reduce(
     (count, node) => count + Number(node.kind === "unknown"),
@@ -138,7 +138,7 @@ const applicationUnknownCount = (
   );
 
 const javascriptUnknowns = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
 ): readonly string[] => {
   const unknowns = [
     ...analysis.limitations,
@@ -170,7 +170,7 @@ const javascriptUnknowns = (
 };
 
 const semanticFileStatusCounts = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
 ): Record<string, number> => {
   const counts: Record<string, number> = {};
   for (const { status } of analysis.semantic_graph.coverage.files)
@@ -180,7 +180,7 @@ const semanticFileStatusCounts = (
 
 const parentFields = (
   parent: AnalysisViewParent,
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
 ) => ({
   parent_evidence_id: parent.evidenceId,
   parent_operation: "analyze_javascript_application" as const,
@@ -255,7 +255,7 @@ const selectModule = (
 /** Project one JavaScript application view without re-running reconstruction. */
 export const projectJavaScriptApplicationView = (
   parent: AnalysisViewParent,
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
   view: Exclude<AnalysisViewRequest, { kind: "api-surface" }>,
 ): Result<UnsignedAnalysisView, AnalysisError> => {
   if (view.kind !== "summary" && view.kind !== "item" && view.kind !== "page")
@@ -358,7 +358,7 @@ export const projectJavaScriptApplicationView = (
 
 /** Retained unknown frontiers grouped by source, family and reason. */
 const semanticUnknownItems = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  analysis: StoredJavaScriptApplicationAnalysisResult,
 ): JsonValue[] =>
   analysis.semantic_graph.unknowns
     .map((unknown) => {

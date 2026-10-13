@@ -44,15 +44,23 @@ export const inspectContentSecurityPolicyNode = (
     if (header === undefined) return;
     const value = t.isObjectProperty(node) ? node.value : node.right;
     markConsumed(value, consumed);
-    const policy = policyText(value, constants);
-    addPolicy(context, node, {
-      mechanism: "header-property",
-      header: header.toLowerCase(),
-      policy,
-      expression:
-        policy === undefined ? boundedExpression(context.source, value) : null,
-      requireMultiple: false,
-    });
+    const values = t.isArrayExpression(value) ? value.elements : [value];
+    for (const item of values) {
+      const policy =
+        item === null || t.isSpreadElement(item)
+          ? undefined
+          : policyText(item, constants);
+      addPolicy(context, item ?? node, {
+        mechanism: "header-property",
+        header: header.toLowerCase(),
+        policy,
+        expression:
+          policy === undefined
+            ? boundedExpression(context.source, item ?? value)
+            : null,
+        requireMultiple: false,
+      });
+    }
     return;
   }
   if (isDirectiveJoin(node)) {
@@ -178,10 +186,18 @@ const policyText = (
     const cooked = node.quasis.map(({ value }) => value.cooked);
     if (cooked.some((part) => part === null || part === undefined))
       return undefined;
-    return {
-      text: cooked.join(DYNAMIC_SOURCE),
-      dynamicParts: node.expressions.length,
-    };
+    let text = cooked[0] ?? "";
+    let dynamicParts = 0;
+    for (const [index, expression] of node.expressions.entries()) {
+      const folded = constants(expression);
+      const part =
+        folded.status === "dynamic"
+          ? policyText(expression, constants)
+          : { text: String(folded.value), dynamicParts: 0 };
+      text += (part?.text ?? DYNAMIC_SOURCE) + (cooked[index + 1] ?? "");
+      dynamicParts += part?.dynamicParts ?? 1;
+    }
+    return { text, dynamicParts };
   }
   if (t.isArrayExpression(node) && node.elements.length === 1) {
     const [only] = node.elements;

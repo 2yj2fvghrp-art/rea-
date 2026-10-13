@@ -242,7 +242,8 @@ const expectNativeLoaders = (graph: Graph): void => {
         specifier: "./native/direct.node",
         loader: "create-require",
         loader_basis: "alias",
-        resolved_path: "native/direct.node",
+        resolved_path: null,
+        resolution_basis: "create-require-base-unavailable",
       }),
       expect.objectContaining({
         binding_kind: "loader",

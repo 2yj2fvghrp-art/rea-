@@ -74,3 +74,18 @@ it("preserves known concerns beside unknown declared directives", () => {
   ]);
   expect(parseContentSecurityPolicy(policy, true)).toBeUndefined();
 });
+
+it.each([
+  "default-src 'unsafe-eval'; script-src 'none'; object-src 'none'",
+  "default-src 'none'; script-src-elem 'unsafe-eval'; object-src 'none'",
+  "default-src 'none'; script-src-attr 'unsafe-eval'; object-src 'none'",
+])(
+  "does not infer eval permission from an overridden or narrow directive: %s",
+  (policy) => {
+    expect(
+      parseContentSecurityPolicy(policy, false)?.concerns.filter(
+        ({ source }) => source === "'unsafe-eval'",
+      ),
+    ).toEqual([]);
+  },
+);

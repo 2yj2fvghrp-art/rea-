@@ -82,11 +82,69 @@ const registryKeyShape = (
   };
 };
 
-// A sole string argument is a conservative superset of supported Symbol.for
-// keys, independent of identifier spelling, computed access, or shadowing.
-// The zero-width scan cannot swallow a later real call inside a false candidate.
-const CALL_STRING =
-  /(?=\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*("(?:[^"\\\r\n]|\\(?:\r\n|[\s\S]))*"|'(?:[^'\\\r\n]|\\(?:\r\n|[\s\S]))*')(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*(?:,(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*)?\))/gu;
+// Candidate recovery must stay bounded in the caller, before worker admission.
+// Trivia and quoted strings are scanned deterministically; total rescans share
+// a source-sized work budget. Exhaustion refuses linking rather than using a
+// partial key set that could manufacture a unique publisher.
+function* candidateStringArguments(text: string): Generator<string, boolean> {
+  let remaining = text.length * 4;
+  const trivia = (start: number): number => {
+    let index = start;
+    while (index < text.length && remaining >= 0) {
+      if (/\s/u.test(text[index]!)) {
+        index++;
+        remaining--;
+      } else if (text.startsWith("/*", index)) {
+        const end = text.indexOf("*/", index + 2);
+        const next = end < 0 ? text.length : end + 2;
+        remaining -= next - index;
+        index = next;
+      } else if (text.startsWith("//", index)) {
+        let next = index + 2;
+        while (next < text.length && text[next] !== "\r" && text[next] !== "\n")
+          next++;
+        remaining -= next - index;
+        index = next;
+      } else break;
+    }
+    return index;
+  };
+  for (let offset = 0; offset < text.length; offset++) {
+    if (text[offset] !== "(") continue;
+    let index = trivia(offset + 1);
+    if (remaining < 0) return false;
+    const quote = text[index];
+    if (quote !== '"' && quote !== "'") continue;
+    const start = index++;
+    let closed = false;
+    while (index < text.length && remaining >= 0) {
+      const character = text[index++];
+      remaining--;
+      if (character === quote) {
+        closed = true;
+        break;
+      }
+      if (character === "\r" || character === "\n") break;
+      if (character === "\\") {
+        if (text[index] === "\r" && text[index + 1] === "\n") {
+          index += 2;
+          remaining -= 2;
+        } else if (index < text.length) {
+          index++;
+          remaining--;
+        }
+      }
+    }
+    if (remaining < 0) return false;
+    if (!closed) continue;
+    const literalEnd = index;
+    index = trivia(index);
+    if (text[index] === ",") index = trivia(index + 1);
+    if (remaining < 0) return false;
+    if (text[index] === ")") yield text.slice(start, literalEnd);
+  }
+  return true;
+}
 
 /** Decode only candidate literal syntax, never parse whole files in the caller. */
 export const globalSymbolRegistryCandidateKeys = (
@@ -102,9 +160,11 @@ export const globalSymbolRegistryCandidateKeys = (
   )
     return keys;
   const decoded = new Map<string, string>();
-  for (const match of text.matchAll(CALL_STRING)) {
-    const literal = match[1];
-    if (literal === undefined) continue;
+  const candidates = candidateStringArguments(text);
+  for (;;) {
+    const next = candidates.next();
+    if (next.done) return next.value ? keys : undefined;
+    const literal = next.value;
     const cached = decoded.get(literal);
     if (cached !== undefined) {
       keys.add(cached);
@@ -120,7 +180,6 @@ export const globalSymbolRegistryCandidateKeys = (
     decoded.set(literal, statement.expression.value);
     keys.add(statement.expression.value);
   }
-  return keys;
 };
 
 /**
@@ -151,7 +210,7 @@ export const globalSymbolRegistryCompanions = <
     const keys = globalSymbolRegistryCandidateKeys(source.text);
     if (keys === undefined) {
       limitations.push(
-        `${source.path}: Global-symbol companion linking is incomplete because candidate syntax could not be parsed; no unique publisher is inferred.`,
+        `${source.path}: Global-symbol companion linking is incomplete because candidate recovery exceeded its source-sized scan budget or candidate syntax could not be parsed; no unique publisher is inferred.`,
       );
       return { companions: new Map(), limitations };
     }

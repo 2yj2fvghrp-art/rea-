@@ -89,7 +89,12 @@ export type SymbolicValue = (
       readonly kind: "loader";
       readonly modules: ReadonlyMap<string, SymbolicValue>;
     }
-  | { readonly kind: "array"; readonly values: readonly SymbolicValue[] }
+  | {
+      readonly kind: "array";
+      readonly values: readonly SymbolicValue[];
+      /** Own index presence; absent means dense. Iteration still reads holes as undefined. */
+      readonly present?: ReadonlySet<number>;
+    }
   | {
       readonly kind: "record";
       readonly values: ReadonlyMap<string, SymbolicValue>;

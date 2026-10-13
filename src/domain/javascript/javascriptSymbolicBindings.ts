@@ -2,6 +2,7 @@ import * as t from "@babel/types";
 import { javascriptBindingAliasComponents } from "./javascriptBindingAliases.js";
 import {
   readExactJavaScriptLiteral,
+  isJavaScriptPrototypeSetter,
   semanticStaticPropertyKey,
   semanticWriteTargets,
   unwrapJavaScriptExpression,
@@ -105,7 +106,13 @@ export class JavaScriptSymbolicBindings {
   readonly #propertyActive = new WeakMap<object, Set<string>>();
   readonly #literalPropertyIndex = new WeakMap<
     t.ObjectExpression,
-    ReadonlyMap<string, t.ObjectMethod | t.ObjectProperty> | null
+    {
+      readonly properties: ReadonlyMap<
+        string,
+        t.ObjectMethod | t.ObjectProperty
+      > | null;
+      readonly hasPrototypeSetter: boolean;
+    }
   >();
   readonly #mutated = new Set<string>();
   readonly #iterationWrites = new Map<
@@ -406,22 +413,29 @@ export class JavaScriptSymbolicBindings {
     if (value.kind === "object") {
       const written = this.#writtenMember(value, key);
       if (written !== undefined) return written;
-      let index = this.#literalPropertyIndex.get(value.node);
-      if (index === undefined) {
+      let indexed = this.#literalPropertyIndex.get(value.node);
+      if (indexed === undefined) {
         const properties = new Map<string, t.ObjectMethod | t.ObjectProperty>();
-        index = properties;
+        let exact = true;
+        let hasPrototypeSetter = false;
         for (const property of value.node.properties) {
+          if (isJavaScriptPrototypeSetter(property)) {
+            hasPrototypeSetter = true;
+            continue;
+          }
           const name = t.isSpreadElement(property)
             ? null
             : semanticStaticPropertyKey(property.key, property.computed);
           if (name === null || t.isSpreadElement(property)) {
-            index = null;
-            break;
+            exact = false;
+            continue;
           }
           properties.set(name, property);
         }
-        this.#literalPropertyIndex.set(value.node, index);
+        indexed = { properties: exact ? properties : null, hasPrototypeSetter };
+        this.#literalPropertyIndex.set(value.node, indexed);
       }
+      const index = indexed.properties;
       if (index !== null) {
         const property = index.get(key);
         if (property !== undefined)
@@ -429,7 +443,7 @@ export class JavaScriptSymbolicBindings {
         // A closed literal without the key reads `undefined` unless a write
         // may add it or the key names an inherited or prototype member.
         return key in Object.prototype ||
-          index.has("__proto__") ||
+          indexed.hasPrototypeSetter ||
           (value.writes !== undefined && this.unknownMembers(value) > 0)
           ? symbolicUnknown("missing property")
           : { kind: "literal", value: undefined };
@@ -445,12 +459,14 @@ export class JavaScriptSymbolicBindings {
             this.unknownMembers(spread) > 0
           )
             return this.property(spread, key);
-        } else if (semanticStaticPropertyKey(p.key, p.computed) === key) {
+        } else if (isJavaScriptPrototypeSetter(p)) continue;
+        else if (semanticStaticPropertyKey(p.key, p.computed) === key) {
           return this.#objectPropertyValue(p, value.environment);
         } else if (semanticStaticPropertyKey(p.key, p.computed) === null)
           return symbolicUnknown("dynamic property overwrite");
       }
       return key in Object.prototype ||
+        indexed.hasPrototypeSetter ||
         (value.writes !== undefined && this.unknownMembers(value) > 0)
         ? symbolicUnknown("missing property")
         : { kind: "literal", value: undefined };
@@ -581,9 +597,11 @@ export class JavaScriptSymbolicBindings {
         ...value.node.properties.flatMap((p) =>
           t.isSpreadElement(p)
             ? this.members(this.evaluate(p.argument, value.environment), active)
-            : [semanticStaticPropertyKey(p.key, p.computed)].filter(
-                (k): k is string => k !== null,
-              ),
+            : isJavaScriptPrototypeSetter(p)
+              ? []
+              : [semanticStaticPropertyKey(p.key, p.computed)].filter(
+                  (k): k is string => k !== null,
+                ),
         ),
         ...(value.writes ?? []).flatMap((write) =>
           typeof write.key === "string"
@@ -919,19 +937,27 @@ export class JavaScriptSymbolicBindings {
     }
     if (t.isArrayExpression(node)) {
       const values: SymbolicValue[] = [];
+      const present = new Set<number>();
       for (const element of node.elements) {
         if (element === null)
           values.push({ kind: "literal", value: undefined });
-        else if (!t.isSpreadElement(element))
+        else if (!t.isSpreadElement(element)) {
+          present.add(values.length);
           values.push(this.evaluate(element, env));
-        else {
+        } else {
           const spread = this.evaluate(element.argument, env);
           if (spread.kind !== "array" || spread.conditions !== undefined)
             return symbolicUnknown("dynamic array spread");
-          values.push(...spread.values);
+          // Array spread uses the iterator and materializes holes as own undefined values.
+          for (const item of spread.values) {
+            present.add(values.length);
+            values.push(item);
+          }
         }
       }
-      return { kind: "array", values };
+      return present.size === values.length
+        ? { kind: "array", values }
+        : { kind: "array", values, present };
     }
     if (
       t.isNewExpression(node) &&
@@ -1415,12 +1441,15 @@ export class JavaScriptSymbolicBindings {
       return symbolicUnknown("dynamic array callback");
     return {
       kind: "array",
+      ...(array.present === undefined ? {} : { present: array.present }),
       values: array.values.map((element, index) =>
-        this.#invoke(
-          callback,
-          [element, { kind: "literal", value: index }, array],
-          node,
-        ),
+        array.present !== undefined && !array.present.has(index)
+          ? { kind: "literal", value: undefined }
+          : this.#invoke(
+              callback,
+              [element, { kind: "literal", value: index }, array],
+              node,
+            ),
       ),
     };
   }

@@ -545,3 +545,30 @@ it.each([
 ])("keeps unsupported writes and stopped iterations unknown: %s", (source) => {
   expect(inspectOne(source).kind).toBe("unknown");
 });
+
+it("keeps sparse callback presence separate from explicit undefined", () => {
+  const { resolver, values } = inspectFixture(
+    `inspect([, undefined, 'open'].map((_, i) => 'channel:' + i));`,
+  );
+  const value = values[0];
+  expect(value?.kind).toBe("array");
+  if (value?.kind !== "array") throw new Error("Expected mapped array");
+  expect(value.present).toEqual(new Set([1, 2]));
+  expect(resolver.property(value, "0")).toEqual({
+    kind: "literal",
+    value: undefined,
+  });
+  expect(resolver.property(value, "1")).toEqual({
+    kind: "literal",
+    value: "channel:1",
+  });
+});
+
+it("enumerates only own keys while retaining computed __proto__ keys", () => {
+  expect(
+    inspectOne(`inspect(Object.keys({__proto__: null, open: {}})[0]);`),
+  ).toEqual({ kind: "literal", value: "open" });
+  expect(
+    inspectOne(`inspect(Object.keys({['__proto__']: null, open: {}})[0]);`),
+  ).toEqual({ kind: "literal", value: "__proto__" });
+});

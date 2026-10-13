@@ -129,7 +129,13 @@ const concerns = (
       /^'(?:nonce|sha256|sha384|sha512)-/u.test(source),
     );
     for (const source of lowered) {
-      const reason = sourceConcern(name, source, nonceOrHash);
+      const evalDirective = names.has("script-src")
+        ? "script-src"
+        : "default-src";
+      const reason =
+        source === "'unsafe-eval'" && name !== evalDirective
+          ? undefined
+          : sourceConcern(name, source, nonceOrHash);
       if (reason !== undefined) found.push({ directive: name, source, reason });
     }
   }

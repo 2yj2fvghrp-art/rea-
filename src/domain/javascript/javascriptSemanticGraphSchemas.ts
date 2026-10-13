@@ -431,6 +431,22 @@ export const javaScriptSemanticGraphRecordSchema =
     graph_id: prefixedDigestSchema("jsrg"),
   });
 
+/** Previous persisted coverage shape; used only by the stored-Evidence reader. */
+export const legacyJavaScriptSemanticGraphRecordSchema =
+  javaScriptSemanticGraphRecordSchema.extend({
+    coverage: graphCoverageSchema.omit({ files: true }).extend({
+      families: z
+        .array(
+          familyCoverageSchema
+            .omit({ retained_unknowns: true, omitted_unknowns: true })
+            .extend({
+              unknown_ids: z.array(semanticUnknownIdSchema),
+            }),
+        )
+        .length(12),
+    }),
+  });
+
 /** Canonical semantic node. */
 export type JavaScriptSemanticGraphNode = z.infer<
   typeof javaScriptSemanticNodeSchema

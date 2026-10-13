@@ -404,6 +404,7 @@ export const collectElectronWrappedCallPaths = (
         : (invocationLocation ?? null),
       finding.handler_kind,
       finding.handler_location,
+      finding.linked_operation ?? null,
     ]);
     const known = pendingIpc.get(key);
     const pending = known ?? {
@@ -884,6 +885,7 @@ export const collectElectronWrappedCallPaths = (
       finding.channel,
       finding.location,
       finding.handler_location,
+      finding.linked_operation ?? null,
     ]);
   const unconditional = new Set(
     resolved.flatMap(({ pending, alternatives }) =>
@@ -928,6 +930,8 @@ const addIpcFinding = (
       value.side === finding.side &&
       value.operation === finding.operation &&
       value.channel === finding.channel &&
+      JSON.stringify(value.linked_operation ?? null) ===
+        JSON.stringify(finding.linked_operation ?? null) &&
       JSON.stringify(value.location) === JSON.stringify(finding.location) &&
       ((value.resolution_basis === undefined &&
         (value.mode === "send" || value.mode === "invoke")) ||

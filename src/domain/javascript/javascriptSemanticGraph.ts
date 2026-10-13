@@ -22,6 +22,7 @@ import {
   javaScriptSemanticEvidenceContextSchema,
   javaScriptSemanticGraphInputSchema,
   javaScriptSemanticGraphRecordSchema,
+  legacyJavaScriptSemanticGraphRecordSchema,
   javaScriptSemanticNodeInputSchema,
   javaScriptSemanticRelationInputSchema,
   javaScriptSemanticUnknownInputSchema,
@@ -719,6 +720,75 @@ const checkGraph = (graph: GraphRecord, context: GraphIssueReporter): void => {
 /** Strict semantic graph schema with verified canonical commitments. */
 export const javaScriptSemanticGraphSchema =
   javaScriptSemanticGraphRecordSchema.superRefine(checkGraph);
+
+const legacySemanticCoverage = (
+  coverage: z.infer<
+    typeof legacyJavaScriptSemanticGraphRecordSchema
+  >["coverage"],
+): GraphRecord["coverage"] => ({
+  ...coverage,
+  files: [],
+  families: coverage.families.map(({ unknown_ids, ...family }) => ({
+    ...family,
+    retained_unknowns: unknown_ids.length,
+    omitted_unknowns: family.status === "complete" ? 0 : null,
+  })),
+});
+
+/** Authenticate the old stored commitment before deriving a current read projection. */
+export const javaScriptLegacyStoredSemanticGraphSchema =
+  legacyJavaScriptSemanticGraphRecordSchema
+    .superRefine((graph, context) => {
+      const { graph_id, ...content } = graph;
+      if (
+        graph_id !==
+        `jsrg_${digestCanonicalValue(content, "JavaScript semantic graph")}`
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["graph_id"],
+          message: "Legacy graph identifier is stale",
+        });
+      for (const [index, family] of graph.coverage.families.entries()) {
+        const expected = graph.unknowns
+          .filter((unknown) => unknown.family === family.family)
+          .map(({ unknown_id }) => unknown_id);
+        if (
+          canonicalJson(family.unknown_ids, "JavaScript semantic graph") !==
+          canonicalJson(expected, "JavaScript semantic graph")
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["coverage", "families", index, "unknown_ids"],
+            message:
+              "Legacy family unknown identifiers do not match graph content",
+          });
+      }
+      checkGraphContent(
+        {
+          ...graph,
+          coverage: legacySemanticCoverage(graph.coverage),
+        },
+        context,
+      );
+    })
+    .transform((graph) => {
+      const { graph_id, ...content } = graph;
+      return createJavaScriptSemanticGraph({
+        ...content,
+        coverage: legacySemanticCoverage(content.coverage),
+        limitations: [
+          ...content.limitations,
+          `Read projection derived from authenticated legacy graph ${graph_id}; per-source coverage and omitted-unknown counts were not recorded. Original stored Evidence remains unchanged.`,
+        ],
+      });
+    });
+
+/** Stored readers admit the previous format without relaxing current producer contracts. */
+export const javaScriptStoredSemanticGraphSchema = z.union([
+  javaScriptSemanticGraphSchema,
+  javaScriptLegacyStoredSemanticGraphSchema,
+]);
 
 /** Fully validated JavaScript Semantic Relation Graph. */
 export type JavaScriptSemanticGraph = z.infer<

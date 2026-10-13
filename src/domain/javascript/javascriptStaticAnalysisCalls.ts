@@ -1,7 +1,10 @@
 import * as t from "@babel/types";
 
 import { htmlUrlText, stripQueryAndFragment } from "../artifactPathSyntax.js";
-import { sanitizeEndpointCandidate } from "../browserObservation.js";
+import {
+  sanitizeEndpointCandidate,
+  sanitizeBrowserUrl,
+} from "../browserObservation.js";
 import {
   addFindingOnce,
   addLocatedFinding,
@@ -303,7 +306,7 @@ const inspectEndpointCall = (
       kind: "network",
       value,
       expression:
-        constant.status === "derived"
+        constant.status === "derived" && !sanitizeBrowserUrl(value).redacted
           ? sourceSlice(context.source, endpoint)
           : null,
       mechanism: `call:${name}`,

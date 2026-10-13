@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { sanitizeEndpointCandidate } from "../browserObservation.js";
 
 import { semanticBuiltinNamespacePath } from "./javascriptSemanticProvenance.js";
 
@@ -437,10 +438,11 @@ const requestEndpoint = (
   const argument = node.arguments[0];
   if (argument === undefined || t.isObjectExpression(argument)) return null;
   const literal = literalString(argument);
-  if (literal !== null || !t.isExpression(argument)) return literal;
+  if (literal !== null) return sanitizeEndpointCandidate(literal);
+  if (!t.isExpression(argument)) return null;
   const value = evaluateSemanticExpression(argument, state);
   return value.status === "literal" && typeof value.value === "string"
-    ? value.value
+    ? sanitizeEndpointCandidate(value.value)
     : null;
 };
 
