@@ -102,7 +102,9 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         "format",
         `PyInstaller entry has no readable bytes: ${entry.path}`,
       );
-    return Readable.from(await this.#inflateMember(read, stored.entry.adapterKey, signal));
+    return Readable.from(
+      await this.#inflateMember(read, stored.entry.adapterKey, signal),
+    );
   }
 
   provenance(): readonly [] {
@@ -143,7 +145,8 @@ export class PyInstallerArtifactReader implements ArtifactReader {
       signal,
     );
     for (const member of members)
-      if (member.read?.kind === "carchive") this.#charge(member.read.header?.length ?? 0);
+      if (member.read?.kind === "carchive")
+        this.#charge(member.read.header?.length ?? 0);
     this.#facts = cookieFacts(cookie);
     return { members };
   }
@@ -193,7 +196,11 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     for (const entry of toc) {
       if (entry.typeCode !== "z") continue;
       abortIfNeeded(signal);
-      const bytes = await this.#readDeclared(handle, cookie, entry);
+      const bytes = await this.#readDeclared(
+        handle,
+        cookie.archiveStart,
+        entry,
+      );
       const parsed = parsePyzArchive(bytes);
       if (!parsed.ok) throw failure(parsed.error);
       images.set(entry.name, { archive: parsed.value, bytes });
@@ -214,13 +221,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
       abortIfNeeded(signal);
       const image = images.get(entry.name);
       if (image === undefined) {
-        members.push(
-          projectStoredMember(
-            entry,
-            cookie.archiveStart,
-            magic,
-          ),
-        );
+        members.push(projectStoredMember(entry, cookie.archiveStart, magic));
         continue;
       }
       members.push(
@@ -250,12 +251,12 @@ export class PyInstallerArtifactReader implements ArtifactReader {
 
   async #readDeclared(
     handle: FileHandle,
-    cookie: PyInstallerCookie,
+    archiveStart: number,
     entry: CArchiveEntry,
   ): Promise<Buffer> {
     const compressed = await readExact(
       handle,
-      cookie.archiveStart + entry.offset,
+      archiveStart + entry.offset,
       entry.compressedSize,
     );
     if (entry.compressionFlag === 0) {
@@ -284,10 +285,13 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     abortIfNeeded(signal);
     if (read.kind === "pyz") {
       const previousSize = this.#openedPyzSizes.get(adapterKey);
-      const remaining = previousSize ?? this.#budget - this.#charged - (read.header?.length ?? 0);
-      const inflated = read.compressed.length === 0
-        ? { ok: true as const, value: Buffer.alloc(0) }
-        : await inflateBounded(read.compressed, remaining);
+      const remaining =
+        previousSize ??
+        this.#budget - this.#charged - (read.header?.length ?? 0);
+      const inflated =
+        read.compressed.length === 0
+          ? { ok: true as const, value: Buffer.alloc(0) }
+          : await inflateBounded(read.compressed, remaining);
       if (!inflated.ok) throw failure(inflated.error);
       if (previousSize === undefined) {
         this.#charge(inflated.value.length + (read.header?.length ?? 0));
@@ -304,24 +308,15 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         "unavailable",
         "PyInstaller archive is closed",
       );
-    const compressed = await readExact(handle, read.absolute, read.size);
-    if (read.compressionFlag === 0) {
-      if (compressed.length !== read.uncompressedSize)
-        throw new ArtifactReaderFailure(
-          "integrity",
-          "Stored CArchive member size disagrees with its table entry",
-        );
-      return read.header === undefined ? compressed : Buffer.concat([read.header, compressed]);
-    }
-    const inflated = await inflateBounded(compressed, read.uncompressedSize);
-    if (!inflated.ok) throw failure(inflated.error);
-    if (inflated.value.length !== read.uncompressedSize)
-      throw new ArtifactReaderFailure(
-        "integrity",
-        "Decompressed CArchive member size disagrees with its table entry",
-      );
+    const bytes = await this.#readDeclared(
+      handle,
+      read.archiveStart,
+      read.source,
+    );
     abortIfNeeded(signal);
-    return read.header === undefined ? inflated.value : Buffer.concat([read.header, inflated.value]);
+    return read.header === undefined
+      ? bytes
+      : Buffer.concat([read.header, bytes]);
   }
 
   #charge(bytes: number): void {
@@ -342,7 +337,8 @@ const firstPythonMagic = (
   images: ReadonlyMap<string, PyzImage>,
 ): Buffer | undefined => {
   for (const image of images.values())
-    if (image.archive.pythonMagic !== undefined) return image.archive.pythonMagic;
+    if (image.archive.pythonMagic !== undefined)
+      return image.archive.pythonMagic;
   return undefined;
 };
 

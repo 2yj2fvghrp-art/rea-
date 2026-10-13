@@ -15,10 +15,8 @@ export interface PyInstallerMember {
   readonly read:
     | {
         readonly kind: "carchive";
-        readonly absolute: number;
-        readonly size: number;
-        readonly compressionFlag: number;
-        readonly uncompressedSize: number;
+        readonly archiveStart: number;
+        readonly source: CArchiveEntry;
         readonly header: Buffer | undefined;
       }
     | {
@@ -56,7 +54,8 @@ export const projectStoredMember = (
   const limitations = memberLimitations(entry.typeCode, entry.compressionFlag);
   limitations.push(...originalNameLimitation(named.original));
   if (symlink) limitations.push("PyInstaller symlink target was not read.");
-  if (header !== undefined) limitations.push(RECONSTRUCTED_PYTHON_HEADER_LIMITATION);
+  if (header !== undefined)
+    limitations.push(RECONSTRUCTED_PYTHON_HEADER_LIMITATION);
   const declaredSize = entry.uncompressedSize;
   return {
     entry: fileEntry({
@@ -74,10 +73,8 @@ export const projectStoredMember = (
     }),
     read: {
       kind: "carchive",
-      absolute: archiveStart + entry.offset,
-      size: entry.compressedSize,
-      compressionFlag: entry.compressionFlag,
-      uncompressedSize: entry.uncompressedSize,
+      archiveStart,
+      source: entry,
       header,
     },
   };
@@ -111,10 +108,8 @@ export const projectPyzContainer = (
       }),
       read: {
         kind: "carchive",
-        absolute: archiveStart + entry.offset,
-        size: entry.compressedSize,
-        compressionFlag: entry.compressionFlag,
-        uncompressedSize: entry.uncompressedSize,
+        archiveStart,
+        source: entry,
         header: undefined,
       },
     };
@@ -202,7 +197,10 @@ export const projectPyzMember = (
       limitations,
       adapterKey: `pyz:${located.path}`,
     }),
-    read: compressed === undefined ? undefined : { kind: "pyz", compressed, header },
+    read:
+      compressed === undefined
+        ? undefined
+        : { kind: "pyz", compressed, header },
   };
 };
 
