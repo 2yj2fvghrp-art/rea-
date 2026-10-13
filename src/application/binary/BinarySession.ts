@@ -372,7 +372,9 @@ export class BinarySession
   withAdmittedExternalMutation<Value>(
     path: string,
     signal: AbortSignal | undefined,
-    operation: () => Promise<Result<Value, AnalysisError>>,
+    operation: (
+      onLaunched: () => void,
+    ) => Promise<Result<Value, AnalysisError>>,
     rebindFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
@@ -400,8 +402,13 @@ export class BinarySession
       // Rebind every active session after the admitted call rather than infer
       // file identity with an uncancellable path lookup.
       const rebindTarget = activeAtDispatch !== undefined;
-      this.invalidateSnapshot();
-      const value = await operation();
+      let launched = false;
+      const value = await operation(() => {
+        if (launched) return;
+        launched = true;
+        this.invalidateSnapshot();
+      });
+      if (!launched) return ok(value);
       this.#externalMutationCleanupFailure =
         !value.ok && value.error.cleanupIncomplete ? value.error : undefined;
       if (!rebindTarget) return ok(value);

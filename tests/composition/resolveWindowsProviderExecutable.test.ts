@@ -16,7 +16,7 @@ describe("resolveWindowsProviderExecutable", () => {
     await writeFile(executable, "fixture");
     try {
       expect(
-        resolveWindowsProviderExecutable("rizin", {
+        await resolveWindowsProviderExecutable("rizin", {
           PATH: `C:\\unrelated;${tools}`,
           PATHEXT: ".COM;.EXE;.BAT",
         }),
@@ -34,7 +34,7 @@ describe("resolveWindowsProviderExecutable", () => {
     await writeFile(executable, "executable fixture");
     try {
       expect(
-        resolveWindowsProviderExecutable("rizin", {
+        await resolveWindowsProviderExecutable("rizin", {
           PATH: directory,
           PATHEXT: ".CMD;.BAT;.EXE;.COM",
         }),
@@ -54,21 +54,28 @@ describe("resolveWindowsProviderExecutable", () => {
         "win32",
       );
       expect(
-        commands.objdump({ path: "artifact", operation: "file_headers" })
-          .executable,
+        (
+          await commands.objdump({
+            path: "artifact",
+            operation: "file_headers",
+          })
+        ).executable,
       ).toBe(executable);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 
-  it("preserves explicit paths and leaves unresolved names unchanged", () => {
+  it("preserves explicit paths and leaves unresolved names unchanged", async () => {
     const environment = { PATH: "C:\\tools", PATHEXT: ".EXE" };
     expect(
-      resolveWindowsProviderExecutable("C:\\tools\\rizin.exe", environment),
+      await resolveWindowsProviderExecutable(
+        "C:\\tools\\rizin.exe",
+        environment,
+      ),
     ).toBe("C:\\tools\\rizin.exe");
-    expect(resolveWindowsProviderExecutable("missing-tool", environment)).toBe(
-      "missing-tool",
-    );
+    expect(
+      await resolveWindowsProviderExecutable("missing-tool", environment),
+    ).toBe("missing-tool");
   });
 });

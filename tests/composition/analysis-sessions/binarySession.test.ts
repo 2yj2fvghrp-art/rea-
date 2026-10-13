@@ -206,7 +206,8 @@ it.skipIf(process.platform === "win32")(
     const mutation = session.withAdmittedExternalMutation(
       alias,
       undefined,
-      async () => {
+      async (onLaunched) => {
+        onLaunched();
         expect(session.activeTarget()?.path).toBe(target);
         started.resolve();
         await release.promise;
@@ -243,7 +244,8 @@ it("rebinds when an external mutation uses a hard link to the active target", as
   const result = await session.withAdmittedExternalMutation(
     alias,
     undefined,
-    async () => {
+    async (onLaunched) => {
+      onLaunched();
       await writeFile(alias, "changed through hard link");
       return resultOk("changed");
     },
@@ -272,7 +274,10 @@ it("preserves Evidence records while replacing the client after an external muta
   const result = await session.withAdmittedExternalMutation(
     target,
     undefined,
-    async () => resultOk("observed"),
+    async (onLaunched) => {
+      onLaunched();
+      return resultOk("observed");
+    },
     (_value, error) => error,
   );
 
@@ -300,7 +305,10 @@ it("reopens an app bundle from its source path after a session mutation", async 
   const result = await session.withAdmittedExternalMutation(
     initial?.path ?? executable,
     undefined,
-    async () => resultOk("observed"),
+    async (onLaunched) => {
+      onLaunched();
+      return resultOk("observed");
+    },
     (_value, error) => error,
   );
 
@@ -328,7 +336,10 @@ it("omits provider identity when rebinding an unbound auxiliary-only session", a
   const result = await session.withAdmittedExternalMutation(
     target,
     undefined,
-    async () => resultOk("observed"),
+    async (onLaunched) => {
+      onLaunched();
+      return resultOk("observed");
+    },
     (_value, error) => error,
   );
 
@@ -364,7 +375,10 @@ it("keeps an externally mutated session unbound until cleanup is retried", async
   const mutation = await session.withAdmittedExternalMutation(
     target,
     undefined,
-    async () => resultOk("dispatched"),
+    async (onLaunched) => {
+      onLaunched();
+      return resultOk("dispatched");
+    },
     (_value, error) => error,
   );
 
@@ -1505,7 +1519,10 @@ it("blocks analysis rebinding until the external writer cleanup settles", async 
   const result = await session.withAdmittedExternalMutation(
     target,
     undefined,
-    async () => err(failure),
+    async (onLaunched) => {
+      onLaunched();
+      return err(failure);
+    },
     (_value, error) => error,
   );
   expect(result).toEqual(resultOk(err(failure)));

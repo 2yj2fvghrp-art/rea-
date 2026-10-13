@@ -55,7 +55,7 @@ describe("reverse engineering command services", () => {
           env: expect.objectContaining({ DEBUGINFOD_URLS: "" }),
         },
       ]);
-      expect(result.value.raw_result).toMatchObject({
+      expect(result.value.normalized_result).toMatchObject({
         stdout: "DWARF output\n",
         stderr: "diagnostic\n",
         exit_code: 0,
@@ -155,7 +155,7 @@ describe("reverse engineering command services", () => {
       });
       expect(result.ok).toBe(true);
       if (result.ok)
-        expect(result.value.raw_result).toMatchObject({
+        expect(result.value.normalized_result).toMatchObject({
           stdout: "captured partial output",
           exit_code: null,
           output_truncated: true,
@@ -240,7 +240,7 @@ it("marks signal-terminated provider commands as unknown completion", async () =
     });
     expect(signaled.ok).toBe(true);
     if (signaled.ok) {
-      expect(signaled.value.raw_result).toMatchObject({
+      expect(signaled.value.normalized_result).toMatchObject({
         stdout: "partial output",
         exit_code: null,
         signal: "SIGKILL",
@@ -254,7 +254,7 @@ it("marks signal-terminated provider commands as unknown completion", async () =
     });
     expect(ordinaryExit.ok).toBe(true);
     if (ordinaryExit.ok) {
-      expect(ordinaryExit.value.raw_result).toMatchObject({
+      expect(ordinaryExit.value.normalized_result).toMatchObject({
         stdout: "ordinary partial output",
         exit_code: 2,
         signal: null,
@@ -311,7 +311,7 @@ describe("Rizin command service", () => {
           args: ["-N", "-q", "-c", "iI", path],
         },
       ]);
-      expect(result.value.raw_result).toMatchObject({
+      expect(result.value.normalized_result).toMatchObject({
         stdout: "partial data",
         stderr: "command error",
         exit_code: 2,
@@ -379,7 +379,7 @@ describe("Rizin command service", () => {
       expect(result.value.subject?.digest.sha256).toBe(
         createHash("sha256").update("before").digest("hex"),
       );
-      expect(result.value.raw_result).toMatchObject({
+      expect(result.value.normalized_result).toMatchObject({
         artifact_sha256_after: createHash("sha256")
           .update("after")
           .digest("hex"),
@@ -421,7 +421,7 @@ it("retains partial Evidence when a provider command times out", async () => {
       expect(result.error._tag).toBe("AnalysisTimeoutError");
       expect(result.error.partialObservation).toMatchObject({
         operation: "execute_rizin_command",
-        raw_result: {
+        normalized_result: {
           stdout: "captured before timeout",
           stderr: "still running",
           completion_status: "unknown",
@@ -517,7 +517,7 @@ it("preserves provider facts when cancellation interrupts the post-run digest", 
         signal: null,
       });
       expect(result.error.partialObservation).toMatchObject({
-        raw_result: {
+        normalized_result: {
           stdout: "�",
           exit_code: null,
           completion_status: "unknown",
@@ -553,7 +553,7 @@ it("marks signal-terminated provider output incomplete", async () => {
     const result = await service.executeRizinCommand({ path, command: "iI" });
     expect(result.ok).toBe(true);
     if (result.ok)
-      expect(result.value.raw_result).toMatchObject({
+      expect(result.value.normalized_result).toMatchObject({
         signal: "SIGSEGV",
         exit_code: null,
         completion_status: "unknown",

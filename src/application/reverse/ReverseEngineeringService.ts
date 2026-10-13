@@ -58,7 +58,9 @@ interface ReverseEngineeringCommandRunner {
   (
     command: string,
     arguments_: readonly string[],
-    options?: Parameters<typeof execFileOutput>[2],
+    options?: Parameters<typeof execFileOutput>[2] & {
+      readonly onLaunched?: () => void;
+    },
   ): Promise<{
     readonly stdout: string;
     readonly stderr: string;
@@ -137,11 +139,15 @@ export class ReverseEngineeringService {
           failures: retained.failures,
         });
         if (failure === undefined) {
-          failure = new AnalysisOutputError(
-            operation,
-            "A previous provider process still requires cleanup.",
-            { cleanup: observation },
-          );
+          failure = retained.failures.values().next().value;
+          if (failure === undefined) {
+            failure = new AnalysisOutputError(
+              operation,
+              "A previous provider process still requires cleanup.",
+              { cleanup: observation },
+            );
+            retained.failures.add(failure);
+          }
         }
       } else {
         for (const previous of retained.failures) previous.resolveCleanup();
@@ -182,7 +188,8 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("inspect_with_objdump")),
       );
     const input = parsed.data;
-    const command = this.#commands.objdump(input);
+    const command = (signal?: AbortSignal) =>
+      this.#commands.objdump(input, { signal, timeoutMs: DEFAULT_TIMEOUT_MS });
     return this.#observe(
       "inspect_with_objdump",
       command,
@@ -194,7 +201,10 @@ export class ReverseEngineeringService {
 
   executeRizinCommand(
     rawInput: unknown,
-    options: { readonly signal?: AbortSignal } = {},
+    options: {
+      readonly signal?: AbortSignal;
+      readonly onLaunched?: () => void;
+    } = {},
   ): Promise<Result<Evidence, AnalysisError>> {
     const parsed = rizinInputSchema.safeParse(rawInput);
     if (!parsed.success)
@@ -202,22 +212,29 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("execute_rizin_command")),
       );
     const input = parsed.data;
-    const command = this.#commands.rizin(input);
+    const command = (signal?: AbortSignal) =>
+      this.#commands.rizin(input, { signal, timeoutMs: DEFAULT_TIMEOUT_MS });
     return this.#observe(
       "execute_rizin_command",
       command,
       input.path,
       input,
       options.signal,
+      options.onLaunched,
     );
   }
 
   #observe(
     operation: ReverseEngineeringOperation,
-    profile: ReverseEngineeringProviderCommand,
+    resolveProfile: (
+      signal?: AbortSignal,
+    ) =>
+      | ReverseEngineeringProviderCommand
+      | Promise<ReverseEngineeringProviderCommand>,
     path: string,
     parameters: Readonly<Record<string, JsonValue>>,
     signal?: AbortSignal,
+    onLaunched?: () => void,
   ): Promise<Result<Evidence, AnalysisError>> {
     if (this.#closing)
       return Promise.resolve(
@@ -225,6 +242,19 @@ export class ReverseEngineeringService {
           new AnalysisOutputError(
             operation,
             "Reverse-engineering service is closed.",
+          ),
+        ),
+      );
+    if (signal?.aborted)
+      return Promise.resolve(err(new AnalysisCancelledError(operation)));
+    if (this.#activeOperations.size > 0)
+      return Promise.resolve(
+        err(
+          new AnalysisResourceConstraintError(
+            operation,
+            "capacity",
+            "One reverse-engineering command is already active; retry after it settles.",
+            { concurrent_commands: 1 },
           ),
         ),
       );
@@ -240,10 +270,11 @@ export class ReverseEngineeringService {
         : signal;
     const running = this.#observeProvider(
       operation,
-      profile,
+      resolveProfile,
       path,
       parameters,
       operationSignal,
+      onLaunched,
     );
     const tracked = running.finally(() => {
       signal?.removeEventListener("abort", relayAbort);
@@ -255,12 +286,16 @@ export class ReverseEngineeringService {
 
   async #observeProvider(
     operation: ReverseEngineeringOperation,
-    profile: ReverseEngineeringProviderCommand,
+    resolveProfile: (
+      signal?: AbortSignal,
+    ) =>
+      | ReverseEngineeringProviderCommand
+      | Promise<ReverseEngineeringProviderCommand>,
     path: string,
     parameters: Readonly<Record<string, JsonValue>>,
     signal?: AbortSignal,
+    onLaunched?: () => void,
   ): Promise<Result<Evidence, AnalysisError>> {
-    const { executable: command, arguments: args } = profile;
     if (signal?.aborted) return err(new AnalysisCancelledError(operation));
     const cleanup = await this.retryCleanup(operation);
     if (!cleanup.ok) return cleanup;
@@ -284,6 +319,21 @@ export class ReverseEngineeringService {
         );
       return err(new AnalysisInputError(operation, { cause }));
     }
+    let profile: ReverseEngineeringProviderCommand;
+    try {
+      profile = await resolveProfile(signal);
+    } catch (cause) {
+      return err(
+        cause instanceof AnalysisError
+          ? cause
+          : new AnalysisOutputError(
+              operation,
+              "Provider executable resolution failed.",
+              { cause },
+            ),
+      );
+    }
+    const { executable: command, arguments: args } = profile;
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -307,7 +357,10 @@ export class ReverseEngineeringService {
         timeout: DEFAULT_TIMEOUT_MS,
         stopSignal: "SIGTERM",
         maxBuffer: MAX_COMBINED_OUTPUT_BYTES,
+        onLaunched,
       });
+      // Injected runners may only report completion, which also proves dispatch.
+      onLaunched?.();
       stdout = output.stdout;
       stderr = output.stderr;
       stdoutBytes = output.stdoutBytes ?? Buffer.byteLength(stdout);
@@ -539,7 +592,7 @@ export class ReverseEngineeringService {
           provider_executable: command,
           command_arguments: [...args],
         },
-        rawResult: result,
+        rawResult: null,
         result,
         limitations,
         locations: [{ kind: "artifact-path", path: absolutePath }],
@@ -631,6 +684,9 @@ const runOwnedCommandOutput =
         },
         {
           ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(options.onLaunched === undefined
+            ? {}
+            : { onLaunched: options.onLaunched }),
         },
       );
       // Stryker disable next-line ConditionalExpression,EqualityOperator -- null and undefined both mean no signal; wrapping a successful snapshot with those values is observationally equivalent after normalization.

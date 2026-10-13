@@ -62,6 +62,8 @@ export const runOwnedCommand = async (
   },
   options: {
     readonly signal?: AbortSignal;
+    /** Observe successful provider dispatch; callback must not throw. */
+    readonly onLaunched?: () => void;
     /** Synchronously accept unresolved cleanup ownership; execution still returns its original outcome. Must not throw. */
     readonly retainCleanup?: (owner: ProviderProcessSupervisor) => void;
     readonly launcher?: (
@@ -84,6 +86,7 @@ export const runOwnedCommand = async (
       deadline,
       callerSignal,
       options.retainCleanup,
+      options.onLaunched,
     );
   } finally {
     deadline.dispose();
@@ -103,6 +106,7 @@ const collectOwnedCommand = async (
   deadline: ProviderStartupDeadline,
   callerSignal?: AbortSignal,
   retainCleanup?: (owner: ProviderProcessSupervisor) => void,
+  onLaunched?: () => void,
 ): Promise<ProviderProcessSnapshot> => {
   const signal = deadline.signal;
   let launched: SpawnedOwnedProviderProcess;
@@ -146,6 +150,7 @@ const collectOwnedCommand = async (
   );
   let failure: OwnedCommandFailure | undefined;
   try {
+    onLaunched?.();
     while (!(await supervisor.waitForOutputClose(10))) {
       const interruption = deadline.interruption;
       if (interruption !== undefined)

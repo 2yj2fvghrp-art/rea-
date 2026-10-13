@@ -91,7 +91,8 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
   } as unknown as McpServer;
   const events: string[] = [];
   const service = new ReverseEngineeringService({
-    run: async () => {
+    run: async (_command, _args, options) => {
+      options?.onLaunched?.();
       events.push("dispatch");
       return { stdout: "rizin output", stderr: "" };
     },
@@ -106,7 +107,7 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
     () => events.push("invalidate"),
     async (_path, _signal, operation) => {
       events.push("admit");
-      const result = await operation();
+      const result = await operation(() => events.push("invalidate"));
       events.push("rebind");
       return ok(result);
     },
@@ -154,7 +155,8 @@ it.skipIf(process.platform === "win32").each(["success", "timeout"])(
       ) => registrations.set(name, handler),
     } as unknown as McpServer;
     const service = new ReverseEngineeringService({
-      run: async () => {
+      run: async (_command, _args, options) => {
+        options?.onLaunched?.();
         await writeFile(alias, "changed by Rizin");
         if (outcome === "timeout")
           throw Object.assign(new Error("timed out"), {

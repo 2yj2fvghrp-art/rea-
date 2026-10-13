@@ -52,7 +52,9 @@ export interface BinarySessionPort
   withAdmittedExternalMutation<Value>(
     path: string,
     signal: AbortSignal | undefined,
-    operation: () => Promise<Result<Value, AnalysisError>>,
+    operation: (
+      onLaunched: () => void,
+    ) => Promise<Result<Value, AnalysisError>>,
     rebindFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,

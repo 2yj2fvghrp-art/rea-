@@ -32,7 +32,9 @@ export const registerReverseEngineeringTools = (
   withAdmittedExternalMutation?: <Value>(
     path: string,
     signal: AbortSignal | undefined,
-    operation: () => Promise<Result<Value, AnalysisError>>,
+    operation: (
+      onLaunched: () => void,
+    ) => Promise<Result<Value, AnalysisError>>,
     rebindFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
@@ -83,11 +85,11 @@ export const registerReverseEngineeringTools = (
         const admitted = await withAdmittedExternalMutation(
           parsed.data.path,
           context.mcpReq.signal,
-          async () => {
-            invalidateSnapshotForExternalMutation?.();
+          async (onLaunched) => {
             return logToolExecution(logger, rizin.name, () =>
               service.executeRizinCommand(parsed.data, {
                 signal: context.mcpReq.signal,
+                onLaunched,
               }),
             );
           },
@@ -137,14 +139,10 @@ export const registerReverseEngineeringTools = (
         withAdmittedAnalysis,
         delivery,
         async () => {
-          if (
-            invalidateSnapshotForExternalMutation !== undefined &&
-            rizinInputSchema.safeParse(input).success
-          )
-            invalidateSnapshotForExternalMutation();
           const result = await logToolExecution(logger, rizin.name, () =>
             service.executeRizinCommand(input, {
               signal: context.mcpReq.signal,
+              onLaunched: invalidateSnapshotForExternalMutation,
             }),
           );
           if (!result.ok)
