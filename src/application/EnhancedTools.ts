@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  AnalysisExecution,
   AnalysisOperation,
   AnalysisOperationPort,
   ExecutionOptions,
@@ -21,6 +22,7 @@ import {
   parseListCount,
   parseRelatedAddresses,
   parseSegments,
+  parseSegmentImageBase,
 } from "../domain/hopperValues.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -32,6 +34,7 @@ import { inspectNativeDispatch } from "./native/NativeDispatchMetadataInspection
 import { traceNativeValues } from "./native/NativeValueTrace.js";
 import { traceNativeUiAction } from "./native/NativeUiActionTrace.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
+import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 import {
   invalidEnhancedInput,
@@ -43,6 +46,7 @@ import { traceCallPath } from "./CallPathTracing.js";
 import { resolveProcedureAddress } from "./ProcedureAddressResolution.js";
 import { traceLiteralFeature } from "./EnhancedLiteralTracing.js";
 import { projectNativeApiInspection } from "./native/NativeApiInspection.js";
+
 /**
  * Composes direct provider operations into bounded reverse-engineering tools.
  * Direct callers use `execute`; adapters that own validation use
@@ -166,6 +170,8 @@ export class EnhancedTools {
         return traceCallPath(
           (name, arguments_, operationSignal, selectorOrigin) =>
             this.#call(name, arguments_, operationSignal, selectorOrigin),
+          (name, arguments_, operationSignal, selectorOrigin) =>
+            this.#observe(name, arguments_, operationSignal, selectorOrigin),
           call.input,
           signal,
         );
@@ -340,15 +346,26 @@ export class EnhancedTools {
     const relation = input.direction === "forward" ? "callees" : "callers";
     const tool =
       input.direction === "forward" ? "procedure_callees" : "procedure_callers";
-    const resolved = await resolveProcedureAddress(
-      this.#call.bind(this),
-      input.address,
+    const limitations = new Set<string>();
+    const resolved = await this.#observe(
+      "procedure_address",
+      { procedure: input.address },
       signal,
     );
     if (!resolved.ok) return resolved;
-    const discovered = new Set([resolved.value]);
+    for (const limitation of resolved.value.limitations)
+      limitations.add(limitation);
+    const startAddress = resolved.value.result;
+    if (typeof startAddress !== "string" || startAddress.length === 0)
+      return err(
+        new AnalysisOutputError(
+          "procedure_address",
+          "provider returned no canonical procedure address",
+        ),
+      );
+    const discovered = new Set([startAddress]);
     const queue: Array<{ address: string; depth: number }> = [
-      { address: resolved.value, depth: 0 },
+      { address: startAddress, depth: 0 },
     ];
     let queueIndex = 0;
     const graph: Record<string, JsonValue[]> = {};
@@ -359,7 +376,7 @@ export class EnhancedTools {
       const level = String(current.depth);
       graph[level] ??= [];
 
-      const result = await this.#call(
+      const result = await this.#observe(
         tool,
         { procedure: current.address },
         signal,
@@ -373,7 +390,7 @@ export class EnhancedTools {
         });
         continue;
       }
-      const related = parseRelatedAddresses(result.value, relation);
+      const related = parseRelatedAddresses(result.value.result, relation);
       if (!related.ok) {
         graph[level].push({
           address: current.address,
@@ -382,10 +399,40 @@ export class EnhancedTools {
         });
         continue;
       }
+      for (const limitation of result.value.limitations)
+        limitations.add(limitation);
+      const reportedCoverage = result.value.relationshipCoverage;
+      const coverage = reportedCoverage ?? {
+        status: "unknown" as const,
+        reason: "Provider did not report relationship coverage.",
+      };
+      const relationshipLimitations =
+        reportedCoverage === undefined
+          ? [
+              ...result.value.limitations,
+              "Provider did not report relationship coverage.",
+            ]
+          : [
+              ...(reportedCoverage.status === "partial"
+                ? reportedCoverage.limitations
+                : reportedCoverage.status === "unknown"
+                  ? [reportedCoverage.reason]
+                  : []),
+              ...("diagnostics" in reportedCoverage
+                ? reportedCoverage.diagnostics
+                : []),
+            ];
+      const nodeLimitations = [...new Set(relationshipLimitations)].sort(
+        compareUnicodeCodePoints,
+      );
       graph[level].push({
         address: current.address,
         status: "ok",
         calls: [...related.value],
+        relationship_coverage: coverage,
+        ...(nodeLimitations.length === 0
+          ? {}
+          : { limitations: nodeLimitations }),
       });
       for (const address of related.value) {
         if (!discovered.has(address)) {
@@ -394,7 +441,10 @@ export class EnhancedTools {
         }
       }
     }
-    return ok(graph);
+    return ok({
+      graph,
+      limitations: [...limitations].sort(compareUnicodeCodePoints),
+    });
   }
 
   async #analyzeSwiftTypes(
@@ -484,14 +534,21 @@ export class EnhancedTools {
     const stringCount = parseListCount(stringsResult.value, "strings");
     if (!stringCount.ok) return stringCount;
 
+    const imageBase = parseSegmentImageBase(segments.value);
+
     return ok({
       document: document.value,
-      segments: segments.value.map(({ name, start, end }) => ({
-        name,
-        start,
-        end,
-        length: addressDistance(start, end),
-      })),
+      ...(imageBase === undefined ? {} : { image_base: imageBase }),
+      segments: segments.value.map(
+        ({ name, start, end, image_base, address_space }) => ({
+          name,
+          start,
+          end,
+          length: addressDistance(start, end),
+          ...(image_base === undefined ? {} : { image_base }),
+          ...(address_space === undefined ? {} : { address_space }),
+        }),
+      ),
       segment_count: segments.value.length,
       procedure_count: procedureCount.value,
       string_count: stringCount.value,
@@ -523,13 +580,29 @@ export class EnhancedTools {
     signal?: AbortSignal,
     selectorOrigin?: ExecutionOptions["selectorOrigin"],
   ): Promise<Result<JsonValue, AnalysisError>> {
+    const execution = await this.#observe(
+      name,
+      arguments_,
+      signal,
+      selectorOrigin,
+    );
+    return execution.ok ? ok(execution.value.result) : execution;
+  }
+
+  async #observe(
+    name: AnalysisOperation,
+    arguments_: Readonly<Record<string, JsonValue>>,
+    signal?: AbortSignal,
+    selectorOrigin?: ExecutionOptions["selectorOrigin"],
+  ): Promise<Result<AnalysisExecution, AnalysisError>> {
     if (isAborted(signal)) return err(new AnalysisCancelledError(name));
     const execution = await this.analysis.execute(name, arguments_, {
       ...(signal === undefined ? {} : { signal }),
       ...(selectorOrigin === undefined ? {} : { selectorOrigin }),
     });
+    if (!execution.ok) return execution;
     if (isAborted(signal)) return err(new AnalysisCancelledError(name));
-    return execution.ok ? ok(execution.value.result) : execution;
+    return execution;
   }
 }
 
