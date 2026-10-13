@@ -80,15 +80,13 @@ const HEADLINE_FIELDS = [
 // without credentials under the recorded transport-URL interpretation, since
 // an absolute or ambiguous spelling may carry userinfo the native redaction
 // does not recognise; host and authority never carry a userinfo marker.
+// Target fields come only from the request and the status only from the
+// response, and integer slots require the producer's own integer type.
 // Excluded values stay in complete record pages.
-const MITMPROXY_HEADLINE_FIELDS = [
-  "scheme",
-  "host",
-  "port",
-  "authority",
-  "path",
-  "status_code",
-];
+const MITMPROXY_HEADLINE_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  request: ["scheme", "host", "port", "authority", "path"],
+  response: ["status_code"],
+};
 const MITMPROXY_PATH_MAX_LENGTH = 2 * 1024;
 const integerIn = (value: JsonValue, min: number, max: number): boolean =>
   typeof value === "number" &&
@@ -109,7 +107,11 @@ const hostLike = (value: JsonValue, maxLength: number): boolean =>
   value.length <= maxLength &&
   !hasControl(value, true) &&
   !/[@/\\]/u.test(value);
-const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
+const mitmproxyHeadline = (
+  field: string,
+  value: JsonValue,
+  producerType: string | undefined,
+): boolean => {
   switch (field) {
     case "scheme":
       return (
@@ -121,9 +123,9 @@ const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
     case "authority":
       return hostLike(value, 262);
     case "port":
-      return integerIn(value, 0, 65_535);
+      return producerType === "integer" && integerIn(value, 0, 65_535);
     case "status_code":
-      return integerIn(value, 100, 999);
+      return producerType === "integer" && integerIn(value, 100, 999);
     case "path":
       return (
         typeof value === "string" &&
@@ -142,6 +144,12 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
   const reported: Record<string, JsonValue> = {};
   const selectedPointers = new Set<string>();
+  const producerTypes = new Map(
+    record.numeric_literals.map(({ pointer, producer_type }) => [
+      pointer,
+      producer_type,
+    ]),
+  );
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
@@ -160,16 +168,22 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
       const selected: Record<string, JsonValue> = {};
       const candidates = [
         ...HEADLINE_FIELDS.map((field) => [field, false] as const),
-        ...(format === "mitmproxy" ? MITMPROXY_HEADLINE_FIELDS : []).map(
-          (field) => [field, true] as const,
-        ),
+        ...(format === "mitmproxy"
+          ? (MITMPROXY_HEADLINE_FIELDS[key] ?? [])
+          : []
+        ).map((field) => [field, true] as const),
       ];
       for (const [field, mitmproxy] of candidates) {
         const fieldValue = fields[field];
         if (
           !Object.hasOwn(fields, field) ||
           fieldValue === undefined ||
-          (mitmproxy && !mitmproxyHeadline(field, fieldValue))
+          (mitmproxy &&
+            !mitmproxyHeadline(
+              field,
+              fieldValue,
+              producerTypes.get(`/${key}/${field}`),
+            ))
         )
           continue;
         selected[field] = fieldValue;
