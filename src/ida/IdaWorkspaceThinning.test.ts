@@ -122,9 +122,11 @@ describe("IDA workspace input thinning", () => {
     async () => {
       const { bytes, target } = await largeUniversalTarget(
         [
-          { cpu: 0x01000007, offset: 4096, size: 8480 },
-          { cpu: 0x0100000c, offset: 16384, size: 33464 },
-          { cpu: 0x00000007, offset: 65536, size: 33464 },
+          // FAT slices honor their declared 2^14 alignment; the selected
+          // slice still crosses the 64 KiB read boundary.
+          { cpu: 0x01000007, offset: 16384, size: 8480 },
+          { cpu: 0x0100000c, offset: 32768, size: 33464 },
+          { cpu: 0x00000007, offset: 81920, size: 33464 },
         ],
         "arm64",
       );
