@@ -73,12 +73,13 @@ const HEADLINE_FIELDS = [
   "reason",
 ];
 // Native mitmproxy flows report the request target in parts and the status
-// as status_code. They are previewed only for mitmproxy records, only as
-// bounded scalars, and the path only in origin or asterisk form with no
-// credentials under the recorded transport-URL interpretation: an absolute,
-// authority-bearing or ambiguous spelling may carry userinfo the native
-// redaction does not recognise. Other target strings are never previewed with
-// a userinfo marker, because only path and authority receive native redaction.
+// as status_code. They are previewed only for mitmproxy records and only when
+// each value has its field's well-formed shape, which also bounds the
+// serialized size of every record (at most ~4 KiB for an escape-heavy path).
+// The path must be origin or asterisk form without control characters and
+// without credentials under the recorded transport-URL interpretation, since
+// an absolute or ambiguous spelling may carry userinfo the native redaction
+// does not recognise; host and authority never carry a userinfo marker.
 // Excluded values stay in complete record pages.
 const MITMPROXY_HEADLINE_FIELDS = [
   "scheme",
@@ -88,18 +89,52 @@ const MITMPROXY_HEADLINE_FIELDS = [
   "path",
   "status_code",
 ];
-const MITMPROXY_HEADLINE_MAX_LENGTH = 8 * 1024;
+const MITMPROXY_PATH_MAX_LENGTH = 2 * 1024;
+const integerIn = (value: JsonValue, min: number, max: number): boolean =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= min &&
+  value <= max;
+/** True when a code unit is C0, DEL or (optionally) a space. */
+const hasControl = (value: string, includeSpace: boolean): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f || (includeSpace && code === 0x20))
+      return true;
+  }
+  return false;
+};
+const hostLike = (value: JsonValue, maxLength: number): boolean =>
+  typeof value === "string" &&
+  value.length <= maxLength &&
+  !hasControl(value, true) &&
+  !/[@/\\]/u.test(value);
 const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
-  if (value !== null && typeof value === "object") return false;
-  if (typeof value === "string" && value.length > MITMPROXY_HEADLINE_MAX_LENGTH)
-    return false;
-  if (field === "path")
-    return (
-      typeof value === "string" &&
-      (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
-      parseRecordedTransportUrl(value).credentials === null
-    );
-  return typeof value !== "string" || !value.includes("@");
+  switch (field) {
+    case "scheme":
+      return (
+        typeof value === "string" &&
+        /^[A-Za-z][A-Za-z0-9+.-]{0,31}$/u.test(value)
+      );
+    case "host":
+      return hostLike(value, 255);
+    case "authority":
+      return hostLike(value, 262);
+    case "port":
+      return integerIn(value, 0, 65_535);
+    case "status_code":
+      return integerIn(value, 100, 999);
+    case "path":
+      return (
+        typeof value === "string" &&
+        value.length <= MITMPROXY_PATH_MAX_LENGTH &&
+        !hasControl(value, false) &&
+        (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
+        parseRecordedTransportUrl(value).credentials === null
+      );
+    default:
+      return false;
+  }
 };
 
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
@@ -123,23 +158,23 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
         continue;
       }
       const selected: Record<string, JsonValue> = {};
-      for (const field of HEADLINE_FIELDS)
-        if (Object.hasOwn(fields, field) && fields[field] !== undefined) {
-          selected[field] = fields[field];
-          selectedPointers.add(`/${key}/${field}`);
-        }
-      if (format === "mitmproxy")
-        for (const field of MITMPROXY_HEADLINE_FIELDS) {
-          const fieldValue = fields[field];
-          if (
-            Object.hasOwn(fields, field) &&
-            fieldValue !== undefined &&
-            mitmproxyHeadline(field, fieldValue)
-          ) {
-            selected[field] = fieldValue;
-            selectedPointers.add(`/${key}/${field}`);
-          }
-        }
+      const candidates = [
+        ...HEADLINE_FIELDS.map((field) => [field, false] as const),
+        ...(format === "mitmproxy" ? MITMPROXY_HEADLINE_FIELDS : []).map(
+          (field) => [field, true] as const,
+        ),
+      ];
+      for (const [field, mitmproxy] of candidates) {
+        const fieldValue = fields[field];
+        if (
+          !Object.hasOwn(fields, field) ||
+          fieldValue === undefined ||
+          (mitmproxy && !mitmproxyHeadline(field, fieldValue))
+        )
+          continue;
+        selected[field] = fieldValue;
+        selectedPointers.add(`/${key}/${field}`);
+      }
       reported[key] = selected;
     }
   }

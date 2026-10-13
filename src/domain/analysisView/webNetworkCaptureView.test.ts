@@ -323,6 +323,34 @@ it.each([
     expect(JSON.stringify(item?.reported)).not.toContain("status_code");
 });
 
+it("bounds the serialized mitmproxy headline of each preview record", () => {
+  const control = "\u0001".repeat(8 * 1024);
+  const malformed = nativePreview("mitmproxy", {
+    method: "GET",
+    scheme: control,
+    host: control,
+    port: control,
+    authority: control,
+    path: `/${control}`,
+  });
+  expect(malformed.items[0]?.reported).toMatchObject({
+    request: { method: "GET" },
+  });
+  expect(
+    Buffer.byteLength(JSON.stringify(malformed.items[0]?.reported)),
+  ).toBeLessThan(1024);
+  const escaped = nativePreview("mitmproxy", {
+    method: "GET",
+    path: `/${'"'.repeat(2 * 1024 - 1)}`,
+  });
+  expect(escaped.items[0]?.reported).toMatchObject({
+    request: { path: `/${'"'.repeat(2 * 1024 - 1)}` },
+  });
+  expect(
+    Buffer.byteLength(JSON.stringify(escaped.items[0]?.reported)),
+  ).toBeLessThan(5 * 1024);
+});
+
 it.each(["scheme", "host", "port", "authority"])(
   "keeps a userinfo-bearing mitmproxy %s out of the preview",
   (field) => {
