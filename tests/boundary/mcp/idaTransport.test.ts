@@ -176,3 +176,42 @@ it("reads native metadata resources and complete JSON text through the real SDK 
   await expect(connection.readResource?.("ida://other")).rejects.toThrow();
   expect(methods).toContain("resources/read");
 });
+
+it("accepts legacy stdio replies larger than the SDK default buffer", async () => {
+  const script = String.raw`
+let input = "";
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  for (;;) {
+    const newline = input.indexOf("\n");
+    if (newline < 0) break;
+    const request = JSON.parse(input.slice(0, newline));
+    input = input.slice(newline + 1);
+    if (request.id === undefined) continue;
+    const result = request.method === "initialize"
+      ? { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "large-reply-fixture", version: "1" } }
+      : request.method === "tools/list"
+        ? { tools: [{ name: "list_strings", inputSchema: { type: "object", properties: {} } }] }
+        : { content: [{ type: "text", text: "fixture" }], structuredContent: { result: "x".repeat(11 * 1024 * 1024) } };
+    send({ jsonrpc: "2.0", id: request.id, result });
+  }
+});
+`;
+  const connection = createIdaMcpConnection(
+    {
+      command: process.execPath,
+      args: ["-e", script],
+      env: {},
+      mode: "attached",
+      timeoutMs: 10_000,
+    },
+    {},
+  );
+  cleanups.push(() => connection.close());
+  expect(await connection.connect()).toEqual(["list_strings"]);
+  expect(await connection.call("list_strings", {})).toEqual({
+    result: "x".repeat(11 * 1024 * 1024),
+  });
+});

@@ -12,7 +12,10 @@ import {
 import { z } from "zod";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
-import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisProtocolError,
+  AnalysisResourceConstraintError,
+} from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 
 /** Injectable MCP boundary used by the provider and transport conformance tests. */
@@ -150,6 +153,18 @@ export const createIdaMcpConnection = (
   let stderr = Buffer.alloc(0);
   let stderrBytes = 0;
   const transportFailure = (cause: unknown): never => {
+    const bufferLimit =
+      cause instanceof Error
+        ? /ReadBuffer exceeded maximum size of (\d+) bytes/u.exec(cause.message)
+        : null;
+    if (bufferLimit !== null)
+      throw new AnalysisResourceConstraintError(
+        "ida_mcp_response",
+        "memory",
+        `Upstream IDA MCP reply exceeded the ${bufferLimit[1]}-byte transport limit; no partial Evidence was returned.`,
+        { max_response_bytes: Number(bufferLimit[1]) },
+        { cause },
+      );
     const failure = redactIdaTransportFailure(cause, config);
     if (stderrBytes === 0) throw failure;
     let start = 0;
