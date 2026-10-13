@@ -101,19 +101,27 @@ const EXTENSIONS = [
 // A private URL namespace for logical artifact paths, including root packages.
 // Encode inventory segments so filename punctuation remains literal in the base.
 const PACKAGE_ARTIFACT_ROOT_URL = new URL("file:///rea-artifact/");
-const packageMetadataUrl = (path: string): Result<URL, string> => {
+const encodePackageMetadataUrl = (path: string): URL =>
+  new URL(
+    path.split("/").map(encodeURIComponent).join("/"),
+    PACKAGE_ARTIFACT_ROOT_URL,
+  );
+const packageMetadataUrl = (
+  path: string,
+): Result<
+  URL,
+  { readonly structuralUrl: URL; readonly limitation: string }
+> => {
   try {
-    return ok(
-      new URL(
-        path.split("/").map(encodeURIComponent).join("/"),
-        PACKAGE_ARTIFACT_ROOT_URL,
-      ),
-    );
+    return ok(encodePackageMetadataUrl(path));
   } catch (cause: unknown) {
     if (!(cause instanceof URIError)) throw cause;
-    return err(
-      `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
-    );
+    return err({
+      structuralUrl: encodePackageMetadataUrl(
+        Buffer.from(path, "utf8").toString("utf8"),
+      ),
+      limitation: `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
+    });
   }
 };
 
@@ -672,7 +680,7 @@ const resolveLegacyEsmSubpath = (
   if (declarationRejection !== null) return declarationRejection;
   const metadataUrl = packageMetadataUrl(posix.join(directory, "package.json"));
   if (!metadataUrl.ok)
-    return unresolvedCandidate("unavailable", [metadataUrl.error]);
+    return unresolvedCandidate("unavailable", [metadataUrl.error.limitation]);
   const url = new URL(subpath, metadataUrl.value);
   if (!url.pathname.startsWith(PACKAGE_ARTIFACT_ROOT_URL.pathname))
     return unresolvedCandidate("rejected", [
@@ -1245,19 +1253,22 @@ const selectStringPackageTarget = (
       `contains forbidden path segment ${JSON.stringify(forbidden)} before URL normalization`,
       mapKind,
     );
-  const packageUrl = packageMetadataUrl(packagePath);
-  if (!packageUrl.ok)
-    return { kind: "unavailable", limitation: packageUrl.error };
+  const metadataUrl = packageMetadataUrl(packagePath);
+  const packageUrl = metadataUrl.ok
+    ? metadataUrl.value
+    : metadataUrl.error.structuralUrl;
   // Node constructs the URL before deciding whether this array entry is an
   // invalid package target. Tabs/newlines and dot segments normalize here;
   // percent decoding and existence checks belong after target selection.
-  const url = new URL(value, packageUrl.value);
-  if (!url.pathname.startsWith(new URL(".", packageUrl.value).pathname))
+  const url = new URL(value, packageUrl);
+  if (!url.pathname.startsWith(new URL(".", packageUrl).pathname))
     return invalidExportTarget(
       value,
       "escapes the package root after URL normalization",
       mapKind,
     );
+  if (!metadataUrl.ok)
+    return { kind: "unavailable", limitation: metadataUrl.error.limitation };
   return {
     kind: "value",
     value,

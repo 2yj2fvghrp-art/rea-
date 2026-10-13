@@ -10,6 +10,7 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js";
 
+const escapingTarget = "./%2\te%2\te/outside.js";
 const targets = {
   feature: { value: "./feature.js", imports: "relative", exports: "relative" },
   blocked: { value: null, imports: "external", exports: "external" },
@@ -47,6 +48,41 @@ const targets = {
   relativeFirst: {
     value: ["./feature.js", null],
     imports: "relative",
+    exports: "relative",
+  },
+  escapeExternal: {
+    value: [escapingTarget, "another-package"],
+    imports: "external",
+    exports: "rejected",
+  },
+  escapeNull: {
+    value: [escapingTarget, null],
+    imports: "external",
+    exports: "external",
+  },
+  escapeRelative: {
+    value: [escapingTarget, "./feature.js"],
+    imports: "relative",
+    exports: "relative",
+  },
+  escapeCondition: {
+    value: { node: escapingTarget, default: "./feature.js" },
+    imports: "rejected",
+    exports: "rejected",
+  },
+  escapeNested: {
+    value: [{ node: escapingTarget }, "another-package"],
+    imports: "external",
+    exports: "rejected",
+  },
+  escapeConfig: {
+    value: [{ 0: escapingTarget }, "another-package"],
+    imports: "rejected",
+    exports: "rejected",
+  },
+  structuralReentry: {
+    value: "./%2\te%2\te/mapped/feature.js",
+    imports: "rejected",
     exports: "relative",
   },
 } as const;
