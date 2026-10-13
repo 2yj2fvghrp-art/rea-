@@ -69,7 +69,7 @@ export const GDB_TOOL_CONTRACTS = [
     ...toolContractMetadata("gdb_session_status"),
     kind: "native-provider",
     description:
-      "Return the observed lifecycle state and bounded recent MI records and process diagnostics for one persistent REA GDB session; truncation fields report discarded data.",
+      "Return the observed lifecycle state and bounded recent MI records and process diagnostics for one persistent REA GDB session; truncation and invalid-UTF-8 fields report discarded or lossy data.",
     inputSchema: z.strictObject({ session_id: sessionId }),
     outputSchema: z.strictObject({
       session_id: sessionId,
@@ -77,6 +77,7 @@ export const GDB_TOOL_CONTRACTS = [
       state: z.enum(["ready", "closed"]),
       recent_mi_records: z.array(z.string()),
       recent_mi_records_truncated: z.boolean(),
+      mi_invalid_utf8: z.boolean(),
       stderr: z.string(),
       stderr_observed_bytes: z.number().int().nonnegative(),
       stderr_truncated: z.boolean(),

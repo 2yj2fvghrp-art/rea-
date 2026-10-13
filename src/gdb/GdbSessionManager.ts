@@ -655,6 +655,8 @@ export class GdbSessionManager {
         throw new AnalysisCancelledError("start_gdb_session");
       // Give queued exit notifications a turn before publishing startup.
       await new Promise<void>((resolve) => setImmediate(resolve));
+      if (signal?.aborted)
+        throw new AnalysisCancelledError("start_gdb_session");
       if (session.exited || session.protocolError !== undefined)
         throw new Error(
           session.protocolError ?? "GDB exited during startup readiness.",
@@ -994,6 +996,7 @@ export class GdbSessionManager {
         readonly state: "ready" | "closed";
         readonly recent_mi_records: readonly string[];
         readonly recent_mi_records_truncated: boolean;
+        readonly mi_invalid_utf8: boolean;
         readonly stderr: string;
         readonly stderr_observed_bytes: number;
         readonly stderr_truncated: boolean;
@@ -1015,6 +1018,7 @@ export class GdbSessionManager {
           : "ready",
       recent_mi_records: [...session.lines],
       recent_mi_records_truncated: session.recentRecordsTruncated,
+      mi_invalid_utf8: session.invalidUtf8Observed,
       stderr: diagnostics.stderr.text,
       stderr_observed_bytes: diagnostics.stderr.observedBytes,
       stderr_truncated:
@@ -1307,8 +1311,12 @@ export class GdbSessionManager {
             command: "",
             mi: pending.terminalRecord ?? "",
             records,
-            console: records.filter((record) => record.startsWith("~")).join("\n"),
-            target: records.filter((record) => record.startsWith("@")).join("\n"),
+            console: records
+              .filter((record) => record.startsWith("~"))
+              .join("\n"),
+            target: records
+              .filter((record) => record.startsWith("@"))
+              .join("\n"),
             log: records.filter((record) => record.startsWith("&")).join("\n"),
             output_truncated: pending.outputTruncated,
             ...(pending.outputInvalidUtf8

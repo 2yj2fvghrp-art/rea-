@@ -185,6 +185,71 @@ process.stdin.on("data", (chunk) => {
   },
 );
 
+it.skipIf(process.platform === "win32")(
+  "exposes lossy GDB MI decoding through the strict status MCP contract",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-gdb-mcp-mi-utf8-"));
+    const provider = join(directory, "fake-gdb.mjs");
+    await writeFile(
+      provider,
+      `#!${process.execPath}
+process.stdout.write("(gdb)\\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    const match = /^(\\d+)/.exec(line);
+    if (!match) continue;
+    if (line.includes("auto-load off")) {
+      process.stdout.write(match[1] + "^done\\n");
+      process.stdout.write(Buffer.from([0xff, 0x0a]));
+    } else if (line.includes("list-thread-groups")) process.stdout.write(match[1] + "^done,groups=[]\\n");
+    else process.stdout.write(match[1] + "^done\\n");
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    const manager = new GdbSessionManager({
+      platform: "linux",
+      environment: { REA_GDB_COMMAND: provider },
+    });
+    const server = new McpServer({ name: "gdb-mi-utf8", version: "1" });
+    registerGdbTools(
+      server,
+      manager,
+      silentLogger,
+      createToolResultDelivery(undefined),
+    );
+    const client = new Client({ name: "gdb-mi-utf8", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const started = await client.callTool({
+        name: "start_gdb_session",
+        arguments: {},
+      });
+      const sessionId = z
+        .object({ session_id: z.string().uuid() })
+        .parse(started.structuredContent).session_id;
+      await expect
+        .poll(() => manager.status(sessionId)?.mi_invalid_utf8)
+        .toBe(true);
+      const status = await validateDebuggerStatusResponse(
+        client,
+        "gdb_session_status",
+        sessionId,
+      );
+      expect(status.mi_invalid_utf8).toBe(true);
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+      await manager.closeAll().catch(() => undefined);
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 it("records partial GDB Evidence from an MCP command error", async () => {
   const evidence = createEvidence(
     undefined,

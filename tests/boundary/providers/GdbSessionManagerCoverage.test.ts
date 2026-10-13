@@ -312,6 +312,42 @@ it("cancels immediately after the startup prompt before sending configuration co
   expect(fake.children[0]?.killSignals).toEqual(["SIGTERM"]);
 });
 
+it("rejects a GDB exit queued with the final startup response", async () => {
+  const fake = createFakeSpawner((child, token, command) => {
+    child.stdout.write(`${token}^done\n`);
+    if (command.includes("auto-load off"))
+      setImmediate(() => child.exit(7, null));
+  });
+  const manager = managerWithFakeSpawner(fake.spawnProcess);
+  const started = await manager.start();
+  expect(started).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisCapabilityUnavailableError" },
+  });
+  expect(fake.children[0]?.exitCode).toBe(7);
+});
+
+it("cancels startup when aborted during the final readiness drain", async () => {
+  const controller = new AbortController();
+  const commands: string[] = [];
+  const fake = createFakeSpawner((child, token, command) => {
+    commands.push(command);
+    child.stdout.write(`${token}^done\n`);
+    if (command.includes("auto-load off"))
+      setImmediate(() => controller.abort());
+  });
+  const manager = managerWithFakeSpawner(fake.spawnProcess);
+
+  const started = await manager.start(controller.signal);
+
+  expect(started).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisCancelledError" },
+  });
+  expect(commands).toEqual(["-gdb-set auto-load off"]);
+  expect(fake.children[0]?.killSignals).toEqual(["SIGTERM"]);
+});
+
 it("preserves cancellation and cleanup details when startup stop is uncertain", async () => {
   const controller = new AbortController();
   let stopCalls = 0;
@@ -451,6 +487,19 @@ it("reports invalid UTF-8 in retained GDB stderr status", async () => {
     stderr: "�",
     stderr_invalid_utf8: true,
     recent_mi_records_truncated: false,
+  });
+});
+
+it("reports invalid UTF-8 in retained GDB MI status", async () => {
+  const fake = createFakeSpawner();
+  const manager = managerWithFakeSpawner(fake.spawnProcess);
+  const started = await expectGdbSessionStarted(manager);
+  fake.children[0]?.stdout.write(Buffer.from([0xff, 0x0a]));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  expect(manager.status(started.value.session_id)).toMatchObject({
+    recent_mi_records: ["(gdb)", "1^done", "�"],
+    mi_invalid_utf8: true,
   });
 });
 
@@ -1580,6 +1629,7 @@ it("correlates command output records and reports invalid or cancelled requests"
         process.stdout.write('=thread-created,id="1"\\n');
         process.stdout.write('~"console\\n"\\n@"target\\n"\\n&"log\\n"\\n');
         process.stdout.write(match[1] + '^running\\n');
+        process.stdout.write('*stopped,reason="end-stepping-range"\\n');
       }
     `),
   );
