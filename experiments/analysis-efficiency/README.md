@@ -27,6 +27,25 @@ Follow-up: [EVM descriptor lifecycle acceptance](evm-lifecycle.md) verifies actu
 worker replies, late SDK cancellation, permission-induced cleanup failures,
 healthy WASM peers and old CLI parity with explicit runtime and platform scope.
 
+Follow-up: [managed artifact delivery and retained views](managed-artifact-summary.md)
+records two shipped assembly checks, previous-runtime portable Evidence, and four
+actual Codex trials. Selected replies shrink substantially; observed model input
+tokens increase and latency is mixed, so model-token savings are not claimed.
+
+Follow-up: [model tool context and per-response usage](model-context.md) separates
+raw MCP replies from observed client execution/discovery and usage. Optional
+trial capture retains tool/usage items while excluding account and ambient state;
+existing ephemeral trials keep their default behavior.
+
+Follow-up: [Android package delivery and retained manifest](android-package-summary.md)
+records real NewPipe SDK pairs, unchanged old requests/Evidence, exact retained
+text, and actual Codex outcomes including client errors and a failed discovery.
+Reply bytes fall; model-token/time gains are not established.
+
+Follow-up: [resource counters at payload completion](resource-counters.md) adds
+optional owned counter observations while preserving unknown whole-scope final
+counters, default receipt shape and the unchanged CPU/memory safeguards.
+
 The 12 detailed checkpoint receipts were archived byte-for-byte before removal
 from the final PR tree. The archive `review-receipts-00d51e0fc-20261012` is in the
 private experiment lab outside the checkout; its `archive-index.json` records
