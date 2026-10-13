@@ -363,6 +363,7 @@ export class IosProvider {
       await Promise.allSettled([
         ...this.#tunnelStarts.values(),
         ...this.#debugStarts.values(),
+        ...this.#fridaStarts.values(),
       ]);
       const failures: unknown[] = [];
       for (const owner of this.#remoteHelpers.values()) {

@@ -309,7 +309,7 @@ it.each([
     );
     expect(response.ok).toBe(false);
     if (!response.ok && operation === "run_ios_frida_script")
-      expect(response.error).toMatchObject({ cleanupIncomplete: true });
+      expect(response.error).toMatchObject({ _tag: "AnalysisCancelledError" });
     await expect(provider.close()).rejects.toMatchObject({
       cleanupIncomplete: true,
     });
