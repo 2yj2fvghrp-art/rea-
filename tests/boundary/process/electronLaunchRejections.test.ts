@@ -110,6 +110,7 @@ console.log(JSON.stringify({
   during,
   after: process.listenerCount("unhandledRejection"),
   observedRejections,
+  reasons: results.map((result) => result.ok ? null : result.error.reason ?? null),
   ok: results.map((result) => result.ok),
   causes: results.map((result) => result.ok ? null : String(result.error.cause?.message).split("\\n")[0]),
 }));
@@ -122,6 +123,7 @@ type Outcome = {
   readonly ok: readonly boolean[];
   readonly causes: readonly (string | null)[];
   readonly observedRejections: number;
+  readonly reasons: readonly (string | null)[];
 };
 
 const run = async (
@@ -275,6 +277,14 @@ processTest(
     expect(observed.during).toBe(observed.before + 1);
     expect(observed.after).toBe(observed.before);
     expect(observed.observedRejections).toBe(3);
-    expect(observed.ok).toEqual([false, true, true, true, true]);
+    expect(observed.ok).toEqual([false, false, false, false, false]);
+    expect(observed.causes[0]).toBe("electron.launch: alpha failed");
+    expect(observed.reasons).toEqual([
+      null,
+      "process_ownership_unavailable",
+      "process_ownership_unavailable",
+      "process_ownership_unavailable",
+      "process_ownership_unavailable",
+    ]);
   },
 );
