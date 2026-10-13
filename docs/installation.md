@@ -285,6 +285,7 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
 | Qoder              | `qoder`          |
+| WorkBuddy          | `workbuddy`      |
 | Factory Droid      | `droid`          |
 | Trae               | `trae`           |
 | ZCode              | `zcode`          |
