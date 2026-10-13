@@ -332,3 +332,22 @@ it("does not publish namespace aliases into the surrounding program", () => {
       .map(({ resolution }) => resolution),
   ).toEqual(["resolved", "resolved", "unbound"]);
 });
+
+it("shares ambient namespace members without inventing a require dependency", () => {
+  const source = `declare namespace N { const require: (s: string) => unknown; }
+namespace N { export const x = require("not-a-module"); }`;
+  const ir = analyzeJavaScriptSemantics(source);
+  const [require] = ir.references.filter(({ name }) => name === "require");
+  expect(require?.resolution).toBe("resolved");
+  expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([]);
+  const [binding] = ir.bindings.filter(({ name }) => name === "require");
+  const [owner] = ir.scopes.filter(
+    (scope) => scope.scopeId === binding?.scopeId,
+  );
+  expect(owner?.kind).toBe("namespace");
+  expect(
+    ir.bindings
+      .filter(({ scopeId }) => scopeId === owner?.scopeId)
+      .map(({ name }) => name),
+  ).toEqual(["require", "x"]);
+});

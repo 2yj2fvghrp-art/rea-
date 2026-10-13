@@ -899,7 +899,8 @@ const bindAssignment = (
 };
 
 // Exported namespace declarations belong to the shared exported-member owner;
-// every namespace block keeps a distinct private lexical environment.
+// every namespace block keeps a distinct private lexical environment. Ambient
+// namespace and module bodies export every member without an export wrapper.
 const namespaceDeclarationScope = (
   node: t.Node,
   scope: JavaScriptSemanticScopeState,
@@ -913,10 +914,26 @@ const namespaceDeclarationScope = (
     parent = state.parentsByNode.get(declaration);
   }
   if (
-    (t.isExportNamedDeclaration(parent) && parent.declaration === declaration)
+    (t.isExportNamedDeclaration(parent) &&
+      parent.declaration === declaration) ||
+    ambientNamespaceContext(declaration, state)
   )
     return state.scopesById.get(scope.namespaceExportScopeId) ?? scope;
   return scope;
+};
+
+/** Ambient declarations export their members by default, at any nesting depth. */
+const ambientNamespaceContext = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let candidate = state.parentsByNode.get(node);
+  while (candidate !== undefined) {
+    if (t.isTSModuleDeclaration(candidate) && candidate.declare === true)
+      return true;
+    candidate = state.parentsByNode.get(candidate);
+  }
+  return false;
 };
 
 const nestedScope = (
