@@ -662,23 +662,49 @@ export class GhidraClient {
       maxDiagnosticBytes: GHIDRA_PROCESS_DIAGNOSTIC_BYTES,
       onDiagnostic: (event) => this.#onProcessDiagnostic(event),
     });
-    const connected = await this.#connect(endpoint, deadline);
-    if (!connected.ok) {
-      const failure = connected.error;
-      return this.#startupFailure(failure);
-    }
-    const completed = await completeGhidraStartupHandshake({
-      deadline,
-      request: (method, params, requestOptions) =>
-        this.#wire.request(method, params, requestOptions),
-      parseSessionInfo: (value) => this.#parseSessionInfo(value),
-      failure: this.#failure,
-      startupTimeoutMs: this.#options.startupTimeoutMs,
-    });
+    const completed = await this.#connectAndHandshake(endpoint, deadline);
     if (!completed.ok) return this.#startupFailure(completed.error);
     await this.#lineage.observe(this.#launch);
     this.#requestQueue.reopen();
     return completed;
+  }
+
+  async #connectAndHandshake(
+    endpoint: GhidraEndpoint,
+    deadline: ProviderStartupDeadline,
+  ): Promise<GhidraStartResult> {
+    // A loopback server can drop an idle preauthentication socket while this
+    // process is paused. Retry only transport failure, never rejected identity
+    // or protocol data, and retain the original startup deadline.
+    for (let attempt = 0; ; attempt += 1) {
+      const connected = await this.#connect(endpoint, deadline);
+      if (!connected.ok) return connected;
+      const completed = await completeGhidraStartupHandshake({
+        deadline,
+        request: (method, params, requestOptions) =>
+          this.#wire.request(method, params, requestOptions),
+        parseSessionInfo: (value) => this.#parseSessionInfo(value),
+        failure: this.#failure,
+        startupTimeoutMs: this.#options.startupTimeoutMs,
+      });
+      if (
+        completed.ok ||
+        completed.error.kind !== "process" ||
+        endpoint.transport !== "authenticated-loopback-tcp" ||
+        attempt >= 2 ||
+        deadline.signal.aborted ||
+        this.#closing ||
+        this.#process?.observedExit() !== undefined
+      )
+        return completed;
+      // Detach first so late close/data from this rejected connection cannot
+      // settle requests belonging to the replacement socket.
+      this.#detachSocket?.();
+      this.#detachSocket = undefined;
+      this.#socket?.destroy();
+      this.#socket = undefined;
+      this.#responseBuffer.reset();
+    }
   }
 
   async #connect(
