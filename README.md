@@ -21,6 +21,12 @@
 
 [Quick start](#quick-start) · [How REA works](#how-rea-works) · [What you can analyze](#what-you-can-analyze) · [Showcases](#showcases) · [FAQ](#faq) · [Documentation](#documentation)
 
+> [!IMPORTANT]
+> Get REA from [morluto/rea](https://github.com/morluto/rea),
+> [rea.tools](https://rea.tools/), or the [rea-agents npm package](https://www.npmjs.com/package/rea-agents).
+> Follow the installation and release links from these official sources. A similar
+> repository name or copied README does not establish that a download is official.
+
 <code>npx rea-agents setup</code>
 
 <br />
@@ -179,6 +185,11 @@ Additional tools and host support depend on the target:
 Static JavaScript and .NET inspection read the supplied files without running
 the application. Runtime capture runs or interacts with the selected target
 using your user permissions; each runtime guide describes its effects.
+
+For offline native-binary inspection, REA also supports caller-supplied GNU
+objdump and Rizin. See the [reverse-engineering tools guide](docs/reverse-engineering-tools.md)
+for provider setup, CLI commands, and Evidence limitations. REA does not install
+or update either provider.
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
