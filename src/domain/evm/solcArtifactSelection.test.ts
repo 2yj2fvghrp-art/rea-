@@ -187,6 +187,7 @@ it.each([
   "./lib.sol:L",
   "@pkg/lib.sol:L",
   "_".repeat(36),
+  "$" + "g".repeat(34) + "$",
 ])(
   "retains fixed-width legacy placeholders with opaque source prefix %s",
   (name) => {
@@ -246,7 +247,8 @@ describe("malformed compiler carriers", () => {
     carrier("6"),
     carrier("60 ff"),
     carrier("__broken__"),
-    carrier(`__$${"g".repeat(34)}$__`),
+    carrier(`__$${"g".repeat(33)}$__`),
+    carrier(`__$${"g".repeat(33)}\n$__`),
     carrier("6000", {
       immutableReferences: { "1": [{ start: 1, length: 2 }] },
     }),
@@ -287,4 +289,16 @@ describe("malformed compiler carriers", () => {
     );
     expect(tooLarge.ok ? null : tooLarge.error.reason).toBe("resource");
   });
+});
+
+it("rejects placeholder spans without a source compiler object", () => {
+  const result = successful(carrier(undefined));
+  expect(
+    solcArtifactSchema.safeParse({
+      ...result.artifact,
+      placeholders: [
+        { start: 0, length: 20, value: `__$${"a".repeat(34)}$__` },
+      ],
+    }).success,
+  ).toBe(false);
 });

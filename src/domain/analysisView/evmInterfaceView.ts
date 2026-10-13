@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
-import { evmInterfaceSchema } from "../evm/evmInterface.js";
+import {
+  evmInterfaceSchema,
+  inspectEvmInterfaceInputSchema,
+  matchesEvmInterfaceInput,
+} from "../evm/evmInterface.js";
 import { solcArtifactSchema, type SolcArtifact } from "../evm/solcArtifact.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import { err, ok, type Result } from "../result.js";
@@ -118,6 +122,20 @@ export const projectEvmInterfaceView = (
         },
       ]),
     );
+  if (report.compiler_artifact !== undefined) {
+    const input = inspectEvmInterfaceInputSchema.safeParse(parent.parameters);
+    if (!input.success || !matchesEvmInterfaceInput(report, input.data))
+      return err(
+        analysisViewInputError([
+          {
+            path: ["source", "parameters"],
+            reason: "invalid_value",
+            message:
+              "EVM compiler parent parameters must identify the exact carrier, encoding and compiler selection.",
+          },
+        ]),
+      );
+  }
   const shared = {
     parent_evidence_id: parent.evidenceId,
     parent_operation: "inspect_evm_interface" as const,

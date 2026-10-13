@@ -12,8 +12,7 @@ import { createEvidence, type Evidence } from "../../domain/evidence.js";
 import {
   inspectEvmInterfaceInputSchema,
   evmInterfaceSchema,
-  evmEncodingKind,
-  evmCompilerSelection,
+  matchesEvmInterfaceInput,
 } from "../../domain/evm/evmInterface.js";
 import { analysisInputErrorFromIssues } from "../../domain/inputIssueProjection.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
@@ -65,19 +64,10 @@ export class EvmInterfaceService {
     if (options?.signal?.aborted)
       return err(new AnalysisCancelledError(OPERATION, outputOptions));
     const execution = inspected.value;
-    const compilerSelection = evmCompilerSelection(input.data.encoding);
     const report = evmInterfaceSchema.safeParse(execution.result);
     if (
       !report.success ||
-      report.data.artifact.path !== input.data.path ||
-      report.data.artifact.encoding !== evmEncodingKind(input.data.encoding) ||
-      (compilerSelection !== undefined &&
-        (report.data.compiler_artifact?.selection.source_unit !==
-          compilerSelection.source_unit ||
-          report.data.compiler_artifact.selection.contract_name !==
-            compilerSelection.contract_name ||
-          report.data.compiler_artifact.selection.bytecode_kind !==
-            compilerSelection.bytecode_kind)) ||
+      !matchesEvmInterfaceInput(report.data, input.data) ||
       execution.subject?.format !== "file" ||
       execution.subject?.path !== input.data.path ||
       execution.subject.sha256 !== report.data.artifact.sha256

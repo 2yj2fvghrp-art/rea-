@@ -32,12 +32,10 @@ export const inspectSolcBytecodeObject = (
       value[1] === 0x5f &&
       value[38] === 0x5f &&
       value[39] === 0x5f;
-    const modern = value[2] === 0x24 && value[37] === 0x24;
+    // Legacy opaque names can also have dollar delimiters; both remain unlinked.
     if (
       !delimited ||
-      (modern
-        ? !value.subarray(3, 37).every(isHex)
-        : !value.subarray(2, 38).every((byte) => byte >= 0x20 && byte !== 0x7f))
+      !value.subarray(2, 38).every((byte) => byte >= 0x20 && byte !== 0x7f)
     )
       return err(
         "Compiler bytecode contains malformed hex or link placeholders",

@@ -181,3 +181,22 @@ export type InspectEvmInterfaceInput = z.infer<
   typeof inspectEvmInterfaceInputSchema
 >;
 export type EvmInterface = z.infer<typeof evmInterfaceSchema>;
+
+/** Bind parsed report facts to the exact caller-selected carrier and compiler object. */
+export const matchesEvmInterfaceInput = (
+  report: EvmInterface,
+  input: InspectEvmInterfaceInput,
+): boolean => {
+  const selection = evmCompilerSelection(input.encoding);
+  return (
+    report.artifact.path === input.path &&
+    report.artifact.encoding === evmEncodingKind(input.encoding) &&
+    (selection === undefined ||
+      (report.compiler_artifact?.selection.source_unit ===
+        selection.source_unit &&
+        report.compiler_artifact.selection.contract_name ===
+          selection.contract_name &&
+        report.compiler_artifact.selection.bytecode_kind ===
+          selection.bytecode_kind))
+  );
+};

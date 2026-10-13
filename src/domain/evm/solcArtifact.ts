@@ -133,15 +133,14 @@ export const solcArtifactSchema = z
       issue("Object range differs from object availability");
     if (
       value.status === "concrete" &&
-      (value.object === null ||
-        !/^(?:[0-9a-fA-F]{2})*$/.test(value.object) ||
-        value.placeholders.length !== 0)
+      (value.object === null || !/^(?:[0-9a-fA-F]{2})*$/.test(value.object))
     )
       issue(
         "Concrete compiler object must contain exact hex without placeholders",
       );
-    if (value.status === "unlinked" && value.placeholders.length === 0)
-      issue("Unlinked object requires retained placeholders");
+    const hasPlaceholders = value.placeholders.length > 0;
+    if ((value.status === "unlinked") !== hasPlaceholders)
+      issue("Placeholder presence differs from compiler object status");
   })
   .superRefine((value, context) => {
     const issue = (message: string) =>

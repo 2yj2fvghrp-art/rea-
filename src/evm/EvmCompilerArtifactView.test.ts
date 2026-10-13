@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import { evmInterfaceFixture } from "../../tests/fixtures/evm/interface.js";
-import type { EvmInterface } from "../domain/evm/evmInterface.js";
+import {
+  inspectEvmInterfaceInputSchema,
+  type EvmInterface,
+} from "../domain/evm/evmInterface.js";
 import { selectSolcArtifact } from "../domain/evm/solcArtifactSelection.js";
 import {
   projectAnalysisView,
@@ -65,6 +68,10 @@ const compilerParent = (object?: string): AnalysisViewParent => {
   return {
     evidenceId: "ev_" + "b".repeat(64),
     operation: "inspect_evm_interface",
+    parameters: {
+      path: report.artifact.path,
+      encoding: { kind: "solc-json", ...selection },
+    },
     normalizedResult: report,
     subject: {
       name: "compiler output",
@@ -168,18 +175,25 @@ it("rejects unavailable decoded hex without returning an empty text page", () =>
   });
 });
 
-it("keeps historical hex views complete within returned candidates and kind unknown", () => {
-  const result = projectAnalysisView(
-    { ...compilerParent(), normalizedResult: evmInterfaceFixture() },
-    { kind: "summary" },
-  );
-  if (!result.ok) throw result.error;
-  expect(result.value).toMatchObject({
-    coverage: { status: "complete-within-view", total: 0, exhausted: true },
-    summary: { bytecode: { kind: "unknown" } },
-  });
-  expect(result.value.unknowns.join(" ")).toContain("bytecode kind");
-});
+it.each([undefined, {}])(
+  "keeps historical hex views with missing parameters complete within returned candidates and kind unknown: %j",
+  (parameters) => {
+    const result = projectAnalysisView(
+      {
+        ...compilerParent(),
+        normalizedResult: evmInterfaceFixture(),
+        parameters,
+      },
+      { kind: "summary" },
+    );
+    if (!result.ok) throw result.error;
+    expect(result.value).toMatchObject({
+      coverage: { status: "complete-within-view", total: 0, exhausted: true },
+      summary: { bytecode: { kind: "unknown" } },
+    });
+    expect(result.value.unknowns.join(" ")).toContain("bytecode kind");
+  },
+);
 
 it("rejects conflicting equal-length compiler bytes or decoded digest in inline views", () => {
   for (const conflict of ["object", "digest"] as const) {
@@ -202,5 +216,61 @@ it("rejects hex falsely marked as an unresolved compiler placeholder", () => {
     throw new Error("Compiler artifact missing");
   report.compiler_artifact.object = "a".repeat(40);
   report.compiler_artifact.placeholders[0]!.value = "a".repeat(40);
+  expect(projectAnalysisView(parent, { kind: "summary" }).ok).toBe(false);
+});
+
+it.each([
+  "path",
+  "encoding",
+  "source_unit",
+  "contract_name",
+  "bytecode_kind",
+] as const)(
+  "rejects compiler views whose recorded %s contradicts the selected report",
+  (field) => {
+    const parent = compilerParent("6001");
+    const parameters = inspectEvmInterfaceInputSchema.parse(parent.parameters);
+    if (typeof parameters.encoding === "string")
+      throw new Error("Compiler selection missing");
+    if (field === "path") parameters.path = "/other/carrier.json";
+    else if (field === "encoding") parameters.encoding = "hex";
+    else if (field === "bytecode_kind")
+      parameters.encoding.bytecode_kind = "deployed";
+    else parameters.encoding[field] = "Other";
+    for (const view of [
+      { kind: "summary" },
+      { kind: "evm", facet: "functions", offset: 0, limit: 1 },
+    ] as const) {
+      const result = projectAnalysisView({ ...parent, parameters }, view);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisInputError" },
+      });
+    }
+  },
+);
+
+it.each([undefined, { path: "/artifacts/source-owned.hex" }])(
+  "rejects compiler summaries without a recorded exact selection: %j",
+  (parameters) => {
+    expect(
+      projectAnalysisView(
+        { ...compilerParent("6001"), parameters },
+        { kind: "summary" },
+      ).ok,
+    ).toBe(false);
+  },
+);
+
+it("rejects placeholder facts with no source compiler object", () => {
+  const parent = compilerParent();
+  const report = parent.normalizedResult as EvmInterface;
+  if (report.compiler_artifact === undefined)
+    throw new Error("Compiler artifact missing");
+  report.compiler_artifact.placeholders.push({
+    start: 0,
+    length: 20,
+    value: `__$${"a".repeat(34)}$__`,
+  });
   expect(projectAnalysisView(parent, { kind: "summary" }).ok).toBe(false);
 });
