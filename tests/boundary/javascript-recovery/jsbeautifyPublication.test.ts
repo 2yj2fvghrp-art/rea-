@@ -6,10 +6,12 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 const scenario = vi.hoisted(() => ({
   mutateSnapshot: false,
   rejectArguments: false,
+  versionStderr: "",
 }));
 beforeEach(() => {
   scenario.mutateSnapshot = false;
   scenario.rejectArguments = false;
+  scenario.versionStderr = "";
 });
 
 vi.mock(
@@ -25,7 +27,7 @@ vi.mock(
         context: Parameters<typeof actual.runRecoveryCommand>[0],
       ) => {
         const version = context.arguments[0] === "--version";
-        let stderr = "";
+        let stderr = version ? scenario.versionStderr : "";
         if (!version && scenario.rejectArguments)
           return {
             exit_code: 2,
@@ -191,4 +193,20 @@ it("retains the complete stderr of a rewrite that fails its gate", async () => {
   expect(report).toContain("invalid option --rename-vars");
   expect(report).toContain("Usage: jsbeautify [OPTIONS] <FILE>");
   expect(result.warnings[0]?.message).toContain("reports/phases.log");
+});
+
+it("keeps version diagnostics in the phase report instead of inline Evidence", async () => {
+  scenario.versionStderr = "loaded 3 plugins from ~/.jsbeautify\n";
+  const evidence = await recover(["a.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(JSON.stringify(evidence.value)).not.toContain("loaded 3 plugins");
+  expect(evidence.value.raw_result).toMatchObject({
+    version: { exit_code: 0, version: "1.0" },
+  });
+  expect(await readFile(result.report.path, "utf8")).toContain(
+    "# jsbeautify --version\nloaded 3 plugins from ~/.jsbeautify",
+  );
 });

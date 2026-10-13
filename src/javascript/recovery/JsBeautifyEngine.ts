@@ -182,6 +182,34 @@ const phaseLog = (
   return retained?.toString("utf8", 0, written) ?? "";
 };
 
+/** The phase report of one operation, bounded across all of its invocations. */
+const createPhaseReport = () => {
+  const logs: string[] = [];
+  let retainedBytes = 0;
+  const overflow = () =>
+    new AnalysisOutputError(
+      OPERATION,
+      "Combined phase reports exceed the retained diagnostic budget",
+    );
+  return {
+    retain(heading: string, stderr: string, complete: boolean): void {
+      const remaining =
+        JSBEAUTIFY_LIMITS.reportBytes -
+        retainedBytes -
+        Buffer.byteLength(heading) -
+        2;
+      if (remaining < 0) throw overflow();
+      const log = heading + phaseLog(stderr, remaining, complete);
+      const logBytes = Buffer.byteLength(log) + 2;
+      if (logBytes > JSBEAUTIFY_LIMITS.reportBytes - retainedBytes)
+        throw overflow();
+      retainedBytes += logBytes;
+      logs.push(log);
+    },
+    text: (): string => `${logs.join("\n\n")}\n`,
+  };
+};
+
 const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const { root, tree, input, sources, tool, environment, launcher, options } =
     context;
@@ -212,6 +240,10 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       { userMessage: `${reason}.` },
     );
   }
+  const phases = createPhaseReport();
+  // Inline Evidence keeps the parsed version; the banner's diagnostics stay in the report.
+  if (banner.stderr !== "")
+    phases.retain("# jsbeautify --version\n", banner.stderr, true);
   let publishedBytes = 0;
   const write = async (path: string, bytes: Buffer) => {
     if (bytes.byteLength > JSBEAUTIFY_LIMITS.outputBytes - publishedBytes)
@@ -238,8 +270,6 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const modules: JavaScriptRecoveryResult["modules"] = [];
   const warnings: JavaScriptRecoveryResult["warnings"] = [];
   const runs: JsBeautifyRunReport[] = [];
-  const logs: string[] = [];
-  let retainedLogBytes = 0;
   const formats = new Set<string>();
   for (const [sourceIndex, source] of sources.entries()) {
     const snapshot = await readRecoveryFile(
@@ -286,26 +316,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
-    const heading = `# ${name}\n`;
-    const remaining =
-      JSBEAUTIFY_LIMITS.reportBytes -
-      retainedLogBytes -
-      Buffer.byteLength(heading) -
-      2;
-    if (remaining < 0)
-      throw new AnalysisOutputError(
-        OPERATION,
-        "Combined phase reports exceed the retained diagnostic budget",
-      );
-    const log = heading + phaseLog(run.stderr, remaining, !verdict.passed);
-    const logBytes = Buffer.byteLength(log) + 2;
-    if (logBytes > JSBEAUTIFY_LIMITS.reportBytes - retainedLogBytes)
-      throw new AnalysisOutputError(
-        OPERATION,
-        "Combined phase reports exceed the retained diagnostic budget",
-      );
-    retainedLogBytes += logBytes;
-    logs.push(log);
+    phases.retain(`# ${name}\n`, run.stderr, !verdict.passed);
     runs.push({
       module: name,
       input: source.snapshot_path,
@@ -347,10 +358,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const [source, ...additionalSources] = published;
   if (source === undefined)
     throw new AnalysisOutputError(OPERATION, "Recovery selected no input");
-  const report = await write(
-    "reports/phases.log",
-    Buffer.from(`${logs.join("\n\n")}\n`),
-  );
+  const report = await write("reports/phases.log", Buffer.from(phases.text()));
   const provenance = await write(
     "reports/provenance.json",
     Buffer.from(
@@ -412,7 +420,12 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   );
   return {
     result: javascriptRecoveryResultSchema.parse({ ...details, manifest }),
-    banner,
+    banner: {
+      arguments: banner.arguments,
+      exit_code: banner.exit_code,
+      signal: banner.signal,
+      version,
+    },
     runs,
     version,
   };
