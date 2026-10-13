@@ -174,7 +174,9 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
       const selected: Record<string, JsonValue> = {};
       const candidates = [
         ...HEADLINE_FIELDS.map((field) => [field, false] as const),
-        ...(format === "mitmproxy"
+        // The container format alone does not make a flow HTTP; the native
+        // state's own type does.
+        ...(format === "mitmproxy" && source.type === "http"
           ? (MITMPROXY_HEADLINE_FIELDS[key] ?? [])
           : []
         ).map((field) => [field, true] as const),

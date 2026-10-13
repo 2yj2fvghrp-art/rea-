@@ -187,9 +187,11 @@ const nativePreview = (
     },
     producerType = "integer",
     sidecars,
+    flowType = "http",
   }: {
     readonly response?: Readonly<Record<string, unknown>>;
     readonly producerType?: "integer" | "float";
+    readonly flowType?: string | null;
     readonly sidecars?: readonly {
       pointer: string;
       producer_type: string;
@@ -233,7 +235,7 @@ const nativePreview = (
         ordinal: 0,
         location: { kind: "byte-range", offset: 0, bytes: 10 },
         reported: {
-          type: "http",
+          ...(flowType === null ? {} : { type: flowType }),
           request: { ...request, headers: [["Accept", "*/*"]] },
           response,
         },
@@ -432,6 +434,22 @@ it.each([
       response: { http_version: "HTTP/1.1", reason: "OK" },
     });
     expect(item?.numeric_literals).toEqual([]);
+  },
+);
+
+it.each(["tcp", null])(
+  "adds no mitmproxy headline fields to a %s flow",
+  (flowType) => {
+    const reported = nativePreview(
+      "mitmproxy",
+      { method: "GET", path: "/a", port: 443 },
+      { flowType },
+    ).items[0]?.reported;
+    expect(reported).toEqual({
+      ...(flowType === null ? {} : { type: flowType }),
+      request: { method: "GET" },
+      response: { http_version: "HTTP/1.1", reason: "Not Found" },
+    });
   },
 );
 
