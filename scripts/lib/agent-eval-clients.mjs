@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
+import { parse as parseJsonc } from "jsonc-parser";
 import { TOOL_CONTRACTS } from "../../dist/contracts/toolContracts.js";
 
 /**
@@ -223,14 +224,18 @@ const geminiSettings = (selectedType) => ({
  */
 const callerGeminiAuthType = async (geminiDirectory) => {
   try {
-    const settings = JSON.parse(
-      await readFile(join(geminiDirectory, "settings.json"), "utf8"),
+    const contents = await readFile(
+      join(geminiDirectory, "settings.json"),
+      "utf8",
     );
+    const errors = [];
+    const settings = parseJsonc(contents, errors, { allowTrailingComma: true });
+    if (errors.length > 0)
+      throw new SyntaxError("Gemini settings contains invalid JSONC");
     const selected = settings?.security?.auth?.selectedType;
     return typeof selected === "string" ? selected : undefined;
   } catch (cause) {
-    if (cause?.code === "ENOENT" || cause instanceof SyntaxError)
-      return undefined;
+    if (cause?.code === "ENOENT") return undefined;
     throw cause;
   }
 };

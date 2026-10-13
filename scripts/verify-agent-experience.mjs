@@ -65,7 +65,10 @@ try {
     agentEvalEnvironment({
       account,
       runId: verifierRun.run_id,
-      client: { environment: {} },
+      client: {
+        environment:
+          client.id === "gemini-cli" ? { GEMINI_CLI_NO_RELAUNCH: "1" } : {},
+      },
     }),
   );
   await Promise.all([mkdir(fixtureRoot, { recursive: true }), mkdir(account)]);
@@ -495,16 +498,57 @@ function validTargetClarification(message) {
  * with token-verified cleanup of every owned process before the run continues.
  */
 async function runClient(env, arguments_, scenarioId) {
+  const events = [];
+  const nonJson = [];
+  const { snapshot } = await runOwnedCommand({
+    command: client.command,
+    arguments: arguments_,
+    runId: `${verifierRun.run_id}-${client.id}-${scenarioId}`,
+    cwd: evaluationRoot,
+    env,
+    timeoutMs,
+    captureStdout: false,
+    onStarted: (launch) => {
+      const lines = createInterface({ input: launch.process.stdout });
+      lines.on("line", (line) => {
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          if (nonJson.join("").length < 32_768)
+            nonJson.push(`non-json stdout: ${line}\n`);
+        }
+      });
+      return () => lines.close();
+    },
+  });
+  return {
+    events,
+    exitCode: snapshot.exitCode ?? 1,
+    stderr: `${nonJson.join("")}${snapshot.stderr.text}`.slice(0, 32_768),
+  };
+}
+
+/** Run a command and its descendants under the evaluation's retained owner. */
+async function runOwnedCommand({
+  command,
+  arguments: arguments_,
+  runId,
+  cwd,
+  env,
+  timeoutMs: processTimeoutMs,
+  captureStdout,
+  onStarted,
+}) {
   // Processes alive before launch cannot belong to this scenario. The baseline
   // lets a token sweep find reparented MCP servers without failing on
   // unrelated processes whose environment is unreadable.
   const captureBaseline = await systemProcessOwnershipHost.captureBaseline?.();
   const launch = await spawnOwnedProviderProcess({
-    command: client.command,
+    command,
     arguments: arguments_,
-    runId: `${verifierRun.run_id}-${client.id}-${scenarioId}`,
+    runId,
     expectedCommand: null,
-    cwd: evaluationRoot,
+    cwd,
     env,
     // The allowlisted environment is complete; nothing else is inherited.
     hostEnvironment: {},
@@ -516,12 +560,12 @@ async function runClient(env, arguments_, scenarioId) {
   };
   const owned = {
     ownership,
-    scenarioId,
+    scenarioId: runId,
     supervisor: undefined,
     stop: () => launch.cleanup?.() ?? cleanupOwnedProcessGroup(ownership),
     lastCleanup: undefined,
   };
-  // Register immediately after launch, before stream or supervisor preparation can fail.
+  // Register before stream and supervisor setup so outer cleanup always owns it.
   scenarioProcesses.set(ownership.runId, owned);
   const supervisor = new ProviderProcessSupervisor(
     {
@@ -529,44 +573,33 @@ async function runClient(env, arguments_, scenarioId) {
       ownsProcessLifetime: true,
       cleanup: owned.stop,
     },
-    { captureStdout: false, maxDiagnosticBytes: 32_768 },
+    {
+      captureStdout,
+      maxDiagnosticBytes: captureStdout ? 8_192 : 32_768,
+    },
   );
   owned.supervisor = supervisor;
-  const events = [];
-  const nonJson = [];
-  const lines = createInterface({ input: launch.process.stdout });
-  lines.on("line", (line) => {
-    try {
-      events.push(JSON.parse(line));
-    } catch {
-      if (nonJson.join("").length < 32_768)
-        nonJson.push(`non-json stdout: ${line}\n`);
-    }
-  });
+  let disposeOutput;
   let exited = false;
   let stopped;
   try {
-    exited = await supervisor.waitForExit(timeoutMs);
+    disposeOutput = onStarted?.(launch);
+    exited = await supervisor.waitForExit(processTimeoutMs);
     if (exited) await supervisor.waitForOutputClose(5_000);
   } finally {
-    // Owned descendants are stopped even when waiting failed.
+    // Owned descendants are stopped even when waiting or output setup failed.
     stopped = await stopScenario(owned);
-    lines.close();
+    disposeOutput?.();
   }
   if (!stopped.cleaned)
     throw new Error(
-      `${client.id} process cleanup incomplete; ownership and resources retained at ${evaluationRoot}: ${JSON.stringify(stopped)}`,
+      `${command} process cleanup incomplete; ownership and resources retained at ${evaluationRoot}: ${JSON.stringify(stopped)}`,
     );
   if (!exited)
     throw new Error(
-      `${client.id} evaluation timed out after ${String(timeoutMs)}ms`,
+      `${command} timed out after ${String(processTimeoutMs)}ms`,
     );
-  const snapshot = supervisor.snapshot();
-  return {
-    events,
-    exitCode: snapshot.exitCode ?? 1,
-    stderr: `${nonJson.join("")}${snapshot.stderr.text}`.slice(0, 32_768),
-  };
+  return { snapshot: supervisor.snapshot() };
 }
 
 /** Stop the launcher, then observe owned descendants rather than equating signal delivery with exit. */
@@ -652,38 +685,22 @@ async function runProcess(
 }
 
 async function readCommandVersion(command, environment) {
-  const child = spawn(command, ["--version"], {
-    env: environment,
+  const { snapshot } = await runOwnedCommand({
+    command,
+    arguments: ["--version"],
+    runId: `${verifierRun.run_id}-${client.id}-version`,
     cwd: repositoryRoot,
-    stdio: ["ignore", "pipe", "pipe"],
+    env: environment,
+    timeoutMs: 10_000,
+    captureStdout: true,
   });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk) => {
-    if (stdout.length < 4096) stdout += chunk.toString("utf8");
-  });
-  child.stderr.on("data", (chunk) => {
-    if (stderr.length < 4096) stderr += chunk.toString("utf8");
-  });
-  const code = await new Promise((resolveExit, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`${command} --version timed out`));
-    }, 10_000);
-    child.once("error", (cause) => {
-      clearTimeout(timer);
-      reject(cause);
-    });
-    child.once("exit", (value) => {
-      clearTimeout(timer);
-      resolveExit(value ?? 1);
-    });
-  });
-  if (code !== 0)
+  if (snapshot.exitCode !== 0)
     throw new Error(
-      `${command} --version failed with ${String(code)}: ${stderr}`,
+      `${command} --version failed with ${String(snapshot.exitCode)}: ${snapshot.stderr.text}`,
     );
-  const version = stdout.trim();
+  if (snapshot.diagnosticTruncated === true)
+    throw new Error(`${command} --version output exceeded its retention budget`);
+  const version = snapshot.stdout.text.trim();
   if (version.length === 0)
     throw new Error(`${command} --version returned empty output`);
   return version;

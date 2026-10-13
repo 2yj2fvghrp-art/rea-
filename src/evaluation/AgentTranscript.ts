@@ -107,6 +107,14 @@ const callIdentity = (call: AgentToolCall): string =>
   call.id ??
   `${call.server ?? ""}:${call.tool}:${canonicalJson(call.arguments)}`;
 
+const sameRequestIdentity = (
+  left: AgentToolCall,
+  right: AgentToolCall,
+): boolean =>
+  left.server === right.server &&
+  left.tool === right.tool &&
+  sameValue(left.arguments, right.arguments);
+
 /**
  * Clients may report one call more than once. The first report is retained;
  * conflicting reports of one call cannot establish which result was delivered.
@@ -118,6 +126,7 @@ const uniqueCalls = (calls: readonly AgentToolCall[]): AgentToolCall[] => {
     const previous = unique.get(identity);
     if (previous === undefined) unique.set(identity, call);
     else if (
+      !sameRequestIdentity(previous, call) ||
       previous.delivered !== call.delivered ||
       !sameValue(previous.result, call.result)
     )

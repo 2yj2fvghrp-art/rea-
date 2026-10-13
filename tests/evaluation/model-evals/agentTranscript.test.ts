@@ -317,6 +317,76 @@ it.each(["claude-code", "gemini-cli"])(
   },
 );
 
+it.each(["codex", "claude-code", "gemini-cli"] as const)(
+  "%s rejects one call ID reused for a different request identity",
+  (client) => {
+    const calls =
+      client === "codex"
+        ? parseCodexEvents([
+            {
+              type: "item.completed",
+              item: {
+                id: "reused",
+                type: "mcp_tool_call",
+                server: "rea",
+                tool: "analyze_javascript_application",
+                arguments: {},
+                status: "completed",
+                result: { structuredContent: evidence },
+              },
+            },
+            {
+              type: "item.completed",
+              item: {
+                id: "reused",
+                type: "mcp_tool_call",
+                server: "rea",
+                tool: "open_binary",
+                arguments: { path: "/tmp/other" },
+                status: "completed",
+                result: { structuredContent: evidence },
+              },
+            },
+          ]).calls
+        : client === "claude-code"
+          ? parseClaudeCodeEvents([
+              claudeToolUse(
+                "reused",
+                "mcp__rea__analyze_javascript_application",
+              ),
+              claudeToolUse("reused", "mcp__rea__open_binary", {
+                path: "/tmp/other",
+              }),
+              claudeToolResult("reused", { structuredContent: evidence }),
+            ]).calls
+          : parseGeminiCliEvents([
+              {
+                type: "tool_use",
+                tool_id: "reused",
+                tool_name: "mcp_rea_analyze_javascript_application",
+                parameters: {},
+              },
+              {
+                type: "tool_use",
+                tool_id: "reused",
+                tool_name: "mcp_rea_open_binary",
+                parameters: { path: "/tmp/other" },
+              },
+              {
+                type: "tool_result",
+                tool_id: "reused",
+                status: "success",
+                output: JSON.stringify(evidence),
+              },
+            ]).calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      tool: "analyze_javascript_application",
+      delivered: false,
+    });
+  },
+);
+
 it("does not count an unidentified MCP server as a REA workflow", () => {
   const transcript = parseCodexEvents([
     {
