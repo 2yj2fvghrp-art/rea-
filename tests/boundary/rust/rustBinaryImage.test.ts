@@ -1,0 +1,84 @@
+import { expect, it } from "vitest";
+import { fat } from "../../../src/domain/binaryTarget.fixture.js";
+import {
+  createRustImage,
+  RUSTC_HASH,
+  rustDependencyPayload,
+} from "../../fixtures/rust/image.js";
+import { readRustBinaryImage } from "../../../src/rust/RustBinaryImage.js";
+import { RustAuditableFormatFailure } from "../../../src/rust/RustAuditableReader.js";
+
+const packages = [
+  {
+    name: "itoa",
+    version: "1.0.18",
+    source: "crates.io",
+    kind: null,
+    dependencies: [],
+    root: false,
+  },
+  {
+    name: "sample",
+    version: "0.1.0",
+    source: "local",
+    kind: null,
+    dependencies: [0],
+    root: true,
+  },
+];
+
+it.each(["elf", "pe"] as const)(
+  "reads a .dep-v0 section and an inferred rustc hash from %s",
+  (format) => {
+    const image = readRustBinaryImage(createRustImage({ format }));
+    expect(image.format).toBe(format);
+    expect(image.auditable_metadata).toMatchObject({
+      section_name: ".dep-v0",
+      file_offset: 1024,
+      section_bytes: rustDependencyPayload().length,
+      format_version: 1,
+      root_package_index: 1,
+      packages,
+      dependency_edges: [{ from_index: 1, to_index: 0 }],
+    });
+    expect(image.rustc_commit).toEqual({
+      evidence_kind: "inferred",
+      hashes: [{ hash: RUSTC_HASH, file_offset: 2048 }],
+    });
+  },
+);
+
+it("reads a Mach-O __DATA,.dep-v0 section", () => {
+  const image = readRustBinaryImage(createRustImage({ format: "macho" }));
+  expect(image).toMatchObject({
+    format: "macho",
+    architecture: "arm64",
+    auditable_metadata: {
+      section_name: "__DATA,.dep-v0",
+      file_offset: 1024,
+      root_package_index: 1,
+      packages,
+    },
+    rustc_commit: {
+      evidence_kind: "inferred",
+      hashes: [{ hash: RUSTC_HASH, file_offset: 2048 }],
+    },
+  });
+});
+
+it("returns null metadata when the dependency section is absent", () => {
+  const image = readRustBinaryImage(
+    createRustImage({ format: "elf", omitSection: true }),
+  );
+  expect(image.auditable_metadata).toBeNull();
+  expect(image.rustc_commit?.hashes).toEqual([
+    { hash: RUSTC_HASH, file_offset: 2048 },
+  ]);
+});
+
+it("refuses a universal Mach-O container", () => {
+  expect(() => readRustBinaryImage(fat([0x0100000c]))).toThrow(
+    RustAuditableFormatFailure,
+  );
+  expect(() => readRustBinaryImage(fat([0x0100000c]))).toThrow(/thin slice/);
+});
