@@ -91,3 +91,17 @@ adds no analysis retry loop or cache and performs no additional engine calls.
 Existing successful native authority caching remains intact; failed readiness
 is retried by a later caller attempt. Retry becomes useful advice only after
 the transient condition clears and cleanup permits another attempt.
+
+## Integration replay
+
+After rebasing onto main `a2d8b94dd`, runtime candidate
+`2c7a09eaf3ffe26667b40081f1cf0fd2ce44a146` again passed the 99 related tests,
+static and documentation gates, real Windows CLI and same-connection MCP
+normal/conflict/recovery sequence. Both workflows found no residual directories;
+the CLI normalized-result digest above still matched. The MCP success and error
+reply sizes remained 1,126,797 and 878 bytes respectively. Upstream Android/SAZ
+contract changes increased complete discovery to 2,517,904 bytes, digest
+`d14588eab7404ad129907eb34a45a0db0d43233c4de829f76babd59723bed199`.
+This later catalogue is not evidence of a delivery-size change caused by the
+runtime-admission fix. Resource sampling above belongs to the earlier pinned
+candidate; aggregate resources were not resampled for this integration replay.
