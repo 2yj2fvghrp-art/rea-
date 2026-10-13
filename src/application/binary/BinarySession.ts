@@ -302,7 +302,7 @@ export class BinarySession
         previous.route.identity.id,
       );
       if (!closed.ok) {
-        this.clearSessionRecords();
+        this.clearSnapshot();
         this.#clearRuntimeAvailability();
         return closed;
       }
