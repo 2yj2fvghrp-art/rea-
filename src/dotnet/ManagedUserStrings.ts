@@ -19,14 +19,6 @@ import {
 
 type UserStringInventory = NonNullable<ManagedMemberInspection["user_strings"]>;
 
-/**
- * Whether a method's anchors cover its whole body. A partial, malformed, or
- * truncated body may hold ldstr instructions that were never observed.
- */
-const bodyFullyDecoded = ({ body }: ManagedMethod): boolean =>
-  body.status === "absent" ||
-  (body.status === "present" && body.truncated_instructions === 0);
-
 /** The literals with their own coverage, which never enters member coverage. */
 const inventory = (
   literals: readonly ManagedUserString[],
@@ -47,13 +39,13 @@ export const parseUserStrings = (
   layout: ManagedMetadataLayout,
   parsed: {
     readonly methods: readonly ManagedMethod[];
-    /** Rows that produced no method but may belong to a selected type. */
-    readonly unscannedRows: number;
+    /** Methods that may be in scope but whose CIL was not fully scanned. */
+    readonly unscannedMethods: number;
   },
 ): UserStringInventory => {
   const { methods } = parsed;
   const budget = managedDecodeBudget(layout);
-  const scanned = parsed.unscannedRows === 0 && methods.every(bodyFullyDecoded);
+  const scanned = parsed.unscannedMethods === 0;
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   const tokens = new Set<string>();

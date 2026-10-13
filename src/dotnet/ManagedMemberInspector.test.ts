@@ -713,7 +713,7 @@ describe("managed user strings", () => {
     expect(() =>
       parseUserStrings(Buffer.alloc(0), layout, {
         methods: [method],
-        unscannedRows: 0,
+        unscannedMethods: 0,
       }),
     ).toThrow(ManagedReaderFailure);
   });
@@ -894,7 +894,7 @@ describe("managed user string issues", () => {
     } as unknown as ManagedMethod;
 
     expect(
-      parseUserStrings(heap, layout, { methods: [method], unscannedRows: 0 })
+      parseUserStrings(heap, layout, { methods: [method], unscannedMethods: 0 })
         .issues,
     ).toHaveLength(64);
   });
@@ -1004,6 +1004,31 @@ describe("managed user string scan completeness", () => {
     },
   );
 
+  it("keeps user strings complete when only the exception section is malformed", () => {
+    const { heap, tokens } = fixtureUserStringHeap(["ok"]);
+    // ldstr "ok"; pop; ret all decode before an exception section that
+    // holds no whole clause.
+    const il = Buffer.from([0x72, 0, 0, 0, 0, 0x26, 0x2a]);
+    il.writeUInt32LE(Number.parseInt(tokens[0] ?? "", 16), 1);
+    const header = Buffer.alloc(12);
+    header.writeUInt16LE(0x300b, 0);
+    header.writeUInt16LE(8, 2);
+    header.writeUInt32LE(il.length, 4);
+    const section = Buffer.alloc(17);
+    section[0] = 0x01;
+    section[1] = section.length;
+    const result = inspect({
+      ilBody: Buffer.concat([header, il, Buffer.alloc(1), section]),
+      userStringHeap: heap,
+    });
+
+    expect(result.methods[0]?.body.status).toBe("malformed");
+    expect(result.user_strings).toMatchObject({
+      state: "complete",
+      literals: [{ value: "ok" }],
+    });
+  });
+
   it("marks user strings partial when an inspected method row was not read", () => {
     const layout = {
       userStrings: { name: "#US", offset: 0, size: 1 },
@@ -1012,7 +1037,7 @@ describe("managed user string scan completeness", () => {
     expect(
       parseUserStrings(Buffer.from([0]), layout, {
         methods: [],
-        unscannedRows: 1,
+        unscannedMethods: 1,
       }),
     ).toEqual({ state: "partial", literals: [], issues: [] });
   });

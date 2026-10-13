@@ -269,13 +269,16 @@ export const parseMethods = ({
   readonly methods: readonly ManagedMethod[];
   readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
-  /** Rows that produced no method but may belong to a selected type. */
-  readonly unscannedRows: number;
+  /**
+   * Methods that may belong to a selected type but whose CIL was not fully
+   * scanned: rows that produced no method, or bodies whose decoding stopped.
+   */
+  readonly unscannedMethods: number;
 } => {
   const methods: ManagedMethod[] = [];
   const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
-  let unscannedRows = 0;
+  let unscannedMethods = 0;
   const table = layout.table(6);
   const ownerRow = readManagedValue(
     () => memberDeclaringTypeRowLookup(bytes, layout, 6),
@@ -328,6 +331,14 @@ export const parseMethods = ({
         ...member,
         genericArity: signatureGenericArity(decoded),
       });
+      const read = methodBody(
+        bytes,
+        pe,
+        rva,
+        { implFlags, flags },
+        managedDecodeBudget(layout),
+      );
+      if (!read.scanned) unscannedMethods += 1;
       methods.push({
         token,
         row_offset: cursor.start,
@@ -338,18 +349,12 @@ export const parseMethods = ({
         impl_flags: implFlags,
         flags,
         signature: decoded,
-        body: methodBody(
-          bytes,
-          pe,
-          rva,
-          { implFlags, flags },
-          managedDecodeBudget(layout),
-        ),
+        body: read.body,
       });
     }, issues);
-    if (mayBeSelected && methods.length === produced) unscannedRows += 1;
+    if (mayBeSelected && methods.length === produced) unscannedMethods += 1;
   }
-  return { methods, core, issues, unscannedRows };
+  return { methods, core, issues, unscannedMethods };
 };
 
 /**
