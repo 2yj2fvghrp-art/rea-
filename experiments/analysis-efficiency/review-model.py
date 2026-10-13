@@ -122,6 +122,8 @@ def main():
     observed_ids = set()
     producer_results = {}
     pcap_calls = []
+    pcap_attempts = []
+    workflow_checks = {'pcap_exact_call_sequence': False} if args.domain == 'pcap' else {}
     tool_errors = []
     with (args.trial / 'events.jsonl').open() as event_lines:
         for line in event_lines:
@@ -129,6 +131,9 @@ def main():
             item = event.get('item', {})
             if event.get('type') != 'item.completed' or item.get('type') != 'mcp_tool_call':
                 continue
+            if args.domain == 'pcap':
+                pcap_attempts.append({'tool': item.get('tool'), 'arguments': item.get('arguments'),
+                                      'status': item.get('status')})
             result = item.get('result') or {}
             parsed = decode(result)
             if item['status'] == 'completed':
@@ -286,6 +291,12 @@ def main():
                 expected_parameters = [{'parent_evidence_id': parent, 'view': view} for view in views]
             check('pcap_cited_call_arguments', json.dumps([entry[1] if entry is not None else None for entry in entries], sort_keys=True),
                   json.dumps(expected_arguments, sort_keys=True))
+            workflow_checks['pcap_exact_call_sequence'] = (
+                json.dumps(pcap_attempts, sort_keys=True) == json.dumps([
+                    {'tool': tool, 'arguments': arguments, 'status': 'completed'}
+                    for tool, arguments in zip(expected_tools, expected_arguments)
+                ], sort_keys=True)
+            )
             check('pcap_cited_parameters', json.dumps([record.get('parameters') if isinstance(record, dict) else None for record in cited], sort_keys=True),
                   json.dumps(expected_parameters, sort_keys=True))
             checks['pcap_cited_subjects_match_artifact'] = bool(cited) and all(
@@ -539,6 +550,7 @@ def main():
                     statuses[status] = statuses.get(status, 0) + 1
             check('network_response_statuses', network['observed_response_statuses'], statuses)
     factual_checks = dict(checks)
+    checks.update(workflow_checks)
     scopes = [json.loads(line) for line in args.resource_log.read_text().splitlines() if line.startswith('{')]
     scope = next(value for value in reversed(scopes) if 'resource_scope' in value)
     checks['no_resource_abort'] = scope['abort'] is None
@@ -558,6 +570,8 @@ def main():
         'review_source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'domain': domain, 'checks': checks, 'all_selected_checks_pass': all(checks.values()),
         'factual_checks': factual_checks, 'all_factual_checks_pass': all(factual_checks.values()),
+        **({'workflow_checks': workflow_checks, 'all_workflow_checks_pass': all(workflow_checks.values())}
+           if domain == 'pcap' else {}),
         'differences': differences, 'tool_errors': tool_errors, 'summary': summary,
         'fingerprints': {key: value for key, value in settings.items() if 'sha256' in key or key in ['runtime_revision', 'enabled_tools', 'authority']},
         'answer_file_sha256': hashlib.sha256((args.trial / 'answer.txt').read_bytes()).hexdigest(),

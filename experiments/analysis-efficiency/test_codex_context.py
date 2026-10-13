@@ -117,7 +117,7 @@ class PcapGraderWorkflowTests(unittest.TestCase):
                 'parent_evidence_id': value['parent_evidence_id'], 'coverage': value['coverage'],
                 'unknowns': value['unknowns'], 'normalized_limitations': value['limitations']}
 
-    def grade(self, answer, records, reference, producer_tools=None, producer_arguments=None):
+    def grade(self, answer, records, reference, producer_tools=None, producer_arguments=None, extra_events=None):
         review = runpy.run_path(str(Path(__file__).with_name('review-model.py')))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory);trial = root / 'trial';trial.mkdir()
@@ -142,6 +142,7 @@ class PcapGraderWorkflowTests(unittest.TestCase):
                 events.append({'type': 'item.completed', 'item': {'type': 'mcp_tool_call',
                                'tool': tool, 'arguments': arguments, 'status': 'completed',
                                'result': {'structuredContent': value}}})
+            events.extend(extra_events or [])
             (trial / 'events.jsonl').write_text(''.join(json.dumps(value) + '\n' for value in events))
             source = root / 'reference';source.mkdir();(source / 'answer.json').write_text(json.dumps(reference))
             resource = root / 'resource.log'
@@ -462,9 +463,31 @@ class PcapGraderWorkflowTests(unittest.TestCase):
             answer, records, reference = self.fixture();records[index]['operation'] = 'inspect_pcap_capture'
             self.assertFalse(self.grade(answer, records, reference)['all_factual_checks_pass'])
 
+    def test_extra_calls_are_not_an_equivalent_workflow_even_with_correct_facts(self):
+        for status in ['completed', 'failed']:
+            for with_receipt in [True, False]:
+                with self.subTest(status=status, with_receipt=with_receipt):
+                    answer, records, reference = self.fixture()
+                    extra = copy.deepcopy(records[-1]);extra['evidence_id'] = 'ev_' + 'e' * 64
+                    extra['normalized_result']['view']['facet'] = 'endpoints'
+                    event = {'type': 'item.completed', 'item': {
+                        'type': 'mcp_tool_call', 'tool': 'inspect_analysis_view', 'status': status,
+                        'arguments': {'source': {'kind': 'retained-evidence', 'evidence_id': 'ev_' + 'a' * 64},
+                                      'view': extra['normalized_result']['view']},
+                        'result': {'structuredContent': extra} if with_receipt else {}}}
+                    report = self.grade(answer, records, reference, extra_events=[event])
+                    self.assertTrue(report['all_factual_checks_pass'])
+                    self.assertFalse(report.get('all_workflow_checks_pass', True))
+        answer, records, reference = self.fixture()
+        report = self.grade(answer, records[::-1], reference)
+        self.assertTrue(report['all_factual_checks_pass'])
+        self.assertFalse(report.get('all_workflow_checks_pass', True))
+
     def test_repeated_identical_receipts_pass_but_conflicting_id_ownership_fails(self):
         answer, records, reference = self.fixture();duplicate = copy.deepcopy(records[0])
-        self.assertTrue(self.grade(answer, [duplicate, *records], reference)['all_factual_checks_pass'])
+        report = self.grade(answer, [duplicate, *records], reference)
+        self.assertTrue(report['all_factual_checks_pass'])
+        self.assertFalse(report['all_workflow_checks_pass'])
         for duplicate_first in [True, False]:
             with self.subTest(duplicate_first=duplicate_first):
                 items = [duplicate, *records] if duplicate_first else [*records, duplicate]
