@@ -20,6 +20,10 @@ import type { WithAdmittedAnalysis } from "../../../src/server/analysisAdmission
 import { createToolResultDelivery } from "../../../src/server/toolResult.js";
 import { registerReverseEngineeringTools } from "../../../src/server/registerReverseEngineeringTools.js";
 
+const admitExternalMutation: NonNullable<
+  Parameters<typeof registerReverseEngineeringTools>[7]
+> = async (_path, _signal, operation) => ok(await operation(() => {}));
+
 it("records partial Evidence and references it in the original MCP error", async () => {
   const registrations = new Map<
     string,
@@ -50,6 +54,9 @@ it("records partial Evidence and references it in the original MCP error", async
     pino({ enabled: false }),
     createToolResultDelivery(2 * 1024 * 1024),
     recordEvidence,
+    undefined,
+    undefined,
+    admitExternalMutation,
   );
   const invoke = registrations.get("execute_rizin_command");
   if (invoke === undefined)
@@ -261,6 +268,9 @@ it("preserves a partial MCP error without claiming failed Evidence retention", a
     pino({ enabled: false }),
     createToolResultDelivery(2 * 1024 * 1024),
     recordEvidence,
+    undefined,
+    undefined,
+    admitExternalMutation,
   );
   const invoke = registrations.get("execute_rizin_command");
   if (invoke === undefined)

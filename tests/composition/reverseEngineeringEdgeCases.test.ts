@@ -836,7 +836,10 @@ it.each([
           diagnosticBytes: 16 * 1024 * 1024,
           acceptNonZeroExit: true,
         },
-        { signal: expect.any(AbortSignal) },
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          onLaunched: expect.any(Function),
+        }),
       );
       expect(result).toMatchObject({
         ok: true,

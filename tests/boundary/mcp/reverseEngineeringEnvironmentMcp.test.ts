@@ -6,15 +6,10 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { expect, it } from "vitest";
 
 import { createServer } from "../../../src/server/createServer.js";
-import { createAnalysisExecution } from "../../../src/application/AnalysisProvider.js";
-import { ok } from "../../../src/domain/result.js";
-
-const analysis = {
-  execute: async () =>
-    ok(
-      createAnalysisExecution({}, { id: "test", name: "Test", version: null }),
-    ),
-};
+import {
+  createCacheProvider,
+  createTestBinarySession,
+} from "../../fixtures/binarySession.js";
 
 const writeRizin = async (directory: string, output: string): Promise<void> => {
   const executable = join(directory, "rizin");
@@ -48,8 +43,11 @@ it.skipIf(process.platform === "win32")(
           expected: "provider override",
         },
       ]) {
+        const session = createTestBinarySession(createCacheProvider([]));
+        const opened = await session.open(artifactPath);
+        if (!opened.ok) throw opened.error;
         const server = createServer(
-          { kind: "fixed", analysis },
+          { kind: "session", session },
           {
             environment: { ...process.env, PATH: scenario.environment },
             ...(scenario.provider === undefined
@@ -78,6 +76,7 @@ it.skipIf(process.platform === "win32")(
           });
         } finally {
           await Promise.all([client.close(), server.close()]);
+          await session.close();
         }
       }
     } finally {
