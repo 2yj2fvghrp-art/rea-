@@ -233,8 +233,7 @@ const joinedPolicyText = (
       ? undefined
       : policyText(element, constants),
   );
-  if (parts.some((part) => part === undefined)) return undefined;
-  const known = parts.filter((part): part is PolicyText => part !== undefined);
+  const known = parts.map((part): PolicyText => part ?? { text: DYNAMIC_SOURCE, dynamicParts: 1 });
   return {
     text: known.map(({ text }) => text).join(joiner),
     dynamicParts: known.reduce(

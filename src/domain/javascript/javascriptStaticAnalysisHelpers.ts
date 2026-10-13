@@ -17,6 +17,7 @@ import {
   semanticStaticPropertyName,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
+import type { JavaScriptOpenReceiverFact } from "./javascriptSemanticAnalysis.js";
 import {
   compareUnicodeCodePoints,
   compositeKey,
@@ -561,14 +562,7 @@ export interface StaticEndpointCall {
     | t.ArgumentPlaceholder
   )[];
   readonly callee: t.Node;
-  readonly receiverFact?:
-    | "window"
-    | "indexed-db"
-    | "cache-storage"
-    | "local"
-    | "local-indexed-db"
-    | "local-cache-storage"
-    | undefined;
+  readonly receiverFact?: JavaScriptOpenReceiverFact;
 }
 
 /** Select the exact URL argument for recognized network callees. */
@@ -590,10 +584,12 @@ export const endpointArgument = (
     const value = read(first);
     // Only get and delete also belong to the keyed-collection APIs, whose
     // keys are header, field, and parameter names rather than URLs or paths.
+    // Configuration `get` reads setting keys.
     return value !== undefined &&
       (method === "get" || method === "delete") &&
       !isRequestUrlLiteral(value) &&
-      isKeyedCollectionReceiver(callee)
+      (isKeyedCollectionReceiver(callee) ||
+        (method === "get" && receiverFact === "configuration"))
       ? undefined
       : exact;
   }

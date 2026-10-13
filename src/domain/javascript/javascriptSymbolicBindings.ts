@@ -430,6 +430,7 @@ export class JavaScriptSymbolicBindings {
             exact = false;
             continue;
           }
+          if (isJavaScriptPrototypeSetter(property)) continue;
           properties.set(name, property);
         }
         indexed = { properties: exact ? properties : null, hasPrototypeSetter };
@@ -440,6 +441,10 @@ export class JavaScriptSymbolicBindings {
         const property = index.get(key);
         if (property !== undefined)
           return this.#objectPropertyValue(property, value.environment);
+        if (key === "__proto__") {
+          const setter = [...value.node.properties].reverse().find(isJavaScriptPrototypeSetter);
+          if (setter !== undefined && !t.isSpreadElement(setter)) return this.#objectPropertyValue(setter, value.environment);
+        }
         // A closed literal without the key reads `undefined` unless a write
         // may add it or the key names an inherited or prototype member.
         return key in Object.prototype ||
@@ -1891,7 +1896,7 @@ export class JavaScriptSymbolicBindings {
       if (this.#enclosingFunction(write.site) !== owner) return undefined;
       const boundary = "loop" in write ? write.loop : write.site;
       if (
-        this.#nodeWithin(read, owner) &&
+        (owner === undefined || this.#nodeWithin(read, owner)) &&
         (read.start ?? 0) < (boundary.end ?? Infinity)
       )
         return undefined;
@@ -1999,6 +2004,7 @@ const rangeKey = ({ start, end }: JavaScriptSourceRange): string =>
   `${String(start.line)}:${String(start.column)}-${String(end.line)}:${String(end.column)}`;
 
 const ARRAY_INDEX = /^(?:0|[1-9]\d*)$/u;
+const isOwnArrayIndex = (key: string): boolean => ARRAY_INDEX.test(key) && Number(key) < 0xffffffff;
 
 /** Model the `Object` builtins that read own enumerable keys of an exact object. */
 const objectBuiltin = (
@@ -2026,9 +2032,9 @@ const objectBuiltin = (
   // Own string keys enumerate integer-like keys first, then insertion order.
   const keys = [
     ...members
-      .filter((key) => ARRAY_INDEX.test(key))
+      .filter(isOwnArrayIndex)
       .sort((left, right) => Number(left) - Number(right)),
-    ...members.filter((key) => !ARRAY_INDEX.test(key)),
+    ...members.filter((key) => !isOwnArrayIndex(key)),
   ];
   let result: SymbolicValue = {
     kind: "array",

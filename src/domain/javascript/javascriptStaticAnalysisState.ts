@@ -1,4 +1,5 @@
 import type * as t from "@babel/types";
+import type { JavaScriptOpenReceiverFact } from "./javascriptSemanticAnalysis.js";
 import type { JavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
 import type { JavaScriptStaticConstantReader } from "./javascriptStaticConstants.js";
 
@@ -103,15 +104,7 @@ export interface JavaScriptFindingContext {
   /** Exact literal or derived values of finding expressions. */
   readonly constants: JavaScriptStaticConstantReader;
   readonly accumulator: JavaScriptAnalysisAccumulator;
-  readonly openReceiverFacts?: ReadonlyMap<
-    number,
-    | "window"
-    | "indexed-db"
-    | "cache-storage"
-    | "local"
-    | "local-indexed-db"
-    | "local-cache-storage"
-  >;
+  readonly openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>;
   /** Classified Electron callee identities and bound bridge API objects. */
   readonly electron?: JavaScriptElectronSemanticFacts;
 }

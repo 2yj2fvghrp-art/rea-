@@ -231,6 +231,7 @@ const electron = z
         z.strictObject({
           entry_kind: z.enum(["bridge-member", "ipc-handler"]),
           entry: z.string(),
+          entry_path: strings.optional(),
           channel: z.string().nullable(),
           terminal: z.string(),
           resolution: z.literal("candidate"),
@@ -257,6 +258,13 @@ const electron = z
           ),
           conditions: z.array(pathCondition),
         }),
+      )
+      .transform((paths) =>
+        paths.map(({ entry_kind, entry, entry_path, ...rest }) =>
+          entry_path === undefined
+            ? { entry_kind, entry, ...rest }
+            : { entry_kind, entry, entry_path, ...rest },
+        ),
       )
       .optional(),
     browser_windows: z.array(

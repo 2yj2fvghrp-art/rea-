@@ -53,6 +53,9 @@ export const addElectronCallPaths = (
               properties: {
                 path_id: pathId,
                 entry: path.entry,
+                ...(path.entry_path === undefined
+                  ? {}
+                  : { entry_path: [...path.entry_path] }),
                 entry_kind: path.entry_kind,
                 channel: path.channel,
                 terminal: path.terminal,
@@ -99,6 +102,9 @@ export const addElectronCallPaths = (
           properties: {
             path_id: pathId,
             entry: path.entry,
+            ...(path.entry_path === undefined
+              ? {}
+              : { entry_path: [...path.entry_path] }),
             resolution: "candidate",
           },
         });
@@ -121,6 +127,9 @@ export const addElectronCallPaths = (
           properties: {
             path_id: pathId,
             entry: path.entry,
+            ...(path.entry_path === undefined
+              ? {}
+              : { entry_path: [...path.entry_path] }),
             channel: path.channel,
             resolution: "candidate",
             conditions: path.conditions,

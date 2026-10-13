@@ -43,7 +43,6 @@ import {
 } from "./javascriptSymbolicControlFlow.js";
 
 // Nesting depth of exposed API members traced through plain objects.
-const MAX_EXPOSED_MEMBER_DEPTH = 8;
 
 const callLabel = (node: t.Node): string =>
   t.isSequenceExpression(node)
@@ -63,6 +62,7 @@ interface PathGuard {
 interface PathContext {
   readonly entryNode: t.Node;
   readonly entry: string;
+  readonly entryPath?: readonly string[];
   readonly entryKind: ElectronCallPath["entry_kind"] | null;
   readonly channel: string | null;
   readonly steps: readonly ElectronCallPathStep[];
@@ -208,6 +208,37 @@ export const collectElectronWrappedCallPaths = (
   };
   const hasConditions = (value: SymbolicValue): boolean =>
     symbolicVariants(value).some((variant) => variant.conditions?.length);
+  function* bridgeMemberFunctions(
+    value: SymbolicValue,
+    segments: readonly string[] = [],
+    active = new Set<SymbolicValue>(),
+  ): Generator<{
+    readonly name: string;
+    readonly path: readonly string[];
+    readonly fn: SymbolicFunction;
+  }> {
+    if (active.has(value)) return;
+    if (active.size >= 128) {
+      accumulator.unknownFindings += 1;
+      accumulator.electronCallPathLimitReached = true;
+      return;
+    }
+    const nested = new Set(active);
+    nested.add(value);
+    for (const member of [...resolver.members(value)].sort()) {
+      if (--remainingVisits < 0) return;
+      const path = [...segments, member];
+      const name = path.join(".");
+      for (const variant of symbolicVariants(
+        resolver.property(value, member),
+      )) {
+        if (variant.kind === "function") yield { name, path, fn: variant };
+        else if (resolver.members(variant).length > 0)
+          yield* bridgeMemberFunctions(variant, path, nested);
+      }
+      if (remainingVisits < 0) return;
+    }
+  }
   const isolatedBridgeCall = (
     node: t.CallExpression | t.OptionalCallExpression,
   ):
@@ -253,6 +284,10 @@ export const collectElectronWrappedCallPaths = (
     const path: ElectronCallPath = {
       entry_kind: context.entryKind,
       entry: context.entry,
+      ...(context.entryKind !== "bridge-member" ||
+      context.entryPath === undefined
+        ? {}
+        : { entry_path: context.entryPath }),
       channel,
       terminal,
       resolution: "candidate",
@@ -532,54 +567,26 @@ export const collectElectronWrappedCallPaths = (
         offset: node.start ?? -1,
         value: finding,
       });
-    // Exposed functions are traced at every exact member path of the API
-    // object; contextBridge copies nested plain objects member by member.
-    const exposeMembers = (
-      value: SymbolicValue,
-      path: string,
-      depth: number,
-      context: PathContext,
-    ): void => {
-      for (const variant of symbolicVariants(value)) {
-        const memberContext = metadataContext(context, variant);
-        if (!memberContext) continue;
-        if (variant.kind === "function")
-          functionBody(
-            variant,
-            variant.node.params.map(() =>
-              symbolicUnknown("public API argument"),
-            ),
-            {
-              ...memberContext,
-              entryNode: node,
-              entryKind: "bridge-member",
-              entry: path,
-              channel: null,
-              steps: [step(node, "exposure", path)],
-              active: new Set(),
-            },
-            node,
-          );
-        else if (
-          depth < MAX_EXPOSED_MEMBER_DEPTH &&
-          (variant.kind === "object" || variant.kind === "record")
-        )
-          for (const name of resolver.members(variant))
-            exposeMembers(
-              resolver.property(variant, name),
-              `${path}.${name}`,
-              depth + 1,
-              memberContext,
-            );
-      }
-    };
-    for (const name of members)
-      exposeMembers(
-        resolver.property(object, name),
-        `${key.value}.${name}`,
-        1,
-        keyContext,
+    for (const { name, path, fn } of bridgeMemberFunctions(object)) {
+      const memberContext = metadataContext(keyContext, fn);
+      if (!memberContext) continue;
+      const entry = `${key.value}.${name}`;
+      functionBody(
+        fn,
+        fn.node.params.map(() => symbolicUnknown("public API argument")),
+        {
+          ...memberContext,
+          entryNode: node,
+          entryKind: "bridge-member",
+          entry,
+          entryPath: [key.value, ...path],
+          channel: null,
+          steps: [step(node, "exposure", entry)],
+          active: new Set(),
+        },
+        node,
       );
+    }
   };
 
   const call = (
@@ -925,6 +932,17 @@ const addIpcFinding = (
   const unconditional = alternatives.some((guards) => guards.length === 0);
   // A fully observed transmission stays one source fact when its callback is
   // traced. Registrations retain invocation identity because handlers compete.
+  // Raw wrapper syntax describes the registration site, not an additional
+  // runtime invocation. Concrete invocations supersede that one raw summary.
+  if (finding.invocation_location !== undefined)
+    for (let index = accumulator.ipc.length - 1; index >= 0; index--) {
+      const raw = accumulator.ipc[index]?.value;
+      if (raw !== undefined && raw.resolution_basis === undefined && raw.invocation_location === undefined &&
+          raw.side === finding.side && raw.operation === finding.operation && raw.channel === finding.channel &&
+          JSON.stringify(raw.location) === JSON.stringify(finding.location) &&
+          JSON.stringify(raw.linked_operation ?? null) === JSON.stringify(finding.linked_operation ?? null))
+        accumulator.ipc.splice(index, 1);
+    }
   const duplicate = accumulator.ipc.some(
     ({ value }) =>
       value.side === finding.side &&

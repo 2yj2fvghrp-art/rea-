@@ -249,6 +249,7 @@ export function readJavaScriptAnalysisTransfer(
   source: Pick<JavaScriptArtifactFile, "path" | "sha256">,
   signal: AbortSignal | undefined,
   retainGraph: boolean,
+  companions?: readonly Pick<JavaScriptArtifactFile, "path" | "sha256">[],
 ): Promise<{
   readonly module: JavaScriptModuleSemanticIr;
   readonly projection: JavaScriptSemanticFileProjection | null;
@@ -259,10 +260,21 @@ export async function readJavaScriptAnalysisTransfer(
   source: Pick<JavaScriptArtifactFile, "path" | "sha256">,
   signal?: AbortSignal,
   retainGraph = true,
+  companions: readonly Pick<JavaScriptArtifactFile, "path" | "sha256">[] = [],
 ): Promise<{
   readonly module: JavaScriptModuleSemanticIr;
   readonly projection: JavaScriptSemanticFileProjection | null;
 }> {
+  const admittedSources = new Map<string, string>();
+  for (const admitted of [source, ...companions]) {
+    const previous = admittedSources.get(admitted.path);
+    if (previous !== undefined && previous !== admitted.sha256) throw new TypeError("Conflicting admitted JavaScript source identities");
+    admittedSources.set(admitted.path, admitted.sha256);
+  }
+  const requireAdmittedSource = (identity: {readonly module_path: string; readonly artifact_sha256: string}): void => {
+    if (admittedSources.get(identity.module_path) !== identity.artifact_sha256)
+      throw new TypeError("JavaScript transfer node belongs to a source outside the admitted artifact identities");
+  };
   const expected = javaScriptAnalysisTransferDescriptorSchema.parse(descriptor);
   if ((await stat(path)).size !== expected.bytes)
     throw new TypeError(
@@ -371,14 +383,7 @@ export async function readJavaScriptAnalysisTransfer(
               "fingerprint",
             ].includes(record.kind)
           ) {
-            if (
-              record.kind === "node" &&
-              (record.value.identity.artifact_sha256 !== source.sha256 ||
-                record.value.identity.module_path !== source.path)
-            )
-              throw new TypeError(
-                "JavaScript transfer node belongs to a different artifact source",
-              );
+            if (record.kind === "node") requireAdmittedSource(record.value.identity);
             records += 1;
             continue;
           }
@@ -404,13 +409,7 @@ export async function readJavaScriptAnalysisTransfer(
               break;
             case "node": {
               retainIdentity(record.kind, record.value.node_id);
-              if (
-                record.value.identity.artifact_sha256 !== source.sha256 ||
-                record.value.identity.module_path !== source.path
-              )
-                throw new TypeError(
-                  "JavaScript transfer node belongs to a different artifact source",
-                );
+              requireAdmittedSource(record.value.identity);
               nodes.push(record.value);
               break;
             }
