@@ -143,6 +143,11 @@ Select the part you want to check:
 | One agent registration              | `rea doctor --client codex --json` (see [client IDs](#supported-agents)) |
 | Installed workflow instructions     | `rea doctor --skill --json`                                              |
 
+On Linux, static JavaScript/Electron analysis also requires a procps-compatible
+`ps` command on REA's `PATH` for process ownership inspection. Install the
+`procps` package if `ps` is missing; otherwise analysis fails with a
+`capability_unavailable` error before launching a child process.
+
 A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `healthy` and the exit status. Other checks appear in `informational_checks`;
 `environment_healthy` summarizes the full audit. `--target` adds a target check,
