@@ -12,22 +12,24 @@ import type {
 } from "./ManagedMemberInspectorCore.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import { readMetadataUserString } from "./ManagedMetadataHeaps.js";
-import {
-  readManagedValue,
-  uniqueManagedParseIssues,
-} from "./ManagedReaderFailure.js";
+import { readManagedValue } from "./ManagedReaderFailure.js";
 
 type UserStringInventory = NonNullable<ManagedMemberInspection["user_strings"]>;
 
-/** The literals with their own coverage, which never enters member coverage. */
+/**
+ * The literals with their own coverage, which never enters member coverage.
+ * Issues are unique by construction, so they are not deduplicated: each
+ * distinct token yields one failure or per-offset conformance issues, and a
+ * missing stream is one issue.
+ */
 const inventory = (
-  literals: readonly ManagedUserString[],
-  issues: readonly ManagedParseIssue[],
+  literals: ManagedUserString[],
+  issues: ManagedParseIssue[],
   scanned: boolean,
 ): UserStringInventory => ({
   state: issues.length === 0 && scanned ? "complete" : "partial",
-  literals: [...literals],
-  issues: [...uniqueManagedParseIssues(issues)],
+  literals,
+  issues,
 });
 
 /** Bookkeeping per distinct ldstr token: its set entry and its sorted slot. */
