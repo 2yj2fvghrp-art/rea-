@@ -425,7 +425,7 @@ describe("Apple IPA components", () => {
         macho("Payload/Fixture.app/Fixture"),
         { path: "Payload/Fixture.app/Contents/Resources/._libfoo.dylib" },
         { path: "Payload/Fixture.app/Frameworks/Foo.framework/._Foo" },
-        { path: "__MACOSX/Payload/Fixture.app/._Fixture" },
+        { path: "__MACOSX/Payload/Fixture.app/libghost.dylib" },
         macho("Payload/Fixture.app/Contents/Resources/libreal.dylib"),
         macho("SwiftSupport/iphoneos/libswiftCore.dylib"),
       ]),
