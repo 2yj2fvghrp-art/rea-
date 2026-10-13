@@ -15,7 +15,6 @@ import {
   modulePropertyName,
 } from "./javascriptStaticAnalysisHelpers.js";
 import {
-  childNodes,
   completeSemanticSteps,
   traverseJavaScriptAst,
 } from "./javascriptSemanticTraversal.js";
@@ -635,20 +634,22 @@ export class JavaScriptSymbolicBindings {
 
   #moduleCompletionPoint(factory: t.Function): t.Node {
     let earliestReturn: t.ReturnStatement | undefined;
-    const pending: t.Node[] = [factory.body];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (!node) continue;
-      if (node !== factory.body && (t.isFunction(node) || t.isClass(node)))
-        continue;
-      if (
-        t.isReturnStatement(node) &&
-        (earliestReturn === undefined ||
-          (node.start ?? Infinity) < (earliestReturn.start ?? Infinity))
-      )
-        earliestReturn = node;
-      pending.push(...childNodes(node));
-    }
+    // The shared traversal owns child expansion. A node's child count follows
+    // the source (array elements, call arguments, statements), so it must never
+    // be spread into call arguments, which overflows the stack on large data.
+    traverseJavaScriptAst(factory.body, {
+      // Nested functions and classes own their returns; the body root is
+      // always entered.
+      skip: (node) => t.isFunction(node) || t.isClass(node),
+      enter: (node) => {
+        if (
+          t.isReturnStatement(node) &&
+          (earliestReturn === undefined ||
+            (node.start ?? Infinity) < (earliestReturn.start ?? Infinity))
+        )
+          earliestReturn = node;
+      },
+    });
     return earliestReturn ?? factory.body;
   }
 
