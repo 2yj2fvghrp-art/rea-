@@ -317,11 +317,16 @@ const matchByKeys = <Item extends Declared>({
     }
   }
   // Contention can prevent a declared signature pair even when CIL/shape
-  // evidence cannot form a later remap. Preserve those residual choices;
-  // leaving them one-sided would incorrectly assert observed absence.
+  // evidence cannot form a later remap. Held ambiguities still contest
+  // ownership; only proven pairs leave that evidence pool. Group only open
+  // candidates so held members retain their original ambiguity and provenance.
   for (const group of unresolvedSignatureAmbiguities(
     left.filter((item) => !usedLeft.has(item)),
     right.filter((item) => !usedRight.has(item)),
+    ownerlessContested(
+      [unpairedOf(left, pairedLeft), unpairedOf(right, pairedRight)],
+      (member) => member.rawSignatureKey,
+    ),
   )) {
     for (const item of group.left) usedLeft.add(item);
     for (const item of group.right) usedRight.add(item);
@@ -335,18 +340,14 @@ const matchByKeys = <Item extends Declared>({
   };
 };
 
-/** Residual name-free signatures whose unresolved owners still compete. */
+/** Open signature choices contested by unresolved owners, including held rows. */
 const unresolvedSignatureAmbiguities = <Item extends Declared>(
   left: readonly Keyed<Item>[],
   right: readonly Keyed<Item>[],
+  contested: ReadonlySet<string>,
 ): Ambiguous<Item>[] => {
   const key = (member: Keyed<Item>): string =>
     competitionIdentityKey(member, member.rawSignatureKey) ?? "";
-  // ownerlessContested scopes the key by name itself, so pass the raw key.
-  const contested = ownerlessContested(
-    [left, right],
-    (member) => member.rawSignatureKey,
-  );
   const leftGroups = groupBy(left, key);
   const rightGroups = groupBy(right, key);
   const groups: Ambiguous<Item>[] = [];

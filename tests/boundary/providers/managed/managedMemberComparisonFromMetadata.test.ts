@@ -1105,6 +1105,86 @@ describe("managed member comparison of consumed ownerless ambiguity", () => {
   });
 });
 
+describe("managed member comparison of retained ownership contention", () => {
+  it("keeps changed counterparts unknown after an ownerless candidate is held", () => {
+    const base = inspect(buildManagedPeFixture(), "/tmp/held-ownerless.dll");
+    const [method] = base.result.methods;
+    if (method === undefined) throw new Error("Expected a fixture method");
+    const body = (hash: string, stack: number) => ({
+      ...method.body,
+      il_sha256: hash.repeat(64),
+      normalized_il_sha256: hash.repeat(64),
+      max_stack: stack,
+    });
+    const ownerless = {
+      ...method,
+      token: "0x06000002",
+      declaring_type: null,
+      declaring_type_token: null,
+      body: body("b", 2),
+    };
+    const left = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [{ ...method, body: body("a", 1) }, ownerless],
+      },
+    };
+    const right = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [
+          { ...method, body: body("c", 3) },
+          {
+            ...method,
+            token: "0x06000002",
+            declaring_type: "Other.Twin",
+            name: "Copy",
+            body: ownerless.body,
+          },
+        ],
+      },
+    };
+    for (const result of [
+      compareManagedMembers(left, right),
+      compareManagedMembers(right, left),
+    ]) {
+      expect(result.summary).toEqual({
+        unchanged: 0,
+        changed: 0,
+        added: 0,
+        removed: 0,
+        unknown: 2,
+      });
+      expect(result.methods).toEqual([
+        expect.objectContaining({
+          status: "unknown",
+          match: {
+            status: "ambiguous",
+            basis: "exact-il-signature",
+            confidence: "unknown",
+            candidate_left_tokens: ["0x06000002"],
+            candidate_right_tokens: ["0x06000002"],
+          },
+        }),
+        expect.objectContaining({
+          status: "unknown",
+          match: {
+            status: "ambiguous",
+            basis: "exact-signature",
+            confidence: "unknown",
+            candidate_left_tokens: ["0x06000001"],
+            candidate_right_tokens: ["0x06000001"],
+          },
+        }),
+      ]);
+    }
+  });
+});
+
 describe("managed member comparison of ownerless structural competitors", () => {
   it("keeps structural competitors of an ownerless method ambiguous in both directions", () => {
     const base = inspect(
