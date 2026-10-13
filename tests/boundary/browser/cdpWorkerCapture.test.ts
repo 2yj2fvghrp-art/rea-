@@ -895,3 +895,66 @@ it("preserves page-script export from legacy unidentified workers", async () => 
     "Worker identity was unavailable for 1 observations",
   );
 });
+
+it.each([undefined, null, 42])(
+  "rejects missing or non-string auto-attachment sessions: %j",
+  async (sessionId) => {
+    const { provider, input } = await fixture({
+      commandEvents: (command, origin) =>
+        command.method === "Target.setAutoAttach" &&
+        command.sessionId === "session-1" &&
+        command.params.autoAttach === true
+          ? [
+              {
+                method: "Target.attachedToTarget",
+                sessionId: "session-1",
+                params: {
+                  sessionId,
+                  targetInfo: {
+                    targetId: "own",
+                    type: "worker",
+                    url: origin + "/same.js",
+                    attached: true,
+                  },
+                },
+              },
+            ]
+          : undefined,
+    });
+    const result = await provider.inspectPage(input);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { reason: "protocol_error" },
+    });
+  },
+);
+
+it("records and excludes empty worker script identifiers at ingestion", async () => {
+  const { provider, input } = await fixture({
+    commandEvents: (command, origin) =>
+      command.method === "Debugger.enable" && command.sessionId === "worker-own"
+        ? [
+            {
+              method: "Debugger.scriptParsed",
+              sessionId: "worker-own",
+              params: {
+                scriptId: "",
+                url: origin + "/same.js",
+                executionContextId: 1,
+              },
+            },
+          ]
+        : undefined,
+  });
+  const result = await provider.inspectPage(input);
+  if (!result.ok) throw result.error;
+  const worker = result.value.workers.find(
+    ({ target_id }) => target_id === "own",
+  );
+  expect(worker?.observation?.scripts).toEqual([]);
+  expect(worker?.observation?.completeness.excluded).toContainEqual({
+    section: "scripts",
+    reason: "invalid_protocol_value",
+    count: 1,
+  });
+});
