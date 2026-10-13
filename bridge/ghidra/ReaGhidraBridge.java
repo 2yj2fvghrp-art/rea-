@@ -406,7 +406,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             case "xrefs" -> xrefs(request.params);
             case "analyze_function" -> {
                 FunctionAnalysisObservation observation = analyzeFunctionObservation(request.params);
-                yield callRelationshipObservation(observation.dossier(), observation.limitations());
+                yield callRelationshipObservation(observation.dossier(), observation.calls());
             }
             case "set_address_name", "set_addresses_names" -> {
                 if (!descriptor.transport.equals("unix-socket"))
@@ -1017,12 +1017,20 @@ public final class ReaGhidraBridge extends HeadlessScript {
         for (Function item : ordered) {
             result.add(canonicalAddress(item.getEntryPoint()));
         }
-        return callRelationshipObservation(
-            result,
-            noReturnCallLimitations(
+        if (callers) {
+            JsonObject observation = functionObservation(result, noReturnCallLimitations(
                 currentProgram.getListing().getInstructions(function.getBody(), true)
-            )
+            ));
+            // This query enumerates existing incoming call references. Targetless
+            // outgoing sites in this function belong to the callee observation.
+            observation.add("relationship_coverage", completeResolvedCallCoverage());
+            monitor.checkCancelled();
+            return observation;
+        }
+        CallBoundaryObservation calls = callBoundaryObservation(
+            currentProgram.getListing().getInstructions(function.getBody(), true), false
         );
+        return callRelationshipObservation(result, calls);
     }
 
     private JsonObject procedureInfo(JsonObject params) throws Exception {
@@ -1072,18 +1080,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.addProperty("direction", direction);
         result.add("references", edges);
         result.addProperty("reference_kinds_available", true);
-        JsonArray unresolvedCalls = new JsonArray();
-        if (direction.equals("outgoing")) for (Instruction instruction : scanInstructions(function, Integer.MAX_VALUE).instructions) {
-            if (!instruction.getFlowType().isCall()) continue;
-            boolean resolved = false;
-            for (Reference reference : instruction.getReferencesFrom()) if (reference.getReferenceType().isCall()) resolved = true;
-            if (!resolved) {
-                JsonObject site = new JsonObject();
-                site.addProperty("address", canonicalAddress(instruction.getAddress()));
-                site.addProperty("reason", "Instruction decoder identifies a call but ReferenceManager supplies no call destination");
-                unresolvedCalls.add(site);
-            }
-        }
+        JsonArray unresolvedCalls = direction.equals("outgoing")
+            ? callBoundaryObservation(
+                currentProgram.getListing().getInstructions(function.getBody(), true), true
+            ).unresolvedCalls() : new JsonArray();
         result.add("unresolved_calls", unresolvedCalls);
         return result;
     }
@@ -1580,8 +1580,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Swift String literal decoding is implemented for AArch64 register pairs only; no Swift literals were decoded for this architecture."
             );
         }
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
-        for (String limitation : boundaryLimitations) {
+        CallBoundaryObservation calls = callBoundaryObservation(scan.instructions, true);
+        result.add("unresolved_calls", calls.unresolvedCalls());
+        for (String limitation : calls.limitations()) {
             limitations.add(limitation);
         }
         if (decompilation != null && decompilation.getErrorMessage() != null &&
@@ -1590,7 +1591,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         result.add("limitations", limitations);
         monitor.checkCancelled();
-        return new FunctionAnalysisObservation(result, boundaryLimitations);
+        return new FunctionAnalysisObservation(result, calls);
     }
 
     private JsonObject nativeValueFlow(DecompileResults decompilation) throws Exception {
@@ -3301,10 +3302,24 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
-    private JsonObject callRelationshipObservation(JsonElement value, List<String> limitations)
+    private JsonObject callRelationshipObservation(JsonElement value, CallBoundaryObservation calls)
             throws Exception {
         monitor.checkCancelled();
-        JsonObject result = functionObservation(value, limitations);
+        JsonObject result = functionObservation(value, calls.limitations());
+        JsonObject coverage = completeResolvedCallCoverage();
+        int unresolved = calls.unresolvedCallCount();
+        coverage.addProperty("status", unresolved == 0 ? "complete" : "partial");
+        if (unresolved > 0) {
+            JsonArray limitations = new JsonArray();
+            limitations.add("Ghidra decoded " + unresolved +
+                " call site(s) without fully resolved procedure targets; the callee inventory is incomplete.");
+            coverage.add("limitations", limitations);
+        }
+        result.add("relationship_coverage", coverage);
+        return result;
+    }
+
+    private static JsonObject completeResolvedCallCoverage() {
         JsonObject coverage = new JsonObject();
         coverage.addProperty("status", "complete");
         JsonArray diagnostics = new JsonArray();
@@ -3312,8 +3327,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals."
         );
         coverage.add("diagnostics", diagnostics);
-        result.add("relationship_coverage", coverage);
-        return result;
+        return coverage;
     }
 
     private List<String> noReturnCallLimitations(Iterable<Instruction> instructions)
@@ -3321,47 +3335,85 @@ public final class ReaGhidraBridge extends HeadlessScript {
         List<String> limitations = new ArrayList<>();
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
-            if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal()) {
-                continue;
-            }
-            Address[] destinations = instruction.getFlows();
-            StringBuilder limitation = new StringBuilder();
-            limitation.append("Ghidra Listing reports a terminal call at ")
-                .append(canonicalAddress(instruction.getAddress()));
-            if (destinations.length == 0) {
-                limitation.append(" with no resolved callee; its no-return basis is unknown.");
-            }
-            else {
-                limitation.append(" to ");
-                for (int index = 0; index < destinations.length; index++) {
-                    if (index > 0) limitation.append(", ");
-                    Address destination = destinations[index];
-                    limitation.append(canonicalAddress(destination));
-                    Function target = currentProgram.getFunctionManager().getFunctionAt(destination);
-                    if (target == null) {
-                        limitation.append(" (callee identity unknown)");
-                    }
-                    else {
-                        limitation.append(" ").append(procedureName(target));
-                        limitation.append(" (external=").append(target.isExternal());
-                        limitation.append(", thunk=").append(target.isThunk());
-                        limitation.append(", hasNoReturn=").append(target.hasNoReturn()).append(")");
-                    }
-                }
-                limitation.append("; fallthrough is excluded by Ghidra's flow model.");
-                Function target = destinations.length == 1
-                    ? currentProgram.getFunctionManager().getFunctionAt(destinations[0])
-                    : null;
-                if (target != null && target.hasNoReturn()) {
-                    limitation.append(" This records Ghidra's FunctionManager flag, not an independent verification that the callee cannot return.");
-                }
-                else {
-                    limitation.append(" The reason for the terminal flow is not established by this observation.");
-                }
-            }
-            limitations.add(limitation.toString());
+            String limitation = terminalCallLimitation(instruction);
+            if (limitation != null) limitations.add(limitation);
         }
         return limitations;
+    }
+
+    private CallBoundaryObservation callBoundaryObservation(
+            Iterable<Instruction> instructions, boolean includeUnresolvedSites)
+            throws Exception {
+        List<String> limitations = new ArrayList<>();
+        JsonArray unresolved = includeUnresolvedSites ? new JsonArray() : null;
+        int unresolvedCount = 0;
+        for (Instruction instruction : instructions) {
+            monitor.checkCancelled();
+            String limitation = terminalCallLimitation(instruction);
+            if (limitation != null) limitations.add(limitation);
+            if (!instruction.getFlowType().isCall()) continue;
+            boolean destination = false;
+            boolean missingProcedure = false;
+            for (Reference reference : instruction.getReferencesFrom()) {
+                if (!reference.getReferenceType().isCall()) continue;
+                destination = true;
+                if (currentProgram.getFunctionManager().getFunctionAt(reference.getToAddress()) == null)
+                    missingProcedure = true;
+            }
+            if (!destination || missingProcedure) {
+                unresolvedCount++;
+                if (unresolved != null) {
+                    JsonObject site = new JsonObject();
+                    site.addProperty("address", canonicalAddress(instruction.getAddress()));
+                    site.addProperty("reason", !destination
+                        ? "Instruction decoder identifies a call but ReferenceManager supplies no call destination"
+                        : "A call destination has no Ghidra FunctionManager procedure identity");
+                    unresolved.add(site);
+                }
+            }
+        }
+        return new CallBoundaryObservation(List.copyOf(limitations), unresolvedCount, unresolved);
+    }
+
+    private String terminalCallLimitation(Instruction instruction) {
+        if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal())
+            return null;
+        Address[] destinations = instruction.getFlows();
+        StringBuilder limitation = new StringBuilder();
+        limitation.append("Ghidra Listing reports a terminal call at ")
+            .append(canonicalAddress(instruction.getAddress()));
+        if (destinations.length == 0) {
+            limitation.append(" with no resolved callee; its no-return basis is unknown.");
+        }
+        else {
+            limitation.append(" to ");
+            for (int index = 0; index < destinations.length; index++) {
+                if (index > 0) limitation.append(", ");
+                Address destination = destinations[index];
+                limitation.append(canonicalAddress(destination));
+                Function target = currentProgram.getFunctionManager().getFunctionAt(destination);
+                if (target == null) {
+                    limitation.append(" (callee identity unknown)");
+                }
+                else {
+                    limitation.append(" ").append(procedureName(target));
+                    limitation.append(" (external=").append(target.isExternal());
+                    limitation.append(", thunk=").append(target.isThunk());
+                    limitation.append(", hasNoReturn=").append(target.hasNoReturn()).append(")");
+                }
+            }
+            limitation.append("; fallthrough is excluded by Ghidra's flow model.");
+            Function target = destinations.length == 1
+                ? currentProgram.getFunctionManager().getFunctionAt(destinations[0])
+                : null;
+            if (target != null && target.hasNoReturn()) {
+                limitation.append(" This records Ghidra's FunctionManager flag, not an independent verification that the callee cannot return.");
+            }
+            else {
+                limitation.append(" The reason for the terminal flow is not established by this observation.");
+            }
+        }
+        return limitation.toString();
     }
 
     private static String renderAssembly(List<Instruction> instructions) {
@@ -4543,7 +4595,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private record InventoryItem(Address address, String value, JsonObject facts) {}
     private record AddressNameRequest(String inputAddress, Address address, String name) {}
     private record FunctionEntry(Function function, InventoryItem item) {}
-    private record FunctionAnalysisObservation(JsonObject dossier, List<String> limitations) {}
+    private record FunctionAnalysisObservation(JsonObject dossier, CallBoundaryObservation calls) {}
+    private record CallBoundaryObservation(List<String> limitations, int unresolvedCallCount, JsonArray unresolvedCalls) {}
     private record SwiftStringLiteralDecode(JsonArray literals, JsonArray omissions) {}
     private record SwiftLiteralLayout(
         String representation,

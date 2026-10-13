@@ -181,42 +181,56 @@ describe("Ghidra relationship coverage replay", () => {
   );
 });
 
-describe("Ghidra snapshot cache", () => {
-  it("refuses snapshots whose profile predates typed incoming references", async () => {
-    const initial = fixture();
-    await open(initial.session);
-    const snapshot = initial.session.exportAnalysisSnapshot();
-    if (!snapshot.ok) throw snapshot.error;
-    await initial.session.close();
-    const profile = snapshot.value.binding.analysis_profile;
-    expect(profile.parameters.instruction_references).toBe(
-      "exact-address-incoming-v1",
-    );
-    const legacy = {
-      ...snapshot.value,
-      binding: {
-        ...snapshot.value.binding,
-        analysis_profile: createAnalysisProfile(
-          profile.provider,
-          Object.fromEntries(
-            Object.entries(profile.parameters).filter(
-              ([key]) => key !== "instruction_references",
+describe("Ghidra snapshot profile admission", () => {
+  it.each([
+    {
+      parameter: "instruction_references",
+      current: "exact-address-incoming-v1",
+      legacy: undefined,
+    },
+    {
+      parameter: "call_relationship_coverage",
+      current: "decoded-call-target-coverage-v2",
+      legacy: "resolved-call-reference-diagnostics-v1",
+    },
+  ])(
+    "refuses snapshots with outdated $parameter semantics",
+    async ({ parameter, current, legacy: prior }) => {
+      const initial = fixture();
+      await open(initial.session);
+      const snapshot = initial.session.exportAnalysisSnapshot();
+      if (!snapshot.ok) throw snapshot.error;
+      await initial.session.close();
+      const profile = snapshot.value.binding.analysis_profile;
+      expect(profile.parameters[parameter]).toBe(current);
+      const legacy = {
+        ...snapshot.value,
+        binding: {
+          ...snapshot.value.binding,
+          analysis_profile: createAnalysisProfile(profile.provider, {
+            ...Object.fromEntries(
+              Object.entries(profile.parameters).filter(
+                ([key]) => key !== parameter,
+              ),
             ),
-          ),
-        ),
-      },
-    };
-    const replay = fixture();
-    const imported = replay.session.importAnalysisSnapshot(legacy);
-    if (!imported.ok) throw imported.error;
-    expect(await replay.session.previewTarget(TARGET)).toMatchObject({
-      ok: false,
-      error: { _tag: "EvidenceIntegrityError" },
-    });
-    expect(replay.calls).toEqual([]);
-    await replay.session.close();
-  });
+            ...(prior === undefined ? {} : { [parameter]: prior }),
+          }),
+        },
+      };
+      const replay = fixture();
+      const imported = replay.session.importAnalysisSnapshot(legacy);
+      if (!imported.ok) throw imported.error;
+      expect(await replay.session.previewTarget(TARGET)).toMatchObject({
+        ok: false,
+        error: { _tag: "EvidenceIntegrityError" },
+      });
+      expect(replay.calls).toEqual([]);
+      await replay.session.close();
+    },
+  );
+});
 
+describe("Ghidra snapshot cache", () => {
   it.each([
     { operation: "analyze_function", parameters: { procedure: "0x1000" } },
     {

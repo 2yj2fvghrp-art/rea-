@@ -311,6 +311,7 @@ const ghidraFunctionDossier = functionDossierSchema
       ...value.comments.map(({ address }) => address),
       ...value.callers.map(({ address }) => address),
       ...value.callees.map(({ address }) => address),
+      ...(value.unresolved_calls ?? []).map(({ address }) => address),
       ...value.incoming_references.flatMap(referenceAddresses),
       ...value.outgoing_references.flatMap(referenceAddresses),
       ...value.referenced_strings.flatMap(({ address, source_address }) => [

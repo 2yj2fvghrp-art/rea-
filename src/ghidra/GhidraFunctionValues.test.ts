@@ -43,6 +43,26 @@ const parseFunctionValueFixture = (
   return parsed.ok ? { ok: true as const, value: parsed.value.value } : parsed;
 };
 
+describe("Ghidra unresolved call locations", () => {
+  it("rejects a noncanonical unresolved call site rather than retaining unverifiable location evidence", () => {
+    expect(
+      parseGhidraFunctionResult("analyze_function", {
+        value: {
+          ...functionDossierSchema.parse(ghidraFunctionDossier()),
+          unresolved_calls: [
+            { address: "not-an-address", reason: "No call destination." },
+          ],
+        },
+        limitations: [],
+        relationship_coverage: {
+          status: "partial",
+          limitations: ["An unresolved call remains."],
+        },
+      }),
+    ).toMatchObject({ ok: false, error: { _tag: "AnalysisOutputError" } });
+  });
+});
+
 describe("Ghidra function-analysis result values", () => {
   it("retains unavailable pseudocode instead of treating its empty representation as observed source", () => {
     const availability = {

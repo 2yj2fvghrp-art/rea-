@@ -36,6 +36,8 @@ import {
   NATIVE_AOT_PROFILE_CONTRACT_REVISION,
 } from "../domain/native/nativeAotPe.js";
 
+const callRelationshipCoverage = "decoded-call-target-coverage-v2";
+
 /**
  * The processor language REA pins for this target, or undefined when Ghidra may
  * select from the header. The committed profile and the session readback both
@@ -119,7 +121,7 @@ export const resolveGhidraAnalysisProfile = async (
           load_image_observations: "source-mappings-entry-context-v2",
           function_body_evidence: "complete-inclusive-ranges-v1",
           function_references: "complete-body-and-entry-reference-manager-v2",
-          call_relationship_coverage: "resolved-call-reference-diagnostics-v1",
+          call_relationship_coverage: callRelationshipCoverage,
           string_inventory_evidence: "defined-data-coverage-v1",
           location_resolution: "explicit-address-exact-entry-symbol-first-v3",
           procedure_file_offset_resolution:
@@ -213,7 +215,7 @@ export const resolveGhidraAnalysisProfile = async (
         load_image_observations: "source-mappings-entry-context-v2",
         function_body_evidence: "complete-inclusive-ranges-v1",
         function_references: "complete-body-and-entry-reference-manager-v2",
-        call_relationship_coverage: "resolved-call-reference-diagnostics-v1",
+        call_relationship_coverage: callRelationshipCoverage,
         string_inventory_evidence: "defined-data-coverage-v1",
         location_resolution: "explicit-address-exact-entry-symbol-first-v3",
         procedure_file_offset_resolution:
