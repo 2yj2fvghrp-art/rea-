@@ -42,11 +42,16 @@ export const typescriptImportResolutionMode = (
 ): "import" | "require" | "compiler-dependent" | undefined => {
   if (t.isTSImportType(node)) {
     if (node.options === null || node.options === undefined) return undefined;
-    const attributes = literalProperty(node.options, "with");
-    return resolutionModeValue(
-      literalProperty(attributes, "resolution-mode"),
-      true,
-    );
+    const options = singleLiteralProperty(node.options);
+    if (options === undefined || !t.isIdentifier(options.key, { name: "with" }))
+      return "compiler-dependent";
+    const attribute = singleLiteralProperty(options.value);
+    if (attribute === undefined) return "compiler-dependent";
+    // TypeScript ignores singleton identifier attributes without evaluating their value.
+    if (t.isIdentifier(attribute.key)) return undefined;
+    return t.isStringLiteral(attribute.key, { value: "resolution-mode" })
+      ? resolutionModeValue(attribute.value, true)
+      : "compiler-dependent";
   }
   if (
     !t.isImportDeclaration(node) &&
@@ -92,18 +97,14 @@ const resolutionModeValue = (
     : "compiler-dependent";
 };
 
-const literalProperty = (
-  node: t.Node | null | undefined,
-  key: string,
-): t.Node | undefined => {
+const singleLiteralProperty = (node: t.Node): t.ObjectProperty | undefined => {
   if (!t.isObjectExpression(node) || node.properties.length !== 1)
     return undefined;
   const property = node.properties[0];
   return t.isObjectProperty(property) &&
     !property.computed &&
-    !property.shorthand &&
-    semanticStaticPropertyKey(property.key, false) === key
-    ? property.value
+    !property.shorthand
+    ? property
     : undefined;
 };
 

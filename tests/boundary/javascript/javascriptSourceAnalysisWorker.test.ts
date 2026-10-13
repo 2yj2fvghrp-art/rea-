@@ -154,10 +154,17 @@ it("reuses one real owned analyzer while retaining distinct source identities an
     if (!uncertain.ok) throw uncertain.error.error;
     expect(
       uncertain.value.javascript.electron.native_addon_bindings,
-    ).toMatchObject([{ module_kind: "compiler-dependent", type_only: true }]);
-    expect(uncertain.value.module?.moduleLinks).toMatchObject([
-      { resolutionMode: "compiler-dependent" },
-    ]);
+    ).toMatchObject(
+      Array.from({ length: 3 }, () => ({
+        module_kind: "compiler-dependent",
+        type_only: true,
+      })),
+    );
+    expect(uncertain.value.module?.moduleLinks).toMatchObject(
+      Array.from({ length: 3 }, () => ({
+        resolutionMode: "compiler-dependent",
+      })),
+    );
     await expectNativeTypeSelections(worker);
     expect(launches).toHaveLength(1);
   } finally {
@@ -486,9 +493,30 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
   },
 );
 
-const expectNativeTemplateModes = async (
+const expectNativeResolutionModes = async (
   worker: JavaScriptAnalysisWorker,
 ): Promise<void> => {
+  for (const [path, mode] of [
+    ["cts/native-default.cts", "require"],
+    ["cts/native-default.mts", "import"],
+  ] as const) {
+    const defaults = await worker.analyze(
+      source(path, modeSourceFiles[path]),
+      100,
+    );
+    if (!defaults.ok) throw defaults.error.error;
+    expect(
+      defaults.value.javascript.electron.native_addon_bindings.map(
+        ({ module_kind, type_only }) => [module_kind, type_only],
+      ),
+    ).toEqual(Array.from({ length: 3 }, () => [mode, true]));
+    expect(
+      defaults.value.module?.moduleLinks.map(
+        ({ resolutionMode }) => resolutionMode,
+      ),
+    ).toEqual([mode, mode, mode]);
+    expect(defaults.value.javascript.references).toEqual([]);
+  }
   const result = await worker.analyze(
     source(
       "cts/native-template.mts",
@@ -512,6 +540,27 @@ const expectNativeTemplateModes = async (
     ),
   ).toEqual(["require", "import", "require"]);
   expect(result.value.javascript.references).toEqual([]);
+  for (const attributes of [
+    "{}",
+    '{ "type": "json" }',
+    '{ type: "json", extra: "value" }',
+    "{ type }",
+  ]) {
+    const invalid = await worker.analyze(
+      source(
+        "invalid.cts",
+        `type Native = import("native-mode/addon.node", { with: ${attributes} }).NativeMode;`,
+      ),
+      100,
+    );
+    if (!invalid.ok) throw invalid.error.error;
+    expect(invalid.value.module?.moduleLinks).toMatchObject([
+      { resolutionMode: "compiler-dependent", kind: "type-import" },
+    ]);
+    expect(
+      invalid.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([{ module_kind: "compiler-dependent", type_only: true }]);
+  }
   for (const selector of [
     "``",
     "`typo`",
@@ -588,7 +637,7 @@ const expectNativeTypeSelections = async (
   worker: JavaScriptAnalysisWorker,
 ): Promise<void> => {
   await expectErasedNativeDeclarations(worker);
-  await expectNativeTemplateModes(worker);
+  await expectNativeResolutionModes(worker);
   const importEquals = await worker.analyze(
     source(
       "cts/native-import-equals.cts",

@@ -54,8 +54,12 @@ const nativeTemplateSource = [
 const nativeDefaultSource = (mode: "import" | "require") =>
   [
     'type DefaultNative = import("native-mode/addon.node").NativeMode;',
+    'type Attributed = import("native-mode/addon.node", { with: { type: "json" } }).NativeMode;',
+    'type Ignored = import("native-mode/addon.node", { with: { hint: unknownValue } }).NativeMode;',
     `const value: DefaultNative = { source: "${mode}" };`,
-    "console.log(JSON.stringify(value.source));",
+    `const attributed: Attributed = { source: "${mode}" };`,
+    `const ignored: Ignored = { source: "${mode}" };`,
+    "console.log(JSON.stringify([value.source, attributed.source, ignored.source]));",
   ].join("\n");
 
 const nativeMixedSource = [
@@ -582,8 +586,15 @@ const expectNativeDefaultEvidence = (
           evidence.location.value.kind === "source-range" &&
           evidence.location.value.source === `cts/${file}`,
       );
-    expect.soft(observations).toMatchObject([
-      {
+    expect(observations).toHaveLength(3);
+    for (const line of [1, 2, 3]) {
+      const observation = observations.find(
+        ({ evidence }) =>
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.start.line === line,
+      );
+      expect.soft(observation).toMatchObject({
         properties: {
           resolved_path: `node_modules/native-mode/${mode}.node`,
           requested_members: ["NativeMode"],
@@ -597,10 +608,10 @@ const expectNativeDefaultEvidence = (
               .update(nativeDefaultSource(mode))
               .digest("hex"),
           },
-          location: { value: { start: { line: 1 } } },
+          location: { value: { start: { line } } },
         },
-      },
-    ]);
+      });
+    }
   }
 };
 
