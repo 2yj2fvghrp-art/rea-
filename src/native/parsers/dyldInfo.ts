@@ -40,7 +40,7 @@ export const parseDyldSymbols = (
     // parenthesized suffix with string scans so a library path containing
     // " from ", or a source symbol containing parentheses such as
     // `operator()`, cannot pull the match into nested lazy quantifiers.
-    const reexport = parseReexportRow(line);
+    const reexport = parseReexportRow(line, knownExportNames);
     if (reexport !== null)
       return [
         {
@@ -103,44 +103,57 @@ interface ReexportRow {
  * `(from lib)` / `(old from lib)` suffix keeps its whole remainder as a bare
  * name, matching the previous optional-suffix behaviour.
  */
-const parseReexportRow = (line: string): ReexportRow | null => {
+const parseReexportRow = (
+  line: string,
+  knownNames: ReadonlySet<string>,
+): ReexportRow | null => {
   const prefix = /^\[re-export\]\s+/u.exec(line);
   if (prefix === null) return null;
   const rest = line.slice(prefix[0].length);
   if (rest.length === 0) return null;
   if (!rest.endsWith(")")) return { name: rest, source: null };
-  // Candidate suffix starts are whitespace + `(`; the source symbol itself may
-  // contain parentheses without preceding whitespace (e.g. `operator()`),
-  // so those never split. Scan from the last candidate so an exported name
-  // containing ` (` keeps its full text.
-  const starts: number[] = [];
-  const delimiter = /\s+\(/gu;
-  let delimiterMatch: RegExpExecArray | null;
-  while ((delimiterMatch = delimiter.exec(rest)) !== null) {
-    starts.push(delimiterMatch.index);
-    // Avoid stalling on zero-length progress (defensive; \s+\( consumes).
-    if (delimiter.lastIndex === delimiterMatch.index) delimiter.lastIndex += 1;
+  const candidates: ReexportRow[] = [];
+  for (const match of rest.matchAll(/\s+\(/gu)) {
+    const name = rest.slice(0, match.index);
+    if (!knownNames.has(name)) continue;
+    const parsed = reexportSuffix(
+      name,
+      rest.slice(match.index + match[0].length, -1),
+    );
+    if (parsed !== null) candidates.push(parsed);
   }
-  for (let i = starts.length - 1; i >= 0; i -= 1) {
-    const boundary = starts[i];
-    if (boundary === undefined) continue;
-    const name = rest.slice(0, boundary);
-    if (name.length === 0) continue;
-    const delimiterLength =
-      rest.slice(boundary).match(/^\s+\(/u)?.[0].length ?? 2;
-    // Skip the delimiter; the line ends with `)`.
-    const inner = rest.slice(boundary + delimiterLength, rest.length - 1);
-    if (inner.length === 0) continue;
-    // Try the plain `(from lib)` form first so a library install name
-    // containing ` from ` keeps its whole text.
-    if (inner.startsWith("from ") && inner.length > "from ".length)
-      return { name, source: inner.slice("from ".length) };
-    const separator = /\s+from /u.exec(inner);
-    if (separator === null) continue;
-    const sourceSymbol = inner.slice(0, separator.index);
-    const source = inner.slice(separator.index + separator[0].length);
-    if (sourceSymbol.length === 0 || source.length === 0) continue;
-    return { name, source, sourceSymbol };
+  // Exact nm identities establish a boundary even when names contain parentheses.
+  // Competing known interpretations remain unknown rather than creating a new name.
+  if (candidates.length > 0)
+    return candidates.length === 1 ? candidates[0]! : null;
+  if (knownNames.size > 0)
+    return knownNames.has(rest) ? { name: rest, source: null } : null;
+  let depth = 0;
+  for (let index = rest.length - 1; index >= 0; index--) {
+    if (rest[index] === ")") depth++;
+    else if (rest[index] === "(" && --depth === 0) {
+      if (index === 0 || !/\s/u.test(rest[index - 1]!)) break;
+      const name = rest.slice(0, index).trimEnd();
+      return (
+        reexportSuffix(name, rest.slice(index + 1, -1)) ?? {
+          name: rest,
+          source: null,
+        }
+      );
+    }
   }
   return { name: rest, source: null };
+};
+
+const reexportSuffix = (name: string, inner: string): ReexportRow | null => {
+  if (name.length === 0) return null;
+  if (inner.startsWith("from ") && inner.length > 5)
+    return { name, source: inner.slice(5) };
+  const separator = /\s+from /u.exec(inner);
+  if (separator === null) return null;
+  const sourceSymbol = inner.slice(0, separator.index);
+  const source = inner.slice(separator.index + separator[0].length);
+  return sourceSymbol.length > 0 && source.length > 0
+    ? { name, source, sourceSymbol }
+    : null;
 };

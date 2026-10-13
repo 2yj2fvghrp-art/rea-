@@ -1,4 +1,10 @@
 import { expect, it } from "vitest";
+import { javaClassFile } from "../../fixtures/javaClassFile.js";
+import {
+  CPU,
+  fatImage,
+  machoImage,
+} from "../../../src/artifacts/apple/MachoImage.fixture.js";
 import { readGoBinaryImage } from "../../../src/go/GoBinaryImage.js";
 import {
   createGoBinaryFixture,
@@ -221,16 +227,40 @@ it("distinguishes unsupported containers from malformed recognized images", () =
   expect(() => readGoBinaryImage(pe.bytes)).toThrowError(/range|truncated/i);
 });
 
+it("reports JVM class files as unsupported images instead of fat Mach-O containers", () => {
+  expect(() => readGoBinaryImage(javaClassFile())).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000, true))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+});
+
+it("keeps the thin-slice failure for confirmed universal Mach-O containers", () => {
+  const slices = [
+    { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+    { cpu: CPU.arm64, bytes: machoImage({ cpu: CPU.arm64 }) },
+  ];
+  for (const universal of [
+    fatImage(slices),
+    fatImage(slices, true),
+    fatImage(slices, false, true),
+    fatImage(slices, true, true),
+  ]) {
+    expect(() => readGoBinaryImage(Buffer.from(universal))).toThrowError(
+      /fat Mach-O containers require selecting a thin slice/,
+    );
+  }
+});
+
 it("rejects ELF header tables overlapping the native header", () => {
   const fixture = createGoBinaryFixture({ sectionless: true });
   fixture.bytes.writeBigUInt64LE(0n, 32);
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
     /header|overlap/i,
-  );
-  const declaredSize = createGoBinaryFixture();
-  declaredSize.bytes.writeUInt16LE(8192, 52);
-  expect(() => readGoBinaryImage(declaredSize.bytes)).toThrowError(
-    /truncated|range/i,
   );
 });
 

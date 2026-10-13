@@ -90,6 +90,7 @@ const fixture = async () => {
     },
     serverInfo: () => producer.serverInfo(),
     close: () => producer.close(),
+    detach: () => producer.detach(),
   };
   const client = new IdaSessionClient(
     {
@@ -242,6 +243,10 @@ describe("native IDA provider observations", () => {
         expect(dossier.value.result).toMatchObject({
           callers: [],
           callees: [{ address: "0x2000", name: "puts" }],
+          facet_availability: {
+            callers: { available: false },
+            callees: { available: true },
+          },
         });
         if (more)
           expect(dossier.value.limitations).toContain(
@@ -373,6 +378,42 @@ describe("native IDA query identity", () => {
       }
     },
   );
+});
+
+describe("native IDA callee truncation", () => {
+  it("rejects native successes without an explicit truncation marker and preserves upstream failures", async () => {
+    const { client, producer } = await fixture();
+    const previous = producer.overrideCall;
+    try {
+      producer.overrideCall = (name, args) =>
+        name === "callees"
+          ? [{ callees: [], error: null }]
+          : previous?.(name, args);
+      for (const operation of [
+        "procedure_callees",
+        "analyze_function",
+      ] as const) {
+        const result = await client.execute(operation, { procedure: "main" });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toBeInstanceOf(AnalysisProtocolError);
+          expect(result.error.message).toContain("truncation marker");
+        }
+      }
+      producer.overrideCall = (name, args) =>
+        name === "callees"
+          ? [{ callees: null, error: "callee database failure" }]
+          : previous?.(name, args);
+      const result = await client.execute("procedure_callees", {
+        procedure: "main",
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error.message).toContain("callee database failure");
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 describe("native IDA callee lookup batches", () => {
@@ -719,6 +760,36 @@ describe("native IDA malformed observations", () => {
     producer.overrideCall = (name) =>
       name === "find_regex" ? { matches: [], cursor: { next: 0 } } : undefined;
     expect((await client.execute("list_strings", {})).ok).toBe(false);
+    await client.close();
+  });
+});
+
+describe("native IDA attached operation admission", () => {
+  it("forwards the native producer's explicit reference cap flag", async () => {
+    const { client } = await fixture();
+    const result = await client.execute("xrefs", { address: "0x1000" });
+
+    if (!result.ok) throw result.error;
+    expect(result.value.referencesTruncated).toBe(false);
+    await client.close();
+  });
+
+  it("does not admit the headless-only containment and document operations", async () => {
+    const { client, producer } = await fixture();
+    for (const [operation, parameters] of [
+      ["resolve_containing_procedure", { address: "0x1000" }],
+      ["list_documents", {}],
+    ] as const) {
+      const result = await client.execute(operation, parameters);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    }
+    expect(
+      producer.calls.some(({ name }) => name === "lookup_funcs"),
+      "nothing is dispatched upstream",
+    ).toBe(false);
     await client.close();
   });
 });
