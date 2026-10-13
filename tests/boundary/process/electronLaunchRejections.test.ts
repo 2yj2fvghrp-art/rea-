@@ -14,6 +14,9 @@ import { PlaywrightElectronActiveProvider } from "./dist/browser/PlaywrightElect
 import { electronActiveObservationInputSchema } from "./dist/domain/javascript/electronActiveObservation.js";
 
 const [scenario, executable, root] = JSON.parse(process.argv[1]);
+let observedRejections = 0;
+if (scenario === "oneFailureWithManySuccesses")
+  process.on("unhandledRejection", () => { observedRejections += 1; });
 const orphanStack = (message, file) =>
   message + "\\n    at waitForLine (/app/node_modules/playwright-core/lib/server/" + file + ":247:21)";
 const playwrightError = (message, file = "electron/electron.js") => {
@@ -81,16 +84,21 @@ const capture = (launch, executablePath = executable) =>
 
 const before = process.listenerCount("unhandledRejection");
 let results;
-if (scenario === "concurrentFailures" || scenario === "failureThenSuccess" || scenario === "successThenFailure") {
+if (scenario === "concurrentFailures" || scenario === "failureThenSuccess" || scenario === "successThenFailure" || scenario === "oneFailureWithManySuccesses") {
   const failing = (message, orphanAt, settleAt) => async () => {
+    during = Math.max(during, process.listenerCount("unhandledRejection"));
     await after(orphanAt, () => orphans(message));
     await after(settleAt - orphanAt, () => { throw launchFailure(message); });
   };
-  const succeeding = (settleAt) => () => after(settleAt, () => fakeApplication);
+  const succeeding = (settleAt) => () => {
+    during = Math.max(during, process.listenerCount("unhandledRejection"));
+    return after(settleAt, () => fakeApplication);
+  };
   const pair = {
     concurrentFailures: [failing("alpha failed", 10, 30), failing("beta failed", 20, 50)],
     failureThenSuccess: [failing("alpha failed", 10, 20), succeeding(40)],
     successThenFailure: [failing("alpha failed", 20, 40), succeeding(30)],
+    oneFailureWithManySuccesses: [failing("alpha failed", 10, 80), ...[20, 30, 40, 50].map(succeeding)],
   }[scenario];
   results = await Promise.all(pair.map((launch) => capture(launch)));
 } else {
@@ -101,6 +109,7 @@ console.log(JSON.stringify({
   before,
   during,
   after: process.listenerCount("unhandledRejection"),
+  observedRejections,
   ok: results.map((result) => result.ok),
   causes: results.map((result) => result.ok ? null : String(result.error.cause?.message).split("\\n")[0]),
 }));
@@ -112,6 +121,7 @@ type Outcome = {
   readonly after: number;
   readonly ok: readonly boolean[];
   readonly causes: readonly (string | null)[];
+  readonly observedRejections: number;
 };
 
 const run = async (
@@ -253,5 +263,18 @@ processTest.for([
     const result = await run(processes, scenario);
     expect(result.exitCode, result.stderr).toBe(0);
     expect(outcome(result).after).toBe(outcome(result).before);
+  },
+);
+
+processTest(
+  "holds each orphan once across many overlapping successful launches",
+  async ({ processes }) => {
+    const result = await run(processes, "oneFailureWithManySuccesses");
+    expect(result.exitCode, result.stderr).toBe(0);
+    const observed = outcome(result);
+    expect(observed.during).toBe(observed.before + 1);
+    expect(observed.after).toBe(observed.before);
+    expect(observed.observedRejections).toBe(3);
+    expect(observed.ok).toEqual([false, true, true, true, true]);
   },
 );

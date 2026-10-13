@@ -381,46 +381,78 @@ const safeElectronEnvironment = (
   ]);
 
 const PLAYWRIGHT_INTERNAL_FRAME = /playwright-core[\\/]lib[\\/]/;
-const absorbedRejections = new WeakSet<object>();
+interface LaunchRejectionScope {
+  failure?: unknown;
+}
+const activeLaunches = new Set<LaunchRejectionScope>();
+const heldLaunchRejections = new Map<
+  Promise<unknown>,
+  { readonly reason: Error; readonly candidates: Set<LaunchRejectionScope> }
+>();
+
+const holdLaunchRejection = (
+  reason: unknown,
+  promise: Promise<unknown>,
+): void => {
+  if (
+    !(reason instanceof Error) ||
+    !PLAYWRIGHT_INTERNAL_FRAME.test(reason.stack ?? "")
+  )
+    throw reason;
+  if (!heldLaunchRejections.has(promise))
+    heldLaunchRejections.set(promise, {
+      reason,
+      candidates: new Set(activeLaunches),
+    });
+};
+
+const forwardLaunchRejection = (
+  reason: Error,
+  promise: Promise<unknown>,
+): void => {
+  // Replaying to external listeners must never re-enter our own holding map.
+  process.off("unhandledRejection", holdLaunchRejection);
+  try {
+    if (!process.emit("unhandledRejection", reason, promise))
+      process.nextTick(() => {
+        throw reason;
+      });
+  } finally {
+    if (activeLaunches.size > 0)
+      process.on("unhandledRejection", holdLaunchRejection);
+  }
+};
 
 /** Playwright leaves rejected launch promises unhandled; absorb only those that repeat this launch's failure. */
 const containLaunchRejections = async <T>(
   launch: () => Promise<T>,
 ): Promise<T> => {
-  const held: { readonly reason: Error; readonly promise: Promise<unknown> }[] =
-    [];
-  const hold = (reason: unknown, promise: Promise<unknown>): void => {
-    if (
-      !(reason instanceof Error) ||
-      !PLAYWRIGHT_INTERNAL_FRAME.test(reason.stack ?? "")
-    )
-      throw reason;
-    held.push({ reason, promise });
-  };
-  let failure: unknown;
-  process.on("unhandledRejection", hold);
+  const scope: LaunchRejectionScope = {};
+  if (activeLaunches.size === 0)
+    process.on("unhandledRejection", holdLaunchRejection);
+  activeLaunches.add(scope);
   try {
     return await launch();
   } catch (cause: unknown) {
-    failure = cause;
+    scope.failure = cause;
     throw cause;
   } finally {
     await new Promise<void>((resolve) => setImmediate(resolve));
-    process.off("unhandledRejection", hold);
-    for (const { reason, promise } of held) {
+    activeLaunches.delete(scope);
+    if (activeLaunches.size === 0)
+      process.off("unhandledRejection", holdLaunchRejection);
+    for (const [promise, { reason, candidates }] of heldLaunchRejections) {
+      if (!candidates.delete(scope)) continue;
       if (
-        failure instanceof Error &&
+        scope.failure instanceof Error &&
         reason.message !== "" &&
-        failure.message.includes(reason.message)
+        scope.failure.message.includes(reason.message)
       )
-        absorbedRejections.add(reason);
-      else if (
-        !absorbedRejections.has(reason) &&
-        !process.emit("unhandledRejection", reason, promise)
-      )
-        process.nextTick(() => {
-          throw reason;
-        });
+        heldLaunchRejections.delete(promise);
+      else if (candidates.size === 0) {
+        heldLaunchRejections.delete(promise);
+        forwardLaunchRejection(reason, promise);
+      }
     }
   }
 };
