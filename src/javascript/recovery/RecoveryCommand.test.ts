@@ -1,3 +1,4 @@
+import { readLinuxResourceLimits } from "../../process/LinuxResourceLimits.js";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { expect, it, vi } from "vitest";
@@ -13,6 +14,9 @@ const wakaru = {
   providerId: "wakaru",
   name: "Wakaru",
   limits: WAKARU_LIMITS,
+  readLimits: async (
+    configured: Parameters<typeof readLinuxResourceLimits>[0],
+  ) => configured,
   sha256: "0".repeat(64),
   bytes: 0,
 };
@@ -220,4 +224,33 @@ it("caps retained diagnostics as a noisy process emits them, while preserving ov
   } finally {
     snapshots.mockRestore();
   }
+});
+
+it("passes the inherited minima explicitly to both prlimit ceilings", async () => {
+  const fixture = commandFixture((producer) => {
+    producer.emit("exit", 0, null);
+    producer.stdout.end();
+    producer.stderr.end();
+    producer.emit("close", 0, null);
+  });
+  let argumentsSeen: readonly string[] = [];
+  const launcher = fixture.context.launcher;
+  await runRecoveryCommand({
+    ...fixture.context,
+    readLimits: async () => ({
+      address_space_bytes: 123,
+      file_bytes: 456,
+      cpu_seconds: 7,
+    }),
+    launcher: async (options) => {
+      argumentsSeen = options.arguments;
+      return launcher(options);
+    },
+  });
+  expect(argumentsSeen.slice(0, 4)).toEqual([
+    "--as=123:123",
+    "--fsize=456:456",
+    "--core=0:0",
+    "--cpu=7:7",
+  ]);
 });

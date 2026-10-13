@@ -137,16 +137,34 @@ const detections = (stderr: string): string[] => {
 };
 
 /** Keep the phase summary and failures; drop jsbeautify's per-rewrite chatter. */
-const phaseLog = (stderr: string): string =>
-  stderr
-    .split("\n")
-    .filter(
-      (line) =>
-        line.startsWith("[DEOBFUSCATE] Phase") ||
-        line.startsWith("[AKAMAI]") ||
-        /\b(error|panicked|warning)\b/i.test(line),
+const phaseLog = (stderr: string, budget: number): string => {
+  // One bounded byte buffer avoids an array/string object per stderr line.
+  let retained: Buffer | undefined;
+  let written = 0;
+  for (let start = 0; start < stderr.length;) {
+    const newline = stderr.indexOf("\n", start);
+    const end = newline < 0 ? stderr.length : newline;
+    const line = stderr.slice(start, end);
+    start = end + 1;
+    if (
+      !line.startsWith("[DEOBFUSCATE] Phase") &&
+      !line.startsWith("[AKAMAI]") &&
+      !/\b(error|panicked|warning)\b/i.test(line)
     )
-    .join("\n");
+      continue;
+    const separator = written === 0 ? 0 : 1;
+    const bytes = Buffer.byteLength(line);
+    if (bytes + separator > budget - written)
+      throw new AnalysisOutputError(
+        OPERATION,
+        "Combined phase reports exceed the retained diagnostic budget",
+      );
+    retained ??= Buffer.alloc(Math.min(Buffer.byteLength(stderr), budget));
+    if (separator !== 0) retained[written++] = 0x0a;
+    written += retained.write(line, written, bytes, "utf8");
+  }
+  return retained?.toString("utf8", 0, written) ?? "";
+};
 
 const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const { root, tree, input, sources, tool, environment, launcher, options } =
@@ -257,7 +275,18 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
-    const log = `# ${name}\n${phaseLog(run.stderr)}`;
+    const heading = `# ${name}\n`;
+    const remaining =
+      JSBEAUTIFY_LIMITS.reportBytes -
+      retainedLogBytes -
+      Buffer.byteLength(heading) -
+      2;
+    if (remaining < 0)
+      throw new AnalysisOutputError(
+        OPERATION,
+        "Combined phase reports exceed the retained diagnostic budget",
+      );
+    const log = heading + phaseLog(run.stderr, remaining);
     const logBytes = Buffer.byteLength(log) + 2;
     if (logBytes > JSBEAUTIFY_LIMITS.reportBytes - retainedLogBytes)
       throw new AnalysisOutputError(

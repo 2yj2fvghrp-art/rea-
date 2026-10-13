@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readLinuxResourceLimits } from "../../process/LinuxResourceLimits.js";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
@@ -113,20 +114,27 @@ type RecoveryCommandContext = RecoveryTool & {
   signal?: AbortSignal;
   launcher?: RecoveryLauncher;
   staging?: string;
+  readLimits?: typeof readLinuxResourceLimits;
 };
 
 /** Run one bounded command and verify cleanup before consuming its output. */
 export const runRecoveryCommand = async (context: RecoveryCommandContext) => {
+  checkRecoveryDeadline(context.deadline, context.signal);
+  const effective = await (context.readLimits ?? readLinuxResourceLimits)({
+    address_space_bytes: context.limits.addressSpaceBytes,
+    file_bytes: context.limits.outputBytes,
+    cpu_seconds: Math.ceil(context.limits.timeoutMs / 1000),
+  });
   checkRecoveryDeadline(context.deadline, context.signal);
   const runId = `rea-${context.providerId}-${randomUUID()}`;
   const streamLimit = `${context.name} diagnostic stream exceeds ${String(context.limits.reportBytes / 1024 / 1024)} MiB`;
   const spawned = await (context.launcher ?? spawnOwnedProviderProcess)({
     command: context.limiter,
     arguments: [
-      `--as=${String(context.limits.addressSpaceBytes)}`,
-      `--fsize=${String(context.limits.outputBytes)}`,
-      "--core=0",
-      `--cpu=${String(Math.ceil(context.limits.timeoutMs / 1000))}`,
+      `--as=${effective.address_space_bytes}:${effective.address_space_bytes}`,
+      `--fsize=${effective.file_bytes}:${effective.file_bytes}`,
+      "--core=0:0",
+      `--cpu=${effective.cpu_seconds}:${effective.cpu_seconds}`,
       "--",
       context.command,
       ...context.arguments,
