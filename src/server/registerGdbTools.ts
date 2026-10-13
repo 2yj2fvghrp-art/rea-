@@ -95,15 +95,6 @@ export const registerGdbTools = (
                 );
               },
               consoleContract.name,
-                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
-                  {
-                    cause,
-                    partialObservation: value.ok
-                      ? value.value.evidence
-                      : value.error.partialObservation,
-                  },
-                ),
-              consoleContract.name,
             );
       const result =
         admitted === undefined
