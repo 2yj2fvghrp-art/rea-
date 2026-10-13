@@ -1,22 +1,14 @@
 import { basename, isAbsolute, resolve } from "node:path";
 import { valid } from "semver";
 
+import {
+  environmentKey,
+  environmentKeyIdentity,
+} from "../config/environmentKey.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
 
 /** Package runners whose pinned launcher setup can register. */
 export type PackageRunner = "npx" | "bunx";
-
-/** Match one variable's key; Windows variable names are case-insensitive. */
-export const environmentKey = (
-  environment: Readonly<Record<string, unknown>>,
-  name: string,
-  platform: NodeJS.Platform,
-): string | undefined => {
-  const keys = Object.keys(environment);
-  if (platform !== "win32") return keys.find((key) => key === name);
-  const folded = name.toLowerCase();
-  return keys.find((key) => key.toLowerCase() === folded);
-};
 
 /** Read one variable; Windows variable names are case-insensitive. */
 const environmentValue = (
@@ -51,10 +43,10 @@ export const withoutPackageRunnerIdentity = (
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv =>
   Object.fromEntries(
-    Object.entries(environment).filter(([key]) =>
-      platform === "win32"
-        ? key.toLowerCase() !== "npm_command"
-        : key !== "npm_command",
+    Object.entries(environment).filter(
+      ([key]) =>
+        environmentKeyIdentity(key, platform) !==
+        environmentKeyIdentity("npm_command", platform),
     ),
   );
 

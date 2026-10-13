@@ -1,3 +1,4 @@
+import { environmentKey } from "../config/environmentKey.js";
 import { readClientPolicyBlock } from "./GeminiClientSettings.js";
 import {
   effectiveClientConfiguration,
@@ -17,7 +18,6 @@ import { z } from "zod";
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import {
-  environmentKey,
   isOwnedClientRegistrationCommand,
   packageRunnerRegistrationCommand,
 } from "./ClientRegistrationIdentity.js";
@@ -144,6 +144,7 @@ export const readClientRegistrationInspections = async (
       const files = await readClientConfigurationFiles(
         client,
         options.resources,
+        options.platform,
       );
       if (!files.ok) {
         record({

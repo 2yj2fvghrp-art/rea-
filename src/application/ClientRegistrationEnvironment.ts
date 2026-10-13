@@ -7,7 +7,8 @@ import {
   effectiveClientServer,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
-import { environmentKey } from "./ClientRegistrationIdentity.js";
+import { environmentKeyIdentity } from "../config/environmentKey.js";
+import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 import { dshDocument } from "./DshCordisPatch.js";
@@ -57,14 +58,25 @@ export const clientRegistrationEnvironment = (
   // so an existing entry keeps whatever the caller chose. Layers collide under
   // platform environment-key identity (Windows names are case-insensitive),
   // and the winning layer keeps its own spelling.
-  const environment: Record<string, string> = {};
-  for (const layer of [defaults, existing.data, overrides])
-    for (const [key, value] of Object.entries(layer)) {
-      const prior = environmentKey(environment, key, platform);
-      if (prior !== undefined && prior !== key) delete environment[prior];
-      environment[key] = value;
+  const selected = new Map<string, readonly [string, string]>();
+  for (const layer of [defaults, existing.data, overrides]) {
+    const seen = new Set<string>();
+    // Select Node's first lexicographic spelling within each source layer.
+    const entries = Object.entries(layer).sort(([left], [right]) =>
+      left < right ? -1 : left > right ? 1 : 0,
+    );
+    for (const [key, value] of entries) {
+      const identity = environmentKeyIdentity(key, platform);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      selected.set(identity, [key, value]);
     }
-  const validated = parseEnvironment(environment);
+  }
+  const environment = Object.fromEntries(selected.values());
+  // Validate the runtime view, while retaining caller spelling and values below.
+  const validated = parseEnvironment(
+    snapshotEnvironment(environment, platform),
+  );
   if (!validated.ok) return validated;
   return ok(
     Object.fromEntries(
