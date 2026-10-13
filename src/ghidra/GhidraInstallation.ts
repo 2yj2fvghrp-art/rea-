@@ -232,8 +232,10 @@ export interface GhidraJavaObservation {
   readonly version: string;
   readonly major: number;
   readonly home: string;
-  /** Data-model bitness; null when the probe did not report it. */
+  /** Data-model bitness; null when the probe did not report a decimal value. */
   readonly bits: number | null;
+  /** Reported data-model text that is not a decimal bitness, kept as observed. */
+  readonly unparsedBits?: string;
   readonly runtime: "jdk" | "jre";
   readonly vmName?: string;
 }
@@ -678,7 +680,7 @@ const javaCheck = (
       ? requirement.unresolved === null
         ? command
         : `${command}; ${requirement.unresolved}`
-      : `${observation.version}; ${observation.bits === null ? "bitness unknown" : `${String(observation.bits)}-bit`}; ${observation.runtime === "jdk" ? "JDK" : "runtime only"}; ${observation.home}; accepted ${range}`;
+      : `${observation.version}; ${javaBitnessDetail(observation)}; ${observation.runtime === "jdk" ? "JDK" : "runtime only"}; ${observation.home}; accepted ${range}`;
   return installationCheck({
     name: "java",
     passed: supported,
@@ -693,6 +695,13 @@ const javaCheck = (
     detail,
     remediation: javaRemediation(requirement, configuredHome, range),
   });
+};
+
+const javaBitnessDetail = (observation: GhidraJavaObservation): string => {
+  if (observation.bits !== null) return `${String(observation.bits)}-bit`;
+  return observation.unparsedBits === undefined
+    ? "bitness unknown"
+    : `bitness unknown (sun.arch.data.model = ${JSON.stringify(observation.unparsedBits)})`;
 };
 
 const javaRemediation = (
@@ -780,6 +789,7 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
       dataModel !== null && /^[0-9]+$/u.test(dataModel)
         ? Number(dataModel)
         : null;
+    const unparsedBits = bits === null ? dataModel : null;
     if (version === null || home === null) return undefined;
     return {
       version,
@@ -787,6 +797,7 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
       home,
       ...(vmName === null ? {} : { vmName }),
       bits,
+      ...(unparsedBits === null ? {} : { unparsedBits }),
       runtime: executablePath(
         (process.platform === "win32" ? win32 : posix).join(
           home,

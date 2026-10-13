@@ -94,6 +94,11 @@ it.each([
     bitness: "bitness unknown",
     code: "version_unresolved",
   },
+  {
+    dataModel: "64junk",
+    bitness: 'bitness unknown (sun.arch.data.model = "64junk")',
+    code: "version_unresolved",
+  },
   { dataModel: "32", bitness: "32-bit", code: "unsupported_version" },
 ])(
   "reports a probe with data model $dataModel as $bitness",
