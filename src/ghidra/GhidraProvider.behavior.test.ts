@@ -2046,6 +2046,28 @@ describe("Ghidra existing project selection", () => {
     });
   });
 
+  it("does not reuse snapshot identities across saved-project resolutions", async () => {
+    const target = executableTarget("elf", "x86_64");
+    const ghidra = configuredProvider(existingProjectEnvironment);
+    const otherProject = configuredProvider({
+      ...existingProjectEnvironment,
+      REA_GHIDRA_EXISTING_PROJECT: "/opt/projects/other-project",
+      REA_GHIDRA_EXISTING_PROGRAM: "other-program",
+    });
+    const profiles = [];
+    for (const owner of [ghidra, ghidra, otherProject]) {
+      const resolved = await owner.resolveAnalysisProfile(target);
+      if (!resolved.ok || resolved.value.profile === null)
+        throw new Error("expected a bound Ghidra profile");
+      profiles.push(resolved.value.profile);
+    }
+    expect(new Set(profiles.map(({ digest }) => digest)).size).toBe(3);
+    expect(profiles[0]?.parameters.existing_project).toMatchObject({
+      program_name: existingProjectEnvironment.REA_GHIDRA_EXISTING_PROGRAM,
+      session_id: expect.any(String),
+    });
+  });
+
   it("hands the existing project to the launcher", async () => {
     const launchers: GhidraHeadlessLauncher[] = [];
     const ghidra = configuredProvider(existingProjectEnvironment, (options) => {

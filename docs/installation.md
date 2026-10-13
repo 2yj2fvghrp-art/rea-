@@ -691,6 +691,11 @@ have produced.
 
 ### Opening a pre-imported Ghidra project
 
+Saved project analysis can differ for identical executable bytes. This mode
+binds each resolved session to its own snapshot identity, so exported analysis
+snapshots cannot be reused by a later session, even with the same project.
+Repeated queries within the owned project copy can still use the session cache.
+
 REA imports every target into a temporary project and runs default
 auto-analysis inside the provider startup deadline. For a target whose import
 and analysis exceed that deadline, import it once outside REA and open the
