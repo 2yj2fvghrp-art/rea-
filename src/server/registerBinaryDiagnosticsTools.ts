@@ -2,7 +2,10 @@ import type { output } from "zod";
 import type { ByteEntropyService } from "../application/binaryDiagnostics/ByteEntropyService.js";
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
-import { summarizeRetainedAnalysis } from "../application/analysisView/AnalysisViewService.js";
+import {
+  requireAnalysisViewRetention,
+  summarizeRetainedAnalysis,
+} from "../application/analysisView/AnalysisViewService.js";
 import type { BinaryLayoutService } from "../application/binaryDiagnostics/BinaryLayoutService.js";
 import type { EvidenceLookup } from "../application/EvidenceInputResolver.js";
 import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
@@ -44,6 +47,13 @@ export const registerBinaryDiagnosticsTools = (
           logger,
           contract.name,
           async () => {
+            if (detail === "summary") {
+              const ready = requireAnalysisViewRetention(contract.name, {
+                recordEvidence,
+                evidenceById,
+              });
+              if (!ready.ok) return ready;
+            }
             const inspected = await service.inspect(request, { signal });
             return detail === "summary" && inspected.ok
               ? summarizeRetainedAnalysis(inspected.value, {
