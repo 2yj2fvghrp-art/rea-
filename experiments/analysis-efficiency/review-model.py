@@ -152,9 +152,12 @@ def main():
                         producer_results.setdefault(item['tool'], []).append(parsed)
             else:
                 tool_errors.append({'tool': item['tool'], 'arguments': item['arguments'], 'response': parsed if parsed is not None else result})
-                if parsed is not None and parsed.get('error', {}).get('code') == 'resource_constraint':
-                    reference_value = parsed['error'].get('details', {}).get('reported_limits', {}).get('evidence_reference')
-                    observed_ids.update(evidence_ids(reference_value))
+                error = parsed.get('error') if isinstance(parsed, dict) else None
+                if isinstance(error, dict) and error.get('code') == 'resource_constraint':
+                    details = error.get('details')
+                    limits = details.get('reported_limits') if isinstance(details, dict) else None
+                    if isinstance(limits, dict):
+                        observed_ids.update(evidence_ids(limits.get('evidence_reference')))
     reported_ids = evidence_ids(answer.get('evidence_ids'))
     checks = {
         'reported_evidence_ids_observed_in_responses': bool(reported_ids) and reported_ids <= observed_ids,

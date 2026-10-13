@@ -463,6 +463,37 @@ class PcapGraderWorkflowTests(unittest.TestCase):
             answer, records, reference = self.fixture();records[index]['operation'] = 'inspect_pcap_capture'
             self.assertFalse(self.grade(answer, records, reference)['all_factual_checks_pass'])
 
+    def test_failed_reply_shapes_preserve_a_written_report_and_partial_facts(self):
+        payloads = ['malformed', [1], None, False, 7, {'error': 'malformed'},
+                    {'error': []}, {'error': None}]
+        payloads += [{'error': {'code': 'resource_constraint', 'details': value}}
+                     for value in [None, [], 'details']]
+        payloads += [{'error': {'code': 'resource_constraint', 'details': {'reported_limits': value}}}
+                     for value in [None, [], 'limits']]
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                answer, records, reference = self.fixture()
+                result = {'structuredContent': payload}
+                event = {'type': 'item.completed', 'item': {
+                    'type': 'mcp_tool_call', 'tool': 'inspect_analysis_view', 'status': 'failed',
+                    'arguments': {'view': {'kind': 'pcap', 'facet': 'endpoints'}}, 'result': result}}
+                report = self.grade(answer, records, reference, extra_events=[event])
+                self.assertTrue(report['all_factual_checks_pass'])
+                self.assertFalse(report['all_workflow_checks_pass'])
+                self.assertEqual(report['tool_errors'][-1]['response'], payload if payload is not None else result)
+        answer, records, reference = self.fixture()
+        partial_id = 'ev_' + 'e' * 64
+        payload = {'error': {'code': 'resource_constraint', 'details': {
+            'reported_limits': {'evidence_reference': {'evidence_id': partial_id}}}}}
+        event = {'type': 'item.completed', 'item': {
+            'type': 'mcp_tool_call', 'tool': 'inspect_analysis_view', 'status': 'failed',
+            'arguments': {}, 'result': {'structuredContent': payload}}}
+        answer['evidence_ids'].append(partial_id)
+        report = self.grade(answer, records, reference, extra_events=[event])
+        self.assertTrue(report['factual_checks']['reported_evidence_ids_observed_in_responses'])
+        self.assertFalse(report['all_factual_checks_pass'])
+        self.assertFalse(report['all_workflow_checks_pass'])
+
     def test_workflow_citation_count_must_match_the_planned_calls(self):
         for count, made_page_call in [(1, False), (1, True), (3, True)]:
             with self.subTest(count=count, made_page_call=made_page_call):

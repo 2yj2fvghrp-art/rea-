@@ -126,7 +126,7 @@ validated.
 Both real CLI complete results match full MCP normalized results, subjects,
 parameters, IDs and limitations. Portable CLI summary/URI views match MCP retained
 normalized facts and subjects; source forms/caller parameters remain distinct.
-Source bytes stay unchanged. Thirty-three context/grading regressions pass, including
+Source bytes stay unchanged. Thirty-four context/grading regressions pass, including
 cited complete metadata/counts/UTF-16 diagnostics and exact ordered response ID
 lists that reject parent lookups, duplicates and nested representations. URI
 prefix coverage must come from its cited page, even if an uncited page has the
@@ -159,7 +159,7 @@ the preceding driver accepts inconsistent coverage, while the corrected driver
 rejects wrong status, next offset or exhaustion. Unmodified exhausted and
 continuable URI pages still pass. The grader also requires each cited receipt's
 subject digest and local path to identify the reference capture, and uses the
-reference page's verified coverage. Thirty-three grading/context regressions pass,
+reference page's verified coverage. Thirty-four grading/context regressions pass,
 including missing or malformed subjects and faithful but inconsistent coverage;
 all four original model answers still pass factual regrading. Strict resource
 grades remain false where terminal whole-scope counters are unknown.
@@ -283,3 +283,9 @@ The six comparator CLI regressions now live in the normally discovered Vitest
 evaluation suite, so routine local/PR/CI gates execute them. The original six
 scenarios and CLI assertions are retained; the former manual Node suite is
 removed. They remain synthetic consumer checks, not provider evidence.
+
+Failed calls with scalar/list replies or malformed nested resource-error
+containers are parsed defensively. The grader writes its report, preserves the
+original failure and any supported cited facts, and rejects workflow acceptance
+instead of crashing. Genuine structured resource Evidence references remain
+observable; no malformed producer behavior is inferred from synthetic cases.
