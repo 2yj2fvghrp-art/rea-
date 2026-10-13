@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { assertFeatureTrace } from "./lib/ida-feature-trace.mjs";
+import {
+  assertFeatureTrace,
+  findMappedNonFunction,
+} from "./lib/ida-feature-trace.mjs";
 import { requireMcpToolError } from "./lib/mcp-verifier-results.mjs";
 
 import assert from "node:assert/strict";
@@ -289,11 +292,11 @@ const mcp = async (cliDossier) => {
       assert.equal(unmapped.found, false);
       assert.equal(unmapped.reason, "outside_segments");
       const strings = observe(await call("list_strings", {}));
-      if (strings.length > 0) {
-        const mapped = await resolveAt(strings[0].address);
-        assert.equal(mapped.found, false);
-        assert.equal(mapped.reason, "not_in_procedure");
-      }
+      const mappedString = await findMappedNonFunction(strings, resolveAt);
+      if (mappedString === undefined)
+        report.unverified.push(
+          "Mapped non-function containment: the target has no string outside every function.",
+        );
       const context = await client.callTool({
         name: "inspect_address_context",
         arguments: { address: dossier.procedure.address },

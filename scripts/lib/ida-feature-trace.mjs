@@ -29,3 +29,15 @@ export function assertFeatureTrace(trace, procedure) {
     else assert.ok(NEGATIVE_REASONS.has(containing.reason));
   }
 }
+
+/**
+ * Find a string that IDA maps outside every function. Returns its address, or
+ * undefined when the target has no strings.
+ */
+export async function findMappedNonFunction(strings, resolveAt) {
+  if (strings.length === 0) return undefined;
+  const mapped = await resolveAt(strings[0].address);
+  assert.equal(mapped.found, false);
+  assert.equal(mapped.reason, "not_in_procedure");
+  return strings[0].address;
+}
