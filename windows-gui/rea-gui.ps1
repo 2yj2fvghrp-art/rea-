@@ -48,7 +48,8 @@ function Get-ReaArguments {
     [string]$CommandId,
     [Parameter(Mandatory)]
     [string]$TargetPath,
-    [string]$Provider = "auto"
+    [string]$Provider = "auto",
+    [switch]$IsJavaScriptTarget
   )
 
   switch ($CommandId) {
@@ -57,7 +58,7 @@ function Get-ReaArguments {
         throw "지원하지 않는 분석 제공자입니다: $Provider"
       }
       $arguments = @("analyze", $TargetPath)
-      if ($Provider -ne "auto") {
+      if (-not $IsJavaScriptTarget -and $Provider -ne "auto") {
         $arguments += @("--provider", $Provider)
       }
       $arguments += "--json"
@@ -117,6 +118,20 @@ function ConvertTo-WindowsArgument {
   return $builder.ToString()
 }
 
+function Test-ReaJavaScriptTarget {
+  param(
+    [Parameter(Mandatory)]
+    [AllowEmptyString()]
+    [string]$TargetPath
+  )
+
+  if ([System.IO.Path]::GetExtension($TargetPath) -ieq ".asar") {
+    return $true
+  }
+  return [System.IO.Path]::GetExtension($TargetPath) -ine ".app" -and
+    [System.IO.Directory]::Exists($TargetPath)
+}
+
 function Test-ReaGuiCommands {
   $target = "C:\테스트 폴더\100% & sample.exe"
   $commandIds = @($script:GuiCommands | ForEach-Object { $_.Id })
@@ -142,6 +157,12 @@ function Test-ReaGuiCommands {
       Expected = @("analyze", $target, "--provider", "ghidra", "--json")
     },
     @{
+      Id = "analyze"
+      Provider = "ida"
+      IsJavaScriptTarget = $true
+      Expected = @("analyze", $target, "--json")
+    },
+    @{
       Id = "analyze-javascript-application"
       Provider = "auto"
       Expected = @("analyze-javascript-application", $target, "--json")
@@ -163,7 +184,11 @@ function Test-ReaGuiCommands {
     }
   )
   foreach ($case in $cases) {
-    $actual = @(Get-ReaArguments -CommandId $case.Id -TargetPath $target -Provider $case.Provider)
+    $javascriptTarget = [bool]$case.IsJavaScriptTarget
+    $actual = @(
+      Get-ReaArguments -CommandId $case.Id -TargetPath $target `
+        -Provider $case.Provider -IsJavaScriptTarget:$javascriptTarget
+    )
     if (($actual -join "`0") -cne ($case.Expected -join "`0")) {
       throw "CLI 인자 검증에 실패했습니다: $($case.Id)"
     }
@@ -181,6 +206,28 @@ function Test-ReaGuiCommands {
   }
   if (-not $unsupportedRejected) {
     throw "허용되지 않은 명령이 거부되지 않았습니다."
+  }
+  if (-not (Test-ReaJavaScriptTarget -TargetPath "C:\apps\desktop.asar") -or
+    (Test-ReaJavaScriptTarget -TargetPath "")) {
+    throw "JavaScript/ASAR 대상 경로 검증에 실패했습니다."
+  }
+  $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
+    "rea-gui-routing-" + [guid]::NewGuid().ToString("N")
+  )
+  try {
+    $applicationDirectory = Join-Path $temporaryRoot "application"
+    $appBundleDirectory = Join-Path $temporaryRoot "desktop.app"
+    [void][System.IO.Directory]::CreateDirectory($applicationDirectory)
+    [void][System.IO.Directory]::CreateDirectory($appBundleDirectory)
+    if (-not (Test-ReaJavaScriptTarget -TargetPath $applicationDirectory) -or
+      (Test-ReaJavaScriptTarget -TargetPath $appBundleDirectory)) {
+      throw "JavaScript 앱 디렉터리와 .app 대상 구분 검증에 실패했습니다."
+    }
+  }
+  finally {
+    if ([System.IO.Directory]::Exists($temporaryRoot)) {
+      [System.IO.Directory]::Delete($temporaryRoot, $true)
+    }
   }
   Write-Output "REA GUI 명령 인자 검증을 통과했습니다."
 }
@@ -200,8 +247,16 @@ Add-Type -Path (Join-Path $PSScriptRoot "ReaGuiProcessRunner.cs")
 
 $packageRoot = Split-Path -Parent $PSScriptRoot
 $reaEntryPoint = Join-Path $packageRoot "scripts\rea.mjs"
-$nodeCommand = Get-Command "node.exe" -CommandType Application -ErrorAction SilentlyContinue
-if ($null -eq $nodeCommand -or -not (Test-Path -LiteralPath $reaEntryPoint -PathType Leaf)) {
+$nodeExecutable = $env:REA_GUI_NODE_EXE
+if ([string]::IsNullOrWhiteSpace($nodeExecutable)) {
+  $nodeCommand = Get-Command "node.exe" -CommandType Application -ErrorAction SilentlyContinue
+  if ($null -ne $nodeCommand) {
+    $nodeExecutable = $nodeCommand.Source
+  }
+}
+if ([string]::IsNullOrWhiteSpace($nodeExecutable) -or
+  -not (Test-Path -LiteralPath $nodeExecutable -PathType Leaf) -or
+  -not (Test-Path -LiteralPath $reaEntryPoint -PathType Leaf)) {
   [System.Windows.Forms.MessageBox]::Show(
     "REA CLI 또는 Node.js를 찾을 수 없습니다.`r`n`r`nNode.js를 설치하고 npm install --global rea-agents를 실행한 뒤 다시 시작하세요.",
     "REA Windows GUI",
@@ -353,6 +408,16 @@ $outputTimer.Interval = 100
 $providerLabel.Enabled = $script:GuiCommands[0].UsesProvider
 $providerCombo.Enabled = $script:GuiCommands[0].UsesProvider
 $folderButton.Enabled = $script:GuiCommands[0].AllowsDirectory
+$updateProviderAvailability = {
+  $selectedCommand = $script:GuiCommands[$commandCombo.SelectedIndex]
+  $targetPath = $targetTextBox.Text.Trim()
+  $isJavaScriptTarget = Test-ReaJavaScriptTarget -TargetPath $targetPath
+  $providerLabel.Enabled = $selectedCommand.UsesProvider -and -not $isJavaScriptTarget
+  $providerCombo.Enabled = $selectedCommand.UsesProvider -and
+    -not $isJavaScriptTarget -and -not $processState.IsRunning
+}.GetNewClosure()
+$targetTextBox.add_TextChanged($updateProviderAvailability)
+$updateProviderAvailability.Invoke()
 
 $outputTimer.add_Tick({
   $line = $null
@@ -384,8 +449,7 @@ $outputTimer.add_Tick({
   $targetTextBox.Enabled = $true
   $fileButton.Enabled = $true
   $folderButton.Enabled = $selectedCommand.AllowsDirectory
-  $providerLabel.Enabled = $selectedCommand.UsesProvider
-  $providerCombo.Enabled = $selectedCommand.UsesProvider
+  $updateProviderAvailability.Invoke()
   if ($exitCode -eq 0) {
     $statusLabel.Text = "완료 (종료 코드 0)"
   }
@@ -397,8 +461,7 @@ $outputTimer.add_Tick({
 $commandCombo.add_SelectedIndexChanged({
   $selectedCommand = $script:GuiCommands[$commandCombo.SelectedIndex]
   $description.Text = $selectedCommand.Description
-  $providerLabel.Enabled = $selectedCommand.UsesProvider
-  $providerCombo.Enabled = $selectedCommand.UsesProvider -and -not $processState.IsRunning
+  $updateProviderAvailability.Invoke()
   $folderButton.Enabled = $selectedCommand.AllowsDirectory -and -not $processState.IsRunning
 }.GetNewClosure())
 
@@ -497,15 +560,19 @@ $runButton.add_Click({
     return
   }
 
+  $isJavaScriptTarget = Test-ReaJavaScriptTarget -TargetPath $targetPath
   $provider = "auto"
-  if ($selectedCommand.UsesProvider) {
+  if ($selectedCommand.UsesProvider -and -not $isJavaScriptTarget) {
     switch ($providerCombo.SelectedIndex) {
       1 { $provider = "ghidra" }
       2 { $provider = "ida" }
     }
   }
   try {
-    $arguments = @(Get-ReaArguments -CommandId $selectedCommand.Id -TargetPath $targetPath -Provider $provider)
+    $arguments = @(
+      Get-ReaArguments -CommandId $selectedCommand.Id -TargetPath $targetPath `
+        -Provider $provider -IsJavaScriptTarget:$isJavaScriptTarget
+    )
   }
   catch {
     $statusLabel.Text = "명령 구성 실패"
@@ -524,7 +591,7 @@ $runButton.add_Click({
   $providerCombo.Enabled = $false
   $processState.IsRunning = $true
   $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $startInfo.FileName = $nodeCommand.Source
+  $startInfo.FileName = $nodeExecutable
   $startInfo.WorkingDirectory = $packageRoot
   $allArguments = @($reaEntryPoint) + @($arguments)
   $startInfo.Arguments = [string]::Join(" ", [string[]]@(
@@ -546,8 +613,7 @@ $runButton.add_Click({
     $targetTextBox.Enabled = $true
     $fileButton.Enabled = $true
     $folderButton.Enabled = $selectedCommand.AllowsDirectory
-    $providerLabel.Enabled = $selectedCommand.UsesProvider
-    $providerCombo.Enabled = $selectedCommand.UsesProvider
+    $updateProviderAvailability.Invoke()
     $statusLabel.Text = "실행 실패"
     $errorsBox.AppendText("$($_.Exception.Message)`r`n")
   }

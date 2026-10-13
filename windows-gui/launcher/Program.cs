@@ -69,10 +69,9 @@ internal static class Program
         startInfo.ArgumentList.Add("RemoteSigned");
         startInfo.ArgumentList.Add("-File");
         startInfo.ArgumentList.Add(scriptPath);
+        startInfo.Environment["REA_GUI_NODE_EXE"] = nodePath;
         if (validateOnly)
             startInfo.ArgumentList.Add("-ValidateOnly");
-        startInfo.Environment["PATH"] =
-            $"{root}{Path.PathSeparator}{Environment.GetEnvironmentVariable("PATH")}";
 
         try
         {

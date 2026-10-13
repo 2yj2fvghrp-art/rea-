@@ -534,4 +534,81 @@ jobs:
           ASSET: ${{ steps.bundle.outputs.asset }}
           CHECKSUM: ${{ steps.bundle.outputs.checksum }}
           TAG: ${{ steps.bundle.outputs.tag }}
-        run: gh release upload "$env:TAG" "$env:ASSET" "$env:CHECKSUM" --clobber
+        shell: pwsh
+        run: |
+          $release = gh release view $env:TAG --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect the qualified GitHub release."
+          }
+
+          $archiveName = [System.IO.Path]::GetFileName($env:ASSET)
+          $checksumName = [System.IO.Path]::GetFileName($env:CHECKSUM)
+          $assetNames = @($release.assets | ForEach-Object { $_.name })
+          $hasArchive = $assetNames -ccontains $archiveName
+          $hasChecksum = $assetNames -ccontains $checksumName
+          $uploadPaths = [System.Collections.Generic.List[string]]::new()
+          $archivePath = $env:ASSET
+
+          if ($hasArchive -or $hasChecksum) {
+            $existingDirectory = Join-Path $env:RUNNER_TEMP "rea-gui-release-assets"
+            New-Item -ItemType Directory -Path $existingDirectory -Force | Out-Null
+
+            if ($hasArchive) {
+              gh release download $env:TAG --pattern $archiveName --dir $existingDirectory
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not download the existing GUI archive for verification."
+              }
+              $archivePath = Join-Path $existingDirectory $archiveName
+              & tar.exe -tf $archivePath | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                throw "The existing GUI archive failed its ZIP integrity check."
+              }
+            }
+
+            if ($hasChecksum) {
+              gh release download $env:TAG --pattern $checksumName --dir $existingDirectory
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not download the existing GUI checksum for verification."
+              }
+              $existingChecksum = [System.IO.File]::ReadAllText(
+                (Join-Path $existingDirectory $checksumName),
+                [System.Text.Encoding]::ASCII
+              ).TrimEnd([char[]]"`r`n")
+            }
+            else {
+              $existingChecksum = $null
+            }
+
+            $archiveHash = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLowerInvariant()
+            $expectedChecksum = "$archiveHash  $archiveName"
+            if ($hasChecksum -and $existingChecksum -cne $expectedChecksum) {
+              throw "The existing GUI checksum does not match the published archive; preserving both assets."
+            }
+            if ($hasArchive -and -not $hasChecksum) {
+              $checksumPath = Join-Path $existingDirectory $checksumName
+              [System.IO.File]::WriteAllText(
+                $checksumPath,
+                "$expectedChecksum`n",
+                [System.Text.Encoding]::ASCII
+              )
+              $uploadPaths.Add($checksumPath)
+            }
+            elseif (-not $hasArchive -and $hasChecksum) {
+              $uploadPaths.Add($env:ASSET)
+            }
+            else {
+              Write-Output "The qualified GUI archive and checksum already exist and match; preserving the published assets."
+            }
+          }
+          else {
+            $uploadPaths.Add($env:ASSET)
+            $uploadPaths.Add($env:CHECKSUM)
+          }
+
+          if ($uploadPaths.Count -gt 0) {
+            $uploadArguments = $uploadPaths.ToArray()
+            & gh release upload $env:TAG @uploadArguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not attach the missing GUI release asset(s)."
+            }
+          }
