@@ -709,7 +709,9 @@ describe("Ghidra Windows launcher", () => {
     expect(args).not.toContain("/package/bridge/ReaGhidraNoReturnFix.java");
     expect(args).toContain("/package/bridge/ReaGhidraBridge.java");
   });
+});
 
+describe("Ghidra Windows batch command construction", () => {
   it("wraps the Windows batch launcher without enabling a Node shell", () => {
     const command = ghidraHeadlessCommand({
       environment: {},
@@ -753,7 +755,9 @@ describe("Ghidra Windows launcher", () => {
       }),
     ).toThrow(/metacharacters/u);
   });
+});
 
+describe("Ghidra Windows release configuration", () => {
   it.skipIf(process.platform !== "win32").each([
     {
       properties:
@@ -811,7 +815,9 @@ describe("Ghidra Windows launcher", () => {
       ).toBe(true);
     },
   );
+});
 
+describe("Ghidra Windows launcher process ownership", () => {
   it.skipIf(process.platform !== "win32")(
     "keeps authority in a private descriptor and isolates Ghidra state through the batch launcher",
     async () => {
