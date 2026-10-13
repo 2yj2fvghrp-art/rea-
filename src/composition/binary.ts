@@ -1,6 +1,7 @@
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import type { AppConfig } from "../config/types.js";
 import type { BinarySession } from "../application/binary/BinarySession.js";
+import { assertBinaryLaneProviderIds } from "../application/binary/BinaryProviderIds.js";
 import { HopperProvider } from "../hopper/HopperProvider.js";
 import { GhidraProvider } from "../ghidra/GhidraProvider.js";
 import { IdaProvider } from "../ida/IdaProvider.js";
@@ -18,7 +19,8 @@ import { ManagedStaticProvider } from "../dotnet/ManagedStaticProvider.js";
  *
  * The binary lane membership (`hopper`, `ghidra`, `ida`) is published for
  * startup-safe consumers as `BINARY_ANALYSIS_PROVIDER_IDS` in
- * `application/binary/BinaryProviderIds.ts`; keep both aligned.
+ * `application/binary/BinaryProviderIds.ts`, and the wiring below is
+ * validated against it so the two cannot drift silently.
  */
 export const createBinarySession = (
   config: AppConfig,
@@ -29,6 +31,11 @@ export const createBinarySession = (
   const hopper = new HopperProvider(config, logger, environment);
   const ghidra = new GhidraProvider(config, logger, environment);
   const ida = new IdaProvider(config, environment);
+  assertBinaryLaneProviderIds([
+    hopper.identity().id,
+    ghidra.identity().id,
+    ida.identity().id,
+  ]);
   return composeBinarySession(
     new AnalysisProviderRegistry(
       [hopper, ghidra, ida],

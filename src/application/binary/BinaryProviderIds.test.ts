@@ -1,10 +1,24 @@
 import { expect, it } from "vitest";
-import { DOCTOR_PROVIDER_IDS } from "../DoctorProviderIds.js";
-import { BINARY_ANALYSIS_PROVIDER_IDS } from "./BinaryProviderIds.js";
+import {
+  assertBinaryLaneProviderIds,
+  BINARY_ANALYSIS_PROVIDER_IDS,
+} from "./BinaryProviderIds.js";
 
-/** The binary `analyze` lane serves every doctor provider except JEB's dedicated lane. */
-it("tracks the binary-lane doctor providers", () => {
-  expect(new Set(BINARY_ANALYSIS_PROVIDER_IDS)).toEqual(
-    new Set(DOCTOR_PROVIDER_IDS.filter((id) => id !== "jeb")),
+/** The published lane must match the providers wired in `createBinarySession`. */
+it("accepts the wired binary providers", () => {
+  expect(() =>
+    assertBinaryLaneProviderIds([...BINARY_ANALYSIS_PROVIDER_IDS]),
+  ).not.toThrow();
+  expect(() =>
+    assertBinaryLaneProviderIds(["ida", "hopper", "ghidra"]),
+  ).not.toThrow();
+});
+
+it("fails loudly on lane drift instead of emitting stale guidance", () => {
+  expect(() => assertBinaryLaneProviderIds(["hopper", "ghidra"])).toThrow(
+    /missing ida/,
   );
+  expect(() =>
+    assertBinaryLaneProviderIds(["hopper", "ghidra", "ida", "jeb"]),
+  ).toThrow(/unexpected jeb/);
 });
