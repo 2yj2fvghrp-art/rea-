@@ -98,6 +98,8 @@ export const parseBinaryTarget = async (
     await access(candidate, constants.R_OK);
     throwIfTargetResolutionCancelled(signal);
     const canonical = await realpath(candidate);
+    // Windows native admission must inspect the caller-selected reparse components.
+    const sourcePath = process.platform === "win32" ? candidate : canonical;
     throwIfTargetResolutionCancelled(signal);
     const resolved = await resolveAppBundle(canonical);
     throwIfTargetResolutionCancelled(signal);
@@ -133,7 +135,7 @@ export const parseBinaryTarget = async (
             );
           return ok({
             path,
-            sourcePath: canonical,
+            sourcePath,
             sha256: await sha256Handle(handle, path, metadata, signal),
             kind: "executable",
             format: "raw-binary",
@@ -172,7 +174,7 @@ export const parseBinaryTarget = async (
             );
           return ok({
             path,
-            sourcePath: canonical,
+            sourcePath,
             sha256: await sha256Handle(handle, path, metadata, signal),
             kind: "executable",
             format: "dos-com",
@@ -194,7 +196,7 @@ export const parseBinaryTarget = async (
         if (databaseTarget)
           return ok({
             path,
-            sourcePath: process.platform === "win32" ? candidate : canonical,
+            sourcePath,
             sha256: await sha256Handle(handle, path, metadata, signal),
             kind: "database",
             format: "analysis-database",
@@ -211,7 +213,7 @@ export const parseBinaryTarget = async (
         if (artifactFormat !== undefined) {
           const identity = {
             path,
-            sourcePath: process.platform === "win32" ? candidate : canonical,
+            sourcePath,
             sha256: await sha256Handle(handle, path, metadata, signal),
           };
           return isArchiveFormat(artifactFormat)
@@ -262,7 +264,7 @@ export const parseBinaryTarget = async (
         }
         return ok({
           path,
-          sourcePath: process.platform === "win32" ? candidate : canonical,
+          sourcePath,
           ...bundle,
           sha256: await sha256Handle(handle, path, metadata, signal),
           kind: "executable",

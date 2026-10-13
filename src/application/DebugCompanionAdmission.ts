@@ -81,6 +81,8 @@ const CPU_TYPES: Readonly<Record<BinaryArchitecture, readonly number[]>> = {
   arm: [0x0000000c],
   arm64: [0x0100000c],
   mips: [],
+  // 6502 is admitted only as an explicit raw load, never as a Mach-O family.
+  "6502": [],
   // RISCV has no Mach-O cputype in REA's header families; it is ELF-only.
   riscv: [],
 };

@@ -41,7 +41,10 @@ import { digestSchema } from "./../domain/digests.js";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 import { canonicalJsonDigestSteps } from "./canonicalJsonDigestSteps.js";
 import { freezeJsonSnapshot } from "./immutableJson.js";
-import { rawBinaryEntryPointSchema } from "./rawBinary.js";
+import {
+  binaryArchitectureSchema,
+  rawBinaryEntryPointSchema,
+} from "./rawBinary.js";
 import {
   relationshipCoverageSchema,
   type RelationshipCoverage,
@@ -73,19 +76,9 @@ const formatSchema = z.enum([
   "source-map",
 ]);
 const kindSchema = z.enum(["executable", "database", "archive", "artifact"]);
-const subjectSchema = z.object({
+const subjectBaseSchema = z.object({
   path: localPathStringSchema,
   sha256: digestSchema,
-  format: z.enum([
-    ...formatSchema.options,
-    "hopper",
-    "directory",
-    "file",
-    "unknown",
-    "javascript-bundle",
-    "entitlements",
-  ]),
-  architecture: architectureSchema.nullable(),
 });
 /** Companion identity that partitions session and snapshot reuse by dSYM. */
 const debugCompanionSchema = z.object({
@@ -94,6 +87,26 @@ const debugCompanionSchema = z.object({
   member_sha256: z.string(),
 });
 
+const subjectFormatSchema = z.enum([
+  ...formatSchema.options,
+  "hopper",
+  "directory",
+  "file",
+  "unknown",
+  "javascript-bundle",
+  "entitlements",
+]);
+// Snapshot entries retain the same raw-only architecture boundary as targets.
+const subjectSchema = z.discriminatedUnion("format", [
+  subjectBaseSchema.extend({
+    format: subjectFormatSchema.exclude(["raw-binary"]),
+    architecture: architectureSchema.exclude(["6502"]).nullable(),
+  }),
+  subjectBaseSchema.extend({
+    format: z.literal("raw-binary"),
+    architecture: architectureSchema.nullable(),
+  }),
+]);
 const targetIdentitySchema = z.object({
   sha256: digestSchema,
   kind: kindSchema,
@@ -106,9 +119,12 @@ const targetSchema = z.discriminatedUnion("format", [
     format: z.enum(
       formatSchema.options.filter((format) => format !== "raw-binary"),
     ),
+    architecture: architectureSchema.exclude(["6502"]).nullable(),
   }),
   targetIdentitySchema.extend({
     format: z.literal("raw-binary"),
+    kind: z.literal("executable"),
+    architecture: binaryArchitectureSchema,
     entry_point: rawBinaryEntryPointSchema,
   }),
 ]);
@@ -346,8 +362,6 @@ export const snapshotTarget = (
 ): AnalysisSnapshotTarget => {
   const identity = {
     sha256: target.sha256,
-    kind: target.kind,
-    architecture: target.architecture ?? null,
     debug_companion:
       (target.format === "mach-o" || target.format === "mach-o-universal") &&
       target.debugCompanion !== undefined
@@ -359,8 +373,19 @@ export const snapshotTarget = (
         : null,
   };
   return target.format === "raw-binary"
-    ? { ...identity, format: target.format, entry_point: target.entryPoint }
-    : { ...identity, format: target.format };
+    ? {
+        ...identity,
+        kind: target.kind,
+        architecture: target.architecture,
+        format: target.format,
+        entry_point: target.entryPoint,
+      }
+    : {
+        ...identity,
+        kind: target.kind,
+        architecture: target.architecture ?? null,
+        format: target.format,
+      };
 };
 
 /** Build the immutable provider/profile binding used by a cached snapshot. */
@@ -514,10 +539,10 @@ export const createAnalysisSnapshotWorkflowEntry = (input: {
       subject:
         execution.subject === null
           ? null
-          : {
+          : subjectSchema.parse({
               ...execution.subject,
               architecture: execution.subject.architecture ?? null,
-            },
+            }),
     },
   };
 };
@@ -595,10 +620,10 @@ export const createAnalysisSnapshotEntry = (input: {
       subject:
         execution.subject === null
           ? null
-          : {
+          : subjectSchema.parse({
               ...execution.subject,
               architecture: execution.subject.architecture ?? null,
-            },
+            }),
     },
   };
 };

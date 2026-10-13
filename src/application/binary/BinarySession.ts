@@ -58,6 +58,7 @@ interface SessionBinding {
   readonly profile: AnalysisProfileCommitment | null;
   readonly route: SessionProviderRoute;
   readonly runId: string;
+  nativeSourceAdmitted: boolean;
 }
 
 /**
@@ -324,6 +325,7 @@ export class BinarySession
         profile,
         route,
         runId,
+        nativeSourceAdmitted: false,
       };
       this.#clearRuntimeAvailability();
       this.resetSnapshotInvalidation();
@@ -610,6 +612,7 @@ export class BinarySession
       active: this.#active,
       operation: name,
       parameters: arguments_,
+      nativeSourceAdmitted: this.#active?.nativeSourceAdmitted === true,
       unboundOperationError: (operation, route) =>
         this.#providerRouter.unboundOperationError(operation, route),
       lookupSnapshot: (target, profile, operation, parameters) =>
@@ -646,6 +649,14 @@ export class BinarySession
             },
           })
         : profiled;
+    // A successful Ghidra operation proves this client's native source snapshot
+    // was admitted; a composite health response and parsed path do not.
+    if (
+      execution.ok &&
+      capability.provider.id === "ghidra" &&
+      this.#active === active
+    )
+      this.#active.nativeSourceAdmitted = true;
     this.#observeRuntimeAvailability(name, execution);
     if (
       execution.ok &&
@@ -839,6 +850,7 @@ export class BinarySession
         profile: previous.profile,
         route: previous.route,
         runId,
+        nativeSourceAdmitted: false,
       };
       return ok(null);
     }

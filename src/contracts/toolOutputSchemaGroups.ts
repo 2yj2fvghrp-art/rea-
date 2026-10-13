@@ -444,7 +444,6 @@ const lifecycleTargetFields = {
   path: z.string(),
   kind: targetKindSchema,
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  architecture: z.enum(BINARY_ARCHITECTURES).nullable(),
 };
 const detectedLifecycleTargetSchema = z.object({
   ...lifecycleTargetFields,
@@ -459,6 +458,7 @@ const detectedLifecycleTargetSchema = z.object({
     .describe(
       "Caller-selected dSYM companion admitted for this Mach-O target; present only when one matched.",
     ),
+  architecture: z.enum(BINARY_ARCHITECTURES).exclude(["6502"]).nullable(),
 });
 const rawLifecycleTargetSchema = z.object({
   ...lifecycleTargetFields,
