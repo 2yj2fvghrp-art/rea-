@@ -23,7 +23,7 @@ const analyze = async (cli: TestCli, extra = "") => {
   const output = await cli.run({
     arguments: ["analyze-javascript-application", root, "--json"],
   });
-  expect(output.exitCode).toBe(0);
+  expect(output.exitCode, output.stderr).toBe(0);
   const { normalized_result: result } = z
     .object({
       normalized_result: javascriptApplicationAnalysisResultSchema,
@@ -137,7 +137,7 @@ cliTest(
     const output = await cli.run({
       arguments: ["analyze-javascript-application", root, "--json"],
     });
-    expect(output.exitCode).toBe(0);
+    expect(output.exitCode, output.stderr).toBe(0);
     const { normalized_result: application } = z
       .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
       .parse(output.json);
@@ -169,6 +169,48 @@ cliTest(
       .parse(traced.json);
     expect(trace.seed_matches).toHaveLength(1);
     expect(trace.paths.some((path) => path.contains_inference)).toBe(true);
+  },
+);
+
+cliTest(
+  "preserves exact bridge member segments through the public CLI",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-bridge-segments-");
+    await writeFixtureFiles(root, {
+      "preload.js": `const { contextBridge, ipcRenderer } = require("electron");
+        const write = () => ipcRenderer.send("write");
+        contextBridge.exposeInMainWorld("desktop", {
+          "nested.write": write,
+          nested: { write },
+          __proto__: { inherited: write },
+          ["__proto__"]: { own: write },
+        });`,
+      "main.js": `const { ipcMain } = require("electron");
+        ipcMain.on("write", () => {});`,
+    });
+    const output = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+    });
+    expect(output.exitCode).toBe(0);
+    const { normalized_result: application } = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(output.json);
+    const observations = application.graph.nodes.flatMap((node) =>
+      node.observations.filter(
+        (observation) =>
+          observation.properties.entry_kind === "bridge-member" &&
+          observation.properties.step_kind === "exposure",
+      ),
+    );
+    const paths = observations.map((observation) => observation.properties.entry_path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        ["desktop", "nested.write"],
+        ["desktop", "nested", "write"],
+        ["desktop", "__proto__", "own"],
+      ]),
+    );
+    expect(paths).not.toContainEqual(["desktop", "__proto__", "inherited"]);
   },
 );
 

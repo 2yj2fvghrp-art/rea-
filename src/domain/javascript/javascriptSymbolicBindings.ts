@@ -47,6 +47,14 @@ interface SymbolicReturnFlow {
   readonly fallsThrough: boolean;
 }
 const emptyEnvironment: SymbolicEnvironment = { values: new Map() };
+const isObjectPrototypeSetter = (
+  property: t.ObjectMethod | t.ObjectProperty,
+  name: string,
+): boolean =>
+  t.isObjectProperty(property) &&
+  !property.computed &&
+  !property.shorthand &&
+  name === "__proto__";
 
 /** Demand-driven substitutions for local bindings, closures and literal module tables. */
 export class JavaScriptSymbolicBindings {
@@ -243,6 +251,7 @@ export class JavaScriptSymbolicBindings {
             index = null;
             break;
           }
+          if (isObjectPrototypeSetter(property, name)) continue;
           properties.set(name, property);
         }
         this.#literalPropertyIndex.set(value.node, index);
@@ -263,7 +272,10 @@ export class JavaScriptSymbolicBindings {
             this.members(spread).includes(key)
           )
             return found;
-        } else if (semanticStaticPropertyKey(p.key, p.computed) === key) {
+        } else if (
+          semanticStaticPropertyKey(p.key, p.computed) === key &&
+          !isObjectPrototypeSetter(p, key)
+        ) {
           return this.#objectPropertyValue(p, value.environment);
         } else if (semanticStaticPropertyKey(p.key, p.computed) === null)
           return symbolicUnknown("dynamic property overwrite");
@@ -314,7 +326,8 @@ export class JavaScriptSymbolicBindings {
           t.isSpreadElement(p)
             ? this.members(this.evaluate(p.argument, value.environment), active)
             : [semanticStaticPropertyKey(p.key, p.computed)].filter(
-                (k): k is string => k !== null,
+                (k): k is string =>
+                  k !== null && !isObjectPrototypeSetter(p, k),
               ),
         ),
       ),

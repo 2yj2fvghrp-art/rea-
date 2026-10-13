@@ -44,6 +44,7 @@ const callLabel = (node: t.Node): string =>
 interface PathContext {
   readonly entryNode: t.Node;
   readonly entry: string;
+  readonly entryPath?: readonly string[];
   readonly entryKind: ElectronCallPath["entry_kind"] | null;
   readonly channel: string | null;
   readonly steps: readonly ElectronCallPathStep[];
@@ -122,31 +123,35 @@ export const collectElectronWrappedCallPaths = (
   };
   const hasConditions = (value: SymbolicValue): boolean =>
     symbolicVariants(value).some((variant) => variant.conditions?.length);
-  const bridgeMemberFunctions = (
+  function* bridgeMemberFunctions(
     value: SymbolicValue,
-    prefix?: string,
+    segments: readonly string[] = [],
     active = new Set<SymbolicValue>(),
-  ): readonly { readonly name: string; readonly fn: SymbolicFunction }[] => {
-    if (active.has(value)) return [];
+  ): Generator<{
+    readonly name: string;
+    readonly path: readonly string[];
+    readonly fn: SymbolicFunction;
+  }> {
+    if (active.has(value)) return;
     if (active.size >= 128) {
       accumulator.unknownFindings += 1;
-      return [];
+      accumulator.electronCallPathLimitReached = true;
+      return;
     }
     const nested = new Set(active);
     nested.add(value);
-    const functions: { name: string; fn: SymbolicFunction }[] = [];
     for (const member of [...resolver.members(value)].sort()) {
-      if (--remainingVisits < 0) return functions;
-      const name = prefix === undefined ? member : `${prefix}.${member}`;
+      if (--remainingVisits < 0) return;
+      const path = [...segments, member];
+      const name = path.join(".");
       for (const variant of symbolicVariants(resolver.property(value, member))) {
-        if (variant.kind === "function") functions.push({ name, fn: variant });
+        if (variant.kind === "function") yield { name, path, fn: variant };
         else if (resolver.members(variant).length > 0)
-          functions.push(...bridgeMemberFunctions(variant, name, nested));
+          yield* bridgeMemberFunctions(variant, path, nested);
       }
-      if (remainingVisits < 0) return functions;
+      if (remainingVisits < 0) return;
     }
-    return functions;
-  };
+  }
   const isolatedBridgeCall = (
     node: t.CallExpression | t.OptionalCallExpression,
   ):
@@ -192,6 +197,9 @@ export const collectElectronWrappedCallPaths = (
     const path: ElectronCallPath = {
       entry_kind: context.entryKind,
       entry: context.entry,
+      ...(context.entryPath === undefined
+        ? {}
+        : { entry_path: context.entryPath }),
       channel,
       terminal,
       resolution: "candidate",
@@ -430,7 +438,7 @@ export const collectElectronWrappedCallPaths = (
         offset: node.start ?? -1,
         value: finding,
       });
-    for (const { name, fn } of bridgeMemberFunctions(object)) {
+    for (const { name, path, fn } of bridgeMemberFunctions(object)) {
       const memberContext = metadataContext(keyContext, fn);
       if (!memberContext) continue;
       const entry = `${key.value}.${name}`;
@@ -442,6 +450,7 @@ export const collectElectronWrappedCallPaths = (
           entryNode: node,
           entryKind: "bridge-member",
           entry,
+          entryPath: [key.value, ...path],
           channel: null,
           steps: [step(node, "exposure", entry)],
           active: new Set(),
