@@ -106,3 +106,19 @@ it.each([
     else expect(cause).toBeInstanceOf(NonRegularFileReadError);
   },
 );
+
+it("keeps cancellation that arrives during the non-regular metadata probe", async () => {
+  const controller = new AbortController();
+  const cancellation = new Error("cancelled during probe");
+  mockOpen.mockImplementation(async () => {
+    // The probe stats the path after this rejection; abort before it settles.
+    queueMicrotask(() => controller.abort(cancellation));
+    throw Object.assign(new Error("open ENXIO"), { code: "ENXIO", errno: -6 });
+  });
+  await expect(
+    openRegularFile(tmpdir(), {
+      symlinks: "follow",
+      signal: controller.signal,
+    }),
+  ).rejects.toBe(cancellation);
+});

@@ -68,7 +68,15 @@ export const openRegularFile = async (
       (constants.O_NOCTTY ?? 0) |
       (options.symlinks === "reject" ? (constants.O_NOFOLLOW ?? 0) : 0),
   ).catch(async (cause: unknown) => {
-    throw (await nonRegularOpenFailure(path, options.symlinks, cause)) ?? cause;
+    const nonRegular = await nonRegularOpenFailure(
+      path,
+      options.symlinks,
+      cause,
+    );
+    if (nonRegular === undefined) throw cause;
+    // Cancellation during the metadata probe outranks the reclassification.
+    options.signal?.throwIfAborted();
+    throw nonRegular;
   });
   const owner = new OwnedFileHandle(handle);
   try {
