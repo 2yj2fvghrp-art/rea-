@@ -161,6 +161,13 @@ pseudocode. Missing observations in older or other-provider Evidence remain
 unavailable. Function comparisons keep warned pseudocode unresolved, while
 independently available assembly remains comparable.
 
+Rendered pseudocode excludes authored PRE, EOL, POST, PLATE and header comments
+before classifying automatic Ghidra warnings. Authored annotations remain in the
+dossier's separate `comments` field and annotation readback; warning-shaped text
+there cannot create a dropped-block observation. Native API inspection and value
+traces preserve decompiler warnings/diagnostics as inline unknowns and limitations,
+including reached callees, and the composed workflow Evidence retains them.
+
 Function extents and instruction completeness refer to Ghidra's analyzed body.
 An inferred no-return call can terminate that body before subsequent bytes.
 Pseudocode, assembly, procedure info, instruction windows, callee and caller

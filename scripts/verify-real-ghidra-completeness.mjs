@@ -7,6 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import {
+  requireMcpOperationResult,
+  requireMcpEvidenceResult,
+  mcpTextValue,
+} from "./lib/mcp-verifier-results.mjs";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { functionDossierSchema } from "../dist/domain/hopperValues.js";
 
@@ -42,13 +49,17 @@ try {
   const { stdout: symbols } = await execute("nm", ["-n", target]);
   const entry = /^([a-fA-F0-9]+)\s+T\s+_?main$/mu.exec(symbols);
   assert.ok(entry, "Independent nm entry address unavailable");
+  const cleanEntry = /^([a-fA-F0-9]+)\s+T\s+_?rea_clean$/mu.exec(symbols);
+  assert.ok(cleanEntry, "Independent clean function address unavailable");
+  const procedure = `0x${BigInt(`0x${entry[1]}`).toString(16)}`;
+  const cleanProcedure = `0x${BigInt(`0x${cleanEntry[1]}`).toString(16)}`;
   const { stdout } = await execute(
     process.execPath,
     [
       cli,
       "function",
       target,
-      `0x${BigInt(`0x${entry[1]}`).toString(16)}`,
+      procedure,
       "--provider",
       "ghidra",
       "--full-output",
@@ -80,6 +91,84 @@ try {
     ),
   );
   assert.equal(evidence.subject?.digest.sha256, digest);
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cli, "mcp"],
+    env: {
+      ...process.env,
+      REA_ANALYSIS_PROVIDER: "ghidra",
+      REA_LOG_LEVEL: "silent",
+      TMPDIR: root,
+    },
+    stderr: "inherit",
+  });
+  const client = new Client({
+    name: "rea-warning-provenance-verifier",
+    version: "1",
+  });
+  const invoke = async (name, args = {}) =>
+    client.callTool({ name, arguments: args }, { timeout: 240_000 });
+  const call = async (name, args = {}) =>
+    requireMcpOperationResult(await invoke(name, args), name);
+  try {
+    await client.connect(transport);
+    await call("open_binary", { path: target, provider_id: "ghidra" });
+    const before = functionDossierSchema.parse(
+      await call("analyze_function", { procedure: cleanProcedure }),
+    );
+    assert.equal(before.decompiler_completeness.status, "no-warnings-reported");
+    const authored = "WARNING: Removing unreachable block (ram,0xdeadbeef)";
+    const annotated = await call("annotate_native_function", {
+      procedure: cleanProcedure,
+      comment: authored,
+      inline_comment: authored,
+    });
+    assert.equal(annotated.annotations.comment, authored);
+    assert.equal(annotated.annotations.inline_comment, authored);
+    const after = functionDossierSchema.parse(annotated.dossier);
+    assert.equal(after.decompiler_completeness.status, "no-warnings-reported");
+    assert.deepEqual(after.decompiler_completeness.dropped_blocks, []);
+    assert.ok(after.comments.some((comment) => comment.text === authored));
+    assert.doesNotMatch(after.pseudocode, /0xdeadbeef/u);
+    const warned = functionDossierSchema.parse(
+      await call("analyze_function", { procedure }),
+    );
+    assert.equal(warned.decompiler_completeness.status, "warnings");
+    for (const name of ["inspect_native_api", "trace_native_values"]) {
+      const raw = await invoke(name, { procedure });
+      const result = requireMcpEvidenceResult(raw, name);
+      const record = JSON.parse(mcpTextValue(raw));
+      assert.ok(
+        record.limitations.some((text) =>
+          text.includes("Removing unreachable block"),
+        ),
+      );
+      assert.ok(
+        result.limitations.some((text) =>
+          text.includes("Removing unreachable block"),
+        ),
+      );
+      if (name === "inspect_native_api")
+        assert.ok(
+          result.residual_unknowns.some((text) =>
+            text.includes("Removing unreachable block"),
+          ),
+        );
+      else
+        assert.ok(
+          result.unknowns.some((unknown) =>
+            unknown.reason.includes("Removing unreachable block"),
+          ),
+        );
+    }
+    await call("close_binary");
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await transport.close();
+    }
+  }
   assert.equal(
     createHash("sha256")
       .update(await readFile(target))
@@ -95,6 +184,9 @@ try {
         observation,
         source_unchanged: true,
         target_executed: false,
+        authored_warning_excluded: true,
+        authored_comments_retained: true,
+        workflow_warnings: "verified through MCP and Evidence",
       },
       null,
       2,

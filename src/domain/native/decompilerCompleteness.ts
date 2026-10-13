@@ -33,3 +33,19 @@ export const decompilerCompletenessSchema = z
         message: "Decompiler diagnostic counts or status are inconsistent",
       });
   });
+
+/** Inline qualifications for consumers of decompiler-derived dossier facts. */
+export const decompilerObservationLimitations = (
+  observation: z.infer<typeof decompilerCompletenessSchema> | undefined,
+): string[] => {
+  if (observation === undefined) return [];
+  return [
+    ...(observation.status === "unavailable"
+      ? ["Ghidra decompiler output is unavailable for this function."]
+      : []),
+    ...observation.warnings.map((text) => `Ghidra pseudocode warning: ${text}`),
+    ...(observation.diagnostic === null
+      ? []
+      : [`Ghidra decompiler diagnostic: ${observation.diagnostic}`]),
+  ];
+};

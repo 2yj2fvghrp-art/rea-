@@ -863,6 +863,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private void initializeDecompiler() {
         DecompileOptions options = new DecompileOptions();
         options.setMaxInstructions(Integer.MAX_VALUE);
+        // Keep authored Listing comments in dossier.comments, separate from
+        // provider-generated diagnostics. Render only automatic C warnings.
+        options.setPRECommentIncluded(false);
+        options.setPLATECommentIncluded(false);
+        options.setPOSTCommentIncluded(false);
+        options.setEOLCommentIncluded(false);
+        options.setHeadCommentIncluded(false);
+        options.setWARNCommentIncluded(true);
+        options.setCommentStyle(DecompileOptions.CommentStyleEnum.CStyle);
         decompiler = new DecompInterface();
         decompiler.setOptions(options);
         decompiler.toggleCCode(true);

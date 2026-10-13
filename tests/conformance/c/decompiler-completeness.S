@@ -1,8 +1,10 @@
 /* Source-owned static analysis fixture. Never execute this program. */
 #ifdef __APPLE__
 #define ENTRY _main
+#define CLEAN_ENTRY _rea_clean
 #else
 #define ENTRY main
+#define CLEAN_ENTRY rea_clean
 #endif
 .text
 .globl ENTRY
@@ -35,4 +37,24 @@ ENTRY:
 #endif
 #ifndef __APPLE__
 .size ENTRY, .-ENTRY
+#endif
+
+.globl CLEAN_ENTRY
+#ifndef __APPLE__
+#ifdef __aarch64__
+.type CLEAN_ENTRY, %function
+#else
+.type CLEAN_ENTRY, @function
+#endif
+#endif
+CLEAN_ENTRY:
+#ifdef __aarch64__
+    mov w0, #7
+    ret
+#elif defined(__x86_64__)
+    mov $7, %eax
+    ret
+#endif
+#ifndef __APPLE__
+.size CLEAN_ENTRY, .-CLEAN_ENTRY
 #endif
