@@ -8,9 +8,7 @@ import type {
 
 /** Typed boundary for upstream source recovery without exposing its protocol. */
 export interface JavaScriptRecoveryPort {
-  /** Engine IDs offered by this port; omission preserves unknown support. */
-  readonly engines?: readonly JavaScriptRecoveryInput["engine"][];
-  /** Configured launch readiness; omission means support is unknown. */
+  /** Configured readiness of each offered engine; omission means support is unknown. */
   readonly engineAvailability?: Partial<
     Record<JavaScriptRecoveryInput["engine"], boolean>
   >;

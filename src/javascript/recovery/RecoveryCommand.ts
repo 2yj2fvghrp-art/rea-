@@ -56,6 +56,13 @@ export class RecoveryCleanupFailure extends ProviderCleanupError {
   }
 }
 
+/** Whether an engine is configured for this host, before anything is fingerprinted. */
+export const recoveryToolConfigured = (
+  supported: boolean,
+  configured: string | undefined,
+): configured is string =>
+  supported && configured !== undefined && isAbsolute(configured);
+
 /** Fingerprint an explicitly configured engine and util-linux prlimit; acquire nothing. */
 export const resolveRecoveryTool = async (
   environment: Readonly<Record<string, string | undefined>>,
@@ -68,11 +75,7 @@ export const resolveRecoveryTool = async (
     readonly limits: RecoveryLimits;
   },
 ): Promise<RecoveryTool> => {
-  if (
-    !engine.supported ||
-    engine.configured === undefined ||
-    !isAbsolute(engine.configured)
-  )
+  if (!recoveryToolConfigured(engine.supported, engine.configured))
     throw new AnalysisCapabilityUnavailableError(
       engine.id,
       OPERATION,

@@ -62,6 +62,10 @@ export interface RecoveryEngine {
   readonly limits: RecoveryLimits;
   /** Reject options the engine cannot honour before any workspace exists. */
   validate(input: JavaScriptRecoveryInput): AnalysisInputError | undefined;
+  /** Whether the environment configures this engine for this host; nothing is fingerprinted. */
+  configured(
+    environment: Readonly<Record<string, string | undefined>>,
+  ): boolean;
   resolve(
     environment: Readonly<Record<string, string | undefined>>,
   ): Promise<RecoveryTool>;

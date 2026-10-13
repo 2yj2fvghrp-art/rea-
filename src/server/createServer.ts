@@ -170,11 +170,14 @@ export interface CreateServerOptions {
 
 const installSessionToolAvailability = (
   session: BinarySessionPort | undefined,
-  options: CreateServerOptions,
+  options: CreateServerOptions & {
+    readonly javascriptRecovery: JavaScriptRecoveryPort;
+  },
   environment: Readonly<NodeJS.ProcessEnv>,
   fridaInstrumentation: FridaInstrumentationPort,
 ) => {
   if (session === undefined) return undefined;
+  const recoveryEngines = options.javascriptRecovery.engineAvailability;
   const linux = process.platform === "linux";
   const linuxX64 = linux && process.arch === "x64";
   const pwntools =
@@ -204,31 +207,19 @@ const installSessionToolAvailability = (
         options.firmwareAnalysis !== undefined ||
         (linux && isAbsolute(environment.REA_UNBLOB_COMMAND ?? "")),
       browserObservationEnabled: options.browserObservation !== undefined,
-      ...(options.javascriptRecovery?.engineAvailability === undefined
-        ? options.javascriptRecovery === undefined
-          ? {
-              javascriptRecoveryEngines: {
-                wakaru:
-                  linuxX64 && isAbsolute(environment.REA_WAKARU_COMMAND ?? ""),
-                jsbeautify:
-                  linux && isAbsolute(environment.REA_JSBEAUTIFY_COMMAND ?? ""),
-              },
-            }
-          : {}
+      ...(recoveryEngines === undefined
+        ? {}
         : {
             // A provider lists only the engines it offers; an omitted engine is unavailable.
             javascriptRecoveryEngines: {
-              wakaru:
-                options.javascriptRecovery.engineAvailability.wakaru === true,
-              jsbeautify:
-                options.javascriptRecovery.engineAvailability.jsbeautify ===
-                true,
+              wakaru: recoveryEngines.wakaru === true,
+              jsbeautify: recoveryEngines.jsbeautify === true,
             },
           }),
+      // Readiness is unknown only for an injected port that does not report it.
       javascriptRecoveryEnabled:
-        options.javascriptRecovery !== undefined ||
-        (linuxX64 && isAbsolute(environment.REA_WAKARU_COMMAND ?? "")) ||
-        (linux && isAbsolute(environment.REA_JSBEAUTIFY_COMMAND ?? "")),
+        recoveryEngines === undefined ||
+        Object.values(recoveryEngines).includes(true),
       browserScenarioEnabled: options.browserScenarioCapture !== undefined,
       electronObservationEnabled: options.electronObservation !== undefined,
       electronAutomationEnabled:
@@ -398,7 +389,7 @@ export const createServer = (
   };
   const availability = installSessionToolAvailability(
     session,
-    options,
+    { ...options, javascriptRecovery },
     environment,
     fridaInstrumentation,
   );

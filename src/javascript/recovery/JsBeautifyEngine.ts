@@ -13,7 +13,11 @@ import {
   type JavaScriptRecoveryResult,
 } from "../../domain/javascript/javascriptRecovery.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
-import { resolveRecoveryTool, runRecoveryCommand } from "./RecoveryCommand.js";
+import {
+  recoveryToolConfigured,
+  resolveRecoveryTool,
+  runRecoveryCommand,
+} from "./RecoveryCommand.js";
 import type { RecoveryEngine, RecoveryWorkspace } from "./RecoveryEngine.js";
 import {
   fingerprintRecoveryFile,
@@ -32,6 +36,7 @@ import {
 const OPERATION = "recover_javascript_sources";
 const REQUIREMENT =
   "Provide an absolute REA_JSBEAUTIFY_COMMAND pointing to a jsbeautify binary on Linux; no tool is installed by REA. See docs/javascript-recovery.md#jsbeautify.";
+const JSBEAUTIFY_SUPPORTED = process.platform === "linux";
 const REPARSE_PHASES = ["19.6", "21.5"] as const;
 const FILE_NAME_MAX_BYTES = 255;
 const LEVEL_ARGUMENTS = {
@@ -497,12 +502,17 @@ export const jsbeautifyEngine: RecoveryEngine = {
           "extraction_mode",
           "jsbeautify recovers each selected file whole; only extraction_mode structural applies",
         ),
+  configured: (environment) =>
+    recoveryToolConfigured(
+      JSBEAUTIFY_SUPPORTED,
+      environment.REA_JSBEAUTIFY_COMMAND,
+    ),
   resolve: (environment) =>
     resolveRecoveryTool(environment, {
       id: JSBEAUTIFY_PROVIDER_IDENTITY.id,
       name: JSBEAUTIFY_PROVIDER_IDENTITY.name,
       configured: environment.REA_JSBEAUTIFY_COMMAND,
-      supported: process.platform === "linux",
+      supported: JSBEAUTIFY_SUPPORTED,
       requirement: REQUIREMENT,
       limits: JSBEAUTIFY_LIMITS,
     }),

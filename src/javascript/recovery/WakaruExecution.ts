@@ -12,7 +12,7 @@ import {
   inventoryRecoveryFiles,
   readRecoveryFile,
 } from "./RecoveryFiles.js";
-import { resolveWakaruCommand } from "./WakaruCommand.js";
+import { resolveWakaruCommand, wakaruConfigured } from "./WakaruCommand.js";
 import { parseWakaruReports } from "./WakaruReport.js";
 import { publishWakaruArtifacts } from "./WakaruPublication.js";
 import { WAKARU_LIMITS, WAKARU_PROVIDER_IDENTITY } from "./WakaruRelease.js";
@@ -175,6 +175,7 @@ export const wakaruEngine: RecoveryEngine = {
   id: "wakaru",
   limits: WAKARU_LIMITS,
   validate: () => undefined,
+  configured: wakaruConfigured,
   resolve: resolveWakaruCommand,
   execute: prepareWakaruExecution,
 };
