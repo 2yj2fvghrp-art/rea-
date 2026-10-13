@@ -42,7 +42,6 @@ export const readStringTables = (
     .map((resource) => {
       const blockId = resource.name.kind === "id" ? resource.name.id : null;
       const { offset, bytes: size } = resource.payload.location;
-      ensureCapacity(textBytes(size / 2) + 16 * 128);
       let table: StringTable;
       try {
         const block =
@@ -52,7 +51,7 @@ export const readStringTables = (
                 "RT_STRING block name is not a numeric ID from 1 to 4096.",
               );
         const first = (block - 1) * 16;
-        const strings: StringTable["strings"] = [];
+        const ranges: Array<{ offset: number; units: number }> = [];
         let cursor = offset;
         const end = offset + size;
         for (let slot = 0; slot < 16; slot++) {
@@ -63,17 +62,24 @@ export const readStringTables = (
             malformed(
               `RT_STRING string ${String(slot)} runs past the end of its block.`,
             );
-          strings.push({
+          ranges.push({ offset: cursor, units });
+          cursor += 2 + units * 2;
+        }
+        ensureCapacity(
+          16 * 128 +
+            ranges.reduce((total, range) => total + textBytes(range.units), 0),
+        );
+        const strings: StringTable["strings"] = ranges.map(
+          ({ offset: stringOffset, units }, slot) => ({
             id: first + slot,
             value: bytes.toString(
               "utf16le",
-              cursor + 2,
-              cursor + 2 + units * 2,
+              stringOffset + 2,
+              stringOffset + 2 + units * 2,
             ),
-            location: { offset: cursor, bytes: 2 + units * 2 },
-          });
-          cursor += 2 + units * 2;
-        }
+            location: { offset: stringOffset, bytes: 2 + units * 2 },
+          }),
+        );
         table = {
           resource_index: resource.index,
           status: "decoded",
@@ -160,6 +166,7 @@ const readChildren = (bytes: Buffer, parent: Block, base: number): Block[] => {
   while (cursor < end) {
     cursor = align4(cursor, base);
     if (cursor >= end) break;
+    if (cursor + 2 > end) malformed("Version child length leaves its parent.");
     if (bytes.readUInt16LE(cursor) === 0) {
       if (bytes.subarray(cursor, end).some((byte) => byte !== 0))
         malformed("Version block has a zero length before nonzero bytes.");
@@ -276,9 +283,11 @@ export const readVersionInfos = (
         const root = readBlock(bytes, offset, offset + size, offset);
         if (root.key !== "VS_VERSION_INFO")
           malformed("Version root key is not VS_VERSION_INFO.");
+        if (root.type !== 0) malformed("Version root value is not binary.");
         if (
           root.valueLength !== 0 &&
-          root.valueLength !== FIXED_FILE_INFO_BYTES
+          (root.valueLength !== FIXED_FILE_INFO_BYTES ||
+            root.value.bytes !== FIXED_FILE_INFO_BYTES)
         )
           malformed("VS_FIXEDFILEINFO is not 52 bytes.");
         const fixed =
