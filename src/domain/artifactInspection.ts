@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  artifactInventoryOutputSchema,
   artifactInventoryResultSchema,
   artifactInventoryOutputSchema,
   type ArtifactInventoryResult,

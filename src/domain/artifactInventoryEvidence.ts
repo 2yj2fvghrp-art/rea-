@@ -1,7 +1,7 @@
 import {
   artifactInventoryResultSchema,
-  type ArtifactInventoryResult,
   type ArtifactInventoryCoverage,
+  type ArtifactInventoryResult,
   type ArtifactNode,
   type ArtifactOccurrence,
   type IntegrityContradiction,
@@ -31,9 +31,15 @@ export interface InventorySet {
   readonly edges: readonly ArtifactInventoryResult["edges"][number][];
   readonly integrityContradictions: readonly IntegrityContradiction[];
   readonly limitations: readonly string[];
+  /** True when merged node, occurrence, and edge counts match the manifest. */
   readonly complete: boolean;
   readonly coverage: ArtifactInventoryCoverage;
 }
+
+/** Whether all graph members are present and the producer reports full coverage. */
+export const hasCompleteInventoryCoverage = (
+  inventory: InventorySet,
+): boolean => inventory.complete && inventory.coverage.status === "complete";
 
 export interface ParsedInventorySet {
   readonly evidence: readonly Evidence[];
@@ -131,7 +137,7 @@ const assembleInventoryResults = (
     throw new TypeError("Artifact inventory requires Evidence pages");
   const manifestJson = canonicalJson(first.manifest, "Artifact inventory");
   const coverageJson = canonicalJson(
-    first.coverage ?? null,
+    resolveInventoryCoverage(first),
     "Artifact inventory coverage",
   );
   const nodes = new Map<string, ArtifactNode>();
@@ -142,8 +148,10 @@ const assembleInventoryResults = (
     if (canonicalJson(page.manifest, "Artifact inventory") !== manifestJson)
       throw new TypeError("Artifact inventory pages do not share one manifest");
     if (
-      canonicalJson(page.coverage ?? null, "Artifact inventory coverage") !==
-      coverageJson
+      canonicalJson(
+        resolveInventoryCoverage(page),
+        "Artifact inventory coverage",
+      ) !== coverageJson
     )
       throw new TypeError(
         "Artifact inventory pages do not share one coverage declaration",
@@ -209,18 +217,41 @@ const orderedInventory = (
     edges,
     integrityContradictions: first.integrity_contradictions,
     limitations,
-    coverage:
-      first.coverage ??
-      legacyInventoryCoverage(
-        first.manifest.root_format,
-        limitations,
-        first.integrity_contradictions.length,
-      ),
+    coverage: resolveInventoryCoverage(first),
     complete:
       nodes.length === first.manifest.node_count &&
       occurrences.length === first.manifest.occurrence_count &&
       edges.length === first.manifest.edge_count,
   };
+};
+
+// Normalize both retained coverage formats at this owning boundary.
+const resolveInventoryCoverage = (
+  inventory: ArtifactInventoryResult,
+): ArtifactInventoryCoverage => {
+  const legacy = legacyInventoryCoverage(
+    inventory.manifest.root_format,
+    inventory.limitations,
+    inventory.integrity_contradictions.length,
+  );
+  if (inventory.coverage !== undefined) {
+    if (
+      inventory.coverage_status !== undefined &&
+      (inventory.coverage.status === "complete") !==
+        (inventory.coverage_status === "complete")
+    )
+      throw new TypeError(
+        "Artifact inventory has conflicting coverage declarations",
+      );
+    return inventory.coverage;
+  }
+  return inventory.coverage_status === undefined
+    ? legacy
+    : {
+        ...legacy,
+        status:
+          inventory.coverage_status === "complete" ? "complete" : "unknown",
+      };
 };
 
 // Retained pre-coverage records cannot classify arbitrary prose. Recognize only

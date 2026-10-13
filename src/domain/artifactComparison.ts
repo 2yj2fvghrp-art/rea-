@@ -8,6 +8,7 @@ import type {
 } from "./artifactGraph.js";
 import { evidenceSchema } from "./evidence.js";
 import {
+  hasCompleteInventoryCoverage,
   parseArtifactInventoryEvidence,
   type InventorySet,
 } from "./artifactInventoryEvidence.js";
@@ -105,12 +106,9 @@ export const compareArtifacts = (
   const rightComplete = right.inventory.complete;
   const sameScope =
     left.inventory.coverage.scope === right.inventory.coverage.scope;
-  const leftCovered =
-    leftComplete && sameScope && left.inventory.coverage.status === "complete";
+  const leftCovered = sameScope && hasCompleteInventoryCoverage(left.inventory);
   const rightCovered =
-    rightComplete &&
-    sameScope &&
-    right.inventory.coverage.status === "complete";
+    sameScope && hasCompleteInventoryCoverage(right.inventory);
   const limitations = [
     ...left.inventory.limitations.map((item) => `Left: ${item}`),
     ...right.inventory.limitations.map((item) => `Right: ${item}`),

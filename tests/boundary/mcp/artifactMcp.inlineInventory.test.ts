@@ -27,6 +27,7 @@ import {
   artifactInventoryResultSchema,
   type ArtifactInventoryResult,
 } from "../../../src/domain/artifactGraph.js";
+import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 import {
   analysisViewResultSchema,
   type AnalysisViewResult,
@@ -270,7 +271,7 @@ const assertHistoricalInventory = async (
     {
       operation: "inventory_artifact",
       parameters: {},
-      result: legacyInventory,
+      result: jsonValueSchema.parse(legacyInventory),
     },
   );
   const legacyInspection = createArtifactInspection(legacySource);

@@ -214,6 +214,34 @@ describe("HarmonyOS packaging boundaries", () => {
 });
 
 describe("HarmonyOS inventory coverage", () => {
+  it("retains complete traversal and case-collision limits in the application projection", async () => {
+    const path = await writeApplicationZip(
+      "rea-harmony-case-collision-",
+      "Fixture.hap",
+      [
+        { path: "module.json", content: '{"module":{}}' },
+        { path: "MODULE.JSON", content: '{"module":{}}' },
+      ],
+    );
+    const inventory = await inventoryApplicationPackage(path);
+    expect(inventory.normalized_result).toMatchObject({
+      coverage_status: "complete",
+    });
+
+    const projection = requireDeterministicProjection(
+      projectHarmonyApplicationEvidence,
+      inventory,
+      harmonyApplicationProjectionResultSchema,
+    );
+    expect(projection.coverage).toEqual({
+      status: "complete-within-inventory",
+      inventory_complete: true,
+    });
+    expect(projection.limitations.join(" ")).toContain(
+      "case-insensitive destination",
+    );
+  });
+
   it.each(ZIP_PACKAGE_FORMATS)(
     "retains archive identity and ZIP coverage for %s",
     async (format) => {

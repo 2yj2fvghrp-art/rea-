@@ -208,12 +208,16 @@ export const artifactInventoryResultSchema = z.object({
   // Omitted by older retained Evidence; the inventory parser owns its compatibility policy.
   coverage: artifactInventoryCoverageSchema.optional(),
   limitations: z.array(z.string()),
+  /** Optional only for persisted inventory Evidence written before this field. */
+  coverage_status: z.enum(["complete", "partial"]).optional(),
 });
 
 /** Current producers always declare coverage; historical Evidence inputs may omit it. */
 export const artifactInventoryOutputSchema =
   artifactInventoryResultSchema.safeExtend({
     coverage: artifactInventoryCoverageSchema,
+    coverage_status:
+      artifactInventoryResultSchema.shape.coverage_status.unwrap(),
   });
 export type ArtifactInventoryOutput = z.infer<
   typeof artifactInventoryOutputSchema

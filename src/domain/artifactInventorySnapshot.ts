@@ -1,12 +1,15 @@
 import type {
-  ArtifactInventoryResult,
   ArtifactInventoryCoverage,
+  ArtifactInventoryResult,
   ArtifactNode,
   IntegrityContradiction,
 } from "./artifactGraph.js";
 
 /** Immutable inventory produced by one complete artifact scan. */
 export interface ArtifactInventorySnapshot {
+  readonly coverage_status: NonNullable<
+    ArtifactInventoryResult["coverage_status"]
+  >;
   readonly manifest: ArtifactInventoryResult["manifest"];
   readonly nodes: readonly ArtifactNode[];
   readonly occurrences: ArtifactInventoryResult["occurrences"];
