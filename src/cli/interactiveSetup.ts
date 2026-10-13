@@ -144,9 +144,9 @@ const renderPlannedTerminalSummary = (
   }
   if (result.remediation !== undefined) writeLine(`!  ${result.remediation}`);
   outro(
-    result.plannedActions.length === 0
-      ? "Dry run: no changes were made."
-      : "Dry run: no changes were made. Run the same command without --dry-run to apply.",
+    result.status === "planned" && result.plannedActions.length > 0
+      ? "Dry run: no changes were made. Run the same command without --dry-run to apply."
+      : "Dry run: no changes were made.",
     promptStreams,
   );
 };
@@ -157,6 +157,10 @@ const renderRetainedSetupOutcomes = (result: SetupResult): void => {
   const actions = result.plannedActions.filter((action) =>
     applied.has(appliedActionKey(action)),
   );
+  const failedActions = result.plannedActions.filter((action) => {
+    const name = configuredClientName(action);
+    return name !== undefined && result.clients[name]?.status === "failed";
+  });
   const represented = new Set(
     actions.flatMap((action) => {
       const name = configuredClientName(action);
@@ -169,13 +173,24 @@ const renderRetainedSetupOutcomes = (result: SetupResult): void => {
         ? [clientDisplayNames.get(name) ?? name]
         : [],
   );
-  if (actions.length === 0 && extraClients.length === 0) return;
-  writeLine("◆  Already applied");
+  if (
+    actions.length === 0 &&
+    extraClients.length === 0 &&
+    failedActions.length === 0
+  )
+    return;
+  if (actions.length > 0 || extraClients.length > 0)
+    writeLine("◆  Already applied");
   for (const action of actions) {
     writeLine(`│  ${action.operation.toUpperCase()}  ${action.label}`);
     writeLine(`│          ${action.target}`);
   }
   for (const name of extraClients) writeLine(`│  CONFIGURED  ${name}`);
+  if (failedActions.length > 0) writeLine("◆  Failed configuration");
+  for (const action of failedActions) {
+    writeLine(`│  FAILED  ${action.label}`);
+    writeLine(`│          ${action.target}`);
+  }
 };
 
 const configuredClientName = (action: SetupAction): string | undefined =>

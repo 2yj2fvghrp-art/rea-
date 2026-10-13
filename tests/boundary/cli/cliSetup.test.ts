@@ -366,6 +366,7 @@ describe("non-interactive setup output", () => {
       stderr.indexOf("Unsupported Hopper host"),
     );
     expect(stderr).toContain("Dry run: no changes were made.");
+    expect(stderr).not.toContain("Run the same command without --dry-run");
   });
 
   it.each([["--format", "json"], ["--json"]])(
@@ -737,3 +738,30 @@ const runJourney = async (
     }
   });
 };
+
+it("identifies a failed planned client and its target in terminal remediation", async () => {
+  const result = {
+    status: "needs_human",
+    plannedActions: [actions[0]],
+    appliedActions: [],
+    clients: { codex: { status: "failed", detail: "write failed" } },
+    doctor: {},
+    clientStates: [],
+    remediation: "Repair the configuration",
+  };
+  const { stderr } = await execute(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'import {renderTerminalSetupSummary} from "./dist/cli/interactiveSetup.js";',
+        `renderTerminalSetupSummary(${JSON.stringify(result)}, true, "apply");`,
+      ].join("\n"),
+    ],
+    { cwd: process.cwd(), env: { ...process.env, NO_COLOR: "1" } },
+  );
+  expect(stderr).toContain("FAILED  Codex");
+  expect(stderr).toContain("/isolated/.codex/config.toml");
+  expect(stderr).toContain("Repair the configuration");
+});
