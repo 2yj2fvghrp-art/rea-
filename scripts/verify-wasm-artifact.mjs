@@ -101,6 +101,18 @@ const transport = new StdioClientTransport({
 });
 let cases = 0;
 const failures = [];
+const retainedEvidence = async (evidenceId) => {
+  const reply = await client.callTool({
+    name: "get_evidence_bundle",
+    arguments: {},
+  });
+  assert.notEqual(reply.isError, true, mcpTextValue(reply));
+  const record = JSON.parse(mcpTextValue(reply)).result.records.find(
+    ({ evidence_id }) => evidence_id === evidenceId,
+  );
+  assert.ok(record, `Missing retained Evidence ${evidenceId}`);
+  return parseEvidence(record);
+};
 try {
   for (const name of ["wat2wasm", "wasm-validate", "wasm-objdump", "wasm2wat"])
     assert.equal(
@@ -315,16 +327,7 @@ try {
         },
       );
     }
-    const bundleReply = await client.callTool({
-      name: "get_evidence_bundle",
-      arguments: {},
-    });
-    assert.notEqual(bundleReply.isError, true, mcpTextValue(bundleReply));
-    const bundle = JSON.parse(mcpTextValue(bundleReply)).result;
-    const retained = bundle.records.find(
-      ({ evidence_id }) => evidence_id === mcp.evidence_id,
-    );
-    assert.deepEqual(parseEvidence(retained), mcp);
+    assert.deepEqual(await retainedEvidence(mcp.evidence_id), mcp);
     assert.deepEqual(await readFile(path), original);
     cases += 2;
     for (const [label, invalidBytes] of [
@@ -351,7 +354,9 @@ try {
         }),
       );
       assert.equal(error.category, "invalid_input");
-      const failed = parseEvidence(error.details.partial_observation);
+      const reference = error.details.partial_observation;
+      assert.equal(reference.kind, "retained-evidence");
+      const failed = await retainedEvidence(reference.evidence_id);
       assert.equal(failed.subject.digest.sha256, sha256(invalidBytes));
       assert.equal(
         failed.normalized_result.validation,
