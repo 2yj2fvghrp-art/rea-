@@ -774,3 +774,130 @@ it("keeps a raw nested loadFile target application-relative when the producer al
     reconcileTarget(join(root, "sub", "dist", "index.html")),
   ).toMatchObject({ status: "unmatched" });
 });
+
+it
+  .skipIf(process.platform === "win32")
+  .each(["app", "literal\\app", "café", "cafe\u0301"])(
+  "maps raw renderer declarations through the logical application prefix %j",
+  async (prefix) => {
+    const root = await createTestTempDirectory("rea-prefixed-native-renderer-");
+    await mkdir(join(root, prefix, "dist"), { recursive: true });
+    await writeFile(
+      join(root, prefix, "dist", "index.html"),
+      "application target",
+    );
+    await writeFile(
+      join(root, prefix, "main.cjs"),
+      "const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile('dist/index.html');",
+    );
+    const analysis = await analyzeFixture(root);
+    const reconcileTarget = (runtimeRoot: string, path: string) =>
+      reconcileInput({
+        static_layers: [
+          {
+            analysis,
+            role: "application",
+            runtime_mappings: [
+              { kind: "file-root", root: runtimeRoot, artifact_prefix: prefix },
+            ],
+          },
+        ],
+        runtime_observations: [rendererCapture(runtimeRoot, path)],
+      }).reconciliations.find(({ entity_kind }) => entity_kind === "target");
+    expect(
+      reconcileTarget("/deployed", "/deployed/dist/index.html"),
+    ).toMatchObject({ status: "matched", basis: "operator-file-mapping" });
+    expect(
+      reconcileTarget("C:\\deployed", "C:\\deployed\\dist\\index.html"),
+    ).toMatchObject({ status: "matched", basis: "operator-file-mapping" });
+    expect(reconcileTarget("/deployed", "/deployed/index.html")).toMatchObject({
+      status: "unmatched",
+    });
+  },
+);
+
+it("confines raw renderer declarations to the operator-selected artifact prefix", async () => {
+  const root = await createTestTempDirectory("rea-native-prefix-isolation-");
+  for (const app of ["appA", "appB"]) {
+    await mkdir(join(root, app, "dist"), { recursive: true });
+    await writeFile(join(root, app, "dist", "index.html"), app);
+    await writeFile(
+      join(root, app, "main.cjs"),
+      "const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile('dist/index.html');",
+    );
+  }
+  const analysis = await analyzeFixture(root);
+  const result = reconcileInput({
+    static_layers: [
+      {
+        analysis,
+        role: "application",
+        runtime_mappings: [
+          { kind: "file-root", root: "/deployed", artifact_prefix: "appA" },
+        ],
+      },
+    ],
+    runtime_observations: [
+      rendererCapture("/deployed", "/deployed/dist/index.html"),
+    ],
+  });
+  const target = result.reconciliations.find(
+    ({ entity_kind }) => entity_kind === "target",
+  );
+  expect(target).toMatchObject({
+    status: "matched",
+    candidate_static_count: 1,
+  });
+  const node = result.graph.nodes.find(
+    ({ node_id }) => node_id === target?.static_node_id,
+  );
+  expect(
+    node?.observations.flatMap(({ evidence }) =>
+      evidence.location.available &&
+      evidence.location.value.kind === "source-range"
+        ? [evidence.location.value.source]
+        : [],
+    ),
+  ).toEqual(["appA/main.cjs"]);
+});
+
+it("retains uncertainty for overlapping file mappings with distinct application interpretations", async () => {
+  const root = await createTestTempDirectory("rea-overlapping-native-prefix-");
+  await mkdir(join(root, "app", "dist"), { recursive: true });
+  await writeFile(join(root, "app", "dist", "index.html"), "shared target");
+  for (const [path, declaration] of [
+    ["app/main.cjs", "dist/index.html"],
+    ["app/dist/main.cjs", "index.html"],
+  ])
+    await writeFile(
+      join(root, path!),
+      `const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile(${JSON.stringify(declaration)});`,
+    );
+  const analysis = await analyzeFixture(root);
+  const result = reconcileInput({
+    static_layers: [
+      {
+        analysis,
+        role: "application",
+        runtime_mappings: [
+          { kind: "file-root", root: "/deployed", artifact_prefix: "app" },
+          {
+            kind: "file-root",
+            root: "/deployed/dist",
+            artifact_prefix: "app/dist",
+          },
+        ],
+      },
+    ],
+    runtime_observations: [
+      rendererCapture("/deployed", "/deployed/dist/index.html"),
+    ],
+  });
+  expect(
+    result.reconciliations.find(({ entity_kind }) => entity_kind === "target"),
+  ).toMatchObject({
+    status: "ambiguous",
+    confidence: "unknown",
+    candidate_static_count: 2,
+  });
+});

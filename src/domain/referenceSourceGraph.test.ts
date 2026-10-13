@@ -486,3 +486,26 @@ describe("historical source graph symlink path identity", () => {
     );
   });
 });
+
+it.each([
+  "\0",
+  "/absolute.js",
+  "../outside.js",
+  "a/../b.js",
+  "a//b.js",
+  "./a.js",
+  "a/",
+])("rejects unsafe historical logical entry spelling %j", (path) => {
+  const input = graphInput();
+  input.entries = [fileEntry({ path })];
+  input.relationships = [];
+  expect(() => createHistoricalSourceGraph(input)).toThrow();
+});
+
+it("rejects NUL in observed symlink targets before graph identity", () => {
+  const input = graphInput();
+  input.entries[2] = symlinkEntry({ target: "literal\0name.js" });
+  expect(() => createHistoricalSourceGraph(input)).toThrow(
+    /normalized POSIX symlink target/u,
+  );
+});

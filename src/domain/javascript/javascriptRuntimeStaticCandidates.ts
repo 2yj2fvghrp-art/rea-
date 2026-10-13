@@ -17,7 +17,10 @@ export interface StaticRuntimeCandidate {
   readonly category: "renderer" | "javascript" | "worker" | "service-worker";
   readonly paths: readonly string[];
   readonly nativeDeclarationPaths: Readonly<
-    Record<"posix" | "windows", readonly string[]>
+    Record<
+      "posix" | "windows",
+      readonly { readonly path: string; readonly sourcePath: string | null }[]
+    >
   >;
   readonly digests: readonly {
     readonly sha256: string;
@@ -28,6 +31,8 @@ export interface StaticRuntimeCandidate {
 export interface MappedRuntimePath {
   readonly path: string;
   readonly fileStyle: "posix" | "windows" | null;
+  readonly nativeRelativePath: string | null;
+  readonly artifactPrefix: string;
   readonly basis:
     | "artifact-path"
     | "operator-file-mapping"
@@ -64,7 +69,14 @@ export const mappedRuntimePaths = (
       : null;
   if (entity.location.kind === "file" && layer.result.format === "directory") {
     const path = pathBelowRoot(layer.result.input_path, entity.location.value);
-    if (path !== null) paths.push({ path, fileStyle, basis: "artifact-path" });
+    if (path !== null)
+      paths.push({
+        path,
+        fileStyle,
+        nativeRelativePath: path,
+        artifactPrefix: "",
+        basis: "artifact-path",
+      });
   }
   for (const mapping of layer.runtimeMappings) {
     const suffix =
@@ -79,6 +91,8 @@ export const mappedRuntimePaths = (
     paths.push({
       path,
       fileStyle,
+      nativeRelativePath: mapping.kind === "file-root" ? suffix : null,
+      artifactPrefix: normalizeArtifactPrefix(mapping.artifact_prefix),
       basis:
         mapping.kind === "file-root"
           ? "operator-file-mapping"
@@ -247,23 +261,54 @@ const nativeDeclarationPaths = (
       typeof properties.declared_path === "string" &&
       (isRawApplicationFileObservation(observation) ||
         properties.declared_path.includes("\\"))
-      ? [properties.declared_path]
+      ? [
+          {
+            path: properties.declared_path,
+            sourcePath: nativeDeclarationSource(observation),
+          },
+        ]
       : [];
   });
-  const normalized = (windows: boolean): string[] =>
-    declarations
-      .filter(
-        (path) =>
-          !windows || (!win32.isAbsolute(path) && !/^[a-z]:/iu.test(path)),
-      )
-      .map((path) =>
-        relativeLogicalPath(windows ? path.replaceAll("\\", "/") : path),
-      )
-      .filter((path): path is string => path !== null);
-  return {
-    posix: uniqueSorted(normalized(false)),
-    windows: uniqueSorted(normalized(true)),
+  const normalized = (windows: boolean) => {
+    const values = declarations.flatMap(({ path, sourcePath }) => {
+      if (windows && (win32.isAbsolute(path) || /^[a-z]:/iu.test(path)))
+        return [];
+      const normalizedPath = relativeLogicalPath(
+        windows ? path.replaceAll("\\", "/") : path,
+      );
+      return normalizedPath === null
+        ? []
+        : [{ path: normalizedPath, sourcePath }];
+    });
+    return [
+      ...new Map(
+        values.map((value) => [JSON.stringify(value), value]),
+      ).values(),
+    ].sort(
+      (left, right) =>
+        compareUnicodeCodePoints(left.path, right.path) ||
+        compareUnicodeCodePoints(left.sourcePath ?? "", right.sourcePath ?? ""),
+    );
   };
+  return { posix: normalized(false), windows: normalized(true) };
+};
+
+// A source anchor constrains the selected application namespace; it does not
+// supply a module-relative base for the raw filesystem declaration.
+const nativeDeclarationSource = (
+  observation: ApplicationNode["observations"][number],
+): string | null => {
+  const location = observation.evidence.location;
+  if (!location.available) return null;
+  const source =
+    location.value.kind === "source-range"
+      ? location.value.source
+      : location.value.kind === "artifact-path"
+        ? location.value.path
+        : null;
+  return source === null || source === "artifact-root"
+    ? null
+    : relativeLogicalPath(source);
 };
 
 const candidateDigests = (
@@ -371,9 +416,12 @@ const activeArtifactPrefixes = (
             : false,
       )
     )
-      prefixes.add(mapping.artifact_prefix);
+      prefixes.add(normalizeArtifactPrefix(mapping.artifact_prefix));
   return [...prefixes].sort(compareUnicodeCodePoints);
 };
+
+const normalizeArtifactPrefix = (prefix: string): string =>
+  prefix === "" ? "" : normalizeJoinedLogicalPath(prefix);
 
 const pathWithinPrefix = (path: string, prefix: string): boolean =>
   prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
@@ -396,10 +444,24 @@ const uniqueMappedPaths = (
 ): MappedRuntimePath[] =>
   [
     ...new Map(
-      values.map((value) => [`${value.basis}:${value.path}`, value]),
+      values.map((value) => [
+        JSON.stringify([
+          value.basis,
+          value.path,
+          value.fileStyle,
+          value.nativeRelativePath,
+          value.artifactPrefix,
+        ]),
+        value,
+      ]),
     ).values(),
   ].sort(
     (left, right) =>
       compareUnicodeCodePoints(left.path, right.path) ||
-      compareUnicodeCodePoints(left.basis, right.basis),
+      compareUnicodeCodePoints(left.basis, right.basis) ||
+      compareUnicodeCodePoints(
+        left.nativeRelativePath ?? "",
+        right.nativeRelativePath ?? "",
+      ) ||
+      compareUnicodeCodePoints(left.artifactPrefix, right.artifactPrefix),
   );

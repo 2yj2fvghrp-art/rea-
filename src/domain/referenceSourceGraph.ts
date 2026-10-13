@@ -18,7 +18,7 @@ const relativePathSchema = z
   .refine(
     (path) =>
       !path.startsWith("/") &&
-      !path.includes("\\") &&
+      !path.includes("\0") &&
       path
         .split("/")
         .every((part) => part !== "" && part !== "." && part !== ".."),
@@ -85,10 +85,9 @@ const symlinkTargetSchema = z
   .min(1)
   .refine(
     (target) =>
-      isPortableAbsoluteReferenceTarget(target) ||
-      (!target.startsWith("/") &&
-        !target.includes("\\") &&
-        posix.normalize(target) === target),
+      !target.includes("\0") &&
+      (isPortableAbsoluteReferenceTarget(target) ||
+        (!target.startsWith("/") && posix.normalize(target) === target)),
     "Expected a normalized POSIX symlink target",
   );
 
