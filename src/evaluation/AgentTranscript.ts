@@ -103,10 +103,6 @@ const mcpResult = (value: unknown): AgentToolResult | undefined => {
   };
 };
 
-const callIdentity = (call: AgentToolCall): string =>
-  call.id ??
-  `${call.server ?? ""}:${call.tool}:${canonicalJson(call.arguments)}`;
-
 const sameRequestIdentity = (
   left: AgentToolCall,
   right: AgentToolCall,
@@ -120,19 +116,35 @@ const sameRequestIdentity = (
  * conflicting reports of one call cannot establish which result was delivered.
  */
 const uniqueCalls = (calls: readonly AgentToolCall[]): AgentToolCall[] => {
-  const unique = new Map<string, AgentToolCall>();
+  const unique: AgentToolCall[] = [];
+  const identified = new Map<string, number>();
   for (const call of calls) {
-    const identity = callIdentity(call);
-    const previous = unique.get(identity);
-    if (previous === undefined) unique.set(identity, call);
-    else if (
-      !sameRequestIdentity(previous, call) ||
-      previous.delivered !== call.delivered ||
-      !sameValue(previous.result, call.result)
-    )
-      unique.set(identity, { ...previous, delivered: false });
+    // Without an opaque client ID, equal requests may be separate retries;
+    // preserve each report instead of inventing a shared identity.
+    if (call.id === null) {
+      unique.push(call);
+      continue;
+    }
+    const previousIndex = identified.get(call.id);
+    if (previousIndex === undefined) {
+      identified.set(call.id, unique.length);
+      unique.push(call);
+    } else {
+      const previous = unique[previousIndex];
+      if (previous === undefined) {
+        identified.set(call.id, unique.length);
+        unique.push(call);
+        continue;
+      }
+      if (
+        !sameRequestIdentity(previous, call) ||
+        previous.delivered !== call.delivered ||
+        !sameValue(previous.result, call.result)
+      )
+        unique[previousIndex] = { ...previous, delivered: false };
+    }
   }
-  return [...unique.values()];
+  return unique;
 };
 
 /** Retain the first report and preserve uncertainty if the same call later conflicts. */

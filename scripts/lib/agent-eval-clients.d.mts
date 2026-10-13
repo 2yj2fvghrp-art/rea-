@@ -17,7 +17,10 @@ export interface PreparedAgentEvalClient {
   ) => readonly string[] | Promise<readonly string[]>;
 }
 
-export function selectAgentEvalClient(value?: string): AgentEvalClient;
+export function selectAgentEvalClient(
+  value?: string,
+  repositoryRoot?: string,
+): AgentEvalClient;
 
 export function agentEvalEnvironment(options: {
   readonly account: string;

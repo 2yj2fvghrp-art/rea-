@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +11,19 @@ import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
 afterEach(() => vi.unstubAllEnvs());
 
+it("resolves path-like client overrides from the repository root", () => {
+  const root = "/repo/rea";
+  vi.stubEnv(
+    "REA_VERIFY_GEMINI_COMMAND",
+    "./node_modules/@google/gemini-cli/bundle/gemini.js",
+  );
+  expect(selectAgentEvalClient("gemini-cli", root).command).toBe(
+    resolve(root, "./node_modules/@google/gemini-cli/bundle/gemini.js"),
+  );
+  vi.stubEnv("REA_VERIFY_GEMINI_COMMAND", "gemini");
+  expect(selectAgentEvalClient("gemini-cli", root).command).toBe("gemini");
+});
+
 it.each(["claude-code", "gemini-cli"])(
   "%s receives selected authentication and scenario-specific permissions",
   async (id) => {
@@ -19,9 +32,9 @@ it.each(["claude-code", "gemini-cli"])(
     await mkdir(join(caller, ".gemini"), { recursive: true });
     await writeFile(
       join(caller, ".gemini", "settings.json"),
-      JSON.stringify({
+      `\uFEFF${JSON.stringify({
         security: { auth: { selectedType: "gemini-api-key" } },
-      }),
+      })}`,
     );
     vi.stubEnv("CLAUDE_CONFIG_DIR", caller);
     vi.stubEnv("GEMINI_CLI_HOME", caller);

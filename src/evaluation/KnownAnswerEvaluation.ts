@@ -172,6 +172,8 @@ const evidenceFromCall = (call: AgentToolCall): Evidence | undefined => {
   const { result } = call;
   if (
     !call.delivered ||
+    call.clientFailed ||
+    (call.clientError !== undefined && call.clientError !== null) ||
     call.server?.toLowerCase() !== "rea" ||
     result === undefined ||
     result.isError

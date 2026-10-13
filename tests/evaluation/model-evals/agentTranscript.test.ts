@@ -435,3 +435,19 @@ it("retains completed legacy Codex routing without authenticating its Evidence",
   expect(metrics.finalCitesEvidence).toBe(false);
   expect(metrics.answerHeuristicsMet).toBe(false);
 });
+
+it("preserves identical completed legacy Codex calls when the client omits IDs", () => {
+  const call = {
+    type: "item.completed",
+    item: {
+      type: "mcp_tool_call",
+      status: "completed",
+      server: "rea",
+      tool: "analyze_javascript_application",
+      arguments: {},
+      result: { structuredContent: evidence },
+    },
+  };
+  const transcript = parseCodexEvents([call, call]);
+  expect(transcript.calls).toHaveLength(2);
+});

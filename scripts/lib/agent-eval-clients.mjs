@@ -1,6 +1,6 @@
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 import { parse as parseJsonc } from "jsonc-parser";
 import { TOOL_CONTRACTS } from "../../dist/contracts/toolContracts.js";
@@ -31,16 +31,23 @@ const CLIENTS = {
 const SKILL = "reverse-engineer-anything";
 
 /** Resolve `REA_AGENT_EVAL_CLIENT`; Codex remains the default. */
-export const selectAgentEvalClient = (value = "codex") => {
+export const selectAgentEvalClient = (
+  value = "codex",
+  repositoryRoot = process.cwd(),
+) => {
   const client = Object.hasOwn(CLIENTS, value) ? CLIENTS[value] : undefined;
   if (client === undefined)
     throw new Error(
       `REA_AGENT_EVAL_CLIENT must be one of ${Object.keys(CLIENTS).join(", ")}`,
     );
+  const command = process.env[client.commandVariable] ?? client.defaultCommand;
   return {
     id: value,
     ...client,
-    command: process.env[client.commandVariable] ?? client.defaultCommand,
+    command:
+      command.includes("/") || command.includes("\\")
+        ? resolve(repositoryRoot, command)
+        : command,
   };
 };
 
@@ -229,7 +236,10 @@ const callerGeminiAuthType = async (geminiDirectory) => {
       "utf8",
     );
     const errors = [];
-    const settings = parseJsonc(contents, errors, { allowTrailingComma: true });
+    const jsonText = contents.startsWith("\uFEFF")
+      ? ` ${contents.slice(1)}`
+      : contents;
+    const settings = parseJsonc(jsonText, errors, { allowTrailingComma: true });
     if (errors.length > 0)
       throw new SyntaxError("Gemini settings contains invalid JSONC");
     const selected = settings?.security?.auth?.selectedType;

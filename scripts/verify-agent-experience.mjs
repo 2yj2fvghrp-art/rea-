@@ -47,7 +47,10 @@ import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const verifierRun = createVerifierRun();
 const timeoutMs = Number(process.env.REA_AGENT_EVAL_TIMEOUT_MS ?? 480_000);
-const client = selectAgentEvalClient(process.env.REA_AGENT_EVAL_CLIENT);
+const client = selectAgentEvalClient(
+  process.env.REA_AGENT_EVAL_CLIENT,
+  repositoryRoot,
+);
 const optionalModel = process.env.REA_AGENT_EVAL_MODEL;
 
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000)
