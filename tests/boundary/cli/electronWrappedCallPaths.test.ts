@@ -55,7 +55,7 @@ cliTest(
       expect(
         byId.get(edge.target_node_id)?.observations[0]?.properties.channel,
       ).toBe(edge.properties.channel);
-      expect(edge.properties.conditions).toEqual([
+      expect(edge.properties.handler_conditions).toEqual([
         expect.objectContaining({ expression: "allowed(event)" }),
       ]);
     }
@@ -134,8 +134,8 @@ cliTest(
             : () => e.ipcRenderer.send("test:cut")
         });`,
       "main.js": `const e=require("electron");
-        e.ipcMain.on("test:copy",event=>allowed(event)&&event.sender.copy());
-        e.ipcMain.on("test:cut",event=>allowed(event)&&event.sender.cut());`,
+        if(!flag)e.ipcMain.on("test:copy",event=>allowed(event)&&event.sender.copy());
+        if(flag)e.ipcMain.on("test:cut",event=>allowed(event)&&event.sender.cut());`,
     });
     const { graph } = await analyzeJavaScriptDirectory("CLI", cli, root);
     const joins = graph.edges.filter(
@@ -148,8 +148,13 @@ cliTest(
       ["test:cut", "!(flag)"],
     ]) {
       const edge = joins.find((candidate) => candidate.properties.channel === channel);
-      expect(edge?.properties.conditions).toEqual([
+      expect(edge?.properties.bridge_conditions).toEqual([
         expect.objectContaining({ expression: bridgeCondition }),
+      ]);
+      expect(edge?.properties.handler_conditions).toEqual([
+        expect.objectContaining({
+          expression: channel === "test:copy" ? "!flag" : "flag",
+        }),
         expect.objectContaining({ expression: "allowed(event)" }),
       ]);
     }
