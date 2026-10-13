@@ -6,6 +6,7 @@ export default defineConfig({
     "Reverse engineer binaries, applications, and runtime behavior with one CLI and MCP server.",
   lang: "en-US",
   base: "/rea/",
+  srcExclude: ["readme/**"],
   themeConfig: {
     nav: [
       { text: "Get started", link: "/installation" },
@@ -28,6 +29,7 @@ export default defineConfig({
         items: [
           { text: "Native binaries", link: "/native-investigation" },
           { text: "Go build metadata", link: "/go-binaries" },
+          { text: "Rust dependencies", link: "/rust-binaries" },
           {
             text: "JavaScript and Electron",
             link: "/javascript-artifact-reconstruction",
