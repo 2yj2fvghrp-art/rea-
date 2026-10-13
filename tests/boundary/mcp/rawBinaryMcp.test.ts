@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
@@ -223,3 +223,49 @@ it("reuses a canonical raw entry and replaces the session when the entry changes
   expect(created).toEqual(["0x8000000", "0x9000000"]);
   expect(closed).toEqual(["0x8000000"]);
 });
+
+it.skipIf(process.platform !== "win32")(
+  "replaces a Windows raw session when its requested path changes to a junction",
+  async () => {
+    const root = await createTestTempDirectory("rea-raw-mcp-linked-reopen-");
+    const actual = join(root, "actual");
+    const linked = join(root, "linked");
+    await mkdir(actual);
+    const path = join(actual, "image.bin");
+    await writeFile(path, Buffer.from("a92a60", "hex"));
+    await symlink(actual, linked, "junction");
+    const created: string[] = [];
+    const fixture = createCacheProvider([]);
+    const { client } = await connect({
+      ...fixture,
+      createClient: (target) => {
+        created.push(target.sourcePath ?? target.path);
+        return {
+          execute: (operation) =>
+            Promise.resolve(
+              observed(operation === "address_name" ? "entry" : null),
+            ),
+          close: () => Promise.resolve(ok(null)),
+        };
+      },
+    });
+    for (const requested of [path, join(linked, "image.bin")]) {
+      const opened = await client.callTool({
+        name: "open_binary",
+        arguments: {
+          path: requested,
+          format: "raw-binary",
+          architecture: "6502",
+          entry_point: "0x8001",
+        },
+      });
+      expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
+      const address = await client.callTool({
+        name: "address_name",
+        arguments: { address: "0x8001" },
+      });
+      expect(address.isError, JSON.stringify(address)).not.toBe(true);
+    }
+    expect(created).toEqual([path, join(linked, "image.bin")]);
+  },
+);

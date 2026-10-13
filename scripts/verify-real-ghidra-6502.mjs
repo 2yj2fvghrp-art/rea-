@@ -295,7 +295,20 @@ try {
     await symlink(workspace, junction, "junction");
     try {
       const linkedPath = join(junction, "image.bin");
-      // Canonical file identity must not bypass admission of the requested path.
+      // Reopening the same bytes through a junction must replace the direct session.
+      await call("open_binary", {
+        path,
+        format: "raw-binary",
+        architecture: "6502",
+        entry_point: "0x8001",
+        provider_id: "ghidra",
+      });
+      const directImage = evidence(
+        await call("inspect_native_load_image"),
+        sha256,
+      );
+      assert.equal(directImage.normalized_result.status, "verified");
+      // Canonical file identity must not bypass admission of the new path.
       await call("open_binary", {
         path: linkedPath,
         format: "raw-binary",
