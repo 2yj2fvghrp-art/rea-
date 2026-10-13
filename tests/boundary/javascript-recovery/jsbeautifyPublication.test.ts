@@ -324,3 +324,39 @@ it("does not offer the module tree as analysis input when a module was aliased",
   ]);
   expect(result.warnings[0]?.message).toContain('"bundle"');
 });
+
+it("keeps analysis input for a single shortened module, which no other input imports", async () => {
+  const evidence = await recover(["n".repeat(253)]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(result.modules[0]?.reported_filename).toMatch(
+    /^__rea_[0-9a-f]{16}\.js$/,
+  );
+  expect(result.analysis_input).not.toBeNull();
+  expect(result.warnings).toEqual([]);
+});
+
+it("does not offer the module tree as analysis input when a long name was shortened", async () => {
+  // 253 bytes is a valid Linux basename, but with ".js" it exceeds 255 bytes.
+  const long = "m".repeat(253);
+  const evidence = await recover(["main.cjs", long]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  const shortened = result.modules.find((module) =>
+    module.provenance.original_path.endsWith(`/${long}`),
+  );
+  expect(shortened?.reported_filename).toMatch(/^__rea_[0-9a-f]{16}\.js$/);
+  expect(result.status).toBe("complete");
+  expect(result.analysis_input).toBeNull();
+  expect(result.warnings).toEqual([
+    expect.objectContaining({
+      filename: shortened?.reported_filename,
+      kind: "module-alias",
+      is_error: false,
+    }),
+  ]);
+});

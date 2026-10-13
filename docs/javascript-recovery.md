@@ -83,7 +83,9 @@ proves syntax, not behaviour. When a renamed input would take another selected
 input's name (for example `bundle` and `bundle.js`), it is published under
 `__rea_recovered_<n>_<k>/` and listed in `warnings` with kind `module-alias`;
 `analysis_input` is then `null`, because relative imports of and from that
-module would resolve to different files than in the original layout. `reports/phases.log` keeps any stderr of
+module would resolve to different files than in the original layout. The same
+applies when one of several selected inputs is published as `__rea_<digest>.js`
+because its name with `.js` would exceed 255 bytes. `reports/phases.log` keeps any stderr of
 `jsbeautify --version`, the phase summary per file, or the complete stderr and
 stdout of a file that failed the gate; `reports/provenance.json` keeps the selected resource
 limiter, the exact arguments and gate verdicts. Inline Evidence keeps only the parsed version.
