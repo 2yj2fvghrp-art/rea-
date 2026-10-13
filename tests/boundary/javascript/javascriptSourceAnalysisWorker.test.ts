@@ -512,7 +512,13 @@ const expectNativeTemplateModes = async (
     ),
   ).toEqual(["require", "import", "require"]);
   expect(result.value.javascript.references).toEqual([]);
-  for (const selector of ["``", "`typo`", '`req${"uire"}`']) {
+  for (const selector of [
+    "``",
+    "`typo`",
+    '`req${"uire"}`',
+    '("require")',
+    "(`require`)",
+  ]) {
     const invalid = await worker.analyze(
       source(
         "invalid.cts",

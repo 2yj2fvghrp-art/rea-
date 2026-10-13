@@ -231,6 +231,33 @@ const expectErasedNativeDeclarationRuntime = async (
   expect(ambientRuntime.stdout.trim()).toBe("{}");
 };
 
+const expectInvalidCtsResolution = async (root: string): Promise<void> => {
+  for (const [file, diagnostic] of [
+    ["cts/unresolved.cts", "TS2307"],
+    ["cts/invalid-local-export.mts", "TS1454"],
+  ] as const) {
+    await expect(
+      execute(
+        process.execPath,
+        [
+          compiler,
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--skipLibCheck",
+          "--noEmit",
+          join(root, file),
+        ],
+        { cwd: root, timeout: 10_000 },
+      ),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.stringContaining(diagnostic),
+    });
+  }
+};
+
 const expectCtsRuntime = async (root: string): Promise<void> => {
   const emitted = await createTestTempDirectory("rea-cts-module-output-");
   await writeFixtureFiles(emitted, {
@@ -255,12 +282,14 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       emitted,
       join(root, "cts/entry.cts"),
       join(root, "cts/resolution.cts"),
+      join(root, "cts/import-equals-local.mts"),
       join(root, "cts/reexport.cts"),
       join(root, "cts/inline.cts"),
       join(root, "cts/script.ts"),
       join(root, "cts/same.cts"),
       join(root, "cts/native.mts"),
       join(root, "cts/native-template.mts"),
+      join(root, "cts/native-parenthesized.mts"),
       join(root, "cts/native-default.cts"),
       join(root, "cts/native-default.mts"),
       join(root, "cts/native-default.ts"),
@@ -327,6 +356,8 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     ["inline.cjs", ["import", "require", "nested-import", "import"]],
     ["native.mjs", ["require", "import", "require", "import", "import"]],
     ["native-template.mjs", ["require", "import", "require"]],
+    ["native-parenthesized.mjs", ["import", "import"]],
+    ["import-equals-local.mjs", 43],
     ["native-default.cjs", "require"],
     ["native-default.mjs", "import"],
     ["native-default.js", "require"],
@@ -358,25 +389,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
   expect(fileURLToPath(nativeImport.stdout.trim())).toBe(
     join(emitted, "node_modules/native-mode/import.node"),
   );
-  await expect(
-    execute(
-      process.execPath,
-      [
-        compiler,
-        "--module",
-        "NodeNext",
-        "--moduleResolution",
-        "NodeNext",
-        "--skipLibCheck",
-        "--noEmit",
-        join(root, "cts/unresolved.cts"),
-      ],
-      { cwd: root, timeout: 10_000 },
-    ),
-  ).rejects.toMatchObject({
-    code: 1,
-    stdout: expect.stringContaining("TS2307"),
-  });
+  await expectInvalidCtsResolution(root);
 };
 
 const expectCtsModuleLookup = (

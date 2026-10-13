@@ -110,8 +110,19 @@ export const modeSourceFiles = {
   "cts/script.ts": inlineSource,
   "cts/same.cts": sameSource,
   "cts/unresolved.cts": unresolvedSource,
+  "cts/invalid-local-export.mts":
+    'import { marker } from "cts-package" with { "resolution-mode": "require" }; export { marker as InvalidLocal };',
+  "cts/import-equals-local.mts":
+    'import Source = require("cts-package"); export { Source as LocalNamespace }; console.log(JSON.stringify(Source.marker));',
   "cts/native.mts": nativeSource,
   "cts/native-template.mts": nativeTemplateSource,
+  "cts/native-parenthesized.mts": [
+    'type Quoted = import("native-mode/addon.node", { with: { "resolution-mode": ("require") } }).NativeMode;',
+    'type Template = import("native-mode/addon.node", { with: { "resolution-mode": (`require`) } }).NativeMode;',
+    'const quoted: Quoted = { source: "import" };',
+    'const template: Template = { source: "import" };',
+    "console.log(JSON.stringify([quoted.source, template.source]));",
+  ].join("\n"),
   "cts/recovered.cts": recoveredSource,
   "cts/native-default.cts": nativeDefaultSource("require"),
   "cts/native-default.mts": nativeDefaultSource("import"),
@@ -255,6 +266,7 @@ export const expectReviewModeEvidence = (
   for (const source of [
     "cts/native.mts",
     "cts/native-template.mts",
+    "cts/native-parenthesized.mts",
     "cts/native-default.cts",
     "cts/native-default.mts",
     "cts/native-default.ts",
@@ -278,6 +290,8 @@ export const expectReviewModeEvidence = (
   expectNativeMixedEvidence(graph);
   expectNativeTypeSelections(graph);
   expectNativeTemplateEvidence(graph);
+  expectParenthesizedNativeModeEvidence(graph);
+  expectLocalReexportEvidence(graph);
   expectNativeImportEqualsExports(graph);
   expectErasedNativeDeclarationEvidence(graph);
   expectInlineTypeEvidence(graph);
@@ -355,6 +369,105 @@ export const expectReviewModeEvidence = (
         }),
       }),
     );
+};
+
+const expectParenthesizedNativeModeEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  const observations = graph.nodes
+    .flatMap(({ observations }) => observations)
+    .filter(
+      ({ properties, evidence }) =>
+        properties.specifier === "native-mode/addon.node" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === "cts/native-parenthesized.mts",
+    );
+  expect(observations).toHaveLength(2);
+  for (const observation of observations) {
+    expect(observation.properties).toMatchObject({
+      module_kind: "compiler-dependent",
+      type_only: true,
+      resolved_path: null,
+      conditional_resolutions: expect.arrayContaining([
+        expect.objectContaining({
+          mode: "import",
+          resolved_path: "node_modules/native-mode/import.node",
+        }),
+        expect.objectContaining({
+          mode: "require",
+          resolved_path: "node_modules/native-mode/require.node",
+        }),
+      ]),
+    });
+    expect(observation.evidence.artifact).toMatchObject({
+      available: true,
+      sha256: createHash("sha256")
+        .update(modeSourceFiles["cts/native-parenthesized.mts"])
+        .digest("hex"),
+    });
+  }
+};
+
+const expectLocalReexportEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const [source, exportedName, properties] of [
+    [
+      "cts/import-equals-local.mts",
+      "LocalNamespace",
+      {
+        resolution_mode: "require",
+        resolved_path: "node_modules/cts-package/actual.cjs",
+        resolution_status: "resolved",
+      },
+    ],
+    [
+      "cts/invalid-local-export.mts",
+      "InvalidLocal",
+      {
+        resolution_mode: "compiler-dependent",
+        resolved_path: null,
+        resolution_status: "unavailable",
+        conditional_resolutions: expect.arrayContaining([
+          expect.objectContaining({
+            mode: "import",
+            resolved_path: "node_modules/cts-package/decoy.mjs",
+          }),
+          expect.objectContaining({
+            mode: "require",
+            resolved_path: "node_modules/cts-package/actual.cjs",
+          }),
+        ]),
+      },
+    ],
+  ] as const) {
+    const derived = graph.edges.filter(
+      ({ relation, properties: candidate, evidence }) =>
+        relation === "imports" &&
+        candidate.module_link_kind === "export" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === source,
+    );
+    expect(derived).toHaveLength(1);
+    expect(derived[0]?.properties).toMatchObject({
+      ...properties,
+      specifier: "cts-package",
+      exported_name: exportedName,
+    });
+    const exposed = graph.edges.filter(
+      ({ relation, evidence }) =>
+        relation === "exposes" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === source,
+    );
+    expect(exposed).toHaveLength(1);
+    expect(exposed[0]?.properties).toMatchObject({
+      resolution_mode: properties.resolution_mode,
+    });
+  }
 };
 
 const expectNativeTemplateEvidence = (

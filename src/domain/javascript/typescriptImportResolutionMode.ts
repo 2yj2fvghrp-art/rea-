@@ -80,6 +80,8 @@ const resolutionModeValue = (
   // Inline type options accept cooked templates; declaration attributes require strings.
   const literal =
     node !== undefined &&
+    // Babel retains parentheses as metadata; TypeScript ignores that override.
+    node.extra?.parenthesized !== true &&
     (t.isStringLiteral(node) ||
       (inlineTypeOptions && t.isTemplateLiteral(node)))
       ? readExactJavaScriptLiteral(node)
