@@ -90,6 +90,24 @@ describe("MZ artifact classification", () => {
       expect.arrayContaining(["dos-mz", "pe"]),
     );
   });
+
+  it("preserves a short-stub PE identity through filesystem inventory", async () => {
+    const directory = await createTestTempDirectory(
+      "rea-short-stub-inventory-",
+    );
+    const path = join(directory, "short.dll");
+    const bytes = pe(0x8664, 96, 0x2002);
+    dosMz(64).copy(bytes, 0, 0, 60);
+    await writeFile(path, bytes);
+
+    const inventory = artifactInventoryResultSchema.parse(
+      await scanCanonicalArtifactInventory(path),
+    );
+    expect(inventory.manifest.root_format).toBe("pe");
+    expect(inventory.nodes).toContainEqual(
+      expect.objectContaining({ format: "pe" }),
+    );
+  });
 });
 
 const dosFixture = (): Buffer => {
