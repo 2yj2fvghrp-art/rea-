@@ -26,6 +26,10 @@ for read-only inspection. Every requested output
 must use a new path; existing files are refused. Files publish individually;
 a later output failure can leave an earlier successful boot copy. Preserve that
 copy and report the failed output rather than claiming the entire run succeeded.
+Atomic publication requires hard-link support in the output filesystem. If it
+is unavailable, choose an output directory on a filesystem that supports it;
+the helper fails without falling back to an overwrite-prone rename or publishing
+a partially written destination.
 
 The JSON is a helper inspection report, not a REA Evidence envelope. It records
 input SHA-256 and file identity, CUE tracks, the ISO9660 index, raw SYSTEM.CNF
@@ -74,9 +78,17 @@ analysis objective; browser gameplay is a separate task when requested.
 - ISO9660 single-extent files, nested SYSTEM.CNF boot paths and PSX.EXE fallback
   when SYSTEM.CNF is absent. Standalone complete PS-X executables are accepted.
 
+CUE companion names must resolve as written on the host filesystem; the helper
+does not guess a case-insensitive replacement. SYSTEM.CNF accepts case-insensitive
+`BOOT`/`cdrom` names, an optional device digit, leading slashes and CRLF. Inline
+comments appended to a BOOT filename are outside the supported grammar.
+
 The helper caps CUE text at 1 MiB, directories at 16 MiB each, the directory
 tree at 20,000 entries/16 levels, and boot or standalone executables at 64 MiB.
 These are inspection memory/work budgets, not PS1 format maxima. It hashes
+accepted sources completely; oversized CUE and standalone executable inputs are
+rejected before hashing. Hash reads are bounded by the admitted source size so
+a growing source cannot cause unbounded hashing. It hashes
 complete input tracks twice to bind the report to unchanged sources; large audio
 tracks therefore add I/O even though their streams are not decoded.
 

@@ -37,6 +37,8 @@ import tempfile
 
 VERSION = "0.2.0"
 BLOCK = 2048
+CUE_LIMIT = 1024 * 1024
+EXE_LIMIT = 64 * 1024**2
 SYNC = b"\0" + b"\xff" * 10 + b"\0"
 MODES = {"MODE1/2048": 2048, "MODE1/2352": 2352,
          "MODE2/2352": 2352, "MODE2/2336": 2336}
@@ -46,26 +48,47 @@ class InspectionError(ValueError):
     """A source is malformed or outside supported formats and resource budgets."""
 
 
-def sha256_file(path):
+def sha256_file(path, *, limit=None):
     digest = hashlib.sha256()
     with Path(path).open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+        consumed = 0
+        while True:
+            chunk = source.read(min(1024 * 1024, limit - consumed + 1)
+                                if limit is not None else 1024 * 1024)
+            if not chunk:
+                break
+            consumed += len(chunk)
+            if limit is not None and consumed > limit:
+                raise InspectionError("source grew beyond inspection limit while hashing")
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def source_record(path):
+def source_record(path, *, limit=None):
     path = Path(path).resolve()
     def identity():
         observed = path.stat()
+        if not stat.S_ISREG(observed.st_mode):
+            raise InspectionError("inspection requires a regular source file")
         return {"device": observed.st_dev, "inode": observed.st_ino,
                 "mtime_ns": observed.st_mtime_ns, "bytes": observed.st_size}
     before = identity()
-    digest = sha256_file(path)
+    if limit is not None and before["bytes"] > limit:
+        raise InspectionError(f"source exceeds inspection limit ({limit} bytes)")
+    # Also bound reads if a source grows after the size check.
+    digest = sha256_file(path, limit=before["bytes"])
     if identity() != before:
         raise InspectionError("source changed while hashing")
     return {"path": str(path), "bytes": before["bytes"], "sha256": digest,
             "local_identity": before}
+
+
+def read_limited(path, limit):
+    with Path(path).open("rb") as source:
+        data = source.read(limit + 1)
+    if len(data) > limit:
+        raise InspectionError(f"source exceeds inspection limit ({limit} bytes)")
+    return data
 
 
 def write_new_bytes(path, data):
@@ -135,10 +158,10 @@ def parse_exe(data):
 
 def parse_cue(path):
     path = Path(path).resolve()
-    if path.stat().st_size > 1024 * 1024:
+    if path.stat().st_size > CUE_LIMIT:
         raise InspectionError("CUE exceeds inspection limit")
     tracks, current_file, current = [], None, None
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    for line in read_limited(path, CUE_LIMIT).decode("utf-8-sig").splitlines():
         line = line.strip()
         match = re.fullmatch(r'FILE\s+(?:"([^"]+)"|(\S+))\s+(\S+)', line, re.I)
         if match:
@@ -341,10 +364,11 @@ def normalize_iso_path(path):
 
 def inspect_disc(path, boot_out=None, source=None):
     path = Path(path).resolve()
+    cue_limit = CUE_LIMIT if path.suffix.lower() == ".cue" else None
     # Capture the CUE before interpreting it, not after reading its directives.
-    source = source or source_record(path)
+    source = source or source_record(path, limit=cue_limit)
     tracks = parse_cue(path) if path.suffix.lower() == ".cue" else None
-    if tracks is not None and source_record(path) != source:
+    if tracks is not None and source_record(path, limit=cue_limit) != source:
         raise InspectionError("disc source changed during inspection; discard this run")
     if tracks:
         data_tracks = [track for track in tracks if track["mode"] != "AUDIO"]
@@ -390,7 +414,7 @@ def inspect_disc(path, boot_out=None, source=None):
         entry = files[boot]
         exe_bytes = reader.extent(entry["lba"], entry["bytes"])
         exe = parse_exe(exe_bytes)
-        if any(source_record(source["path"]) != source for source in sources):
+        if any(source_record(source["path"], limit=source["bytes"]) != source for source in sources):
             raise InspectionError("disc source changed during inspection; discard this run")
         if boot_out is not None:
             write_new_bytes(boot_out, exe_bytes)
@@ -439,16 +463,18 @@ def main(argv=None):
     parser.add_argument("--boot-out", type=Path, help="preserve the full boot executable at a new path")
     args = parser.parse_args(argv)
     try:
-        before = source_record(args.path)
+        if not args.path.is_file():
+            raise InspectionError("inspection requires a regular source file")
         with args.path.open("rb") as source:
             magic = source.read(8)
+        limit = EXE_LIMIT if magic == b"PS-X EXE" else (
+            CUE_LIMIT if args.path.suffix.lower() == ".cue" else None)
+        before = source_record(args.path, limit=limit)
         if magic == b"PS-X EXE":
-            if before["bytes"] > 64 * 1024**2:
-                raise InspectionError("standalone executable exceeds 64 MiB inspection limit")
-            exe_bytes = args.path.read_bytes()
+            exe_bytes = read_limited(args.path, EXE_LIMIT)
             result = {"schema": "ps1-exe-evidence-v1", "source": before,
                       "executable": parse_exe(exe_bytes)}
-            if source_record(args.path) != before:
+            if source_record(args.path, limit=EXE_LIMIT) != before:
                 raise InspectionError("executable source changed during inspection")
             if args.boot_out:
                 write_new_bytes(args.boot_out, exe_bytes)

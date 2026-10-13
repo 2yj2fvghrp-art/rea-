@@ -1,6 +1,7 @@
 """Source-owned synthetic fixtures. No commercial discs, BIOS, SDK or executable."""
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import struct
@@ -44,7 +45,7 @@ def record(name, lba, length, directory=False):
     return bytes(data)
 
 
-def iso_fixture(*, nested=False, no_cnf=False):
+def iso_fixture(*, nested=False, no_cnf=False, cnf=None):
     data = bytearray(32 * 2048)
     pvd = bytearray(2048)
     pvd[:7] = b"\x01CD001\x01"
@@ -54,7 +55,8 @@ def iso_fixture(*, nested=False, no_cnf=False):
     pvd[156:190] = record(b"\0", 20, 2048, True)
     data[16 * 2048:17 * 2048] = pvd
     data[17 * 2048:17 * 2048 + 7] = b"\xffCD001\x01"
-    cnf = b"BOOT = cdrom:\\EXE\\DEMO_000.01;1\r\n" if nested else b"BOOT = cdrom:\\DEMO_000.01;1\r\n"
+    if cnf is None:
+        cnf = b"BOOT = cdrom:\\EXE\\DEMO_000.01;1\r\n" if nested else b"BOOT = cdrom:\\DEMO_000.01;1\r\n"
     root = record(b"\0", 20, 2048, True) + record(b"\x01", 20, 2048, True)
     if no_cnf:
         root += record("PSX.EXE;1", 23, 4096)
@@ -135,6 +137,18 @@ class InspectorTests(unittest.TestCase):
     def test_nested_system_cnf_boot_path(self):
         source = self.write("disc.iso", iso_fixture(nested=True))
         self.assertEqual(ps1.inspect_disc(source)["boot_path"], "EXE/DEMO_000.01;1")
+
+    def test_system_cnf_device_case_leading_slashes_and_crlf(self):
+        for cnf in [b'boot=CDROM0:\\\\demo_000.01;1  \r\n',
+                    b'BOOT = cdrom://DEMO_000.01;1\n']:
+            with self.subTest(cnf=cnf):
+                source = self.write("disc.iso", iso_fixture(cnf=cnf))
+                self.assertEqual(ps1.inspect_disc(source)["boot_path"], "DEMO_000.01;1")
+
+    def test_system_cnf_does_not_guess_away_trailing_comment_syntax(self):
+        source = self.write("disc.iso", iso_fixture(cnf=b'BOOT = cdrom:\\DEMO_000.01;1 ; PAL\r\n'))
+        with self.assertRaisesRegex(ps1.InspectionError, "boot executable not found"):
+            ps1.inspect_disc(source)
 
     def test_default_psx_exe_without_system_cnf(self):
         source = self.write("disc.iso", iso_fixture(no_cnf=True))
@@ -229,6 +243,13 @@ class InspectorTests(unittest.TestCase):
             ps1.inspect_disc(source, boot_out=output)
         self.assertEqual(output.read_bytes(), exe_fixture())
 
+    def test_unsupported_hard_links_leave_no_partial_destination_or_temporary(self):
+        output = self.root / "boot.exe"
+        with patch.object(ps1.os, "link", side_effect=OSError("hard links unavailable")):
+            with self.assertRaisesRegex(OSError, "hard links unavailable"):
+                ps1.write_new_bytes(output, exe_fixture())
+        self.assertEqual(list(self.root.iterdir()), [])
+
     def test_cli_preserves_full_boot_and_maps_every_byte_to_original_sectors(self):
         raw = bytes(150 * 2352) + raw_fixture(iso_fixture())
         track = self.write("disc.bin", raw)
@@ -321,6 +342,69 @@ class InspectorTests(unittest.TestCase):
         data[0] = 0xd0
         with self.assertRaisesRegex(ps1.InspectionError, "signature"):
             ps1.parse_exe(data)
+
+    def test_oversized_cli_inputs_are_rejected_without_hashing_or_outputs(self):
+        for name, prefix, limit in [("disc.cue", b"REM ", 1024 * 1024),
+                                    ("boot.psx", b"PS-X EXE", 64 * 1024**2)]:
+            source = self.root / name
+            with source.open("wb") as output:
+                output.write(prefix)
+                output.truncate(limit + 1)
+            report, boot = self.root / "report.json", self.root / "boot.exe"
+            # Exercise the CLI boundary in-process to observe forbidden full hashing.
+            with self.subTest(name=name), patch.object(ps1, "sha256_file", side_effect=AssertionError("oversized source hashed")), \
+                    patch("sys.stdout", new_callable=io.StringIO) as stdout, \
+                    patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                self.assertEqual(ps1.main([str(source), "--out", str(report), "--boot-out", str(boot)]), 2)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn("inspection limit", json.loads(stderr.getvalue())["error"])
+            self.assertFalse(report.exists())
+            self.assertFalse(boot.exists())
+
+    def test_direct_disc_inspection_rejects_oversized_cue_before_hashing(self):
+        cue = self.root / "disc.cue"
+        with cue.open("wb") as output:
+            output.truncate(1024 * 1024 + 1)
+        with patch.object(ps1, "sha256_file", side_effect=AssertionError("oversized CUE hashed")):
+            with self.assertRaisesRegex(ps1.InspectionError, "inspection limit"):
+                ps1.inspect_disc(cue)
+
+    def test_size_limit_is_inclusive_and_accepted_sources_are_fully_hashed(self):
+        for prefix, limit in [(b"REM ", 1024 * 1024), (b"PS-X EXE", 64 * 1024**2)]:
+            source = self.root / "input"
+            with source.open("wb") as output:
+                output.write(prefix)
+                output.truncate(limit)
+            with self.subTest(limit=limit):
+                report = ps1.source_record(source, limit=limit)
+                self.assertEqual(report["bytes"], limit)
+                self.assertEqual(report["sha256"], ps1.sha256_file(source))
+
+    def test_source_growth_after_admission_stops_hashing_at_the_original_bound(self):
+        source = self.write("growing.cue", b"REM ")
+        real_hash = ps1.sha256_file
+        def grow(path, **kwargs):
+            with path.open("ab") as output:
+                output.truncate(1024 * 1024 + 1)
+            return real_hash(path, **kwargs)
+        with patch.object(ps1, "sha256_file", side_effect=grow):
+            with self.assertRaisesRegex(ps1.InspectionError, "grew beyond"):
+                ps1.source_record(source, limit=1024 * 1024)
+
+    def test_executable_growth_after_hashing_is_rejected_before_outputs(self):
+        source = self.write("boot.psx", exe_fixture())
+        real_record = ps1.source_record
+        def grow(path, **kwargs):
+            result = real_record(path, **kwargs)
+            with path.open("ab") as output:
+                output.truncate(64 * 1024**2 + 1)
+            return result
+        report = self.root / "report.json"
+        with patch.object(ps1, "source_record", side_effect=grow), \
+                patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(ps1.main([str(source), "--out", str(report)]), 2)
+            self.assertIn("inspection limit", json.loads(stderr.getvalue())["error"])
+        self.assertFalse(report.exists())
 
 
 if __name__ == "__main__":
