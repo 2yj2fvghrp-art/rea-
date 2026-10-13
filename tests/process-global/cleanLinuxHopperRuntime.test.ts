@@ -36,7 +36,7 @@ it
     const alternateMode = mode === "alternate launcher";
     let orphanPid: number | undefined;
     const isolatedProcessList = async () => ({
-      stdout: orphanPid === undefined ? "" : "Xvfb",
+      stdout: alternateMode || orphanPid === undefined ? "" : "Xvfb",
     });
     if (alternateMode) {
       await copyFile("/usr/bin/sleep", launcher);
