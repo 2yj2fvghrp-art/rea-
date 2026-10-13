@@ -43,11 +43,27 @@ describe("pwntools max input bytes parsing and configuration", () => {
     });
   });
 
+  it.each([1024, 172_879_872, PWNTOOLS_INPUT_CAPACITY_BYTES])(
+    "admits an explicit %s byte bound within representation capacity",
+    (bytes) => {
+      expect(parsePwntoolsMaxInputBytes(String(bytes))).toEqual({
+        ok: true,
+        value: bytes,
+      });
+    },
+  );
+
   it.each([
     "0",
     "-1",
     "-1024",
     "1.5",
+    "33554432.0",
+    "67_108_864",
+    "0x2000000",
+    String(PWNTOOLS_INPUT_CAPACITY_BYTES + 1),
+    `${PWNTOOLS_INPUT_CAPACITY_BYTES}.00000000001`,
+    "99999999999999999999",
     "abc",
     "0123",
     "1e8",
