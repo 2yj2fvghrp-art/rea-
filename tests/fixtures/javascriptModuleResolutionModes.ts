@@ -67,10 +67,18 @@ const nativeIndexedSource = [
   'type Plain = (typeof import("native-mixed/addon.node"))["NativeMode"];',
   'type Punctuated = (typeof import("native-mixed/addon.node"))["Native.Mode"];',
   'type Empty = (typeof import("native-mixed/addon.node"))[""];',
+  'type TemplatePlain = (typeof import("native-mixed/addon.node"))[`Native\\u004dode`];',
+  'type TemplatePunctuated = (typeof import("native-mixed/addon.node"))[`Native.Mode`];',
+  'type TemplateEmpty = (typeof import("native-mixed/addon.node"))[``];',
+  'type Dynamic = (typeof import("native-mixed/addon.node"))[`Native${"Mode"}`];',
   'const first: Plain = { source: "import" };',
   'const second: Punctuated = { source: "import" };',
   'const third: Empty = { source: "import" };',
-  "console.log(JSON.stringify([first.source, second.source, third.source]));",
+  'const fourth: TemplatePlain = { source: "import" };',
+  'const fifth: TemplatePunctuated = { source: "import" };',
+  'const sixth: TemplateEmpty = { source: "import" };',
+  'const seventh: Dynamic = { source: "import" };',
+  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source]));",
 ].join("\n");
 
 export const modeSourceFiles = {
@@ -90,6 +98,14 @@ export const modeSourceFiles = {
   "cts/native-indexed.mts": nativeIndexedSource,
   "cts/native-invalid-mode.cts":
     'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "typo" };',
+  "cts/native-extra-attributes.cts":
+    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
+  "cts/native-duplicate-attributes.cts":
+    'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
+  "cts/native-inline-extra-attributes.cts":
+    'type Native = import("native-mode/addon.node", { with: { "resolution-mode": "import", type: "json" } }).NativeMode;',
+  "cts/native-inline-duplicate-attributes.cts":
+    'type Native = import("native-mode/addon.node", { with: { "resolution-mode": "import", "resolution-mode": "require" } }).NativeMode;',
   "cts/native-export-equals.cts":
     'export import Native = require("native-mode/addon.node");',
   "cts/native-export-type-equals.cts":
@@ -415,22 +431,51 @@ const expectNativeMixedEvidence = (
 const expectNativeTypeSelections = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
-  for (const member of ["NativeMode", "Native.Mode", ""])
-    expect(
-      graph.nodes.flatMap(({ observations }) => observations),
-    ).toContainEqual(
+  for (const [line, member] of [
+    [1, "NativeMode"],
+    [2, "Native.Mode"],
+    [3, ""],
+    [4, "NativeMode"],
+    [5, "Native.Mode"],
+    [6, ""],
+  ] as const)
+    expect
+      .soft(graph.nodes.flatMap(({ observations }) => observations))
+      .toContainEqual(
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            specifier: "native-mixed/addon.node",
+            requested_members: [member],
+            namespace_access: false,
+            dynamic_member_access: false,
+            type_only: true,
+          }),
+          evidence: expect.objectContaining({
+            location: expect.objectContaining({
+              value: expect.objectContaining({
+                source: "cts/native-indexed.mts",
+                start: expect.objectContaining({ line }),
+              }),
+            }),
+          }),
+        }),
+      );
+  expect
+    .soft(graph.nodes.flatMap(({ observations }) => observations))
+    .toContainEqual(
       expect.objectContaining({
         properties: expect.objectContaining({
           specifier: "native-mixed/addon.node",
-          requested_members: [member],
+          requested_members: [],
           namespace_access: false,
-          dynamic_member_access: false,
+          dynamic_member_access: true,
           type_only: true,
         }),
         evidence: expect.objectContaining({
           location: expect.objectContaining({
             value: expect.objectContaining({
               source: "cts/native-indexed.mts",
+              start: expect.objectContaining({ line: 7 }),
             }),
           }),
         }),
@@ -493,20 +538,27 @@ const expectNativeImportEqualsExports = (
       }),
     }),
   );
-  expect(observations).toContainEqual(
-    expect.objectContaining({
-      properties: expect.objectContaining({
-        module_kind: "compiler-dependent",
-        type_only: true,
-        resolved_path: null,
-      }),
-      evidence: expect.objectContaining({
-        location: expect.objectContaining({
-          value: expect.objectContaining({
-            source: "cts/native-invalid-mode.cts",
+  for (const source of [
+    "cts/native-invalid-mode.cts",
+    "cts/native-extra-attributes.cts",
+    "cts/native-duplicate-attributes.cts",
+    "cts/native-inline-extra-attributes.cts",
+    "cts/native-inline-duplicate-attributes.cts",
+  ])
+    expect.soft(observations).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          module_kind: "compiler-dependent",
+          type_only: true,
+          resolved_path: null,
+        }),
+        evidence: expect.objectContaining({
+          location: expect.objectContaining({
+            value: expect.objectContaining({
+              source,
+            }),
           }),
         }),
       }),
-    }),
-  );
+    );
 };

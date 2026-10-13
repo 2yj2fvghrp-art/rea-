@@ -396,16 +396,31 @@ const expectNativeTypeSelections = async (
   if (!indexed.ok) throw indexed.error.error;
   expect(
     indexed.value.javascript.electron.native_addon_bindings.map(
-      ({ members }) => members,
+      ({ members, namespace_access, dynamic_member_access, type_only }) => [
+        members,
+        namespace_access,
+        dynamic_member_access,
+        type_only,
+      ],
     ),
-  ).toEqual([["NativeMode"], ["Native.Mode"], [""]]);
+  ).toEqual([
+    [["NativeMode"], false, false, true],
+    [["Native.Mode"], false, false, true],
+    [[""], false, false, true],
+    [["NativeMode"], false, false, true],
+    [["Native.Mode"], false, false, true],
+    [[""], false, false, true],
+    [[], false, true, true],
+  ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
-  ).toEqual(["NativeMode", "Native.Mode", ""]);
-  expect(
-    indexed.value.javascript.electron.native_addon_bindings.every(
-      ({ namespace_access, dynamic_member_access }) =>
-        namespace_access === false && dynamic_member_access === false,
-    ),
-  ).toBe(true);
+  ).toEqual([
+    "NativeMode",
+    "Native.Mode",
+    "",
+    "NativeMode",
+    "Native.Mode",
+    "",
+    null,
+  ]);
 };
