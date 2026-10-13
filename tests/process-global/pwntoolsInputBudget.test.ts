@@ -49,6 +49,7 @@ it.skipIf(!supported)(
       files.set(size, path);
     }
     let launches = 0;
+    const snapshotSizes: number[] = [];
     const createProvider = (limit?: string) =>
       new PwntoolsLayoutProvider(
         {
@@ -59,8 +60,8 @@ it.skipIf(!supported)(
         },
         async (options) => {
           launches++;
-          expect((await stat(join(options.cwd!, "object.snapshot"))).size).toBe(
-            33 * 1024 * 1024,
+          snapshotSizes.push(
+            (await stat(join(options.cwd!, "object.snapshot"))).size,
           );
           return spawnOwnedProviderProcess({
             ...options,
@@ -100,6 +101,7 @@ it.skipIf(!supported)(
       false,
     );
     expect(launches).toBe(1);
+    expect(snapshotSizes).toEqual([33 * 1024 * 1024]);
     expectCapacityFailure(
       await overrideProvider.inspect({ path: files.get(65)! }),
       64 * 1024 * 1024,
