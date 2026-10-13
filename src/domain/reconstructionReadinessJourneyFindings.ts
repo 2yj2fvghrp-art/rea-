@@ -181,7 +181,10 @@ const stageFindings = (
     addMissingEvidenceFindings(
       findings,
       stageId,
-      stage.evidence_ids,
+      [
+        ...stage.evidence_ids,
+        ...stage.checks.flatMap((check) => check.evidence_ids),
+      ],
       evidenceIds,
     );
     for (const checkId of READINESS_REQUIRED_CHECKS[stageId]) {
@@ -216,12 +219,6 @@ const stageFindings = (
             `${checkId} has no attributable Evidence.`,
           ),
         );
-      addMissingEvidenceFindings(
-        findings,
-        stageId,
-        check.evidence_ids,
-        evidenceIds,
-      );
     }
   }
   return findings;
