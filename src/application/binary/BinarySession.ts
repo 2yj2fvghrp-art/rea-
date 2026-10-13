@@ -194,7 +194,7 @@ export class BinarySession
       stagedSnapshotMatches: (target, profile) =>
         this.matchesSnapshot(target, profile),
     }).then((resolved) =>
-      isAborted(options.signal)
+      resolved.ok && isAborted(options.signal)
         ? err(new AnalysisCancelledError("open_binary"))
         : resolved,
     );
@@ -215,7 +215,7 @@ export class BinarySession
       stagedSnapshotMatches: (target, profile) =>
         this.matchesSnapshot(target, profile),
     }).then((resolved) =>
-      isAborted(options.signal)
+      resolved.ok && isAborted(options.signal)
         ? err(new AnalysisCancelledError("open_binary"))
         : resolved,
     );

@@ -61,6 +61,7 @@ export interface BinarySessionPort
     path: string,
     options?: {
       readonly signal?: AbortSignal;
+      readonly dsymPath?: string;
       readonly targetKind?: BinaryTarget["kind"];
       readonly formatHint?: ExecutableFormatHint;
       readonly architecture?: BinaryArchitecture;

@@ -313,6 +313,8 @@ export const parseBinaryTarget = async (
           },
         ),
       );
+    if (signal?.aborted === true)
+      return err(new AnalysisCancelledError("open_binary", { cause }));
     if (cause instanceof RegularFileChangedError)
       return err(new BinaryTargetError(cause.path, cause.message, { cause }));
     if (cause instanceof AnalysisCancelledError) return err(cause);

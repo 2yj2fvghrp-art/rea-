@@ -348,10 +348,12 @@ export const admitDebugCompanion = async (input: {
   try {
     bundle = await stat(dsymPath);
   } catch (cause: unknown) {
+    throwIfCancelled(signal);
     if (isExpectedAdmissionPathFailure(cause))
       return err({ reason: `dsym_path is not readable: ${dsymPath}` });
     throw cause;
   }
+  throwIfCancelled(signal);
   if (!bundle.isDirectory())
     return err({
       reason: `dsym_path is not a .dSYM bundle directory: ${dsymPath}`,
@@ -363,12 +365,14 @@ export const admitDebugCompanion = async (input: {
       bufferSize: MEMBER_COUNT_LIMIT + 1,
     });
   } catch (cause: unknown) {
+    throwIfCancelled(signal);
     if (isExpectedAdmissionPathFailure(cause))
       return err({
         reason: `dsym_path has no Contents/Resources/DWARF member directory: ${dsymPath}`,
       });
     throw cause;
   }
+  throwIfCancelled(signal);
   const directoryOwner = new OwnedDirectoryHandle(directory);
   const memberPaths: string[] = [];
   let examinedEntries = 0;
@@ -493,6 +497,7 @@ export const admitDebugCompanion = async (input: {
           const matched = debugCompanionMatches({
             executableUuids: selectedUuids,
             companionUuids: memberEntries.value
+              .filter(({ cpuType }) => selectedCpuTypes.includes(cpuType))
               .map(({ uuid }) => uuid)
               .filter((uuid): uuid is string => uuid !== null),
           });
@@ -544,7 +549,11 @@ export const admitDebugCompanion = async (input: {
       throwIfCancelled(signal);
       if (cause instanceof NonRegularFileReadError) continue;
       if (cause instanceof RegularFileChangedError)
-        return err({ reason: cause.message });
+        throw new ArtifactReaderFailure(
+          "integrity",
+          "Selected dSYM DWARF member changed while being read",
+          { cause },
+        );
       const code =
         cause instanceof Error && "code" in cause ? cause.code : undefined;
       if (
