@@ -256,7 +256,7 @@ describe("Ghidra installation inspection", () => {
   });
 });
 
-describe("Ghidra installation rejection diagnostics", () => {
+describe("Ghidra incomplete Java observations", () => {
   it.each([
     ["java.version", "", JAVA.home, null, "jdk"],
     ["java.home", JAVA.version, "", JAVA.major, undefined],
@@ -298,7 +298,9 @@ describe("Ghidra installation rejection diagnostics", () => {
       });
     },
   );
+});
 
+describe("Ghidra installation rejection diagnostics", () => {
   it.each([
     {
       name: "missing configuration",
