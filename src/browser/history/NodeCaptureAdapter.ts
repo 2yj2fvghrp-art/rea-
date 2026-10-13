@@ -1,11 +1,13 @@
 import { fileURLToPath } from "node:url";
 import type { HistoricalCaptureFormatAdapter } from "./HistoricalCaptureFormatAdapter.js";
 import {
+  NODE_CAPTURE_HEAP_ENFORCED,
   HAR_CAPTURE_PROVIDER_IDENTITY,
   SAZ_CAPTURE_PROVIDER_IDENTITY,
   NODE_CAPTURE_HEAP_LIMITS,
   NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES,
 } from "./CaptureRelease.js";
+import { AnalysisCapabilityUnavailableError } from "../../domain/analysisErrorCore.js";
 
 /** Package-backed capture decoders share one bounded offline Node process profile. */
 export class NodeCaptureAdapter implements HistoricalCaptureFormatAdapter {
@@ -27,6 +29,16 @@ export class NodeCaptureAdapter implements HistoricalCaptureFormatAdapter {
         : [];
   }
   async command(requestPath: string) {
+    if (
+      this.format === "saz" &&
+      !NODE_CAPTURE_HEAP_ENFORCED &&
+      NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES === null
+    )
+      throw new AnalysisCapabilityUnavailableError(
+        this.identity.id,
+        "inspect_web_network_capture",
+        "SAZ decoding requires an enforced decoder memory limit. Run REA with Node.js on this host.",
+      );
     return {
       command: process.execPath,
       arguments: [

@@ -2,8 +2,16 @@ import { CaptureFormatError } from "./CaptureFormatError.js";
 
 /** Preserve ordered HTTP fields and the stored body; never dechunk, decompress or fetch. */
 export const decodeSazHttp = (bytes: Buffer, request: boolean) => {
-  const split = bytes.indexOf("\r\n\r\n");
-  const lfSplit = split < 0 ? bytes.indexOf("\n\n") : -1;
+  const crlfSplit = bytes.indexOf("\r\n\r\n");
+  // Once a CRLF separator is found, only an earlier LF separator can win.
+  // Avoid searching an otherwise unrelated large body a second time.
+  const lfSplit = bytes
+    .subarray(0, crlfSplit < 0 ? bytes.length : crlfSplit)
+    .indexOf("\n\n");
+  // The first separator ends the headers. Later separators belong to the
+  // stored body, which may use different line endings or contain binary data.
+  const split =
+    crlfSplit >= 0 && (lfSplit < 0 || crlfSplit < lfSplit) ? crlfSplit : -1;
   const boundary = split < 0 ? lfSplit : split;
   if (boundary < 0)
     throw new CaptureFormatError(

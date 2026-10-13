@@ -29,6 +29,11 @@ A bundle observed at runtime does not prove every contained module executed.
 
 ## Fiddler Everywhere traffic debugging
 
+For large saved captures, request `detail: "summary"`, then page retained Evidence
+with `inspect_analysis_view` and `view: {kind: "capture", detail: "preview", offset: 0, limit: 20}`.
+Select complete record pages only for needed headers, metadata or payloads; views
+read the historical parent without repeating capture decoding.
+
 Inspect native `.saz` snapshots with `inspect_web_network_capture` and
 `format: "saz"`; encrypted archives are unsupported. For live
 traffic analysis, connect Everywhere's separate MCP server and use its

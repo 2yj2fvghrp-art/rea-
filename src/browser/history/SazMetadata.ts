@@ -1,4 +1,4 @@
-import { DOMParser, type Node } from "@xmldom/xmldom";
+import { DOMParser, ParseError, type Node } from "@xmldom/xmldom";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { WEB_NETWORK_CAPTURE_LIMITS } from "../../domain/webNetworkCapture.js";
 import { CaptureFormatError } from "./CaptureFormatError.js";
@@ -20,20 +20,34 @@ export const decodeSazMetadata = (bytes: Buffer): JsonValue => {
       "SAZ metadata must use UTF-8 or BOM-marked UTF-16.",
     );
   }
-  if (/<!DOCTYPE\b/i.test(xml))
+  let parseFailed = false;
+  let document: ReturnType<DOMParser["parseFromString"]>;
+  try {
+    document = new DOMParser({
+      normalizeLineEndings: (source) => source,
+      onError: () => {
+        parseFailed = true;
+      },
+    }).parseFromString(xml, "application/xml");
+  } catch (cause: unknown) {
+    if (!(cause instanceof ParseError)) throw cause;
+    throw new CaptureFormatError(
+      "format",
+      "SAZ metadata is not well-formed XML.",
+    );
+  }
+  // The pinned parser does not resolve external or DTD-defined entities.
+  // Inspect its parsed node; text inside comments/CDATA is ordinary evidence.
+  if (document.doctype !== null)
     throw new CaptureFormatError(
       "unsupported",
       "SAZ metadata DTDs are unsupported.",
     );
-  const document = new DOMParser({
-    normalizeLineEndings: (source) => source,
-    onError: () => {
-      throw new CaptureFormatError(
-        "format",
-        "SAZ metadata is not well-formed XML.",
-      );
-    },
-  }).parseFromString(xml, "application/xml");
+  if (parseFailed)
+    throw new CaptureFormatError(
+      "format",
+      "SAZ metadata is not well-formed XML.",
+    );
   if (document.documentElement?.tagName !== "Session")
     throw new CaptureFormatError(
       "format",

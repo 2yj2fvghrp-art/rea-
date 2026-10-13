@@ -616,6 +616,7 @@ const registerConfiguredAnalysisTools = (
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
+    evidenceById,
   );
   registerJavaScriptRecoveryTool(
     server,

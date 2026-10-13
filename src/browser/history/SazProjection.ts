@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import {
   WEB_NETWORK_CAPTURE_LIMITS,
@@ -37,7 +38,6 @@ export const projectSazRecord = (
     if (Buffer.isBuffer(value)) {
       const base64 = value.toString("base64");
       const sha256 = createHash("sha256").update(value).digest("hex");
-      const utf8 = value.toString("utf8");
       const hidden =
         redactor.sensitiveBytes(value) ||
         sensitiveValues.some(
@@ -69,7 +69,7 @@ export const projectSazRecord = (
         bytes: value.length,
         sha256,
       });
-      return Buffer.from(utf8, "utf8").equals(value) ? utf8 : null;
+      return isUtf8(value) ? value.toString("utf8") : null;
     }
     if (typeof value === "string") {
       // HTTP fields are Latin-1 views of bytes. A UTF-8 declaration must also

@@ -25,6 +25,36 @@ and original zero-based producer ordinals; duplicate or out-of-range selections
 are input errors. Every record is validated before selection, so selecting one
 entry does not hide a malformed entry elsewhere.
 
+For agent discovery over MCP, request `detail: "summary"`. REA retains the
+complete selected Evidence in the session and returns identity and counts.
+Use `normalized_result.parent_evidence_id` with `inspect_analysis_view`:
+
+```json
+{
+  "source": {
+    "kind": "retained-evidence",
+    "evidence_id": "<parent_evidence_id>"
+  },
+  "view": { "kind": "capture", "detail": "preview", "offset": 0, "limit": 20 }
+}
+```
+
+Preview pages select recorded HTTP headline fields, event names/times when
+present, original locations and byte descriptors; they omit headers, XML and
+payload content. Choose `detail: "complete"` in that view for exact record
+pages, including all sidecars. Offsets follow the parent's selected record
+order; producer ordinals remain unchanged. `total_records` counts the original
+capture while `retained_records` and page coverage count records in the parent.
+An exhausted page does not establish absence from unselected records.
+
+Views do not reopen the file or rerun its decoder. They remain historical
+Evidence if the source changes or disappears; inspect the capture again to
+observe new bytes. The inspection tool's default `detail: "complete"` preserves
+existing inline delivery. For CLI use, save complete inspection JSON and pass
+it as inline Evidence to `inspect-analysis-view`; the same summary and capture
+page contracts apply. Large complete records can still exceed MCP's response
+budget; export the retained Evidence when a single record cannot fit.
+
 ## Formats and upstream profiles
 
 HAR uses unchanged `har-schema@2.0.0` draft-06 schemas, `ajv@8.20.0`,
@@ -81,10 +111,18 @@ See Telerik's [SAZ format reference](https://www.telerik.com/fiddler/fiddler-eve
 
 The existing ZIP reader verifies read members; expanded archive contents are
 limited to 32 MiB in addition to the input/output budgets below. Encrypted
-archives and unrecognized raw session members are unsupported. Non-session
+archives and unrecognized raw session members are unsupported. SAZ requires an
+enforced decoder memory bound: Node's fixed heap, or the Windows Job Object
+commit limit. Bun on hosts without that Job Object limit returns capability
+unavailable before starting the SAZ decoder. Non-session
 members are inventoried without decoding their content. Original files remain
-unchanged. The decoder is covered by synthetic fixtures based on the documented
-layout; real Fiddler Everywhere exports have not yet been verified.
+unchanged. Linux verification includes independently checked public recorded
+Mattermost captures from [FOREST](https://github.com/dfrc-korea/FOREST/tree/405c9154658a128ea203a6c10040cec55111ed03/api-results/dataset)
+and the Fiddler author's [encoding corpus](https://github.com/ericlaw1979/Clearinet/blob/b6faf78cde1e72042980364f180ceb34b77d1434/Test/data/Encodings.saz),
+plus synthetic malformed/limit fixtures. Their exporting product versions are
+not authenticated. An interactive export from a current Fiddler Everywhere
+installation and its live MCP server remain unverified. Support here is the
+bounded documented raw HTTP/XML SAZ layout, not every product/version profile.
 
 For visual inspection, use Everywhere's **Import Snapshot**, then **Inspectors**
 and **Overview**. HAR remains an alternative: select sessions, choose

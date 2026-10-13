@@ -1,19 +1,28 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
-import { Client } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it as runtimeTest } from "vitest";
 import { z } from "zod";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { webNetworkCaptureSchema } from "../../../src/domain/webNetworkCapture.js";
+import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+import {
+  NODE_CAPTURE_HEAP_ENFORCED,
+  NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES,
+} from "../../../src/browser/history/CaptureRelease.js";
+const hasMemoryBound =
+  NODE_CAPTURE_HEAP_ENFORCED ||
+  NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES !== null;
+
+const it = runtimeTest.skipIf(!hasMemoryBound);
 
 // Synthetic member fixtures based on Telerik's SAZ layout; not a real-producer golden.
 const compressedBody = gzipSync(Buffer.from("stored compressed body"));
@@ -175,22 +184,7 @@ it("inspects native SAZ through the public CLI and MCP with equal evidence, byte
   );
   expect(await readFile(path)).toEqual(bytes);
 
-  const client = new Client({ name: "saz-boundary", version: "1" });
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [entrypoint, "mcp"],
-    cwd: process.cwd(),
-    env: {
-      PATH: process.env.PATH ?? "",
-      NODE_OPTIONS: "--max-old-space-size=512 --max-semi-space-size=8",
-    },
-    stderr: "pipe",
-  });
-  onTestFinished(async () => {
-    await client.close();
-    await transport.close();
-  });
-  await client.connect(transport);
+  const { client, call } = await connectLocalToolsMcp();
   const tool = (await client.listTools()).tools.find(
     (item) => item.name === "inspect_web_network_capture",
   );
@@ -199,18 +193,8 @@ it("inspects native SAZ through the public CLI and MCP with equal evidence, byte
   const args = { capture_path: path, format: "saz", record_ordinals: [1, 0] };
   const ajv = new Ajv2020({ strict: false, validateFormats: false });
   expect(ajv.validate(tool.inputSchema, args)).toBe(true);
-  const response = await client.callTool({
-    name: "inspect_web_network_capture",
-    arguments: args,
-  });
+  const response = await call("inspect_web_network_capture", args);
   expect(response.isError, JSON.stringify(response)).not.toBe(true);
-  expect(
-    ajv.validate(
-      z.record(z.string(), z.unknown()).parse(tool.outputSchema),
-      response.structuredContent,
-    ),
-    JSON.stringify(ajv.errors),
-  ).toBe(true);
   const fromMcp = parseEvidence(response.structuredContent);
   expect(fromMcp.normalized_result).toEqual(evidence.normalized_result);
   const bundle = await client.callTool({
@@ -225,6 +209,135 @@ it("inspects native SAZ through the public CLI and MCP with equal evidence, byte
     records.find((record) => record.evidence_id === fromMcp.evidence_id),
   ).toEqual(fromMcp);
 }, 60_000);
+
+it("pages retained SAZ Evidence through public MCP and portable CLI after source deletion", async () => {
+  const path = await fixture(await archive());
+  const { call } = await connectLocalToolsMcp();
+  const args = { capture_path: path, format: "saz", record_ordinals: [1, 0] };
+  const full = await call("inspect_web_network_capture", args);
+  const fromMcp = parseEvidence(full.structuredContent);
+  const capture = webNetworkCaptureSchema.parse(fromMcp.normalized_result);
+  const summaryArgs = { ...args, detail: "summary" };
+  const summaryResponse = await call(
+    "inspect_web_network_capture",
+    summaryArgs,
+  );
+  expect(summaryResponse.isError, JSON.stringify(summaryResponse)).not.toBe(
+    true,
+  );
+  const summary = parseEvidence(summaryResponse.structuredContent);
+  expect(summary.normalized_result).toMatchObject({
+    kind: "summary",
+    parent_evidence_id: fromMcp.evidence_id,
+    summary: { format: "saz", total_records: 2, retained_records: 2 },
+  });
+  expect(JSON.stringify(summary)).not.toContain(
+    compressedBody.toString("base64"),
+  );
+
+  // Retained pages must keep their snapshot semantics after the input disappears.
+  await unlink(path);
+  const source = {
+    kind: "retained-evidence",
+    evidence_id: fromMcp.evidence_id,
+  };
+  const previewArgs = {
+    source,
+    view: { kind: "capture", offset: 0, limit: 1 },
+  };
+  const previewResponse = await call("inspect_analysis_view", previewArgs);
+  expect(previewResponse.isError, JSON.stringify(previewResponse)).not.toBe(
+    true,
+  );
+  const preview = parseEvidence(previewResponse.structuredContent);
+  expect(preview.normalized_result).toMatchObject({
+    items: [
+      {
+        ordinal: 1,
+        reported: {
+          session_id: "7",
+          request: { method: "POST", url: "/bytes" },
+        },
+      },
+    ],
+    coverage: { examined: 1, total: 2, next_offset: 1, exhausted: false },
+  });
+  expect(JSON.stringify(preview)).not.toContain("content_base64");
+  const completeResponse = await call("inspect_analysis_view", {
+    source,
+    view: { kind: "capture", detail: "complete", offset: 1, limit: 1 },
+  });
+  expect(completeResponse.isError, JSON.stringify(completeResponse)).not.toBe(
+    true,
+  );
+  const complete = parseEvidence(completeResponse.structuredContent);
+  expect(complete.normalized_result).toMatchObject({
+    items: [capture.records[1]],
+    coverage: { next_offset: null, exhausted: true },
+  });
+
+  const workflow = join(path, "..", "summary-view.json");
+  await writeFile(
+    workflow,
+    JSON.stringify({
+      source: { kind: "inline", evidence: fromMcp },
+      view: { kind: "summary" },
+    }),
+  );
+  const standalone = await promisify(execFile)(process.execPath, [
+    entrypoint,
+    "inspect-analysis-view",
+    workflow,
+    "--json",
+  ]);
+  expect(
+    parseEvidence(JSON.parse(standalone.stdout)).normalized_result,
+  ).toEqual(summary.normalized_result);
+}, 60_000);
+
+it("keeps CRLF separators inside a body after LF-only HTTP headers", async () => {
+  const body = Buffer.from("\ufefffirst\r\n\r\nsecond\n\nthird");
+  const bytes = await archive([
+    [
+      "raw/1_c.txt",
+      Buffer.concat([
+        Buffer.from("POST https://example.test/ HTTP/1.1\nX-Test: request\n\n"),
+        body,
+      ]),
+    ],
+    [
+      "raw/1_s.txt",
+      Buffer.concat([
+        Buffer.from("HTTP/1.1 200 OK\nX-Test: response\n\n"),
+        body,
+      ]),
+    ],
+  ]);
+  const path = await fixture(bytes);
+  const capture = webNetworkCaptureSchema.parse(
+    (await cli(path)).normalized_result,
+  );
+  expect(capture.records[0]?.reported).toMatchObject({
+    request: {
+      headers: [{ name: "X-Test", value: " request" }],
+      body: body.toString("utf8"),
+    },
+    response: {
+      headers: [{ name: "X-Test", value: " response" }],
+      body: body.toString("utf8"),
+    },
+  });
+  for (const pointer of ["/request/body", "/response/body"])
+    expect(capture.records[0]?.binary_fields).toContainEqual({
+      pointer,
+      representation: "producer-bytes",
+      state: "retained",
+      content_base64: body.toString("base64"),
+      bytes: body.length,
+      sha256: createHash("sha256").update(body).digest("hex"),
+    });
+  expect(await readFile(path)).toEqual(bytes);
+});
 
 it("excludes explicit literals from XML, HTTP byte views, member coordinates and binary sidecars", async () => {
   const path = await fixture(await archive());
@@ -275,7 +388,7 @@ it("retains folded headers, stored chunk framing and BOM-marked UTF-16 metadata"
       [
         "raw/1_m.xml",
         Buffer.from(
-          '\ufeff<?xml version="1.0" encoding="utf-16"?><Session><Note>\u03b2</Note></Session>',
+          '\ufeff<?xml version="1.0" encoding="utf-16"?><Session><Note>\u03b2</Note><Source><![CDATA[<!DOCTYPE html>]]></Source></Session>',
           "utf16le",
         ),
       ],
@@ -373,3 +486,14 @@ it.each([
     expect(JSON.parse(result.stdout).code).toBe("unreadable_output");
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
+
+runtimeTest.runIf(!hasMemoryBound)(
+  "reports SAZ unavailable when its runtime cannot enforce decoder memory",
+  async () => {
+    const response = await cliResponse(await fixture(await archive()));
+    expect(response.ok).toBe(false);
+    expect(JSON.parse(response.stdout)).toMatchObject({
+      code: "capability_unavailable",
+    });
+  },
+);

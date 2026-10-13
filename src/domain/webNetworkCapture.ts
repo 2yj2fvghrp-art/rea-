@@ -33,6 +33,21 @@ export const inspectWebNetworkCaptureInputSchema = z.strictObject({
     ),
 });
 
+/** Read declarations through their owning schema for service and adapter failures. */
+export const captureSensitiveValues = (
+  rawInput: unknown,
+): readonly string[] => {
+  const parsed =
+    inspectWebNetworkCaptureInputSchema.shape.sensitive_values.safeParse(
+      typeof rawInput === "object" &&
+        rawInput !== null &&
+        "sensitive_values" in rawInput
+        ? rawInput.sensitive_values
+        : undefined,
+    );
+  return parsed.success ? parsed.data : [];
+};
+
 const pointerSchema = z
   .string()
   .describe("RFC 6901 pointer in the producer's reported object.");
@@ -55,21 +70,26 @@ const binaryBase = {
   pointer: pointerSchema,
   representation: z.enum(["producer-bytes", "har-base64-content"]),
 };
+const retainedBinaryDescriptorSchema = z.strictObject({
+  ...binaryBase,
+  state: z.literal("retained"),
+  bytes: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+const redactedBinaryDescriptorSchema = z.strictObject({
+  ...binaryBase,
+  state: z.literal("redacted"),
+  bytes: z.null(),
+  sha256: z.null(),
+});
+/** Exact byte facts shared by complete records and previews that omit content. */
+export const webNetworkCaptureBinaryDescriptorSchema = z.discriminatedUnion(
+  "state",
+  [retainedBinaryDescriptorSchema, redactedBinaryDescriptorSchema],
+);
 const binarySchema = z.discriminatedUnion("state", [
-  z.strictObject({
-    ...binaryBase,
-    state: z.literal("retained"),
-    content_base64: z.string(),
-    bytes: z.number().int().nonnegative(),
-    sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  }),
-  z.strictObject({
-    ...binaryBase,
-    state: z.literal("redacted"),
-    content_base64: z.null(),
-    bytes: z.null(),
-    sha256: z.null(),
-  }),
+  retainedBinaryDescriptorSchema.extend({ content_base64: z.string() }),
+  redactedBinaryDescriptorSchema.extend({ content_base64: z.null() }),
 ]);
 const numberSchema = z.strictObject({
   pointer: pointerSchema,
