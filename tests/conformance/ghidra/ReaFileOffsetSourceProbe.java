@@ -13,6 +13,10 @@ import ghidra.app.util.headless.HeadlessScript;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.decompiler.DecompileProcess.DisposeState;
+import ghidra.util.task.TaskMonitor;
 
 /** Real source-identity cases unavailable through ordinary single-file CLI imports. */
 public final class ReaFileOffsetSourceProbe extends HeadlessScript {
@@ -59,11 +63,36 @@ public final class ReaFileOffsetSourceProbe extends HeadlessScript {
         var mapped = (JsonObject)reverse.invoke(bridge, reverseInput("0x140001010"));
         require(mapped.get("file_offset").getAsLong() == 0x210, "original target round trip");
 
+        // Inject backend failures after real source/function resolution. This
+        // verifies context propagation, not a naturally failing decompiler.
+        var pseudocode = bridge.getClass().getDeclaredMethod("procedurePseudocode", JsonObject.class);
+        pseudocode.setAccessible(true);
+        var decompiler = bridge.getClass().getDeclaredField("decompiler");
+        decompiler.setAccessible(true);
+        JsonObject request = new JsonObject();
+        request.add("document", JsonNull.INSTANCE);
+        request.addProperty("procedure", "file-offset:0x210");
+        for (DisposeState disposition : new DisposeState[] { DisposeState.NOT_DISPOSED, DisposeState.DISPOSED_ON_CANCEL }) {
+            decompiler.set(bridge, new DecompInterface() {
+                @Override
+                public DecompileResults decompileFunction(Function function, int timeout, TaskMonitor taskMonitor) {
+                    return new DecompileResults(function, currentProgram.getLanguage(),
+                        currentProgram.getCompilerSpec(), null, "Injected backend failure", null, disposition);
+                }
+            });
+            Throwable failure = rejected(pseudocode, bridge,
+                "Selector file-offset:0x210 mapped to analysis address 0x140001010 and procedure 0x140001010", request);
+            var code = failure.getClass().getDeclaredField("code");
+            code.setAccessible(true);
+            require(code.get(failure).equals(disposition == DisposeState.DISPOSED_ON_CANCEL
+                ? "decompile_cancelled" : "decompile_failed"), "backend failure code retained");
+        }
+
         var duplicate = memory.createFileBytes("duplicate.bin", 0, bytes.length,
             new ByteArrayInputStream(bytes), monitor);
         memory.createInitializedBlock("duplicate", toAddr(0x140201000L), duplicate, 0x200, 0x200, false);
         rejected(resolve, bridge, "multiple loaded mappings", "file-offset:0x210", new JsonObject());
-        println("REA_FILE_OFFSET_SOURCE_OK foreign/partial rejected; original round trip; duplicate ambiguity retained");
+        println("REA_FILE_OFFSET_SOURCE_OK foreign/partial rejected; original round trip; duplicate ambiguity; injected backend failure context retained");
     }
 
     private JsonObject reverseInput(String address) {
@@ -73,12 +102,12 @@ public final class ReaFileOffsetSourceProbe extends HeadlessScript {
         return params;
     }
 
-    private void rejected(Method method, Object bridge, String reason, Object... arguments) throws Exception {
+    private Throwable rejected(Method method, Object bridge, String reason, Object... arguments) throws Exception {
         try {
             method.invoke(bridge, arguments);
         } catch (InvocationTargetException rejected) {
             require(rejected.getCause().getMessage().contains(reason), "expected mapping failure: " + reason);
-            return;
+            return rejected.getCause();
         }
         throw new AssertionError("Expected mapping failure: " + reason);
     }

@@ -61,6 +61,14 @@ Multiple mapping candidates fail as ambiguous rather than selecting a bank or
 address space. A successful conversion retains the file offset, mapped address
 and procedure entry in raw Evidence and `locations`.
 
+If an offset maps to loaded target bytes but no procedure starts at or contains
+the mapped address, the failure preserves both the original file offset and
+analysis address. This differs from an unmapped offset and does not recommend
+retrying the same offset syntax.
+If the function resolves but the backend fails or cancels decompilation, the
+failure retains the selector, mapped address and procedure entry without
+changing the backend failure code.
+
 Both mapping directions require a complete original `FileBytes` source whose
 SHA-256 matches the admitted target. Auxiliary files and partial source objects
 remain visible in the load-image inventory but do not establish offsets in the

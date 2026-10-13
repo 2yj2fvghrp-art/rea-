@@ -108,6 +108,31 @@ export async function verifyGhidraFileOffsets(
       (await call("binary_session")).analysis_run.run_id,
       session.analysis_run.run_id,
     );
+    const image = parseEvidence(await call("inspect_native_load_image"));
+    const headerMapping = image.normalized_result.observations.mappings.find(
+      (item) => item.initialized && item.file_offset === 0,
+    );
+    assert.ok(
+      headerMapping,
+      "Fixture header must have an observed source mapping",
+    );
+    const headerOffset = parseEvidence(
+      await call("address_to_file_offset", { address: headerMapping.start }),
+    );
+    assert.equal(headerOffset.normalized_result.file_offset, 0);
+    for (const selector of ["file-offset:0x0", "0x0"]) {
+      const missing = requireMcpToolError(
+        await client.callTool({
+          name: "procedure_pseudo_code",
+          arguments: { procedure: selector },
+        }),
+      );
+      assertMissingMappedProcedure(missing, headerMapping.start);
+    }
+    assert.equal(
+      (await call("binary_session")).analysis_run.run_id,
+      session.analysis_run.run_id,
+    );
     await call("close_binary");
     const cli = JSON.parse(
       (
@@ -128,6 +153,27 @@ export async function verifyGhidraFileOffsets(
     );
     assert.equal(cli.normalized_result, explicit.normalized_result);
     assert.deepEqual(cli.locations, explicit.locations);
+    const missingCli = await promisify(execFile)(
+      process.execPath,
+      [
+        entrypoint,
+        "decompile",
+        targetPath,
+        "--file-offset=0x0",
+        "--provider",
+        "ghidra",
+        "--json",
+      ],
+      { env, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
+    ).then(
+      () => {
+        throw new Error(
+          "Mapped header bytes must not decompile as a procedure",
+        );
+      },
+      (cause) => JSON.parse(cause.stdout),
+    );
+    assertMissingMappedProcedure(missingCli, headerMapping.start);
     const alias = Buffer.from(original);
     const pe = alias.readUInt32LE(0x3c);
     if (alias.readUInt16LE(pe + 6) >= 2) {
@@ -160,6 +206,7 @@ export async function verifyGhidraFileOffsets(
       cli_mcp_parity: true,
       explicit_and_numeric_offsets: true,
       invalid_and_unmapped_offsets: true,
+      mapped_offset_without_procedure: true,
       ambiguous_mappings:
         alias.readUInt16LE(pe + 6) >= 2
           ? "verified"
@@ -201,4 +248,17 @@ export async function verifyGhidraFileOffsets(
         `Retained file-offset verifier workspace: ${workspace}\n`,
       );
   }
+}
+
+function assertMissingMappedProcedure(error, mappedAddress) {
+  assert.equal(error.code, "invalid_request");
+  const message = error.details?.issues?.[0]?.message;
+  assert.equal(typeof message, "string");
+  assert.ok(
+    message.includes("File offset 0x0 maps to analysis address"),
+    message,
+  );
+  assert.ok(message.includes(mappedAddress), message);
+  assert.ok(message.includes("no procedure starts at or contains"), message);
+  assert.ok(!message.includes("--file-offset"), message);
 }
