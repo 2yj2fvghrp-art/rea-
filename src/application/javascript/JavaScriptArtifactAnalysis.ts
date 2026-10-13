@@ -17,11 +17,7 @@ import {
   flattenSourceMapLeaves,
   sourceMapJsonText,
 } from "../../domain/sourceMapEnvelope.js";
-import type {
-  JavaScriptSourceRange,
-  JavaScriptSourcePoint,
-  JavaScriptStaticAnalysis,
-} from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
+import type { JavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
 import { failedJavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisHelpers.js";
 import type {
   JavaScriptArtifactFile,
@@ -537,17 +533,12 @@ const parseHtmlScripts = (
 } => {
   const { scripts, inlineScripts, inlineScriptCount, baseHref } =
     htmlArtifactReferences(text);
-  const pointAt = sourcePointLookup(text);
-  const range = (start: number, end: number): JavaScriptSourceRange => ({
-    start: pointAt(start),
-    end: pointAt(end),
-  });
   return {
-    scripts: scripts.map(({ scriptPath, startOffset, endOffset }) => ({
+    scripts: scripts.map(({ scriptPath, location }) => ({
       html_path: path,
       script_path: scriptPath,
       base_href: baseHref,
-      location: range(startOffset, endOffset),
+      location,
     })),
     inlineScripts:
       inlineScriptCount === 0
@@ -555,12 +546,10 @@ const parseHtmlScripts = (
         : {
             path,
             script_count: inlineScriptCount,
-            scripts: inlineScripts.map(
-              ({ scriptType, startOffset, endOffset }) => ({
-                script_type: scriptType,
-                location: range(startOffset, endOffset),
-              }),
-            ),
+            scripts: inlineScripts.map(({ scriptType, location }) => ({
+              script_type: scriptType,
+              location,
+            })),
           },
   };
 };
@@ -694,51 +683,6 @@ const findingCount = (analysis: JavaScriptStaticAnalysis): number =>
   analysis.electron.sender_validations.length +
   analysis.electron.utility_processes.length +
   analysis.electron.native_addon_bindings.length;
-
-/**
- * Index line breaks once so each offset resolves in logarithmic time. Lines
- * break at CRLF, CR, or LF, and columns count UTF-16 code units after the
- * last terminator character, so an offset inside CRLF is column zero.
- */
-const sourcePointLookup = (
-  text: string,
-): ((offset: number) => JavaScriptSourcePoint) => {
-  // breaks[i] is the offset just after the i-th line terminator; CRLF ends
-  // one break, and its CR alone starts the zero-width column inside it.
-  const breaks: number[] = [];
-  const crlfInterior = new Set<number>();
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    if (code === 0x0d) {
-      if (text.charCodeAt(index + 1) === 0x0a) {
-        crlfInterior.add(index + 1);
-        index += 1;
-      }
-      breaks.push(index + 1);
-    } else if (code === 0x0a) breaks.push(index + 1);
-  }
-  return (offset) => {
-    if (crlfInterior.has(offset))
-      return { line: countAtMost(breaks, offset) + 2, column: 0 };
-    const lineIndex = countAtMost(breaks, offset);
-    return {
-      line: lineIndex + 1,
-      column: offset - (lineIndex === 0 ? 0 : (breaks[lineIndex - 1] ?? 0)),
-    };
-  };
-};
-
-/** Count sorted values that are less than or equal to the bound. */
-const countAtMost = (values: readonly number[], bound: number): number => {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if ((values[middle] ?? Infinity) <= bound) low = middle + 1;
-    else high = middle;
-  }
-  return low;
-};
 
 const optionalString = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null;

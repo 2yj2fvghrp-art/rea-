@@ -38,7 +38,7 @@ it.each([
   ).toEqual(expected);
 });
 
-it("retains exact opening-tag offsets rather than the script body", () => {
+it("retains exact opening-tag coordinates rather than the script body", () => {
   const opening = '<script\n title=">" src=actual.js>';
   const prefix = "<!doctype html>\n\n";
   const text = `${prefix}${opening}ignored body</script>`;
@@ -49,8 +49,10 @@ it("retains exact opening-tag offsets rather than the script body", () => {
     scripts: [
       {
         scriptPath: "actual.js",
-        startOffset: prefix.length,
-        endOffset: prefix.length + opening.length,
+        location: {
+          start: { line: 3, column: 0 },
+          end: { line: 4, column: ' title=">" src=actual.js>'.length },
+        },
       },
     ],
   });
@@ -82,6 +84,9 @@ it.each([
   ['<script language="javascript">run();</script>', ["classic"]],
   ['<script language="">run();</script>', ["classic"]],
   ['<script type="MODULE">import "./x.js";</script>', ["module"]],
+  // Only the JavaScript MIME check strips whitespace; `module` must match.
+  ['<script type=" module ">import "./x.js";</script>', []],
+  ['<script language=" javascript ">run();</script>', []],
   ["<script nomodule>run();</script>", ["classic"]],
   // A src attribute, even an empty one, means the browser ignores the body.
   ['<script src="actual.js">run();</script>', []],
@@ -104,23 +109,21 @@ it.each([
   ).toEqual(expected);
 });
 
-it("retains exact inline script body offsets, including unclosed scripts", () => {
+it("retains exact inline script body coordinates, including unclosed scripts", () => {
   const prefix = "<!doctype html>\n<script>";
   const body = "\nfetch('/api');\n";
   const closed = `${prefix}${body}</script><p>after</p>`;
   expect(htmlArtifactReferences(closed).inlineScripts).toEqual([
     {
       scriptType: "classic",
-      startOffset: prefix.length,
-      endOffset: prefix.length + body.length,
+      location: { start: { line: 2, column: 8 }, end: { line: 4, column: 0 } },
     },
   ]);
   const unclosed = `${prefix}${body}`;
   expect(htmlArtifactReferences(unclosed).inlineScripts).toEqual([
     {
       scriptType: "classic",
-      startOffset: prefix.length,
-      endOffset: unclosed.length,
+      location: { start: { line: 2, column: 8 }, end: { line: 4, column: 0 } },
     },
   ]);
 });
@@ -131,9 +134,12 @@ it("counts every inline body but retains bounded locations", () => {
   const { inlineScripts, inlineScriptCount } = htmlArtifactReferences(text);
   expect(inlineScriptCount).toBe(count);
   expect(inlineScripts).toHaveLength(HTML_INLINE_SCRIPT_LOCATION_LIMIT);
+  const column = 18 * (HTML_INLINE_SCRIPT_LOCATION_LIMIT - 1) + 8;
   expect(inlineScripts.at(-1)).toEqual({
     scriptType: "classic",
-    startOffset: 18 * (HTML_INLINE_SCRIPT_LOCATION_LIMIT - 1) + 8,
-    endOffset: 18 * (HTML_INLINE_SCRIPT_LOCATION_LIMIT - 1) + 9,
+    location: {
+      start: { line: 1, column },
+      end: { line: 1, column: column + 1 },
+    },
   });
 });

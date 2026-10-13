@@ -355,12 +355,18 @@ it("bounds retained inline script locations and names the omitted remainder", as
 
   expect(gap?.properties.inline_script_count).toBe(count);
   expect(gap?.properties.inline_scripts).toHaveLength(100);
-  expect(gap?.evidence.coverage).toMatchObject({
+  // The gap record knows exactly which locations the bound dropped.
+  expect(gap?.evidence.coverage).toEqual({
     status: "partial",
+    truncated: true,
+    omitted_count: count - 100,
     limits: [limit],
   });
+  // The graph is truncated too, but unanalyzed bodies hide an unknown total.
   expect(result.graph.coverage).toMatchObject({
     status: "partial",
+    truncated: true,
+    omitted_count: null,
     limits: expect.arrayContaining([limit]),
   });
   expect(result.graph.limitations).toContain(

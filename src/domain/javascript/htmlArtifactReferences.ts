@@ -4,18 +4,22 @@ import {
   type DefaultTreeAdapterTypes,
 } from "parse5";
 
+import type {
+  JavaScriptSourcePoint,
+  JavaScriptSourceRange,
+} from "./javascriptStaticAnalysisTypes.js";
+
 interface HtmlScriptReference {
   readonly scriptPath: string;
-  readonly startOffset: number;
-  readonly endOffset: number;
+  /** The opening tag's range in parse5 coordinates. */
+  readonly location: JavaScriptSourceRange;
 }
 
 /** JavaScript written directly in a script element instead of loaded by URL. */
 export interface HtmlInlineScript {
   readonly scriptType: "classic" | "module";
-  /** Offsets of the script body, between the opening and closing tags. */
-  readonly startOffset: number;
-  readonly endOffset: number;
+  /** The body's range, between the opening and closing tags. */
+  readonly location: JavaScriptSourceRange;
 }
 
 /**
@@ -46,26 +50,33 @@ const JAVASCRIPT_MIME_TYPES = new Set([
 
 /**
  * Classify a script element's type as HTML "prepare the script element" does.
- * Import maps, speculation rules and data blocks are not JavaScript.
+ * Only a type attribute is whitespace-stripped, and only for the JavaScript
+ * MIME check; `module` must match the type string exactly, ignoring ASCII
+ * case. Import maps, speculation rules and data blocks are not JavaScript.
  */
 const inlineScriptType = (
   attrs: readonly { readonly name: string; readonly value: string }[],
 ): HtmlInlineScript["scriptType"] | null => {
   const type = attrs.find(({ name }) => name === "type");
   const language = attrs.find(({ name }) => name === "language");
-  const declared =
+  const typeString =
     type !== undefined
       ? type.value
       : language !== undefined && language.value !== ""
         ? `text/${language.value}`
         : "";
-  if (declared === "") return "classic";
-  const essence = declared
-    .replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, "")
-    .toLowerCase();
-  if (JAVASCRIPT_MIME_TYPES.has(essence)) return "classic";
-  return essence === "module" ? "module" : null;
+  if (typeString === "") return "classic";
+  const mimeCandidate =
+    type === undefined
+      ? typeString
+      : typeString.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, "");
+  if (JAVASCRIPT_MIME_TYPES.has(asciiLowercase(mimeCandidate)))
+    return "classic";
+  return asciiLowercase(typeString) === "module" ? "module" : null;
 };
+
+const asciiLowercase = (value: string): string =>
+  value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
 
 /**
  * Extract inert HTML script references, inline JavaScript bodies, and the
@@ -104,8 +115,10 @@ export const htmlArtifactReferences = (
         if (src !== undefined && src.value !== "" && location !== undefined) {
           scripts.push({
             scriptPath: src.value,
-            startOffset: location.startOffset,
-            endOffset: location.endOffset,
+            location: {
+              start: sourcePoint(location.startLine, location.startCol),
+              end: sourcePoint(location.endLine, location.endCol),
+            },
           });
         }
         const inline = src === undefined ? inlineScriptBody(node) : undefined;
@@ -114,7 +127,7 @@ export const htmlArtifactReferences = (
         if (inline !== undefined && scriptType !== null) {
           inlineScriptCount += 1;
           if (inlineScripts.length < HTML_INLINE_SCRIPT_LOCATION_LIMIT)
-            inlineScripts.push({ scriptType, ...inline });
+            inlineScripts.push({ scriptType, location: inline });
         }
       }
     }
@@ -130,18 +143,27 @@ export const htmlArtifactReferences = (
 /** Locate a script element's non-blank body; browsers ignore it when src is set. */
 const inlineScriptBody = (
   node: DefaultTreeAdapterTypes.Element,
-): { readonly startOffset: number; readonly endOffset: number } | undefined => {
+): JavaScriptSourceRange | undefined => {
   const startTag = node.sourceCodeLocation?.startTag;
   if (startTag === undefined) return undefined;
   let blank = true;
-  let endOffset: number | undefined;
+  let end: DefaultTreeAdapterTypes.TextNode["sourceCodeLocation"];
   for (const child of node.childNodes) {
     if (!defaultTreeAdapter.isTextNode(child)) continue;
     if (blank && /\S/u.test(child.value)) blank = false;
-    endOffset = child.sourceCodeLocation?.endOffset ?? endOffset;
+    end = child.sourceCodeLocation ?? end;
   }
   // An unclosed script's element range ends at its opening tag, so the body's
   // own text location bounds it.
-  if (blank || endOffset === undefined) return undefined;
-  return { startOffset: startTag.endOffset, endOffset };
+  if (blank || end == null) return undefined;
+  return {
+    start: sourcePoint(startTag.endLine, startTag.endCol),
+    end: sourcePoint(end.endLine, end.endCol),
+  };
 };
+
+/** parse5 lines and UTF-16 columns are one-based; ranges use zero-based columns. */
+const sourcePoint = (line: number, column: number): JavaScriptSourcePoint => ({
+  line,
+  column: column - 1,
+});

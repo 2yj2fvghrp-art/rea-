@@ -18,7 +18,8 @@ import {
   artifactLocalIdentity,
   javascriptAnalysisCoverage,
   createElectronRoleNode,
-  htmlInlineScriptLocationLimits,
+  HTML_INLINE_SCRIPT_LOCATION_COVERAGE_LIMIT,
+  omittedHtmlInlineScriptLocations,
   linkElectronRoleToAsset,
   type JavaScriptArtifactGraphContext,
 } from "./JavaScriptArtifactGraphContext.js";
@@ -277,7 +278,11 @@ export const addJavaScriptArtifactFiles = (
         asset: target,
         operation: "parse-html-inline-scripts",
         limitation: htmlInlineScriptLimitation(inlineScripts),
-        limits: htmlInlineScriptLocationLimits([inlineScripts]),
+        limits:
+          inlineScripts.script_count > inlineScripts.scripts.length
+            ? [HTML_INLINE_SCRIPT_LOCATION_COVERAGE_LIMIT]
+            : [],
+        omittedCount: omittedHtmlInlineScriptLocations([inlineScripts]),
         details: {
           inline_script_count: inlineScripts.script_count,
           inline_scripts: inlineScripts.scripts.map(
