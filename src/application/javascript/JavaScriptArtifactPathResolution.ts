@@ -1088,7 +1088,8 @@ const findFileCandidate = (
       status: "unavailable",
       candidatePath: path,
       limitations: [
-        `${path} exists in the inventoried artifact container (sha256 ${unanalyzed.sha256}, ${String(unanalyzed.bytes)} bytes) but is not a JavaScript, JSON, HTML, source map, or native add-on file; its contents were not analyzed.`,
+        ...(unanalyzed.limitations ?? []),
+        `${path} exists in the inventoried artifact container (sha256 ${unanalyzed.sha256 ?? "unknown"}, ${unanalyzed.bytes === null ? "unknown size" : `${String(unanalyzed.bytes)} bytes`}) but is not a JavaScript, JSON, HTML, source map, or native add-on file; its contents were not analyzed.`,
       ],
     };
   return null;

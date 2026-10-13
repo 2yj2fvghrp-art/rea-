@@ -1,6 +1,6 @@
 import { createPackageWithOptions } from "@electron/asar";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative, sep } from "node:path";
 
@@ -325,4 +325,75 @@ it("retains unavailable opaque source-map provenance in observations and edges",
   expect(target?.observations[0]?.evidence.limitations).toContainEqual(
     expect.stringContaining("cache.bin exists"),
   );
+});
+
+it("retains unhashed unpacked opaque occurrences as unavailable", async () => {
+  const root = await createTestTempDirectory("rea-opaque-unpacked-");
+  const source = join(root, "source");
+  const archive = join(root, "app.asar");
+  await mkdir(source);
+  await Promise.all([
+    writeFile(join(source, "main.cjs"), 'require("./core.jsc");'),
+    writeFile(join(source, "core.jsc"), "opaque"),
+  ]);
+  await createPackageWithOptions(source, archive, { unpack: "*.jsc" });
+  await rm(join(`${archive}.unpacked`, "core.jsc"));
+  const { graph } = await analyze(archive, "asar");
+  const edges = graph.edges.filter(
+    ({ properties }) => properties.specifier === "./core.jsc",
+  );
+  expect(edges.length).toBeGreaterThanOrEqual(2);
+  for (const edge of edges)
+    expect(edge.properties).toMatchObject({
+      resolution_status: "unavailable",
+      candidate_path: "core.jsc",
+      resolved_path: null,
+    });
+});
+
+it("retains opaque worker and utility entrypoint resolution before optional asset links", async () => {
+  const root = await createTestTempDirectory("rea-opaque-launch-");
+  await Promise.all([
+    writeFile(
+      join(root, "main.cjs"),
+      `
+      new Worker("./worker.jsc");
+      navigator.serviceWorker.register("./worker.jsc");
+      const { utilityProcess } = require("electron");
+      utilityProcess.fork("./worker.jsc");
+    `,
+    ),
+    writeFile(join(root, "worker.jsc"), "opaque"),
+  ]);
+  const { graph } = await analyze(root);
+  const nodes = graph.nodes.filter(({ kind }) =>
+    ["worker", "service-worker", "electron-utility"].includes(kind),
+  );
+  expect(nodes.map(({ kind }) => kind).sort()).toEqual([
+    "electron-utility",
+    "service-worker",
+    "worker",
+  ]);
+  for (const node of nodes) {
+    expect(
+      node.observations.find(
+        ({ properties }) => properties.resolution_status === "unavailable",
+      )?.properties,
+    ).toMatchObject({
+      resolution_status: "unavailable",
+      candidate_path: "worker.jsc",
+      resolved_path: null,
+    });
+    const edge = graph.edges.find(
+      ({ target_node_id, relation }) =>
+        target_node_id === node.node_id && relation === "loads",
+    );
+    expect(edge?.properties).toMatchObject({
+      resolution_status: "unavailable",
+      candidate_path: "worker.jsc",
+    });
+    expect(edge?.evidence.limitations).toContainEqual(
+      expect.stringContaining("worker.jsc exists"),
+    );
+  }
 });

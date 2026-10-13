@@ -44,7 +44,7 @@ interface FindingInput<Value> {
 interface ResolvedReference {
   readonly path: string | null;
   readonly file: JavaScriptArtifactFile | null;
-  readonly node: ApplicationNode;
+  readonly node: ApplicationNode | null;
   readonly limitations: readonly string[];
   readonly resolutionStatus?: string;
   readonly resolution?: ArtifactPathResolution;
@@ -110,6 +110,8 @@ const addReference = (
             declared_specifier: input.value.specifier,
             expression: input.value.expression,
             resolved_path: resolved?.path ?? null,
+            resolution_status: resolved?.resolutionStatus ?? null,
+            ...artifactPathResolutionProperties(resolved?.resolution),
           },
           evidence: staticInferenceEvidence({
             sha256: input.file.sha256,
@@ -117,6 +119,7 @@ const addReference = (
             range: input.value.location,
             operation: "discover-worker",
             coverage: input.coverage,
+            limitations: resolved?.limitations ?? [],
           }),
         },
       ],
@@ -128,9 +131,14 @@ const addReference = (
       range: input.value.location,
       coverage: input.coverage,
       relation: "loads",
-      properties: { kind: input.value.kind },
+      properties: {
+        kind: input.value.kind,
+        resolution_status: resolved?.resolutionStatus ?? null,
+        ...artifactPathResolutionProperties(resolved?.resolution),
+      },
+      limitations: resolved?.limitations ?? [],
     });
-    if (resolved !== null && resolved.path !== null)
+    if (resolved !== null && resolved.path !== null && resolved.node !== null)
       addStaticInferenceEdge(context, {
         source: worker,
         target: resolved.node,
@@ -146,7 +154,7 @@ const addReference = (
   // A reference that resolves to its own source, such as a bundled module
   // requiring its own key, cannot become an edge: the application graph
   // forbids self-referential edges and one would fail the whole analysis.
-  if (resolved?.node.node_id === source.node_id) {
+  if (resolved?.node?.node_id === source.node_id) {
     omissions.selfReferences += 1;
     return;
   }
@@ -455,20 +463,21 @@ const resolveReference = (
       });
   const path = resolution.resolved_path;
   if (path === null) {
-    if (isWorker) return null;
     const source = context.filesByPath.get(sourcePath);
     return source === undefined
       ? null
       : {
           path: null,
           file: null,
-          node: unresolvedReferenceNode(
-            context,
-            source,
-            reference,
-            coverage,
-            resolution,
-          ),
+          node: isWorker
+            ? null
+            : unresolvedReferenceNode(
+                context,
+                source,
+                reference,
+                coverage,
+                resolution,
+              ),
           limitations: resolution.limitations,
           resolutionStatus: resolution.resolution_status,
           resolution,

@@ -480,7 +480,6 @@ const createUnanalyzedArtifactLookup = (
   };
   const isOpaque = (occurrence: ArtifactOccurrence): boolean =>
     occurrence.entry_kind === "file" &&
-    occurrence.artifact_id !== null &&
     relevantKind(occurrence.logical_path) === undefined &&
     !containerIds.has(occurrence.logical_path);
   return {
@@ -502,14 +501,15 @@ const createUnanalyzedArtifactLookup = (
             ];
       const node = candidate?.artifact_id === id ? candidate : undefined;
       const file =
-        node === undefined
+        occurrence?.logical_path !== path || !isOpaque(occurrence)
           ? undefined
           : {
               path,
               container_sha256: containerFor(path),
-              sha256: node.sha256,
-              bytes: node.size,
-              inventory_artifact_id: node.artifact_id,
+              sha256: node?.sha256 ?? null,
+              bytes: node?.size ?? occurrence.declared_size,
+              inventory_artifact_id: occurrence.artifact_id,
+              limitations: occurrence.limitations,
             };
       requested.set(path, file);
       return file;

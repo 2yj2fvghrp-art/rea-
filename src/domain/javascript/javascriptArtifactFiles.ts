@@ -30,16 +30,17 @@ export interface JavaScriptArtifactFile {
 }
 
 /**
- * One inventoried regular file outside the JavaScript-relevant kinds. Its bytes
- * were inventoried but not read by the source projection, so references to it are present-but-unanalyzed
- * rather than absent.
+ * One inventoried regular file outside the JavaScript-relevant kinds. Its presence
+ * was inventoried, including unavailable or unhashed members. The source projection
+ * does not read its bytes; references remain present-but-unanalyzed rather than absent.
  */
 export interface JavaScriptUnanalyzedArtifactFile {
   readonly path: string;
   readonly container_sha256: string;
-  readonly sha256: string;
-  readonly bytes: number;
-  readonly inventory_artifact_id: string;
+  readonly sha256: string | null;
+  readonly bytes: number | null;
+  readonly inventory_artifact_id: string | null;
+  readonly limitations?: readonly string[];
 }
 
 /** Borrowed inventory lookup; metadata is materialized only for requested paths. */
