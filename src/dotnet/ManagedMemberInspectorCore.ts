@@ -671,29 +671,13 @@ export const specSignature = (
   }
 };
 
-/**
- * Generic parameter count a method signature declares, 0 when it is not
- * generic, or null when the blob is not a method signature header.
- */
-export const methodGenericArity = (blob: Buffer): number | null => {
-  try {
-    return (
-      readMethodSignatureHeader(blob, 0, "member").genericParameterCount ?? 0
-    );
-  } catch (cause: unknown) {
-    if (cause instanceof ManagedReaderFailure) return null;
-    throw cause;
-  }
-};
+type DecodedSignature = Omit<ManagedSignature, "raw_length" | "raw_sha256">;
 
-export const signature = (
-  blob: Buffer,
-  rawSha256?: string,
-): ManagedSignature => {
-  const raw = {
-    raw_length: blob.length,
-    raw_sha256: rawSha256 ?? sha256Bytes(blob),
-  };
+/**
+ * Decode a field or member method signature. A malformed or unsupported blob
+ * decodes as kind `unknown` with its reason.
+ */
+const decodeSignature = (blob: Buffer): DecodedSignature => {
   try {
     if (blob.length === 0)
       throw managedFailure("invalid-blob", "signature", "empty signature", 0);
@@ -703,7 +687,6 @@ export const signature = (
     if (first === 0x06) {
       const fieldType = readTypeSignature(blob, 1, "field");
       return {
-        ...raw,
         kind: "field",
         parse_status: fieldType.next === blob.length ? "decoded" : "partial",
         calling_convention: callingConvention(first),
@@ -726,7 +709,6 @@ export const signature = (
       offset = parameter.next;
     }
     return {
-      ...raw,
       kind: "method",
       parse_status: offset === blob.length ? "decoded" : "partial",
       calling_convention: callingConvention(first),
@@ -745,7 +727,6 @@ export const signature = (
     )
       throw cause;
     return {
-      ...raw,
       kind: "unknown",
       parse_status:
         cause.issue.code === "unsupported-signature"
@@ -761,3 +742,33 @@ export const signature = (
     };
   }
 };
+
+/**
+ * Generic parameter count of a method signature that decodes completely, 0
+ * when it is not generic, or null when the blob is not a decodable method
+ * signature. The rendered decode is transient.
+ */
+export const methodGenericArity = (
+  layout: ManagedMetadataLayout,
+  blob: Buffer,
+): number | null => {
+  const budget = managedDecodeBudget(layout);
+  budget.admitTransient(blob.length * 256, layout.blob.offset);
+  try {
+    const decoded = decodeSignature(blob);
+    return decoded.kind === "method" && decoded.parse_status === "decoded"
+      ? (decoded.generic_parameter_count ?? 0)
+      : null;
+  } finally {
+    budget.releaseTransient();
+  }
+};
+
+export const signature = (
+  blob: Buffer,
+  rawSha256?: string,
+): ManagedSignature => ({
+  raw_length: blob.length,
+  raw_sha256: rawSha256 ?? sha256Bytes(blob),
+  ...decodeSignature(blob),
+});

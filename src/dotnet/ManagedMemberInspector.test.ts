@@ -385,6 +385,13 @@ describe("managed MethodSpec call targets", () => {
       "does not have a decodable method signature",
     ],
     [
+      "a truncated signature",
+      // HASTHIS | GENERIC, one generic parameter, no parameters, no return type.
+      { memberRefSignature: Buffer.from([0x30, 0x01, 0x00]) },
+      Buffer.from([0x0a, 0x01, 0x0e]),
+      "does not have a decodable method signature",
+    ],
+    [
       "an unmanaged-convention signature",
       // C | GENERIC: a function pointer convention, not a MethodRefSig one.
       { memberRefSignature: Buffer.from([0x11, 0x01, 0x00, 0x01]) },

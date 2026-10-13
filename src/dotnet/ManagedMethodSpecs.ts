@@ -96,7 +96,10 @@ const readMethodSpec = (
     { form: "instantiation", scope, offset: cursor.start },
   );
   if (generic === null) return;
-  const arity = methodGenericArity(methodSignatureBlob(bytes, layout, generic));
+  const arity = methodGenericArity(
+    layout,
+    methodSignatureBlob(bytes, layout, generic),
+  );
   if (arity !== types.length)
     throw managedFailure(
       "invalid-row",
