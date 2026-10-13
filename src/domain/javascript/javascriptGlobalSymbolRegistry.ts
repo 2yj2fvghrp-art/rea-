@@ -186,6 +186,7 @@ export const globalSymbolRegistryCandidateKeys = (
  * Index decoded keys once. Admit whole companion selections within one artifact's
  * input-text byte budget, bounding repeated worker copies and parsed companion
  * text to one additional input-sized pass. A refused selection stays unlinked.
+ * Index visits are bounded by the same budget, so dense shared keys stay linear.
  */
 export const globalSymbolRegistryCompanions = <
   Source extends { readonly path: string; readonly text: string },
@@ -199,12 +200,9 @@ export const globalSymbolRegistryCompanions = <
   const keyed: {
     readonly source: Source;
     readonly keys: ReadonlySet<string>;
-    readonly bytes: number;
   }[] = [];
-  const groups = new Map<
-    string,
-    { readonly sources: Source[]; bytes: number }
-  >();
+  const bytes = new Map<Source, number>();
+  const groups = new Map<string, Source[]>();
   const limitations: string[] = [];
   for (const source of sources) {
     const keys = globalSymbolRegistryCandidateKeys(source.text);
@@ -214,32 +212,47 @@ export const globalSymbolRegistryCompanions = <
       );
       return { companions: new Map(), limitations };
     }
-    const bytes = Buffer.byteLength(source.text);
-    keyed.push({ source, keys, bytes });
+    keyed.push({ source, keys });
+    bytes.set(source, Buffer.byteLength(source.text));
     for (const key of keys) {
-      const group = groups.get(key) ?? { sources: [], bytes: 0 };
-      group.sources.push(source);
-      group.bytes += bytes;
+      const group = groups.get(key) ?? [];
+      group.push(source);
       groups.set(key, group);
     }
   }
   let retainedBytes = 0;
+  let remainingVisits = maximumCompanionBytes;
   const companions = new Map<string, readonly Source[]>();
-  for (const { source, keys, bytes } of keyed) {
-    // The sum conservatively charges duplicate candidates before allocating them.
+  for (const { source, keys } of keyed) {
+    // Each distinct companion is charged once; a selection stops as soon as
+    // it cannot fit the remaining budget.
+    const selected = new Set<Source>();
     let offeredBytes = 0;
-    for (const key of keys)
-      offeredBytes += (groups.get(key)?.bytes ?? bytes) - bytes;
-    if (offeredBytes > maximumCompanionBytes - retainedBytes) {
+    let refused = false;
+    for (const key of keys) {
+      for (const candidate of groups.get(key) ?? []) {
+        if (--remainingVisits < 0) {
+          limitations.push(
+            `${source.path}: Global-symbol companion linking is incomplete: candidate comparison exceeded the artifact input-text budget of ${maximumCompanionBytes} visits. This and later sources stay unlinked.`,
+          );
+          return { companions, limitations };
+        }
+        if (candidate === source || selected.has(candidate)) continue;
+        selected.add(candidate);
+        offeredBytes += bytes.get(candidate) ?? 0;
+        if (offeredBytes > maximumCompanionBytes - retainedBytes) {
+          refused = true;
+          break;
+        }
+      }
+      if (refused) break;
+    }
+    if (refused) {
       limitations.push(
         `${source.path}: Global-symbol companion linking is incomplete: companion copies would exceed the artifact input-text budget of ${maximumCompanionBytes} bytes. No partial publisher set is used.`,
       );
       continue;
     }
-    const selected = new Set<Source>();
-    for (const key of keys)
-      for (const candidate of groups.get(key)?.sources ?? [])
-        if (candidate !== source) selected.add(candidate);
     companions.set(source.path, [...selected]);
     retainedBytes += offeredBytes;
   }
