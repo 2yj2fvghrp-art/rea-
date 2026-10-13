@@ -1,16 +1,276 @@
-# Native UI and dispatch investigation
+<div id="native-ui-and-dispatch-investigation"></div>
 
-REA joins static resources, native metadata and code facts while keeping runtime
-observations separate. Every result reports its evidence, target identity,
-coverage and unknowns. The CLI and MCP use the same application workflows.
+# Native binary investigation
+
+Use a native provider to discover functions, inspect instructions and pseudocode,
+follow references, and examine database types. Static resources and runtime
+observation complement that analysis when they answer a specific question.
+
+## Start with a function
+
+Choose an installed provider from [setup](installation.md#hopper). For Ghidra:
+
+```bash
+rea inspect /absolute/path/to/program --provider ghidra --json
+rea search /absolute/path/to/program entry --kind procedures --provider ghidra --json
+```
+
+Select an exact name or address from the returned inventory, then use it with
+`rea function PATH PROCEDURE --provider ghidra --json` for a function dossier,
+`rea instructions` for assembly, or `rea decompile` for pseudocode. Do not assume
+that every target names its entry function `entry`. MCP uses `open_binary` and
+focused tools such as `list_procedures` and `analyze_function` on the same session.
+
+| Question                                                     | Section                                                                                |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Which instructions, calls, references, or types are present? | [Native primitives](#native-instruction-call-and-type-primitives)                      |
+| How can I select a name beginning with a dash?               | [CLI selectors](#exact-cli-selectors)                                                  |
+| What static path connects these functions?                   | [Bounded traces](#bounded-static-traces)                                               |
+| Which UI resources or dispatch metadata are present?         | [Static inspection](#static-inspection)                                                |
+| What did the declared runtime scenario observe?              | [Desktop](#native-desktop-observation) or [call observation](#native-call-observation) |
+| What can this provider and host establish?                   | [Provider boundaries](#provider-and-verification-boundaries)                           |
+
+## Exact CLI selectors
+
+`function`, `instructions` and `decompile` accept `--procedure=<name-or-address>`;
+`xrefs` accepts `--address=<name-or-address>`. `search` accepts `--pattern=<text>`
+and `trace` accepts `--query=<text>`. These alternatives preserve names and text
+that begin with a dash, including Objective-C names such as
+`rea function ./app '--procedure=-[REAWidget delegate]' --provider hopper --format json`.
+Use the equals form when the value resembles a CLI flag, for example
+`rea trace ./app --query=--help --provider hopper --format json`.
+The existing positional forms remain available. Missing selectors and conflicting
+positional/named values fail before analysis starts; identical selections agree.
+
+## Native instruction, call and type primitives
+
+Ghidra supplies three exact-object operations:
+
+Ghidra accepts hexadecimal addresses with or without a `0x` prefix, in either
+letter case, and explicit address-space coordinates such as `EXTERNAL:0x1`.
+Results use canonical lowercase hexadecimal offsets. For a procedure identifier,
+an explicit `0x` or address-space prefix selects an address; otherwise an exact
+database symbol name takes precedence over a bare hexadecimal address. Thus a
+function renamed to `dead` remains selectable by name. Use the names returned
+by the inventory, including their namespaces and any platform symbol prefix.
+Ghidra also accepts secondary symbols at a function entry, such as an imported
+`_main` label. A label inside a function is not a procedure-name selector; use
+its address when selecting the containing function.
+Overloads can share a fully qualified name; ambiguity errors return every
+matching entry address so the caller can select the intended function directly.
+
+`resolve_containing_procedure` also resolves an exact external entry. Its empty
+body remains explicit; nearby external addresses do not inherit that identity.
+
+Ghidra function references cover the complete function-body AddressSet and its
+exact entry, including references into instruction interiors and references
+from embedded data. Addresses inside an enclosing span but outside the owned
+body are excluded. `procedure_references` returns internal and external edges;
+`analyze_function` omits incoming edges whose sources belong to the same function.
+The reference collector's semantics participate in the analysis profile, so
+older snapshots cannot replay the former incomplete results under this profile.
+
+Ghidra regex searches use Java Pattern semantics. If compiling or matching a
+pattern exhausts the engine's stack, REA returns a resource constraint and
+preserves the active database and annotations. Retry in literal mode or simplify
+the regex; successful literal searches retain complete matching strings.
+Cancelling an active request terminates the ephemeral database and discards its
+annotations. REA retains the selected target and imports the original artifact
+again on the next Ghidra query.
+
+Opening the same target and profile again retains the live database, including
+annotations. It does not make those edits eligible for an immutable snapshot.
+Snapshot closes drain earlier provider requests before saving and keep later
+requests waiting until the save and close finish. A concurrent successful edit
+therefore rejects the snapshot save and leaves the edited session open.
+After metadata edits, snapshot saves and imports remain unavailable in that
+session. Use `export_evidence_bundle` to retain the observations, close without
+`snapshot_path`, and reopen the target before importing or saving a snapshot.
+
+Ghidra checks its private import copy against the artifact digest selected by
+`open_binary`. If the source changes before that copy is acquired, the query
+reports `artifact_changed` with the selected path and both digests. Reopen the
+stable target to acquire its current identity. An already imported database
+continues to describe its captured bytes even if the original path is changed
+or removed; this identity failure does not mark the Ghidra installation unavailable.
+On Linux and macOS, an unreadable source reports `access_denied`; a removed or
+nonregular replacement reports `artifact_changed`. Source copying is cancellable
+and never replaces an existing private snapshot.
+
+```bash
+rea inspect-native-instruction <binary> <address> --provider ghidra
+rea resolve-native-call-targets <binary> <call-site> --provider ghidra
+rea inspect-native-data-type <binary> --type /MyStruct --provider ghidra
+rea inspect-native-data-type <binary> --address <typed-data-address> --provider ghidra
+```
+
+Instruction facts include bytes, length, decoder text, ordered register/scalar/
+address tokens, typed references and flow destinations. Mid-instruction, data,
+outside-memory and undecodable addresses have separate outcomes. Effective
+memory base/index/displacement roles remain unavailable. Ghidra reports its program
+language variant in `mode`; other providers retain their own mode label. Ghidra
+MIPS results additionally expose `decoder_context`
+with the observed `ISA_MODE` register at the queried address and its provider
+source. A null value is unavailable, not mode zero; an empty array reports no
+available context register, and omission preserves older captures or providers
+that do not expose this facet. The context is an analysis observation, not proof
+of a runtime processor state.
+
+`inspect_native_instruction` also returns `incoming_references` to the exact
+queried address, including data, interior-instruction and undecodable addresses.
+Ghidra enumerates its ReferenceManager, excludes synthetic entry-point
+references, and returns deterministic source-address ordering while retaining
+distinct operand references from the same source. `[]` means that enumeration
+found no references; omission or `null` means this facet is unavailable in an
+older capture or another provider. Empty static references do not prove that
+the address is unused at runtime. The existing `references` field still holds
+outgoing instruction references, and `xrefs` still returns bare source addresses.
+The Ghidra analysis profile versions this incoming-reference coverage. Reopen
+the target without an older snapshot and save a fresh snapshot to acquire it;
+the older snapshot's Evidence bundle remains readable with this facet unavailable.
+
+Compact incoming, outgoing instruction and call-target references preserve the source
+address, operand index, DATA/READ/WRITE classification, primary status, provider
+`provenance`, and reference `source` (for Ghidra: `analysis`, `default`, `imported`
+or `user_defined`). Primary status reports the provider's chosen reference; it
+does not establish literal addressing. Analyzer-inferred indexed targets remain
+static references, not observed runtime reads or writes. Older evidence may omit
+the additive fields, and null or omitted facts mean unavailable rather than false.
+
+Ghidra distinguishes a return using decoded instruction p-code's `RETURN`
+operation. `flow.classification_evidence` preserves the Listing flow type and
+the observed return evidence; mnemonic spelling alone is not the classifier.
+Other terminal or trap flows retain the provider's classification, and this
+inspection does not change function extents or prove a calling convention.
+The analysis profile commits this decoder behavior. Snapshots from the earlier
+profile produce a profile mismatch rather than replaying the former generic
+terminal result. The old snapshot's `evidence_bundle` remains valid retained
+Evidence: copy that object to a separate JSON file and use `rea evidence-import`
+to validate it. Run analysis without the old snapshot and save a fresh one
+under the current profile. Other providers and older captures may omit the
+classification evidence field.
+
+Call resolution reports direct, resolved indirect, ambiguous, unresolved and
+non-call outcomes from static call references. It does not establish runtime
+execution or classify Objective-C/Swift/vtable/closure mechanisms from names.
+
+`batch_decompile` keeps each caller-selected symbol or address in `items[].address`.
+The separate `procedure` field reports the canonical entry and the provider's
+observed entry label. An interior address therefore remains visible without
+being mistaken for the function entry. Identity failures are reported as
+`procedure.status: "unknown"`; label failures leave a null name and `name_error`.
+Neither failure discards usable pseudocode, and names are not parsed from it.
+Resolved entries also appear in the composed Evidence locations. New batch
+Evidence commits the revised workflow profile; retained historical Evidence
+remains valid. This tool
+has no dedicated CLI command; the existing `decompile` command remains the
+single-procedure CLI operation.
+
+Type inspection selects one exact database pathname or typed data address.
+Struct/union fields, enums, pointers, arrays, typedefs, size, alignment, packing
+and bitfields retain database authority. Child types use exact IDs for further
+inspection, including recursive layouts. Source/debug authority and flexible
+array semantics are not inferred. The real lane uses a native DWARF 4 object
+with a struct containing a union, enum and recursive pointer; a stripped linked
+binary may have no corresponding recovered layout.
+
+Ghidra serializes at most 20,000 fields or enum members per inspected type.
+Check `total_fields` and `truncated` before treating the returned layout as
+complete. These fields describe omissions from the response, independently of
+whether Ghidra recovered the original source layout.
+
+### Hopper analysis behavior
+
+Cursor navigation returns the observed object start when Hopper snaps an interior
+address; adjacent-object navigation rejects unmapped inputs and document ends.
+Native API text rejects NUL characters and unpaired Unicode surrogates before
+annotation changes. Renames preserve unselected label owners; use a batch with
+all affected addresses to move or swap existing labels explicitly. Every rename
+destination must be mapped, and native symbol names must fit Hopper's 1024 UTF-16
+code-unit limit. Oversized names fail before any batch edits; bookmarks and
+literal string results are not subject to that symbol-name limit. Rename success
+requires exact final readback. New bookmarks must point into mapped memory;
+existing legacy bookmarks outside it can still be removed.
+String results read each native typed object's complete bytes, retain the original
+provider display in `provider_value`, and report its encoding, byte length, and
+termination. `encoding_status: inferred` distinguishes REA's decoding from an
+observed source encoding. Hopper can split long literals into adjacent
+unterminated objects; search matches each object's decoded bytes independently.
+Undecodable objects retain native display text with `decoding.available: false`
+and a reason, so one uncertain object does not block unrelated inspections.
+Function dossiers retain this same string evidence. Native call edges retain
+Hopper's partial `CallReference` classification and exact endpoints; detailed
+reference flags remain unavailable rather than being invented.
+Regex searches use ECMAScript Unicode syntax in a cancellable worker with a
+five-second matching deadline. Deadline or cancellation stops matching while
+leaving the Hopper API available. Literal mode retains Unicode casefold matching.
+
+## Bounded static traces
+
+`trace_native_ui_action` / `rea trace-native-ui-action <target> <seed>` accepts
+one authored selector/object ID, native symbol or exact function address. It
+joins UI wiring to uniquely matched class/selector implementations and follows
+bounded typed call references. Direct references, resolved indirect references,
+ambiguous candidates, inferred untyped provider callees and targetless call
+sites remain distinct. A static route does not establish runtime reachability.
+Swift/closure dispatch requires resolved static references; unavailable ABI
+forms remain unknown.
+
+`trace_native_values` / `rea trace-native-values <binary> <procedure> --provider
+ ghidra` composes high-p-code def-use graphs across statically resolved calls.
+Logical CALL arguments bind to recovered parameter ordinals; recovered RETURN
+values bind to CALL outputs. These edges are decompiler-derived. Constants,
+operators, LOAD/STORE and branch operands are included inline. Alias effects,
+persistent state, RNG roles, missing/variadic bindings and ambiguous destinations
+remain unknown. Budgets control depth, decompilations, call-site resolutions,
+nodes and edges. Node payloads are bounded to 8 MiB and serialized results to
+32 MiB. Pagination returns edges whose source is on the node page and preserves
+stable IDs for endpoints outside that page.
+
+The raw Java `is_dead` flag can remain set after Ghidra decodes a live block;
+`block_membership` reports actual syntax-tree membership separately.
+
+The provider dossier itself retains up to 3,000 p-code operations, 64 inputs per
+operation and 12,000 def-use edges, with explicit omitted counts. A `STORE`
+may describe stack memory and does not itself prove persistent state.
+
+Jump-table evidence keeps numeric `mappings`, explicit `default_targets`, and
+backing `data_sources` separate. A null case value denotes an unresolved
+case, never a known default. Ghidra pairs typed case/default tokens with the
+recovered block entry and its unique indirect dispatch predecessor; it does
+not zip unequal label and destination arrays. Shared case bodies retain each
+label. Negative numeric tokens are checked against their encoded magnitude;
+nonliteral, ambiguous, or nonexact JSON integer labels remain unknown.
+Unknown-label diagnostics retain the token text, encoded unsigned magnitude,
+target and dispatch so callers can inspect the original observations.
+Decompiler load-table metadata supplies observed entry sizes and counts
+without assigning every backing table to each mapping. These observations
+describe the decompiler's recovered switch, not guaranteed original source.
+Legacy records without `default_targets` normalize to an empty array and
+retain their existing unresolved mappings.
+
+AArch64 jump-table recovery additionally verifies byte and halfword relative
+forms from unsigned bounds, register definitions, table loads, branch bases,
+scaled ADD/BR instructions and the recovered target set. It reads exactly the
+proven count and preserves unknowns for other forms. Real ELF and host ARM64
+Mach-O fixtures check each case against source-owned return values.
 
 ## Static inspection
 
-`inspect_macho` retains otool segment `file_offset` values relative to the
-selected Mach-O slice. Its evidence file-offset ranges address the original
-input file and include the observed lipo slice offset for universal binaries.
-If that offset is unavailable, segment evidence locations are omitted with an
-explicit limitation; architecture inventory locations remain available.
+`inspect_macho.selected_architecture` identifies the exact selected lipo slice
+and its `container_file_offset` in the input file. A thin Mach-O has a known
+offset of zero; an unknown universal-slice offset stays null. The Evidence
+subject format describes the input container: `mach-o-universal` for FAT files,
+including those with one slice. The normalized result describes the selected
+Mach-O image. Architecture
+`file_offset` values are container-relative. Entrypoint, segment and section
+`file_offset` values retain their source meaning and are relative to the
+selected Mach-O slice. Raw load-command fields retain their original values.
+Evidence locations map the LC_MAIN entrypoint and nonempty file-backed segment
+ranges to container offsets by adding the observed slice offset. Zero-fill
+segments do not produce file ranges. When the selected slice's container offset
+is unknown, those mapped locations are omitted with an explicit limitation;
+architecture inventory locations remain available.
 
 Hopper's `address_to_file_offset` combines the native image-relative mapping with
 original-file coordinates only after checking the source against the session's
@@ -118,194 +378,6 @@ complete observation.
   coroutine tables, and inherited overrides, have explicit unsupported or
   partial coverage. Other providers retain the
   existing symbol-based inventory with its narrower coverage.
-
-## Exact CLI selectors
-
-`function`, `instructions` and `decompile` accept `--procedure=<name-or-address>`;
-`xrefs` accepts `--address=<name-or-address>`. `search` accepts `--pattern=<text>`
-and `trace` accepts `--query=<text>`. These alternatives preserve names and text
-that begin with a dash, including Objective-C names such as
-`rea function ./app '--procedure=-[REAWidget delegate]' --provider hopper --format json`.
-Use the equals form when the value resembles a CLI flag, for example
-`rea trace ./app --query=--help --provider hopper --format json`.
-The existing positional forms remain available. Missing selectors and conflicting
-positional/named values fail before analysis starts; identical selections agree.
-
-## Native instruction, call and type primitives
-
-Ghidra supplies three exact-object operations:
-
-Ghidra accepts hexadecimal addresses with or without a `0x` prefix, in either
-letter case, and explicit address-space coordinates such as `EXTERNAL:0x1`.
-Results use canonical lowercase hexadecimal offsets. For a procedure identifier,
-an explicit `0x` or address-space prefix selects an address; otherwise an exact
-database symbol name takes precedence over a bare hexadecimal address. Thus a
-function renamed to `dead` remains selectable by name. Use the names returned
-by the inventory, including their namespaces and any platform symbol prefix.
-Ghidra also accepts secondary symbols at a function entry, such as an imported
-`_main` label. A label inside a function is not a procedure-name selector; use
-its address when selecting the containing function.
-Overloads can share a fully qualified name; ambiguity errors return every
-matching entry address so the caller can select the intended function directly.
-
-`resolve_containing_procedure` also resolves an exact external entry. Its empty
-body remains explicit; nearby external addresses do not inherit that identity.
-
-Ghidra function references cover the complete function-body AddressSet and its
-exact entry, including references into instruction interiors and references
-from embedded data. Addresses inside an enclosing span but outside the owned
-body are excluded. `procedure_references` returns internal and external edges;
-`analyze_function` omits incoming edges whose sources belong to the same function.
-The reference collector's semantics participate in the analysis profile, so
-older snapshots cannot replay the former incomplete results under this profile.
-
-Ghidra regex searches use Java Pattern semantics. If compiling or matching a
-pattern exhausts the engine's stack, REA returns a resource constraint and
-preserves the active database and annotations. Retry in literal mode or simplify
-the regex; successful literal searches retain complete matching strings.
-Cancelling an active request terminates the ephemeral database and discards its
-annotations. REA retains the selected target and imports the original artifact
-again on the next Ghidra query.
-
-Opening the same target and profile again retains the live database, including
-annotations. It does not make those edits eligible for an immutable snapshot.
-Snapshot closes drain earlier provider requests before saving and keep later
-requests waiting until the save and close finish. A concurrent successful edit
-therefore rejects the snapshot save and leaves the edited session open.
-After metadata edits, snapshot saves and imports remain unavailable in that
-session. Use `export_evidence_bundle` to retain the observations, close without
-`snapshot_path`, and reopen the target before importing or saving a snapshot.
-
-Ghidra checks its private import copy against the artifact digest selected by
-`open_binary`. If the source changes before that copy is acquired, the query
-reports `artifact_changed` with the selected path and both digests. Reopen the
-stable target to acquire its current identity. An already imported database
-continues to describe its captured bytes even if the original path is changed
-or removed; this identity failure does not mark the Ghidra installation unavailable.
-On Linux and macOS, an unreadable source reports `access_denied`; a removed or
-nonregular replacement reports `artifact_changed`. Source copying is cancellable
-and never replaces an existing private snapshot.
-
-```bash
-rea inspect-native-instruction <binary> <address> --provider ghidra
-rea resolve-native-call-targets <binary> <call-site> --provider ghidra
-rea inspect-native-data-type <binary> --type /MyStruct --provider ghidra
-rea inspect-native-data-type <binary> --address <typed-data-address> --provider ghidra
-```
-
-Instruction facts include bytes, length, decoder text, ordered register/scalar/
-address tokens, typed references and flow destinations. Mid-instruction, data,
-outside-memory and undecodable addresses have separate outcomes. Effective
-memory base/index/displacement roles and per-instruction context mode remain
-unavailable; `mode` is the program language variant.
-
-`inspect_native_instruction` also returns `incoming_references` to the exact
-queried address, including data, interior-instruction and undecodable addresses.
-Ghidra enumerates its ReferenceManager, excludes synthetic entry-point
-references, and returns deterministic source-address ordering while retaining
-distinct operand references from the same source. `[]` means that enumeration
-found no references; omission or `null` means this facet is unavailable in an
-older capture or another provider. Empty static references do not prove that
-the address is unused at runtime. The existing `references` field still holds
-outgoing instruction references, and `xrefs` still returns bare source addresses.
-The Ghidra analysis profile versions this incoming-reference coverage. Reopen
-the target without an older snapshot and save a fresh snapshot to acquire it;
-the older snapshot's Evidence bundle remains readable with this facet unavailable.
-
-Compact incoming, outgoing instruction and call-target references preserve the source
-address, operand index, DATA/READ/WRITE classification, primary status, provider
-`provenance`, and reference `source` (for Ghidra: `analysis`, `default`, `imported`
-or `user_defined`). Primary status reports the provider's chosen reference; it
-does not establish literal addressing. Analyzer-inferred indexed targets remain
-static references, not observed runtime reads or writes. Older evidence may omit
-the additive fields, and null or omitted facts mean unavailable rather than false.
-
-Ghidra distinguishes a return using decoded instruction p-code's `RETURN`
-operation. `flow.classification_evidence` preserves the Listing flow type and
-the observed return evidence; mnemonic spelling alone is not the classifier.
-Other terminal or trap flows retain the provider's classification, and this
-inspection does not change function extents or prove a calling convention.
-The analysis profile commits this decoder behavior. Snapshots from the earlier
-profile produce a profile mismatch rather than replaying the former generic
-terminal result. The old snapshot's `evidence_bundle` remains valid retained
-Evidence: copy that object to a separate JSON file and use `rea evidence-import`
-to validate it. Run analysis without the old snapshot and save a fresh one
-under the current profile. Other providers and older captures may omit the
-classification evidence field.
-
-Call resolution reports direct, resolved indirect, ambiguous, unresolved and
-non-call outcomes from static call references. It does not establish runtime
-execution or classify Objective-C/Swift/vtable/closure mechanisms from names.
-
-`batch_decompile` keeps each caller-selected symbol or address in `items[].address`.
-The separate `procedure` field reports the canonical entry and the provider's
-observed entry label. An interior address therefore remains visible without
-being mistaken for the function entry. Identity failures are reported as
-`procedure.status: "unknown"`; label failures leave a null name and `name_error`.
-Neither failure discards usable pseudocode, and names are not parsed from it.
-Resolved entries also appear in the composed Evidence locations. New batch
-Evidence commits the revised workflow profile; retained historical Evidence
-remains valid. This tool
-has no dedicated CLI command; the existing `decompile` command remains the
-single-procedure CLI operation.
-
-Type inspection selects one exact database pathname or typed data address.
-Struct/union fields, enums, pointers, arrays, typedefs, size, alignment, packing
-and bitfields retain database authority. Child types use exact IDs for further
-inspection, including recursive layouts. Source/debug authority and flexible
-array semantics are not inferred. The real lane uses a native DWARF 4 object
-with a struct containing a union, enum and recursive pointer; a stripped linked
-binary may have no corresponding recovered layout.
-
-## Bounded static traces
-
-`trace_native_ui_action` / `rea trace-native-ui-action <target> <seed>` accepts
-one authored selector/object ID, native symbol or exact function address. It
-joins UI wiring to uniquely matched class/selector implementations and follows
-bounded typed call references. Direct references, resolved indirect references,
-ambiguous candidates, inferred untyped provider callees and targetless call
-sites remain distinct. A static route does not establish runtime reachability.
-Swift/closure dispatch requires resolved static references; unavailable ABI
-forms remain unknown.
-
-`trace_native_values` / `rea trace-native-values <binary> <procedure> --provider
- ghidra` composes high-p-code def-use graphs across statically resolved calls.
-Logical CALL arguments bind to recovered parameter ordinals; recovered RETURN
-values bind to CALL outputs. These edges are decompiler-derived. Constants,
-operators, LOAD/STORE and branch operands are included inline. Alias effects,
-persistent state, RNG roles, missing/variadic bindings and ambiguous destinations
-remain unknown. Budgets control depth, decompilations, call-site resolutions,
-nodes and edges. Node payloads are bounded to 8 MiB and serialized results to
-32 MiB. Pagination returns edges whose source is on the node page and preserves
-stable IDs for endpoints outside that page.
-
-The raw Java `is_dead` flag can remain set after Ghidra decodes a live block;
-`block_membership` reports actual syntax-tree membership separately.
-
-The provider dossier itself retains up to 3,000 p-code operations, 64 inputs per
-operation and 12,000 def-use edges, with explicit omitted counts. A `STORE`
-may describe stack memory and does not itself prove persistent state.
-
-Jump-table evidence keeps numeric `mappings`, explicit `default_targets`, and
-backing `data_sources` separate. A null case value denotes an unresolved
-case, never a known default. Ghidra pairs typed case/default tokens with the
-recovered block entry and its unique indirect dispatch predecessor; it does
-not zip unequal label and destination arrays. Shared case bodies retain each
-label. Negative numeric tokens are checked against their encoded magnitude;
-nonliteral, ambiguous, or nonexact JSON integer labels remain unknown.
-Unknown-label diagnostics retain the token text, encoded unsigned magnitude,
-target and dispatch so callers can inspect the original observations.
-Decompiler load-table metadata supplies observed entry sizes and counts
-without assigning every backing table to each mapping. These observations
-describe the decompiler's recovered switch, not guaranteed original source.
-Legacy records without `default_targets` normalize to an empty array and
-retain their existing unresolved mappings.
-
-AArch64 jump-table recovery additionally verifies byte and halfword relative
-forms from unsigned bounds, register definitions, table loads, branch bases,
-scaled ADD/BR instructions and the recovered target set. It reads exactly the
-proven count and preserves unknowns for other forms. Real ELF and host ARM64
-Mach-O fixtures check each case against source-owned return values.
 
 ## Native desktop observation
 
