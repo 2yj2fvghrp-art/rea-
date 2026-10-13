@@ -8,36 +8,58 @@ interface SemanticFact {
   readonly evidence: { readonly context_id: string };
 }
 
-const serializedBytes = (value: unknown): number =>
-  Buffer.byteLength(JSON.stringify(value));
+// Projection-owned ID arrays stay immutable; weak keys bound cache lifetime to their graphs.
+const encodedIdArrays = new WeakMap<readonly string[], number>();
 
-/**
- * Serialized Evidence bytes one source file's semantic facts may occupy.
- *
- * The projection emits facts per expression, binding, call and property slot;
- * one 527 KB vendor bundle projects 236 MB of facts. The owning projection
- * admits facts in projection order until the first refusal closes the file,
- * so a truncated file keeps a source-ordered prefix of its passes. Nodes wait
- * here until an admitted fact references them; unknown frontiers wait until
- * every relation was offered. Omitted facts are counted exactly. A
- * caller-selected node capacity closes admission the same way.
- */
+/** Measure ID-array expansion without allocating its combined JSON string. */
+export const serializedSemanticFactBytes = (value: unknown): number => {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return Buffer.byteLength(JSON.stringify(value)) + 1;
+  const copy: Record<string, unknown> = { ...value };
+  let arrayBytes = 0;
+  for (const key of ["application_node_ids", "candidate_node_ids"]) {
+    const ids = copy[key];
+    if (!Array.isArray(ids)) continue;
+    let bytes = encodedIdArrays.get(ids);
+    if (bytes === undefined) {
+      if (!ids.every((id) => typeof id === "string")) continue;
+      bytes = 2;
+      for (const id of ids) bytes += Buffer.byteLength(JSON.stringify(id)) + 1;
+      if (ids.length > 0) bytes -= 1;
+      encodedIdArrays.set(ids, bytes);
+    }
+    delete copy[key];
+    arrayBytes += Buffer.byteLength(JSON.stringify(key)) + 2 + bytes;
+  }
+  return Buffer.byteLength(JSON.stringify(copy)) + arrayBytes + 1;
+};
+
+/** One source's fact admission and bounded temporary projection storage. */
 export class SemanticFileGraphBudget {
   readonly limit: number | null;
-  /** Caller-selected node capacity of this file; null when none was selected. */
   readonly nodeLimit: number | null;
   #used = 0;
   #nodes = 0;
+  #pendingBytes = 0;
   #closed = false;
+  #incomplete = false;
   readonly #chargedContexts = new Set<string>();
+  readonly #pendingContexts = new Map<string, number>();
   readonly #omittedNodes = new Set<string>();
   readonly #omittedRelations = new Set<string>();
-  /** Constructed nodes not yet referenced by an admitted fact, in creation order. */
+  readonly #unknownCounts = new Map<
+    string,
+    {
+      family: JavaScriptSemanticGraphUnknown["family"];
+      reason: JavaScriptSemanticGraphUnknown["reason"];
+      total: number;
+      retained: number;
+    }
+  >();
   readonly pendingNodes = new Map<string, JavaScriptSemanticGraphNode>();
-  /** Unknown frontiers offered after every node relation. */
   readonly deferredUnknowns = new Map<string, JavaScriptSemanticGraphUnknown>();
+  readonly #reservations = new Map<string, number>();
 
-  /** A null limit admits every fact and still measures its serialized size. */
   constructor(limit: number | null, nodeLimit: number | null = null) {
     for (const value of [limit, nodeLimit])
       if (value !== null && (!Number.isSafeInteger(value) || value < 0))
@@ -48,67 +70,157 @@ export class SemanticFileGraphBudget {
     this.nodeLimit = nodeLimit;
   }
 
-  /** Whether a refused fact closed admission for this file. */
   get closed(): boolean {
     return this.#closed;
   }
-
-  /** Serialized bytes of every admitted fact and its first-referenced context. */
+  get incomplete(): boolean {
+    return this.#incomplete;
+  }
   get used(): number {
     return this.#used;
   }
+  get unknownCounts() {
+    return [...this.#unknownCounts.values()].map((count) => ({
+      ...count,
+      total: this.#incomplete ? null : count.total,
+    }));
+  }
 
-  /** Charge one fact with the provenance context it references first. */
+  /** Skipped projection has unknown totals, rather than manufactured zeroes. */
+  markIncomplete(): void {
+    this.#incomplete = true;
+  }
+
+  /** Reserve temporary full facts before retaining them in projection indexes. */
+  reservePending(
+    id: string,
+    fact: SemanticFact,
+    contexts: JavaScriptSemanticEvidenceContextRegistry,
+    node: boolean,
+  ): boolean {
+    if (this.#closed) return false;
+    const contextId = fact.evidence.context_id;
+    const contextBytes =
+      this.#chargedContexts.has(contextId) ||
+      this.#pendingContexts.has(contextId)
+        ? 0
+        : serializedSemanticFactBytes(contexts.context(contextId));
+    const bytes = serializedSemanticFactBytes(fact);
+    if (
+      (this.limit !== null &&
+        this.#used + this.#pendingBytes + bytes + contextBytes > this.limit) ||
+      (node &&
+        this.nodeLimit !== null &&
+        this.#nodes + this.pendingNodes.size >= this.nodeLimit) ||
+      (!node &&
+        this.nodeLimit !== null &&
+        this.deferredUnknowns.size >= this.nodeLimit)
+    ) {
+      this.#closed = true;
+      this.markIncomplete();
+      return false;
+    }
+    this.#pendingBytes += bytes + contextBytes;
+    if (contextBytes > 0) this.#pendingContexts.set(contextId, contextBytes);
+    this.#reservations.set(id, bytes);
+    return true;
+  }
+
+  releasePending(id: string): void {
+    this.#pendingBytes -= this.#reservations.get(id) ?? 0;
+    this.#reservations.delete(id);
+  }
+
+  /** Dry-run a complete fact and its required nodes before mutating admission. */
+  admitBatch(
+    facts: readonly SemanticFact[],
+    nodes: number,
+    contexts: JavaScriptSemanticEvidenceContextRegistry,
+    releasedReservations: readonly string[] = [],
+  ): boolean {
+    if (this.#closed) return false;
+    const addedContexts = new Set<string>();
+    let bytes = 0;
+    for (const fact of facts) {
+      bytes += serializedSemanticFactBytes(fact);
+      const id = fact.evidence.context_id;
+      if (!this.#chargedContexts.has(id) && !addedContexts.has(id)) {
+        bytes += serializedSemanticFactBytes(contexts.context(id));
+        addedContexts.add(id);
+      }
+    }
+    const releasedBytes =
+      releasedReservations.reduce(
+        (total, id) => total + (this.#reservations.get(id) ?? 0),
+        0,
+      ) +
+      [...addedContexts].reduce(
+        (total, id) => total + (this.#pendingContexts.get(id) ?? 0),
+        0,
+      );
+    if (
+      (this.nodeLimit !== null && this.#nodes + nodes > this.nodeLimit) ||
+      (this.limit !== null &&
+        this.#used + this.#pendingBytes + bytes - releasedBytes > this.limit)
+    ) {
+      this.#closed = true;
+      this.markIncomplete();
+      return false;
+    }
+    this.#used += bytes;
+    this.#nodes += nodes;
+    for (const id of addedContexts) {
+      this.#chargedContexts.add(id);
+      this.#pendingBytes -= this.#pendingContexts.get(id) ?? 0;
+      this.#pendingContexts.delete(id);
+    }
+    return true;
+  }
+
   admit(
     fact: SemanticFact,
     contexts: JavaScriptSemanticEvidenceContextRegistry,
   ): boolean {
-    if (this.#closed) return false;
-    const contextId = fact.evidence.context_id;
-    const newContext = !this.#chargedContexts.has(contextId);
-    const bytes =
-      serializedBytes(fact) +
-      (newContext ? serializedBytes(contexts.context(contextId)) : 0);
-    if (this.limit !== null && this.#used + bytes > this.limit) {
-      this.#closed = true;
-      return false;
-    }
-    this.#used += bytes;
-    if (newContext) this.#chargedContexts.add(contextId);
-    return true;
+    return this.admitBatch([fact], 0, contexts);
   }
-
-  /** Charge one node against the node capacity and the byte budget. */
   admitNode(
     node: SemanticFact,
     contexts: JavaScriptSemanticEvidenceContextRegistry,
   ): boolean {
-    if (this.nodeLimit !== null && this.#nodes >= this.nodeLimit)
-      this.#closed = true;
-    if (!this.admit(node, contexts)) return false;
-    this.#nodes += 1;
-    return true;
+    return this.admitBatch([node], 1, contexts);
+  }
+
+  /** Closed sources retain bounded counters, never additional frontier objects. */
+  countUnknown(
+    unknown: JavaScriptSemanticGraphUnknown,
+    retained = false,
+  ): void {
+    const key = `${unknown.family}\u0000${unknown.reason}`;
+    const count = this.#unknownCounts.get(key) ?? {
+      family: unknown.family,
+      reason: unknown.reason,
+      total: 0,
+      retained: 0,
+    };
+    if (retained) count.retained += 1;
+    else count.total += 1;
+    this.#unknownCounts.set(key, count);
   }
 
   omitNode(nodeId: string): void {
-    this.#omittedNodes.add(nodeId);
+    if (this.#closed) this.markIncomplete();
+    else this.#omittedNodes.add(nodeId);
   }
-
   omitRelation(relationId: string): void {
-    this.#omittedRelations.add(relationId);
+    if (this.#closed) this.markIncomplete();
+    else this.#omittedRelations.add(relationId);
   }
-
-  /** Distinct node identities that were constructed or requested but not admitted. */
   get omittedNodes(): number {
     return this.#omittedNodes.size;
   }
-
-  /** Distinct relations refused although they were constructed. */
   get omittedRelations(): number {
     return this.#omittedRelations.size;
   }
-
-  /** Whether one interned context is referenced by an admitted fact. */
   references(contextId: string): boolean {
     return this.#chargedContexts.has(contextId);
   }

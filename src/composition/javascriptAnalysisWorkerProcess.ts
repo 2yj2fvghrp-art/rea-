@@ -1,3 +1,5 @@
+import { estimateJavaScriptModuleApplicationProjection } from "../domain/javascript/javascriptApplicationProjectionResources.js";
+import { moduleResolutionModeForJavaScriptReference } from "../domain/javascript/javascriptModuleResolutionMode.js";
 import { parseJavaScriptSource } from "../domain/javascript/javascriptSourceParser.js";
 import { analyzeParsedJavaScriptStaticSourceSteps } from "../domain/javascript/javascriptStaticAnalysis.js";
 import {
@@ -55,7 +57,10 @@ const analyze: JavaScriptSourceWorkerAnalyzer = async (
     );
   await callbacks.phase("semantic");
   const ir = await completeJavaScriptAnalysisSteps(
-    analyzeParsedJavaScriptSemanticsSteps(parsed),
+    analyzeParsedJavaScriptSemanticsSteps(
+      parsed,
+      moduleResolutionModeForJavaScriptReference(file.path, "static-import"),
+    ),
   );
   parsed = null;
   const module = projectJavaScriptModuleSemantics(ir);
@@ -79,7 +84,11 @@ const analyze: JavaScriptSourceWorkerAnalyzer = async (
       file,
       ir,
       Math.min(
-        admission.graphBytes,
+        Math.max(
+          0,
+          admission.graphBytes -
+            estimateJavaScriptModuleApplicationProjection(module, file.path),
+        ),
         javaScriptGraphBytesWithinRetention(
           resultBudgetBytes - measured.retentionBytes,
         ),

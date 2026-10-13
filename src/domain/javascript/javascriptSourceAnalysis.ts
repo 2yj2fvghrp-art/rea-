@@ -30,8 +30,16 @@ export interface JavaScriptSourceAnalysisLimits {
   readonly timeoutMs: number;
 }
 
+/** One owner for serialized Evidence capacity shared with final projection. */
+export interface JavaScriptEvidenceAdmission {
+  remainingBytes(): number;
+  reserveBytes(bytes: number): boolean;
+  releaseBytes(bytes: number): void;
+}
+
 /** Sequential source-analysis authority with independently verified cleanup. */
 export interface JavaScriptSourceAnalysisPort {
+  readonly evidenceBudget?: JavaScriptEvidenceAdmission;
   /** `nodeBudget` is the caller-selected node capacity offered to this source, or null. */
   analyze(
     file: JavaScriptArtifactFile,

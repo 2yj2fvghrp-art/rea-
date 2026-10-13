@@ -85,6 +85,20 @@ describe("JavaScript source selection cancellation boundary", () => {
 });
 
 describe("Selected JavaScript source failure diagnostics", () => {
+  it("retains semantic coverage for a static-only syntax failure", async () => {
+    const root = await createTestTempDirectory("rea-js-parse-failure-coverage-");
+    await writeFile(join(root, "broken.mjs"), "export const value = ;");
+    const response = await analyzeJavaScriptApplication({ input_path: root });
+    if (!response.ok) throw response.error;
+    const analysis = javascriptApplicationAnalysisResultSchema.parse(
+      response.value.normalized_result,
+    );
+    expect(analysis.statistics.parse_failures).toBe(1);
+    expect(analysis.semantic_graph.coverage.files).toContainEqual(
+      expect.objectContaining({ module_path: "broken.mjs", status: "unavailable" }),
+    );
+  });
+
   it("analyzes selected files in first-request order and reports only selected progress", async () => {
     const root = await createTestTempDirectory("rea-js-selected-priority-");
     await writeJavaScriptSourceSelectionFixture(root);

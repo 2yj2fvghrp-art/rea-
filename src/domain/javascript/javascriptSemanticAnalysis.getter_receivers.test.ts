@@ -156,3 +156,19 @@ describe("getters reached through unknown receiver keys", () => {
     ).toMatchObject({ status: "literal", value: 1 });
   });
 });
+
+it("widens private receiver aliases through repeated unknown getter reads", () => {
+  expect(
+    resultValue(`
+    const shared = { x: 1 };
+    class R {
+      #state = { y: { x: shared } };
+      get s() { return this.#state; }
+      get a() { return this[k1].x; }
+      get b() { return this[k2].y; }
+    }
+    new R().a.x = 2;
+    return shared.x;
+  `)?.status,
+  ).toBe("unknown");
+});

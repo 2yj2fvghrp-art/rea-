@@ -1,3 +1,6 @@
+import type { JavaScriptModuleSemanticIr } from "./javascriptModuleSemanticIr.js";
+import { partialApplicationCoverage } from "./javascriptApplicationEvidenceSchemas.js";
+import { projectJavaScriptExportReturnShapes } from "./javascriptExportReturnShapeProjection.js";
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
 
 /** Forecast static-fact expansion into observations, nodes and relationships. */
@@ -49,4 +52,41 @@ export const estimateJavaScriptStaticApplicationProjection = (
   // Measured on a complete Grok Bot app.asar analysis: the sum of these
   // forecasts was 89 MB for 73 MB of retained application-graph objects.
   return checkpointBytes * 4 + repeatedBytes + records * metadataBytes;
+};
+
+/** Reserve exported observations and repeated return shapes before graph projection. */
+export const estimateJavaScriptModuleApplicationProjection = (
+  module: JavaScriptModuleSemanticIr,
+  sourcePath: string,
+): number => {
+  const shapeBytesByCallable = new Map<
+    string,
+    { bytes: number; nameBytes: number }
+  >();
+  let bytes = 0;
+  for (const link of module.moduleLinks) {
+    // Include source/export observations, identity and their containment/import edges.
+    bytes += 8 * (2048 + Buffer.byteLength(sourcePath) * 4);
+    bytes += Buffer.byteLength(JSON.stringify(link)) * 4;
+    if (link.callableId === null || link.exportedName === null) continue;
+    const nameBytes = Buffer.byteLength(JSON.stringify(link.exportedName));
+    let measured = shapeBytesByCallable.get(link.callableId);
+    if (measured === undefined) {
+      const shapes = projectJavaScriptExportReturnShapes({
+        ir: module,
+        link,
+        modulePath: sourcePath,
+        baseCoverage: partialApplicationCoverage([], null),
+      });
+      measured = {
+        bytes: shapes === null ? 0 : Buffer.byteLength(JSON.stringify(shapes)),
+        nameBytes,
+      };
+      shapeBytesByCallable.set(link.callableId, measured);
+    }
+    // Flattened paths can expand quadratically relative to nested IR. Measure
+    // the owning projection, rather than multiplying the unflattened callable.
+    bytes += Math.max(0, measured.bytes + nameBytes - measured.nameBytes) * 4;
+  }
+  return bytes;
 };

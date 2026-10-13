@@ -9,11 +9,15 @@ import { z } from "zod";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
 import type { JavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
 import type { ApplicationCoverage } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
-import { estimateJavaScriptStaticApplicationProjection } from "../../domain/javascript/javascriptApplicationProjectionResources.js";
+import {
+  estimateJavaScriptModuleApplicationProjection,
+  estimateJavaScriptStaticApplicationProjection,
+} from "../../domain/javascript/javascriptApplicationProjectionResources.js";
 import type { JavaScriptModuleSemanticIr } from "../../domain/javascript/javascriptModuleSemanticIr.js";
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
 import type {
   JavaScriptAnalyzedSource,
+  JavaScriptEvidenceAdmission,
   JavaScriptSourceAnalysisFailure,
   JavaScriptSourceAnalysisLimits,
 } from "../../domain/javascript/javascriptSourceAnalysis.js";
@@ -29,10 +33,8 @@ import { ProviderAdapterError } from "../../domain/providerAdapterError.js";
 import { ProviderCleanupError } from "../../domain/providerCleanupError.js";
 import { ok, err, type Result } from "../../domain/result.js";
 import { javaScriptRuntime } from "../../domain/runtimeVersion.js";
-import {
-  PrivateRuntimeRoot,
-  PrivateRuntimeRootUnavailableError,
-} from "../../process/PrivateRuntimeRoot.js";
+import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
+import { PrivateRuntimeRootUnavailableError } from "../../process/PrivateRuntimeRootUnavailableError.js";
 import { javaScriptWorkerMemoryLimitBytes } from "../../process/JavaScriptWorkerMemoryLimit.js";
 import {
   ProviderProcessSupervisor,
@@ -110,6 +112,30 @@ export class JavaScriptAnalysisWorker {
   readonly #resultBudgetBytes: number;
   readonly #evidenceBudgetBytes = javaScriptEvidenceBudgetBytes();
   #evidenceChargedBytes = 0;
+  readonly evidenceBudget: JavaScriptEvidenceAdmission = {
+    remainingBytes: (): number =>
+      Math.max(0, this.#evidenceBudgetBytes - this.#evidenceChargedBytes),
+    reserveBytes: (bytes: number): boolean => {
+      if (!Number.isSafeInteger(bytes) || bytes < 0)
+        throw new RangeError(
+          "Evidence reservation requires nonnegative safe bytes",
+        );
+      if (bytes > this.evidenceBudget.remainingBytes()) return false;
+      this.#evidenceChargedBytes += bytes;
+      return true;
+    },
+    releaseBytes: (bytes: number): void => {
+      if (
+        !Number.isSafeInteger(bytes) ||
+        bytes < 0 ||
+        bytes > this.#evidenceChargedBytes
+      )
+        throw new RangeError(
+          "Evidence release exceeds its retained reservation",
+        );
+      this.#evidenceChargedBytes -= bytes;
+    },
+  };
   /** Null when the runtime enforces the V8 heap flags instead. */
   readonly #processMemoryLimitBytes: number | null;
   readonly #onStdout = (chunk: Buffer | string): void => {
@@ -377,8 +403,31 @@ export class JavaScriptAnalysisWorker {
         );
         module = decoded.module;
         projection = decoded.projection;
+        const applicationBytes = estimateJavaScriptModuleApplicationProjection(
+          module,
+          file.path,
+        );
+        if (
+          moduleEstimate +
+            (retainGraph ? graphEstimate : 0) +
+            applicationBytes >
+            remaining ||
+          !this.evidenceBudget.reserveBytes(applicationBytes)
+        ) {
+          module = null;
+          projection = null;
+          throw new AnalysisResourceConstraintError(
+            OPERATION,
+            "memory",
+            "Exported application facts exceed the remaining Evidence budget",
+            {
+              ...this.#limits(),
+              application_projection_required_bytes: applicationBytes,
+            },
+          );
+        }
         this.#estimatedRetainedBytes +=
-          moduleEstimate + (retainGraph ? graphEstimate : 0);
+          moduleEstimate + (retainGraph ? graphEstimate : 0) + applicationBytes;
         this.#evidenceChargedBytes +=
           decoded.projection?.coverage.retained_graph_bytes ?? 0;
         result = retainGraph
@@ -634,9 +683,11 @@ export class JavaScriptAnalysisWorker {
       sourcePath,
     );
     const availableResultBudget = this.#remainingResultBudget();
-    if (expandedBytes <= availableResultBudget) {
+    if (
+      expandedBytes <= availableResultBudget &&
+      this.evidenceBudget.reserveBytes(expandedBytes)
+    ) {
       this.#estimatedRetainedBytes += expandedBytes;
-      this.#evidenceChargedBytes += expandedBytes;
     } else
       this.#applicationProjectionFailure = new AnalysisResourceConstraintError(
         OPERATION,
@@ -793,7 +844,7 @@ export class JavaScriptAnalysisWorker {
           PROVIDER,
           OPERATION,
           cause.message,
-          { cause },
+          { cause, retryable: cause.retryable },
         )
       : new ProviderAdapterError(PROVIDER, OPERATION, {
           cause,

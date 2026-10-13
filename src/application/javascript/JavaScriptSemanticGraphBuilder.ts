@@ -1,3 +1,4 @@
+import type { JavaScriptEvidenceAdmission } from "../../domain/javascript/javascriptSourceAnalysis.js";
 import {
   createJavaScriptSemanticGraph,
   createJavaScriptSemanticGraphUnknown,
@@ -70,6 +71,7 @@ import {
   createSemanticGraphProjectionState as emptyState,
   finishSemanticFileBudget,
   bindSemanticGraphApplicationNodes,
+  measureSemanticFiles,
   type SemanticGraphProjectionState as BuilderState,
 } from "./JavaScriptSemanticGraphConstruction.js";
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
@@ -185,6 +187,8 @@ export interface JavaScriptSemanticNodeLimits {
 /** Accumulate semantic nodes while each source IR is still file-local. */
 export const createJavaScriptSemanticGraphProjection = (
   capacities: JavaScriptSemanticNodeLimits = {},
+  evidenceBudget?: JavaScriptEvidenceAdmission,
+  rootArtifactSha256?: string,
 ): JavaScriptSemanticGraphProjection => {
   for (const value of [capacities.totalNodes, capacities.fileNodes])
     if (
@@ -215,6 +219,25 @@ export const createJavaScriptSemanticGraphProjection = (
         ]),
   ];
   const state = emptyState();
+  const fallback = emptyState();
+  if (rootArtifactSha256 !== undefined)
+    addFallbackRoot(rootArtifactSha256, fallback);
+  const fallbackBytes = [
+    ...fallback.nodes.values(),
+    ...fallback.evidenceContexts.contexts,
+  ].reduce(
+    (bytes, fact) => bytes + Buffer.byteLength(JSON.stringify(fact)) + 1,
+    0,
+  );
+  if (
+    evidenceBudget !== undefined &&
+    !evidenceBudget.reserveBytes(fallbackBytes)
+  )
+    throw new RangeError(
+      "Evidence capacity cannot retain its mandatory semantic root",
+    );
+  let graphReservedBytes = 0;
+  let coverageReservedBytes = 0;
   const remainingFileNodeBudget = (): number | null =>
     nodeLimits.length === 0
       ? null
@@ -229,6 +252,7 @@ export const createJavaScriptSemanticGraphProjection = (
   const fingerprints: JavaScriptSemanticFingerprint[] = [];
   const files: JavaScriptSemanticFileCoverage[] = [];
   let unavailableFiles = 0;
+  let omittedFiles = 0;
   let resourceTruncatedFiles = 0;
   const executionLimits = new Map<
     string,
@@ -255,8 +279,105 @@ export const createJavaScriptSemanticGraphProjection = (
     applicationGraph: BuilderInput["applicationGraph"],
     budgetLimits: ApplicationCoverage["limits"],
   ): Value => {
-    bindSemanticGraphApplicationNodes(state, applicationGraph);
-    if (state.roots.size === 0) addFallbackRoot(rootArtifactSha256, state);
+    let finalBudget: SemanticFileGraphBudget | undefined;
+    const before = measureSemanticFiles(state, fingerprints);
+    if (evidenceBudget !== undefined) {
+      evidenceBudget.releaseBytes(graphReservedBytes + coverageReservedBytes);
+      finalBudget = new SemanticFileGraphBudget(
+        evidenceBudget.remainingBytes(),
+      );
+    }
+    bindSemanticGraphApplicationNodes(
+      state,
+      applicationGraph,
+      fingerprints,
+      finalBudget,
+    );
+    const measured = measureSemanticFiles(state, fingerprints);
+    const retainedUnknownCounts = new Map<string, number>();
+    for (const unknown of state.unknowns.values()) {
+      const context = state.evidenceContexts.context(
+        unknown.evidence.context_id,
+      );
+      const location = unknown.evidence.location;
+      if (!context.artifact.available || !location.available) continue;
+      const path =
+        location.value.kind === "artifact-path"
+          ? location.value.path
+          : location.value.kind === "source-range"
+            ? location.value.source
+            : null;
+      if (path === null) continue;
+      const key = `${context.artifact.sha256}\u0000${path}\u0000${unknown.family}\u0000${unknown.reason}`;
+      retainedUnknownCounts.set(key, (retainedUnknownCounts.get(key) ?? 0) + 1);
+    }
+    if (finalBudget !== undefined) {
+      if (!evidenceBudget?.reserveBytes(finalBudget.used))
+        throw new RangeError(
+          "Final semantic admission exceeded its reserved capacity",
+        );
+      const retainedFiles: JavaScriptSemanticFileCoverage[] = [];
+      for (const coverage of files) {
+        const key = `${coverage.artifact_sha256}\u0000${coverage.module_path}`;
+        const lost =
+          (measured.get(key)?.facts ?? 0) < (before.get(key)?.facts ?? 0);
+        const updated = {
+          ...coverage,
+          retained_graph_bytes: measured.get(key)?.bytes ?? 0,
+          graph_byte_budget:
+            lost || coverage.status === "truncated"
+              ? finalBudget.limit
+              : coverage.graph_byte_budget,
+          unknowns: coverage.unknowns.map((count) => ({
+            ...count,
+            retained:
+              retainedUnknownCounts.get(
+                `${key}\u0000${count.family}\u0000${count.reason}`,
+              ) ?? 0,
+            ...(lost ? { total: null } : {}),
+          })),
+          ...(lost
+            ? {
+                status:
+                  coverage.status === "unavailable"
+                    ? ("unavailable" as const)
+                    : ("truncated" as const),
+                omitted_nodes: null,
+                omitted_relations: null,
+                omitted_fingerprints: null,
+              }
+            : {}),
+        };
+        if (
+          evidenceBudget?.reserveBytes(
+            Buffer.byteLength(JSON.stringify(updated)) + 1,
+          )
+        )
+          retainedFiles.push(updated);
+        else omittedFiles += 1;
+      }
+      files.splice(0, files.length, ...retainedFiles);
+    } else {
+      for (let index = 0; index < files.length; index++) {
+        const coverage = files[index];
+        if (coverage !== undefined)
+          files[index] = {
+            ...coverage,
+            retained_graph_bytes:
+              measured.get(
+                `${coverage.artifact_sha256}\u0000${coverage.module_path}`,
+              )?.bytes ?? 0,
+          };
+      }
+    }
+    if (state.roots.size === 0) {
+      if (fallback.roots.size === 0)
+        addFallbackRoot(rootArtifactSha256, fallback);
+      for (const context of fallback.evidenceContexts.contexts)
+        state.evidenceContexts.adopt(context);
+      for (const [id, node] of fallback.nodes) state.nodes.set(id, node);
+      for (const id of fallback.roots) state.roots.add(id);
+    }
     const relations = [...state.relations.values()];
     const unknowns = [...state.unknowns.values()];
     type Family = (typeof JAVASCRIPT_SEMANTIC_RELATION_FAMILIES)[number];
@@ -277,13 +398,15 @@ export const createJavaScriptSemanticGraphProjection = (
         omittedUnknownsByFamily.set(
           count.family,
           (omittedUnknownsByFamily.get(count.family) ?? 0) +
-            count.total -
-            count.retained,
+            (count.total === null ? 0 : count.total - count.retained),
         );
     const truncatedFiles = files.filter(
       ({ status }) => status === "truncated",
     ).length;
-    const exactNodes = unavailableFiles === 0;
+    const exactNodes =
+      unavailableFiles === 0 &&
+      omittedFiles === 0 &&
+      files.every(({ omitted_nodes }) => omitted_nodes !== null);
     const exactRelations =
       exactNodes &&
       files.every(({ omitted_relations: omitted }) => omitted !== null);
@@ -297,7 +420,14 @@ export const createJavaScriptSemanticGraphProjection = (
       root_artifact_sha256: rootArtifactSha256,
       application_graph_id: applicationGraph.graph_id,
       root_node_ids: [...state.roots],
-      evidence_contexts: state.evidenceContexts.contexts,
+      evidence_contexts: state.evidenceContexts.contexts.filter(
+        ({ context_id }) =>
+          finalBudget === undefined ||
+          finalBudget.references(context_id) ||
+          fallback.evidenceContexts.contexts.some(
+            (context) => context.context_id === context_id,
+          ),
+      ),
       nodes: [...state.nodes.values()],
       relations,
       // The input is transferred to the factory; `fingerprints` is cleared below.
@@ -305,8 +435,11 @@ export const createJavaScriptSemanticGraphProjection = (
       unknowns,
       coverage: {
         status:
-          truncatedFiles > 0 || unavailableFiles > 0 ? "partial" : "unknown",
-        truncated: truncatedFiles > 0 || resourceTruncatedFiles > 0,
+          truncatedFiles > 0 || unavailableFiles > 0 || omittedFiles > 0
+            ? "partial"
+            : "unknown",
+        truncated:
+          truncatedFiles > 0 || resourceTruncatedFiles > 0 || omittedFiles > 0,
         omitted_nodes: exactNodes
           ? files.reduce(
               (total, { omitted_nodes: omitted }) => total + (omitted ?? 0),
@@ -333,6 +466,7 @@ export const createJavaScriptSemanticGraphProjection = (
             ? (omittedUnknownsByFamily.get(family) ?? 0)
             : null,
         })),
+        ...(omittedFiles === 0 ? {} : { omitted_files: omittedFiles }),
         files: sortedFiles,
       },
       limitations: [
@@ -349,7 +483,7 @@ export const createJavaScriptSemanticGraphProjection = (
         "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
         ...(truncatedFiles > 0
           ? [
-              "Sources whose semantic facts exceeded their serialized byte budget or a caller-selected node capacity keep a source-ordered prefix; coverage.files reports exact omitted counts. Select one source with source_paths to give it the whole budget.",
+              "Sources whose semantic facts exceeded their serialized byte budget or a caller-selected node capacity keep a source-ordered prefix; coverage.files reports omitted counts only for examined facts; skipped totals remain null. Select one source with source_paths to give it the whole budget.",
             ]
           : []),
       ],
@@ -384,7 +518,18 @@ export const createJavaScriptSemanticGraphProjection = (
         state.unknowns.set(unknown.unknown_id, unknown);
       for (const root of projection.roots) state.roots.add(root);
       fingerprints.push(...projection.fingerprints);
-      files.push(fileCoverage(file, projection.coverage));
+      graphReservedBytes += projection.coverage.retained_graph_bytes;
+      const coverage = fileCoverage(file, projection.coverage);
+      if (
+        evidenceBudget === undefined ||
+        evidenceBudget.reserveBytes(
+          Buffer.byteLength(JSON.stringify(coverage)) + 1,
+        )
+      ) {
+        files.push(coverage);
+        coverageReservedBytes +=
+          Buffer.byteLength(JSON.stringify(coverage)) + 1;
+      } else omittedFiles += 1;
     },
     recordUnavailableFile: (file, reason, limits, unknownReason) => {
       const retainedLimits = javaScriptAnalysisCoverageLimits(limits);
@@ -394,17 +539,20 @@ export const createJavaScriptSemanticGraphProjection = (
           limit,
         );
       }
-      const module =
-        remainingFileNodeBudget() === 0
-          ? null
-          : retainNode(state, file, {
-              kind: "module",
-              roleKey: "module",
-              location: null,
-              label: file.path,
-              functionNodeId: null,
-            });
-      if (module !== null) state.roots.add(module.node_id);
+      const local = emptyState();
+      const budget = new SemanticFileGraphBudget(
+        evidenceBudget?.remainingBytes() ?? null,
+        remainingFileNodeBudget(),
+      );
+      local.fileBudget = budget;
+      const module = retainNode(local, file, {
+        kind: "module",
+        roleKey: "module",
+        location: null,
+        label: file.path,
+        functionNodeId: null,
+      });
+      if (module !== null) local.roots.add(module.node_id);
       const evidence = {
         ...observedSemanticEvidence(file, null),
         authority: "unknown" as const,
@@ -413,6 +561,7 @@ export const createJavaScriptSemanticGraphProjection = (
         coverage: partialApplicationCoverage(retainedLimits, null),
         limitations: [reason],
       };
+      const unknowns = [];
       for (const family of JAVASCRIPT_SEMANTIC_RELATION_FAMILIES) {
         const unknown = createJavaScriptSemanticGraphUnknown(
           {
@@ -427,26 +576,43 @@ export const createJavaScriptSemanticGraphProjection = (
             candidate_node_ids: [],
             evidence,
           },
-          state.evidenceContexts,
+          local.evidenceContexts,
         );
-        state.unknowns.set(unknown.unknown_id, unknown);
-      }
-      files.push({
-        module_path: file.path,
-        artifact_sha256: file.sha256,
-        status: "unavailable",
-        graph_byte_budget: null,
-        retained_graph_bytes: null,
-        omitted_nodes: null,
-        omitted_relations: null,
-        omitted_fingerprints: null,
-        unknowns: JAVASCRIPT_SEMANTIC_RELATION_FAMILIES.map((family) => ({
+        const retained = budget.admit(unknown, local.evidenceContexts);
+        if (retained) local.unknowns.set(unknown.unknown_id, unknown);
+        unknowns.push({
           family,
           reason: unknownReason,
           total: 1,
-          retained: 1,
-        })),
-      });
+          retained: retained ? 1 : 0,
+        });
+      }
+      const coverage: JavaScriptSemanticFileCoverage = {
+        module_path: file.path,
+        artifact_sha256: file.sha256,
+        status: "unavailable",
+        graph_byte_budget: budget.closed ? budget.limit : null,
+        retained_graph_bytes: budget.used,
+        omitted_nodes: null,
+        omitted_relations: null,
+        omitted_fingerprints: null,
+        unknowns,
+      };
+      const bytes =
+        budget.used + Buffer.byteLength(JSON.stringify(coverage)) + 1;
+      if (evidenceBudget === undefined || evidenceBudget.reserveBytes(bytes)) {
+        for (const context of local.evidenceContexts.contexts)
+          if (budget.references(context.context_id))
+            state.evidenceContexts.adopt(context);
+        for (const [id, node] of local.nodes) state.nodes.set(id, node);
+        for (const [id, unknown] of local.unknowns)
+          state.unknowns.set(id, unknown);
+        for (const id of local.roots) state.roots.add(id);
+        files.push(coverage);
+        graphReservedBytes += budget.used;
+        coverageReservedBytes +=
+          Buffer.byteLength(JSON.stringify(coverage)) + 1;
+      } else omittedFiles += 1;
       unavailableFiles += 1;
       if (unknownReason === "resource-limit" && retainedLimits.length > 0)
         resourceTruncatedFiles += 1;
@@ -536,7 +702,15 @@ function* projectBudgetedFileSteps(
 > {
   state.fileBudget = budget;
   try {
-    const candidates = yield* projectFileSteps(file, ir, state, paths);
+    const steps = projectFileSteps(file, ir, state, paths);
+    let step = steps.next();
+    while (!step.done && !budget.closed) {
+      yield;
+      step = steps.next();
+    }
+    const candidates = step.done ? step.value : [];
+    if (!step.done) steps.return([]);
+    if (budget.closed) budget.markIncomplete();
     return finishSemanticFileBudget(state, budget, candidates);
   } finally {
     delete state.fileBudget;

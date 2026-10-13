@@ -4,7 +4,6 @@ import {
 } from "../analysisErrorCore.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
-import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import { jsonObjectSchema, type JsonValue } from "../jsonValue.js";
 import type { JavaScriptApplicationAnalysisResult } from "../javascript/javascriptApplicationAnalysis.js";
 import type { ApplicationNode } from "../javascript/javascriptApplicationGraphSchemas.js";
@@ -164,7 +163,12 @@ const javascriptUnknowns = (
   ).length;
   if (truncatedSources > 0)
     unknowns.push(
-      `${String(truncatedSources)} sources have truncated or unavailable semantic facts; page semantic_files for exact omitted counts.`,
+      `${String(truncatedSources)} sources have truncated or unavailable semantic facts; page semantic_files for coverage and known omission counts.`,
+    );
+  const omittedSources = analysis.semantic_graph.coverage.omitted_files ?? 0;
+  if (omittedSources > 0)
+    unknowns.push(
+      `${String(omittedSources)} source coverage rows exceeded the Evidence budget; individual semantic coverage remains unknown.`,
     );
   return unknowns;
 };
@@ -175,6 +179,8 @@ const semanticFileStatusCounts = (
   const counts: Record<string, number> = {};
   for (const { status } of analysis.semantic_graph.coverage.files)
     counts[status] = (counts[status] ?? 0) + 1;
+  if ((analysis.semantic_graph.coverage.omitted_files ?? 0) > 0)
+    counts.omitted = analysis.semantic_graph.coverage.omitted_files ?? 0;
   return counts;
 };
 
@@ -258,12 +264,14 @@ export const projectJavaScriptApplicationView = (
   analysis: JavaScriptApplicationAnalysisResult,
   view: Exclude<AnalysisViewRequest, { kind: "api-surface" }>,
 ): Result<UnsignedAnalysisView, AnalysisError> => {
+  if (view.kind !== "summary" && view.kind !== "item" && view.kind !== "page")
+    return err(
+      jsIncompatible(
+        "JavaScript application Evidence supports summary, module item or page views.",
+      ),
+    );
   const shared = parentFields(parent, analysis);
   const modules = moduleEntries(analysis.graph.nodes);
-  if (view.kind === "native")
-    return err(
-      jsIncompatible("Native views require analyze_function Evidence."),
-    );
   if (view.kind === "summary")
     return ok({
       kind: "summary",
@@ -293,12 +301,6 @@ export const projectJavaScriptApplicationView = (
       coverage: completeCoverage(modules.length, analysis.graph.nodes.length),
       ...shared,
     });
-  if (view.kind === "facet")
-    return err(
-      jsIncompatible(
-        "facet views apply to inspect_binary_layout Evidence (mitigations or linkage).",
-      ),
-    );
   if (view.kind === "item") {
     if (view.collection !== "modules")
       return err(
@@ -328,8 +330,10 @@ export const projectJavaScriptApplicationView = (
     });
   }
   if (view.collection === "semantic_unknowns") {
-    const unknowns = semanticUnknownItems(analysis);
-    const items = unknowns.slice(view.offset, view.offset + view.limit);
+    const unknowns = analysis.semantic_graph.unknowns;
+    const items = semanticUnknownItems(
+      unknowns.slice(view.offset, view.offset + view.limit),
+    );
     return ok({
       kind: "page",
       view,
@@ -360,29 +364,18 @@ export const projectJavaScriptApplicationView = (
   });
 };
 
-/** Retained unknown frontiers grouped by source, family and reason. */
+/** Decorate only selected rows; the sealed graph owns their stable order. */
 const semanticUnknownItems = (
-  analysis: JavaScriptApplicationAnalysisResult,
+  unknowns: JavaScriptApplicationAnalysisResult["semantic_graph"]["unknowns"],
 ): JsonValue[] =>
-  analysis.semantic_graph.unknowns
-    .map((unknown) => {
-      const { location } = unknown.evidence;
-      const modulePath = !location.available
-        ? null
-        : location.value.kind === "source-range"
-          ? location.value.source
-          : location.value.kind === "artifact-path"
-            ? location.value.path
-            : null;
-      return { module_path: modulePath, ...unknown };
-    })
-    .sort(
-      (left, right) =>
-        compareUnicodeCodePoints(
-          left.module_path ?? "",
-          right.module_path ?? "",
-        ) ||
-        compareUnicodeCodePoints(left.family, right.family) ||
-        compareUnicodeCodePoints(left.reason, right.reason) ||
-        compareUnicodeCodePoints(left.unknown_id, right.unknown_id),
-    );
+  unknowns.map((unknown) => {
+    const { location } = unknown.evidence;
+    const modulePath = !location.available
+      ? null
+      : location.value.kind === "source-range"
+        ? location.value.source
+        : location.value.kind === "artifact-path"
+          ? location.value.path
+          : null;
+    return { module_path: modulePath, ...unknown };
+  });

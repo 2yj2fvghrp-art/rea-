@@ -523,7 +523,10 @@ it("measures retained facts as their serialized Evidence bytes", () => {
     ...projected.relations,
     ...projected.fingerprints,
     ...projected.unknowns,
-  ].reduce((total, fact) => total + Buffer.byteLength(JSON.stringify(fact)), 0);
+  ].reduce(
+    (total, fact) => total + Buffer.byteLength(JSON.stringify(fact)) + 1,
+    0,
+  );
   expect(projected.unknowns.length).toBeGreaterThan(0);
   expect(projected.coverage).toMatchObject({
     status: "complete",
@@ -542,27 +545,18 @@ it("measures retained facts as their serialized Evidence bytes", () => {
   expect(exact.nodes).toEqual(projected.nodes);
 });
 
-it("offers unknowns and unreferenced nodes only after every relation and fingerprint", () => {
-  const full = projectWithin(BUDGET_SOURCE, Number.MAX_SAFE_INTEGER);
-  const projected = projectWithin(
-    BUDGET_SOURCE,
-    full.coverage.retained_graph_bytes - 1,
-  );
-  expect(projected.relations).toEqual(full.relations);
-  expect(projected.fingerprints).toEqual(full.fingerprints);
-  expect(projected.unknowns).toEqual(full.unknowns);
-  // Nodes no admitted fact references are offered last.
-  expect(projected.nodes).toHaveLength(full.nodes.length - 1);
+it("refuses a relation atomically when its second endpoint exceeds capacity", () => {
+  const projected = projectWithin("const x = 1;", null, 2);
+  expect(projected.nodes.every(({ kind }) => kind === "module")).toBe(true);
+  expect(projected.relations).toEqual([]);
   expect(projected.coverage).toMatchObject({
     status: "truncated",
-    omitted_nodes: 1,
-    omitted_relations: null,
-    omitted_fingerprints: 0,
+    omitted_nodes: null,
+    omitted_fingerprints: null,
   });
-  expect(projected.coverage.unknowns).toEqual(full.coverage.unknowns);
 });
 
-it("keeps a source-ordered prefix with exact counts when a budget closes", () => {
+it("keeps connected facts and unknown skipped totals when a budget closes", () => {
   const full = projectWithin(BUDGET_SOURCE, Number.MAX_SAFE_INTEGER);
   const budget = Math.floor(full.coverage.retained_graph_bytes / 4);
   const projected = projectWithin(BUDGET_SOURCE, budget);
@@ -572,20 +566,12 @@ it("keeps a source-ordered prefix with exact counts when a budget closes", () =>
   expect(projected.nodes.every(({ node_id }) => fullNodeIds.has(node_id))).toBe(
     true,
   );
-  expect(projected.coverage.omitted_nodes).toBe(
-    full.nodes.length - projected.nodes.length,
-  );
-  // Omitted nodes also removed relations that were never constructed.
+  expect(projected.coverage.omitted_nodes).toBeNull();
   expect(projected.coverage.omitted_relations).toBeNull();
-  expect(projected.coverage.omitted_fingerprints).toBe(
-    full.fingerprints.length - projected.fingerprints.length,
+  expect(projected.coverage.omitted_fingerprints).toBeNull();
+  expect(projected.coverage.unknowns.every(({ total }) => total === null)).toBe(
+    true,
   );
-  expect(
-    projected.coverage.unknowns.reduce(
-      (total, count) => total + count.total,
-      0,
-    ),
-  ).toBe(full.unknowns.length);
   // Retained nodes are connected: each is a root, an endpoint, an owner, or
   // named by a retained fingerprint or unknown frontier.
   const referencedNodes = new Set([
@@ -603,7 +589,6 @@ it("keeps a source-ordered prefix with exact counts when a budget closes", () =>
       ...candidate_node_ids,
     ]),
   ]);
-  expect(projected.relations.length).toBeGreaterThan(0);
   expect(
     projected.nodes.filter(({ node_id }) => !referencedNodes.has(node_id)),
   ).toEqual([]);
@@ -647,13 +632,11 @@ it("reports per-file coverage and the offering limit in the graph", () => {
     limits: [limit],
     files: [{ module_path: "budget.js", status: "truncated" }],
   });
-  expect(graph.coverage.omitted_nodes).toBe(
-    full.nodes.length - graph.nodes.length,
-  );
+  expect(graph.coverage.omitted_nodes).toBeNull();
   const objectFlow = graph.coverage.families.find(
     ({ family }) => family === "object-flow" || family === "call-flow",
   );
-  expect(objectFlow?.omitted_unknowns).toBeGreaterThan(0);
+  expect(objectFlow?.omitted_unknowns).toBeNull();
 });
 
 it("leaves a small application complete and untruncated", () => {
@@ -993,10 +976,10 @@ it.each(["{}", "unknownRoot", "{ a: null }"])(
 it("bounds a source by a caller-selected node capacity and checks adopted capacity", () => {
   const full = projectWithin(BUDGET_SOURCE, null);
   const capped = projectWithin(BUDGET_SOURCE, null, 30);
-  expect(capped.nodes).toHaveLength(30);
+  expect(capped.nodes.length).toBeLessThanOrEqual(30);
   expect(capped.coverage).toMatchObject({
     status: "truncated",
-    omitted_nodes: full.nodes.length - 30,
+    omitted_nodes: null,
   });
   const projection = createJavaScriptSemanticGraphProjection({
     totalNodes: 35,
@@ -1004,7 +987,9 @@ it("bounds a source by a caller-selected node capacity and checks adopted capaci
   });
   expect(projection.remainingFileNodeBudget()).toBe(30);
   projection.adoptFileProjection(budgetFile(BUDGET_SOURCE), capped);
-  expect(projection.remainingFileNodeBudget()).toBe(5);
+  expect(projection.remainingFileNodeBudget()).toBe(
+    Math.min(30, 35 - capped.nodes.length),
+  );
   const graph = projection.finish(
     SHA256,
     { graph_id: `jag_${"b".repeat(64)}`, nodes: [] },
@@ -1012,7 +997,7 @@ it("bounds a source by a caller-selected node capacity and checks adopted capaci
   );
   expect(graph.coverage).toMatchObject({
     truncated: true,
-    omitted_nodes: full.nodes.length - 30,
+    omitted_nodes: null,
     limits: [
       { name: "semantic_graph_file_node_ceiling", value: 30, unit: "items" },
       { name: "semantic_graph_node_ceiling", value: 35, unit: "items" },
@@ -1021,8 +1006,8 @@ it("bounds a source by a caller-selected node capacity and checks adopted capaci
   expect(
     createJavaScriptSemanticGraphProjection().remainingFileNodeBudget(),
   ).toBeNull();
-  const bounded = createJavaScriptSemanticGraphProjection({ totalNodes: 29 });
+  const bounded = createJavaScriptSemanticGraphProjection({ totalNodes: 1 });
   expect(() =>
-    bounded.adoptFileProjection(budgetFile(BUDGET_SOURCE), capped),
+    bounded.adoptFileProjection(budgetFile(BUDGET_SOURCE), full),
   ).toThrow("exceed the offered node capacity");
 });

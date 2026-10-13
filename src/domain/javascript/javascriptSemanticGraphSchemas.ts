@@ -344,15 +344,15 @@ const familyCoverageSchema = z.strictObject({
     ),
 });
 
-/** Exact frontier counts for one source, family and reason. */
+/** Frontier counts; total is unknown when projection stopped before exhaustion. */
 export const javaScriptSemanticUnknownCountSchema = z
   .strictObject({
     family: z.enum(JAVASCRIPT_SEMANTIC_RELATION_FAMILIES),
     reason: z.enum(JAVASCRIPT_SEMANTIC_UNKNOWN_REASONS),
-    total: countSchema,
+    total: countSchema.nullable(),
     retained: countSchema,
   })
-  .refine(({ retained, total }) => retained <= total, {
+  .refine(({ retained, total }) => total === null || retained <= total, {
     message: "Retained unknown frontiers cannot exceed the observed total",
     path: ["retained"],
   });
@@ -368,13 +368,13 @@ export const javaScriptSemanticFileProjectionCoverageSchema = z.strictObject({
   retained_graph_bytes: countSchema.describe(
     "Serialized bytes of this source's retained nodes, relations, fingerprints, unknowns and first-referenced evidence contexts.",
   ),
-  omitted_nodes: countSchema,
+  omitted_nodes: countSchema.nullable(),
   omitted_relations: countSchema
     .nullable()
     .describe(
       "Distinct relations refused between retained nodes; null when omitted nodes also removed relations that were never constructed.",
     ),
-  omitted_fingerprints: countSchema,
+  omitted_fingerprints: countSchema.nullable(),
   unknowns: z.array(javaScriptSemanticUnknownCountSchema),
 });
 
@@ -403,6 +403,11 @@ const graphCoverageSchema = z.strictObject({
     }),
   ),
   families: z.array(familyCoverageSchema).length(12),
+  omitted_files: countSchema
+    .exactOptional()
+    .describe(
+      "Source coverage rows omitted by the Evidence byte budget; their individual semantic coverage remains unknown.",
+    ),
   files: z
     .array(fileCoverageSchema)
     .describe(

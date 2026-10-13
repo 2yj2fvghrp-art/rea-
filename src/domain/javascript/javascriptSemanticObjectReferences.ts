@@ -274,38 +274,83 @@ export const semanticClassPropertyReferences = (
   return uniqueReferences(possibleResults);
 };
 
-/** Every field value and getter result of one class lookup, as escapes. */
+/** Widen receiver-resolved fields/getter results once, without enumerating getter paths. */
 const escapedClassValues = (
   lookup: ClassPropertyLookup,
   state: JavaScriptSemanticAnalysisState,
 ): readonly ReferencedValue[] => {
   const values: ReferencedValue[] = [];
-  const escape = (node: t.Node): void => {
-    values.push({ node, path: [], escapes: true });
-  };
+  const classes = [lookup.receiver ?? lookup.owner];
+  const seenClasses = new Set<t.Node>();
+  const expressions: t.Node[] = [];
   if (lookup.kind === "instance")
-    for (const { node } of instanceFieldReferences(
-      lookup.owner,
+    for (const reference of instanceFieldReferences(
+      lookup.receiver ?? lookup.owner,
       null,
       [],
       state,
     ).references)
-      escape(node);
-  const pending: (t.ClassDeclaration | t.ClassExpression)[] = [lookup.owner];
+      expressions.push(reference.node);
+  for (let cursor = 0; cursor < classes.length; cursor++) {
+    const klass = classes[cursor];
+    if (klass === undefined || seenClasses.has(klass)) continue;
+    seenClasses.add(klass);
+    for (const member of klass.body.body) {
+      if (
+        (t.isClassProperty(member) || t.isClassPrivateProperty(member)) &&
+        member.static === (lookup.kind === "static") &&
+        member.value != null
+      )
+        expressions.push(member.value);
+      if (
+        (t.isClassMethod(member) || t.isClassPrivateMethod(member)) &&
+        member.static === (lookup.kind === "static")
+      )
+        for (const { node } of semanticCallableResultExpressions(member))
+          if (node !== null) expressions.push(node);
+    }
+    if (klass.superClass != null)
+      classes.push(...semanticClassCandidates(klass.superClass, state));
+  }
   const seen = new Set<t.Node>();
-  for (let cursor = 0; cursor < pending.length; cursor++) {
-    const klass = pending[cursor];
-    if (klass === undefined || seen.has(klass)) continue;
-    seen.add(klass);
-    const descriptors = classPropertyDescriptors(klass, null, lookup.kind);
-    for (const field of descriptors.fields)
-      if (field.value != null) escape(field.value);
-    for (const getter of descriptors.getters)
-      for (const { node } of semanticCallableResultExpressions(getter))
-        if (node !== null) escape(node);
-    if (klass.superClass !== null && klass.superClass !== undefined)
-      for (const base of semanticClassCandidates(klass.superClass, state))
-        pending.push(base);
+  for (let cursor = 0; cursor < expressions.length; cursor++) {
+    const input = expressions[cursor];
+    if (input === undefined) continue;
+    const node = unwrapJavaScriptExpression(input).node;
+    if (seen.has(node)) continue;
+    seen.add(node);
+    if (t.isThisExpression(node) || t.isSuper(node)) continue;
+    if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+      // Widening the receiver's data values covers every selected descendant.
+      // `this` and private fields have already been resolved by the class pass.
+      expressions.push(node.object);
+      continue;
+    }
+    if (t.isConditionalExpression(node)) {
+      expressions.push(node.consequent, node.alternate);
+      continue;
+    }
+    if (t.isLogicalExpression(node)) {
+      expressions.push(node.left, node.right);
+      continue;
+    }
+    if (t.isSequenceExpression(node)) {
+      const last = node.expressions.at(-1);
+      if (last !== undefined) expressions.push(last);
+      continue;
+    }
+    if (t.isObjectExpression(node))
+      for (const property of node.properties)
+        if (t.isObjectProperty(property)) expressions.push(property.value);
+        else if (t.isSpreadElement(property))
+          expressions.push(property.argument);
+    if (t.isArrayExpression(node))
+      for (const element of node.elements)
+        if (element !== null)
+          expressions.push(
+            t.isSpreadElement(element) ? element.argument : element,
+          );
+    values.push({ node, path: [], escapes: true });
   }
   return uniqueReferences(values);
 };

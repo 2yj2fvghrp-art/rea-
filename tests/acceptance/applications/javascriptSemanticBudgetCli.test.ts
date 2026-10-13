@@ -59,40 +59,26 @@ cliTest.skipIf(process.versions.bun !== undefined)(
     expect(largeCoverage.retained_graph_bytes).toBeLessThanOrEqual(
       largeCoverage.graph_byte_budget,
     );
-    // Every frontier is counted, including those the budget did not retain.
-    const dataFlow = largeCoverage.unknowns.find(
-      ({ family, reason }) =>
-        family === "data-flow" && reason === "unknown-value",
-    );
-    expect(dataFlow?.total).toBeGreaterThan(dataFlow?.retained ?? 0);
+    // Projection stopped before all facts were examined; totals stay unknown.
+    expect(largeCoverage.omitted_nodes).toBeNull();
+    expect(largeCoverage.omitted_fingerprints).toBeNull();
     expect(
       coverage.families.find(({ family }) => family === "data-flow")
         ?.omitted_unknowns,
-    ).toBe(
-      coverage.files.reduce(
-        (total, file) =>
-          total +
-          file.unknowns
-            .filter(({ family }) => family === "data-flow")
-            .reduce((sum, count) => sum + count.total - count.retained, 0),
-        0,
-      ),
-    );
+    ).toBeNull();
     expect(coverage.limits).toContainEqual(
       expect.objectContaining({
         name: "javascript_analysis_evidence_budget_bytes",
         unit: "bytes",
       }),
     );
-    // Relations keep their endpoints, so a truncated source still has a
-    // connected call and data-flow prefix.
+    const nodeIds = new Set(
+      result.semantic_graph.nodes.map(({ node_id }) => node_id),
+    );
     expect(
-      result.semantic_graph.relations.some(({ source_node_id }) =>
-        result.semantic_graph.nodes.some(
-          ({ node_id, identity }) =>
-            node_id === source_node_id &&
-            identity.module_path === "a-large.mjs",
-        ),
+      result.semantic_graph.relations.every(
+        ({ source_node_id, target_node_id }) =>
+          nodeIds.has(source_node_id) && nodeIds.has(target_node_id),
       ),
     ).toBe(true);
 
@@ -128,7 +114,12 @@ cliTest.skipIf(process.versions.bun !== undefined)(
     expect(await view("semantic_unknowns", 0, 1)).toMatchObject({
       normalized_result: {
         kind: "page",
-        items: [{ module_path: "b-small.mjs", family: "call-flow" }],
+        items: [
+          {
+            module_path: "b-small.mjs",
+            unknown_id: result.semantic_graph.unknowns[0]?.unknown_id,
+          },
+        ],
         coverage: {
           examined: 1,
           total: result.semantic_graph.unknowns.length,
