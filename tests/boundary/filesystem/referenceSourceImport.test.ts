@@ -160,6 +160,24 @@ describe("reference source manifest inventory", () => {
       ["out/widget_spec.js", "JavaScript", ["generated", "source", "test"]],
       ["vendor/widget_test.go", "Go", ["source", "test", "vendor"]],
       ["settings_spec.json", "JSON", ["config", "test"]],
+      [
+        "docs/api/client.ts",
+        "TypeScript",
+        ["documentation", "generated", "source"],
+      ],
+      [
+        "packages/widget/Docs/API/client.ts",
+        "TypeScript",
+        ["documentation", "generated", "source"],
+      ],
+      ["docs/apis/client.ts", "TypeScript", ["documentation", "source"]],
+      ["mydocs/api/client.ts", "TypeScript", ["source"]],
+      ["docs/manual/api/client.ts", "TypeScript", ["documentation", "source"]],
+      ["docs/api.ts", "TypeScript", ["documentation", "source"]],
+      ["public/client.ts", "TypeScript", ["generated", "source"]],
+      [".github", null, ["config"]],
+      [".husky", null, ["config"]],
+      [".gitignore", null, ["config"]],
     ] as const;
     await Promise.all(
       files.map(async ([path]) => {
@@ -183,6 +201,11 @@ describe("reference source manifest inventory", () => {
         kind: "file",
         language,
         classifications,
+      });
+    for (const path of ["docs/api", "packages/widget/Docs/API"])
+      expect(entries.get(path), path).toMatchObject({
+        kind: "directory",
+        classifications: ["documentation", "generated"],
       });
   });
 });
