@@ -223,6 +223,17 @@ const requireSupportedHost = (): void => {
       );
     }
     const readiness = inspectWindowsNativeReadiness(process.platform, loaded);
+    if (readiness.available)
+      throw configurationFailure(
+        "runtime_unavailable",
+        "Windows native readiness disagreed with the native loader result.",
+        {
+          platform: process.platform,
+          architecture: process.arch,
+          phase: "process-ownership",
+          owned_protocol_stdin: false,
+        },
+      );
     throw configurationFailure(readiness.code, readiness.reason, {
       platform: process.platform,
       architecture: process.arch,
