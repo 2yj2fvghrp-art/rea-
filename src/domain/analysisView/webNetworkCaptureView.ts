@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import type { JsonValue } from "../jsonValue.js";
+import { parseRecordedTransportUrl } from "../recordedTransportUrl.js";
 import { err, ok, type Result } from "../result.js";
 import {
   webNetworkCaptureRecordSchema,
@@ -73,9 +74,10 @@ const HEADLINE_FIELDS = [
 ];
 // Native mitmproxy flows report the request target in parts and the status
 // as status_code. They are previewed only for mitmproxy records, only as
-// scalars, and the path only in origin or asterisk form: an absolute or
-// authority-bearing spelling may carry userinfo the native redaction does not
-// recognise, so it stays in complete record pages.
+// bounded scalars, and the path only in origin or asterisk form with no
+// credentials under the recorded transport-URL interpretation: an absolute,
+// authority-bearing or ambiguous spelling may carry userinfo the native
+// redaction does not recognise. Excluded values stay in complete record pages.
 const MITMPROXY_HEADLINE_FIELDS = [
   "scheme",
   "host",
@@ -84,12 +86,16 @@ const MITMPROXY_HEADLINE_FIELDS = [
   "path",
   "status_code",
 ];
+const MITMPROXY_HEADLINE_MAX_LENGTH = 8 * 1024;
 const mitmproxyHeadline = (field: string, value: JsonValue): boolean => {
   if (value !== null && typeof value === "object") return false;
+  if (typeof value === "string" && value.length > MITMPROXY_HEADLINE_MAX_LENGTH)
+    return false;
   if (field === "path")
     return (
       typeof value === "string" &&
-      (value === "*" || (value.startsWith("/") && !value.startsWith("//")))
+      (value === "*" || (value.startsWith("/") && !value.startsWith("//"))) &&
+      parseRecordedTransportUrl(value).credentials === null
     );
   return field !== "authority" || !String(value).includes("@");
 };

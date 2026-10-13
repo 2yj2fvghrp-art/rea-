@@ -305,6 +305,13 @@ it.each([
     "https:user:password@example.test/a",
   ],
   ["a network-path reference", "mitmproxy", "//user:password@example.test/a"],
+  [
+    "a slash-backslash reference",
+    "mitmproxy",
+    "/\\user:password@example.test/a",
+  ],
+  ["a slash-tab reference", "mitmproxy", "/\t/user:password@example.test/a"],
+  ["an oversized path", "mitmproxy", `/${"password".repeat(1024)}`],
   ["a nested path value", "mitmproxy", { content: "password ".repeat(64) }],
   ["a path in a non-mitmproxy record", "har", "/users/password"],
 ] as const)("keeps %s out of the preview", (_label, format, path) => {
