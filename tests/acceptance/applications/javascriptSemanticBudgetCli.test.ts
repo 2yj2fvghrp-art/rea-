@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
@@ -56,8 +57,10 @@ cliTest.skipIf(process.versions.bun !== undefined)(
       largeCoverage.retained_graph_bytes === null
     )
       throw new Error("A truncated source reports its byte budget");
+    // Final linking can add application IDs under the shared allowance.
     expect(largeCoverage.retained_graph_bytes).toBeLessThanOrEqual(
-      largeCoverage.graph_byte_budget,
+      largeCoverage.final_shared_graph_byte_budget ??
+        largeCoverage.graph_byte_budget,
     );
     // Projection stopped before all facts were examined; totals stay unknown.
     expect(largeCoverage.omitted_nodes).toBeNull();
@@ -127,5 +130,65 @@ cliTest.skipIf(process.versions.bun !== undefined)(
         },
       },
     });
+  },
+);
+
+cliTest.skipIf(process.versions.bun !== undefined)(
+  "refuses exported application facts that exceed the Evidence budget",
+  { timeout: 180_000 },
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-js-application-budget-");
+    // Each export emits about 6 KB of export, return-shape and relationship
+    // records: about 50 MB in total.
+    await writeFile(
+      join(root, "exports.mjs"),
+      Array.from(
+        { length: 8000 },
+        (_, index) =>
+          `export function method_${String(index)}(input) { const value = input + ${String(index)}; const pair = { value }; return pair.value; }`,
+      ).join("\n"),
+    );
+    const heapOptions = "--max-old-space-size=448 --max-semi-space-size=8";
+    const analyzed = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+      environment: {
+        HOME: root,
+        XDG_CONFIG_HOME: root,
+        XDG_CACHE_HOME: root,
+        NODE_OPTIONS: heapOptions,
+      },
+      timeoutMs: 150_000,
+    });
+    expect(analyzed.exitCode).toBe(0);
+    const result = javascriptApplicationAnalysisResultSchema.parse(
+      parseEvidence(analyzed.json).normalized_result,
+    );
+    expect(result.limitations).toContainEqual(
+      expect.stringContaining(
+        "Exported application facts exceed the remaining Evidence budget",
+      ),
+    );
+    expect(
+      result.graph.nodes.some(({ observations }) =>
+        observations.some(
+          ({ properties }) => properties.semantic_role === "export-binding",
+        ),
+      ),
+    ).toBe(false);
+    // The parent offers one Evidence a twelfth of its heap limit.
+    const heapLimit = Number(
+      execFileSync(
+        process.execPath,
+        [
+          ...heapOptions.split(" "),
+          "-p",
+          "require('node:v8').getHeapStatistics().heap_size_limit",
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    expect(Buffer.byteLength(analyzed.stdout)).toBeLessThanOrEqual(
+      Math.floor(heapLimit / 12),
+    );
   },
 );
