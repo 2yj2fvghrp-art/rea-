@@ -75,6 +75,9 @@ bridge has not yet undergone real verification on Linux/JDK 25.
 Windows x64 uses an owned Job Object with bidirectional stdio, atomic job
 assignment and kill-on-owner-close. Real Windows verification uses JDK 21 and
 the pinned JADX 0.7.1 JAR; see the real verification lane below.
+The structured manifest declaration projection was also verified on macOS
+arm64 with Corretto JDK 25 against ApiDemos. That verification does not cover
+Linux or the Windows x64 owned process boundary.
 
 ## Answer an analyst question
 
@@ -123,10 +126,22 @@ the same source byte limit and explicit truncation reporting.
 
 ## Interpret the result
 
-- Package inspection retains decoded manifest XML, summary declarations,
-  permissions and class/resource counts. Summary fields are extracted by the
-  upstream engine and should be checked against the retained XML when needed.
-  Signature verification is explicitly `not_performed`.
+- Package inspection retains decoded manifest XML, upstream package/permission
+  summary fields, and class/resource counts. `manifest_declarations` projects
+  recognized direct declarations from the decoded XML into applications,
+  requested and defined permissions, activities, aliases, services, receivers,
+  providers, and each component's intent-filter actions, categories, and data
+  elements. Every declaration retains namespace-qualified attributes, and its
+  source XML remains inline.
+  `declared_name`, `declared_exported`, and `declared_permission` are literal
+  attribute values; relative class names, resource references and manifest
+  merger effects are not resolved. Every component reports
+  `effective_exposure: "unknown"` because a declaration alone does not establish
+  reachability on a device. `source_text_match: "verified"` means the projection
+  matched the complete returned XML by SHA-256; `not_verifiable` means the
+  upstream text was truncated. If projection is unavailable, its `reason` is
+  returned alongside the retained XML and summary. Signature verification is
+  explicitly `not_performed`.
 - Class search consumes all pages and checks their counts. An empty `query`
   inventories all class-name rows; class names are decompiler representations.
   Repeated names remain repeated in `matches` so the inventory row count and
@@ -252,10 +267,16 @@ operations have a **120-second** execution deadline after reaching the queue's
 front; upstream decompilation is limited to **90 seconds**.
 
 Decoded manifest and method text have a **1 MiB** upstream byte budget and report
-truncation. Class-name pages use indexed slices of up to 4,096 names without changing the
-complete, case-sensitive search contract. A protocol frame above **8 MiB**, or combined stdout/stderr above
-**32 MiB per operation**, fails with a diagnostic instead of returning an incomplete inventory
-as complete. These are memory-safety boundaries, not undocumented result caps.
+truncation. The declaration parser accepts up to 1 MiB of decoded XML and up
+to 2 MiB of structured JSON, with a 20,000-element and 100,000-attribute
+document budget before projecting declarations. It reports `unavailable` with
+a reason if a budget is exhausted or the XML cannot be parsed safely.
+Unrecognized and nested declarations remain in the retained XML. Class-name
+pages use indexed slices of up to 4,096 names without changing the complete,
+case-sensitive search contract. A protocol frame above **8 MiB**, or combined
+stdout/stderr above **32 MiB per operation**, fails with a diagnostic instead of
+returning an incomplete inventory as complete. These are memory-safety
+boundaries, not undocumented result caps.
 
 ## Real verification
 

@@ -87,6 +87,9 @@ import { registerApktoolTools } from "./registerApktoolTools.js";
 import { registerFlutterTools } from "./registerFlutterTools.js";
 import { registerJebTools } from "./registerJebTools.js";
 import { registerAdbTools } from "./registerAdbTools.js";
+import { registerIosSimulatorTools } from "./registerIosSimulatorTools.js";
+import { createIosSimulatorCaptureService } from "../composition/iosSimulator.js";
+import type { IosSimulatorCapturePort } from "../application/ios/IosSimulatorCapturePort.js";
 import { AndroidAnalysisService } from "../application/android/AndroidAnalysisService.js";
 import { JebAnalysisService } from "../application/jeb/JebAnalysisService.js";
 import type { AndroidAnalysisPort } from "../application/android/AndroidAnalysisPort.js";
@@ -149,6 +152,7 @@ export interface CreateServerOptions {
   readonly flutterAnalysis?: FlutterBuildAnalysisPort;
   readonly jebAnalysis?: JebAnalysisPort;
   readonly adbDeviceAnalysis?: AdbDeviceAnalysisPort;
+  readonly iosSimulatorCapture?: IosSimulatorCapturePort;
   readonly browserObservation?: BrowserObservationPort;
   readonly browserScenarioCapture?: BrowserScenarioCapturePort;
   readonly electronObservation?: ElectronObservationPort;
@@ -412,6 +416,13 @@ export const createServer = (
   registerCaptureTools(
     server,
     packetCapture,
+    toolLogger,
+    recordEvidence,
+    analysisAdmission,
+  );
+  registerIosSimulatorTools(
+    server,
+    createIosSimulatorCaptureService(options.iosSimulatorCapture),
     toolLogger,
     recordEvidence,
     analysisAdmission,

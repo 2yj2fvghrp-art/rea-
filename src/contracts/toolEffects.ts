@@ -53,6 +53,11 @@ const sessionEvidence = effects({ mutatesSession: true });
 
 /** Explicit effect audit for every public tool. */
 export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
+  capture_ios_simulator_screen: effects({
+    mutatesSession: true,
+    writesFilesystem: true,
+    launchesProcess: true,
+  }),
   inspect_go_binary: evidence,
   inspect_sqlite_database: effects({
     mutatesSession: true,

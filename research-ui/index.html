@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>REA Research Case</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">R</span
+          ><span>REA <span class="brand-muted">/ research case</span></span>
+        </div>
+        <span class="local-tag"
+          ><span class="local-dot"></span> Local browser workspace</span
+        >
+      </header>
+
+      <section class="hero" aria-labelledby="page-title">
+        <div class="eyebrow">Authorized application research</div>
+        <h1 id="page-title">
+          Start with the program rules.<br /><span
+            >Keep every finding tied to evidence.</span
+          >
+        </h1>
+        <p>
+          Capture the exact policy, in-scope assets, and app artifact before
+          using REA. This page makes no external network requests and stores
+          nothing until you download a case file.
+        </p>
+      </section>
+
+      <div class="workflow-strip" aria-label="Case sections">
+        <a href="#program"><span>01</span> Program</a>
+        <a href="#scope"><span>02</span> Scope & rules</a>
+        <a href="#artifact"><span>03</span> Artifact</a>
+        <a href="#findings"><span>04</span> Findings</a>
+      </div>
+
+      <main class="layout">
+        <div class="form-column">
+          <section class="card" id="program" aria-labelledby="program-heading">
+            <div class="section-heading">
+              <span class="step">01</span>
+              <div>
+                <h2 id="program-heading">Program & policy</h2>
+                <p>
+                  A link locates the rules. Save the exact text that applies to
+                  your case.
+                </p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label class="field"
+                ><span>Program name</span
+                ><input
+                  id="programName"
+                  autocomplete="off"
+                  placeholder="Example security program"
+              /></label>
+              <label class="field"
+                ><span>Program URL</span
+                ><input
+                  id="programUrl"
+                  type="url"
+                  autocomplete="url"
+                  placeholder="https://…"
+              /></label>
+              <label class="field"
+                ><span>Program platform</span
+                ><input
+                  id="programPlatform"
+                  placeholder="HackerOne, Bugcrowd, direct, …"
+              /></label>
+              <label class="field"
+                ><span>Participation status</span
+                ><input
+                  id="participation"
+                  placeholder="Joined / invited / unknown"
+              /></label>
+              <label class="field"
+                ><span>Participation checked at</span
+                ><input
+                  id="participationCheckedAt"
+                  placeholder="2026-10-13T12:00:00+11:00"
+              /></label>
+              <label class="field"
+                ><span>Policy source URL</span
+                ><input
+                  id="policyUrl"
+                  type="url"
+                  placeholder="Exact rules page"
+              /></label>
+              <label class="field"
+                ><span>Captured at, with time zone</span
+                ><input
+                  id="policyCapturedAt"
+                  placeholder="2026-10-13T12:00:00+11:00"
+              /></label>
+              <label class="field"
+                ><span>Policy version / change date</span
+                ><input
+                  id="policyVersion"
+                  placeholder="If stated in the policy"
+              /></label>
+              <label class="field full"
+                ><span>Saved policy copy path</span
+                ><input
+                  id="policyCopyPath"
+                  placeholder="/absolute/path/to/policy-snapshot.txt"
+                /><small
+                  >Download the snapshot below, then enter where you saved
+                  it.</small
+                ></label
+              >
+              <label class="field full"
+                ><span>Exact policy and scope text</span
+                ><textarea
+                  id="policyText"
+                  rows="9"
+                  placeholder="Paste the applicable program rules, scope, exclusions, and testing conditions exactly as published."
+                ></textarea
+                ><small
+                  >The SHA-256 shown at right covers the UTF-8 bytes of this
+                  text. Save the snapshot when you export the case.</small
+                ></label
+              >
+            </div>
+          </section>
+
+          <section class="card" id="scope" aria-labelledby="scope-heading">
+            <div class="section-heading">
+              <span class="step">02</span>
+              <div>
+                <h2 id="scope-heading">Exact scope & rules</h2>
+                <p>
+                  Enter identifiers from the policy. A brand name or app-store
+                  listing is not enough.
+                </p>
+              </div>
+            </div>
+            <div class="subheading">
+              <h3>In-scope assets</h3>
+              <button class="secondary small" id="addScope" type="button">
+                + Add asset
+              </button>
+            </div>
+            <div id="scopeRows" class="scope-rows"></div>
+            <div class="field-grid">
+              <label class="field full"
+                ><span>Explicit exclusions</span
+                ><textarea
+                  id="exclusions"
+                  rows="3"
+                  placeholder="Out-of-scope packages, builds, domains, user data, third parties…"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Allowed techniques</span
+                ><textarea
+                  id="allowedTechniques"
+                  rows="4"
+                  placeholder="Only what the policy permits"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Prohibited techniques</span
+                ><textarea
+                  id="prohibitedTechniques"
+                  rows="4"
+                  placeholder="DoS, social engineering, automated traffic, …"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Rate & time limits</span
+                ><textarea
+                  id="limits"
+                  rows="3"
+                  placeholder="Exact thresholds and windows, or unknown"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Test account & data rules</span
+                ><textarea
+                  id="accountRules"
+                  rows="3"
+                  placeholder="Owned accounts, test data, privacy constraints"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Privacy & retention rules</span
+                ><textarea
+                  id="privacyRules"
+                  rows="3"
+                  placeholder="Handling of personal data and saved captures, or unknown"
+                ></textarea>
+              </label>
+              <label class="field"
+                ><span>Report channel</span
+                ><input
+                  id="reportChannel"
+                  placeholder="Program report form or address"
+              /></label>
+              <label class="field"
+                ><span>Disclosure rules</span
+                ><input
+                  id="disclosureRules"
+                  placeholder="Embargo, coordination, or unknown"
+              /></label>
+              <label class="field"
+                ><span>Unresolved policy questions</span
+                ><input
+                  id="policyUnknowns"
+                  placeholder="Questions to resolve before live tests"
+              /></label>
+            </div>
+          </section>
+
+          <section
+            class="card"
+            id="artifact"
+            aria-labelledby="artifact-heading"
+          >
+            <div class="section-heading">
+              <span class="step">03</span>
+              <div>
+                <h2 id="artifact-heading">App artifact</h2>
+                <p>
+                  Bind analysis to the exact bytes you have, and keep each
+                  version separate.
+                </p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label class="field"
+                ><span>Artifact type</span
+                ><select id="artifactType">
+                  <option value="">Select type</option>
+                  <option value="android">Android APK</option>
+                  <option value="ios">iOS IPA / Apple app</option>
+                  <option value="electron">Electron / JavaScript</option>
+                  <option value="native">Native desktop executable</option>
+                  <option value="other">Other local artifact</option>
+                </select></label
+              >
+              <label class="field"
+                ><span>Package or bundle ID</span
+                ><input
+                  id="artifactIdentifier"
+                  placeholder="Exact package, bundle, or product ID"
+              /></label>
+              <label class="field"
+                ><span>Version & build</span
+                ><input id="artifactVersion" placeholder="1.2.3 (456)"
+              /></label>
+              <label class="field"
+                ><span>Acquisition source</span
+                ><input
+                  id="artifactSource"
+                  placeholder="Original URL or other provenance"
+              /></label>
+              <label class="field"
+                ><span>Artifact acquired at</span
+                ><input
+                  id="artifactAcquiredAt"
+                  placeholder="Date, time, and time zone"
+              /></label>
+              <label class="field full"
+                ><span>Absolute local path</span
+                ><input
+                  id="artifactPath"
+                  placeholder="/absolute/path/to/app.apk"
+                /><small
+                  >The browser cannot recover a file's absolute path. Enter the
+                  path REA will use.</small
+                ></label
+              >
+              <label class="field full"
+                ><span>Artifact SHA-256</span
+                ><input
+                  id="artifactSha256"
+                  inputmode="text"
+                  spellcheck="false"
+                  placeholder="64 hexadecimal characters"
+                /><small
+                  >macOS: <code>shasum -a 256 /absolute/path/to/app</code> ·
+                  Linux: <code>sha256sum /absolute/path/to/app</code> ·
+                  PowerShell:
+                  <code
+                    >Get-FileHash -Algorithm SHA256 -LiteralPath
+                    'C:\path\to\app'</code
+                  ></small
+                ></label
+              >
+              <label class="field full"
+                ><span>Owned test environment</span
+                ><textarea
+                  id="testEnvironment"
+                  rows="3"
+                  placeholder="Device, OS, account, and services the app may contact; leave unknowns explicit."
+                ></textarea>
+              </label>
+              <label class="field full"
+                ><span>REA & provider versions</span
+                ><input
+                  id="providerVersions"
+                  placeholder="REA version, JADX/Ghidra/Hopper/IDA version if used"
+              /></label>
+            </div>
+          </section>
+
+          <section
+            class="card"
+            id="findings"
+            aria-labelledby="findings-heading"
+          >
+            <div class="section-heading">
+              <span class="step">04</span>
+              <div>
+                <h2 id="findings-heading">Finding candidates</h2>
+                <p>
+                  Static clues are candidates until a permitted test establishes
+                  behavior and impact.
+                </p>
+              </div>
+            </div>
+            <div class="subheading">
+              <h3>Evidence notes</h3>
+              <button class="secondary small" id="addFinding" type="button">
+                + Add candidate
+              </button>
+            </div>
+            <div id="findingRows" class="finding-rows"></div>
+            <label class="field"
+              ><span>Analysis log</span
+              ><textarea
+                id="analysisLog"
+                rows="5"
+                placeholder="Time, REA command or tool, target digest, saved output path or Evidence ID, observed limitation"
+              ></textarea>
+            </label>
+          </section>
+        </div>
+
+        <aside class="review-column" aria-label="Case review and exports">
+          <div class="review-card">
+            <div class="review-header">
+              <span class="eyebrow">Case review</span
+              ><span id="caseStatus" class="status-pill">Draft</span>
+            </div>
+            <h2>What is still missing?</h2>
+            <ul id="missingList" class="missing-list"></ul>
+            <div class="digest-box">
+              <span>Policy text SHA-256</span
+              ><code id="policyDigest">Add policy text</code>
+            </div>
+            <p class="review-note">
+              This record does not grant permission. Check the current program
+              rules and participation before any live interaction.
+            </p>
+            <div class="export-actions">
+              <button id="downloadJson" type="button" class="primary">
+                Download case JSON
+              </button>
+              <button id="downloadMarkdown" type="button" class="secondary">
+                Download Markdown
+              </button>
+              <button id="downloadPolicy" type="button" class="secondary">
+                Download policy text
+              </button>
+              <label class="load-label" for="loadCase"
+                >Load case JSON<input
+                  id="loadCase"
+                  type="file"
+                  accept="application/json,.json"
+              /></label>
+            </div>
+            <p class="save-note" id="saveNote" role="status" aria-live="polite">
+              No automatic save. Download a case before closing this tab.
+            </p>
+          </div>
+          <div class="command-card">
+            <span class="eyebrow">REA starting point</span>
+            <h2>Inspect the local artifact</h2>
+            <pre id="commandPreview">
+Enter an artifact path and type to see a starting command.</pre>
+            <p>
+              Run the command in your terminal. REA returns Evidence and
+              unknowns; this page does not execute the target.
+            </p>
+          </div>
+        </aside>
+      </main>
+      <footer>
+        REA research case · Local intake and evidence notes · No automatic scans
+        or submissions
+      </footer>
+    </div>
+  </body>
+</html>

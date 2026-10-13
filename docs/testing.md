@@ -453,6 +453,15 @@ Node Inspector verification does not establish Electron GUI or other engine
 behavior. Browser and Inspector share CDP transport/value and file-location
 helpers; their producer workflows remain distinct.
 
+## iOS Simulator display capture
+
+`npm run verify:ios-simulator` requires macOS, caller-installed Xcode with an
+iOS Simulator runtime and an available iPhone device type. It builds a
+source-owned UIKit fixture, creates and boots its own simulator, verifies CLI
+and MCP screenshot PNG digests and visible fixture pixels, then deletes that
+simulator. It proves simulator display capture only; it does not verify physical
+devices or foreground-app attribution.
+
 ## Android APK analysis
 
 The real Android lane also runs on Windows x64 with its matching bundled native

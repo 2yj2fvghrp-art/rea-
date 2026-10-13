@@ -249,15 +249,85 @@ it("retains APK identity, original input, raw producer data and normalized obser
   );
   expect(result.package_name).toBe("fixture");
   expect(result.engine.source_revision).toBeNull();
+  expect(result.manifest_declarations).toMatchObject({
+    status: "complete",
+    source_text_match: "verified",
+    requested_permissions: [{ declared_name: "android.permission.INTERNET" }],
+    defined_permissions: [{ declared_name: "fixture.permission.PRIVATE" }],
+    components: [
+      {
+        element_name: "activity",
+        declared_name: ".Target",
+        declared_exported: "true",
+        effective_exposure: "unknown",
+        intent_filters: [
+          {
+            actions: [{ declared_name: "android.intent.action.VIEW" }],
+            categories: [{ declared_name: "android.intent.category.DEFAULT" }],
+            data: [
+              {
+                attributes: expect.arrayContaining([
+                  expect.objectContaining({
+                    qualified_name: "android:scheme",
+                    value: "https",
+                  }),
+                ]),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        element_name: "receiver",
+        declared_name: ".InternalReceiver",
+        declared_exported: "false",
+        effective_exposure: "unknown",
+      },
+    ],
+  });
   expect(outcome.value.subject?.local_path).toBe(apk);
   expect(outcome.value.parameters).toEqual({ path: apk });
   expect(outcome.value.raw_result).toMatchObject({
     calls: expect.arrayContaining([
       expect.objectContaining({ operation: "get_android_manifest" }),
+      expect.objectContaining({ operation: "rea_manifest_declarations" }),
     ]),
   });
   await provider.close();
   await verifyCleanup(launches);
+});
+
+it("reports declaration projection limits and rejects a mismatched decoded source", async () => {
+  for (const mode of [
+    "manifest-declarations-unavailable",
+    "wrong-manifest-identity",
+  ]) {
+    const { service, apk, launches, provider } = await setup(mode);
+    const outcome = await service.execute("inspect_android_package", {
+      path: apk,
+    });
+    if (mode === "manifest-declarations-unavailable") {
+      if (!outcome.ok) throw outcome.error;
+      const result = androidResultSchemas.inspect_android_package.parse(
+        outcome.value.normalized_result,
+      );
+      expect(result.manifest_declarations).toMatchObject({
+        status: "unavailable",
+        reason: expect.stringContaining("parsing budget"),
+      });
+      expect(result.manifest.status).toBe("complete");
+    } else {
+      expect(outcome).toMatchObject({
+        ok: false,
+        error: {
+          _tag: "AnalysisOutputError",
+          reason: expect.stringContaining("differ from the decoded manifest"),
+        },
+      });
+    }
+    await provider.close();
+    await verifyCleanup(launches);
+  }
 });
 
 it("fetches all class pages rather than silently retaining the first upstream page", async () => {

@@ -44,6 +44,12 @@ Choose the first tool from the target the user supplied. Use `open_binary` for
 active-target native or archive workflows; target-free tools take their own
 explicit path or endpoint and do not need it.
 
+For an authorized app security investigation, use the
+[research guide](https://github.com/morluto/rea/blob/main/docs/authorized-security-research.md)
+and [case template](https://github.com/morluto/rea/blob/main/docs/authorized-security-research-case.md)
+to record the exact program rules, scope, artifact digest, and allowed test
+environment. Keep static candidates separate from controlled runtime effects.
+
 - ASAR or extracted JavaScript/Electron tree:
   `analyze_javascript_application`.
 - Archive/package member inventory (ZIP/APK/IPA/MSIX/AppX or DMG):

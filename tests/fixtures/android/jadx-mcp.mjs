@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 // An actual child MCP server exercising the production stdio/process seam.
@@ -50,6 +51,75 @@ const methods = [
 ];
 const text = (value) => ({ content: [{ type: "text", text: value }] });
 const json = (value) => text(JSON.stringify(value));
+const androidNamespace = "http://schemas.android.com/apk/res/android";
+const manifestText = `<manifest xmlns:android="${androidNamespace}" package="fixture"><uses-permission android:name="android.permission.INTERNET"/><permission android:name="fixture.permission.PRIVATE" android:protectionLevel="signature"/><application android:name=".App"><activity android:name=".Target" android:exported="true"><intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><data android:scheme="https" android:host="example.test"/></intent-filter></activity><receiver android:name=".InternalReceiver" android:exported="false"/></application></manifest>`;
+const attribute = (qualified_name, value) => ({
+  qualified_name,
+  local_name: qualified_name.includes(":")
+    ? qualified_name.split(":").at(-1)
+    : qualified_name,
+  namespace_uri: qualified_name.startsWith("android:") ? androidNamespace : "",
+  value,
+});
+const element = (element_name, attributes) => ({ element_name, attributes });
+const manifestDeclarations = {
+  status: "complete",
+  source_sha256: createHash("sha256").update(manifestText).digest("hex"),
+  manifest_attributes: [
+    attribute("package", "fixture"),
+    attribute("xmlns:android", androidNamespace),
+  ],
+  applications: [element("application", [attribute("android:name", ".App")])],
+  requested_permissions: [
+    element("uses-permission", [
+      attribute("android:name", "android.permission.INTERNET"),
+    ]),
+  ],
+  defined_permissions: [
+    element("permission", [
+      attribute("android:name", "fixture.permission.PRIVATE"),
+      attribute("android:protectionLevel", "signature"),
+    ]),
+  ],
+  components: [
+    {
+      element_name: "activity",
+      attributes: [
+        attribute("android:name", ".Target"),
+        attribute("android:exported", "true"),
+      ],
+      intent_filters: [
+        {
+          attributes: [],
+          actions: [
+            element("action", [
+              attribute("android:name", "android.intent.action.VIEW"),
+            ]),
+          ],
+          categories: [
+            element("category", [
+              attribute("android:name", "android.intent.category.DEFAULT"),
+            ]),
+          ],
+          data: [
+            element("data", [
+              attribute("android:scheme", "https"),
+              attribute("android:host", "example.test"),
+            ]),
+          ],
+        },
+      ],
+    },
+    {
+      element_name: "receiver",
+      attributes: [
+        attribute("android:name", ".InternalReceiver"),
+        attribute("android:exported", "false"),
+      ],
+      intent_filters: [],
+    },
+  ],
+};
 const register = (name, handler) =>
   server.registerTool(name, { inputSchema: z.looseObject({}) }, handler);
 register("rea_jvm_status", () =>
@@ -91,7 +161,17 @@ register("get_android_manifest", () => {
     };
   if (mode === "frame-overflow") return text("x".repeat(9 * 1024 * 1024));
   if (mode === "large-manifest") return text("x".repeat(1024 * 1024));
-  return text('<manifest package="fixture"/>');
+  return text(manifestText);
+});
+register("rea_manifest_declarations", () => {
+  if (mode === "large-manifest" || mode === "manifest-declarations-unavailable")
+    return json({
+      status: "unavailable",
+      reason: "Decoded manifest exceeds the declaration parsing budget",
+    });
+  if (mode === "wrong-manifest-identity")
+    return json({ ...manifestDeclarations, source_sha256: "0".repeat(64) });
+  return json(manifestDeclarations);
 });
 register("list_classes", ({ offset, limit }) =>
   json({

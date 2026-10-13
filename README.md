@@ -317,6 +317,10 @@ For exact options, prerequisites and result contracts:
 - [Tool catalog](docs/mcp-contracts.md#generated-catalog): generated inventory of tools, providers and CLI commands.
 - [Roadmap](docs/roadmap.md): planned work and capability trackers.
 
+For app bug bounty work, start with `docs/authorized-security-research.md` and
+run `npm run research:ui` from this checkout for the local browser intake, or copy
+`docs/authorized-security-research-case.md` to a local case directory.
+
 Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## Star history

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/client";
@@ -69,18 +69,12 @@ describe.skipIf(process.platform !== "darwin")(
   () => {
     cliTest(
       "resolves real compiled bundles without changing executable names during decoding",
-      async ({ cli, processes }) => {
+      async ({ cli }) => {
         const directory = await createTestTempDirectory("rea-bundle-encoding-");
         const app = join(directory, "Example.app");
         const contents = join(app, "Contents");
         await mkdir(join(contents, "MacOS"), { recursive: true });
-        const compiled = await processes.run("/usr/bin/xcrun", [
-          "clang",
-          resolve("tests/conformance/interface-builder/fixture.c"),
-          "-o",
-          join(contents, "MacOS", "App"),
-        ]);
-        expect(compiled.exitCode, compiled.stderr).toBe(0);
+        await copyFile("/usr/bin/true", join(contents, "MacOS", "App"));
         const { utf16, cases } = encodingFixture();
         for (const { name, bytes, valid } of cases) {
           await writeFile(join(contents, "Info.plist"), bytes);

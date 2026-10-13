@@ -135,7 +135,12 @@ const cpuSubtypeCode = (
 ): number | null => {
   if (value === undefined) return null;
   const numeric = unsigned32(value);
-  if (numeric !== null) return numeric;
+  if (numeric !== null) {
+    const capabilityBits = ptrauthCapabilityBits(capabilities);
+    return capabilityBits !== null && numeric <= 0x00ffffff
+      ? (capabilityBits | numeric) >>> 0
+      : numeric;
+  }
   const subtype = CPU_SUBTYPES[value];
   if (subtype === undefined) return null;
   if (value !== "CPU_SUBTYPE_ARM64E") {
@@ -143,6 +148,13 @@ const cpuSubtypeCode = (
     const bits = capabilityBits(capabilities);
     return bits === null ? null : ((bits << 24) | subtype) >>> 0;
   }
+  const ptrauthBits = ptrauthCapabilityBits(capabilities);
+  return ptrauthBits === null ? null : (ptrauthBits | subtype) >>> 0;
+};
+
+const ptrauthCapabilityBits = (
+  capabilities: string | undefined,
+): number | null => {
   const version = /PTR_AUTH_VERSION\s+USERSPACE\s+(\d+)/u.exec(
     capabilities ?? "",
   )?.[1];
@@ -154,7 +166,7 @@ const cpuSubtypeCode = (
     parsedVersion > 15
   )
     return null;
-  return (0x80000000 | (parsedVersion << 24) | subtype) >>> 0;
+  return (0x80000000 | (parsedVersion << 24)) >>> 0;
 };
 
 /** The subtype bits a lipo record names, without its capability byte. */
@@ -172,8 +184,11 @@ const capabilityBits = (capabilities: string | undefined): number | null => {
 };
 
 const unsigned32 = (value: string): number | null => {
-  if (!/^(?:\d+|0x[\da-f]+)$/iu.test(value)) return null;
-  const parsed = Number(value);
+  // Newer lipo builds render unfamiliar CPU values as e.g. "cputype (12)".
+  const source =
+    /^(?:(?:cputype|cpusubtype) )?\((\d+)\)$/u.exec(value)?.[1] ?? value;
+  if (!/^(?:\d+|0x[\da-f]+)$/iu.test(source)) return null;
+  const parsed = Number(source);
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 0xffffffff
     ? parsed >>> 0
     : null;

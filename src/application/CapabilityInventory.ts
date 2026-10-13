@@ -473,6 +473,16 @@ const workflowAvailabilityFor = ({
             policy.jebAnalysisAvailability?.reason ??
             "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.",
         };
+  // This inventory establishes host eligibility only. The provider checks
+  // installed Xcode tools, runtime inventory and exact booted UDID per call.
+  if (name === "capture_ios_simulator_screen")
+    return process.platform === "darwin"
+      ? { reason: "available", remediation: null }
+      : {
+          reason: "unsupported_host",
+          remediation:
+            "Use macOS with Xcode CoreSimulator and an already-booted iOS Simulator selected by exact UDID.",
+        };
   const browser = browserProviderAvailability(name, kind, policy);
   if (browser !== null) return browser;
   if (name === "capture_process_scenario" && !policy.processCaptureEnabled)

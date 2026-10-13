@@ -4,6 +4,7 @@ import { CATALOG_IDENTITY } from "../dist/catalogIdentity.js";
 
 import { exec } from "./lib/verify-package-core.mjs";
 import { verifyPackedBridge } from "./verify-packed-bridge.mjs";
+import { verifyPackedResearchUi } from "./verify-packed-research-ui.mjs";
 
 /** Create a tarball and assert production packaging constraints. */
 export async function verifyPackagePack({ root, workspace }) {
@@ -31,13 +32,9 @@ export async function verifyPackagePack({ root, workspace }) {
     packedManifest.dependencies?.["@lydell/node-pty"] !== "1.1.0"
   )
     throw new Error("package retained a lifecycle-dependent PTY installation");
-  if (
-    packedManifest.bin?.rea !== "scripts/rea.mjs" ||
-    packedManifest.bin?.["rea-agents"] !== "scripts/rea.mjs"
-  )
-    throw new Error("package did not expose both rea command entry points");
   if (packedManifest.mcpName !== "io.github.morluto/rea")
     throw new Error("package did not retain its MCP Registry ownership marker");
+  verifyEntryPointsAndResearchUi(packedManifest, packedFiles);
   if (packedFiles.some((path) => path.startsWith("package/.agents/")))
     throw new Error(
       "package included authored skill sources instead of only the generated bundle",
@@ -67,6 +64,25 @@ export async function verifyPackagePack({ root, workspace }) {
   ) {
     throw new Error("package contained generated Python bytecode");
   }
+  await verifyPackedResearchUi({ tarball, workspace });
   await verifyPackedBridge({ workspace, tarball, packedFiles });
   return { tarball };
 }
+
+const verifyEntryPointsAndResearchUi = (manifest, files) => {
+  if (
+    manifest.bin?.rea !== "scripts/rea.mjs" ||
+    manifest.bin?.["rea-agents"] !== "scripts/rea.mjs" ||
+    manifest.bin?.["rea-research-ui"] !== "scripts/serve-research-ui.mjs"
+  )
+    throw new Error("package did not expose REA and research UI entry points");
+  for (const path of [
+    "package/scripts/serve-research-ui.mjs",
+    "package/research-ui/index.html",
+    "package/research-ui/app.js",
+    "package/research-ui/case.js",
+    "package/research-ui/styles.css",
+  ])
+    if (!files.includes(path))
+      throw new Error(`package omitted research UI asset: ${path}`);
+};

@@ -70,6 +70,17 @@ table. This command does not require a native analysis provider. See
 [SQLite database snapshots](sqlite-databases.md) for database/WAL identity,
 source-file handling and row-value semantics.
 
+## Authorized security research
+
+For an app security or bug bounty investigation, start with the
+[authorized research guide](authorized-security-research.md). From a source
+checkout, launch its local browser intake with `npm run research:ui` (or
+`rea-research-ui` from a package containing this feature), or copy the
+[case template](authorized-security-research-case.md) outside the REA checkout.
+Record the applicable program rules, exact target scope, artifact digest, and
+allowed test environment before selecting an analysis or runtime command.
+Keep observations, inferences, and unknowns separate when using CLI Evidence.
+
 ## Native analysis
 
 Inspect embedded Go build metadata without installing Go or configuring a

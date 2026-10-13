@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -56,6 +56,39 @@ describe("Mach-O cleanup exceptions", () => {
       },
     });
   });
+});
+
+describe("Mach-O slice reader with system lipo", () => {
+  it.skipIf(process.platform !== "darwin")(
+    "checks real /bin/ls lipo ranges against the FAT table",
+    async () => {
+      const binary = await readFile("/bin/ls");
+      const magic = binary.readUInt32BE(0);
+      expect([0xcafebabe, 0xcafebabf]).toContain(magic);
+      const count = binary.readUInt32BE(4);
+      const stride = magic === 0xcafebabf ? 32 : 20;
+      const expectedRanges = Array.from({ length: count }, (_, index) => {
+        const start = 8 + index * stride;
+        return magic === 0xcafebabf
+          ? [
+              Number(binary.readBigUInt64BE(start + 8)),
+              Number(binary.readBigUInt64BE(start + 16)),
+            ]
+          : [binary.readUInt32BE(start + 8), binary.readUInt32BE(start + 12)];
+      });
+      const reader = new MachOSliceArtifactReader("/bin/ls", {});
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      expect(entries).toHaveLength(count);
+      expect(new Set(entries.map(({ path }) => path)).size).toBe(count);
+      expect(
+        entries.map(({ byteOffset, declaredSize }) => [
+          byteOffset,
+          declaredSize,
+        ]),
+      ).toEqual(expectedRanges);
+    },
+  );
 });
 
 describe("Mach-O command cleanup lifecycle", () => {

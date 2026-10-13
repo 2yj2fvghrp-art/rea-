@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { z } from "zod";
 import type { AndroidRequest } from "../domain/android/androidAnalysis.js";
 import { androidResultSchemas } from "../domain/android/androidAnalysis.js";
@@ -12,6 +13,7 @@ import {
   jadxClassPageSchema,
   jadxClassSchema,
   jadxLoadSchema,
+  jadxManifestDeclarationsSchema,
   jadxMethodSchema,
   jadxXrefsSchema,
   normalizeJadxText,
@@ -34,6 +36,30 @@ type Engine = z.infer<
   typeof androidResultSchemas.inspect_android_package
 >["engine"];
 type ClassSummary = z.infer<typeof jadxClassSchema>;
+type CompleteManifestDeclarations = Extract<
+  z.infer<typeof jadxManifestDeclarationsSchema>,
+  { status: "complete" }
+>;
+type ManifestAttribute =
+  CompleteManifestDeclarations["manifest_attributes"][number];
+const ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android";
+
+const declaredAttribute = (
+  attributes: readonly ManifestAttribute[],
+  name: string,
+): string | null =>
+  attributes.find(
+    (attribute) =>
+      attribute.namespace_uri === ANDROID_NAMESPACE &&
+      attribute.local_name === name,
+  )?.value ?? null;
+
+const namedDeclaration = <T extends { attributes: ManifestAttribute[] }>(
+  declaration: T,
+): T & { declared_name: string | null } => ({
+  ...declaration,
+  declared_name: declaredAttribute(declaration.attributes, "name"),
+});
 
 const methodsOf = (summary: ClassSummary) => {
   const seen = new Map<string, number>();
@@ -115,6 +141,51 @@ const inspectPackage = async (
   const manifest = normalizeJadxText(
     await tools.text("get_android_manifest", {}),
   );
+  const rawDeclarations = jadxManifestDeclarationsSchema.parse(
+    await tools.json("rea_manifest_declarations", {}),
+  );
+  if (
+    rawDeclarations.status === "complete" &&
+    manifest.status === "complete" &&
+    createHash("sha256").update(manifest.text).digest("hex") !==
+      rawDeclarations.source_sha256
+  )
+    throw new AnalysisOutputError(
+      "inspect_android_package",
+      "JADX manifest declarations differ from the decoded manifest text in the same session",
+    );
+  const manifestDeclarations =
+    rawDeclarations.status === "unavailable"
+      ? rawDeclarations
+      : {
+          ...rawDeclarations,
+          source_text_match:
+            manifest.status === "complete" ? "verified" : "not_verifiable",
+          applications: rawDeclarations.applications.map(namedDeclaration),
+          requested_permissions:
+            rawDeclarations.requested_permissions.map(namedDeclaration),
+          defined_permissions:
+            rawDeclarations.defined_permissions.map(namedDeclaration),
+          components: rawDeclarations.components.map((component) => ({
+            ...component,
+            declared_name: declaredAttribute(component.attributes, "name"),
+            declared_exported: declaredAttribute(
+              component.attributes,
+              "exported",
+            ),
+            declared_permission: declaredAttribute(
+              component.attributes,
+              "permission",
+            ),
+            intent_filters: component.intent_filters.map((filter) => ({
+              ...filter,
+              actions: filter.actions.map(namedDeclaration),
+              categories: filter.categories.map(namedDeclaration),
+              data: filter.data.map(namedDeclaration),
+            })),
+            effective_exposure: "unknown" as const,
+          })),
+        };
   return androidResultSchemas.inspect_android_package.parse({
     engine,
     package_name: app.package || null,
@@ -124,6 +195,7 @@ const inspectPackage = async (
     target_sdk: app.target_sdk || null,
     permissions: app.permissions,
     manifest,
+    manifest_declarations: manifestDeclarations,
     class_count: loaded.class_count,
     resource_count: loaded.resource_count,
     signature_verification: "not_performed",

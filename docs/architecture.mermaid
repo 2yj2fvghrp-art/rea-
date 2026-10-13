@@ -3,6 +3,7 @@ graph TD
         CLI["src/cli.ts + src/cli/<br/>One-shot CLI adapter<br/>setup, diagnostics, analysis, decompilation"]
         MAIN["src/main.ts + src/main/<br/>MCP stdio server adapter<br/>config, session, process lifetime"]
         DISPATCH["scripts/rea.mjs<br/>Executable dispatcher<br/>routes mcp / one-shot"]
+        RESEARCH_UI["scripts/serve-research-ui.mjs + research-ui/<br/>Local browser case intake<br/>static files on loopback"]
     end
 
     subgraph "Production Composition"
@@ -40,6 +41,7 @@ graph TD
         DOTNET["src/dotnet/<br/>Managed static metadata provider<br/>PE/CLI metadata inventory, members, IL"]
         FIRMWARE["src/firmware/<br/>Binwalk / Unblob adapters<br/>owned processes, report normalization, private extraction"]
         ANDROID["src/android/<br/>Static APK adapter<br/>owned SDK stdio, pinned headless JADX, normalization"]
+        IOS_SIM["src/ios/<br/>Existing iOS Simulator display capture<br/>owned simctl, exact UDID, bounded PNG"]
         REFERENCE["src/reference/<br/>Filesystem reference-source reader<br/>bounded traversal, validation, errors"]
     end
 
@@ -87,6 +89,10 @@ graph TD
     ANDROID --> PROCESS
     ANDROID --> CONTRACTS
     ANDROID --> DOMAIN
+    APP -->|display capture port| IOS_SIM
+    IOS_SIM --> PROCESS
+    IOS_SIM --> CONTRACTS
+    IOS_SIM --> DOMAIN
     CLI --> ERRORS
     APP --> SESSION
     SESSION --> REGISTRY
@@ -145,6 +151,7 @@ graph TD
     TESTS -.-> HOPPER
     TESTS -.-> GHIDRA
     TESTS -.-> IDA
+    TESTS -.-> IOS_SIM
     TESTS -.-> PROCESS
     TESTS -.-> BROWSER
     TESTS -.-> EVALUATION

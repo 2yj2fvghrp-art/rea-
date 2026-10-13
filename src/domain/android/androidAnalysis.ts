@@ -90,6 +90,55 @@ const textCoverage = z.strictObject({
   text: z.string(),
   reported_total_bytes: z.number().int().nonnegative().nullable(),
 });
+const manifestAttribute = z.strictObject({
+  qualified_name: z.string(),
+  local_name: z.string(),
+  namespace_uri: z.string(),
+  value: z.string(),
+});
+const manifestDeclaration = z.strictObject({
+  element_name: z.string(),
+  attributes: z.array(manifestAttribute),
+  declared_name: z.string().nullable(),
+});
+const manifestIntentFilter = z.strictObject({
+  attributes: z.array(manifestAttribute),
+  actions: z.array(manifestDeclaration),
+  categories: z.array(manifestDeclaration),
+  data: z.array(manifestDeclaration),
+});
+const manifestDeclarations = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("complete"),
+    source_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    source_text_match: z.enum(["verified", "not_verifiable"]),
+    manifest_attributes: z.array(manifestAttribute),
+    applications: z.array(manifestDeclaration),
+    requested_permissions: z.array(manifestDeclaration),
+    defined_permissions: z.array(manifestDeclaration),
+    components: z.array(
+      z.strictObject({
+        element_name: z.enum([
+          "activity",
+          "activity-alias",
+          "service",
+          "receiver",
+          "provider",
+        ]),
+        attributes: z.array(manifestAttribute),
+        declared_name: z.string().nullable(),
+        declared_exported: z.string().nullable(),
+        declared_permission: z.string().nullable(),
+        intent_filters: z.array(manifestIntentFilter),
+        effective_exposure: z.literal("unknown"),
+      }),
+    ),
+  }),
+  z.strictObject({
+    status: z.literal("unavailable"),
+    reason: z.string().min(1),
+  }),
+]);
 const method = z.strictObject({
   name: z.string(),
   reported_signature: z.string(),
@@ -118,6 +167,7 @@ export const androidResultSchemas = {
     target_sdk: z.string().nullable(),
     permissions: z.array(z.string()),
     manifest: textCoverage,
+    manifest_declarations: manifestDeclarations,
     class_count: z.number().int().nonnegative(),
     resource_count: z.number().int().nonnegative(),
     signature_verification: z.literal("not_performed"),

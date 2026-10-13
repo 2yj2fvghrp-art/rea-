@@ -444,9 +444,13 @@ const lipoMatchesSlice = (
     reported.size !== null ||
     reported.cpu_type_code !== null ||
     reported.cpu_subtype_code !== null;
+  const numericName =
+    /^\(cputype \(\d+\) cpusubtype \(\d+\)\)$/u.test(reported.name) &&
+    reported.cpu_type_code !== null &&
+    reported.cpu_subtype_code !== null;
   return (
     (hasPhysicalIdentity || structurallyUnique) &&
-    lipoNameMatches(reported.name, observed.architecture) &&
+    (lipoNameMatches(reported.name, observed.architecture) || numericName) &&
     (reported.file_offset === null ||
       reported.file_offset === observed.slice_offset) &&
     (reported.size === null || reported.size === observed.slice_size) &&

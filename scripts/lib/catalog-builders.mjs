@@ -78,6 +78,11 @@ export const toolFamilyCatalog = (sources) => {
       contracts: sources.adbContracts.ADB_TOOL_CONTRACTS,
     },
     {
+      id: "ios-simulator",
+      surface: "native-provider",
+      contracts: sources.iosSimulatorContracts.IOS_SIMULATOR_TOOL_CONTRACTS,
+    },
+    {
       id: "browser",
       surface: "browser-provider",
       contracts: [
@@ -266,6 +271,10 @@ export const providerCatalog = (sources) => {
     {
       identity: sources.adbProvider.ADB_PROVIDER_IDENTITY,
       contracts: sources.adbContracts.ADB_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.iosSimulatorProvider.IOS_SIMULATOR_PROVIDER_IDENTITY,
+      contracts: sources.iosSimulatorContracts.IOS_SIMULATOR_TOOL_CONTRACTS,
     },
     {
       identity: sources.webNetworkCaptureProvider.HAR_CAPTURE_PROVIDER_IDENTITY,

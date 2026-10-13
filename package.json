@@ -35,7 +35,8 @@
   },
   "bin": {
     "rea": "scripts/rea.mjs",
-    "rea-agents": "scripts/rea.mjs"
+    "rea-agents": "scripts/rea.mjs",
+    "rea-research-ui": "scripts/serve-research-ui.mjs"
   },
   "engines": {
     "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
@@ -62,6 +63,12 @@
     "bridge/android/ReaJadxBridge.java",
     "bridge/mitmproxy/capture.py",
     "scripts/rea.mjs",
+    "scripts/serve-research-ui.mjs",
+    "research-ui/index.html",
+    "research-ui/app.js",
+    "research-ui/case.js",
+    "research-ui/styles.css",
+    "research-ui/README.md",
     "scripts/electron-active-hook.cjs",
     "scripts/electron-active-hook-boundaries.cjs",
     "scripts/hopper-demo-x11.py",
@@ -127,6 +134,8 @@
     "jscpd:details": "jscpd src/ tests/ --no-tips",
     "scan:todos": "node scripts/scan-todos.mjs",
     "start": "node scripts/rea.mjs mcp",
+    "research:ui": "node scripts/serve-research-ui.mjs",
+    "verify:research-ui": "node scripts/verify-research-ui.mjs",
     "test": "npm run test:with-build",
     "test:with-build": "npm run test:prepare && vitest run",
     "test:run": "vitest run",
@@ -201,6 +210,7 @@
     "fixtures:firmware": "node scripts/fixtures/firmware/generate.mjs",
     "verify:android": "npm run build:cached && node scripts/verify/android/analysis.mjs",
     "verify:jeb": "npm run build:cached && node scripts/verify-jeb.mjs",
+    "verify:ios-simulator": "npm run build:cached && node scripts/verify/ios/simulator-display.mjs",
     "fixtures:android": "node scripts/fixtures/android/fetch.mjs",
     "verify:harmony": "npm run build:cached && node scripts/verify/harmony/analysis.mjs",
     "fixtures:harmony": "node scripts/fixtures/harmony/fetch.mjs",

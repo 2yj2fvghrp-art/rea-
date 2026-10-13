@@ -34,6 +34,50 @@ export const jadxAppSchema = z.object({
   target_sdk: z.string(),
   permissions: z.array(z.string()),
 });
+const jadxManifestAttributeSchema = z.strictObject({
+  qualified_name: z.string(),
+  local_name: z.string(),
+  namespace_uri: z.string(),
+  value: z.string(),
+});
+const jadxManifestElementSchema = z.strictObject({
+  element_name: z.string(),
+  attributes: z.array(jadxManifestAttributeSchema),
+});
+const jadxIntentFilterSchema = z.strictObject({
+  attributes: z.array(jadxManifestAttributeSchema),
+  actions: z.array(jadxManifestElementSchema),
+  categories: z.array(jadxManifestElementSchema),
+  data: z.array(jadxManifestElementSchema),
+});
+/** Exact decoded XML declarations produced by REA's in-process JADX bridge. */
+export const jadxManifestDeclarationsSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("complete"),
+    source_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    manifest_attributes: z.array(jadxManifestAttributeSchema),
+    applications: z.array(jadxManifestElementSchema),
+    requested_permissions: z.array(jadxManifestElementSchema),
+    defined_permissions: z.array(jadxManifestElementSchema),
+    components: z.array(
+      z.strictObject({
+        element_name: z.enum([
+          "activity",
+          "activity-alias",
+          "service",
+          "receiver",
+          "provider",
+        ]),
+        attributes: z.array(jadxManifestAttributeSchema),
+        intent_filters: z.array(jadxIntentFilterSchema),
+      }),
+    ),
+  }),
+  z.strictObject({
+    status: z.literal("unavailable"),
+    reason: z.string().min(1),
+  }),
+]);
 export const jadxClassPageSchema = z.object({
   total: count,
   offset: count,

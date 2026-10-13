@@ -26,6 +26,14 @@ export default defineConfig({
       {
         text: "Investigation guides",
         items: [
+          {
+            text: "Authorized security research",
+            link: "/authorized-security-research",
+          },
+          {
+            text: "Security research case template",
+            link: "/authorized-security-research-case",
+          },
           { text: "Native binaries", link: "/native-investigation" },
           { text: "Go build metadata", link: "/go-binaries" },
           {

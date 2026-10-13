@@ -5,19 +5,41 @@ import io.modelcontextprotocol.kotlin.sdk.types.*;
 import jadx.api.*;
 import jadx.core.dex.nodes.*;
 import java.io.PrintStream;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 import kotlin.Unit;
 import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.BuildersKt;
 import kotlinx.io.CoreKt;
 import kotlinx.io.JvmCoreKt;
 import kotlinx.serialization.json.JsonObject;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 /** REA-owned metadata boundary for the unmodified jadx-headless-mcp 0.7.1 JAR. */
 class ReaJadxBridge {
   private static final Gson JSON = new Gson();
+  private static final int MAX_MANIFEST_BYTES = 1_048_576;
+  private static final int MAX_DECLARATION_BYTES = 2_097_152;
+  private static final int MAX_XML_ELEMENTS = 20_000;
+  private static final int MAX_XML_ATTRIBUTES = 100_000;
+  private static final Set<String> COMPONENT_ELEMENTS = Set.of(
+      "activity", "activity-alias", "service", "receiver", "provider");
+  private static final Set<String> REQUESTED_PERMISSION_ELEMENTS = Set.of(
+      "uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m");
+  private static final Set<String> DEFINED_PERMISSION_ELEMENTS = Set.of(
+      "permission", "permission-group", "permission-tree");
   private final SessionHolder holder;
   private JadxSession indexedSession;
   private Map<String, List<ClassSnapshot>> classes = Map.of();
@@ -37,6 +59,142 @@ class ReaJadxBridge {
   }
 
   private static CallToolResult json(Object value) { return text(JSON.toJson(value), false); }
+
+  private static List<Map<String, String>> attributes(Element element) {
+    List<Map<String, String>> result = new ArrayList<>();
+    NamedNodeMap source = element.getAttributes();
+    for (int index = 0; index < source.getLength(); index++) {
+      Node attribute = source.item(index);
+      result.add(Map.of(
+          "qualified_name", attribute.getNodeName(),
+          "local_name", attribute.getLocalName() == null
+              ? attribute.getNodeName() : attribute.getLocalName(),
+          "namespace_uri", attribute.getNamespaceURI() == null
+              ? "" : attribute.getNamespaceURI(),
+          "value", attribute.getNodeValue()));
+    }
+    result.sort(Comparator.comparing(item -> item.get("qualified_name")));
+    return result;
+  }
+
+  private static List<Element> children(Element parent) {
+    List<Element> result = new ArrayList<>();
+    NodeList nodes = parent.getChildNodes();
+    for (int index = 0; index < nodes.getLength(); index++)
+      if (nodes.item(index) instanceof Element element) result.add(element);
+    return result;
+  }
+
+  private static Map<String, Object> element(Element value) {
+    return Map.of("element_name", value.getTagName(), "attributes", attributes(value));
+  }
+
+  private static Map<String, Object> intentFilter(Element filter) {
+    List<Map<String, Object>> actions = new ArrayList<>();
+    List<Map<String, Object>> categories = new ArrayList<>();
+    List<Map<String, Object>> data = new ArrayList<>();
+    for (Element child : children(filter)) {
+      switch (child.getTagName()) {
+        case "action" -> actions.add(element(child));
+        case "category" -> categories.add(element(child));
+        case "data" -> data.add(element(child));
+        default -> { /* Original XML retains unrecognized declarations. */ }
+      }
+    }
+    return Map.of("attributes", attributes(filter), "actions", actions,
+        "categories", categories, "data", data);
+  }
+
+  private static Map<String, Object> component(Element value) {
+    List<Map<String, Object>> filters = children(value).stream()
+        .filter(child -> child.getTagName().equals("intent-filter"))
+        .map(ReaJadxBridge::intentFilter).toList();
+    return Map.of("element_name", value.getTagName(), "attributes", attributes(value),
+        "intent_filters", filters);
+  }
+
+  private static CallToolResult manifestDeclarations(JadxSession current) {
+    String source = current.getManifestText();
+    if (source == null || source.isBlank())
+      return json(Map.of("status", "unavailable", "reason", "JADX supplied no decoded manifest XML"));
+    if (source.length() > MAX_MANIFEST_BYTES)
+      return json(Map.of("status", "unavailable", "reason", "Decoded manifest exceeds the 1 MiB declaration parsing budget"));
+    byte[] sourceBytes = source.getBytes(StandardCharsets.UTF_8);
+    if (sourceBytes.length > MAX_MANIFEST_BYTES)
+      return json(Map.of("status", "unavailable", "reason", "Decoded manifest exceeds the 1 MiB declaration parsing budget"));
+    try {
+      DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+      factory.setNamespaceAware(true);
+      factory.setXIncludeAware(false);
+      factory.setExpandEntityReferences(false);
+      factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+      factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+      factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+      factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+      factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+      var builder = factory.newDocumentBuilder();
+      builder.setErrorHandler(new org.xml.sax.helpers.DefaultHandler() {
+        @Override public void error(org.xml.sax.SAXParseException failure) throws SAXException {
+          throw failure;
+        }
+        @Override public void fatalError(org.xml.sax.SAXParseException failure) throws SAXException {
+          throw failure;
+        }
+      });
+      Document document = builder.parse(new InputSource(new StringReader(source)));
+      Element manifest = document.getDocumentElement();
+      if (manifest == null || !manifest.getTagName().equals("manifest"))
+        return json(Map.of("status", "unavailable", "reason", "Decoded XML has no manifest root"));
+      Deque<Element> pending = new ArrayDeque<>();
+      pending.push(manifest);
+      int elementCount = 1;
+      int attributeCount = 0;
+      while (!pending.isEmpty()) {
+        Element next = pending.pop();
+        attributeCount += next.getAttributes().getLength();
+        if (attributeCount > MAX_XML_ATTRIBUTES)
+          return json(Map.of("status", "unavailable", "reason", "Decoded manifest exceeds the 100,000-attribute parsing budget"));
+        NodeList nested = next.getChildNodes();
+        for (int index = 0; index < nested.getLength(); index++) {
+          if (nested.item(index) instanceof Element child) {
+            if (++elementCount > MAX_XML_ELEMENTS)
+              return json(Map.of("status", "unavailable", "reason", "Decoded manifest exceeds the 20,000-element parsing budget"));
+            pending.push(child);
+          }
+        }
+      }
+      List<Map<String, Object>> applications = new ArrayList<>();
+      List<Map<String, Object>> requestedPermissions = new ArrayList<>();
+      List<Map<String, Object>> definedPermissions = new ArrayList<>();
+      List<Map<String, Object>> components = new ArrayList<>();
+      for (Element child : children(manifest)) {
+        String name = child.getTagName();
+        if (REQUESTED_PERMISSION_ELEMENTS.contains(name)) requestedPermissions.add(element(child));
+        if (DEFINED_PERMISSION_ELEMENTS.contains(name)) definedPermissions.add(element(child));
+        if (name.equals("application")) {
+          applications.add(element(child));
+          for (Element applicationChild : children(child))
+            if (COMPONENT_ELEMENTS.contains(applicationChild.getTagName()))
+              components.add(component(applicationChild));
+        }
+      }
+      String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sourceBytes));
+      Map<String, Object> result = Map.of(
+          "status", "complete", "source_sha256", digest,
+          "manifest_attributes", attributes(manifest), "applications", applications,
+          "requested_permissions", requestedPermissions,
+          "defined_permissions", definedPermissions, "components", components);
+      if (JSON.toJson(result).getBytes(StandardCharsets.UTF_8).length > MAX_DECLARATION_BYTES)
+        return json(Map.of("status", "unavailable", "reason", "Structured declarations exceed the 2 MiB output budget"));
+      return json(result);
+    } catch (Exception error) {
+      if (error instanceof SAXException || error instanceof javax.xml.parsers.ParserConfigurationException
+          || error instanceof java.io.IOException)
+        return json(Map.of("status", "unavailable", "reason", "Decoded manifest XML could not be parsed: " + error.getMessage()));
+      throw new IllegalStateException("Manifest declaration projection failed", error);
+    }
+  }
 
   private static String string(JsonObject args, String name) {
     JsonElement value = JsonParser.parseString(args.toString()).getAsJsonObject().get(name);
@@ -148,6 +306,7 @@ class ReaJadxBridge {
         "java_version", System.getProperty("java.version"),
         "metadata_scope", "parsed_members"));
     JadxSession current = session();
+    if (name.equals("rea_manifest_declarations")) return manifestDeclarations(current);
     if (name.equals("list_classes")) {
       List<String> names = current.getClassFqns();
       int offset = integer(args, "offset", 0);
@@ -210,6 +369,10 @@ class ReaJadxBridge {
         new ToolSchema(null, new JsonObject(Map.of()), List.of(), null),
         "Observed worker JVM and metadata scope", null, null, null, null, null, null);
     server.addTool(diagnostics, (connection, request, continuation) -> bridge.handle("rea_jvm_status", request.getArguments()));
+    Tool manifestDeclarations = new Tool("rea_manifest_declarations",
+        new ToolSchema(null, new JsonObject(Map.of()), List.of(), null),
+        "Declared Android manifest components, intent filters, and permissions from decoded XML", null, null, null, null, null, null);
+    server.addTool(manifestDeclarations, (connection, request, continuation) -> bridge.handle("rea_manifest_declarations", request.getArguments()));
     for (String name : List.of("list_classes", "get_class_summary",
         "get_method_body", "get_xrefs_to_class", "get_xrefs_to_method")) {
       Tool tool = server.getTools().get(name).getTool();

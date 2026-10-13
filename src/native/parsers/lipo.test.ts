@@ -89,4 +89,29 @@ architecture arm64e
       },
     ]);
   });
+
+  it("retains a numeric architecture label while resolving its CPU codes", () => {
+    expect(
+      parseLipoArchitectures(`Fat header in: /bin/ls
+nfat_arch 1
+architecture (cputype (16777228) cpusubtype (12))
+    cputype (16777228)
+    cpusubtype cpusubtype (12)
+    capabilities PTR_AUTH_VERSION USERSPACE 0
+    offset 163840
+    size 88672
+    align 2^14 (16384)
+`),
+    ).toMatchObject([
+      {
+        name: "(cputype (16777228) cpusubtype (12))",
+        cpu_type: "(16777228)",
+        cpu_type_code: 16777228,
+        cpu_subtype: "cpusubtype (12)",
+        cpu_subtype_code: 0x8000000c,
+        file_offset: 163840,
+        size: 88672,
+      },
+    ]);
+  });
 });

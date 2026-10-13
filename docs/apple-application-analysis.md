@@ -1,5 +1,36 @@
 # Apple Application Inventory Projection
 
+## iOS Simulator display capture
+
+On macOS with caller-installed Xcode and an iOS Simulator runtime, REA can
+capture the display of one already-booted simulator. Select its exact UDID from
+`xcrun simctl list devices`. The command does not boot a device, launch an app,
+tap the screen, or change simulator state.
+
+```sh
+rea capture-ios-simulator-screen <SIMULATOR-UDID> --json
+```
+
+The equivalent MCP tool is `capture_ios_simulator_screen` with
+`{"simulator_udid":"<SIMULATOR-UDID>"}`. Both return the observed simulator
+identity, PNG dimensions, SHA-256, complete canonical base64 PNG bytes, and
+Evidence. MCP puts the full PNG in `structuredContent.normalized_result.screenshot.base64`;
+its text content gives a short digest summary. A 3 MiB PNG source-byte limit
+keeps the duplicated structured Evidence within the default MCP transport
+budget. An oversized capture fails with a resource constraint and its measured
+size, without returning a partial image.
+
+This is a simulator **display** observation. REA cannot attribute the displayed
+pixels to a foreground app, IPA, bundle, or view hierarchy from this capture;
+`foreground_application` is `null` and the Evidence subject is unavailable.
+Physical iOS devices are outside this operation. Capability inventory reports
+macOS host eligibility; the operation checks installed CoreSimulator tools and
+the selected device's booted state when called. `npm run verify:ios-simulator`
+builds and launches a source-owned UIKit fixture on a newly created simulator,
+checks CLI and MCP PNG Evidence and fixture pixels, then deletes that device.
+
+## Application inventory projection
+
 REA can project one or more authenticated `inventory_artifact` Evidence records
 for the same IPA, macOS `.app` directory, ZIP, or DMG into an Apple application
 inventory. The projection is execution-free: it reports exact paths, content

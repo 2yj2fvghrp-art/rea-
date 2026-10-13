@@ -189,6 +189,31 @@ assert.equal(packageResult.target_sdk, "33");
 assert.equal(packageResult.manifest.status, "complete");
 assert.ok(packageResult.manifest.text.includes(fixture.package));
 assert.ok(packageResult.permissions.includes("android.permission.INTERNET"));
+assert.equal(packageResult.manifest_declarations.status, "complete");
+assert.equal(packageResult.manifest_declarations.source_text_match, "verified");
+assert.ok(
+  packageResult.manifest_declarations.requested_permissions.some(
+    (permission) => permission.declared_name === "android.permission.INTERNET",
+  ),
+);
+const apiDemosActivity = packageResult.manifest_declarations.components.find(
+  (component) => component.declared_name === fixture.class_name,
+);
+assert.equal(apiDemosActivity?.element_name, "activity");
+assert.equal(apiDemosActivity.declared_exported, "true");
+assert.equal(apiDemosActivity.effective_exposure, "unknown");
+assert.ok(
+  apiDemosActivity.intent_filters.some(
+    (filter) =>
+      filter.actions.some(
+        (action) => action.declared_name === "android.intent.action.MAIN",
+      ) &&
+      filter.categories.some(
+        (category) =>
+          category.declared_name === "android.intent.category.LAUNCHER",
+      ),
+  ),
+);
 assert.equal(packageResult.signature_verification, "not_performed");
 assert.ok(
   cliResults
