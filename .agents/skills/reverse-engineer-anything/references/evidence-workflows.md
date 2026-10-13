@@ -99,10 +99,13 @@ providers or handing off work so the original observations remain available:
    revision history before merging atomically; it does not select a target,
    restore an analysis database, start a provider, or refresh runtime facts.
 4. Discover imported records with `get_evidence_bundle` using
-   `{"detail":"summary","filters":{"operation":"analyze_javascript_application"}}`,
-   adding an exact target SHA-256 when several artifacts are present. Use
-   returned IDs for supported retained views and `list_unknowns` for current
-   heads. Recheck any claimed resolution with `verify_unknown_resolution`.
+   `{"detail":"summary","filters":{"operation":"analyze_javascript_application"},"limit":50}`,
+   adding an exact target SHA-256 when several artifacts are present. Follow
+   `result.pagination.next_offset` only when more matches are needed, keeping
+   the same filters and limit. Finish discovery before producing derived views
+   that could change the live ledger's ordering. Use returned IDs for supported
+   retained views and `list_unknowns` for current heads. Recheck any claimed
+   resolution with `verify_unknown_resolution`.
 
 The handoff is usable when the selected records and unknown heads can be read
 in the destination session and any next required external artifact is
