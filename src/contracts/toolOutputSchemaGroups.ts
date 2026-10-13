@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { byteSearchResultSchema } from "../domain/native/bytePattern.js";
 import {
   artifactInventorySummaryViewResultSchema,
   machoSummaryViewResultSchema,
@@ -112,6 +113,7 @@ const bookmarkFacetSchema = z.discriminatedUnion("state", [
 
 /** Exact structured-content schemas shared by direct analysis providers. */
 export const officialOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
+  search_bytes: evidenceResultOf(byteSearchResultSchema),
   annotate_native_function: evidenceResultOf(nativeFunctionAnnotationsSchema),
   rename_native_variables: evidenceResultOf(nativeDecompilationEditsSchema),
   set_native_variable_types: evidenceResultOf(nativeDecompilationEditsSchema),
