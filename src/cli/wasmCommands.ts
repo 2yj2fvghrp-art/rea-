@@ -7,7 +7,6 @@ import {
   createWasmComponentService,
   wasmArtifactModule,
 } from "../composition/wasm.js";
-import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { Logger } from "pino";
