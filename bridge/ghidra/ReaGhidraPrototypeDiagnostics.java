@@ -9,6 +9,9 @@ import java.util.Set;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.Undefined;
+import ghidra.program.model.data.VoidDataType;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.lang.PrototypeModel;
 import ghidra.program.model.listing.Function;
@@ -25,6 +28,8 @@ import ghidra.util.task.TaskMonitor;
 public final class ReaGhidraPrototypeDiagnostics {
     // Shared epilogues and call/return observations are probes, not CFG recovery.
     private static final int EPILOGUE_INSTRUCTIONS = 16;
+    // Bound the aggregate forwarding evidence retained in one dossier.
+    private static final int FORWARDING_EVIDENCE_BUDGET = 256;
 
     public static JsonObject inspect(Program program, Function function,
             FunctionPrototype prototype, TaskMonitor monitor,
@@ -68,8 +73,10 @@ public final class ReaGhidraPrototypeDiagnostics {
         }
         if (knownAllocation) stackEnd = 4 + ((stackEnd - 4 + 3) / 4) * 4;
         if (!knownAllocation) limitations.add("Compiler-model x86 stack-slot allocation could not be established; padding reads and return cleanup remain observations or unknowns.");
-        boolean calleeCleanup = model != null && !model.isProgramExtension() && !model.isMerged() &&
-            model.getExtrapop() == PrototypeModel.UNKNOWN_EXTRAPOP;
+        Long expectedCleanup = model != null && !model.isProgramExtension() && !model.isMerged() &&
+            model.getExtrapop() != PrototypeModel.UNKNOWN_EXTRAPOP && model.getExtrapop() >= model.getStackshift()
+            ? (long) model.getExtrapop() - model.getStackshift() : null;
+        if (expectedCleanup == null) limitations.add("The compiler model does not establish a cleanup byte count; RET/stack-extent differences remain observations, not prototype conflicts.");
         String claim = "The recovered prototype has " + prototype.getNumParams() +
             " parameters and " + (stackEnd - 4) + " bytes of recovered x86 stack-argument extent" +
             (knownAllocation ? " including compiler-model slot padding" : " with allocation unknown") +
@@ -150,46 +157,64 @@ public final class ReaGhidraPrototypeDiagnostics {
             "The x87 entry inputs and listed operations do not establish a complete expression or the semantics of a following call. Missing factors, conversion type, signedness and compiler identity remain unknown."));
 
         Set<Address> reportedReturns = new HashSet<>();
+        JsonArray forwardingFacts = new JsonArray();
+        Set<Address> forwardingAddresses = new HashSet<>();
+        boolean forwardingLimited = false;
         InstructionIterator instructions = program.getListing().getInstructions(function.getBody(), true);
         while (instructions.hasNext()) {
             monitor.checkCancelled();
             Instruction item = instructions.next();
-            if (isReturn(item) && knownAllocation) cleanupDiagnostic(item, null, stackEnd - 4, prototype, calleeCleanup, claim,
+            if (isReturn(item) && knownAllocation) cleanupDiagnostic(item, null, stackEnd - 4, prototype, expectedCleanup, claim,
                 diagnostics, reportedReturns, addressText);
             if (item.getFlowType().isJump() && !item.getFlowType().isConditional() && !item.getFlowType().isComputed()) {
                 Address[] targets = item.getFlows();
                 if (targets.length == 1 && !function.getBody().contains(targets[0])) {
                     Instruction returned = epilogueReturn(program, function, targets[0], eax, false, monitor);
                     if (returned != null) {
-                        if (knownAllocation) cleanupDiagnostic(returned, item, stackEnd - 4, prototype, calleeCleanup, claim,
+                        if (knownAllocation) cleanupDiagnostic(returned, item, stackEnd - 4, prototype, expectedCleanup, claim,
                             diagnostics, reportedReturns, addressText);
                     }
                     else limitations.add("Shared epilogue or tail-call target from " + addressText.apply(item.getAddress()) +
                         " could not be established within the bounded cleanup check.");
                 }
             }
-            String returnType = prototype.getReturnType().getDisplayName();
-            if (!item.getFlowType().isCall() || !(returnType.equals("void") || returnType.startsWith("undefined"))) continue;
+            DataType returnType = prototype.getReturnType();
+            if (!item.getFlowType().isCall() || !(returnType instanceof VoidDataType || Undefined.isUndefined(returnType))) continue;
+            if (forwardingFacts.size() + 2 > FORWARDING_EVIDENCE_BUDGET) {
+                forwardingLimited = true;
+                continue;
+            }
             Instruction returned = epilogueReturn(program, function, item.getFallThrough(), eax, true, monitor);
             if (returned == null) continue;
-            JsonArray facts = new JsonArray();
-            facts.add(evidence("call-site", item, "Call followed by a simple epilogue with no raw p-code write to EAX.", addressText));
-            facts.add(evidence("return", returned, "Return reached with the call's EAX register unmodified by the checked epilogue.", addressText));
+            if (forwardingAddresses.add(item.getAddress())) forwardingFacts.add(evidence("call-site", item,
+                "Call followed by a simple epilogue with no raw p-code write to EAX.", addressText));
+            if (forwardingAddresses.add(returned.getAddress())) forwardingFacts.add(evidence("return", returned,
+                "Return reached with a checked call's EAX register unmodified by its epilogue.", addressText));
+        }
+        if (!forwardingFacts.isEmpty()) {
+            // Incoming continuations corroborate the function, rather than each
+            // outgoing branch. Visit them once and retain each source address once.
             ReferenceIterator callers = program.getReferenceManager().getReferencesTo(function.getEntryPoint());
             while (callers.hasNext()) {
                 monitor.checkCancelled();
+                if (forwardingFacts.size() >= FORWARDING_EVIDENCE_BUDGET) {
+                    forwardingLimited = true;
+                    break;
+                }
                 Reference reference = callers.next();
                 if (!reference.getReferenceType().isCall()) continue;
                 Instruction caller = program.getListing().getInstructionAt(reference.getFromAddress());
                 if (caller == null || caller.getFallThrough() == null) continue;
                 Instruction use = program.getListing().getInstructionAt(caller.getFallThrough());
-                if (use != null && readsRegister(use, eax)) facts.add(evidence("call-site", use,
-                    "The immediate caller continuation reads EAX in raw p-code; return intent is not established.", addressText));
+                if (use != null && readsRegister(use, eax) && forwardingAddresses.add(use.getAddress()))
+                    forwardingFacts.add(evidence("call-site", use,
+                        "The immediate caller continuation reads EAX in raw p-code; return intent is not established.", addressText));
             }
             diagnostics.add(diagnostic("return-register-forwarding", "observation",
-                "The recovered return type is " + returnType + ".", facts,
+                "The recovered return type is " + prototype.getReturnType().getDisplayName() + ".", forwardingFacts,
                 "EAX may be an incidental live register. Callee return semantics, caller data flow and the source return type require corroboration."));
         }
+        if (forwardingLimited) limitations.add("Return-register forwarding reached its 256-fact evidence budget; remaining call paths or incoming references were not examined for forwarding. Cleanup checks retain their separate coverage.");
         return result;
     }
 
@@ -291,16 +316,20 @@ public final class ReaGhidraPrototypeDiagnostics {
     }
 
     private static void cleanupDiagnostic(Instruction returned, Instruction branch, long extent,
-            FunctionPrototype prototype, boolean calleeCleanup, String claim, JsonArray diagnostics, Set<Address> reported,
+            FunctionPrototype prototype, Long expectedCleanup, String claim, JsonArray diagnostics, Set<Address> reported,
             java.util.function.Function<Address, String> addressText) {
         if (!reported.add(returned.getAddress()) || !returned.getMnemonicString().equalsIgnoreCase("RET")) return;
         long cleanup = returned.getNumOperands() == 0 || returned.getScalar(0) == null ? 0 : returned.getScalar(0).getUnsignedValue();
-        // A plain cdecl RET is expected even with stack inputs. Variadic cleanup is not comparable.
-        if (prototype.isVarArg() || cleanup == extent || cleanup == 0 && !calleeCleanup) return;
+        // Known caller-cleaned models require zero argument cleanup even when
+        // the observed immediate happens to equal recovered parameter storage.
+        // UNKNOWN_EXTRAPOP is not proof that the callee owns cleanup.
+        if (prototype.isVarArg() || expectedCleanup != null && cleanup == expectedCleanup ||
+                expectedCleanup == null && cleanup == extent) return;
         JsonArray facts = new JsonArray();
         if (branch != null) facts.add(evidence("branch", branch, "Direct branch to a shared epilogue outside the owned body; no body range was added.", addressText));
-        facts.add(evidence("return", returned, "RET explicitly cleans up " + cleanup + " bytes, compared with " + extent + " recovered stack-argument bytes.", addressText));
-        diagnostics.add(diagnostic("stack-cleanup", "conflict", claim, facts,
+        facts.add(evidence("return", returned, "RET explicitly cleans up " + cleanup + " bytes, compared with " + extent + " recovered stack-argument bytes." +
+            (expectedCleanup == null ? " Compiler-model cleanup is unknown." : " The compiler model requires " + expectedCleanup + " argument-cleanup bytes."), addressText));
+        diagnostics.add(diagnostic("stack-cleanup", expectedCleanup == null ? "observation" : "conflict", claim, facts,
             "Hidden parameters, stack padding, custom calling conventions and incomplete parameter recovery remain possible. Cleanup bytes do not prove a source argument count."));
     }
 

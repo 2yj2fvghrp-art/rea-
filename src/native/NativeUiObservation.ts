@@ -1,6 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import {
+  isMachOFormat,
+  type BinaryTarget,
+} from "../domain/binaryTargetTypes.js";
 import {
   nativeUiObservationInputSchema,
   nativeUiScenarioInputSchema,
@@ -13,7 +16,7 @@ import {
   AnalysisInputError,
 } from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
-import { type AnalysisError } from "../domain/analysisErrorBase.js";
+import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   createNativeUiHelperRuntime,
@@ -78,7 +81,7 @@ const observeWithHelper = async (
   ).safeParse(parameters);
   if (!parsed.success)
     return err(new AnalysisInputError(operation, { cause: parsed.error }));
-  if (target.kind !== "executable" || target.format !== "mach-o")
+  if (target.kind !== "executable" || !isMachOFormat(target.format))
     return err(
       new AnalysisCapabilityUnavailableError(
         "native-macos",

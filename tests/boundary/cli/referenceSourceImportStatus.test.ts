@@ -47,8 +47,8 @@ describe("compiled Windows reference-source import", () => {
         expect(result.json).toEqual(
           scenario.fullOutput
             ? expect.objectContaining({
-                ok: true,
-                data: unsupportedHostOutput,
+                ok: false,
+                error: unsupportedHostOutput,
               })
             : unsupportedHostOutput,
         );
@@ -80,7 +80,11 @@ describe("compiled reference-source import preflight failures", () => {
         const directory = await createTestTempDirectory(
           "rea-reference-cli-status-",
         );
-        const root = join(directory, "input");
+        // Exercise JSON escaping on POSIX too; Windows paths already need it.
+        const root = join(
+          directory,
+          process.platform === "win32" ? "input" : "input\\escaped",
+        );
         if (scenario.rootKind === "regular-file")
           await writeFile(root, "inert input\n");
         const result = await cli.run({
@@ -109,16 +113,14 @@ describe("compiled reference-source import preflight failures", () => {
           message: expect.stringContaining(rootReason),
         };
         if (scenario.fullOutput) {
-          // Incur's legacy wrapper remains unchanged; operation status is
-          // conveyed by the exit code and command log, not this `ok` field.
           expect(result.json).toMatchObject({
-            ok: true,
-            data: invalidRootOutput,
+            ok: false,
+            error: invalidRootOutput,
           });
         } else {
           expect(result.json).toMatchObject(invalidRootOutput);
         }
-        const messagePath = scenario.fullOutput ? "data.message" : "message";
+        const messagePath = scenario.fullOutput ? "error.message" : "message";
         expect(result.json).toHaveProperty(
           messagePath,
           expect.stringContaining(

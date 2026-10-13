@@ -2,17 +2,23 @@ import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
 import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
 import {
-  readEvidenceBundle,
+  readImmutableEvidenceBundle,
   writeEvidenceBundle,
 } from "../application/EvidenceBundleFiles.js";
 import { toolContract } from "../contracts/toolContracts.js";
 import type { EvidenceBundle } from "../domain/evidenceBundle.js";
-import { ok } from "../domain/result.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import { err, ok } from "../domain/result.js";
+import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { inspectEvidenceBundle } from "../application/investigation/InspectEvidenceBundle.js";
 import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
+import { withAdmittedAnalysis } from "./analysisAdmission.js";
+import { runAdmittedToolOperation } from "./admittedToolOperation.js";
 
 interface EvidenceToolRegistration {
   readonly server: EvidenceMcpServer;
   readonly session: BinarySessionPort;
+  readonly resources: ArtifactResourceScope;
   readonly exportContract: ReturnType<
     typeof toolContract<"export_evidence_bundle">
   >;
@@ -36,6 +42,7 @@ export const registerEvidenceTools = (
 const registerExportEvidenceTool = ({
   server,
   session,
+  resources,
   exportContract,
 }: EvidenceToolRegistration): void => {
   server.registerTool(
@@ -47,6 +54,7 @@ const registerExportEvidenceTool = ({
         bundle,
         input.path,
         input.overwrite,
+        resources,
         context.mcpReq.signal,
       );
       return written.ok
@@ -72,9 +80,9 @@ const registerSnapshotEvidenceTool = ({
   server.registerTool(
     snapshotContract.name,
     toolRegistrationOptions(snapshotContract),
-    () =>
+    (input) =>
       server.delivery.toCallToolResult(
-        ok(bundleForSerialization(session)),
+        inspectEvidenceBundle(bundleForSerialization(session), input),
         snapshotContract,
       ),
   );
@@ -83,36 +91,57 @@ const registerSnapshotEvidenceTool = ({
 const registerImportEvidenceTool = ({
   server,
   session,
+  resources,
   importContract,
 }: EvidenceToolRegistration): void => {
+  const admission = withAdmittedAnalysis({ kind: "session", session });
   server.registerTool(
     importContract.name,
     toolRegistrationOptions(importContract),
-    async (input) => {
-      const path = input.path;
-      const loaded = await readEvidenceBundle(path);
-      if (!loaded.ok)
-        return server.delivery.toCallToolResult(loaded, importContract);
-      const retainedUnknownRevisions = new Set(
-        bundleForSerialization(session).unknowns.map((unknown) =>
-          unknownRevisionKey(unknown),
-        ),
-      );
-      const imported = session.importEvidenceBundle(loaded.value);
-      return imported.ok
-        ? server.delivery.toCallToolResult(
-            ok({
-              imported: imported.value,
-              unknowns_added: loaded.value.unknowns.filter(
-                (unknown) =>
-                  !retainedUnknownRevisions.has(unknownRevisionKey(unknown)),
-              ).length,
-              total: bundleForSerialization(session).records.length,
-            }),
-            importContract,
-          )
-        : server.delivery.toCallToolResult(imported, importContract);
-    },
+    async (input, context) =>
+      runAdmittedToolOperation(
+        server,
+        admission,
+        importContract.name,
+        context.mcpReq.signal,
+        async () => {
+          const path = input.path;
+          const signal = context.mcpReq.signal;
+          const loaded = await readImmutableEvidenceBundle(
+            path,
+            signal,
+            resources,
+          );
+          if (!loaded.ok)
+            return server.delivery.toCallToolResult(loaded, importContract);
+          const retainedUnknownRevisions = new Set(
+            bundleForSerialization(session).unknowns.map((unknown) =>
+              unknownRevisionKey(unknown),
+            ),
+          );
+          if (signal.aborted)
+            return server.delivery.toCallToolResult(
+              err(new AnalysisCancelledError("import_evidence_bundle")),
+              importContract,
+            );
+          const imported = session.importEvidenceBundle(loaded.value);
+          return imported.ok
+            ? server.delivery.toCallToolResult(
+                ok({
+                  imported: imported.value,
+                  unknowns_added: loaded.value.unknowns.filter(
+                    (unknown) =>
+                      !retainedUnknownRevisions.has(
+                        unknownRevisionKey(unknown),
+                      ),
+                  ).length,
+                  total: bundleForSerialization(session).records.length,
+                }),
+                importContract,
+              )
+            : server.delivery.toCallToolResult(imported, importContract);
+        },
+      ),
   );
 };
 
@@ -138,18 +167,14 @@ const registerListUnknownsTool = ({
     listContract.name,
     toolRegistrationOptions(listContract),
     (input) => {
-      const all = session.listUnknowns({
+      const page = session.listUnknownsPage({
         ...(input.status === undefined ? {} : { status: input.status }),
         ...(input.severity === undefined ? {} : { severity: input.severity }),
         ...(input.domain === undefined ? {} : { domain: input.domain }),
+        offset: input.offset,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
       });
-      return server.delivery.toCallToolResult(
-        ok({
-          items: all,
-          total: all.length,
-        }),
-        listContract,
-      );
+      return server.delivery.toCallToolResult(ok(page), listContract);
     },
   );
 };

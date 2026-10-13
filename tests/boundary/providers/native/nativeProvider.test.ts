@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
+import { DarwinProcessOwnershipInspectionError } from "../../../../src/process/DarwinProcessRunTokenReader.js";
+import { EventEmitter } from "node:events";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -18,6 +21,7 @@ import { parseLipoArchitectures } from "../../../../src/native/parsers/lipo.js";
 import { parseCodeSignature } from "../../../../src/native/parsers/codesign.js";
 import { prepareProcessOwnershipInspection } from "../../../../src/process/ProcessOwnershipObservation.js";
 import { projectAnalysisError } from "../../../../src/domain/analysisErrorProjection.js";
+import { ProviderProcessSupervisor } from "../../../../src/process/ProviderProcess.js";
 
 import {
   NativeFixtureRunner as FixtureRunner,
@@ -25,6 +29,27 @@ import {
   nativeMachoTarget as machoTarget,
   nativeMachoTargetForFile,
 } from "../../../fixtures/nativeCommands.js";
+
+const cleanupOwner = (runId: string): ProviderProcessSupervisor => {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null as number | null,
+    signalCode: null as NodeJS.Signals | null,
+    kill: () => true,
+  });
+  return new ProviderProcessSupervisor({
+    process: child,
+    ownsProcessLifetime: true,
+    ownership: {
+      runId,
+      leaderPid: 46_000,
+      processGroupId: 46_000,
+      expectedParentPid: process.pid,
+    },
+    cleanup: async () => ({ cleaned: false, reason: "still running" }),
+  });
+};
 
 beforeAll(() => prepareProcessOwnershipInspection());
 
@@ -36,7 +61,13 @@ afterEach(async () => {
 });
 
 describe("native macOS provider discovery", () => {
-  it.each(["ordinary.fixture", "  spaced.fixture  ", " leading", "trailing "])(
+  it.each([
+    "ordinary.fixture",
+    "  spaced.fixture  ",
+    " leading",
+    "trailing ",
+    "literal\r\nidentifier\r",
+  ])(
     "preserves the exact signing identifier %j reported by codesign",
     (identifier) => {
       const parsed = parseCodeSignature(
@@ -49,31 +80,68 @@ describe("native macOS provider discovery", () => {
     },
   );
 
-  it("separates echoed path and identifier text from signature fields", () => {
-    const path = "/apps/x\nAuthority=Forged\nIdentifier=forged";
-    const identifier = "x\nFormat=forged\nAuthority=Forged-5555";
-    const parsed = parseCodeSignature(
-      [
-        `Executable=${path}`,
-        `Identifier=${identifier}`,
-        "Format=Mach-O thin (arm64)",
-        "CodeDirectory v=20400 size=342 flags=0x2(adhoc) hashes=2+2",
-        "CDHash=6aee90e6",
-        "Signature=adhoc",
-        "TeamIdentifier=not set",
-        "",
-      ].join("\r\n"),
-      false,
-      ["/elsewhere", path],
-    );
-    expect(parsed).toMatchObject({
-      identifier,
-      format: "Mach-O thin (arm64)",
-      authorities: [],
-      cdhashes: ["6aee90e6"],
-      team_identifier: null,
-    });
-  });
+  it.each(["\n", "\r\n"])(
+    "separates echoed path and identifier text from signature fields (%j)",
+    (newline) => {
+      const path = "/apps/x\r\nAuthority=Forged\nIdentifier=forged";
+      const identifier = "x\r\nFormat=forged\nAuthority=Forged-5555\r";
+      const parsed = parseCodeSignature(
+        [
+          `Executable=${path}`,
+          `Identifier=${identifier}`,
+          "Format=Mach-O thin (arm64)",
+          "CodeDirectory v=20400 size=342 flags=0x2(adhoc) hashes=2+2",
+          "CDHash=6aee90e6",
+          "Signature=adhoc",
+          "TeamIdentifier=not set",
+          "",
+        ].join(newline),
+        false,
+        ["/elsewhere", path],
+      );
+      expect(parsed).toMatchObject({
+        identifier,
+        format: "Mach-O thin (arm64)",
+        authorities: [],
+        cdhashes: ["6aee90e6"],
+        team_identifier: null,
+      });
+    },
+  );
+
+  it.each([
+    { executable: "", paths: [], newline: "\r\n", identifier: "fixture" },
+    {
+      executable: "Executable=/apps/fixture\r\n",
+      paths: [],
+      newline: "\r\n",
+      identifier: "fixture\nFormat=payload\r",
+    },
+    {
+      executable: "Executable=/apps/fixture\n",
+      paths: ["/elsewhere"],
+      newline: "\n",
+      identifier: "fixture\r\nFormat=payload\r",
+    },
+    {
+      executable: "Executable=/apps/fixture\r\n",
+      paths: ["/elsewhere"],
+      newline: "\r\n",
+      identifier: "fixture\r",
+    },
+  ])(
+    "frames the identifier without a matching executable path: %j",
+    ({ executable, paths, newline, identifier }) => {
+      const parsed = parseCodeSignature(
+        `${executable}Identifier=${identifier}${newline}Format=Mach-O thin (arm64)${newline}TeamIdentifier=not set${newline}`,
+        false,
+        paths,
+      );
+      expect(parsed.identifier).toBe(identifier);
+      expect(parsed.format).toBe("Mach-O thin (arm64)");
+      expect(parsed.team_identifier).toBeNull();
+    },
+  );
 
   it.each(["timeout", "output-limit"] as const)(
     "preserves %s resolution failures with their captured output and cleanup status",
@@ -256,6 +324,30 @@ describe("native command failure capture and limits", () => {
         stderr_bytes: expect.any(Number),
       },
     });
+    expect(projectAnalysisError(result.error).details).not.toHaveProperty(
+      "diagnostics.detail",
+    );
+  });
+
+  it("projects the ownership helper prerequisite when a command cannot be supervised", async () => {
+    const inspection = new DarwinProcessOwnershipInspectionError(
+      "Direct Darwin helper compilation requires absolute REA_DARWIN_SWIFTC_PATH and SDKROOT paths.",
+    );
+    const runner = new XcrunCommandRunner(
+      {},
+      () =>
+        Promise.resolve(ok({ path: process.execPath, sha256: "a".repeat(64) })),
+      () => Promise.reject(inspection),
+    );
+    const result = await new NativeMacOSProvider({}, runner, "darwin")
+      .createClient(machoTarget("/private/fixture"))
+      .execute("demangle_swift", { symbols: ["fixture-symbol"] });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error).details).toMatchObject({
+      diagnostics: { reason: "io", detail: inspection.message },
+    });
   });
 
   it("retains output written before cancellation and reaps the stalled command", async () => {
@@ -312,6 +404,97 @@ describe("native command failure capture and limits", () => {
       (result.error.capture?.stdoutBytes ?? 0) +
         (result.error.capture?.stderrBytes ?? 0),
     ).toBeLessThanOrEqual(NATIVE_COMMAND_OUTPUT_BUDGET_BYTES);
+  });
+});
+
+describe("native command cleanup lifecycle", () => {
+  it("waits for an active command before retrying its failed owner at close", async () => {
+    let finishCommand!: (
+      result: Awaited<ReturnType<NativeCommandRunner["run"]>>,
+    ) => void;
+    let commandStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      commandStarted = resolve;
+    });
+    const command = new Promise<
+      Awaited<ReturnType<NativeCommandRunner["run"]>>
+    >((resolve) => {
+      finishCommand = resolve;
+    });
+    let cleanupRetries = 0;
+    const runner: NativeCommandRunner = {
+      run: () => {
+        commandStarted();
+        return command;
+      },
+      retryCleanup: async () => {
+        cleanupRetries += 1;
+        return cleanupRetries === 1
+          ? [
+              {
+                owner: cleanupOwner("run:first"),
+                reason: "first process group remains live",
+                resources: ["run:first", "process-group:1234"],
+              },
+              {
+                owner: cleanupOwner("run:second"),
+                reason: "second process group remains live",
+                resources: ["run:second", "process-group:5678"],
+              },
+            ]
+          : [];
+      },
+    };
+    const client = new NativeMacOSProvider({}, runner, "darwin").createClient(
+      machoTarget("/private/fixture"),
+    );
+
+    const execution = client.execute("list_architectures", {});
+    await started;
+    const closing = client.close();
+    await Promise.resolve();
+    expect(cleanupRetries).toBe(0);
+    finishCommand(
+      err(
+        new NativeCommandFailure("lipo", "timeout", null, undefined, {
+          stdout: "partial architecture output",
+          stderr: "partial diagnostic",
+          stdoutBytes: 27,
+          stderrBytes: 19,
+          exitCode: null,
+          signal: null,
+          truncated: false,
+        }),
+      ),
+    );
+
+    const [observed, closed] = await Promise.all([execution, closing]);
+    expect(observed.ok).toBe(false);
+    expect(closed.ok).toBe(false);
+    expect(cleanupRetries).toBe(1);
+    if (!closed.ok) {
+      expect(closed.error.cleanupResources).toEqual([
+        "run:first",
+        "process-group:1234",
+        "run:second",
+        "process-group:5678",
+      ]);
+      expect(closed.error).toHaveProperty("diagnostics", {
+        reason: "Native command process cleanup remains incomplete",
+        failures: [
+          {
+            reason: "first process group remains live",
+            resources: ["run:first", "process-group:1234"],
+          },
+          {
+            reason: "second process group remains live",
+            resources: ["run:second", "process-group:5678"],
+          },
+        ],
+      });
+    }
+    await expect(client.close()).resolves.toMatchObject({ ok: true });
+    expect(cleanupRetries).toBe(2);
   });
 });
 

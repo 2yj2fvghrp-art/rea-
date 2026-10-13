@@ -56,6 +56,7 @@ export async function verifyGhidraPrototypeDiagnostics({
   const helper = join(dirname(bridge), "ReaGhidraPrototypeDiagnostics.java");
   const producerOutput = join(workspace, "producer.json");
   let retainWorkspace = false;
+  let verifierFinished = false;
   try {
     await exec(process.env.REA_AS ?? "as", [
       "--32",
@@ -114,6 +115,10 @@ export async function verifyGhidraPrototypeDiagnostics({
         await supervisor.waitForExit(180000),
         "Prototype producer probe exceeded its headless deadline",
       );
+      assert.ok(
+        await supervisor.waitForOutputClose(1000),
+        "Prototype producer output did not close",
+      );
       const snapshot = supervisor.snapshot();
       const output = `${snapshot.stdout.text}\n${snapshot.stderr.text}`;
       assert.equal(snapshot.exitCode, 0, output);
@@ -143,12 +148,24 @@ export async function verifyGhidraPrototypeDiagnostics({
         );
       retainWorkspace = false;
     }
+    retainWorkspace = true;
     const publicWorkflows = await verifyPublicWorkflows({
       entrypoint,
       target,
       runtime,
       run,
       targetDigest,
+      workspace,
+      onCleanupComplete: async () => {
+        assert.deepEqual(
+          (await readdir(runtime)).filter((name) => name.startsWith("rea-ghidra-")),
+          [],
+          "Owned runtime survived public close; workspace retained",
+        );
+        retainWorkspace = false;
+        if (verifierFinished)
+          await rm(workspace, { recursive: true, force: true });
+      },
     });
     assert.equal(
       digest(await readFile(target)),
@@ -171,6 +188,7 @@ export async function verifyGhidraPrototypeDiagnostics({
       cleanup: "complete",
     };
   } finally {
+    verifierFinished = true;
     if (!retainWorkspace) await rm(workspace, { recursive: true, force: true });
   }
 }
@@ -181,6 +199,8 @@ async function verifyPublicWorkflows({
   runtime,
   run,
   targetDigest,
+  workspace,
+  onCleanupComplete,
 }) {
   const env = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -201,6 +221,7 @@ async function verifyPublicWorkflows({
   });
   const client = new Client({ name: "rea-real-prototype-proof", version: "1" });
   let opened = false;
+  let primaryFailure;
   const observations = [];
   const call = async (name, arguments_ = {}) => {
     const result = await client.callTool(
@@ -212,6 +233,8 @@ async function verifyPublicWorkflows({
   };
   try {
     await client.connect(transport);
+    // An unsuccessful open may retain an acquired provider after cleanup fails.
+    opened = true;
     requireMcpOperationResult(
       await client.callTool(
         {
@@ -222,7 +245,6 @@ async function verifyPublicWorkflows({
       ),
       "open_binary",
     );
-    opened = true;
     for (const procedure of [
       "rea_stack_x87",
       "rea_cleanup_conflict",
@@ -318,18 +340,55 @@ async function verifyPublicWorkflows({
       }
       observations.push({ procedure, diagnostics, cli_mcp_equal: true });
     }
+  } catch (cause) {
+    primaryFailure = cause;
+    throw cause;
   } finally {
-    try {
-      if (opened)
+    await retirePrototypePublicClient({
+      client,
+      opened,
+      workspace,
+      primaryFailure,
+      onCleanupComplete,
+    });
+  }
+  return observations;
+}
+
+/** Keep the connected client as cleanup owner until close_binary is confirmed. */
+export async function retirePrototypePublicClient({
+  client,
+  opened,
+  workspace,
+  primaryFailure,
+  onCleanupComplete,
+}) {
+  let binaryClosed = !opened;
+  const cleanupOwner = {
+    async stop() {
+      if (!binaryClosed) {
         requireMcpOperationResult(
           await client.callTool({ name: "close_binary", arguments: {} }),
           "close_binary",
         );
-    } finally {
+        binaryClosed = true;
+      }
       await client.close();
-    }
+      await onCleanupComplete();
+    },
+  };
+  try {
+    await cleanupOwner.stop();
+  } catch (cleanupFailure) {
+    const failure = new Error(
+      `Prototype public cleanup incomplete; client and workspace retained at ${workspace}`,
+      { cause: primaryFailure ?? cleanupFailure },
+    );
+    failure.cleanupFailure = cleanupFailure;
+    failure.cleanupOwner = cleanupOwner;
+    failure.resources = [workspace];
+    throw failure;
   }
-  return observations;
 }
 
 if (

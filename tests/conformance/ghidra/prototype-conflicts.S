@@ -218,4 +218,37 @@ rea_variadic_control:
     mov 8(%esp), %eax
     ret
 .size rea_variadic_control, .-rea_variadic_control
+
+.globl rea_cdecl_cleanup_conflict
+.type rea_cdecl_cleanup_conflict, @function
+rea_cdecl_cleanup_conflict:
+    mov 4(%esp), %eax
+    ret $4
+.size rea_cdecl_cleanup_conflict, .-rea_cdecl_cleanup_conflict
+
+.globl rea_named_undefined_return, rea_undefined_pointer_return
+.type rea_named_undefined_return, @function
+rea_named_undefined_return:
+    call rea_conversion_helper
+    ret
+.size rea_named_undefined_return, .-rea_named_undefined_return
+.type rea_undefined_pointer_return, @function
+rea_undefined_pointer_return:
+    call rea_conversion_helper
+    ret
+.size rea_undefined_pointer_return, .-rea_undefined_pointer_return
+
+.globl rea_many_forwarding
+.type rea_many_forwarding, @function
+rea_many_forwarding:
+.rept 130
+    test %eax, %eax
+    jz 1f
+    call rea_conversion_helper
+    ret
+1:
+.endr
+    ret
+.size rea_many_forwarding, .-rea_many_forwarding
+
 .section .note.GNU-stack,"",@progbits

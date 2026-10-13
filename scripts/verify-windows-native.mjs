@@ -6,19 +6,22 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
   access,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
   rename,
+  readdir,
   rm,
   symlink,
   writeFile,
   open,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { verifyWindowsProtocolInput } from "./lib/windows-protocol-input.mjs";
+import { verifyWindowsJobMemoryLimit } from "./lib/windows-job-memory-limit.mjs";
 
 if (process.platform !== "win32")
   throw new Error(
@@ -31,6 +34,17 @@ const { requireWindowsNativeAuthority } = await import(
 const native = requireWindowsNativeAuthority();
 const { WindowsPrivateRuntime, windowsPrivateRuntime } = await import(
   pathToFileURL(join(packageRoot, "dist/windows/WindowsPrivateRuntime.js"))
+);
+const { ghidraSessionRoot } = await import(
+  pathToFileURL(join(packageRoot, "dist/ghidra/GhidraSessionRoot.js"))
+);
+const { PrivateRuntimeRoot } = await import(
+  pathToFileURL(join(packageRoot, "dist/process/PrivateRuntimeRoot.js"))
+);
+const { PrivateRuntimeRootUnavailableError } = await import(
+  pathToFileURL(
+    join(packageRoot, "dist/process/PrivateRuntimeRootUnavailableError.js"),
+  )
 );
 const workspace = await mkdtemp(join(tmpdir(), "rea-native-conformance-"));
 const environment = Object.entries(process.env)
@@ -77,6 +91,31 @@ const wait = async (child) => {
 };
 const report = { ok: false, artifact: "verified", controls: {}, processes: {} };
 try {
+  // Exercise the loader in a process whose image is not named node.exe. The
+  // ordinary Windows lane otherwise cannot detect eager Node-API imports.
+  const renamedHost = join(workspace, "rea-renamed-node.exe");
+  const renamedHostFixture = join(workspace, "renamed-host.mjs");
+  const loaderUrl = pathToFileURL(
+    join(packageRoot, "dist/windows/WindowsNativeLoader.js"),
+  ).href;
+  await copyFile(process.execPath, renamedHost);
+  await writeFile(
+    renamedHostFixture,
+    `import {basename} from 'node:path';
+import {requireWindowsNativeAuthority} from ${JSON.stringify(loaderUrl)};
+const {inspection}=requireWindowsNativeAuthority();
+process.stdout.write(JSON.stringify({executable:basename(process.execPath),abiVersion:inspection.abiVersion}));\n`,
+  );
+  const renamedHostResult = execFileSync(renamedHost, [renamedHostFixture], {
+    encoding: "utf8",
+    timeout: 20_000,
+    windowsHide: true,
+  });
+  assert.deepEqual(JSON.parse(renamedHostResult), {
+    executable: "rea-renamed-node.exe",
+    abiVersion: 1,
+  });
+  report.controls.renamedHostNodeApi = true;
   const sourceDirectory = join(workspace, "source");
   await mkdir(sourceDirectory);
   const source = join(sourceDirectory, "target.bin");
@@ -110,6 +149,71 @@ try {
   ])
     assert.throws(() => native.call("open", [rejected]));
   report.controls.ordinaryDriveSeparatorsAndRequestedIdentity = true;
+  // An owned runtime's DELETE lease conflicts with a fresh parent admission.
+  // This produces a genuine sharing failure after successful authority caching,
+  // without another executable, and proves that no child runtime was created.
+  const sharingParent = WindowsPrivateRuntime.create(
+    workspace,
+    "rea-sharing-parent-",
+  );
+  try {
+    await assert.rejects(
+      PrivateRuntimeRoot.create({ parent: sharingParent.observation.path }),
+      (failure) => {
+        assert.ok(failure instanceof PrivateRuntimeRootUnavailableError);
+        assert.equal(failure.retryable, true);
+        assert.ok(failure.cause instanceof Error);
+        assert.equal(failure.cause.win32Code, 32);
+        assert.equal(failure.cause.runtimeAllocation, "not-started");
+        return true;
+      },
+    );
+    assert.deepEqual(await readdir(sharingParent.observation.path), []);
+    report.controls.transientRuntimeAdmissionBeforeAllocation = true;
+  } finally {
+    await sharingParent.close();
+  }
+  const driveRoot = parse(workspace).root;
+  const runtimeParent = ghidraSessionRoot({
+    base: join(driveRoot, ".Tmp", "scratch"),
+  });
+  assert.equal(runtimeParent, driveRoot);
+  const driveRootRuntime = native.call("runtime_create", [
+    runtimeParent,
+    "rea-drive-root-",
+  ]);
+  try {
+    assert.equal(driveRootRuntime.path.startsWith(`${driveRoot}\\`), false);
+    assert.equal(dirname(driveRootRuntime.path), driveRoot);
+    const snapshot = await native.call("runtime_snapshot", [
+      driveRootRuntime.handle,
+      source,
+      "probe.bin",
+    ]);
+    const sourceBytes = await readFile(source);
+    assert.equal(
+      snapshot.sha256,
+      createHash("sha256").update(sourceBytes).digest("hex"),
+    );
+    assert.equal(snapshot.source.requestedPath, source);
+    const readback = native.call("runtime_open", [
+      driveRootRuntime.handle,
+      "probe.bin",
+    ]);
+    try {
+      assert.equal(readback.size, sourceBytes.byteLength);
+      assert.deepEqual(
+        native.call("read", [readback.handle, 0, 65536]),
+        sourceBytes.subarray(0, 65536),
+      );
+    } finally {
+      native.call("close", [readback.handle]);
+    }
+  } finally {
+    native.call("runtime_close", [driveRootRuntime.handle]);
+  }
+  assert.equal(await exists(driveRootRuntime.path), false);
+  report.controls.driveRootRuntimeParent = true;
   const snapshotOwner = WindowsPrivateRuntime.create(
     workspace.replace(/\\/u, "/"),
     "single-flight-",
@@ -475,6 +579,10 @@ setInterval(()=>{},1000);\n`,
     packageRoot,
     workspace,
   );
+  report.processes.jobMemoryLimit = await verifyWindowsJobMemoryLimit(
+    packageRoot,
+    workspace,
+  );
   const exited = launch([
     "--max-old-space-size=128",
     "-e",
@@ -554,6 +662,42 @@ setInterval(()=>{},1000);\n`,
       unicodeNamesPreserved: true,
     });
     report.processes.windowsEnvironmentSemantics = true;
+    // Observed through this process's own id: a separate probe process would
+    // get its own processor group, so it cannot stand in for the process that
+    // spawns the child.
+    const callerAffinity = JSON.parse(
+      execFileSync(boundaryFixture, ["affinity", String(process.pid)], {
+        encoding: "utf8",
+      }),
+    );
+    const affinityChild = native.call("process_spawn", [
+      boundaryFixture,
+      `${quote(boundaryFixture)} affinity`,
+      workspace,
+      environment,
+    ]);
+    const observedAffinity = await wait(affinityChild);
+    native.call("process_close", [affinityChild.handle]);
+    assert.equal(observedAffinity.exitCode, 0);
+    const childAffinity = JSON.parse(observedAffinity.output);
+    // Masks cross as hexadecimal strings because a mask can exceed the
+    // safe-integer range. Sharing one processor group makes the caller's mask
+    // applicable, so it must be inherited exactly. Windows placing the child in
+    // another group is only permitted when the caller asked for no bound of its
+    // own, which its group's whole active set establishes; a narrower mask has
+    // to fail the spawn rather than widen to that group's default.
+    const sharedGroup =
+      callerAffinity.singleProcessorGroup &&
+      childAffinity.singleProcessorGroup &&
+      callerAffinity.processorGroup === childAffinity.processorGroup;
+    if (sharedGroup)
+      assert.equal(childAffinity.affinityMask, callerAffinity.affinityMask);
+    else assert.equal(callerAffinity.affinityMask, callerAffinity.systemMask);
+    report.processes.callerAffinityBoundsOwnedProcessOrRefusesToWiden = true;
+    report.callerAffinity = {
+      ...callerAffinity,
+      sharedGroupWithChild: sharedGroup,
+    };
   }
   const ownerFixture = join(workspace, "owner.mjs");
   const ownerPidFile = join(workspace, "crash-child.pid");

@@ -6,9 +6,13 @@ import { localPathStringSchema } from "../domain/localPath.js";
 import { processTraceSpecificationSchema } from "../domain/process/processTraceSpecification.js";
 import { evidenceSchema } from "../domain/evidence.js";
 import { prefixedDigestSchema } from "./../domain/digests.js";
+import { evidenceRecordFiltersSchema } from "../domain/evidenceRecordSummary.js";
 
-/** Return the current canonical Evidence bundle inline. */
-export const getEvidenceBundleInputSchema = z.strictObject({});
+/** Complete retained Evidence, or selected discovery metadata without payloads. */
+export const getEvidenceBundleInputSchema = z.strictObject({
+  detail: z.enum(["complete", "summary"]).default("complete"),
+  filters: evidenceRecordFiltersSchema.optional(),
+});
 
 /** Optional document selection for volatile navigation context. */
 export const navigationContextInputSchema = z.strictObject({
@@ -48,6 +52,22 @@ export const listUnknownsInputSchema = z.strictObject({
     .optional(),
   severity: z.enum(["low", "medium", "high", "critical"]).optional(),
   domain: z.string().trim().min(1).optional(),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(0)
+    .describe("Zero-based offset in the stable filtered unknown ID order."),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional()
+    .describe(
+      "Optional maximum number of heads to return. Omit to return every matching head from offset.",
+    ),
 });
 
 /** Exact residual-unknown identity to revalidate. */

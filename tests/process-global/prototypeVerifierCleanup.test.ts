@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { access, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { access, mkdtemp, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { expect, it, vi } from "vitest";
 
@@ -10,7 +11,10 @@ import type {
   ProviderProcessLaunch,
   ProviderProcessSupervisor,
 } from "../../src/process/ProviderProcess.js";
-import { verifyGhidraPrototypeDiagnostics } from "../../scripts/verify-ghidra-prototype-diagnostics.mjs";
+import {
+  retirePrototypePublicClient,
+  verifyGhidraPrototypeDiagnostics,
+} from "../../scripts/verify-ghidra-prototype-diagnostics.mjs";
 import { waitForExit } from "../support/process/processFixture.js";
 
 const control = vi.hoisted(() => ({
@@ -126,3 +130,74 @@ it.runIf(process.platform === "linux" && process.arch === "x64")(
     }
   },
 );
+
+it("keeps the public cleanup client and workspace after incomplete binary close, then retries", async () => {
+  const workspace = await mkdtemp(
+    join(tmpdir(), "rea-public-prototype-cleanup-"),
+  );
+  const primaryFailure = new Error("analysis failed");
+  const cleanupFailure = new Error("provider cleanup incomplete");
+  const client = {
+    callTool: vi
+      .fn()
+      .mockRejectedValueOnce(cleanupFailure)
+      .mockResolvedValue({
+        content: [{ type: "text", text: JSON.stringify({ result: null }) }],
+      }),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+  const onCleanupComplete = vi.fn(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+  try {
+    const failure = await retirePrototypePublicClient({
+      client,
+      opened: true,
+      workspace,
+      primaryFailure,
+      onCleanupComplete,
+    }).catch((cause: unknown) => cause);
+    expect(failure).toMatchObject({
+      cause: primaryFailure,
+      cleanupFailure,
+      resources: [workspace],
+      cleanupOwner: { stop: expect.any(Function) },
+    });
+    expect(client.close).not.toHaveBeenCalled();
+    expect(onCleanupComplete).not.toHaveBeenCalled();
+    await expect(access(workspace)).resolves.toBeUndefined();
+    const retained = failure as { cleanupOwner: { stop(): Promise<void> } };
+    await retained.cleanupOwner.stop();
+    expect(client.callTool).toHaveBeenCalledTimes(2);
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(onCleanupComplete).toHaveBeenCalledTimes(1);
+    await expect(access(workspace)).rejects.toThrow();
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+it("retries failed transport close without repeating successful provider cleanup", async () => {
+  const client = {
+    callTool: vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ result: null }) }],
+    }),
+    close: vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transport still owned"))
+      .mockResolvedValue(undefined),
+  };
+  const onCleanupComplete = vi.fn().mockResolvedValue(undefined);
+  const failure = await retirePrototypePublicClient({
+    client,
+    opened: true,
+    workspace: "/owned/prototype",
+    onCleanupComplete,
+  }).catch((cause: unknown) => cause);
+  expect(onCleanupComplete).not.toHaveBeenCalled();
+  const retained = failure as { cleanupOwner: { stop(): Promise<void> } };
+  await retained.cleanupOwner.stop();
+  expect(client.callTool).toHaveBeenCalledTimes(1);
+  expect(client.close).toHaveBeenCalledTimes(2);
+  expect(onCleanupComplete).toHaveBeenCalledTimes(1);
+});

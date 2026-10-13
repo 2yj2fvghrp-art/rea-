@@ -6,6 +6,7 @@ import {
 } from "./javascriptSemanticSlots.js";
 
 import type {
+  JavaScriptSemanticBinding,
   JavaScriptSemanticCallable,
   JavaScriptSemanticModuleLink,
   JavaScriptSemanticReturnSite,
@@ -26,7 +27,6 @@ import {
 import { evaluateSemanticExpression } from "./javascriptSemanticValues.js";
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticReturnCoverage } from "./javascriptSemanticCoverage.js";
-import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
 
 interface ReturnExpression {
@@ -36,13 +36,11 @@ interface ReturnExpression {
 
 /** Evaluate direct returns while excluding every nested callable. */
 export const collectSemanticReturns = (
-  program: t.Program,
   state: JavaScriptSemanticAnalysisState,
   parserPartial: boolean,
 ): JavaScriptSemanticCallable[] => {
-  const nodes = callableNodes(program);
   return state.callables.map((callable) => {
-    const node = nodes.get(callable.callableId);
+    const node = state.callableNodesById.get(callable.callableId);
     if (node === undefined)
       return {
         ...callable,
@@ -92,13 +90,18 @@ const semanticReturnSiteId = (
     String(location.end.column),
   ].join(":");
 
-/** Link exports to callables only when lexical resolution is unique and exact. */
+/** Finalize exported bindings only when lexical resolution is unique and exact. */
 export const resolveSemanticModuleCallables = (
   state: JavaScriptSemanticAnalysisState,
   callables: readonly JavaScriptSemanticCallable[],
+  bindings: readonly JavaScriptSemanticBinding[],
 ): JavaScriptSemanticModuleLink[] => {
   const callableIds = new Set(callables.map(({ callableId }) => callableId));
+  const provenanceByBinding = new Map(
+    bindings.map(({ bindingId, provenance }) => [bindingId, provenance]),
+  );
   return state.moduleLinks.map((link) => {
+    if (link.kind === "type-import") return { ...link, callableId: null };
     // Named exports follow their lexical binding, including every assignment.
     // A declaration's ID or a callable's display name cannot prove that link.
     if (link.localName === null)
@@ -110,22 +113,20 @@ export const resolveSemanticModuleCallables = (
       binding === undefined
         ? []
         : callableIdsForBinding(binding, state, callableIds, new Set());
+    const provenance =
+      binding === undefined || link.specifier !== null
+        ? undefined
+        : provenanceByBinding.get(binding.bindingId);
+    const resolutionMode =
+      provenance?.status === "module"
+        ? provenance.origins[0].resolutionMode
+        : undefined;
     return {
       ...link,
+      ...(resolutionMode !== undefined ? { resolutionMode } : {}),
       callableId: resolved.length === 1 ? (resolved[0] ?? null) : null,
     };
   });
-};
-
-const callableNodes = (program: t.Program): Map<string, t.Node> => {
-  const output = new Map<string, t.Node>();
-  traverseJavaScriptAst(program, {
-    enter: (node) => {
-      const id = semanticCallableIdForNode(node);
-      if (id !== null) output.set(id, node);
-    },
-  });
-  return output;
 };
 
 const directReturnExpressions = (callable: t.Node): ReturnExpression[] =>

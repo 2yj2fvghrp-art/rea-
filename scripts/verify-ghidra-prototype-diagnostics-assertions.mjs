@@ -111,6 +111,7 @@ export function assertPrototypeDiagnosticsReport(report) {
   const cleanup = dossier("rea_cleanup_conflict");
   assert.equal(cleanup.parameters.length, 4);
   assert.equal(cleanup.calling_convention, "__stdcall");
+  assert.equal(has(cleanup, "stack-cleanup").classification, "observation");
   assert.match(
     has(cleanup, "stack-cleanup").evidence[0].detail,
     /20 bytes.*16 recovered/u,
@@ -169,6 +170,19 @@ export function assertPrototypeDiagnosticsReport(report) {
       `${name}: clearing EAX must not corroborate use of the returned value`,
     );
   }
+  const cdecl = dossier("rea_cdecl_cleanup_conflict");
+  assert.equal(cdecl.calling_convention, "__cdecl");
+  assert.equal(has(cdecl, "stack-cleanup").classification, "conflict");
+  assert.match(has(cdecl, "stack-cleanup").evidence[0].detail, /4 bytes.*4 recovered/u);
+  for (const name of ["rea_named_undefined_return", "rea_undefined_pointer_return"])
+    assert.equal(has(dossier(name), "return-register-forwarding"), undefined,
+      `${name}: display spelling must not classify a known return type as undefined`);
+  const many = dossier("rea_many_forwarding");
+  const forwarding = many.prototype_diagnostics.filter((item) => item.kind === "return-register-forwarding");
+  assert.equal(forwarding.length, 1, "Forwarding paths must share one function-level diagnostic");
+  assert.ok(forwarding[0].evidence.length <= 256);
+  assert.equal(new Set(forwarding[0].evidence.map(({ address }) => address)).size, forwarding[0].evidence.length);
+  assert.match(many.prototype_check_limitations.join(" "), /256-fact evidence budget/u);
   const shared = dossier("rea_shared_cleanup");
   assert.ok(
     has(shared, "stack-cleanup").evidence.some(
@@ -177,7 +191,7 @@ export function assertPrototypeDiagnosticsReport(report) {
   );
   noConflict("rea_tail_call_control");
   assert.match(
-    has(dossier("rea_stdcall_missing_cleanup"), "stack-cleanup").evidence[0]
+    has(noConflict("rea_stdcall_missing_cleanup"), "stack-cleanup").evidence[0]
       .detail,
     /0 bytes.*4 recovered/u,
   );
@@ -185,8 +199,9 @@ export function assertPrototypeDiagnosticsReport(report) {
     ["rea_fastcall_missing_cleanup", "__fastcall"],
     ["rea_thiscall_missing_cleanup", "__thiscall"],
   ]) {
-    const api = dossier(name);
+    const api = noConflict(name);
     assert.equal(api.calling_convention, convention);
+    assert.equal(has(api, "stack-cleanup").classification, "observation");
     assert.match(
       has(api, "stack-cleanup").evidence[0].detail,
       /0 bytes.*4 recovered/u,

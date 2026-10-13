@@ -17,6 +17,9 @@ import ghidra.program.model.listing.ReturnParameterImpl;
 import ghidra.program.model.data.CharDataType;
 import ghidra.program.model.data.IntegerDataType;
 import ghidra.program.model.data.VoidDataType;
+import ghidra.program.model.data.TypedefDataType;
+import ghidra.program.model.data.PointerDataType;
+import ghidra.program.model.data.Undefined4DataType;
 import ghidra.program.model.listing.FlowOverride;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.address.AddressSet;
@@ -99,11 +102,21 @@ public class ReaPrototypeDiagnosticsProbe extends GhidraScript {
             if (java.util.Set.of("rea_written_slot_control", "rea_unknown_store_control", "rea_conditional_pointer_control", "rea_dynamic_stack_control", "rea_userop_control").contains(function.getName()))
                 function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
-            if (java.util.Set.of("rea_forward_clear_xor", "rea_forward_clear_sub").contains(function.getName()))
+            if (java.util.Set.of("rea_forward_clear_xor", "rea_forward_clear_sub", "rea_many_forwarding").contains(function.getName()))
                 function.updateFunction("__cdecl", new ReturnParameterImpl(VoidDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.ANALYSIS);
             if (function.getName().equals("rea_cleanup_conflict") || function.getName().equals("rea_cleanup_control"))
                 function.setCallingConvention("__stdcall");
+            if (function.getName().equals("rea_named_undefined_return"))
+                function.updateFunction("__cdecl", new ReturnParameterImpl(new TypedefDataType("undefined_status", IntegerDataType.dataType), currentProgram),
+                    Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.USER_DEFINED);
+            if (function.getName().equals("rea_undefined_pointer_return"))
+                function.updateFunction("__cdecl", new ReturnParameterImpl(new PointerDataType(Undefined4DataType.dataType), currentProgram),
+                    Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.USER_DEFINED);
+            if (function.getName().equals("rea_cdecl_cleanup_conflict"))
+                function.updateFunction("__cdecl", new ReturnParameterImpl(IntegerDataType.dataType, currentProgram),
+                    Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.USER_DEFINED,
+                    new ParameterImpl("input", IntegerDataType.dataType, currentProgram));
             if (function.getName().equals("rea_padding_control"))
                 function.updateFunction("__stdcall", new ReturnParameterImpl(IntegerDataType.dataType, currentProgram),
                     Function.FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true, SourceType.USER_DEFINED,
