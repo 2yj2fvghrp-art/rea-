@@ -757,8 +757,16 @@ const resolveExportTarget = (
   const encodedPath = target.url.pathname.slice(
     PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
   );
-  const rejected = rejectDeclaration(encodedPath);
-  if (rejected !== null) return withTargetSource(rejected);
+  // The package URL parser has already normalized dot segments, and export
+  // target selection rejects decoded `.` and `..` segments before expansion.
+  // Encoded separators still change path structure during decoding, so keep
+  // rejecting them while allowing encoded dots inside ordinary filenames.
+  if (/%(?:2f|5c)/iu.test(encodedPath))
+    return withTargetSource(
+      unresolvedCandidate("rejected", [
+        "The selected package URL contains encoded separator bytes.",
+      ]),
+    );
   const decoded = decodeModuleUrlPath(encodedPath);
   if (typeof decoded !== "string") return withTargetSource(decoded);
   const candidate = confineCandidate(decoded);

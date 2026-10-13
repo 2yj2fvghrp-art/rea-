@@ -2495,6 +2495,31 @@ describe("package exports pattern keys", () => {
     });
   });
 
+  it("decodes encoded dots assembled inside a pattern target filename", () => {
+    const files = fileMap([
+      file("app/src/consumer.js", "root"),
+      file(
+        "app/node_modules/fixture/package.json",
+        "root",
+        JSON.stringify({ exports: { "./*": "./dist/foo%*bar.js" } }),
+      ),
+      file("app/node_modules/fixture/dist/foo.bar.js", "root"),
+    ]);
+    for (const moduleKind of ["import", "require"] as const)
+      expect(
+        resolve({
+          declaredPath: "fixture/2e",
+          sourcePath: "app/src/consumer.js",
+          context: "module-specifier",
+          moduleKind,
+          files,
+        }),
+      ).toMatchObject({
+        resolution_status: "resolved",
+        resolved_path: "app/node_modules/fixture/dist/foo.bar.js",
+      });
+  });
+
   it("rewrites extensions through pattern suffixes", () => {
     const files = fileMap([
       file("app/src/consumer.js", "root"),
