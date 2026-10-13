@@ -82,6 +82,29 @@ it("discovers declarations without counting duplicates or compiler bookkeeping",
   });
 });
 
+it("omits unavailable segment observations while retaining overview counts", async () => {
+  const port = overviewPort(ok("fixture"), ["fixture"]);
+  const client = await connect({
+    execute: (name, parameters, options) =>
+      name === "list_segments"
+        ? Promise.resolve(
+            err(
+              new AnalysisCapabilityUnavailableError(
+                "fixture",
+                name,
+                "unsupported",
+              ),
+            ),
+          )
+        : port.execute(name, parameters, options),
+  });
+  expect(
+    jsonResult(
+      await client.callTool({ name: "binary_overview", arguments: {} }),
+    ),
+  ).toEqual({ document: "fixture", procedure_count: 0, string_count: 0 });
+});
+
 describe("enhanced MCP tools", () => {
   it("returns the complete overview inline with exhaustive totals", async () => {
     const client = await connect({
@@ -144,14 +167,26 @@ describe("enhanced MCP tools", () => {
     );
     expect(result).toEqual({
       document: "fixture",
+      image_base: "0x1000",
       segments: [
-        { name: "__TEXT", start: "0x1000", end: "0x1800", length: 2048 },
-        { name: "__DATA", start: "0x1800", end: "0x2000", length: 2048 },
+        {
+          name: "__TEXT",
+          start: "0x1000",
+          end: "0x1800",
+          length: 2048,
+          image_base: "0x1000",
+        },
+        {
+          name: "__DATA",
+          start: "0x1800",
+          end: "0x2000",
+          length: 2048,
+          image_base: "0x1000",
+        },
       ],
       segment_count: 2,
       procedure_count: 2,
       string_count: 700,
-      image_base: "0x1000",
     });
   });
 

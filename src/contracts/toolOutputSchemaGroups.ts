@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   artifactInventorySummaryViewResultSchema,
+  machoSummaryViewResultSchema,
   managedArtifactSummaryViewResultSchema,
 } from "../domain/analysisView/analysisView.js";
 import { evidenceBundleSummarySchema } from "../domain/evidenceRecordSummary.js";
@@ -356,6 +357,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   binary_overview: evidenceResultOf(
     z.object({
       document: z.string(),
+      image_base: z.string().min(1).optional(),
       segments: z
         .array(
           z.object({
@@ -363,13 +365,14 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
             start: z.string(),
             end: z.string(),
             length: z.number().min(0),
+            image_base: z.string().exactOptional(),
+            address_space: z.string().exactOptional(),
           }),
         )
         .optional(),
       segment_count: z.number().int().min(0).optional(),
       procedure_count: z.number().int().min(0),
       string_count: z.number().int().min(0),
-      image_base: z.string().min(1).optional(),
     }),
   ),
   analyze_function: functionDossierOutput,
@@ -383,7 +386,9 @@ export const nativeOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   observe_native_ui: evidenceResultOf(nativeUiResultSchema),
   capture_native_ui_scenario: evidenceResultOf(nativeUiResultSchema),
   observe_native_calls: evidenceResultOf(nativeCallObservationResultSchema),
-  inspect_macho: evidenceResultOf(inspectMachoSchema),
+  inspect_macho: evidenceResultOf(
+    z.union([inspectMachoSchema, machoSummaryViewResultSchema]),
+  ),
   inspect_signature: evidenceResultOf(inspectSignatureSchema),
   inspect_plist: evidenceResultOf(inspectPlistSchema),
   list_architectures: evidenceResultOf(listArchitecturesSchema),
