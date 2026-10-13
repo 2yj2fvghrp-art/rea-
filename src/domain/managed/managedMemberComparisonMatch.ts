@@ -193,11 +193,12 @@ export type ManagedFieldMatches = ReturnType<typeof matchFields>;
 interface MatchRound<Item> {
   readonly basis: ConcreteMatchBasis;
   readonly key: (item: Keyed<Item>) => string | null;
-  /** Name-free evidence whose unresolved ownership can contest this round. */
+  /** Name-free evidence paired with the retained member name for contesting. */
   readonly competitionKey?: (item: Keyed<Item>) => string | null;
   /**
-   * The key omits the declared type and name, so a pair joins different
-   * declared identities; same-identity pairs were taken by earlier rounds.
+   * The key omits the declared type, so a pair may join different declared
+   * identities; same-identity pairs were taken by earlier rounds. Contention
+   * still retains the member name, which unresolved owners keep as evidence.
    * A member whose own identity is still unpaired on the other side does not
    * take part, and a group with a member of an unresolved type stays ambiguous.
    */
@@ -336,8 +337,9 @@ const unresolvedSignatureAmbiguities = <Item extends Declared>(
   left: readonly Keyed<Item>[],
   right: readonly Keyed<Item>[],
 ): Ambiguous<Item>[] => {
-  const key = (member: Keyed<Item>): string => member.rawSignatureKey;
-  const contested = ownerlessContested([left, right], key);
+  const key = (member: Keyed<Item>): string =>
+    competitionIdentityKey(member, member.rawSignatureKey) ?? "";
+  const contested = ownerlessContested([left, right], (member) => key(member));
   const leftGroups = groupBy(left, key);
   const rightGroups = groupBy(right, key);
   const groups: Ambiguous<Item>[] = [];
@@ -355,6 +357,7 @@ const unresolvedSignatureAmbiguities = <Item extends Declared>(
 
 interface Declared {
   readonly declaring_type: string | null;
+  readonly name: string;
 }
 
 const unpairedOf = <Item>(
@@ -363,13 +366,17 @@ const unpairedOf = <Item>(
 ): Keyed<Item>[] => items.filter((item) => !paired.has(item));
 
 /**
- * Round-specific evidence keys an unresolved owner competes for: a key held by an
- * ownerless member on either side that another member on the same side also
- * holds. Such an ownerless member's owner may be that other member, so the
- * whole key group belongs to the remap rounds, which keep it ambiguous, rather
- * than a declared round that would pair the resolved members and leave the
- * ownerless one over. A lone ownerless member still pairs by declared identity.
+ * Round-specific evidence keys an unresolved owner competes for, paired with
+ * its retained member name. Another same-name member on the same side can be
+ * the unresolved row's owner; a different name cannot. Contested candidates
+ * stay in remap rounds rather than pairing by declared identity.
  */
+const competitionIdentityKey = <Item extends Declared>(
+  member: Keyed<Item>,
+  evidenceKey: string | null,
+): string | null =>
+  evidenceKey === null ? null : JSON.stringify([member.item.name, evidenceKey]);
+
 const ownerlessContested = <Item extends Declared>(
   sides: readonly (readonly Keyed<Item>[])[],
   keyOf: (item: Keyed<Item>) => string | null,
@@ -379,7 +386,7 @@ const ownerlessContested = <Item extends Declared>(
     const seen = new Map<string, number>();
     const ownerless = new Set<string>();
     for (const member of side) {
-      const key = keyOf(member);
+      const key = competitionIdentityKey(member, keyOf(member));
       if (key === null) continue;
       seen.set(key, (seen.get(key) ?? 0) + 1);
       if (member.item.declaring_type === null) ownerless.add(key);
@@ -408,7 +415,8 @@ const remappable = <Item extends Declared>(
   return items.filter((member) => {
     const key = keyOf(member);
     return (
-      (key !== null && contested.has(key)) ||
+      (key !== null &&
+        contested.has(competitionIdentityKey(member, key) ?? "")) ||
       member.item.declaring_type === null ||
       !kept.has(member.identity)
     );
@@ -441,7 +449,8 @@ const ownerlessDeclarable = <Item extends Declared>(
   const contested = ownerlessContested([left, right], keyOf);
   return (member) => {
     const key = keyOf(member);
-    return key !== null && contested.has(key)
+    return key !== null &&
+      contested.has(competitionIdentityKey(member, key) ?? "")
       ? false
       : member.item.declaring_type !== null ||
           key === null ||
