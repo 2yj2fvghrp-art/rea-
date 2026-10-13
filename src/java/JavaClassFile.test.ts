@@ -32,6 +32,33 @@ describe("parseJavaClassFile", () => {
     },
   );
 
+  it("does not charge ignored custom attribute names to retained report text", () => {
+    const bytes = buildClassFile({
+      name: "p/Small",
+      customAttributes: { name: "x".repeat(16_000), count: 2000 },
+    });
+    expect(bytes.length).toBeLessThan(32_000);
+    expect(parseJavaClassFile(bytes)).toMatchObject({
+      name: "p/Small",
+      string_constants: [],
+      annotations: [],
+    });
+  });
+
+  it("bounds annotation object and array expansion independently of text", () => {
+    const bytes = buildClassFile({
+      name: "p/Arrays",
+      emptyAnnotationArrays: 55_000,
+    });
+    expect(bytes.length).toBeLessThan(200_000);
+    expect(() => parseJavaClassFile(bytes)).toThrow(
+      expect.objectContaining({
+        boundary: "annotation_nodes",
+        maximum: 100_000,
+      }),
+    );
+  });
+
   it("bounds repeated string expansion before report serialization", () => {
     const bytes = buildClassFile({
       name: "p/Expansion",
@@ -148,6 +175,26 @@ describe("parseJavaClassFile", () => {
       "a universal Mach-O header sharing the magic",
       (bytes: Buffer) => Buffer.from([...bytes.subarray(0, 4), 0, 0, 0, 2]),
       /predates JVMS 45/u,
+    ],
+    [
+      "an overlong two-byte ASCII encoding",
+      (bytes: Buffer) => {
+        const at = bytes.indexOf(Buffer.from("XXXX"));
+        const changed = Buffer.from(bytes);
+        changed.set([0xc0, 0x81], at);
+        return changed;
+      },
+      /overlong modified UTF-8/u,
+    ],
+    [
+      "an overlong three-byte encoding",
+      (bytes: Buffer) => {
+        const at = bytes.indexOf(Buffer.from("XXXX"));
+        const changed = Buffer.from(bytes);
+        changed.set([0xe0, 0x80, 0x81], at);
+        return changed;
+      },
+      /overlong modified UTF-8/u,
     ],
     [
       "a standard 4-byte UTF-8 sequence",

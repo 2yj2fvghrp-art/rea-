@@ -595,3 +595,58 @@ cliTest(
     );
   },
 );
+
+cliTest(
+  "does not substitute a versioned occurrence for an absent exact path",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-exact-missing-");
+    const path = join(root, "versioned.jar");
+    await writeFile(
+      path,
+      await buildJar([
+        ["META-INF/versions/17/p/A.class", buildClassFile({ name: "p/A" })],
+      ]),
+    );
+    const exact = await cli.run({
+      arguments: ["inspect-java-class", path, "p/A.class", "--json"],
+    });
+    expect(exact.exitCode).toBe(1);
+    const binary = await cli.run({
+      arguments: ["inspect-java-class", path, "p.A", "--json"],
+    });
+    expect(binary.exitCode, binary.stderr).toBe(0);
+    expect(
+      toolContract("inspect_java_class").outputSchema.parse(binary.json)
+        .normalized_result.entry,
+    ).toBe("META-INF/versions/17/p/A.class");
+  },
+);
+
+cliTest(
+  "bounds non-class path lists with explicit omitted coverage",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-path-lists-");
+    const path = join(root, "resources.jar");
+    await writeFile(
+      path,
+      await buildJar(
+        Array.from(
+          { length: 105 },
+          (_, index) => [`lib${index}.jar`, "resource"] as const,
+        ),
+      ),
+    );
+    const result = await cli.run({
+      arguments: ["inspect-java-archive", path, "--limit", "1", "--json"],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const report = toolContract("inspect_java_archive").outputSchema.parse(
+      result.json,
+    ).normalized_result;
+    expect(report.entries.nested_archives).toHaveLength(100);
+    expect(report.entries.resources).toBe(105);
+    expect(report.limitations).toContainEqual(
+      expect.stringContaining("5 nested_archives paths omitted"),
+    );
+  },
+);

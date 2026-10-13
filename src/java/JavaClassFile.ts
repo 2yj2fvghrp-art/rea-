@@ -10,13 +10,17 @@ export class JavaClassFormatFailure extends Error {
   override readonly name = "JavaClassFormatFailure";
 }
 
-/** Expanded text is charged on every pool use before it enters a report. */
+const CLASS_REPORT_TEXT_BYTES = 16 * 1024 * 1024;
+const ANNOTATION_NODES = 100_000;
+
+/** Parsed facts exceeded a bounded representation budget before serialization. */
 export class JavaClassResourceFailure extends Error {
   override readonly name = "JavaClassResourceFailure";
-  readonly boundary = "class_report_text_bytes";
-  readonly maximum = 16 * 1024 * 1024;
-  constructor() {
-    super("Expanded class-report text exceeds the 16 MiB JSON text budget.");
+  constructor(
+    readonly boundary = "class_report_text_bytes",
+    readonly maximum = CLASS_REPORT_TEXT_BYTES,
+  ) {
+    super(`Class report exceeds ${boundary} budget ${String(maximum)}.`);
   }
 }
 
@@ -142,7 +146,12 @@ const decodeModifiedUtf8 = (bytes: Uint8Array): string => {
       second !== undefined &&
       (second & 0xc0) === 0x80
     ) {
-      units.push(((first & 0x1f) << 6) | (second & 0x3f));
+      const unit = ((first & 0x1f) << 6) | (second & 0x3f);
+      if (unit < 0x80 && !(first === 0xc0 && second === 0x80))
+        throw new JavaClassFormatFailure(
+          "Constant-pool text has overlong modified UTF-8.",
+        );
+      units.push(unit);
       index += 2;
       continue;
     }
@@ -154,9 +163,13 @@ const decodeModifiedUtf8 = (bytes: Uint8Array): string => {
       (second & 0xc0) === 0x80 &&
       (third & 0xc0) === 0x80
     ) {
-      units.push(
-        ((first & 0x0f) << 12) | ((second & 0x3f) << 6) | (third & 0x3f),
-      );
+      const unit =
+        ((first & 0x0f) << 12) | ((second & 0x3f) << 6) | (third & 0x3f);
+      if (unit < 0x800)
+        throw new JavaClassFormatFailure(
+          "Constant-pool text has overlong modified UTF-8.",
+        );
+      units.push(unit);
       index += 3;
       continue;
     }
@@ -240,6 +253,7 @@ const readPool = (cursor: ByteCursor): (PoolEntry | undefined)[] => {
 
 class ConstantPool {
   #reportTextBytes = 0;
+  #annotationNodes = 0;
   readonly #textCosts = new Map<number, number>();
   constructor(readonly entries: readonly (PoolEntry | undefined)[]) {}
 
@@ -258,17 +272,29 @@ class ConstantPool {
       throw new JavaClassFormatFailure(
         `${what} entry ${String(index)} is not UTF-8 text.`,
       );
+    return entry.text;
+  }
+
+  /** Charge only text actually retained by the report, not parser lookups. */
+  reportUtf8(index: number, what: string): string {
+    const text = this.utf8(index, what);
     let cost = this.#textCosts.get(index);
     if (cost === undefined) {
       // JSON escaping can expand one code unit sixfold. Cache the exact encoded
       // cost for each UTF-8 pool entry, but charge every reference independently.
-      cost = Buffer.byteLength(JSON.stringify(entry.text), "utf8");
+      cost = Buffer.byteLength(JSON.stringify(text), "utf8");
       this.#textCosts.set(index, cost);
     }
     this.#reportTextBytes += cost;
-    if (this.#reportTextBytes > 16 * 1024 * 1024)
+    if (this.#reportTextBytes > CLASS_REPORT_TEXT_BYTES)
       throw new JavaClassResourceFailure();
-    return entry.text;
+    return text;
+  }
+
+  reserveAnnotationNodes(count = 1): void {
+    if (count > ANNOTATION_NODES - this.#annotationNodes)
+      throw new JavaClassResourceFailure("annotation_nodes", ANNOTATION_NODES);
+    this.#annotationNodes += count;
   }
 
   className(index: number, what: string): string {
@@ -277,7 +303,7 @@ class ConstantPool {
       throw new JavaClassFormatFailure(
         `${what} entry ${String(index)} is not a class reference.`,
       );
-    return this.utf8(entry.index, what);
+    return this.reportUtf8(entry.index, what);
   }
 
   constantValue(index: number): string | number {
@@ -289,7 +315,7 @@ class ConstantPool {
       case 6:
         return entry.value;
       case 8:
-        return this.utf8(entry.index, "ConstantValue string");
+        return this.reportUtf8(entry.index, "ConstantValue string");
       default:
         throw new JavaClassFormatFailure(
           `ConstantValue entry ${String(index)} is not a literal.`,
@@ -305,6 +331,7 @@ const readAnnotationValue = (
 ): JavaAnnotationValue => {
   if (depth > ANNOTATION_DEPTH)
     throw new JavaClassFormatFailure("Annotation values nest too deeply.");
+  pool.reserveAnnotationNodes();
   const tag = String.fromCharCode(cursor.u1());
   switch (tag) {
     case "B":
@@ -322,18 +349,18 @@ const readAnnotationValue = (
       return {
         kind: "constant",
         descriptor: "s",
-        value: pool.utf8(cursor.u2(), "Annotation string"),
+        value: pool.reportUtf8(cursor.u2(), "Annotation string"),
       };
     case "e":
       return {
         kind: "enum",
-        type: pool.utf8(cursor.u2(), "Annotation enum type"),
-        name: pool.utf8(cursor.u2(), "Annotation enum constant"),
+        type: pool.reportUtf8(cursor.u2(), "Annotation enum type"),
+        name: pool.reportUtf8(cursor.u2(), "Annotation enum constant"),
       };
     case "c":
       return {
         kind: "class",
-        descriptor: pool.utf8(cursor.u2(), "Annotation class"),
+        descriptor: pool.reportUtf8(cursor.u2(), "Annotation class"),
       };
     case "@":
       return {
@@ -341,6 +368,7 @@ const readAnnotationValue = (
         annotation: readAnnotation(cursor, pool, depth + 1),
       };
     case "[": {
+      pool.reserveAnnotationNodes();
       const count = cursor.u2();
       const values: JavaAnnotationValue[] = [];
       for (let index = 0; index < count; index += 1)
@@ -360,14 +388,17 @@ const readAnnotation = (
   depth: number,
   visibility: JavaAnnotation["visibility"] = null,
 ): JavaAnnotation => {
-  const type = pool.utf8(cursor.u2(), "Annotation type");
+  pool.reserveAnnotationNodes(2);
+  const type = pool.reportUtf8(cursor.u2(), "Annotation type");
   const count = cursor.u2();
   const elements: JavaAnnotation["elements"] = [];
-  for (let index = 0; index < count; index += 1)
+  for (let index = 0; index < count; index += 1) {
+    pool.reserveAnnotationNodes();
     elements.push({
-      name: pool.utf8(cursor.u2(), "Annotation element name"),
+      name: pool.reportUtf8(cursor.u2(), "Annotation element name"),
       value: readAnnotationValue(cursor, pool, depth),
     });
+  }
   return { type, visibility, elements };
 };
 
@@ -413,10 +444,10 @@ const readAttributes = (
         break;
       }
       case "SourceFile":
-        parsed.sourceFile = pool.utf8(body.u2(), "SourceFile");
+        parsed.sourceFile = pool.reportUtf8(body.u2(), "SourceFile");
         break;
       case "Signature":
-        parsed.signature = pool.utf8(body.u2(), "Signature");
+        parsed.signature = pool.reportUtf8(body.u2(), "Signature");
         break;
       case "ConstantValue":
         parsed.constantValue = pool.constantValue(body.u2());
@@ -471,8 +502,8 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
   const fields: JavaClass["fields"] = [];
   for (let count = cursor.u2(), index = 0; index < count; index += 1) {
     const fieldAccess = cursor.u2();
-    const fieldName = pool.utf8(cursor.u2(), "Field name");
-    const descriptor = pool.utf8(cursor.u2(), "Field descriptor");
+    const fieldName = pool.reportUtf8(cursor.u2(), "Field name");
+    const descriptor = pool.reportUtf8(cursor.u2(), "Field descriptor");
     const attributes = readAttributes(cursor, pool, "Field");
     fields.push({
       name: fieldName,
@@ -486,8 +517,8 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
   const methods: JavaClass["methods"] = [];
   for (let count = cursor.u2(), index = 0; index < count; index += 1) {
     const methodAccess = cursor.u2();
-    const methodName = pool.utf8(cursor.u2(), "Method name");
-    const descriptor = pool.utf8(cursor.u2(), "Method descriptor");
+    const methodName = pool.reportUtf8(cursor.u2(), "Method name");
+    const descriptor = pool.reportUtf8(cursor.u2(), "Method descriptor");
     const attributes = readAttributes(cursor, pool, "Method");
     methods.push({
       name: methodName,
@@ -506,10 +537,13 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
   const strings: string[] = [];
   const referenced = new Set<string>();
   for (const entry of pool.entries) {
-    if (entry?.tag === 8) strings.push(pool.utf8(entry.index, "String"));
+    if (entry?.tag === 8) strings.push(pool.reportUtf8(entry.index, "String"));
     if (entry?.tag === 7) {
       const referencedName = pool.utf8(entry.index, "Class");
-      if (referencedName !== name) referenced.add(referencedName);
+      if (referencedName !== name && !referenced.has(referencedName)) {
+        pool.reportUtf8(entry.index, "Class");
+        referenced.add(referencedName);
+      }
     }
   }
   return {

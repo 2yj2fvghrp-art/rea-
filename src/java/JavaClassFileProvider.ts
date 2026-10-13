@@ -221,6 +221,36 @@ export class JavaClassFileProvider implements Pick<
       let manifest: JavaArchive["manifest"] = null;
       const metadata: JavaArchive["metadata_files"] = [];
       let omittedMetadata = 0;
+      const pathLists = [
+        "native_libraries",
+        "nested_archives",
+        "signature_files",
+      ] as const;
+      const retainedPathBytes = {
+        native_libraries: 0,
+        nested_archives: 0,
+        signature_files: 0,
+      };
+      const omittedPaths = {
+        native_libraries: 0,
+        nested_archives: 0,
+        signature_files: 0,
+      };
+      const retainPath = (
+        kind: (typeof pathLists)[number],
+        path: string,
+      ): void => {
+        const bytes = Buffer.byteLength(JSON.stringify(path), "utf8");
+        if (
+          counts[kind].length >= 100 ||
+          bytes > 64 * 1024 - retainedPathBytes[kind]
+        ) {
+          omittedPaths[kind] += 1;
+          return;
+        }
+        retainedPathBytes[kind] += bytes;
+        counts[kind].push(path);
+      };
       const classes: ArchiveClassFacts[] = [];
       const malformed: JavaArchive["malformed_classes"] = [];
       for (const entry of entries) {
@@ -253,11 +283,11 @@ export class JavaClassFileProvider implements Pick<
         }
         counts.resources += 1;
         if (NATIVE_LIBRARY.test(entry.path))
-          counts.native_libraries.push(entry.path);
+          retainPath("native_libraries", entry.path);
         if (NESTED_ARCHIVE.test(entry.path))
-          counts.nested_archives.push(entry.path);
+          retainPath("nested_archives", entry.path);
         if (SIGNATURE_FILE.test(entry.path))
-          counts.signature_files.push(entry.path);
+          retainPath("signature_files", entry.path);
         if (entry.kind !== "file" || entry.encrypted) continue;
         if (entry.path.toUpperCase() === "META-INF/MANIFEST.MF")
           manifest = parseManifestMainSection(
@@ -291,6 +321,11 @@ export class JavaClassFileProvider implements Pick<
         entries: counts,
         malformed_classes: malformed,
       });
+      for (const kind of pathLists)
+        if (omittedPaths[kind] > 0)
+          report.limitations.push(
+            `${String(omittedPaths[kind])} ${kind} paths omitted after the 100-path/64 KiB JSON text budget; entries.${kind} is incomplete.`,
+          );
       if (omittedMetadata > 0)
         report.limitations.push(
           `${String(omittedMetadata)} recognized metadata descriptors were omitted after the ${String(JAVA_ARCHIVE_LIMITS.metadataFiles)}-file resource limit; metadata_files is incomplete.`,
@@ -460,7 +495,10 @@ export const selectJavaClass = async (
       : className.endsWith(".class")
         ? entries.filter((entry) => entry.path === className)
         : [];
-    if (className.startsWith("zip-entry:") && exact.length === 0)
+    if (
+      (className.startsWith("zip-entry:") || className.endsWith(".class")) &&
+      exact.length === 0
+    )
       throw missingJavaClass(operation, className);
     if (exact.length > 1)
       throw new AnalysisInputError(operation, undefined, [

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { ExecutionOptions } from "../application/AnalysisProvider.js";
 import type { JavaArchivePort } from "../application/java/JavaArchivePort.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { readStableArtifact } from "../artifacts/readStableArtifact.js";
 import type {
   AnalysisCapturedOutput,
@@ -452,6 +453,14 @@ const readSource = async (
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes.bytes);
   } catch (cause: unknown) {
     if (signal?.aborted === true) throw cause;
+    if (cause instanceof ArtifactReaderFailure && cause.reason === "limit")
+      throw new AnalysisResourceConstraintError(
+        OPERATION,
+        "file-size",
+        `Vineflower source exceeds the ${String(VINEFLOWER_LIMITS.sourceBytes)}-byte read limit.`,
+        { maximum_source_bytes: VINEFLOWER_LIMITS.sourceBytes },
+        { cause },
+      );
     throw new AnalysisOutputError(
       OPERATION,
       `Vineflower produced no readable source for ${className}.`,

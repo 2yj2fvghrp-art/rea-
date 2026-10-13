@@ -113,6 +113,8 @@ export interface ClassFixture {
     readonly declaredCodeBytes?: number;
   }[];
   readonly strings?: readonly string[];
+  readonly customAttributes?: { readonly name: string; readonly count: number };
+  readonly emptyAnnotationArrays?: number;
 }
 
 /** Build a structurally valid class file; method bodies are `return` padding only. */
@@ -206,6 +208,32 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
     }
     classAttributes.push([
       ...u2(pool.utf8(attribute)),
+      ...u4(body.length),
+      ...body,
+    ]);
+  }
+  if (fixture.customAttributes !== undefined)
+    for (let index = 0; index < fixture.customAttributes.count; index += 1)
+      classAttributes.push([
+        ...u2(pool.utf8(fixture.customAttributes.name)),
+        ...u4(0),
+      ]);
+  if (fixture.emptyAnnotationArrays !== undefined) {
+    const body = [
+      ...u2(1),
+      ...u2(pool.utf8("Lp/Arrays;")),
+      ...u2(1),
+      ...u2(pool.utf8("value")),
+      "[".charCodeAt(0),
+      ...u2(fixture.emptyAnnotationArrays),
+      ...Array.from({ length: fixture.emptyAnnotationArrays }, () => [
+        "[".charCodeAt(0),
+        0,
+        0,
+      ]).flat(),
+    ];
+    classAttributes.push([
+      ...u2(pool.utf8("RuntimeVisibleAnnotations")),
       ...u4(body.length),
       ...body,
     ]);

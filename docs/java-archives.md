@@ -148,6 +148,10 @@ than once, supply the exact `.class` entry returned by `inspect_java_archive`.
 If that path itself is duplicated, use the row's unique `entry_id` (`zip-entry:N`)
 as `class_name`; that identity is scoped to the selected archive digest.
 REA does not silently choose a base, versioned, or duplicate occurrence.
+Class-report text is charged only when retained, excluding ignored custom attribute names.
+Annotation object/array allocation is bounded to 100,000 nodes. Native-library,
+nested-archive and signature path lists each retain at most 100 paths and 64 KiB
+of JSON path text, with exact omitted-count limitations.
 Class-report text expansion is bounded before Evidence serialization; exceeding
 the 16 MiB JSON text budget is a typed resource failure with no partial success.
 Runtime annotation visibility is retained; nested annotation values have no
