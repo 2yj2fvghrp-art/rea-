@@ -27,6 +27,8 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   inspect_macho: "runs host Mach-O inspection tools, not the target",
   inspect_evm_interface:
     "decodes bytecode in REA's bundled worker without executing it",
+  compare_wasm_interfaces:
+    "compares retained inspection Evidence without executing modules",
   inspect_wasm_artifact:
     "WABT validates and decompiles the module without executing it",
   identify_flutter_build:
@@ -44,6 +46,8 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   search_android_classes: "states it does not execute the APK",
   inspect_apktool_client:
     "inspects the operator-selected apktool launcher; never installs it",
+  inspect_pcap_client:
+    "probes the operator-selected tshark and capinfos; never installs them",
   inspect_jeb_client: "talks to a caller-started JEB; never launches it",
   open_jeb_project: "the engine analyzes the file; REA does not execute it",
   inspect_adb_client:

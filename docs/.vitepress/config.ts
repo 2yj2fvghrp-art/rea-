@@ -6,6 +6,7 @@ export default defineConfig({
     "Reverse engineer binaries, applications, and runtime behavior with one CLI and MCP server.",
   lang: "en-US",
   base: "/rea/",
+  srcExclude: ["readme/**"],
   themeConfig: {
     nav: [
       { text: "Get started", link: "/installation" },
@@ -37,6 +38,10 @@ export default defineConfig({
             link: "/javascript-application-workflows",
           },
           { text: "Browser observation", link: "/browser-observation" },
+          {
+            text: "Web network captures",
+            link: "/web-network-captures",
+          },
           { text: "Electron observation", link: "/electron-observation" },
           { text: "Process capture", link: "/process-capture" },
           { text: ".NET assemblies", link: "/managed-code-analysis" },

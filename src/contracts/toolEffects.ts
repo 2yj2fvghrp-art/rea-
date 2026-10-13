@@ -59,7 +59,17 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     writesFilesystem: true,
     launchesProcess: true,
   }),
+  inspect_packet_fields: effects({
+    mutatesSession: true,
+    launchesProcess: true,
+    writesFilesystem: true,
+  }),
   inspect_packet_capture: effects({
+    mutatesSession: true,
+    launchesProcess: true,
+    writesFilesystem: true,
+  }),
+  inspect_signal_decoders: effects({
     mutatesSession: true,
     launchesProcess: true,
     writesFilesystem: true,
@@ -178,6 +188,16 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     idempotent: false,
   }),
   inspect_android_package: effects({
+    mutatesSession: true,
+    launchesProcess: true,
+    writesFilesystem: true,
+  }),
+  inspect_pcap_client: effects({
+    mutatesSession: true,
+    launchesProcess: true,
+    writesFilesystem: true,
+  }),
+  inspect_pcap_capture: effects({
     mutatesSession: true,
     launchesProcess: true,
     writesFilesystem: true,
@@ -418,6 +438,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   inspect_native_data_type: evidence,
   resolve_native_call_targets: evidence,
   read_bytes: evidence,
+  search_bytes: evidence,
   address_to_file_offset: evidence,
   procedure_references: evidence,
   procedure_pseudo_code: evidence,
@@ -602,6 +623,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   }),
   compare_process_captures: sessionEvidence,
   compare_artifacts: sessionEvidence,
+  compare_wasm_interfaces: sessionEvidence,
   compare_functions: sessionEvidence,
   compare_bundles: effects({ mutatesSession: true }),
   find_changed_behavior: sessionEvidence,
