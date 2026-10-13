@@ -198,10 +198,25 @@ conditionalAlias.handle("conditional-alias:ping", () => "local");
 });
 
 it("classifies Electron calls through internal TypeScript import aliases", () => {
-  const source = 'import electron = require("electron"); import ipc = electron.ipcMain; ipc.handle("ping", () => "pong");';
+  const source =
+    'import electron = require("electron"); import ipc = electron.ipcMain; ipc.handle("ping", () => "pong");';
   const parsed = parseJavaScriptSource(source, "aliases.ts");
   if (parsed === null) throw new Error("Expected parsed TypeScript source");
   expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
+    source.indexOf('ipc.handle("ping"'),
+    ["ipcMain"],
+  ]);
+});
+
+it("shares exported namespace bindings while preserving block-local names", () => {
+  const source = `import electron = require("electron");
+namespace A { export const ipc = electron.ipcMain; const privateName = 1; }
+namespace A { ipc.handle("ping", () => "pong"); void privateName; }`;
+  const parsed = parseJavaScriptSource(source, "merged-namespaces.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const ir = analyzeParsedJavaScriptSemantics(parsed);
+  expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
     source.indexOf('ipc.handle("ping"'), ["ipcMain"],
   ]);
+  expect(ir.references.find(({ name }) => name === "privateName")?.resolution).toBe("unbound");
 });

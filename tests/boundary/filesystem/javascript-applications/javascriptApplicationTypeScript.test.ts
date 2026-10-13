@@ -178,15 +178,33 @@ it("keeps import-equals dependencies for values and none for erased declarations
   );
   expect(valueLinks).toHaveLength(4);
   for (const path of ["main.cts", "esm.mts"]) {
-    const edges = valueLinks.filter(({ evidence: { location } }) => location.available && location.value.kind === "source-range" && location.value.source === path);
+    const edges = valueLinks.filter(
+      ({ evidence: { location } }) =>
+        location.available &&
+        location.value.kind === "source-range" &&
+        location.value.source === path,
+    );
     expect(edges).toHaveLength(2);
-    expect(edges.filter(({ properties }) => properties.kind === "require")).toHaveLength(1);
-    expect(edges.filter(({ properties }) => properties.module_link_kind === "require")).toHaveLength(1);
+    expect(
+      edges.filter(({ properties }) => properties.kind === "require"),
+    ).toHaveLength(1);
+    expect(
+      edges.filter(
+        ({ properties }) => properties.module_link_kind === "require",
+      ),
+    ).toHaveLength(1);
     for (const edge of edges)
-      expect(edge.evidence).toMatchObject({ location: {
-        available: true,
-        value: { kind: "source-range", source: path, start: { line: 1, column: 0 }, end: { line: 1, column: 36 } },
-      } });
+      expect(edge.evidence).toMatchObject({
+        location: {
+          available: true,
+          value: {
+            kind: "source-range",
+            source: path,
+            start: { line: 1, column: 0 },
+            end: { line: 1, column: 36 },
+          },
+        },
+      });
   }
 
   for (const edge of valueLinks)

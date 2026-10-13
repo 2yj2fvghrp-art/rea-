@@ -914,7 +914,11 @@ const provenanceForExpression = (
         )
       : provenanceForBinding(binding, nestedContext(context));
   }
-  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node) || t.isTSQualifiedName(node)) {
+  if (
+    t.isMemberExpression(node) ||
+    t.isOptionalMemberExpression(node) ||
+    t.isTSQualifiedName(node)
+  ) {
     const members: string[] = [];
     let current: t.Node = node;
     while (

@@ -219,6 +219,7 @@ export const immutableSemanticScopes = (
   state.scopes.map((scope) => ({
     scopeId: scope.scopeId,
     parentScopeId: scope.parentScopeId,
+    ...(scope.namespaceExportScopeId === undefined ? {} : { namespaceExportScopeId: scope.namespaceExportScopeId }),
     kind: scope.kind,
     location: scope.location,
     bindingsComplete: scope.bindingsComplete,
