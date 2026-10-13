@@ -2,6 +2,48 @@ import { expect, it } from "vitest";
 
 import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
 
+it.each([
+  ["fs.readFileSync = custom;", "other.readFileSync('wrong');"],
+  ["other.readFileSync = custom;", "fs.readFileSync('wrong');"],
+  ["patch(fs);", "other.readFileSync('wrong');"],
+])(
+  "shares require-mode import-equals effects in both directions: %s",
+  (write, call) => {
+    const ir = analyzeJavaScriptSemantics(`import fs = require('node:fs');
+    const other = require('fs'); other.readFileSync('before'); ${write} ${call}`);
+    expect(ir.configurationOperations.map(({ key }) => key)).toEqual([
+      "before",
+    ]);
+  },
+);
+
+it.each([
+  "import {readFileSync as read} from 'node:fs';",
+  "const {readFileSync:read}=require('node:fs');",
+  "const fs=require('fs'); const read=fs.readFileSync;",
+])(
+  "retains captured native function calls after argument escape: %s",
+  (capture) => {
+    const ir = analyzeJavaScriptSemantics(
+      `${capture} observe(read); read('kept');`,
+    );
+    expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+  },
+);
+
+it("distinguishes escaping a method value from escaping its namespace", () => {
+  const ir = analyzeJavaScriptSemantics(`const fs=require('fs');
+    observe(fs.readFileSync); fs.readFileSync('kept');
+    observe(fs); fs.readFileSync('wrong');`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
+it("still invalidates escaped process configuration containers", () => {
+  const ir = analyzeJavaScriptSemantics(`const proc=require('process');
+    observe(proc.env); const mode=proc.env.MODE;`);
+  expect(ir.configurationOperations).toEqual([]);
+});
+
 it("retains direct require effects without poisoning later cached receivers", () => {
   const ir = analyzeJavaScriptSemantics(`
     require('node:fs').readFileSync('first');

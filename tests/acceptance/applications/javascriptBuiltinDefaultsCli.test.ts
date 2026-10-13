@@ -52,6 +52,12 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
      const fs = require('node:fs'); fs.readFileSync('wrong-loader.json');
      require('node:fs').readFileSync('wrong-direct-loader.json');`,
   );
+  await writeFile(
+    join(root, "imports.ts"),
+    `import fs = require('node:fs'); const other = require('fs');
+     const read = other.readFileSync; observe(read); read('escaped.json');
+     fs.readFileSync = custom; other.readFileSync('wrong-import-equals.json');`,
+  );
   const { stdout } = await execute(
     process.execPath,
     ["scripts/rea.mjs", "analyze-javascript-application", root, "--json"],
@@ -70,6 +76,7 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
     "before-write.json",
     "before.json",
     "direct.json",
+    "escaped.json",
     "later.json",
     "saved-destructured.json",
     "saved.json",

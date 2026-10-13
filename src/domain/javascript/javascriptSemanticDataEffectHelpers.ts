@@ -168,13 +168,21 @@ export const builtinDataEffectMethod = (
         undefined,
         state,
         specifiers,
+        true,
       )
       ? (origin.importedPath[0] ?? null)
       : null;
   }
   if (t.isIdentifier(callee)) {
     const binding = resolveSemanticBindingState(state, callee, callee.name);
-    const path = builtinBindingPath(binding, state, specifiers, callee);
+    const path = builtinBindingPath(
+      binding,
+      state,
+      specifiers,
+      callee,
+      [],
+      true,
+    );
     return path?.length === 1 ? (path[0] ?? null) : null;
   }
   if (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee))
@@ -187,8 +195,8 @@ export const builtinDataEffectMethod = (
   );
   const method = semanticStaticPropertyName(callee.property, callee.computed);
   return method !== null &&
-    builtinBindingPath(binding, state, specifiers, callee, [method])?.length ===
-      0
+    builtinBindingPath(binding, state, specifiers, callee, [method], true)
+      ?.length === 0
     ? method
     : null;
 };
@@ -199,6 +207,7 @@ const builtinBindingPath = (
   specifiers: readonly string[],
   capture: t.Node,
   selectedPath: readonly string[] = [],
+  callableValue = false,
   visited: ReadonlySet<string> = new Set(),
 ): readonly string[] | null => {
   if (binding === undefined || visited.has(binding.bindingId)) return null;
@@ -217,6 +226,9 @@ const builtinBindingPath = (
     binding.escapedPaths.some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
+        // A function-value escape cannot replace its native [[Call]]. An
+        // escaped containing object can still replace the selected method.
+        (!callableValue || path.length < selectedPath.length) &&
         !semanticTopLevelEffectFollowsCapture(
           capture,
           node,
@@ -237,6 +249,21 @@ const builtinBindingPath = (
   )
     return null;
   let resolvedPath: readonly string[] = importedPath;
+  for (const origin of binding.directOrigins)
+    if (
+      origin.resolutionMode === "require" &&
+      origin.importedPath.length === 0 &&
+      requiredModuleChanged(
+        origin.specifier,
+        selectedPath,
+        capture,
+        binding,
+        state,
+        specifiers,
+        callableValue,
+      )
+    )
+      return null;
   const ancestors = new Set([...visited, binding.bindingId]);
   for (const initializer of binding.initializers) {
     const pending = [
@@ -257,6 +284,7 @@ const builtinBindingPath = (
           specifiers,
           current.capture,
           current.path,
+          callableValue,
           ancestors,
         );
         if (sourcePath === null) return null;
@@ -297,6 +325,7 @@ const builtinBindingPath = (
             binding,
             state,
             specifiers,
+            callableValue,
           )
         )
           return null;
@@ -349,6 +378,7 @@ const requiredModuleChanged = (
   binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
   specifiers: readonly string[],
+  callableValue = false,
 ): boolean => {
   const identity = semanticRequireExportsIdentity(specifier, selected);
   return (state.requiredModuleEffects.get(identity.specifier) ?? []).some(
@@ -360,7 +390,8 @@ const requiredModuleChanged = (
         state.parentsByNode,
       ) &&
       (kind === "write" ||
-        !originalBuiltinReceiver(node, binding, state, specifiers)),
+        ((!callableValue || path.length < identity.path.length) &&
+          !originalBuiltinReceiver(node, binding, state, specifiers))),
   );
 };
 

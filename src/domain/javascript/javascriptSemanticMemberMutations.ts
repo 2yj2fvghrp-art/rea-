@@ -53,6 +53,27 @@ export function* collectSemanticMemberMutationsSteps(
   const observablePaths = observableMutationPaths(state);
   const returnedReferences = createSemanticReturnedReferences(state);
   const recordedEffects = new Set<string>();
+  const recordRequiredEffect = (
+    specifier: string,
+    path: PropertyPath,
+    effect: ValueEffect,
+    node: t.Node | undefined,
+  ): void => {
+    const identity = semanticRequireExportsIdentity(specifier, path);
+    const key = JSON.stringify([
+      "required",
+      identity.specifier,
+      effect,
+      identity.path,
+      node?.start,
+      node?.end,
+    ]);
+    if (recordedEffects.has(key)) return;
+    recordedEffects.add(key);
+    const effects = state.requiredModuleEffects.get(identity.specifier) ?? [];
+    effects.push({ path: identity.path, node, kind: effect });
+    state.requiredModuleEffects.set(identity.specifier, effects);
+  };
   const selections = new Map<string, readonly string[]>();
   const coveringPaths = new Map<string, SemanticPropertyPathCoverage>();
   let arrayIterationUnknown = false;
@@ -115,23 +136,12 @@ export function* collectSemanticMemberMutationsSteps(
         // Literal built-in requires return one cached exports object. Follow
         // the captured initializer first so writes after reassignment do not
         // invalidate an unrelated original module object.
-        const { specifier: name, path } = semanticRequireExportsIdentity(
+        recordRequiredEffect(
           required.origin.specifier,
           [...required.origin.importedPath, ...current.path],
-        );
-        const identity = JSON.stringify([
-          "required",
-          name,
           effect,
-          path,
-          mutation?.start,
-          mutation?.end,
-        ]);
-        if (recordedEffects.has(identity)) continue;
-        recordedEffects.add(identity);
-        const effects = state.requiredModuleEffects.get(name) ?? [];
-        effects.push({ path, node: mutation, kind: effect });
-        state.requiredModuleEffects.set(name, effects);
+          mutation,
+        );
         continue;
       }
       if (t.isIdentifier(expression)) {
@@ -281,6 +291,14 @@ export function* collectSemanticMemberMutationsSteps(
             ? binding
             : semanticMutationInitializers(binding, current.originAt, parents);
         if (!primitiveWrite) {
+          for (const origin of binding.directOrigins)
+            if (origin.resolutionMode === "require")
+              recordRequiredEffect(
+                origin.specifier,
+                [...origin.importedPath, ...path],
+                effect,
+                mutation,
+              );
           if (effect === "escape")
             binding.escapedPaths.push({ path, node: mutation });
           else binding.memberWrites.push({ path, node: mutation });
