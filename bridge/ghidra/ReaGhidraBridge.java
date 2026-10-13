@@ -3379,13 +3379,17 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * Matches the Borland/Delphi SEH prologue triple {@code push imm32;
      * push fs:[slot]; mov fs:[slot], esp} and returns the registered handler
      * address, or null when the three instructions do not form the pattern.
-     * The triple must be address-consecutive and chain the same FS slot;
-     * anything looser is reported as no registration rather than risk a
-     * misleading handler warning.
+     * The pattern is defined for 32-bit x86 protected mode (FS:[0] chains the
+     * Win32 thread-information block), so anything else — including 16-bit
+     * x86, where an operand-size prefix still yields a 32-bit immediate — is
+     * reported as no registration. The triple must be address-consecutive and
+     * chain the same FS slot; anything looser is reported as no registration
+     * rather than risk a misleading handler warning.
      */
     private Address sehHandlerAddress(
             Instruction pushImmediate, Instruction pushSegment, Instruction moveSegment) {
-        if (!isPushMnemonic(pushImmediate)
+        if (!isX86_32BitMode()
+                || !isPushMnemonic(pushImmediate)
                 || pushImmediate.getNumOperands() != 1
                 || !isFsSegmentPush(pushSegment)
                 || !isFsSegmentMove(moveSegment)
@@ -3403,8 +3407,22 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 || scalar.bitLength() != 32) {
             return null;
         }
-        return currentProgram.getAddressFactory().getDefaultAddressSpace()
+        // Resolve the immediate in the matched code's own address space: a
+        // function analyzed in an overlay space would otherwise be tested
+        // against — and cite — an unrelated default-space address.
+        return pushImmediate.getAddress().getAddressSpace()
             .getAddress(scalar.getUnsignedValue());
+    }
+
+    /**
+     * Reports whether the analyzed program is 32-bit x86. Ghidra language IDs
+     * carry the address size as the third colon-separated field (for example
+     * {@code x86:LE:32:default}), so this excludes 16-bit and 64-bit x86
+     * inputs without relying on operand shapes that prefixes can distort.
+     */
+    private boolean isX86_32BitMode() {
+        String[] fields = currentProgram.getLanguageID().getIdAsString().split(":");
+        return fields.length > 2 && fields[0].equals("x86") && fields[2].equals("32");
     }
 
     private static boolean consecutiveInstructions(Instruction first, Instruction second) {
