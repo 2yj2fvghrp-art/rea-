@@ -12339,7 +12339,7 @@ msgid ""
 " and a separate 63-byte compiler replay."
 msgstr ""
 "REA একটি DX-Ball function-এর instruction, caller এবং byte-read-এর প্রমাণ "
-"দেয়। একটি stack input-কে 1.5625 দিয়ে গুণ করে, 500 offset যোগ করে, scale "
+"দেয়। একটি stack input-কে 1.5625 দিয়ে গুণ করে, 500 বিয়োগ করে, scale "
 "করে integer-এ রূপান্তর করা হয়। রক্ষণাবেক্ষণকৃত C কোডটি মূল x86-এর 3,205টি "
 "case এবং আলাদা একটি 63-byte compiler replay দিয়ে যাচাই করা হয়েছে।"
 
