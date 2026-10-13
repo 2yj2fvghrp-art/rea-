@@ -15,6 +15,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 
 import {
+  type ParsedClientRegistration,
   registrationSchema,
   registrationSchemaFor,
 } from "./ClientRegistrationShape.js";
@@ -298,7 +299,7 @@ const registrationAligned = (
 const parseRegistration = (
   value: unknown,
   client: SetupClient,
-): z.output<typeof registrationSchema> => {
+): ParsedClientRegistration => {
   if (client.format === "dsh")
     return registrationSchema
       .pick({ command: true, args: true, serverName: true, transport: true })
