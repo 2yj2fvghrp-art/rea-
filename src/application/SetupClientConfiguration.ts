@@ -674,6 +674,14 @@ const clientConfigurationDesired = (
     launcher,
     environment.value,
   );
+  const previous = parsed?.servers[PRODUCT_IDENTITY.mcpServerKey];
+  if (
+    client.name === "kimi" &&
+    typeof previous === "object" &&
+    previous !== null &&
+    "enabledTools" in previous
+  )
+    registration.enabledTools = previous.enabledTools;
   return {
     ...registration,
     ...(client.name === "codex" || client.name === "grok_build"

@@ -2,7 +2,6 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parse as parseJsonc } from "jsonc-parser";
 
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { setupRegistrationCommand } from "../../../src/application/SetupHost.js";
@@ -83,6 +82,31 @@ describe("Kimi Code registration lifecycle", () => {
     return { home, client };
   };
 
+  it("preserves the caller's enabledTools selection during refresh", async () => {
+    const { client } = await kimiClient();
+    const enabledTools = ["binary_session", "analyze_javascript_application"];
+    await writeFile(
+      client.configPath,
+      JSON.stringify({
+        mcpServers: {
+          rea: { command: "old-rea", args: ["mcp"], enabledTools },
+        },
+      }),
+    );
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("configured");
+    expect(
+      JSON.parse(await readFile(client.configPath, "utf8")).mcpServers.rea,
+    ).toEqual({
+      ...expectedRegistration(command),
+      enabledTools,
+    });
+    expect(
+      (await configureClientConfiguration(client, {}, command)).status,
+    ).toBe("unchanged");
+  });
+
   it("registers without type, preserves unrelated settings, backs up, and is idempotent", async () => {
     const { home, client } = await kimiClient();
     const original = `{
@@ -99,7 +123,7 @@ describe("Kimi Code registration lifecycle", () => {
       backupPath: `${client.configPath}.rea.backup`,
     });
     const text = await readFile(client.configPath, "utf8");
-    expect(parseJsonc(text)).toEqual({
+    expect(JSON.parse(text)).toEqual({
       customSetting: { enabled: true },
       mcpServers: {
         other: { command: "other-server", startupTimeoutMs: 5000 },
@@ -126,7 +150,7 @@ describe("Kimi Code registration lifecycle", () => {
     expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
       "removed",
     );
-    expect(parseJsonc(await readFile(client.configPath, "utf8"))).toEqual({
+    expect(JSON.parse(await readFile(client.configPath, "utf8"))).toEqual({
       customSetting: { enabled: true },
       mcpServers: {
         other: { command: "other-server", startupTimeoutMs: 5000 },
@@ -159,7 +183,7 @@ describe("Kimi Code package launchers", () => {
         (await configureClientConfiguration(client, {}, launcher)).status,
       ).toBe("configured");
       expect(
-        parseJsonc(await readFile(client.configPath, "utf8")).mcpServers.rea,
+        JSON.parse(await readFile(client.configPath, "utf8")).mcpServers.rea,
       ).toEqual(expectedRegistration(launcher));
       expect(
         (
@@ -194,7 +218,7 @@ describe("Kimi Code transport validation", () => {
         (await configureClientConfiguration(client, {}, command)).status,
       ).toBe("configured");
       expect(
-        parseJsonc(await readFile(client.configPath, "utf8")).mcpServers.rea,
+        JSON.parse(await readFile(client.configPath, "utf8")).mcpServers.rea,
       ).toEqual(expectedRegistration(command));
       expect(await configureClientConfiguration(client, {}, command)).toEqual({
         status: "unchanged",
@@ -205,9 +229,13 @@ describe("Kimi Code transport validation", () => {
     }
   });
 
-  it("rejects malformed JSON without changing it or creating a backup", async () => {
+  it.each([
+    '{"mcpServers": {',
+    '{/* comment */ "mcpServers": {}}',
+    '{"mcpServers": {},}',
+    '\uFEFF{"mcpServers": {}}',
+  ])("rejects invalid strict JSON %j without writes", async (original) => {
     const { client } = await kimiClient();
-    const original = '{"mcpServers": {';
     await writeFile(client.configPath, original);
     expect(await configureClientConfiguration(client, {}, command)).toEqual({
       status: "failed",
