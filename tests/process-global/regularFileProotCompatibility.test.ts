@@ -126,6 +126,32 @@ it("compares BigIntStats without throwing on the file-type mask", async () => {
   expect(sameRegularFileState(first, second)).toBe(true);
 });
 
+it("compares file types when mode metadata uses mixed numeric kinds", async () => {
+  const root = await createTestTempDirectory("rea-regularfile-");
+  const path = join(root, "file.bin");
+  await writeFile(path, "content");
+
+  const numeric = await stat(path);
+  const bigintMode = {
+    ...numeric,
+    mode: BigInt(numeric.mode),
+    isFile: () => true,
+  } as unknown as import("node:fs").BigIntStats;
+  const previous = process.env.container;
+  process.env.container = "proot-distro";
+  try {
+    expect(
+      sameRegularFileStateAcrossPathAndDescriptor(numeric, bigintMode),
+    ).toBe(true);
+    expect(
+      sameRegularFileStateAcrossPathAndDescriptor(bigintMode, numeric),
+    ).toBe(true);
+  } finally {
+    if (previous === undefined) delete process.env.container;
+    else process.env.container = previous;
+  }
+});
+
 it("limits PRoot metadata tolerance to path-to-descriptor checks", () => {
   const previous = process.env.container;
   process.env.container = "proot-distro";

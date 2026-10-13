@@ -161,8 +161,8 @@ const sameFileType = (
     // A Number and a BigInt cannot be mixed in one bitwise operation, so
     // normalise both sides to Number. A POSIX mode always fits in 32 bits.
     return (
-      Number(expected & FILE_TYPE_MASK_BIGINT) ===
-      Number(observed & FILE_TYPE_MASK_BIGINT)
+      (Number(expected) & FILE_TYPE_MASK) ===
+      (Number(observed) & FILE_TYPE_MASK)
     );
   }
   return (expected & FILE_TYPE_MASK) === (observed & FILE_TYPE_MASK);
