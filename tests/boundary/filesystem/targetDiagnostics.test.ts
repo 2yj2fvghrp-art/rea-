@@ -473,7 +473,7 @@ describe("debug companion fixture admission", () => {
   );
 
   it.skipIf(!onDarwin)(
-    "rejects a DWARF directory with too many member files",
+    "rejects a DWARF directory with too many entries",
     async () => {
       const directory = await createTestTempDirectory("rea-dsym-count-");
       const binary = await compilePairFixture(directory, "pair");
@@ -497,7 +497,9 @@ describe("debug companion fixture admission", () => {
         code: "invalid_request",
         details: {
           constraint: "debug_companion_rejected",
-          reason: expect.stringContaining("more than 16 DWARF member files"),
+          reason: expect.stringContaining(
+            "more than 16 DWARF directory entries",
+          ),
         },
       });
     },
@@ -514,7 +516,8 @@ describe("debug companion fixture admission", () => {
         "Resources",
         "DWARF",
       );
-      const huge = join(dwarfDirectory, "huge");
+      // Replace the only matching member so enumeration order cannot bypass the size check.
+      const huge = join(dwarfDirectory, "pair");
       await writeFile(huge, Buffer.alloc(64));
       // A sparse file reports a size beyond the budget without occupying it.
       const truncate = (await import("node:fs/promises")).truncate;

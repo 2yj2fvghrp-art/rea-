@@ -5,12 +5,15 @@ import {
   open,
   readFile,
   readdir,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, it } from "vitest";
+
+import { AnalysisArtifactChangedError } from "../../../src/domain/analysisErrorCore.js";
 
 import { readMachoFileUuidEntries } from "../../../src/application/DebugCompanionAdmission.js";
 import { stageGhidraDebugCompanion } from "../../../src/ghidra/GhidraDebugCompanion.js";
@@ -148,3 +151,82 @@ it("reads a UUID after a sparse command span above the former allocation ceiling
     await handle.close();
   }
 });
+
+it("classifies a disappeared admitted member and removes the staging bundle", async () => {
+  const fixture = await stagingFixture();
+  await rm(fixture.companion.memberPath);
+  await expect(
+    stageGhidraDebugCompanion(
+      fixture.companion,
+      fixture.runtime,
+      fixture.snapshot,
+    ),
+  ).rejects.toBeInstanceOf(AnalysisArtifactChangedError);
+  expect(await readdir(fixture.runtime)).toEqual([]);
+});
+
+it.each([
+  {
+    name: "table overlap",
+    offset: 8,
+    alignment: 0,
+    subtype: 0,
+    reason: "invalid slice range",
+  },
+  {
+    name: "misalignment",
+    offset: 33,
+    alignment: 4,
+    subtype: 0,
+    reason: "not aligned",
+  },
+  {
+    name: "CPU identity disagreement",
+    offset: 32,
+    alignment: 0,
+    subtype: 1,
+    reason: "CPU type/subtype disagrees",
+  },
+])(
+  "rejects a FAT member with $name through the format owner",
+  async ({ offset, alignment, subtype, reason }) => {
+    const root = await createTestTempDirectory("rea-dsym-fat-owner-");
+    const path = join(root, "member");
+    const bytes = Buffer.alloc(128);
+    bytes.writeUInt32BE(0xcafebabe, 0);
+    bytes.writeUInt32BE(1, 4);
+    bytes.writeUInt32BE(0x01000007, 8);
+    bytes.writeUInt32BE(subtype, 12);
+    bytes.writeUInt32BE(offset, 16);
+    bytes.writeUInt32BE(56, 20);
+    bytes.writeUInt32BE(alignment, 24);
+    // The overlapping case must be refused before any thin-header interpretation.
+    if (offset >= 28) {
+      bytes.writeUInt32LE(0xfeedfacf, offset);
+      bytes.writeUInt32LE(0x01000007, offset + 4);
+      bytes.writeUInt32LE(1, offset + 16);
+      bytes.writeUInt32LE(24, offset + 20);
+      bytes.writeUInt32LE(0x1b, offset + 32);
+      bytes.writeUInt32LE(24, offset + 36);
+      Buffer.from("11111111222233334444555555555555", "hex").copy(
+        bytes,
+        offset + 40,
+      );
+    }
+    await writeFile(path, bytes);
+    const handle = await open(path, "r");
+    try {
+      expect(
+        await readMachoFileUuidEntries(handle, bytes.length),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          kind: "invalid-image",
+          reason: expect.stringContaining(reason),
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  },
+);

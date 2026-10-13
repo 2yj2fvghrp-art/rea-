@@ -209,6 +209,7 @@ export class BinarySession
     return this.#open(
       () =>
         resolveSessionOpen({
+          resources: this.fileResources,
           router: this.#providerRouter,
           current: this.#active,
           path,
@@ -415,7 +416,7 @@ export class BinarySession
           );
     this.clearSessionRecords();
     this.#clearRuntimeAvailability();
-    const fileResources = await this.closeWriteResources();
+    const fileResources = await this.closeFileResources();
     if (!closed.ok && !fileResources.ok)
       return err(
         analysisErrorWithCleanupFailure(

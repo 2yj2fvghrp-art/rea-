@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
 import { mkdir, open, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FileHandle } from "node:fs/promises";
 
+import { openGhidraSource } from "./GhidraSourceFile.js";
 import type { JsonValue } from "../domain/jsonValue.js";
 import { AnalysisArtifactChangedError } from "../domain/analysisErrorCore.js";
 import type { MachODebugCompanion } from "../domain/binaryTargetTypes.js";
@@ -39,10 +39,7 @@ export const stageGhidraDebugCompanion = async (
   try {
     // A path replaced by a FIFO must not block startup before its type is
     // checked, mirroring the snapshot admission's source open.
-    source = await open(
-      companion.memberPath,
-      constants.O_RDONLY | constants.O_NONBLOCK,
-    );
+    source = await openGhidraSource(companion.memberPath);
     if (!(await source.stat()).isFile())
       throw new AnalysisArtifactChangedError(
         "open_binary",

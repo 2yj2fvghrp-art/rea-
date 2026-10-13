@@ -35,6 +35,7 @@ export interface MachOUuidRead {
 /** A UUID-less image retains its CPU identity instead of disappearing. */
 export interface MachOImageUuid {
   readonly cpuType: number;
+  readonly cpuSubtype: number;
   readonly uuid: string | null;
 }
 
@@ -62,6 +63,7 @@ export function* machoUuidReads(
   const read32 = (bytes: Buffer, offset: number): number =>
     little ? bytes.readUInt32LE(offset) : bytes.readUInt32BE(offset);
   const cpuType = read32(header, 4);
+  const cpuSubtype = read32(header, 8);
   const commandCount = read32(header, 16);
   const declaredSize = read32(header, 20);
   if (declaredSize > imageSize - headerSize)
@@ -95,7 +97,7 @@ export function* machoUuidReads(
     return err(
       "Mach-O load commands do not fill the declared load-command span",
     );
-  return ok({ cpuType, uuid: observed });
+  return ok({ cpuType, cpuSubtype, uuid: observed });
 }
 
 const readUuidsFromThin = (

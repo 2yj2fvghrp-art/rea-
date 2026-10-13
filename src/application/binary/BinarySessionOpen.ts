@@ -1,3 +1,4 @@
+import type { ArtifactResourceScope } from "../../artifacts/ArtifactResourceScope.js";
 import type { ExecutableFormatHint } from "../../domain/dosCom.js";
 import type { BinaryArchitecture } from "../../domain/binaryTargetTypes.js";
 import type { AnalysisProviderSelector } from "../../contracts/providerSelection.js";
@@ -43,6 +44,7 @@ export interface ResolvedSessionOpen {
 }
 
 interface ResolveSessionOpenInput {
+  readonly resources?: ArtifactResourceScope;
   readonly router: SessionProviderRouter;
   readonly current: CurrentOpenBinding | undefined;
   readonly path: string;
@@ -70,6 +72,7 @@ export const resolveSessionOpen = async (
 ): Promise<Result<ResolvedSessionOpen, AnalysisError>> => {
   const { path, options } = input;
   const parsed = await parseBinaryTarget(path, {
+    ...(input.resources === undefined ? {} : { resources: input.resources }),
     ...(options.targetKind === undefined
       ? {}
       : { targetKind: options.targetKind }),
