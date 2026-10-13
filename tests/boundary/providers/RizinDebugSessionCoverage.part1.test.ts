@@ -2,11 +2,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import { RizinDebugSessionManager } from "../../../src/rizin/RizinDebugSessionManager.js";
 import {
   createRizinTestManager,
+  stopFakeNoInferior,
   rizinTestInferiorTty,
 } from "./RizinTestInferiorTty.js";
 import { rizinCommand } from "../../../src/rizin/RizinCommand.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
-import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
 import {
   createRizinCoverageHarness,
   createInjectedProcess,
@@ -14,8 +14,14 @@ import {
   incompleteStop,
 } from "./RizinDebugSessionCoverage.fixtures.js";
 
-const { cleanup, makeProvider, missingProviderPath, start, track } =
-  createRizinCoverageHarness();
+const {
+  cleanup,
+  makeProvider,
+  missingProviderPath,
+  start,
+  startInjected,
+  track,
+} = createRizinCoverageHarness();
 afterEach(cleanup);
 
 it.skipIf(process.platform === "win32")(
@@ -354,7 +360,7 @@ it.skipIf(process.platform === "win32")(
           };
         }
         await session.supervisor.waitForExit(1000);
-        return stopOwnedDebuggerProcess(session, name, options);
+        return stopFakeNoInferior(session, name, options);
       },
     });
     const closed = await manager.close(sessionId);
@@ -370,6 +376,32 @@ it.skipIf(process.platform === "win32")(
       expect(retainedFailure.cleanupIncomplete).toBe(false);
     }
     expect(stopCalls).toBe(2);
+    expect(manager.status(sessionId)).toBeUndefined();
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "retains a Rizin close owner until inherited output writers close",
+  async () => {
+    const injected = createInjectedProcess();
+    const { manager, started } = await startInjected(injected.spawnProcess);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const sessionId = started.value.session_id;
+    injected.control.exitLeader();
+
+    const firstClose = await manager.close(sessionId);
+    expect(firstClose.ok).toBe(false);
+    if (!firstClose.ok) {
+      expect(firstClose.error.cleanupIncomplete).toBe(true);
+      expect(firstClose.error.message).toMatch(/inherited output streams/i);
+    }
+    expect(manager.status(sessionId)).toBeDefined();
+
+    injected.control.closeOutput();
+    const retried = await manager.retryCleanupFailures();
+
+    expect(retried).toEqual({ ok: true, value: null });
     expect(manager.status(sessionId)).toBeUndefined();
   },
 );

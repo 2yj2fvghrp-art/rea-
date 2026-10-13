@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { GdbSessionManager } from "../../../src/gdb/GdbSessionManager.js";
+import { evidenceSchema } from "../../../src/domain/evidence.js";
 import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
@@ -700,14 +701,35 @@ process.stdin.on("data", (chunk) => {
       "info threads",
     );
 
-    expect(result.ok).toBe(true);
-    if (result.ok)
-      expect(result.value.result).toMatchObject({
-        process_exit_observed: true,
-        output_truncated: false,
-        completion_status: "unknown",
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.cleanupIncomplete).toBe(true);
+      expect(result.error.partialObservation).toMatchObject({
+        normalized_result: {
+          process_exit_observed: true,
+          output_truncated: false,
+          completion_status: "unknown",
+          records: expect.arrayContaining([
+            expect.stringContaining("thread-created"),
+          ]),
+        },
       });
-    if (result.ok) expect(result.value.result.records).toHaveLength(300);
+      const parsedEvidence = evidenceSchema.safeParse(
+        result.error.partialObservation,
+      );
+      expect(parsedEvidence.success).toBe(true);
+      if (parsedEvidence.success) {
+        const rawResult = parsedEvidence.data.raw_result;
+        expect(rawResult).toMatchObject({ records: expect.any(Array) });
+        if (
+          typeof rawResult === "object" &&
+          rawResult !== null &&
+          !Array.isArray(rawResult) &&
+          "records" in rawResult
+        )
+          expect(rawResult.records).toHaveLength(300);
+      }
+    }
   },
 );
 
@@ -955,13 +977,11 @@ setInterval(() => {}, 1000);
         await expectOwnedProcessExited(String(ownedLaunch.process.pid));
       }
       const retried = await manager.retryCleanupFailures();
-      expect(retried.ok, retried.ok ? undefined : retried.error.message).toBe(
-        true,
-      );
+      expect(retried.ok).toBe(false);
       if (originalError !== undefined)
-        expect(originalError.cleanupIncomplete).toBe(false);
+        expect(originalError.cleanupIncomplete).toBe(true);
       if (sessionId !== undefined)
-        expect(manager.status(sessionId)).toBeUndefined();
+        expect(manager.status(sessionId)?.state).toBe("closed");
     }
   },
 );
@@ -1008,66 +1028,62 @@ process.stdin.on("data", (chunk) => {
       "second command",
     );
 
-    expect(exited.ok).toBe(true);
-    if (exited.ok) {
-      expect(exited.value.result).toMatchObject({
-        command: "second command",
-        mi: "",
-        process_exit_observed: true,
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        console: ["~second-command-partial", "~second-command-tail"].join("\n"),
-        target: ["@target-partial", "@target-tail"].join("\n"),
-        log: ["&log-partial", "&log-tail"].join("\n"),
-        output_truncated: false,
-        completion_status: "unknown",
+    expect(exited.ok).toBe(false);
+    if (!exited.ok) {
+      expect(exited.error.cleanupIncomplete).toBe(true);
+      expect(exited.error.partialObservation).toMatchObject({
+        normalized_result: {
+          command: "second command",
+          mi: "",
+          process_exit_observed: true,
+          records: [
+            "~second-command-partial",
+            "@target-partial",
+            "@target-tail",
+            "&log-partial",
+            "&log-tail",
+            "~second-command-tail",
+          ],
+          console: ["~second-command-partial", "~second-command-tail"].join(
+            "\n",
+          ),
+          target: ["@target-partial", "@target-tail"].join("\n"),
+          log: ["&log-partial", "&log-tail"].join("\n"),
+          output_truncated: false,
+          completion_status: "unknown",
+        },
       });
-      expect(exited.value.result.records.join(" ")).not.toContain(
-        "first-command-only",
-      );
-      expect(exited.value.evidence.normalized_result).toMatchObject({
-        command: "second command",
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        console: ["~second-command-partial", "~second-command-tail"].join("\n"),
-        target: ["@target-partial", "@target-tail"].join("\n"),
-        log: ["&log-partial", "&log-tail"].join("\n"),
-        completion_status: "unknown",
+      expect(exited.error.partialObservation).toMatchObject({
+        parameters: {
+          command: "second command",
+          session_id: started.value.session_id,
+        },
+        normalized_result: {
+          command: "second command",
+          records: [
+            "~second-command-partial",
+            "@target-partial",
+            "@target-tail",
+            "&log-partial",
+            "&log-tail",
+            "~second-command-tail",
+          ],
+          completion_status: "unknown",
+        },
+        raw_result: {
+          command: "second command",
+          records: expect.not.arrayContaining(["~first-command-only"]),
+          completion_status: "unknown",
+        },
+        limitations: expect.arrayContaining([
+          expect.stringContaining(
+            "only records retained for the active command",
+          ),
+          expect.stringContaining(
+            "The active GDB inferior identity is not established by the debugger session identifier.",
+          ),
+        ]),
       });
-      expect(exited.value.evidence.parameters).toMatchObject({
-        command: "second command",
-        session_id: started.value.session_id,
-      });
-      expect(exited.value.evidence.raw_result).toMatchObject({
-        command: "second command",
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        completion_status: "unknown",
-      });
-      expect(exited.value.evidence.limitations.join(" ")).toContain(
-        "only records retained for the active command",
-      );
-      expect(exited.value.evidence.limitations.join(" ")).toContain(
-        "The active GDB inferior identity is not established by the debugger session identifier.",
-      );
     }
   },
 );

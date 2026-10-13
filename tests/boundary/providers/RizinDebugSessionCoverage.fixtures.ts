@@ -19,6 +19,8 @@ interface InjectedProcessControl {
   output(chunk: Buffer | string): void;
   stdinError(): void;
   closeStdin(): void;
+  exitLeader(signal?: NodeJS.Signals): void;
+  closeOutput(): void;
   exit(signal?: NodeJS.Signals): void;
 }
 
@@ -107,13 +109,21 @@ export const createInjectedProcess = (
     output: (chunk) => stdout.emit("data", Buffer.from(chunk)),
     stdinError: () => stdin?.emit("error", new Error("injected stdin error")),
     closeStdin: () => stdin?.destroy(),
-    exit: (signal = "SIGTERM") => {
+    exitLeader: (signal = "SIGTERM") => {
       exitCode = null;
       signalCode = signal;
       processHandle.exitCode = exitCode;
       processHandle.signalCode = signalCode;
       processHandle.emit("exit", exitCode, signalCode);
+    },
+    closeOutput: () => {
+      stdout.destroy();
+      stderr.destroy();
       processHandle.emit("close", exitCode, signalCode);
+    },
+    exit: (signal = "SIGTERM") => {
+      control.exitLeader(signal);
+      control.closeOutput();
     },
   };
   const stdin =

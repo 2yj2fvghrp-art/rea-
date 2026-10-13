@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import type {
   SpawnedOwnedProviderProcess,
 } from "../../../src/process/ProviderProcess.js";
 import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
+import { parseLinuxProcessStartTime } from "../../../src/process/ProcessOwnershipObservation.js";
 import { expectGdbSessionStarted } from "./gdbTestHelpers.js";
 
 let directory: string | undefined;
@@ -848,7 +850,7 @@ it("does not infer detached state when the inferior verifier observes an exited 
   );
 });
 
-it("waits for inherited output settlement after leader exit when a sink was verified", async () => {
+it("retains the GDB session while an unknown descendant holds output after leader exit", async () => {
   directory ??= await mkdtemp(join(tmpdir(), "rea-gdb-coverage-"));
   const tty = join(directory, "inferior-output");
   await writeFile(tty, "");
@@ -872,20 +874,25 @@ it("waits for inherited output settlement after leader exit when a sink was veri
   );
   child.exitLeader(7);
 
-  const closing = manager.close(started.value.session_id);
-  await new Promise((resolve) => setImmediate(resolve));
+  const firstClose = await manager.close(started.value.session_id);
+  expect(firstClose.ok).toBe(false);
+  if (!firstClose.ok) {
+    expect(firstClose.error.cleanupIncomplete).toBe(true);
+    expect(firstClose.error.message).toMatch(/inferior disposition/i);
+  }
+  expect(manager.status(started.value.session_id)).toBeDefined();
   await writeFile(tty, "descendant sentinel after GDB leader exit\n");
   child.closeInheritedOutput();
-  const closed = await closing;
+  const closed = await manager.close(started.value.session_id);
 
   expect(closed).toMatchObject({
-    ok: true,
-    value: { target_state: "unknown" },
+    ok: false,
+    error: { cleanupIncomplete: true },
   });
   expect(await readFile(tty, "utf8")).toBe(
     "descendant sentinel after GDB leader exit\n",
   );
-  expect(manager.status(started.value.session_id)).toBeUndefined();
+  expect(manager.status(started.value.session_id)).toBeDefined();
   expect(child.killSignals).toEqual([]);
 });
 
@@ -900,15 +907,15 @@ it("retries close after an exited GDB's inherited output streams settle", async 
   const firstClose = await manager.close(started.value.session_id);
   expect(firstClose.ok).toBe(false);
   if (!firstClose.ok)
-    expect(firstClose.error.message).toMatch(/inherited output streams/i);
+    expect(firstClose.error.message).toMatch(/inferior disposition/i);
   expect(manager.status(started.value.session_id)).toBeDefined();
 
   child.closeInheritedOutput();
   await expect(manager.close(started.value.session_id)).resolves.toMatchObject({
-    ok: true,
-    value: { target_state: "unknown" },
+    ok: false,
+    error: { cleanupIncomplete: true },
   });
-  expect(manager.status(started.value.session_id)).toBeUndefined();
+  expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
 it("shares a single stop attempt across concurrent closes after GDB exits", async () => {
@@ -1826,6 +1833,117 @@ it("retains GDB ownership when MI does not confirm target detachment", async () 
   expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
+it.each([
+  ["releases cleanup after the identified inferior ends", false],
+  ["invalidates old identity after a newer ambiguous inventory", true],
+])("%s", async (_title, invalidateAfterFirstInspection) => {
+  const inferior = spawn(
+    process.execPath,
+    ["-e", "process.stdout.write('ready\\n'); setInterval(() => {}, 1_000)"],
+    { stdio: ["ignore", "pipe", "ignore"] },
+  );
+  let inferiorAlive = true;
+  let capturedStartTime: string | undefined;
+  try {
+    if (inferior.pid === undefined) throw new Error("Inferior did not spawn");
+    await new Promise<void>((resolve, reject) => {
+      inferior.stdout.once("data", () => resolve());
+      inferior.once("error", reject);
+    });
+    const pid = String(inferior.pid);
+    const tty = "/dev/pts/42";
+    let groupQueries = 0;
+    const fake = createFakeSpawner((_child, token, command) => {
+      let response: string;
+      if (command.includes("inferior-tty-show"))
+        response = `^done,inferior_tty_terminal=${JSON.stringify(tty)}`;
+      else if (command.includes("list-thread-groups")) {
+        groupQueries += 1;
+        response =
+          invalidateAfterFirstInspection && groupQueries > 1
+            ? '^done,groups=[{id="i1",pid="123"},{id="i2",pid="456"}]'
+            : `^done,groups=[{id="i1",pid="${pid}"}]`;
+      } else if (command.includes("target-detach"))
+        response = '^error,msg="detach reply lost"';
+      else response = "^done";
+      fake.children[0]?.stdout.write(`${token}${response}\n`);
+    });
+    const manager = managerWithFakeSpawner(fake.spawnProcess, {
+      verifyInferiorOutputSink: async (observedPid, _tty, rememberIdentity) => {
+        expect(observedPid).toBe(pid);
+        if (process.platform === "linux") {
+          const stat = await readFile(`/proc/${observedPid}/stat`, "utf8");
+          capturedStartTime = parseLinuxProcessStartTime(stat);
+        } else capturedStartTime = `test-inferior-${observedPid}`;
+        if (capturedStartTime === undefined)
+          throw new Error("Controlled inferior identity was unreadable");
+        rememberIdentity({ pid: observedPid, startTime: capturedStartTime });
+      },
+      readInferiorProcessStartTime: async (observedPid) => {
+        if (observedPid !== pid || !inferiorAlive) return null;
+        if (process.platform === "linux") {
+          const stat = await readFile(`/proc/${observedPid}/stat`, "utf8");
+          return parseLinuxProcessStartTime(stat) ?? null;
+        }
+        return capturedStartTime ?? null;
+      },
+    });
+    const started = await expectGdbSessionStarted(manager, undefined, {
+      inferiorTty: tty,
+    });
+    const firstClose = await manager.close(started.value.session_id);
+    expect(firstClose.ok).toBe(false);
+    if (!firstClose.ok) expect(firstClose.error.cleanupIncomplete).toBe(true);
+
+    const gdbProcess = fake.children[0];
+    if (gdbProcess === undefined) throw new Error("Fake GDB did not spawn");
+    expect(groupQueries).toBeGreaterThanOrEqual(2);
+    gdbProcess.exitLeader(7);
+    gdbProcess.closeInheritedOutput();
+
+    if (invalidateAfterFirstInspection) {
+      const inferiorExit = new Promise<void>((resolve, reject) => {
+        inferior.once("exit", () => resolve());
+        inferior.once("error", reject);
+      });
+      inferior.kill("SIGTERM");
+      await inferiorExit;
+      inferiorAlive = false;
+      const invalidated = await manager.close(started.value.session_id);
+      expect(invalidated.ok).toBe(false);
+      expect(manager.status(started.value.session_id)).toBeDefined();
+      return;
+    }
+
+    const whileInferiorLives = await manager.close(started.value.session_id);
+    expect(whileInferiorLives.ok).toBe(false);
+    expect(manager.status(started.value.session_id)).toBeDefined();
+
+    const inferiorExit = new Promise<void>((resolve, reject) => {
+      inferior.once("exit", () => resolve());
+      inferior.once("error", reject);
+    });
+    inferior.kill("SIGTERM");
+    await inferiorExit;
+    inferiorAlive = false;
+    await expect(
+      manager.close(started.value.session_id),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { target_state: "unknown" },
+    });
+    expect(manager.status(started.value.session_id)).toBeUndefined();
+  } finally {
+    if (inferior.exitCode === null && inferior.signalCode === null) {
+      const inferiorExit = new Promise<void>((resolve) =>
+        inferior.once("exit", () => resolve()),
+      );
+      inferior.kill("SIGKILL");
+      await inferiorExit;
+    }
+  }
+});
+
 it("revokes the verified sink after an abbreviated with inferior-tty run command", async () => {
   const tty = "/dev/pts/42";
   const commands: string[] = [];
@@ -2112,7 +2230,7 @@ it("closes with unknown target state when MI cannot confirm thread groups", asyn
   expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
-it("closes an exited GDB session without a TTY after inherited output settles", async () => {
+it("retains unknown inferior ownership after GDB exits during a command", async () => {
   const manager = await managerFor(
     responsiveProvider(`
       if (match[2].includes('auto-load off')) process.stdout.write(match[1] + '^done\\n');
@@ -2126,15 +2244,27 @@ it("closes an exited GDB session without a TTY after inherited output settles", 
     "exit during command",
   );
   const closing = manager.close(started.value.session_id);
-  await expect(executing).resolves.toMatchObject({ ok: true });
-  await expect(closing).resolves.toMatchObject({
-    ok: true,
-    value: { target_state: "unknown" },
+  const executed = await executing;
+  expect(executed).toMatchObject({
+    ok: false,
+    error: {
+      cleanupIncomplete: true,
+      partialObservation: {
+        normalized_result: {
+          process_exit_observed: true,
+          completion_status: "unknown",
+        },
+      },
+    },
   });
-  expect(manager.status(started.value.session_id)).toBeUndefined();
+  expect(await closing).toMatchObject({
+    ok: false,
+    error: { cleanupIncomplete: true },
+  });
+  expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
-it("closes an exited GDB session when close begins after inherited output settled", async () => {
+it("retains an exited GDB session when no inferior identity was captured", async () => {
   const manager = await managerFor(
     responsiveProvider(`
       if (match[2].includes('auto-load off')) process.stdout.write(match[1] + '^done\\n');
@@ -2143,17 +2273,21 @@ it("closes an exited GDB session when close begins after inherited output settle
   );
   const started = await expectGdbSessionStarted(manager);
 
-  await manager.execute(started.value.session_id, "exit now");
+  const executed = await manager.execute(started.value.session_id, "exit now");
+  expect(executed).toMatchObject({
+    ok: false,
+    error: { cleanupIncomplete: true },
+  });
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (manager.status(started.value.session_id)?.state === "closed") break;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   expect(manager.status(started.value.session_id)?.state).toBe("closed");
   await expect(manager.close(started.value.session_id)).resolves.toMatchObject({
-    ok: true,
-    value: { target_state: "unknown" },
+    ok: false,
+    error: { cleanupIncomplete: true },
   });
-  expect(manager.status(started.value.session_id)).toBeUndefined();
+  expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
 it("retains a session when closing cannot confirm the debugger process stopped", async () => {
@@ -2447,16 +2581,21 @@ process.stdin.on('data', (chunk) => {
 
   const exited = await manager.execute(started.value.session_id, "large exit");
 
-  expect(exited.ok).toBe(true);
-  if (exited.ok) {
-    expect(exited.value.result).toMatchObject({
-      process_exit_observed: true,
-      output_truncated: true,
-      completion_status: "unknown",
+  expect(exited.ok).toBe(false);
+  if (!exited.ok) {
+    expect(exited.error.cleanupIncomplete).toBe(true);
+    expect(exited.error.partialObservation).toMatchObject({
+      normalized_result: {
+        process_exit_observed: true,
+        output_truncated: true,
+        completion_status: "unknown",
+      },
     });
-    expect(exited.value.evidence.limitations.join(" ")).toContain(
-      "truncated prefix",
-    );
+    expect(exited.error.partialObservation).toMatchObject({
+      limitations: expect.arrayContaining([
+        expect.stringContaining("truncated prefix"),
+      ]),
+    });
   }
 });
 

@@ -301,7 +301,6 @@ export class ProviderProcessSupervisor {
     this.#recordExit(code, signal);
     this.#outputClosed = true;
     this.#outputClose.resolve(undefined);
-    if (this.#disposeAfterOutputClose) this.dispose();
   };
   readonly #onError = (cause: Error): void => {
     this.#options.onDiagnostic?.({ type: "error", message: cause.message });
@@ -309,7 +308,6 @@ export class ProviderProcessSupervisor {
   #exitObservation: ProviderProcessExitObservation | undefined;
   #stopPromise: Promise<ProviderProcessStopResult> | undefined;
   #disposed = false;
-  #disposeAfterOutputClose = false;
   #maxDiagnosticBytes: number | undefined;
 
   constructor(
@@ -406,13 +404,6 @@ export class ProviderProcessSupervisor {
         ?.unref;
       unref?.call(stream);
     }
-  }
-
-  /** Keep capturing inherited output, then detach listeners when every writer closes. */
-  disposeAfterOutputClose(): void {
-    if (this.#disposed) return;
-    if (this.#outputClosed) this.dispose();
-    else this.#disposeAfterOutputClose = true;
   }
 
   /** Share each stop attempt; incomplete cleanup retains ownership and permits retry. */

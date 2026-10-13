@@ -41,13 +41,18 @@ export const rizinTestInferiorTty = (): Promise<string> => {
 
 afterAll(() => terminal?.kill());
 
-const stopFakeNoInferior = async (
+/** These fixture processes do not launch or attach an inferior. */
+export const stopFakeNoInferior = async (
   session: Parameters<typeof stopOwnedDebuggerProcess>[0],
   debuggerName: string,
   options?: Parameters<typeof stopOwnedDebuggerProcess>[2],
 ) =>
   stopOwnedDebuggerProcess(
-    { ...session, detachInferior: async () => ({ status: "no-inferior" }) },
+    {
+      ...session,
+      inferiorStateUnknown: () => false,
+      detachInferior: async () => ({ status: "no-inferior" }),
+    },
     debuggerName,
     options,
   );

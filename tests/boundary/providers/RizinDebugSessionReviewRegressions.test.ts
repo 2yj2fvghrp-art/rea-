@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,6 +7,10 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { RizinDebugSessionManager } from "../../../src/rizin/RizinDebugSessionManager.js";
+import {
+  spawnOwnedProviderProcess,
+  type ProviderProcessHandle,
+} from "../../../src/process/ProviderProcess.js";
 import { evidenceSchema } from "../../../src/domain/evidence.js";
 import {
   createRizinTestManager,
@@ -15,6 +20,7 @@ import { createInjectedProcess } from "./RizinDebugSessionCoverage.fixtures.js";
 
 let directory: string | undefined;
 const managers: Array<{ closeAll(): Promise<void> }> = [];
+const inferiorProcesses: ChildProcess[] = [];
 
 const startRizinWithProvider = async (
   provider: string,
@@ -35,6 +41,40 @@ const startRizinWithProvider = async (
   };
 };
 
+const startRizinWithOwnedStop = async (provider: string) => {
+  let debuggerProcess: ProviderProcessHandle | undefined;
+  const manager = new RizinDebugSessionManager(
+    { ...process.env, REA_RIZIN_COMMAND: provider },
+    {
+      platform: "linux",
+      spawnProcess: async (options) => {
+        const launched = await spawnOwnedProviderProcess(options);
+        debuggerProcess = launched.process;
+        return launched;
+      },
+    },
+  );
+  managers.push(manager);
+  const started = await manager.start({
+    path: "/tmp/fixture.bin",
+    inferior_tty: await rizinTestInferiorTty(),
+  });
+  if (!started.ok) throw started.error;
+  return {
+    manager,
+    sessionId: started.value.session_id,
+    exitDebugger: async () => {
+      if (debuggerProcess === undefined)
+        throw new Error("Provider did not spawn");
+      const exited = new Promise<void>((resolve) =>
+        debuggerProcess?.once("exit", () => resolve()),
+      );
+      debuggerProcess.kill("SIGTERM");
+      await exited;
+    },
+  };
+};
+
 const expectOwnedProcessExited = async (pidText: string): Promise<void> => {
   const pid = Number(pidText);
   expect(Number.isInteger(pid)).toBe(true);
@@ -42,6 +82,14 @@ const expectOwnedProcessExited = async (pidText: string): Promise<void> => {
 };
 
 afterEach(async () => {
+  for (const inferior of inferiorProcesses.splice(0)) {
+    if (inferior.exitCode !== null || inferior.signalCode !== null) continue;
+    const exited = new Promise<void>((resolveExit) =>
+      inferior.once("exit", () => resolveExit()),
+    );
+    inferior.kill("SIGTERM");
+    await exited;
+  }
   await Promise.all(
     managers
       .splice(0)
@@ -51,6 +99,50 @@ afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
   directory = undefined;
 });
+
+const spawnTestInferior = async (): Promise<ChildProcess> => {
+  const inferior = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)"],
+    {
+      stdio: "ignore",
+    },
+  );
+  inferiorProcesses.push(inferior);
+  await new Promise<void>((resolveSpawn, rejectSpawn) => {
+    inferior.once("spawn", resolveSpawn);
+    inferior.once("error", rejectSpawn);
+  });
+  return inferior;
+};
+
+const createInferiorInventoryProvider = async (
+  rows: readonly { readonly fd: number; readonly pid: number }[],
+): Promise<string> => {
+  directory = await mkdtemp(join(tmpdir(), "rea-rizin-owned-inferior-"));
+  const provider = join(directory, "fake-rizin-owned-inferior.mjs");
+  await writeFile(
+    provider,
+    `#!/usr/bin/env node
+process.stdout.write("\\0");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  for (;;) {
+    const boundary = input.indexOf("\\n"); if (boundary < 0) break;
+    const line = input.slice(0, boundary); input = input.slice(boundary + 1);
+    if (line === "olj") process.stdout.write(JSON.stringify(${JSON.stringify(rows.map(({ fd, pid }) => ({ fd, raised: true, uri: `ptrace://${pid}` })))} ) + "\\0");
+    else if (line === "e dbg.exitkills") process.stdout.write("true\\0");
+    else if (line.startsWith("!echo ")) process.stdout.write(line.slice(6) + "\\0");
+    else process.stdout.write("\\0");
+  }
+});
+`,
+  );
+  await chmod(provider, 0o700);
+  return provider;
+};
 
 it("keeps persistent Rizin sessions unavailable on Windows", async () => {
   const rizin = await createRizinTestManager(
@@ -72,7 +164,7 @@ it.skipIf(process.platform === "win32")(
   async () => {
     const injected = createInjectedProcess({
       startup: (control) => {
-        control.output(Buffer.from([0]));
+        control.output(Buffer.from("startup diagnostic\0partial trailing"));
         control.exit();
       },
     });
@@ -92,7 +184,138 @@ it.skipIf(process.platform === "win32")(
       expect(started.error._tag).toBe("AnalysisCapabilityUnavailableError");
       expect(started.error.message).toContain("exited");
       expect(started.error.message).not.toContain("timed out");
+      expect(started.error.capturedOutput).toMatchObject({
+        stdout: "startup diagnostic\npartial trailing",
+        stderr: "",
+        truncated: false,
+      });
     }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "preserves partial Rizin stdout when startup times out before its first frame",
+  async () => {
+    const injected = createInjectedProcess({
+      startup: (control) => control.output("partial startup diagnostic"),
+    });
+    const manager = createRizinTestManager(
+      { REA_RIZIN_COMMAND: "injected-rizin" },
+      { spawnProcess: injected.spawnProcess, startupTimeoutMs: 25 },
+    );
+    managers.push(manager);
+
+    const started = await manager.start({
+      path: "/tmp/fixture.bin",
+      inferior_tty: await rizinTestInferiorTty(),
+    });
+
+    expect(started.ok).toBe(false);
+    if (!started.ok) {
+      expect(started.error._tag).toBe("AnalysisTimeoutError");
+      expect(started.error.capturedOutput).toMatchObject({
+        stdout: expect.stringContaining("partial startup diagnostic"),
+        stderr: "",
+        truncated: false,
+      });
+    }
+  },
+);
+
+it.skipIf(process.platform !== "linux")(
+  "clears retained Rizin cleanup after its identified inferior exits",
+  async () => {
+    const inferior = await spawnTestInferior();
+    const pid = inferior.pid;
+    expect(pid).toBeDefined();
+    if (pid === undefined) return;
+    const provider = await createInferiorInventoryProvider([{ fd: 12, pid }]);
+    const { manager, sessionId, exitDebugger } =
+      await startRizinWithOwnedStop(provider);
+    if (sessionId === undefined) return;
+
+    const firstClose = await manager.close(sessionId);
+
+    expect(firstClose.ok, JSON.stringify(firstClose)).toBe(false);
+    if (!firstClose.ok) expect(firstClose.error.cleanupIncomplete).toBe(true);
+    await exitDebugger();
+    expect((await manager.retryCleanupFailures()).ok).toBe(false);
+    expect(manager.status(sessionId)?.state).toBe("closed");
+
+    const inferiorExited = new Promise<void>((resolveExit) =>
+      inferior.once("exit", () => resolveExit()),
+    );
+    inferior.kill("SIGTERM");
+    await inferiorExited;
+    const retried = await manager.retryCleanupFailures();
+
+    expect(retried).toEqual({ ok: true, value: null });
+    if (!firstClose.ok) expect(firstClose.error.cleanupIncomplete).toBe(false);
+    expect(manager.status(sessionId)).toBeUndefined();
+  },
+);
+
+it.skipIf(process.platform !== "linux")(
+  "keeps Rizin cleanup unknown when an inferior inventory is only partially captured",
+  async () => {
+    const inferior = await spawnTestInferior();
+    const pid = inferior.pid;
+    expect(pid).toBeDefined();
+    if (pid === undefined) return;
+    const provider = await createInferiorInventoryProvider([
+      { fd: 12, pid },
+      { fd: 13, pid: 999_999_999 },
+    ]);
+    const { manager, sessionId, exitDebugger } =
+      await startRizinWithOwnedStop(provider);
+    if (sessionId === undefined) return;
+
+    expect((await manager.close(sessionId)).ok).toBe(false);
+    await exitDebugger();
+    const closed = await manager.close(sessionId);
+
+    expect(closed.ok, JSON.stringify(closed)).toBe(false);
+    if (!closed.ok)
+      expect(closed.error.message).toContain("no owner proof confirms");
+    expect(manager.status(sessionId)).toBeDefined();
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "retains Rizin cleanup when target state is unknown at debugger exit",
+  async () => {
+    directory = await mkdtemp(join(tmpdir(), "rea-rizin-unknown-target-"));
+    const provider = join(directory, "fake-rizin-unknown-target.mjs");
+    await writeFile(
+      provider,
+      `#!/usr/bin/env node
+process.stdout.write("\\0");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  for (;;) {
+    const boundary = input.indexOf("\\n"); if (boundary < 0) break;
+    const line = input.slice(0, boundary); input = input.slice(boundary + 1);
+    if (line === "olj") process.stdout.write("not-json\\0");
+    else if (line.startsWith("!echo ")) process.stdout.write(line.slice(6) + "\\0");
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    const { manager, sessionId, exitDebugger } =
+      await startRizinWithOwnedStop(provider);
+    if (sessionId === undefined) return;
+
+    expect((await manager.close(sessionId)).ok).toBe(false);
+    await exitDebugger();
+    const closed = await manager.close(sessionId);
+
+    expect(closed.ok, JSON.stringify(closed)).toBe(false);
+    if (!closed.ok)
+      expect(closed.error.message).toContain("no owner proof confirms");
+    expect(manager.status(sessionId)).toBeDefined();
   },
 );
 
@@ -242,7 +465,7 @@ process.stdin.on("data", (chunk) => {
         inferior_tty: expect.any(String),
       });
     }
-    expect(manager.status(sessionId)?.state).toBe("closed");
+    expect(manager.status(sessionId)).toBeDefined();
   },
 );
 
@@ -286,7 +509,7 @@ process.stdin.on("data", (chunk) => {
         completion_status: "unknown",
       });
     }
-    expect(manager.status(sessionId)?.state).toBe("closed");
+    expect(manager.status(sessionId)).toBeDefined();
   },
 );
 

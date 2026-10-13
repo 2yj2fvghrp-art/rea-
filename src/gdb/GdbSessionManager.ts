@@ -26,6 +26,9 @@ import {
   closeOwnedDebuggerSessions,
   stopOwnedDebuggerProcess,
   type OwnedDebuggerDetachResult,
+  type OwnedInferiorIdentity,
+  type ProcessStartTimeReader,
+  verifyOwnedInferiorsEnded,
 } from "../process/ownedDebuggerSession.js";
 import { parseLinuxProcessStartTime } from "../process/ProcessOwnershipObservation.js";
 
@@ -194,6 +197,7 @@ export const gdbThreadGroupCount = (mi: string): number | undefined => {
 const verifyGdbInferiorOutputSink = async (
   pid: string,
   selectedTty: string,
+  rememberIdentity: (identity: OwnedInferiorIdentity) => void,
 ): Promise<void> => {
   if (process.platform !== "linux")
     throw new Error(
@@ -226,6 +230,7 @@ const verifyGdbInferiorOutputSink = async (
     throw new Error(
       "The GDB inferior identity changed during descriptor readback.",
     );
+  rememberIdentity({ pid, startTime: before });
 };
 
 class GdbCommandProcessExitError extends Error {
@@ -256,6 +261,9 @@ interface GdbSession {
   readonly supervisor: ProviderProcessSupervisor;
   /** Confirms target disposition and any durable sink before process cleanup. */
   readonly detachInferior: () => Promise<OwnedDebuggerDetachResult>;
+  readonly inferiorStateUnknown: () => boolean;
+  readonly verifyInferiorsEndedAfterExit: () => Promise<boolean>;
+  readonly knownInferiorIdentities: Map<string, OwnedInferiorIdentity>;
   readonly inferiorTty: string | undefined;
   readonly maxCommandOutputBytes: number;
   readonly stdoutSettled: Promise<void>;
@@ -307,7 +315,9 @@ export class GdbSessionManager {
   readonly #verifyInferiorOutputSink: (
     pid: string,
     selectedTty: string,
+    rememberIdentity: (identity: OwnedInferiorIdentity) => void,
   ) => Promise<void>;
+  readonly #readInferiorProcessStartTime: ProcessStartTimeReader | undefined;
   readonly #maxSessions: number;
   readonly #maxCommandOutputBytes: number;
   #sessionReservations = 0;
@@ -326,7 +336,10 @@ export class GdbSessionManager {
       readonly verifyInferiorOutputSink?: (
         pid: string,
         selectedTty: string,
+        rememberIdentity: (identity: OwnedInferiorIdentity) => void,
       ) => Promise<void>;
+      /** @internal Read-only process identity observer for lifecycle tests. */
+      readonly readInferiorProcessStartTime?: ProcessStartTimeReader;
       readonly maxSessions?: number;
       /** @internal Test seam; production callers should use the 16 MiB default. */
       readonly maxCommandOutputBytes?: number;
@@ -341,6 +354,7 @@ export class GdbSessionManager {
     this.#spawnProcess = options.spawnProcess ?? spawnOwnedProviderProcess;
     this.#verifyInferiorOutputSink =
       options.verifyInferiorOutputSink ?? verifyGdbInferiorOutputSink;
+    this.#readInferiorProcessStartTime = options.readInferiorProcessStartTime;
     this.#maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
     this.#maxCommandOutputBytes =
       options.maxCommandOutputBytes ?? MAX_COMMAND_OUTPUT_BYTES;
@@ -510,6 +524,16 @@ export class GdbSessionManager {
       launched,
       supervisor,
       detachInferior: () => this.#detachInferior(session),
+      inferiorStateUnknown: () => !session.noInferiorVerified,
+      verifyInferiorsEndedAfterExit: async () => {
+        const ended = await verifyOwnedInferiorsEnded(
+          session.knownInferiorIdentities.values(),
+          this.#readInferiorProcessStartTime,
+        );
+        if (ended) session.knownInferiorIdentities.clear();
+        return ended;
+      },
+      knownInferiorIdentities: new Map(),
       inferiorTty,
       maxCommandOutputBytes: this.#maxCommandOutputBytes,
       stdoutSettled,
@@ -860,6 +884,7 @@ export class GdbSessionManager {
           if (session.exited || session.protocolError !== undefined)
             return err(new AnalysisInputError("gdb_console"));
           session.noInferiorVerified = false;
+          session.knownInferiorIdentities.clear();
           if (commandMayChangeInferiorOutput(command))
             session.inferiorTtyVerified = false;
           try {
@@ -1498,6 +1523,10 @@ export class GdbSessionManager {
     if (session.noInferiorVerified) return { status: "no-inferior" };
     if (session.exited)
       throw new Error("GDB exited before inferior state could be verified.");
+    // A new MI inspection replaces the old snapshot. If this read is
+    // incomplete, malformed, or reports multiple inferiors, no earlier PID
+    // can stand in for the current unknown inventory.
+    session.knownInferiorIdentities.clear();
     if (
       session.protocolError !== undefined ||
       session.pending.size > 0 ||
@@ -1518,6 +1547,7 @@ export class GdbSessionManager {
       throw new Error("GDB could not confirm its inferior state.");
     const inferiorPids = gdbThreadGroupPids(groups.mi);
     if (inferiorPids?.length === 0) {
+      session.knownInferiorIdentities.clear();
       session.noInferiorVerified = true;
       return { status: "no-inferior" };
     }
@@ -1546,6 +1576,11 @@ export class GdbSessionManager {
     await this.#verifyInferiorOutputSink(
       inferiorPids[0]!,
       session.inferiorTty!,
+      (identity) =>
+        session.knownInferiorIdentities.set(
+          `${identity.pid}:${identity.startTime}`,
+          identity,
+        ),
     );
     const detached = await this.#request(session, "-target-detach");
     if (
@@ -1554,6 +1589,7 @@ export class GdbSessionManager {
       !/^\d+\^done(?:,|$)/u.test(detached.mi)
     )
       throw new Error("GDB did not confirm inferior detachment.");
+    session.knownInferiorIdentities.clear();
     return { status: "detached", outputSink: "durable" };
   }
 

@@ -26,6 +26,8 @@ import {
 import {
   closeOwnedDebuggerSessions,
   stopOwnedDebuggerProcess,
+  verifyOwnedInferiorsEnded,
+  type OwnedInferiorIdentity,
   type OwnedDebuggerDetachResult,
 } from "../process/ownedDebuggerSession.js";
 
@@ -162,6 +164,10 @@ interface RizinDebugSession {
   readonly inferiorTty: string;
   readonly inferiorTtyDevice: number;
   readonly inferiorTtyInode: number;
+  readonly knownInferiorIdentities: Map<string, OwnedInferiorIdentity>;
+  inferiorInventoryComplete: boolean;
+  inferiorStateUnknown: () => boolean;
+  verifyInferiorsEndedAfterExit: () => Promise<boolean>;
   readonly detachInferior: () => Promise<OwnedDebuggerDetachResult>;
   cleanupCommandTurnHeld: boolean;
   stopAttempt: ReturnType<typeof stopOwnedDebuggerProcess> | undefined;
@@ -225,6 +231,7 @@ export class RizinDebugSessionManager {
   readonly #startDrainWaiters: Array<() => void> = [];
   readonly #command: string;
   readonly #frameTimeoutMs: number;
+  readonly #startupTimeoutMs: number;
   readonly #maxCommandOutputBytes: number;
   readonly #platform: NodeJS.Platform;
   readonly #stopProcess: typeof stopOwnedDebuggerProcess;
@@ -234,6 +241,8 @@ export class RizinDebugSessionManager {
     environment: Readonly<NodeJS.ProcessEnv> = process.env,
     options: {
       readonly frameTimeoutMs?: number;
+      /** @internal Test seam; production callers should use the 30 s default. */
+      readonly startupTimeoutMs?: number;
       /** @internal Test seam; production callers should use the 16 MiB default. */
       readonly maxCommandOutputBytes?: number;
       readonly platform?: NodeJS.Platform;
@@ -244,6 +253,7 @@ export class RizinDebugSessionManager {
     this.#environment = { ...environment };
     this.#command = environment.REA_RIZIN_COMMAND ?? "rizin";
     this.#frameTimeoutMs = options.frameTimeoutMs ?? FRAME_TIMEOUT_MS;
+    this.#startupTimeoutMs = options.startupTimeoutMs ?? STARTUP_TIMEOUT_MS;
     this.#maxCommandOutputBytes =
       options.maxCommandOutputBytes ?? MAX_COMMAND_OUTPUT_BYTES;
     this.#platform = options.platform ?? process.platform;
@@ -402,6 +412,17 @@ export class RizinDebugSessionManager {
       inferiorTty: ttyPath,
       inferiorTtyDevice: ttyDevice,
       inferiorTtyInode: ttyInode,
+      knownInferiorIdentities: new Map(),
+      inferiorInventoryComplete: false,
+      inferiorStateUnknown: () => !session.inferiorInventoryComplete,
+      verifyInferiorsEndedAfterExit: async () => {
+        if (!session.inferiorInventoryComplete) return false;
+        const ended = await verifyOwnedInferiorsEnded(
+          session.knownInferiorIdentities.values(),
+        );
+        if (ended) session.knownInferiorIdentities.clear();
+        return ended;
+      },
       detachInferior: () =>
         session.cleanupCommandTurnHeld
           ? this.#detachInferiorUnlocked(session)
@@ -455,7 +476,7 @@ export class RizinDebugSessionManager {
       session.frameWaiters.length = 0;
     });
     try {
-      await waitForFrame(session, STARTUP_TIMEOUT_MS, signal);
+      await waitForFrame(session, this.#startupTimeoutMs, signal);
       // Let process and stream lifecycle notifications queued alongside the
       // initial frame run before publishing the session as ready.
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -469,6 +490,7 @@ export class RizinDebugSessionManager {
       return ok({ session_id: id, backend: input.backend ?? null });
     } catch (cause) {
       const stopped = await this.#stopDebuggerOnly(session);
+      const capturedOutput = this.#startupCapturedOutput(session);
       if (stopped.status !== "incomplete") this.#sessions.delete(id);
       if (stopped.status === "incomplete")
         return err(
@@ -476,12 +498,15 @@ export class RizinDebugSessionManager {
             session,
             "start_rizin_debug_session",
             stopped.reason,
-            { cause },
+            { cause, capturedOutput },
           ),
         );
       if (signal?.aborted || cause instanceof AnalysisCancelledError)
         return err(
-          new AnalysisCancelledError("start_rizin_debug_session", { cause }),
+          new AnalysisCancelledError("start_rizin_debug_session", {
+            cause,
+            capturedOutput,
+          }),
         );
       if (session.protocolError !== undefined)
         return err(
@@ -489,11 +514,10 @@ export class RizinDebugSessionManager {
             "rizin",
             "start_rizin_debug_session",
             session.protocolError,
-            { cause },
+            { cause, capturedOutput },
           ),
         );
       if (cause instanceof RizinProcessExitError) {
-        const output = session.supervisor.snapshot();
         return err(
           new AnalysisCapabilityUnavailableError(
             "rizin",
@@ -501,14 +525,7 @@ export class RizinDebugSessionManager {
             cause.message,
             {
               cause,
-              capturedOutput: {
-                stdout: output.stdout.text,
-                stderr: output.stderr.text,
-                truncated:
-                  output.diagnosticTruncated === true ||
-                  output.stdout.observedBytes > output.stdout.bytes ||
-                  output.stderr.observedBytes > output.stderr.bytes,
-              },
+              capturedOutput,
             },
           ),
         );
@@ -516,8 +533,8 @@ export class RizinDebugSessionManager {
       return err(
         new AnalysisTimeoutError(
           "start_rizin_debug_session",
-          STARTUP_TIMEOUT_MS,
-          { cause },
+          this.#startupTimeoutMs,
+          { cause, capturedOutput },
         ),
       );
     }
@@ -587,6 +604,10 @@ export class RizinDebugSessionManager {
         );
       }
       const marker = `__REA_COMMAND_COMPLETE_${randomUUID().replaceAll("-", "")}__`;
+      // Arbitrary debugger commands can create or replace inferiors. Discard
+      // the prior inventory before any command bytes reach the provider.
+      session.inferiorInventoryComplete = false;
+      session.knownInferiorIdentities.clear();
       commandSent = true;
       const stdin = session.launched.process.stdin;
       if (
@@ -1016,6 +1037,38 @@ export class RizinDebugSessionManager {
     );
   }
 
+  #startupCapturedOutput(session: RizinDebugSession) {
+    const output = session.supervisor.snapshot();
+    const partialFrame =
+      session.bufferedFrameBytes === 0
+        ? ""
+        : Buffer.concat(
+            session.frameChunks,
+            session.bufferedFrameBytes,
+          ).toString("utf8");
+    const protocolOutput = [...session.history, partialFrame]
+      .filter((frame) => frame.length > 0)
+      .join("\n");
+    const protocolBytes = Buffer.from(protocolOutput, "utf8");
+    let stdoutBytes = Math.min(protocolBytes.length, MAX_DIAGNOSTIC_BYTES);
+    while (
+      stdoutBytes > 0 &&
+      stdoutBytes < protocolBytes.length &&
+      (protocolBytes[stdoutBytes]! & 0xc0) === 0x80
+    )
+      stdoutBytes -= 1;
+    return {
+      stdout: protocolBytes.subarray(0, stdoutBytes).toString("utf8"),
+      stderr: output.stderr.text,
+      truncated:
+        session.historyTruncated ||
+        protocolBytes.length > stdoutBytes ||
+        output.diagnosticTruncated === true ||
+        output.stdout.observedBytes > output.stdout.bytes ||
+        output.stderr.observedBytes > output.stderr.bytes,
+    };
+  }
+
   #deliverFrame(
     session: RizinDebugSession,
     frame: RizinFrame,
@@ -1120,11 +1173,27 @@ export class RizinDebugSessionManager {
         "Rizin protocol state is ambiguous; inferior detach is unverified.",
       );
     {
+      session.inferiorInventoryComplete = false;
+      session.knownInferiorIdentities.clear();
       const initial = parseRizinPtraceRows(
         await this.#runInternalCommand(session, "olj"),
       );
       const inferior = initial;
-      if (inferior.length === 0) return { status: "no-inferior" };
+      if (inferior.length === 0) {
+        session.knownInferiorIdentities.clear();
+        session.inferiorInventoryComplete = true;
+        return { status: "no-inferior" };
+      }
+      session.knownInferiorIdentities.clear();
+      for (const [, pid] of inferior) {
+        if (session.knownInferiorIdentities.has(pid)) continue;
+        const startTime = await readProcStartTime(pid);
+        session.knownInferiorIdentities.set(pid, {
+          pid,
+          startTime,
+        });
+      }
+      session.inferiorInventoryComplete = true;
       if (inferior.length !== 1)
         throw new Error(
           "Rizin reported multiple or ambiguous ptrace inferiors.",
