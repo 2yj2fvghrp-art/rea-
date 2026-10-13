@@ -180,9 +180,9 @@ it("releases the timer and listener on dispose with a pending wait", async () =>
   }
 });
 
-// Preserve the authored fractional-clock control while following the current
-// owning deadline's re-arm contract for an early native timer callback.
-it("reports zero after the re-armed deadline reaches a fractional early callback", async () => {
+// Preserve the terminal-budget regression under the monotonic expiry policy
+// and the re-arm contract for an early native timer callback.
+it("reports no remaining time after terminal expiry near the monotonic boundary", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
   const deadline = new ProviderStartupDeadline(40);
