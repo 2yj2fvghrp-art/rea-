@@ -50,6 +50,35 @@ const structured = (result: CallToolResult): Record<string, unknown> => {
   return z.record(z.string(), z.unknown()).parse(result.structuredContent);
 };
 
+it("keeps 6502 out of detected lifecycle output contracts", () => {
+  const schema = toolContract("open_binary").outputSchema;
+  const result = {
+    path: "/fixture/image.bin",
+    kind: "executable",
+    sha256: "a".repeat(64),
+    architecture: "6502",
+  };
+  expect(
+    schema.safeParse({ result: { ...result, format: "pe" } }).success,
+  ).toBe(false);
+  expect(
+    schema.safeParse({
+      result: { ...result, format: "raw-binary", entry_point: "0x8001" },
+    }).success,
+  ).toBe(true);
+  const validateAdvertised = new Ajv2020({ strict: false }).compile(
+    z.toJSONSchema(schema),
+  );
+  expect(validateAdvertised({ result: { ...result, format: "pe" } })).toBe(
+    false,
+  );
+  expect(
+    validateAdvertised({
+      result: { ...result, format: "raw-binary", entry_point: "0x8001" },
+    }),
+  ).toBe(true);
+});
+
 it.each([
   ["arm", "0x08000000", "0x8000000", "1eff2fe1"],
   ["6502", "0x008001", "0x8001", "a92a60"],

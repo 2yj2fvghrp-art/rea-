@@ -41,7 +41,10 @@ import { digestSchema } from "./../domain/digests.js";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 import { canonicalJsonDigestSteps } from "./canonicalJsonDigestSteps.js";
 import { freezeJsonSnapshot } from "./immutableJson.js";
-import { rawBinaryEntryPointSchema } from "./rawBinary.js";
+import {
+  binaryArchitectureSchema,
+  rawBinaryEntryPointSchema,
+} from "./rawBinary.js";
 import {
   relationshipCoverageSchema,
   type RelationshipCoverage,
@@ -97,9 +100,12 @@ const targetSchema = z.discriminatedUnion("format", [
     format: z.enum(
       formatSchema.options.filter((format) => format !== "raw-binary"),
     ),
+    architecture: architectureSchema.exclude(["6502"]).nullable(),
   }),
   targetIdentitySchema.extend({
     format: z.literal("raw-binary"),
+    kind: z.literal("executable"),
+    architecture: binaryArchitectureSchema,
     entry_point: rawBinaryEntryPointSchema,
   }),
 ]);
@@ -332,18 +338,21 @@ const canonicalJson = (value: unknown): string => {
 };
 
 /** Project a binary into the path-free identity used for cache invalidation. */
-export const snapshotTarget = (
-  target: BinaryTarget,
-): AnalysisSnapshotTarget => {
-  const identity = {
-    sha256: target.sha256,
-    kind: target.kind,
-    architecture: target.architecture ?? null,
-  };
-  return target.format === "raw-binary"
-    ? { ...identity, format: target.format, entry_point: target.entryPoint }
-    : { ...identity, format: target.format };
-};
+export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
+  target.format === "raw-binary"
+    ? {
+        sha256: target.sha256,
+        kind: target.kind,
+        architecture: target.architecture,
+        format: target.format,
+        entry_point: target.entryPoint,
+      }
+    : {
+        sha256: target.sha256,
+        kind: target.kind,
+        architecture: target.architecture ?? null,
+        format: target.format,
+      };
 
 /** Build the immutable provider/profile binding used by a cached snapshot. */
 export const snapshotBinding = (

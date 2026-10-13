@@ -71,6 +71,27 @@ const snapshotWithHistoricalEvidence = () => {
 };
 
 describe("analysis snapshot target identity", () => {
+  it("keeps 6502 confined to executable raw snapshots", () => {
+    const target = {
+      sha256: ANALYSIS_SNAPSHOT_TARGET.sha256,
+      kind: "executable",
+      architecture: "6502",
+    };
+    expect(
+      analysisSnapshotSchema.shape.target.safeParse({
+        ...target,
+        format: "pe",
+      }).success,
+    ).toBe(false);
+    expect(
+      analysisSnapshotSchema.shape.target.safeParse({
+        ...target,
+        format: "raw-binary",
+        entry_point: "0x8001",
+      }).success,
+    ).toBe(true);
+  });
+
   it("partitions raw snapshots and query identities by the canonical entry", () => {
     const target: BinaryTarget = {
       path: "/fixture/image.bin",
