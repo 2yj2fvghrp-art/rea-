@@ -120,6 +120,10 @@ export const readGoMachoImage = (bytes: Buffer): GoBinaryContainer => {
             name: `${fixedName(reader.range(section + 16, 16, "Mach-O section segment"))},${sectionName}`,
             protection,
             unmapped: unmapped || mapping === undefined,
+            segmentAddress: address,
+            segmentMemorySize: memorySize,
+            segmentFileOffset: fileOffset,
+            segmentFileSize: fileSize,
           }),
         );
         if (sectionName !== "__go_buildinfo") continue;
@@ -201,6 +205,10 @@ const machoImageSection = ({
   name,
   protection,
   unmapped,
+  segmentAddress,
+  segmentMemorySize,
+  segmentFileOffset,
+  segmentFileSize,
 }: {
   readonly reader: GoBinaryReader;
   readonly bits: 32 | 64;
@@ -209,9 +217,26 @@ const machoImageSection = ({
   readonly name: string;
   readonly protection: number;
   readonly unmapped: boolean;
+  readonly segmentAddress: bigint;
+  readonly segmentMemorySize: bigint;
+  readonly segmentFileOffset: bigint;
+  readonly segmentFileSize: bigint;
 }): GoImageSection => {
   const flags = reader.u32(header + (wide ? 64 : 56));
   const zeroFill = [1, 0xc, 0x12].includes(flags & 0xff);
+  const sectionAddress = reader.word(header + 32, bits);
+  const sectionSize = reader.word(header + (wide ? 40 : 36), bits);
+  const sectionOffset = BigInt(reader.u32(header + (wide ? 48 : 40)));
+  const addressDelta = sectionAddress - segmentAddress;
+  const fileDelta = sectionOffset - segmentFileOffset;
+  const inSegmentMemory =
+    addressDelta >= 0n &&
+    addressDelta <= segmentMemorySize &&
+    sectionSize <= segmentMemorySize - addressDelta;
+  const inSegmentFile =
+    fileDelta >= 0n &&
+    fileDelta <= segmentFileSize &&
+    sectionSize <= segmentFileSize - fileDelta;
   const range = unmapped
     ? { offset: 0, size: 0, file_backed: false }
     : declaredFileRange(
@@ -219,16 +244,17 @@ const machoImageSection = ({
         BigInt(reader.u32(header + (wide ? 48 : 40))),
         reader.word(header + (wide ? 40 : 36), bits),
       );
+  const fileBacked =
+    range.file_backed && !zeroFill && inSegmentMemory && inSegmentFile;
   const readOnly =
-    range.file_backed &&
-    !zeroFill &&
+    fileBacked &&
     (protection & 1) !== 0 &&
     (protection & 2) === 0 &&
     (flags & 0x80000400) === 0;
   return {
     name,
     ...range,
-    file_backed: range.file_backed && !zeroFill,
+    file_backed: fileBacked,
     read_only: readOnly,
     compressed: false,
   };
