@@ -2,22 +2,22 @@ import { createHash } from "node:crypto";
 import {
   access,
   mkdir,
+  open,
   readFile,
   readdir,
-  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it } from "vitest";
 
+import { readMachoFileUuidEntries } from "../../../src/application/DebugCompanionAdmission.js";
 import { stageGhidraDebugCompanion } from "../../../src/ghidra/GhidraDebugCompanion.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const stagingFixture = async () => {
   const root = await createTestTempDirectory("rea-dsym-staging-");
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
   const bytes = Buffer.from("caller-selected DWARF member bytes");
   const runtime = join(root, "private-runtime");
   await mkdir(runtime);
@@ -116,4 +116,35 @@ it("cleans partial staging after cancellation without changing the selected memb
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(await readdir(fixture.runtime)).toEqual([]);
   expect(await readFile(fixture.companion.memberPath)).toEqual(fixture.bytes);
+});
+
+it("reads a UUID after a sparse command span above the former allocation ceiling", async () => {
+  const root = await createTestTempDirectory("rea-dsym-sparse-commands-");
+  const path = join(root, "large-command-image");
+  const commandBytes = 200 * 1024 * 1024;
+  const header = Buffer.alloc(40);
+  header.writeUInt32LE(0xfeedfacf, 0);
+  header.writeUInt32LE(0x01000007, 4);
+  header.writeUInt32LE(2, 16);
+  header.writeUInt32LE(commandBytes, 20);
+  header.writeUInt32LE(0x77777777, 32); // An opaque command body is skipped.
+  header.writeUInt32LE(commandBytes - 24, 36);
+  const uuid = Buffer.alloc(24);
+  uuid.writeUInt32LE(0x1b, 0);
+  uuid.writeUInt32LE(24, 4);
+  Buffer.from("11111111222233334444555555555555", "hex").copy(uuid, 8);
+  const handle = await open(path, "wx+");
+  try {
+    await handle.truncate(32 + commandBytes);
+    await handle.write(header, 0, header.length, 0);
+    await handle.write(uuid, 0, uuid.length, 32 + commandBytes - uuid.length);
+    expect(await readMachoFileUuidEntries(handle, 32 + commandBytes)).toEqual({
+      ok: true,
+      value: [
+        { cpuType: 0x01000007, uuid: "11111111-2222-3333-4444-555555555555" },
+      ],
+    });
+  } finally {
+    await handle.close();
+  }
 });

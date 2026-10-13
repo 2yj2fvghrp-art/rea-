@@ -240,6 +240,9 @@ export const parseBinaryTarget = async (
           targetHandle: handle,
           targetSize: metadata.size,
           architecture: detected.value.architecture,
+          ...(detected.value.format === "mach-o-universal"
+            ? { targetSlice: detected.value.universalSlice }
+            : {}),
           ...(signal === undefined ? {} : { signal }),
         });
         if (!companion.ok)

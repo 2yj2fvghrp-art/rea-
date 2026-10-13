@@ -68,6 +68,8 @@ flow.
   not exposed.
 - Admission examines at most 16 DWARF directory entries, including entries
   that are not regular files. The matched member may be at most 1 GiB.
-- UUID traversal buffers at most 16 MiB for one image's load commands and reads
-  at most 64 MiB across the target and all member candidates. These are resource
-  budgets for this analysis workflow, rather than Mach-O format limits.
+- UUID traversal incrementally reads command headers and UUID payloads with a
+  cached window of at most 64 KiB. Large command bodies are skipped rather than
+  allocated or classified as malformed solely for their size. At most 64 MiB
+  is read across the target and all member candidates; this is an explicit
+  workflow I/O budget, rather than a Mach-O format limit.

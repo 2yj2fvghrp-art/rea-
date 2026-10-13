@@ -26,89 +26,106 @@ const formatUuid = (raw: Buffer): string => {
   ].join("-");
 };
 
+/** One bounded read requested by the owning thin-image UUID decoder. */
+export interface MachOUuidRead {
+  readonly offset: number;
+  readonly length: number;
+}
+
+/** A UUID-less image retains its CPU identity instead of disappearing. */
+export interface MachOImageUuid {
+  readonly cpuType: number;
+  readonly uuid: string | null;
+}
+
 /**
- * The declared load-command span of a thin Mach-O image, with its byte
- * order, so a reader can fetch exactly the bytes the parser walks. The span
- * is bounded by the reader's region, not by an arbitrary ceiling.
+ * Decode only command headers and UUID payloads. The same format owner drives
+ * in-memory fixtures and incremental filesystem reads, so large unknown command
+ * bodies are skipped without buffering them or inventing a format-size limit.
  */
-export const machoCommandSpan = (
-  bytes: Buffer,
-): Result<
-  { readonly start: number; readonly size: number; readonly little: boolean },
-  string
-> => {
-  if (bytes.length < 32) return err("Mach-O header is truncated");
-  const magic = bytes.readUInt32BE(0);
+export function* machoUuidReads(
+  imageSize: number,
+): Generator<MachOUuidRead, Result<MachOImageUuid, string>, Buffer> {
+  if (imageSize < 4) return err("Mach-O header is truncated");
+  const magicBytes = yield { offset: 0, length: 4 };
+  if (magicBytes.length < 4) return err("Mach-O header is truncated");
+  const magic = magicBytes.readUInt32BE(0);
   const little = THIN_LITTLE_MAGICS.has(magic);
   if (!little && !THIN_BIG_MAGICS.has(magic)) return err("not a Mach-O image");
-  const read32 = little
-    ? (position: number) => bytes.readUInt32LE(position)
-    : (position: number) => bytes.readUInt32BE(position);
   const wide = magic === 0xfeedfacf || magic === 0xcffaedfe;
-  const start = wide ? 32 : 28;
-  const size = read32(20);
-  if (size < start) return err("Mach-O declared load-command span is invalid");
-  return ok({ start, size, little });
-};
+  const headerSize = wide ? 32 : 28;
+  if (imageSize < headerSize)
+    return err("Mach-O header is truncated before its load commands");
+  const header = yield { offset: 0, length: headerSize };
+  if (header.length < headerSize)
+    return err("Mach-O header is truncated before its load commands");
+  const read32 = (bytes: Buffer, offset: number): number =>
+    little ? bytes.readUInt32LE(offset) : bytes.readUInt32BE(offset);
+  const cpuType = read32(header, 4);
+  const commandCount = read32(header, 16);
+  const declaredSize = read32(header, 20);
+  if (declaredSize > imageSize - headerSize)
+    return err("Mach-O load commands exceed the declared image region");
+  const commandsEnd = headerSize + declaredSize;
+  let cursor = headerSize;
+  let observed: string | null = null;
+  for (let index = 0; index < commandCount; index += 1) {
+    if (commandsEnd - cursor < 8)
+      return err(`Mach-O load command ${String(index)} is truncated`);
+    const commandHeader = yield { offset: cursor, length: 8 };
+    if (commandHeader.length < 8)
+      return err(`Mach-O load command ${String(index)} is truncated`);
+    const command = read32(commandHeader, 0);
+    const size = read32(commandHeader, 4);
+    if (size < 8 || size > commandsEnd - cursor)
+      return err(`Mach-O load command ${String(index)} has an invalid size`);
+    if (command === LC_UUID) {
+      if (size < 8 + UUID_BYTES)
+        return err("LC_UUID load command is truncated");
+      if (observed !== null)
+        return err("Mach-O image declares more than one LC_UUID");
+      const payload = yield { offset: cursor + 8, length: UUID_BYTES };
+      if (payload.length < UUID_BYTES)
+        return err("LC_UUID load command is truncated");
+      observed = formatUuid(payload);
+    }
+    cursor += size;
+  }
+  if (cursor !== commandsEnd)
+    return err(
+      "Mach-O load commands do not fill the declared load-command span",
+    );
+  return ok({ cpuType, uuid: observed });
+}
 
 const readUuidsFromThin = (
   bytes: Buffer,
   offset: number,
   end: number,
 ): Result<MachOUuidEntry[], string> => {
-  const base = offset;
-  if (end - base < 4) return err("Mach-O header is truncated");
-  const magic = bytes.readUInt32BE(base);
-  const little = THIN_LITTLE_MAGICS.has(magic);
-  if (!little && !THIN_BIG_MAGICS.has(magic))
-    return err(`not a Mach-O image at offset ${String(offset)}`);
-  const read32 = little
-    ? (position: number) => bytes.readUInt32LE(position)
-    : (position: number) => bytes.readUInt32BE(position);
-  const wide = magic === 0xfeedfacf || magic === 0xcffaedfe;
-  const headerSize = wide ? 32 : 28;
-  const commandsOffset = base + headerSize;
-  // Field access requires a complete header; a short prefix is a rejection,
-  // not a crash.
-  if (commandsOffset > end)
-    return err("Mach-O header is truncated before its load commands");
-  const cpuType = read32(base + 4);
-  const commandCount = read32(base + 16);
-  // sizeofcmds excludes the header; its consistency is enforced by exact
-  // consumption below.
-  const declaredSize = read32(base + 20);
-  // Commands live exactly in the declared span; anything after it is not a
-  // load command no matter what the surrounding bytes look like.
-  const commandsEnd = Math.min(end, commandsOffset + declaredSize);
-  let cursor = commandsOffset;
-  let consumed = 0;
-  let observed: string | undefined;
-  for (let index = 0; index < commandCount; index += 1) {
-    if (cursor + 8 > commandsEnd)
-      return err(`Mach-O load command ${String(index)} is truncated`);
-    const command = read32(cursor);
-    const size = read32(cursor + 4);
-    if (size < 8 || cursor + size > commandsEnd)
-      return err(`Mach-O load command ${String(index)} has an invalid size`);
-    if (command === LC_UUID) {
-      if (size < 8 + UUID_BYTES)
-        return err("LC_UUID load command is truncated");
-      // A second LC_UUID in one image is a conflicting identity, not more
-      // evidence; admission must not pick whichever matches.
-      if (observed !== undefined)
-        return err("Mach-O image declares more than one LC_UUID");
-      observed = formatUuid(
-        bytes.subarray(cursor + 8, cursor + 8 + UUID_BYTES),
-      );
-    }
-    cursor += size;
-    consumed += size;
-  }
-  if (consumed !== declaredSize || cursor !== commandsOffset + declaredSize)
-    return err(
-      "Mach-O load commands do not fill the declared load-command span",
+  const decoder = machoUuidReads(end - offset);
+  let step = decoder.next();
+  while (!step.done) {
+    const request = step.value;
+    step = decoder.next(
+      bytes.subarray(
+        offset + request.offset,
+        Math.min(end, offset + request.offset + request.length),
+      ),
     );
-  return ok(observed === undefined ? [] : [{ cpuType, uuid: observed }]);
+  }
+  if (!step.value.ok) return step.value;
+  const identity = step.value.value;
+  return ok(
+    identity.uuid === null
+      ? []
+      : [
+          {
+            cpuType: identity.cpuType,
+            uuid: identity.uuid,
+          },
+        ],
+  );
 };
 
 /**
