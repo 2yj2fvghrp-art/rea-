@@ -179,9 +179,49 @@ prefix on `claude mcp remove --scope user rea` and any `rea uninstall` command;
 keep the broader client scope of uninstall in mind. Restart the selected
 profile after changing its pinned registration.
 
+The commands above use POSIX shell assignment syntax. In native Windows
+PowerShell, select the profile for the whole setup/launch/check session and
+restore the previous selection afterward:
+
+```powershell
+$previousClaudeConfigDir = $env:CLAUDE_CONFIG_DIR
+try {
+  $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-rea"
+  npx rea-agents setup --client claude_code
+  claude mcp list
+  npx rea-agents doctor --client claude_code --skill --json
+  npx -y rea-agents@latest setup --client claude_code --dry-run
+  # After reviewing the plan, repeat setup without --dry-run and approve it.
+  claude
+  # Profile removal, when intended, also belongs inside this selected scope:
+  # claude mcp remove --scope user rea
+} finally {
+  if ($null -eq $previousClaudeConfigDir) {
+    Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+  } else {
+    $env:CLAUDE_CONFIG_DIR = $previousClaudeConfigDir
+  }
+}
+```
+
+Use PowerShell for these Windows examples rather than pasting POSIX assignments
+into cmd.exe. Keep profile updates, readiness checks and removal inside the
+same selected environment; the `finally` block restores the previous profile
+or unsets the variable when it was absent.
+
 **One project.** Install without configuring Claude Code: use the curl
 installer's `--no-setup`, or run setup only for other clients. Then register
-REA from the project directory at Claude Code's local scope:
+REA from the project directory at Claude Code's local scope.
+
+This route uses the default Claude profile. Keep `CLAUDE_CONFIG_DIR` unset for
+the entire local lifecycle: registration, backup, listing, version replacement
+and removal. In POSIX shells run `unset CLAUDE_CONFIG_DIR`; in PowerShell run
+`Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue` before these
+commands. Record an existing selection first if you intend to restore it after
+finishing. The configuration path below is the default profile's
+`~/.claude.json`; a different active profile uses its own config root instead.
+
+Register with the variable unset:
 
 <!-- x-release-please-start-version -->
 
