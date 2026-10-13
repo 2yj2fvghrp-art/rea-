@@ -62,8 +62,8 @@ export const captureStorage = async (
         limitations,
       )
     : undefined;
-  const cacheValues = recordValue(cacheRaw)?.caches;
-  const caches = capturedCaches(recordsValue(cacheValues));
+  const cacheField = recordValue(cacheRaw)?.caches;
+  const caches = capturedCaches(recordsValue(cacheField));
   const fingerprints = context.input.include_storage_fingerprints
     ? await captureStorageFingerprints({
         context,
@@ -80,9 +80,10 @@ export const captureStorage = async (
     indexedRaw !== undefined &&
     Array.isArray(indexedValues) &&
     indexed.length === indexedValues.length &&
-    cacheRaw !== undefined &&
-    Array.isArray(cacheValues) &&
-    caches.length === cacheValues.length;
+    // Like IndexedDB names, a missing, non-array or partly unusable cache
+    // list is an incomplete enumeration rather than an empty one.
+    Array.isArray(cacheField) &&
+    caches.length === cacheField.length;
   const keysExclusion = !context.input.include_storage_keys
     ? undefined
     : local.exclusion === "provider_unavailable" ||
