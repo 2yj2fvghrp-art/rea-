@@ -411,7 +411,10 @@ const expectNativeTypeSelections = async (
 };
 
 it("keeps malformed mode attribute lists and interpolated type keys unknown", async () => {
-  const worker = new JavaScriptAnalysisWorker({ heapMb: 128, timeoutMs: 30_000 });
+  const worker = new JavaScriptAnalysisWorker({
+    heapMb: 128,
+    timeoutMs: 30_000,
+  });
   try {
     for (const text of [
       'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',

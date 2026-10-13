@@ -58,8 +58,9 @@ export const typescriptImportResolutionMode = (
   if (
     attributes.length !== 1 ||
     attribute === undefined ||
-    (t.isStringLiteral(attribute.key) ? attribute.key.value : attribute.key.name) !==
-      "resolution-mode"
+    (t.isStringLiteral(attribute.key)
+      ? attribute.key.value
+      : attribute.key.name) !== "resolution-mode"
   )
     return "compiler-dependent";
   const mode = attribute.value.value;
@@ -73,8 +74,10 @@ const literalProperty = (
   t.isObjectExpression(node) &&
   node.properties.length === 1 &&
   t.isObjectProperty(node.properties[0]) &&
-  semanticStaticPropertyKey(node.properties[0].key, node.properties[0].computed) ===
-    key
+  semanticStaticPropertyKey(
+    node.properties[0].key,
+    node.properties[0].computed,
+  ) === key
     ? node.properties[0].value
     : undefined;
 
