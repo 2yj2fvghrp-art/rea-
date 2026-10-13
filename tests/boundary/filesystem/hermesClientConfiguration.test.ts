@@ -114,18 +114,28 @@ describe("Hermes YAML shape diagnostics", () => {
       "!!omap [{rea: {command: rea, args: [mcp]}}]",
       "!!timestamp 2001-12-15",
       "!!binary cmVh",
-    ].flatMap((value) => [
-      {
-        original: `${value}\n`,
-        problem: "The configuration root must be an object",
-      },
-      {
-        original: `mcp_servers: ${value}\n`,
-        problem: '"mcp_servers" must be an object',
-      },
-    ]),
+    ]
+      .flatMap((value) => [
+        {
+          original: `${value}\n`,
+          problem: "The configuration root must be an object",
+        },
+        {
+          original: `mcp_servers: ${value}\n`,
+          problem: '"mcp_servers" must be an object',
+        },
+      ])
+      .concat(
+        // An explicit null root is a value, not an empty file.
+        ["null\n", "~\n", "# Hermes configuration\nnull\n", "--- ~\n"].map(
+          (original) => ({
+            original,
+            problem: "The configuration root must be an object",
+          }),
+        ),
+      ),
   )(
-    "blocks setup and uninstall before changes for tagged non-record YAML: $original",
+    "blocks setup and uninstall before changes for tagged or null non-record YAML: $original",
     async ({ original, problem }) => {
       const { home, client } = await hermesClient();
       const cursor = join(home, ".cursor", "mcp.json");
