@@ -21,6 +21,10 @@ import {
   ghidraRiscvLanguageOverride,
   ghidraRiscvProfileParameters,
 } from "./GhidraRiscvProfile.js";
+import {
+  ghidraPowerPcLanguage,
+  ghidraPowerPcProfileParameters,
+} from "./GhidraPowerPcProfile.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 
 import {
@@ -46,7 +50,9 @@ const callRelationshipCoverage = "function-body-call-coverage-v5";
 export const ghidraPinnedLanguage = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  ghidraMipsLanguageOverride(target) ?? ghidraRiscvLanguageOverride(target);
+  ghidraMipsLanguageOverride(target) ??
+  ghidraRiscvLanguageOverride(target) ??
+  ghidraPowerPcLanguage(target);
 
 /** Resolve version-bound, deterministic semantics before Ghidra imports a target. */
 export const resolveGhidraAnalysisProfile = async (
@@ -157,6 +163,7 @@ export const resolveGhidraAnalysisProfile = async (
   const pinnedLanguage = ghidraPinnedLanguage(target);
   if (
     pinnedLanguage !== undefined &&
+    target.architecture !== "powerpc" &&
     languageOverride !== undefined &&
     (languageOverride.languageId !== pinnedLanguage.languageId ||
       (languageOverride.compilerSpecId !== undefined &&
@@ -279,6 +286,7 @@ export const resolveGhidraAnalysisProfile = async (
         ...analyzerParameters,
         ...ghidraMipsProfileParameters(target, languageOverride),
         ...ghidraRiscvProfileParameters(target),
+        ...ghidraPowerPcProfileParameters(target),
         ...(pspExtension?.ok === true
           ? {
               mips_support_lane: "psp-elf32-exec-eabi32-allegrex-v2",
