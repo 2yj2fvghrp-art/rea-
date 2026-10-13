@@ -2,6 +2,7 @@ import { deflateSync, inflateSync } from "node:zlib";
 import { z } from "zod";
 import {
   RUST_AUDITABLE_FORMAT_VERSION,
+  cyclicDependencyIndices,
   type RustAuditableMetadata,
   type RustPackage,
 } from "../domain/rust/rustBinary.js";
@@ -113,7 +114,7 @@ export const readAuditableSection = (
         to_index: toIndex,
       })),
     ),
-    cyclic_dependency_indices: cyclicIndices(packages),
+    cyclic_dependency_indices: cyclicDependencyIndices(packages),
   };
 };
 
@@ -247,6 +248,8 @@ const parseDocument = (bytes: Buffer): z.infer<typeof documentSchema> => {
       `Unsupported cargo-auditable format version ${version.data.format}`,
     );
   admitGraphExpansion(value);
+  // One malformed package must fail before Zod retains an issue for every field.
+  rejectMalformedPackages(value);
   const parsed = documentSchema.safeParse(value);
   if (!parsed.success)
     throw new RustAuditableFormatFailure(
@@ -313,6 +316,71 @@ const admitGraphExpansion = (value: unknown): void => {
   }
 };
 
+const PACKAGE_FIELDS = new Set([
+  "name",
+  "version",
+  "source",
+  "kind",
+  "dependencies",
+  "root",
+]);
+
+const rejectMalformedPackages = (value: unknown): void => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("packages" in value) ||
+    !Array.isArray(value.packages)
+  )
+    return;
+  for (const [index, pkg] of value.packages.entries()) {
+    if (!packageRecord(pkg))
+      throw new RustAuditableFormatFailure(
+        "malformed",
+        `Dependency package ${String(index)} does not match the package schema`,
+      );
+  }
+};
+
+const packageRecord = (
+  pkg: unknown,
+): pkg is {
+  readonly dependencies?: readonly unknown[];
+} => {
+  if (typeof pkg !== "object" || pkg === null || Array.isArray(pkg))
+    return false;
+  const record = pkg as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!PACKAGE_FIELDS.has(key)) return false;
+  }
+  if (
+    !nonEmptyString(record.name) ||
+    !nonEmptyString(record.version) ||
+    !nonEmptyString(record.source)
+  )
+    return false;
+  if (
+    record.kind !== undefined &&
+    record.kind !== "runtime" &&
+    record.kind !== "build"
+  )
+    return false;
+  if (record.root !== undefined && typeof record.root !== "boolean")
+    return false;
+  const dependencies = record.dependencies;
+  if (dependencies === undefined) return true;
+  return (
+    Array.isArray(dependencies) &&
+    dependencies.every(
+      (entry) =>
+        typeof entry === "number" && Number.isInteger(entry) && entry >= 0,
+    )
+  );
+};
+
+const nonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0;
+
 const assertDepth = (text: string): void => {
   let depth = 0;
   let quoted = false;
@@ -369,90 +437,4 @@ const rootIndex = (packages: readonly RustPackage[]): number | null => {
       );
   }
   return roots[0] ?? null;
-};
-
-interface WalkFrame {
-  readonly index: number;
-  edge: number;
-}
-
-/** Indices in an SCC larger than one node, or in a one-node self-loop. */
-const cyclicIndices = (packages: readonly RustPackage[]): number[] => {
-  const edges = packages.map((pkg) => pkg.dependencies);
-  const order = postorder(edges);
-  const reversed = reversedEdges(edges);
-  const seen = new Uint8Array(edges.length);
-  const cyclic = new Set<number>();
-  for (let cursor = order.length - 1; cursor >= 0; cursor -= 1) {
-    const start = order[cursor];
-    if (start === undefined || seen[start] === 1) continue;
-    const component = componentFrom(start, reversed, seen);
-    if (componentInCycle(component, edges))
-      for (const index of component) cyclic.add(index);
-  }
-  return [...cyclic].sort((left, right) => left - right);
-};
-
-const postorder = (edges: readonly (readonly number[])[]): number[] => {
-  const seen = new Uint8Array(edges.length);
-  const order: number[] = [];
-  for (let start = 0; start < edges.length; start += 1) {
-    if (seen[start] === 1) continue;
-    const stack: WalkFrame[] = [{ index: start, edge: 0 }];
-    seen[start] = 1;
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
-      if (frame === undefined) break;
-      const next = edges[frame.index]?.[frame.edge];
-      if (next === undefined) {
-        stack.pop();
-        order.push(frame.index);
-        continue;
-      }
-      frame.edge += 1;
-      if (seen[next] === 0) {
-        seen[next] = 1;
-        stack.push({ index: next, edge: 0 });
-      }
-    }
-  }
-  return order;
-};
-
-const reversedEdges = (edges: readonly (readonly number[])[]): number[][] => {
-  const reversed = Array.from({ length: edges.length }, () => [] as number[]);
-  for (let from = 0; from < edges.length; from += 1)
-    for (const to of edges[from] ?? []) reversed[to]?.push(from);
-  return reversed;
-};
-
-const componentFrom = (
-  start: number,
-  reversed: readonly (readonly number[])[],
-  seen: Uint8Array,
-): number[] => {
-  const component: number[] = [];
-  const stack = [start];
-  seen[start] = 1;
-  while (stack.length > 0) {
-    const index = stack.pop();
-    if (index === undefined) break;
-    component.push(index);
-    for (const next of reversed[index] ?? []) {
-      if (seen[next] === 0) {
-        seen[next] = 1;
-        stack.push(next);
-      }
-    }
-  }
-  return component;
-};
-
-const componentInCycle = (
-  component: readonly number[],
-  edges: readonly (readonly number[])[],
-): boolean => {
-  if (component.length > 1) return true;
-  const only = component[0];
-  return only !== undefined && (edges[only]?.includes(only) ?? false);
 };

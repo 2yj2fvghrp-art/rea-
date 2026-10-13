@@ -166,6 +166,33 @@ it.each([{ packages: [] }, { packages: [{ future_package_field: true }] }])(
   },
 );
 
+it("rejects the first malformed package before schema issues accumulate", () => {
+  const stored = (document: unknown) =>
+    deflateSync(Buffer.from(JSON.stringify(document)), { level: 0 });
+  const emptyPackages = stored({
+    format: 1,
+    packages: Array.from({ length: 80_000 }, () => ({})),
+  });
+  expect(emptyPackages.length).toBeLessThan(RUST_SECTION_BYTES);
+  expect(() => readAuditableSection(".dep-v0", 0, emptyPackages)).toThrow(
+    /Dependency package 0 does not match the package schema/,
+  );
+  const invalidDependencies = stored({
+    format: 1,
+    packages: [
+      {
+        name: "a",
+        version: "1",
+        source: "local",
+        dependencies: Array.from({ length: 1_000 }, () => null),
+      },
+    ],
+  });
+  expect(() => readAuditableSection(".dep-v0", 0, invalidDependencies)).toThrow(
+    /Dependency package 0 does not match the package schema/,
+  );
+});
+
 it("admits dependency expansion before allocating normalized or reverse edges", () => {
   const document = {
     packages: [

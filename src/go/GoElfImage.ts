@@ -161,17 +161,15 @@ export const readGoElfImage = (bytes: Buffer): GoBinaryContainer => {
             "malformed",
             "ELF section name offset is outside its string table",
           );
-        const sectionName = elfSectionName(bytes, names, nameOffset);
-        if (sectionName !== null)
-          sections.push(
-            elfImageSection({
-              reader,
-              bits,
-              wide,
-              header: offset,
-              name: sectionName,
-            }),
-          );
+        recordElfSection(sections, {
+          bytes,
+          names,
+          nameOffset,
+          reader,
+          bits,
+          wide,
+          header: offset,
+        });
         // Comparing the complete fixed name avoids quadratic scans through malicious string tables.
         const expectedName = Buffer.from(".go.buildinfo\0");
         if (
@@ -232,16 +230,62 @@ export const readGoElfImage = (bytes: Buffer): GoBinaryContainer => {
   };
 };
 
+const recordElfSection = (
+  sections: GoImageSection[],
+  input: {
+    readonly bytes: Buffer;
+    readonly names: { readonly offset: number; readonly size: number };
+    readonly nameOffset: number;
+    readonly reader: GoBinaryReader;
+    readonly bits: 32 | 64;
+    readonly wide: boolean;
+    readonly header: number;
+  },
+): void => {
+  const decoded = elfSectionName(input.bytes, input.names, input.nameOffset);
+  const header = {
+    reader: input.reader,
+    bits: input.bits,
+    wide: input.wide,
+    header: input.header,
+  };
+  switch (decoded.status) {
+    case "named":
+      sections.push(elfImageSection({ ...header, name: decoded.name }));
+      return;
+    case "truncated": {
+      // Names past this window stay out of .dep-v0 matching. Read-only
+      // bytes can still hold the only compiler path.
+      const section = elfImageSection({ ...header, name: "" });
+      if (section.read_only) sections.push(section);
+      return;
+    }
+    case "unnamed":
+      return;
+    default: {
+      const unreachable: never = decoded;
+      return unreachable;
+    }
+  }
+};
+
 const elfSectionName = (
   bytes: Buffer,
   names: { readonly offset: number; readonly size: number },
   nameOffset: number,
-): string | null => {
+):
+  | { readonly status: "named"; readonly name: string }
+  | { readonly status: "unnamed" }
+  | { readonly status: "truncated" } => {
   const start = names.offset + nameOffset;
   const limit = Math.min(start + 64, names.offset + names.size);
   const nul = bytes.subarray(start, limit).indexOf(0);
-  if (nul <= 0) return null;
-  return bytes.toString("latin1", start, start + nul);
+  if (nul === 0) return { status: "unnamed" };
+  if (nul < 0) return { status: "truncated" };
+  return {
+    status: "named",
+    name: bytes.toString("latin1", start, start + nul),
+  };
 };
 
 const elfImageSection = ({

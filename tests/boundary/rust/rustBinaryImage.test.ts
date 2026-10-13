@@ -112,6 +112,22 @@ it("does not read SHT_NOBITS dependency sections as stored bytes", () => {
   expect(metadata).toBeNull();
 });
 
+it("reads a rustc path from a read-only ELF section whose name exceeds 64 bytes", () => {
+  const bytes = createRustImage({ format: "elf", omitSection: true });
+  // omitSection places the rustc section header at 384 and shstrtab at 320.
+  const nameOffset = bytes.readUInt32LE(384);
+  const tableOffset = Number(bytes.readBigUInt64LE(320 + 24));
+  const longName = Buffer.concat([Buffer.alloc(65, 0x61), Buffer.from([0])]);
+  longName.copy(bytes, tableOffset + nameOffset);
+  bytes.writeBigUInt64LE(BigInt(nameOffset + longName.length), 320 + 32);
+  const image = readRustBinaryImage(bytes);
+  expect(image.auditable_metadata).toBeNull();
+  expect(image.rustc_commit).toEqual({
+    evidence_kind: "inferred",
+    hashes: [{ hash: RUSTC_HASH, file_offset: 2048 }],
+  });
+});
+
 it("refuses read-only data with more distinct rustc paths than it retains", () => {
   const bytes = createRustHashOverflowImage();
   expect(() => readRustBinaryImage(bytes)).toThrow(

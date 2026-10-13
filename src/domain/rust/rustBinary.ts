@@ -168,21 +168,111 @@ const checkPackages = (
       ["auditable_metadata", "root_package_index"],
       "Root package index does not match packages marked root.",
     );
-  for (const [
-    position,
-    cyclic,
-  ] of metadata.cyclic_dependency_indices.entries()) {
-    const previous = metadata.cyclic_dependency_indices[position - 1];
-    if (
-      cyclic >= metadata.packages.length ||
-      (previous !== undefined && cyclic <= previous)
+  const cycles = cyclicDependencyIndices(metadata.packages);
+  if (
+    cycles.length !== metadata.cyclic_dependency_indices.length ||
+    cycles.some(
+      (index, position) =>
+        metadata.cyclic_dependency_indices[position] !== index,
     )
-      issue(
-        context,
-        ["auditable_metadata", "cyclic_dependency_indices", position],
-        "Cyclic dependency indices must be unique, sorted, and inside the package list.",
-      );
+  )
+    issue(
+      context,
+      ["auditable_metadata", "cyclic_dependency_indices"],
+      "Cyclic dependency indices do not match the cycles in package dependencies.",
+    );
+};
+
+/** Package indices that participate in a dependency cycle, in ascending order. */
+export const cyclicDependencyIndices = (
+  packages: readonly { readonly dependencies: readonly number[] }[],
+): number[] => {
+  const edges = packages.map((pkg) => pkg.dependencies);
+  const order = dependencyPostorder(edges);
+  const reversed = reversedDependencyEdges(edges);
+  const seen = new Uint8Array(edges.length);
+  const cyclic = new Set<number>();
+  for (let cursor = order.length - 1; cursor >= 0; cursor -= 1) {
+    const start = order[cursor];
+    if (start === undefined || seen[start] === 1) continue;
+    const component = dependencyComponent(start, reversed, seen);
+    if (dependencyComponentInCycle(component, edges))
+      for (const index of component) cyclic.add(index);
   }
+  return [...cyclic].sort((left, right) => left - right);
+};
+
+interface DependencyWalkFrame {
+  readonly index: number;
+  edge: number;
+}
+
+const dependencyPostorder = (
+  edges: readonly (readonly number[])[],
+): number[] => {
+  const seen = new Uint8Array(edges.length);
+  const order: number[] = [];
+  for (let start = 0; start < edges.length; start += 1) {
+    if (seen[start] === 1) continue;
+    const stack: DependencyWalkFrame[] = [{ index: start, edge: 0 }];
+    seen[start] = 1;
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (frame === undefined) break;
+      const next = edges[frame.index]?.[frame.edge];
+      if (next === undefined) {
+        stack.pop();
+        order.push(frame.index);
+        continue;
+      }
+      frame.edge += 1;
+      if (seen[next] === 0) {
+        seen[next] = 1;
+        stack.push({ index: next, edge: 0 });
+      }
+    }
+  }
+  return order;
+};
+
+const reversedDependencyEdges = (
+  edges: readonly (readonly number[])[],
+): number[][] => {
+  const reversed = Array.from({ length: edges.length }, () => [] as number[]);
+  for (let from = 0; from < edges.length; from += 1)
+    for (const to of edges[from] ?? []) reversed[to]?.push(from);
+  return reversed;
+};
+
+const dependencyComponent = (
+  start: number,
+  reversed: readonly (readonly number[])[],
+  seen: Uint8Array,
+): number[] => {
+  const component: number[] = [];
+  const stack = [start];
+  seen[start] = 1;
+  while (stack.length > 0) {
+    const index = stack.pop();
+    if (index === undefined) break;
+    component.push(index);
+    for (const next of reversed[index] ?? []) {
+      if (seen[next] === 0) {
+        seen[next] = 1;
+        stack.push(next);
+      }
+    }
+  }
+  return component;
+};
+
+const dependencyComponentInCycle = (
+  component: readonly number[],
+  edges: readonly (readonly number[])[],
+): boolean => {
+  if (component.length > 1) return true;
+  const only = component[0];
+  return only !== undefined && (edges[only]?.includes(only) ?? false);
 };
 
 const checkRustc = (

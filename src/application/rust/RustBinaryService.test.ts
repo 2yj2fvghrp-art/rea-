@@ -94,6 +94,23 @@ it("records the selected artifact and the dependency section range", async () =>
   if (!invalid.ok) expect(invalid.error).toBeInstanceOf(AnalysisOutputError);
 });
 
+it("rejects a cycle claim the package dependencies do not contain", async () => {
+  if (report.auditable_metadata === null) throw new Error("expected metadata");
+  const invalidReport: RustBinary = {
+    ...report,
+    auditable_metadata: {
+      ...report.auditable_metadata,
+      cyclic_dependency_indices: [0],
+    },
+  };
+  const result = await new RustBinaryService({
+    identity,
+    inspect: () => Promise.resolve(ok(invalidReport)),
+  }).inspect({ path: report.artifact.path });
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error).toBeInstanceOf(AnalysisOutputError);
+});
+
 it.each([
   { from_index: 1, to_index: 0 },
   { from_index: 0, to_index: 1 },
