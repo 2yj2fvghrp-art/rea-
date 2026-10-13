@@ -40,13 +40,13 @@ const MAX_EXTRACTION_DEPTH = 10;
 
 const depthContinuation = (
   maxDepth: number,
-  publishedChildPaths: readonly string[],
+  hasEligibleChild: boolean,
 ): string =>
   maxDepth < MAX_EXTRACTION_DEPTH
     ? GAP_CONTINUATIONS["depth-limited"]
-    : publishedChildPaths.length > 0
-      ? `This extraction already ran at the lane's maximum depth. To continue, rerun extract_firmware with path set to any eligible published child below this path and a fresh output directory; each child listed here restarts the depth budget: ${publishedChildPaths.map((path) => JSON.stringify(path)).join(", ")}.`
-      : `This extraction already ran at the lane's maximum depth, and no published child under this path is both nonempty and within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
+    : hasEligibleChild
+      ? `This extraction already ran at the lane's maximum depth. To continue, choose an entry in files[] whose path is below this path and whose size is between 1 and ${FIRMWARE_LIMITS.inputBytes} bytes, then rerun extract_firmware with that exact path and a fresh output_directory.`
+      : `This extraction already ran at the lane's maximum depth, and files[] contains no nonempty child below this path within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
 
 // Use a different analyzer on the actual published child; repeating the same
 // whole-child extraction with unchanged handlers would reproduce this gap.
@@ -357,21 +357,15 @@ const extractionGaps = (
   const ceilingReached =
     maxDepth >= MAX_EXTRACTION_DEPTH &&
     normalized.depth_limited_paths.length > 0;
-  const reRootablePaths = new Map<string, Set<string>>();
+  const depthPathsWithEligibleChildren = new Set<string>();
   if (ceilingReached)
-    for (const [filePath, file] of [...publishedFiles].sort(
-      ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
-    )) {
-      const size = file.size;
-      if (size <= 0 || size > FIRMWARE_LIMITS.inputBytes) continue;
-      // The published file itself can re-root a fresh run; so can every
-      // directory containing it.
+    for (const [filePath, file] of publishedFiles) {
+      if (file.size <= 0 || file.size > FIRMWARE_LIMITS.inputBytes) continue;
+      // Store only whether a depth-limited path has a usable descendant. The
+      // files[] rows already retain each exact path for a caller to select.
       const segments = filePath.split("/");
       while (segments.length > 1) {
-        const ancestor = segments.join("/");
-        const childPaths = reRootablePaths.get(ancestor) ?? new Set<string>();
-        childPaths.add(file.path);
-        reRootablePaths.set(ancestor, childPaths);
+        depthPathsWithEligibleChildren.add(segments.join("/"));
         segments.pop();
       }
     }
@@ -382,7 +376,7 @@ const extractionGaps = (
     const id = continuation(
       depthContinuation(
         maxDepth,
-        [...(reRootablePaths.get(inputPath) ?? [])].sort(),
+        depthPathsWithEligibleChildren.has(inputPath),
       ),
     );
     depthContinuationIds.set(inputPath, id);
