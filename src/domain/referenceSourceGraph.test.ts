@@ -442,6 +442,19 @@ describe("historical source graph symlink path identity", () => {
     expect(() => createHistoricalSourceGraph(input)).toThrow(
       /recorded exclusion/u,
     );
+    input.exclusions = [
+      {
+        path: "omitted",
+        reason: "caller-excluded",
+        pattern: "omitted/",
+        entry_kind: "directory",
+      },
+      { path: "omitted/link", reason: "symlink-escape" },
+    ];
+    input.entries[2] = symlinkEntry({ target: "../omitted/link/child" });
+    expect(() => createHistoricalSourceGraph(input)).toThrow(
+      /recorded exclusion/u,
+    );
   });
 
   it("requires directory coverage for descendants but reads legacy exact exclusions", () => {

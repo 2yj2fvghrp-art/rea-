@@ -323,13 +323,18 @@ const checkSymlinks = (
 ): void => {
   const lookupPath = createReferenceSourcePathLookup(paths);
   const excludedPaths = createReferenceSourcePathLookup(
+    graph.exclusions.map(({ path }) => path),
+  );
+  const escapePaths = new Set(
     graph.exclusions
-      .filter(({ reason }) => reason !== "symlink-escape")
+      .filter(({ reason }) => reason === "symlink-escape")
       .map(({ path }) => path),
   );
   const excludedDirectories = new Set(
     graph.exclusions.flatMap((entry) =>
-      "entry_kind" in entry && entry.entry_kind === "directory"
+      "entry_kind" in entry &&
+      entry.entry_kind === "directory" &&
+      !escapePaths.has(entry.path)
         ? [entry.path]
         : [],
     ),
@@ -351,6 +356,7 @@ const checkSymlinks = (
     const resolved = posix.normalize(
       posix.join(posix.dirname(entry.path), entry.target),
     );
+    const excludedTarget = excludedPaths.resolve(resolved);
     const excludedAncestor = excludedPaths.resolveAncestor(resolved);
     if (
       resolved.startsWith("../") ||
@@ -358,7 +364,7 @@ const checkSymlinks = (
       // The inventory root is implicit rather than an entry with path ".".
       (resolved !== "." &&
         lookupPath.resolve(resolved) === undefined &&
-        excludedPaths.resolve(resolved) === undefined &&
+        (excludedTarget === undefined || escapePaths.has(excludedTarget)) &&
         // Only observed directory exclusions establish subtree coverage.
         (excludedAncestor === undefined ||
           !excludedDirectories.has(excludedAncestor)))
