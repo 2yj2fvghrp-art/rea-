@@ -26,6 +26,7 @@ import {
 import { isRelativeJavaScriptModuleSpecifier } from "../../domain/javascript/javascriptModuleSpecifier.js";
 import type { JavaScriptModuleResolutionMode } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
+import { err, ok, type Result } from "../../domain/result.js";
 
 type ArtifactPathResolutionContext =
   | "package-entrypoint"
@@ -100,11 +101,21 @@ const EXTENSIONS = [
 // A private URL namespace for logical artifact paths, including root packages.
 // Encode inventory segments so filename punctuation remains literal in the base.
 const PACKAGE_ARTIFACT_ROOT_URL = new URL("file:///rea-artifact/");
-const packageMetadataUrl = (path: string): URL =>
-  new URL(
-    path.split("/").map(encodeURIComponent).join("/"),
-    PACKAGE_ARTIFACT_ROOT_URL,
-  );
+const packageMetadataUrl = (path: string): Result<URL, string> => {
+  try {
+    return ok(
+      new URL(
+        path.split("/").map(encodeURIComponent).join("/"),
+        PACKAGE_ARTIFACT_ROOT_URL,
+      ),
+    );
+  } catch (cause: unknown) {
+    if (!(cause instanceof URIError)) throw cause;
+    return err(
+      `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
+    );
+  }
+};
 
 interface PackageFileTarget {
   readonly value: string;
@@ -553,10 +564,13 @@ const resolvePackageImportAlias = (
     return unresolvedCandidate("external", [
       `Wildcard package import aliases remain unresolved; package metadata ${metadata.path} has no exact imports key ${specifier}.`,
     ]);
+  const metadataUrl = packageMetadataUrl(metadata.path);
+  if (!metadataUrl.ok)
+    return unresolvedCandidate("unavailable", [metadataUrl.error]);
   const selected = selectExportTarget(
     lookup.target,
     packageExportConditions(input.moduleKind),
-    packageMetadataUrl(metadata.path),
+    metadataUrl.value,
     "imports",
   );
   if (selected.kind === "invalid" || selected.kind === "invalid-config")
@@ -653,10 +667,10 @@ const resolveLegacyEsmSubpath = (
   directory: string,
   subpath: string,
 ): CandidateResolution => {
-  const url = new URL(
-    subpath,
-    packageMetadataUrl(posix.join(directory, "package.json")),
-  );
+  const metadataUrl = packageMetadataUrl(posix.join(directory, "package.json"));
+  if (!metadataUrl.ok)
+    return unresolvedCandidate("unavailable", [metadataUrl.error]);
+  const url = new URL(subpath, metadataUrl.value);
   if (!url.pathname.startsWith(PACKAGE_ARTIFACT_ROOT_URL.pathname))
     return unresolvedCandidate("rejected", [
       "The resolved candidate escapes the canonical artifact root.",
@@ -696,6 +710,8 @@ const resolvePackageExports = (
     input.moduleKind,
     packagePath,
   );
+  if (exported.status === "unavailable")
+    return unresolvedCandidate("unavailable", [exported.limitation]);
   if (exported.status === "rejected")
     return unresolvedCandidate("rejected", [
       `Package metadata ${packagePath}: ${exported.limitation}`,
@@ -1107,6 +1123,7 @@ type PackageTargetBlockCause = "null" | "empty-array";
 type PackageExportOutcome =
   | ({ readonly status: "value" } & PackageFileTarget)
   | { readonly status: "rejected"; readonly limitation: string }
+  | { readonly status: "unavailable"; readonly limitation: string }
   | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly status: "unmatched"; readonly declared: readonly string[] };
 
@@ -1139,10 +1156,13 @@ const selectPackageExport = (
       target = Reflect.get(value, subpath);
     } else if (subpath !== ".") return { status: "unmatched", declared };
   } else if (subpath !== ".") return { status: "unmatched", declared };
+  const metadataUrl = packageMetadataUrl(packagePath);
+  if (!metadataUrl.ok)
+    return { status: "unavailable", limitation: metadataUrl.error };
   const selected = selectExportTarget(
     target,
     packageExportConditions(moduleKind),
-    packageMetadataUrl(packagePath),
+    metadataUrl.value,
   );
   if (selected.kind === "invalid" || selected.kind === "invalid-config")
     return { status: "rejected", limitation: selected.limitation };
