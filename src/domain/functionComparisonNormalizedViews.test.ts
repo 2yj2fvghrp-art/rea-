@@ -551,6 +551,30 @@ describe("normalized view address projection", () => {
     });
   });
 
+  it.each(["overlay:0x1010", "overlay: 0x1010"])(
+    "keeps address-space-qualified targets visible (%s)",
+    (leftTarget) => {
+      const rightTarget = leftTarget.replace("0x1010", "0x2010");
+      const make = (base: string, target: string) =>
+        syntheticDossier({
+          base,
+          name: `FUN_${BigInt(base).toString(16)}`,
+          pseudocode: "void f(void) {}",
+          assembly: [`${base}: JMP ${target}`],
+        });
+      const [left, right] = syntheticPair(
+        make("0x1000", leftTarget),
+        make("0x2000", rightTarget),
+      );
+      const result = compareFunctions(left, right, {
+        includeNormalizedViews: true,
+      });
+      expect(view(result, "assembly_normalized")).toMatchObject({
+        status: "changed",
+      });
+    },
+  );
+
   it("preserves each provider label when multiple forms share one address", () => {
     const [left, right] = syntheticPair(
       syntheticDossier({
@@ -723,6 +747,8 @@ describe("normalized view fail-closed parsing", () => {
     ["unterminated literal", 'puts("0x411700)'],
     ["unterminated block comment", "return 0; /* 0x411700"],
     ["unsupported raw string literal", 'puts(R"tag(0x411700)tag")'],
+    ["unsupported Rust raw string literal", 'puts(r#"0x411700"#)'],
+    ["unsupported Rust raw string without hashes", 'puts(r"0x411700")'],
   ])("fails closed on %s", (_name, pseudocode) => {
     const [left, right] = syntheticPair(
       {

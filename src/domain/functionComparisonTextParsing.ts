@@ -6,6 +6,7 @@ export interface TextAddressLocation {
   readonly instructionAddress: bigint | null;
   readonly isInstructionAddress: boolean;
   readonly isControlFlowTarget: boolean;
+  readonly isAddressSpaceQualified: boolean;
   readonly operandIndex: number | null;
   readonly operandAddressOccurrences: number;
   readonly instructionAddressOccurrences: number;
@@ -24,8 +25,7 @@ export const transformProviderText = (
     const current = text[index];
     const next = text[index + 1];
     if (current === '"' || current === "'") {
-      if (current === '"' && isRawStringStart(text.slice(0, index)))
-        return null;
+      if (current === '"' && isRawStringStart(text, index)) return null;
       output += transform(text.slice(codeStart, index), codeStart);
       const quote = current;
       const literalStart = index++;
@@ -79,8 +79,51 @@ export const transformProviderText = (
   return output;
 };
 
-const isRawStringStart = (prefix: string): boolean =>
-  /(?:^|[^A-Za-z0-9_])(?:u8|u|U|L)?R$|(?:^|[^A-Za-z0-9_])r#+$/iu.test(prefix);
+/** Detect supported raw-string prefixes using only the adjacent token. */
+const isRawStringStart = (text: string, quoteIndex: number): boolean => {
+  let markerIndex = quoteIndex - 1;
+  while (markerIndex >= 0 && text[markerIndex] === "#") markerIndex -= 1;
+  const marker = text[markerIndex];
+  if (marker === "r") {
+    const prefixIndex =
+      markerIndex > 0 && text[markerIndex - 1] === "b"
+        ? markerIndex - 1
+        : markerIndex;
+    return !isIdentifierCharacter(text[prefixIndex - 1]);
+  }
+  if (marker !== "R" || markerIndex !== quoteIndex - 1) return false;
+  return ["R", "uR", "u8R", "UR", "LR"].some((prefix) => {
+    const prefixIndex = quoteIndex - prefix.length;
+    return (
+      text.slice(prefixIndex, quoteIndex) === prefix &&
+      !isIdentifierCharacter(text[prefixIndex - 1])
+    );
+  });
+};
+
+const isIdentifierCharacter = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z0-9_]/u.test(character);
+
+/** Keep named assembly address spaces literal, even when their offsets match. */
+const hasAddressSpaceQualifier = (
+  text: string,
+  lineStart: number,
+  tokenOffset: number,
+): boolean => {
+  let index = tokenOffset - 1;
+  while (index >= lineStart && isWhitespace(text[index])) index -= 1;
+  if (text[index] !== ":") return false;
+  index -= 1;
+  while (index >= lineStart && isWhitespace(text[index])) index -= 1;
+  const nameEnd = index + 1;
+  while (index >= lineStart && /[A-Za-z0-9_.$-]/u.test(text[index] ?? ""))
+    index -= 1;
+  const nameStart = index + 1;
+  return nameStart < nameEnd && /[A-Za-z_.$]/u.test(text[nameStart] ?? "");
+};
+
+const isWhitespace = (character: string | undefined): boolean =>
+  character !== undefined && /\s/u.test(character);
 
 /** Locate an assembly token and its exact operand position, when available. */
 export const textAddressLocation = (
@@ -91,11 +134,17 @@ export const textAddressLocation = (
 ): TextAddressLocation => {
   if (!assembly) return emptyAddressLocation();
   const lineStart = text.lastIndexOf("\n", tokenOffset - 1) + 1;
+  const isAddressSpaceQualified = hasAddressSpaceQualifier(
+    text,
+    lineStart,
+    tokenOffset,
+  );
   const newline = text.indexOf("\n", tokenOffset);
   const lineEnd = newline < 0 ? text.length : newline;
   const line = text.slice(lineStart, lineEnd);
   const prefix = /^(\s*)(0x[0-9a-f]+):\s*/iu.exec(line);
-  if (prefix === null) return emptyAddressLocation();
+  if (prefix === null)
+    return { ...emptyAddressLocation(), isAddressSpaceQualified };
 
   const instructionAddress = parseAddress((prefix[2] ?? "").toLowerCase());
   const tokenInLine = tokenOffset - lineStart;
@@ -134,6 +183,7 @@ export const textAddressLocation = (
     instructionAddress,
     isInstructionAddress,
     isControlFlowTarget,
+    isAddressSpaceQualified,
     operandIndex: operandIndex < 0 ? null : operandIndex,
     operandAddressOccurrences,
     instructionAddressOccurrences,
@@ -144,6 +194,7 @@ const emptyAddressLocation = (): TextAddressLocation => ({
   instructionAddress: null,
   isInstructionAddress: false,
   isControlFlowTarget: false,
+  isAddressSpaceQualified: false,
   operandIndex: null,
   operandAddressOccurrences: 0,
   instructionAddressOccurrences: 0,

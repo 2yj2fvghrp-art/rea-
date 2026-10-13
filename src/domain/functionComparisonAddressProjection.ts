@@ -63,6 +63,7 @@ export const createFunctionAddressProjection = (
     isCalleeAddress: (address) => calleeAddresses.has(address),
     maskIdentifier: observedAddress,
     maskTextAddress: (address, location) => {
+      if (location.isAddressSpaceQualified) return null;
       if (
         location.isInstructionAddress &&
         location.instructionAddress === address

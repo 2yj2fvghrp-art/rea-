@@ -236,7 +236,7 @@ export const normalizedViews = (
       if (leftText === null || rightText === null)
         return unknownView(dimension, links, [
           ...limitations,
-          "Provider text contains an unterminated string, character literal, or block comment, so normalization was skipped.",
+          "Provider text contains an unsupported raw string or an unterminated string, character literal, or block comment, so normalization was skipped.",
         ]);
       const changes = diffLines(leftText.text, rightText.text, {
         timeout: 100,
