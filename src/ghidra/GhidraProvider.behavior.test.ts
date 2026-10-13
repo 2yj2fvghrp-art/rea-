@@ -240,6 +240,7 @@ describe("Ghidra raw-binary profile", () => {
       profile: {
         parameters: {
           target_format: "raw-binary",
+          import_mode: "ephemeral-source-immutable",
           architecture: "arm",
           loader: "BinaryLoader",
           language_id: "ARM:LE:32:v7",
@@ -257,6 +258,10 @@ describe("Ghidra raw-binary profile", () => {
     expect(resolved.ok && shifted.ok).toBe(true);
     if (!resolved.ok || !shifted.ok || resolved.value.profile === null)
       throw new Error("expected raw-binary profiles");
+    // Preserve snapshots exported with the established raw-binary profile.
+    expect(resolved.value.profile.digest).toBe(
+      "6b0a1bbca0d27d3c2fc4cb98f0c8ae4f3a1ea59922a27f621df439d97ac8b8e1",
+    );
     expect(shifted.value.profile?.digest).not.toBe(
       resolved.value.profile.digest,
     );
@@ -2217,5 +2222,117 @@ describe("Ghidra disabled analyzer options", () => {
       if (!failed.ok) expect(failed.error._tag).toBe("ProviderAdapterError");
       expect(starts).toBe(0);
     }
+  });
+});
+
+describe("Ghidra existing project selection", () => {
+  const existingProjectEnvironment = {
+    REA_GHIDRA_EXISTING_PROJECT: "/opt/projects/rea-project",
+    REA_GHIDRA_EXISTING_PROGRAM: "target-abcd.dll",
+  };
+  const configuredProvider = (
+    environment: Record<string, string>,
+    clientFactory?: GhidraProviderClientFactory,
+    host: GhidraInstallationHost = installationHost(),
+  ) => {
+    const config = parseConfig({ GHIDRA_INSTALL_DIR: INSTALL, ...environment });
+    if (!config.ok) throw config.error;
+    return new GhidraProvider(
+      config.value,
+      silentLogger,
+      {},
+      host,
+      clientFactory,
+    );
+  };
+
+  it("records the existing-project import mode in the analysis profile", async () => {
+    const ghidra = configuredProvider(existingProjectEnvironment);
+    const resolved = await ghidra.resolveAnalysisProfile(
+      executableTarget("elf", "x86_64"),
+    );
+    if (!resolved.ok || resolved.value.profile === null)
+      throw new Error("expected a bound Ghidra profile");
+    expect(resolved.value.profile.parameters).toMatchObject({
+      import_mode: "existing-project-copy",
+    });
+  });
+
+  it("does not reuse snapshot identities across saved-project resolutions", async () => {
+    const target = executableTarget("elf", "x86_64");
+    const ghidra = configuredProvider(existingProjectEnvironment);
+    const otherProject = configuredProvider({
+      ...existingProjectEnvironment,
+      REA_GHIDRA_EXISTING_PROJECT: "/opt/projects/other-project",
+      REA_GHIDRA_EXISTING_PROGRAM: "other-program",
+    });
+    const profiles = [];
+    for (const owner of [ghidra, ghidra, otherProject]) {
+      const resolved = await owner.resolveAnalysisProfile(target);
+      if (!resolved.ok || resolved.value.profile === null)
+        throw new Error("expected a bound Ghidra profile");
+      profiles.push(resolved.value.profile);
+    }
+    expect(new Set(profiles.map(({ digest }) => digest)).size).toBe(3);
+    expect(profiles[0]?.parameters.existing_project).toMatchObject({
+      program_name: existingProjectEnvironment.REA_GHIDRA_EXISTING_PROGRAM,
+      session_id: expect.any(String),
+    });
+  });
+
+  it("hands the existing project to the launcher", async () => {
+    const launchers: GhidraHeadlessLauncher[] = [];
+    const ghidra = configuredProvider(existingProjectEnvironment, (options) => {
+      launchers.push(options.launcher as GhidraHeadlessLauncher);
+      return {
+        start: () => Promise.resolve(ok(sessionInfo())),
+        callTool: () => Promise.resolve(ok(null)),
+        close: () => Promise.resolve(ok(null)),
+      };
+    });
+    const target = executableTarget("elf", "x86_64");
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    if (!resolved.ok || resolved.value.profile === null)
+      throw new Error("expected a bound Ghidra profile");
+    const client = ghidra.createClient(target, resolved.value.profile);
+    const health = await client.execute("health", {});
+    expect(health.ok).toBe(true);
+    expect(launchers).toHaveLength(1);
+    expect(launchers[0]?.options.existingProject).toEqual({
+      projectPath: "/opt/projects/rea-project",
+      programName: "target-abcd.dll",
+    });
+    await client.close();
+  });
+
+  it("rejects an existing project for a raw-binary target", async () => {
+    const ghidra = configuredProvider(existingProjectEnvironment);
+    const target: BinaryTarget = {
+      path: "/tmp/entry.bin",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "raw-binary",
+      architecture: "x86",
+      availableArchitectures: ["x86"],
+      entryPoint: "0x1000",
+      entryPointSource: "0x1000",
+    };
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok)
+      expect(resolved.error._tag).toBe("AnalysisUnsupportedTargetError");
+  });
+
+  it("rejects an existing project on the Windows launch path", async () => {
+    const ghidra = configuredProvider(existingProjectEnvironment, undefined, {
+      ...installationHost(),
+      platform: "win32",
+    });
+    const resolved = await ghidra.resolveAnalysisProfile(
+      executableTarget("elf", "x86_64"),
+    );
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok)
+      expect(resolved.error._tag).toBe("AnalysisUnsupportedTargetError");
   });
 });
