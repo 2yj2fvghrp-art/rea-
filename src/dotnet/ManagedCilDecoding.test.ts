@@ -245,6 +245,7 @@ describe("managed CIL decoding", () => {
   });
 });
 
+// oxlint-disable-next-line max-lines-per-function -- the operand-extent cases and their expectations are one exhaustive table.
 describe("managed operand extent diagnostics", () => {
   it.each([
     [[0x20], 0, "Instruction ldc.i4 at IL offset 0 leaves method body"],

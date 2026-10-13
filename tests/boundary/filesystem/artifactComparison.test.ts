@@ -342,6 +342,7 @@ describe("artifact comparison", () => {
   });
 });
 
+// oxlint-disable-next-line max-lines-per-function -- one completeness scenario shares a single fixture and must be read as one flow.
 describe("artifact comparison completeness", () => {
   it("does not infer child changes from root-only coverage", async () => {
     const root = await createTestTempDirectory("rea-artifact-root-coverage-");
