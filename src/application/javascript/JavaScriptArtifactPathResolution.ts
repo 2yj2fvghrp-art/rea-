@@ -522,17 +522,9 @@ const resolvePackageDependency = (
               fileCandidates(directory, input.moduleKind),
             )) ?? resolveDirectory(input, directory, metadata, new Set())
       );
-    // Resolve legacy ESM subpaths as URLs: suffixes identify the loaded module
-    // but do not belong to its filesystem path. Keep the declared specifier on
-    // the relationship; only derive the inventory lookup path here.
-    const fileSubpath =
-      input.moduleKind === "import"
-        ? decodeModuleUrlPath(stripQueryAndFragment(subpath.slice(2)))
-        : subpath.slice(2);
-    if (typeof fileSubpath !== "string") return fileSubpath;
-    const candidate = confineCandidate(`${directory}/${fileSubpath}`);
-    if (input.moduleKind === "import" && typeof candidate === "string")
-      return resolveLegacyEsmSubpath(input, candidate);
+    if (input.moduleKind === "import")
+      return resolveLegacyEsmSubpath(input, directory, subpath.slice(2));
+    const candidate = confineCandidate(`${directory}/${subpath.slice(2)}`);
     return typeof candidate === "string"
       ? resolveCandidate(input, candidate, new Set())
       : candidate;
@@ -548,12 +540,21 @@ const resolvePackageDependency = (
 /** Legacy ESM package subpaths are exact URLs, never extension or directory lookups. */
 const resolveLegacyEsmSubpath = (
   input: ResolveArtifactPathInput,
-  candidate: string,
+  directory: string,
+  subpath: string,
 ): CandidateResolution => {
-  const file = resolveFileCandidates(input, [candidate]);
+  const fileSubpath = decodeModuleUrlPath(stripQueryAndFragment(subpath));
+  if (typeof fileSubpath !== "string") return fileSubpath;
+  const candidate = confineCandidate(`${directory}/${fileSubpath}`);
+  if (typeof candidate !== "string") return candidate;
+  const directoryForm = urlPathIsDirectory(fileSubpath);
+  const file = directoryForm ? null : resolveFileCandidates(input, [candidate]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
-  if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
+  if (
+    directoryForm ||
+    hasContainerDirectory(input.files, candidate, source?.container_sha256)
+  )
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
     ]);

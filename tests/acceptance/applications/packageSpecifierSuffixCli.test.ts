@@ -131,6 +131,44 @@ const requests = [
     value: "legacy spaced feature",
     error: null,
   },
+  ...[
+    "legacy/feature.js/.",
+    "legacy/feature.js/child/..",
+    "legacy/feature.js/",
+    "legacy/feature.js/.?cache=1#entry",
+    "legacy/with%20space.js/.",
+    "legacy/feature.js/%2e",
+    "legacy/missing/.",
+  ].map((specifier) => ({
+    specifier,
+    target: null,
+    status: "rejected" as const,
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  })),
+  {
+    specifier: "legacy/feature.js/%2f",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_INVALID_MODULE_SPECIFIER",
+  },
+  ...["legacy/feature.js?cache=/..", "legacy/feature.js#entry/."].map(
+    (specifier) => ({
+      specifier,
+      target: "node_modules/legacy/feature.js",
+      status: "resolved" as const,
+      value: "legacy feature",
+      error: null,
+    }),
+  ),
+  {
+    specifier: "fixture/feature.js/.",
+    target: "node_modules/fixture/literal.cjs",
+    status: "resolved",
+    value: "literal",
+    error: null,
+  },
   {
     specifier: "legacy/feature",
     target: null,
@@ -184,6 +222,7 @@ const createPackageSpecifierFixture = async (): Promise<{
       exports: {
         "./feature": "./feature.cjs",
         "./literal?cache=1": "./literal.cjs",
+        "./feature.js/.": "./literal.cjs",
       },
     }),
   );
