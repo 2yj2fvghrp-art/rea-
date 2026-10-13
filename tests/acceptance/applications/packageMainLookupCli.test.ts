@@ -119,6 +119,14 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         import: "lib.js",
       },
       {
+        name: "finalized-directory-main",
+        main: "./lib/",
+        files: ["lib.js", "lib/.js/child.js"],
+        require: "lib.js",
+        import: null,
+        importError: "ERR_UNSUPPORTED_DIR_IMPORT",
+      },
+      {
         name: "finalized-main",
         main: "./lib/",
         files: ["lib.js", "lib/.js", "lib/index.js"],
@@ -170,7 +178,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       expect(control).toEqual(
         packages.map((item) =>
           item[kind] === null
-            ? { code: "ERR_MODULE_NOT_FOUND" }
+            ? {
+                code:
+                  "importError" in item
+                    ? item.importError
+                    : "ERR_MODULE_NOT_FOUND",
+              }
             : { path: `node_modules/${item.name}/${item[kind]}` },
         ),
       );
@@ -192,7 +205,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
               item[kind] === null
                 ? null
                 : `node_modules/${item.name}/${item[kind]}`,
-            resolution_status: item[kind] === null ? "not-found" : "resolved",
+            resolution_status:
+              item[kind] === null
+                ? "importError" in item
+                  ? "rejected"
+                  : "not-found"
+                : "resolved",
           }),
         );
     expect(relationships).toContainEqual(

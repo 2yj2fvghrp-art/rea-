@@ -1060,12 +1060,18 @@ const resolveNodePackageMain = (
       relativeCandidate(input.sourcePath, `${input.declaredPath}${suffix}`),
     );
     if (typeof finalized !== "string") return finalized;
-    return (
-      resolveFileCandidates(input, [finalized.replace(/\/$/u, "")]) ??
-      unresolvedCandidate("not-found", [
-        `The selected legacy ESM package main finalizes to ${finalized}, which is not an inventoried file; no later main or index candidate was tried.`,
-      ])
-    );
+    const finalizedFile = resolveFileCandidates(input, [
+      finalized.replace(/\/$/u, ""),
+    ]);
+    if (finalizedFile !== null) return finalizedFile;
+    const source = input.files.get(input.sourcePath);
+    if (hasContainerDirectory(input.files, finalized, source?.container_sha256))
+      return unresolvedCandidate("rejected", [
+        `The selected legacy ESM package main finalizes to directory ${finalized}; directory imports are unsupported and no later main or index candidate was tried.`,
+      ]);
+    return unresolvedCandidate("not-found", [
+      `The selected legacy ESM package main finalizes to ${finalized}, which is not an inventoried file; no later main or index candidate was tried.`,
+    ]);
   }
   const fallback = resolveFileCandidates(
     input,
