@@ -75,9 +75,12 @@ export const inspectSqliteDatabaseInputSchema = z
         message: "selected_table schema scope requires table",
       });
   })
-  // row_limit and columns state their table requirement in their descriptions:
-  // Gemini function declarations reject dependentRequired and fail every tool.
+  // The table requirement is stated in the root description, which the compact
+  // profile keeps when it strips field descriptions: Gemini function
+  // declarations reject dependentRequired and fail every tool.
   .meta({
+    description:
+      "columns and row_limit require table; schema_scope selected_table requires table.",
     if: {
       properties: { schema_scope: { const: "selected_table" } },
       required: ["schema_scope"],

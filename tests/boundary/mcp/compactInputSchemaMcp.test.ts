@@ -113,6 +113,13 @@ describe("MCP compact input schema profile", () => {
           geminiRejectedKeywordPaths(inputSchema, name),
         ),
       ).toEqual([]);
+      // Partner fields are guidance the profile must keep once the keyword is gone.
+      const sqlite = tools.find(
+        ({ name }) => name === "inspect_sqlite_database",
+      );
+      expect(sqlite?.inputSchema.description).toContain(
+        "columns and row_limit require table",
+      );
     },
   );
 
