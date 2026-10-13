@@ -239,27 +239,43 @@ export const matchesSelectedSqliteDatabase = (
   report: SqliteDatabase,
   input: InspectSqliteDatabaseInput,
   subject: EvidenceSubjectTarget,
-): boolean =>
-  report.artifact.path === input.path &&
-  subject.path === input.path &&
-  subject.sha256 === report.artifact.sha256 &&
-  subject.format === "file" &&
-  (report.wal === null || report.wal.path === `${input.path}-wal`) &&
-  report.schema.scope === sqliteSchemaScope(input) &&
-  (report.schema.scope !== "selected_table" ||
-    (report.schema.tables.length === 1 &&
-      report.schema.tables[0]?.name === input.table &&
-      report.schema.indexes.every((index) => index.table === input.table) &&
-      report.schema.triggers.every(
-        (trigger) => trigger.table === input.table,
-      ) &&
-      report.schema.views.length === 0)) &&
-  (input.table === undefined
-    ? report.rows === null
-    : report.rows?.table === input.table &&
-      report.rows.row_limit === (input.row_limit ?? SQLITE_ROW_LIMIT_DEFAULT) &&
-      (input.columns === undefined ||
-        (report.rows.columns.length === input.columns.length &&
-          report.rows.columns.every(
-            (name, index) => name === input.columns?.[index],
-          ))));
+): boolean => {
+  const selectedTable =
+    input.table === undefined
+      ? undefined
+      : report.schema.tables.find(({ name }) => name === input.table);
+  const selectedColumns =
+    input.columns ??
+    (selectedTable?.kind === "table" &&
+    selectedTable.columns_completeness === "complete"
+      ? selectedTable.columns
+          .filter(({ hidden }) => hidden !== 1)
+          .map(({ name }) => name)
+      : undefined);
+  return (
+    report.artifact.path === input.path &&
+    subject.path === input.path &&
+    subject.sha256 === report.artifact.sha256 &&
+    subject.format === "file" &&
+    (report.wal === null || report.wal.path === `${input.path}-wal`) &&
+    report.schema.scope === sqliteSchemaScope(input) &&
+    (report.schema.scope !== "selected_table" ||
+      (report.schema.tables.length === 1 &&
+        report.schema.tables[0]?.name === input.table &&
+        report.schema.indexes.every((index) => index.table === input.table) &&
+        report.schema.triggers.every(
+          (trigger) => trigger.table === input.table,
+        ) &&
+        report.schema.views.length === 0)) &&
+    (input.table === undefined
+      ? report.rows === null
+      : selectedColumns !== undefined &&
+        report.rows?.table === input.table &&
+        report.rows.row_limit ===
+          (input.row_limit ?? SQLITE_ROW_LIMIT_DEFAULT) &&
+        report.rows.columns.length === selectedColumns.length &&
+        report.rows.columns.every(
+          (name, index) => name === selectedColumns[index],
+        ))
+  );
+};
