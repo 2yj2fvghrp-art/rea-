@@ -29,6 +29,7 @@ import {
 import { createEvidence } from "../../../src/domain/evidence.js";
 import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
 import { readJsonObjectFile } from "../../../src/application/JsonInputFile.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { RegularFileChangedError } from "../../../src/filesystem/RegularFile.js";
 import { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
 import { RegularFileCleanupFailure } from "../../../src/application/RegularFileRead.js";
@@ -316,6 +317,27 @@ describe("analysis snapshot file ownership", () => {
     ).rejects.toBeInstanceOf(RegularFileChangedError);
     expect((await readFile(path, "utf8")).trim()).toBe('{"value":2}');
   });
+});
+
+it("classifies readable non-object roots as invalid snapshot structure", async () => {
+  const directory = await createTestTempDirectory("rea-snapshot-root-");
+  const path = join(directory, "snapshot.json");
+  // Values above 8 MiB take the streaming parser instead of JSON.parse.
+  const streamed = `[${"0,".repeat(4.5 * 1024 * 1024)}0]`;
+  for (const text of ["[]", "null", "5", '"x"', "true", streamed]) {
+    await writeFile(path, text);
+    const result = await readAnalysisSnapshot(path);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "EvidenceFileError", reason: "invalid-json" },
+    });
+    if (result.ok) continue;
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "evidence_integrity_mismatch",
+      message:
+        "Evidence file root must be a JSON object. Repair or recreate the file and try again.",
+    });
+  }
 });
 
 it("rejects copied preparation handles and prevents mutable caller values from changing authenticated cache content", () => {

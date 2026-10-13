@@ -78,7 +78,7 @@ export const readJsonObjectFile = (
             value === null ||
             Array.isArray(value)
           )
-            throw new TypeError("JSON document root must be an object");
+            return err(nonObjectRoot(operation));
           for (const members of scans)
             for (const [key, member] of members) {
               if (!Object.hasOwn(value, key)) continue;
@@ -176,8 +176,7 @@ export const readJsonObjectFile = (
             ),
             signal === undefined ? {} : { signal },
           );
-          if (!rootObject)
-            throw new TypeError("JSON document root must be an object");
+          if (!rootObject) return err(nonObjectRoot(operation));
           const digest = hash.digest("hex");
           if (previousDigest !== undefined && digest !== previousDigest)
             throw new RegularFileChangedError(path);
@@ -584,6 +583,18 @@ const readNativeJson = async (
     ? ok(parsed.value)
     : err(invalidJson(operation, parsed.error, parsed.cause));
 };
+
+// A readable, well-formed document with the wrong root shape is an input
+// structure problem, not a file-access failure.
+const nonObjectRoot = (operation: string): AnalysisInputError =>
+  new AnalysisInputError(operation, undefined, [
+    {
+      path: [],
+      reason: "invalid_type",
+      expected: "object",
+      message: "JSON document root must be an object",
+    },
+  ]);
 
 const invalidJson = (
   operation: string,

@@ -100,14 +100,20 @@ const readJsonFileInput = async <Value>(
     if (!decoded.ok) {
       if (decoded.error instanceof AnalysisResourceConstraintError)
         return err(decoded.error);
+      const issue = decoded.error.issues[0];
       return err(
         new EvidenceFileError("read", "invalid-json", {
           cause:
             decoded.error.cause ??
-            new SyntaxError(
-              decoded.error.issues[0]?.message ?? decoded.error.message,
-            ),
+            new SyntaxError(issue?.message ?? decoded.error.message),
           path: requestedPath,
+          // Well-formed JSON with the wrong root is a structure problem.
+          ...(issue?.reason === "invalid_type"
+            ? {
+                userMessage:
+                  "Evidence file root must be a JSON object. Repair or recreate the file and try again.",
+              }
+            : {}),
         }),
       );
     }
