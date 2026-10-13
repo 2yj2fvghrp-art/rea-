@@ -175,7 +175,12 @@ export const registerGdbTools = (
               },
               close.name,
             );
-      const result = admitted ?? (await execute());
+      const result =
+        admitted === undefined
+          ? await execute()
+          : admitted.ok
+            ? admitted.value
+            : admitted;
       return result.ok
         ? delivery.toCallToolResult({ ok: true, value: result.value }, close)
         : delivery.toCallToolResult(result, close);

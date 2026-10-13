@@ -380,7 +380,10 @@ export class BinarySession
     operationName = "execute_rizin_command",
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>> {
     return this.#serialize(async (admittedThrough) => {
-      if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
+      if (
+        this.#externalMutationCleanupFailure?.cleanupIncomplete === true &&
+        operationName !== "close_gdb_session"
+      )
         return err(this.#externalMutationCleanupFailure);
       if (isAborted(signal))
         return err(new AnalysisCancelledError(operationName));
