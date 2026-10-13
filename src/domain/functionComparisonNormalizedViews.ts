@@ -19,6 +19,7 @@ import type {
   NormalizedViewDimension,
 } from "./functionComparisonSchemas.js";
 import { NORMALIZED_VIEW_DIMENSIONS } from "./functionComparisonSchemas.js";
+import { functionFacetLimitations } from "./functionComparisonDimensions.js";
 
 /** Masking policy identifier reported with every normalized view. */
 const POLICY = "rea-address-normalized-text-v1";
@@ -223,6 +224,21 @@ export const normalizedViews = (
   return {
     policy: POLICY,
     views: NORMALIZED_VIEW_DIMENSIONS.map((dimension) => {
+      const facetLimitations = [
+        ...functionFacetLimitations(
+          left,
+          dimension === "pseudocode_normalized" ? "pseudocode" : "assembly",
+        ).map((reason) => `Left: ${reason}`),
+        ...functionFacetLimitations(
+          right,
+          dimension === "pseudocode_normalized" ? "pseudocode" : "assembly",
+        ).map((reason) => `Right: ${reason}`),
+      ];
+      if (facetLimitations.length > 0)
+        return unknownView(dimension, links, [
+          ...limitations,
+          ...facetLimitations,
+        ]);
       const leftText = normalizeText(
         viewText(left, dimension),
         leftProjection,
