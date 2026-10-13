@@ -45,10 +45,15 @@ const USER_STRING_TOKEN_BYTES = 128;
 export const parseUserStrings = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
-  methods: readonly ManagedMethod[],
+  parsed: {
+    readonly methods: readonly ManagedMethod[];
+    /** Method-row failures; such a row may be an in-scope, unscanned body. */
+    readonly issues: readonly ManagedParseIssue[];
+  },
 ): UserStringInventory => {
+  const { methods } = parsed;
   const budget = managedDecodeBudget(layout);
-  const scanned = methods.every(bodyFullyDecoded);
+  const scanned = parsed.issues.length === 0 && methods.every(bodyFullyDecoded);
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   const tokens = new Set<string>();

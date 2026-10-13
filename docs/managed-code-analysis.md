@@ -163,12 +163,12 @@ a malformed item is reported against its token. User strings carry their own
 coverage: any of these makes `user_strings.state` partial and lists the issue
 in `user_strings.issues`, while the member `coverage` and `metadata.status` are
 unaffected, and readable literals remain. The state is also partial when an
-inspected method body was not fully decoded, because its later `ldstr`
-instructions were not observed. Normalized CIL digests do not include decoded
-values. `compare_managed_members` does not decode or compare literals: an
-unchanged method does not establish unchanged strings, and the comparison says
-so in its limitations. Older member Evidence without `user_strings` reads as
-`null`: not examined.
+inspected method body was not fully decoded or a method row could not be read,
+because `ldstr` instructions there were not observed. Normalized CIL digests do
+not include decoded values. `compare_managed_members` does not decode or
+compare literals: an unchanged method does not establish unchanged strings, and
+the comparison says so in its limitations. Older member Evidence without
+`user_strings` reads as `null`: not examined.
 
 ### Edge target declaring types
 

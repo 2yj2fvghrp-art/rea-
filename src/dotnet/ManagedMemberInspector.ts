@@ -201,7 +201,7 @@ export const inspectManagedMembersBytes = (
     // #US literals sit beside the member inventory and carry their own
     // coverage, so their issues never make member facts partial.
     const userStrings = readUserStrings
-      ? parseUserStrings(bytes, layout, methods.methods)
+      ? parseUserStrings(bytes, layout, methods)
       : null;
     const targets = edgeTargets(bytes, layout, methods.methods, [
       fields.core,

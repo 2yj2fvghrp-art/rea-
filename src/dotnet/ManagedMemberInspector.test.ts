@@ -705,9 +705,12 @@ describe("managed user strings", () => {
       },
     } as unknown as ManagedMethod;
 
-    expect(() => parseUserStrings(Buffer.alloc(0), layout, [method])).toThrow(
-      ManagedReaderFailure,
-    );
+    expect(() =>
+      parseUserStrings(Buffer.alloc(0), layout, {
+        methods: [method],
+        issues: [],
+      }),
+    ).toThrow(ManagedReaderFailure);
   });
 
   it("retains readable literals beside malformed #US items", () => {
@@ -885,29 +888,9 @@ describe("managed user string issues", () => {
       },
     } as unknown as ManagedMethod;
 
-    expect(parseUserStrings(heap, layout, [method]).issues).toHaveLength(64);
-  });
-
-  it("marks user strings partial when a method body is not fully decoded", () => {
-    const { heap, tokens } = fixtureUserStringHeap(["ok", "later"]);
-    const [ok, later] = tokens as [string, string];
-    // ldstr "ok", then an undefined opcode before ldstr "later".
-    const il = Buffer.from([
-      0x72, 0, 0, 0, 0, 0x26, 0xfe, 0xff, 0x72, 0, 0, 0, 0, 0x26, 0x2a,
-    ]);
-    il.writeUInt32LE(Number.parseInt(ok, 16), 1);
-    il.writeUInt32LE(Number.parseInt(later, 16), 9);
-    const result = inspect({
-      ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
-      userStringHeap: heap,
-    });
-
-    expect(result.methods[0]?.body.status).toBe("malformed");
-    expect(result.user_strings).toEqual({
-      state: "partial",
-      literals: [{ token: ok, offset: expect.any(Number), value: "ok" }],
-      issues: [],
-    });
+    expect(
+      parseUserStrings(heap, layout, { methods: [method], issues: [] }).issues,
+    ).toHaveLength(64);
   });
 
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
@@ -936,6 +919,55 @@ describe("managed user string issues", () => {
         detail: expect.stringContaining("terminal flag"),
       })),
     });
+  });
+});
+
+describe("managed user string scan completeness", () => {
+  const inspect = (options: Parameters<typeof buildManagedPeFixture>[0]) => {
+    const bytes = buildManagedPeFixture(options);
+    return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes));
+  };
+
+  it("marks user strings partial when a method body is not fully decoded", () => {
+    const { heap, tokens } = fixtureUserStringHeap(["ok", "later"]);
+    const [ok, later] = tokens as [string, string];
+    // ldstr "ok", then an undefined opcode before ldstr "later".
+    const il = Buffer.from([
+      0x72, 0, 0, 0, 0, 0x26, 0xfe, 0xff, 0x72, 0, 0, 0, 0, 0x26, 0x2a,
+    ]);
+    il.writeUInt32LE(Number.parseInt(ok, 16), 1);
+    il.writeUInt32LE(Number.parseInt(later, 16), 9);
+    const result = inspect({
+      ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
+      userStringHeap: heap,
+    });
+
+    expect(result.methods[0]?.body.status).toBe("malformed");
+    expect(result.user_strings).toEqual({
+      state: "partial",
+      literals: [{ token: ok, offset: expect.any(Number), value: "ok" }],
+      issues: [],
+    });
+  });
+
+  it("marks user strings partial when an inspected method row was not read", () => {
+    const layout = {
+      userStrings: { name: "#US", offset: 0, size: 1 },
+    } as unknown as ManagedMetadataLayout;
+    // The omitted row's body, and any ldstr in it, was never scanned.
+    const omitted = {
+      code: "invalid-heap-index",
+      scope: "metadata.MethodDef:0x06000002",
+      offset: null,
+      detail: "String heap index is outside #Strings",
+    } as const;
+
+    expect(
+      parseUserStrings(Buffer.from([0]), layout, {
+        methods: [],
+        issues: [omitted],
+      }),
+    ).toEqual({ state: "partial", literals: [], issues: [] });
   });
 });
 
