@@ -258,9 +258,23 @@ export class JavaScriptSymbolicBindings {
       }
       if (index !== null) {
         const property = index.get(key);
-        return property === undefined
-          ? symbolicUnknown("missing property")
-          : this.#objectPropertyValue(property, value.environment);
+        if (property !== undefined)
+          return this.#objectPropertyValue(property, value.environment);
+        if (key === "__proto__") {
+          const prototypeSetter = [...value.node.properties]
+            .reverse()
+            .filter(
+              (candidate): candidate is t.ObjectMethod | t.ObjectProperty =>
+                !t.isSpreadElement(candidate),
+            )
+            .find((candidate) => isObjectPrototypeSetter(candidate, key));
+          if (prototypeSetter !== undefined)
+            return this.#objectPropertyValue(
+              prototypeSetter,
+              value.environment,
+            );
+        }
+        return symbolicUnknown("missing property");
       }
       for (const p of [...value.node.properties].reverse()) {
         if (t.isSpreadElement(p)) {
@@ -272,10 +286,7 @@ export class JavaScriptSymbolicBindings {
             this.members(spread).includes(key)
           )
             return found;
-        } else if (
-          semanticStaticPropertyKey(p.key, p.computed) === key &&
-          !isObjectPrototypeSetter(p, key)
-        ) {
+        } else if (semanticStaticPropertyKey(p.key, p.computed) === key) {
           return this.#objectPropertyValue(p, value.environment);
         } else if (semanticStaticPropertyKey(p.key, p.computed) === null)
           return symbolicUnknown("dynamic property overwrite");

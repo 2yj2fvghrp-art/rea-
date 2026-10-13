@@ -76,6 +76,53 @@ it("retains empty literal evidence across the application boundary surfaces", as
   );
 });
 
+it("keeps bridge entry paths stable through worker validation and API seed matching", async () => {
+  const output = await analyzeSource(`
+    const { contextBridge, ipcRenderer } = require("electron");
+    const literal = () => ipcRenderer.send("literal");
+    const nested = () => ipcRenderer.send("nested");
+    contextBridge.exposeInMainWorld("desktop", {
+      "nested.write": literal,
+      nested: { write: nested },
+    });
+  `);
+  const semanticPathIds = new Set(
+    (output.semantic_graph?.nodes ?? [])
+      .map(({ properties }) => properties.path_id)
+      .filter((pathId): pathId is string => typeof pathId === "string"),
+  );
+  const applicationPathIds = new Set(
+    output.graph.nodes.flatMap(({ observations }) =>
+      observations
+        .map(({ properties }) => properties.path_id)
+        .filter((pathId): pathId is string => typeof pathId === "string"),
+    ),
+  );
+  expect(semanticPathIds).toEqual(applicationPathIds);
+
+  const matches = findApplicationFeatureSeeds(output.graph.nodes, {
+    kind: "api",
+    value: "desktop.nested.write",
+    entry_path: ["desktop", "nested.write"],
+  });
+  expect(matches).toHaveLength(1);
+  expect(
+    output.graph.nodes
+      .find(({ node_id: nodeId }) => nodeId === matches[0]?.node_id)
+      ?.observations.some(
+        ({ properties }) =>
+          Array.isArray(properties.entry_path) &&
+          properties.entry_path.join("\0") === "desktop\0nested.write",
+      ),
+  ).toBe(true);
+  expect(
+    findApplicationFeatureSeeds(output.graph.nodes, {
+      kind: "api",
+      value: "desktop.nested.write",
+    }),
+  ).toHaveLength(2);
+});
+
 it("analyzes a plain long-line loader without package metadata", async () => {
   const output = await analyzeSource(
     `var Module = {}; fetch(""); new Worker(""); var payload = "${"x".repeat(65_536)}";`,
@@ -240,8 +287,18 @@ it.each([
   [{ kind: "channel", value: "" }, false],
   [{ kind: "channel", value: "", match: "contains" }, false],
   [{ kind: "node-id", value: "", match: "exact" }, false],
+  [{ kind: "api", value: "desktop.nested.write" }, true],
+  [
+    {
+      kind: "api",
+      value: "desktop.nested.write",
+      entry_path: ["desktop", "nested.write"],
+    },
+    true,
+  ],
+  [{ kind: "channel", value: "channel", entry_path: ["channel"] }, false],
 ] as const)(
-  "validates empty seed %j at runtime and in the advertised schema",
+  "validates seed %j at runtime and in the advertised schema",
   (seed, accepted) => {
     expect(seedSchema.safeParse(seed).success).toBe(accepted);
     expect(validateAdvertisedSeed(seed)).toBe(accepted);

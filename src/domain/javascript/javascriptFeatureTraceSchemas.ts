@@ -26,6 +26,38 @@ const literalSeedKinds = [
   "native-export",
 ] as const;
 
+const apiSeedSchema = z.union([
+  z.strictObject({
+    kind: z.literal("api"),
+    value: boundedTextSchema,
+    match: z.enum(["exact", "contains"]).nullable().default(null),
+    case_sensitive: z.boolean().default(false),
+  }),
+  z.strictObject({
+    kind: z.literal("api"),
+    value: z.literal(""),
+    match: z.literal("exact"),
+    case_sensitive: z.boolean().default(false),
+  }),
+]);
+
+const apiPathSeedSchema = z.union([
+  z.strictObject({
+    kind: z.literal("api"),
+    value: boundedTextSchema,
+    match: z.enum(["exact", "contains"]).nullable().default(null),
+    case_sensitive: z.boolean().default(false),
+    entry_path: z.array(z.string()).min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("api"),
+    value: z.literal(""),
+    match: z.literal("exact"),
+    case_sensitive: z.boolean().default(false),
+    entry_path: z.array(z.string()).min(1),
+  }),
+]);
+
 /**
  * Literal starting point for one application feature trace. An empty value,
  * such as the channel in `ipcMain.handle("")`, must be an explicit exact
@@ -33,17 +65,26 @@ const literalSeedKinds = [
  */
 const applicationFeatureSeedSchema = z.union([
   z.strictObject({
-    kind: z.enum(["node-id", ...literalSeedKinds]),
+    kind: z.enum([
+      "node-id",
+      "route",
+      "string",
+      "channel",
+      "module",
+      "native-export",
+    ]),
     value: boundedTextSchema,
     match: z.enum(["exact", "contains"]).nullable().default(null),
     case_sensitive: z.boolean().default(false),
   }),
   z.strictObject({
-    kind: z.enum(literalSeedKinds),
+    kind: z.enum(["route", "string", "channel", "module", "native-export"]),
     value: z.literal(""),
     match: z.literal("exact"),
     case_sensitive: z.boolean().default(false),
   }),
+  apiSeedSchema,
+  apiPathSeedSchema,
 ]);
 
 /** Check unique native identities before projecting an application trace. */
@@ -156,9 +197,13 @@ export const applicationFeatureTraceResultSchema = z.strictObject({
 export type TraceApplicationFeatureInput = z.infer<
   typeof traceApplicationFeatureInputSchema
 >;
-export type ApplicationFeatureSeed = z.infer<
-  typeof applicationFeatureSeedSchema
->;
+export type ApplicationFeatureSeed = {
+  readonly kind: "node-id" | (typeof literalSeedKinds)[number];
+  readonly value: string;
+  readonly match?: "exact" | "contains" | null;
+  readonly case_sensitive?: boolean;
+  readonly entry_path?: readonly string[];
+};
 export type ApplicationFeatureTraceResult = z.infer<
   typeof applicationFeatureTraceResultSchema
 >;

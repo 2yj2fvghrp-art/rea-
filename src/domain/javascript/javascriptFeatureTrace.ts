@@ -12,6 +12,7 @@ import type {
 } from "./javascriptApplicationGraphSchemas.js";
 import {
   applicationFeatureTraceResultSchema,
+  type ApplicationFeatureSeed,
   type ApplicationFeatureTraceResult,
   type TraceApplicationFeatureInput,
 } from "./javascriptFeatureTraceSchemas.js";
@@ -30,7 +31,7 @@ export interface ApplicationFeatureTraceProjectionInput {
   readonly sourceEvidenceId: string;
   readonly graph: JavaScriptApplicationGraph;
   readonly nativeEvidence: readonly Evidence[];
-  readonly seed: TraceApplicationFeatureInput["seed"];
+  readonly seed: ApplicationFeatureSeed;
   readonly direction: TraceApplicationFeatureInput["direction"];
 }
 

@@ -52,10 +52,30 @@ const seedMatch = (
         ]
       : [];
   if (!kindMatches(node, seed.kind)) return [];
-  const mode = featureSeedMatchMode(seed);
-  const query = normalized(seed.value, seed.case_sensitive);
+  const requestedEntryPath = seed.entry_path;
+  if (
+    seed.kind === "api" &&
+    requestedEntryPath !== undefined &&
+    !node.observations.some(({ properties }) => {
+      const entryPath = properties.entry_path;
+      return (
+        Array.isArray(entryPath) &&
+        entryPath.length === requestedEntryPath.length &&
+        entryPath.every(
+          (segment, index) => segment === requestedEntryPath[index],
+        )
+      );
+    })
+  )
+    return [];
+  const mode = featureSeedMatchMode({
+    kind: seed.kind,
+    match: seed.match ?? null,
+  });
+  const caseSensitive = seed.case_sensitive ?? false;
+  const query = normalized(seed.value, caseSensitive);
   const match = candidateFields(node, seed.kind).find((candidate) => {
-    const value = normalized(candidate.value, seed.case_sensitive);
+    const value = normalized(candidate.value, caseSensitive);
     return mode === "exact" ? value === query : value.includes(query);
   });
   return match === undefined

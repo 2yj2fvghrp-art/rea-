@@ -183,10 +183,11 @@ const electron = z
         }),
       )
       .transform((paths) =>
-        paths.map(({ entry_path, ...path }) => ({
-          ...path,
-          ...(entry_path === undefined ? {} : { entry_path }),
-        })),
+        paths.map(({ entry_kind, entry, entry_path, ...rest }) =>
+          entry_path === undefined
+            ? { entry_kind, entry, ...rest }
+            : { entry_kind, entry, entry_path, ...rest },
+        ),
       )
       .optional(),
     browser_windows: z.array(

@@ -370,19 +370,51 @@ it("preserves bridge member segments and excludes prototype setters", () => {
   `);
   expect(result.electron.call_paths).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ entry: "desktop.nested.write", entry_path: ["desktop", "nested.write"] }),
-      expect.objectContaining({ entry: "desktop.nested.write", entry_path: ["desktop", "nested", "write"] }),
-      expect.objectContaining({ entry: "desktop.__proto__.own", entry_path: ["desktop", "__proto__", "own"] }),
+      expect.objectContaining({
+        entry: "desktop.nested.write",
+        entry_path: ["desktop", "nested.write"],
+      }),
+      expect.objectContaining({
+        entry: "desktop.nested.write",
+        entry_path: ["desktop", "nested", "write"],
+      }),
+      expect.objectContaining({
+        entry: "desktop.__proto__.own",
+        entry_path: ["desktop", "__proto__", "own"],
+      }),
     ]),
   );
   expect(result.electron.call_paths).not.toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ entry_path: ["desktop", "__proto__", "inherited"] }),
+      expect.objectContaining({
+        entry_path: ["desktop", "__proto__", "inherited"],
+      }),
+    ]),
+  );
+});
+it("follows an explicit object-literal prototype lookup in a bridge wrapper", () => {
+  const result = analyzeJavaScriptStaticSource(`
+    const e=require("electron");
+    const prototype={send:()=>e.ipcRenderer.send("through-prototype")};
+    const object={__proto__:prototype};
+    e.contextBridge.exposeInMainWorld("desktop", {
+      action:()=>object.__proto__.send(),
+    });
+  `);
+  expect(result.electron.call_paths).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        entry_path: ["desktop", "action"],
+        channel: "through-prototype",
+      }),
     ]),
   );
 });
 it("does not spread a large nested bridge member list into function arguments", () => {
-  const members = Array.from({ length: 125_000 }, (_, index) => `m${index}(){}`).join(",");
+  const members = Array.from(
+    { length: 125_000 },
+    (_, index) => `m${index}(){}`,
+  ).join(",");
   const source = `const e=require("electron");e.contextBridge.exposeInMainWorld("desktop",{nested:{${members}}});`;
   expect(() => analyzeJavaScriptStaticSource(source)).not.toThrow();
 });
