@@ -12864,8 +12864,14 @@ msgstr ""
 #: website/public/first-investigation/index.html:202
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
-msgstr "提供的示例 · {ph0} 和 npm · 程式設計助手 · {ph1}"
+msgid ""
+"A supplied example · {ph0} and npm · {ph1} on Linux · Your coding agent"
+msgstr "提供的示例 · {ph0} 和 npm · 程式設計助手 · Linux 上的 {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+#~ msgstr "提供的示例 · {ph0} 和 npm · 程式設計助手 · {ph1}"
 
 #, python-brace-format
 #~ msgctxt "page:first-investigation/index.html"

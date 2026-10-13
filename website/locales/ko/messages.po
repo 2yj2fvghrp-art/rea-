@@ -13164,8 +13164,14 @@ msgstr ""
 #: website/public/first-investigation/index.html:202
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
-msgstr "제공된 예·{ph0}및npm·코딩의 에이전트 · {ph1}"
+msgid ""
+"A supplied example · {ph0} and npm · {ph1} on Linux · Your coding agent"
+msgstr "제공된 예·{ph0}및npm·코딩의 에이전트 · Linux의 {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+#~ msgstr "제공된 예·{ph0}및npm·코딩의 에이전트 · {ph1}"
 
 #, python-brace-format
 #~ msgctxt "page:first-investigation/index.html"

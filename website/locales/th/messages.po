@@ -13848,8 +13848,15 @@ msgstr ""
 #: website/public/first-investigation/index.html:202
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
-msgstr "ตัวอย่างที่ให้มา · {ph0} และ npm ·ตัวแทนการเข้ารหัสของคุณ · {ph1}"
+msgid ""
+"A supplied example · {ph0} and npm · {ph1} on Linux · Your coding agent"
+msgstr ""
+"ตัวอย่างที่ให้มา · {ph0} และ npm ·ตัวแทนการเข้ารหัสของคุณ · {ph1} บน Linux"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+#~ msgstr "ตัวอย่างที่ให้มา · {ph0} และ npm ·ตัวแทนการเข้ารหัสของคุณ · {ph1}"
 
 #, python-brace-format
 #~ msgctxt "page:first-investigation/index.html"

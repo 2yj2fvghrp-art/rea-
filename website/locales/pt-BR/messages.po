@@ -14199,9 +14199,17 @@ msgstr ""
 #: website/public/first-investigation/index.html:202
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+msgid ""
+"A supplied example · {ph0} and npm · {ph1} on Linux · Your coding agent"
 msgstr ""
-"Um exemplo fornecido * {ph0} e npm * seu agente de codificação · {ph1}"
+"Um exemplo fornecido * {ph0} e npm * seu agente de codificação · {ph1} no "
+"Linux"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+#~ msgstr ""
+#~ "Um exemplo fornecido * {ph0} e npm * seu agente de codificação · {ph1}"
 
 #, python-brace-format
 #~ msgctxt "page:first-investigation/index.html"
