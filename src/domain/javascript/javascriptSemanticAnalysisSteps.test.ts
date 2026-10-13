@@ -254,3 +254,17 @@ namespace A { export namespace B { ipc.handle("nested", () => "pong"); } }`;
       ["ipcMain"],
     ]);
 });
+
+it("resolves outer exported names from dotted namespace bodies", () => {
+  const source = `import electron = require("electron");
+namespace A { export const ipc = electron.ipcMain; const privateIpc = electron.ipcMain; }
+namespace A.B { ipc.handle("outer", () => "pong"); privateIpc.handle("hidden", () => "pong"); }
+namespace A.A { export const renderer = electron.ipcRenderer; }
+namespace A.A { renderer.send("repeated"); }`;
+  const parsed = parseJavaScriptSource(source, "outer-namespace.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
+  expect(calls).toContainEqual([source.indexOf('ipc.handle("outer"'), ["ipcMain"]]);
+  expect(calls).not.toContainEqual([source.indexOf('privateIpc.handle("hidden"'), ["ipcMain"]]);
+  expect(calls).toContainEqual([source.indexOf('renderer.send("repeated"'), ["ipcRenderer"]]);
+});

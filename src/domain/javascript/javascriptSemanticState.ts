@@ -205,10 +205,22 @@ const semanticScopedBinding = (
   scope: JavaScriptSemanticScopeState,
   name: string,
   state: JavaScriptSemanticAnalysisState,
-): JavaScriptSemanticBindingState | undefined =>
-  scope.bindings.get(name) ?? (scope.namespaceExportScopeId === undefined
+): JavaScriptSemanticBindingState | undefined => {
+  const privateBinding = scope.bindings.get(name);
+  if (privateBinding !== undefined) return privateBinding;
+  let owner = scope.namespaceExportScopeId === undefined
     ? undefined
-    : state.scopesById.get(scope.namespaceExportScopeId)?.bindings.get(name));
+    : state.scopesById.get(scope.namespaceExportScopeId);
+  // Dotted namespace blocks have the lexical program as their parent, while
+  // the shared owner chain retains intermediate namespaces such as A in A.B.
+  while (owner !== undefined && owner.scopeId !== scope.parentScopeId) {
+    const exported = owner.bindings.get(name);
+    if (exported !== undefined) return exported;
+    if (!owner.bindingsComplete || owner.parentScopeId === null) return undefined;
+    owner = state.scopesById.get(owner.parentScopeId);
+  }
+  return undefined;
+};
 
 /** Select the function/program owner for a var declaration. */
 export const semanticVariableScope = (

@@ -913,7 +913,6 @@ const namespaceDeclarationScope = (
     parent = state.parentsByNode.get(declaration);
   }
   if (
-    (t.isTSImportEqualsDeclaration(declaration) && declaration.isExport) ||
     (t.isExportNamedDeclaration(parent) && parent.declaration === declaration)
   )
     return state.scopesById.get(scope.namespaceExportScopeId) ?? scope;
@@ -940,39 +939,37 @@ const nestedScope = (
   if (kind === undefined) return undefined;
   let namespaceExportScopeId: string | undefined;
   if (t.isTSModuleBlock(node) && t.isTSModuleDeclaration(parent)) {
-    // Dotted declarations have no intermediate TSModuleBlock. Give every
-    // segment the same shared owner it would have in nested exported blocks.
-    const declarations = [parent];
-    let outer = parent;
-    let ancestor = state.parentsByNode.get(outer);
-    while (t.isTSModuleDeclaration(ancestor) && ancestor.body === outer) {
-      declarations.unshift(ancestor);
-      outer = ancestor;
-      ancestor = state.parentsByNode.get(outer);
+    // Babel 8 stores dotted declarations as one qualified id, not nested
+    // TSModuleDeclaration bodies. Preserve every parsed segment in its owner.
+    const names: string[] = [];
+    let id = parent.id;
+    while (t.isTSQualifiedName(id)) {
+      names.unshift(id.right.name);
+      id = id.left;
     }
-    let owner = namespaceDeclarationScope(outer, parentScope, state);
-    for (const declaration of declarations) {
-      const name = t.isIdentifier(declaration.id)
-        ? declaration.id.name
-        : declaration.id.value;
-      const key = JSON.stringify([owner.scopeId, name]);
-      let exported = state.namespaceExportScopes.get(key);
-      if (exported === undefined) {
-        exported = {
-          scopeId: `${semanticScopeId("namespace", declaration)}:exports`,
-          parentScopeId: owner.scopeId,
-          kind: "namespace",
-          location: range(declaration),
-          bindingsComplete: true,
-          bindings: new Map(),
-        };
-        state.namespaceExportScopes.set(key, exported);
-        state.scopes.push(exported);
-        state.scopesById.set(exported.scopeId, exported);
+    if (t.isIdentifier(id) || t.isStringLiteral(id)) {
+      names.unshift(t.isIdentifier(id) ? id.name : id.value);
+      let owner = namespaceDeclarationScope(parent, parentScope, state);
+      for (const [index, name] of names.entries()) {
+        const key = JSON.stringify([owner.scopeId, name]);
+        let exported = state.namespaceExportScopes.get(key);
+        if (exported === undefined) {
+          exported = {
+            scopeId: `${semanticScopeId("namespace", parent)}:exports:${JSON.stringify(names.slice(0, index + 1))}`,
+            parentScopeId: owner.scopeId,
+            kind: "namespace",
+            location: range(parent),
+            bindingsComplete: true,
+            bindings: new Map(),
+          };
+          state.namespaceExportScopes.set(key, exported);
+          state.scopes.push(exported);
+          state.scopesById.set(exported.scopeId, exported);
+        }
+        owner = exported;
       }
-      owner = exported;
+      namespaceExportScopeId = owner.scopeId;
     }
-    namespaceExportScopeId = owner.scopeId;
   }
   const scope: JavaScriptSemanticScopeState = {
     scopeId: semanticScopeId(kind, switchOwner ?? node),
