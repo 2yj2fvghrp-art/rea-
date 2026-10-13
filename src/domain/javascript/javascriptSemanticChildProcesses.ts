@@ -330,9 +330,9 @@ const spawnOptions = (candidate: SpawnCandidate): t.ObjectExpression | null => {
   const value =
     candidate.method === "exec"
       ? args[1]
-      : args.length >= 3
-        ? args[2]
-        : args[1];
+      : t.isObjectExpression(args[1])
+        ? args[1]
+        : args[2];
 
   return t.isObjectExpression(value) ? value : null;
 };
