@@ -2012,3 +2012,74 @@ describe("Ghidra disabled analyzer options", () => {
     }
   });
 });
+
+it.each([
+  [
+    "unapplied",
+    {
+      file: "fixture.pdb",
+      guid: "9c0e5b6e-5350-9ca3-4c4c-44205044422e",
+      age: 1,
+      applied: false,
+    },
+    true,
+  ],
+  [
+    "applied",
+    {
+      file: "fixture.pdb",
+      guid: "9c0e5b6e-5350-9ca3-4c4c-44205044422e",
+      age: 1,
+      applied: true,
+    },
+    false,
+  ],
+  [
+    "unknown identity",
+    { file: "legacy.pdb", guid: null, age: null, applied: false },
+    true,
+  ],
+  ["no reference", undefined, false],
+] as const)(
+  "discloses %s PDB coverage in PE query evidence",
+  async (_label, pdb, missing) => {
+    const ghidra = provider(installationHost(), () => ({
+      start: () =>
+        Promise.resolve(
+          ok({ ...sessionInfo(), ...(pdb === undefined ? {} : { pdb }) }),
+        ),
+      callTool: () =>
+        Promise.resolve(
+          ok({
+            value: "int FUN_140001000(void) { return 42; }",
+            limitations: [],
+          }),
+        ),
+      close: () => Promise.resolve(ok(null)),
+    }));
+    const target = peTarget("x86_64");
+    const profile = await ghidra.resolveAnalysisProfile(target);
+    if (!profile.ok) throw profile.error;
+    if (profile.value.profile === null) throw new Error("Expected PE profile");
+    const client = ghidra.createClient(target, profile.value.profile);
+    try {
+      const result = await client.execute("procedure_pseudo_code", {
+        procedure: "0x140001000",
+      });
+      if (!result.ok) throw result.error;
+      const limitations = result.value.limitations.filter((value) =>
+        value.includes("PDB"),
+      );
+      expect(limitations).toHaveLength(missing ? 1 : 0);
+      if (missing && pdb !== undefined) {
+        expect(limitations[0]).toContain(pdb.file);
+        expect(limitations[0]).toContain(`GUID ${pdb.guid ?? "unknown"}`);
+        expect(limitations[0]).toContain(`age ${String(pdb.age ?? "unknown")}`);
+        expect(limitations[0]).toContain("was not applied");
+        expect(limitations[0]).toContain("address-based");
+      }
+    } finally {
+      await client.close();
+    }
+  },
+);

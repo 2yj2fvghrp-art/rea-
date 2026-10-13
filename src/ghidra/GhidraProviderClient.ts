@@ -495,6 +495,7 @@ export const createGhidraProviderClient = (input: {
       }),
     );
   let extensionFailure: AnalysisError | undefined;
+  const pdbLimitations: string[] = [];
   // Replaced by the reported outcome once the session handshake is checked.
   const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
   // Replaced by the reported storage outcome once the handshake is checked.
@@ -612,6 +613,16 @@ export const createGhidraProviderClient = (input: {
     operation: AnalysisOperation,
     info: GhidraSessionInfo,
   ): Promise<AnalysisError | undefined> => {
+    const pdb = target.format === "pe" ? info.pdb : undefined;
+    pdbLimitations.splice(
+      0,
+      pdbLimitations.length,
+      ...(pdb === undefined || pdb.applied
+        ? []
+        : [
+            `PE references PDB ${JSON.stringify(pdb.file)} (GUID ${pdb.guid ?? "unknown"}, age ${String(pdb.age ?? "unknown")}), but it was not applied by Ghidra. Procedure names and types may be analysis-generated or incomplete; use address-based queries or explicit analysis seeds for independently known names.`,
+          ]),
+    );
     const softFloatReason = ghidraMipsSoftFloatFailure(
       softFloat,
       info.mips_soft_float_storage,
@@ -659,6 +670,7 @@ export const createGhidraProviderClient = (input: {
   const sessionLimitations = (): readonly string[] => [
     ...providerLimitations,
     ...targetLimitations,
+    ...pdbLimitations,
     ...(psp ? GHIDRA_PSP_LIMITATIONS : []),
     ...softFloatLimitations,
     ...ghidraExtensionLimitations(extensions),
@@ -745,7 +757,12 @@ export const createGhidraProviderClient = (input: {
         ? parseGhidraFunctionInput(operation, parameters)
         : parseGhidraInventoryInput(operation, parameters);
       if (!input.ok) return input;
-      if (extensions.length > 0 || seeds !== undefined || softFloat) {
+      if (
+        target.format === "pe" ||
+        extensions.length > 0 ||
+        seeds !== undefined ||
+        softFloat
+      ) {
         const started = await client.start(options?.signal, options?.progress);
         if (!started.ok)
           return err(

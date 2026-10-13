@@ -424,6 +424,20 @@ files into a fresh REA-chosen temporary directory and reports its path.
 `analyze_javascript_application` reads the supplied local directory or ASAR path
 and returns its result and Evidence inline.
 
+## Ghidra PE debug-symbol coverage
+
+For PE targets, the Ghidra bridge reports the Program's declared PDB file,
+CodeView GUID and age when available, and whether Ghidra applied PDB symbols.
+If a reference is present but symbols were not applied, query Evidence carries
+that identity and a limitation about procedure-name/type coverage. Missing
+identity components remain unknown. An applied PDB or a target without a PDB
+reference does not receive this limitation.
+
+This disclosure does not admit, copy, search for or download companion PDBs.
+Address-based queries remain available; explicit analysis seeds can provide
+independently known names. A missing name does not establish that the binary
+was stripped or that a neighboring PDB was mismatched.
+
 ## Ghidra first-query deadlines and recovery
 
 A successful MCP initialize handshake establishes the REA connection.

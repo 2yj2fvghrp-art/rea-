@@ -43,6 +43,14 @@ const sessionInfoSchema = z
     analysis_timed_out: z.boolean(),
     analysis_extensions: z.array(ghidraExtensionResultSchema).optional(),
     analysis_seeds: ghidraSeedReportSchema.optional(),
+    pdb: z
+      .strictObject({
+        file: z.string().min(1),
+        guid: z.string().nullable(),
+        age: z.number().int().min(0).max(0xffffffff).nullable(),
+        applied: z.boolean(),
+      })
+      .optional(),
     mips_soft_float_storage: z
       .object({
         policy: z.literal(GHIDRA_MIPS_SOFT_FLOAT_STORAGE),

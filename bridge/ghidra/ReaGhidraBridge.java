@@ -455,6 +455,28 @@ public final class ReaGhidraBridge extends HeadlessScript {
         String softFloat = currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO)
             .getString("REA MIPS soft-float storage", null);
         if (softFloat != null) result.add("mips_soft_float_storage", JsonParser.parseString(softFloat));
+        // Ghidra's PE loader owns CodeView identity; its PDB analyzer owns
+        // whether that identity's symbols were applied to this Program.
+        var programInfo = currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO);
+        String pdbFile = programInfo.getString(ghidra.app.util.bin.format.pdb.PdbParserConstants.PDB_FILE, null);
+        if (pdbFile != null && !pdbFile.isEmpty()) {
+            JsonObject pdb = new JsonObject();
+            pdb.addProperty("file", pdbFile);
+            pdb.addProperty("guid", programInfo.getString(ghidra.app.util.bin.format.pdb.PdbParserConstants.PDB_GUID, null));
+            String ageHex = programInfo.getString(ghidra.app.util.bin.format.pdb.PdbParserConstants.PDB_AGE, null);
+            Long age = null;
+            if (ageHex != null) {
+                try {
+                    long parsed = Long.parseUnsignedLong(ageHex, 16);
+                    if (parsed >= 0 && parsed <= 0xffffffffL) age = parsed;
+                } catch (NumberFormatException ignored) {
+                    // An unreadable identity remains unknown, not an invented age.
+                }
+            }
+            pdb.addProperty("age", age);
+            pdb.addProperty("applied", programInfo.getBoolean(ghidra.app.util.bin.format.pdb.PdbParserConstants.PDB_LOADED, false));
+            result.add("pdb", pdb);
+        }
         return result;
     }
 

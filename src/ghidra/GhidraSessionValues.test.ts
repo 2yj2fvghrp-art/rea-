@@ -148,3 +148,37 @@ describe("Ghidra mutation handshake", () => {
     }
   });
 });
+
+describe("Ghidra PDB application report", () => {
+  const pdb = {
+    file: "fixture.pdb",
+    guid: "9c0e5b6e-5350-9ca3-4c4c-44205044422e",
+    age: 1,
+    applied: false,
+  };
+  it.each([
+    pdb,
+    { ...pdb, guid: null, age: null },
+    { ...pdb, age: 0xffffffff, applied: true },
+  ])("retains reported identity and application facts", (report) => {
+    const parsed = parseGhidraSessionInfo(
+      { ...session(), pdb: report },
+      expected,
+    );
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value.pdb).toEqual(report);
+  });
+  it.each([
+    { ...pdb, file: "" },
+    { ...pdb, age: -1 },
+    { ...pdb, age: 1.5 },
+    { ...pdb, age: 0x100000000 },
+    { ...pdb, applied: "false" },
+    { file: pdb.file, applied: false },
+    { ...pdb, companion_sha256: "a".repeat(64) },
+  ])("rejects malformed or undeclared PDB facts", (report) => {
+    expect(
+      parseGhidraSessionInfo({ ...session(), pdb: report }, expected).ok,
+    ).toBe(false);
+  });
+});
