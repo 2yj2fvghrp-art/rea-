@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -76,6 +77,67 @@ namespace Rea.WindowsGui
 
             uint driveType = GetDriveType(root);
             return driveType == 2 || driveType == 3 || driveType == 5 || driveType == 6;
+        }
+
+        public static bool IsLocalTargetPath(string path)
+        {
+            if (!IsLocalPath(path))
+            {
+                return false;
+            }
+
+            using (SafeFileHandle handle = CreateFile(
+                path,
+                0,
+                FileShare.Read | FileShare.Write | FileShare.Delete,
+                IntPtr.Zero,
+                FileMode.Open,
+                0x02000000,
+                IntPtr.Zero
+            ))
+            {
+                if (handle.IsInvalid)
+                {
+                    throw new System.ComponentModel.Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "The selected target's final path could not be resolved."
+                    );
+                }
+
+                var finalPath = new StringBuilder(512);
+                uint length = GetFinalPathNameByHandle(handle, finalPath, (uint)finalPath.Capacity, 0);
+                if (length == 0)
+                {
+                    throw new System.ComponentModel.Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "The selected target's final path could not be read."
+                    );
+                }
+                if (length >= finalPath.Capacity)
+                {
+                    finalPath = new StringBuilder(checked((int)length + 1));
+                    length = GetFinalPathNameByHandle(handle, finalPath, (uint)finalPath.Capacity, 0);
+                    if (length == 0 || length >= finalPath.Capacity)
+                    {
+                        throw new System.ComponentModel.Win32Exception(
+                            Marshal.GetLastWin32Error(),
+                            "The selected target's final path could not be read."
+                        );
+                    }
+                }
+
+                string resolvedPath = finalPath.ToString();
+                if (resolvedPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                if (resolvedPath.StartsWith(@"\\?\", StringComparison.Ordinal))
+                {
+                    resolvedPath = resolvedPath.Substring(4);
+                }
+
+                return IsLocalPath(resolvedPath);
+            }
         }
 
         public bool HasExited
@@ -246,6 +308,25 @@ namespace Rea.WindowsGui
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateFileW")]
+        private static extern SafeFileHandle CreateFile(
+            string fileName,
+            uint desiredAccess,
+            FileShare shareMode,
+            IntPtr securityAttributes,
+            FileMode creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile
+        );
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandle(
+            SafeFileHandle file,
+            StringBuilder path,
+            uint pathLength,
+            uint flags
+        );
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern uint GetDriveType(string rootPathName);

@@ -86,13 +86,16 @@ availability, format support, and setup requirements remain those of the
 underlying REA command.
 
 This MVP accepts local file and directory paths only; UNC and mapped network
-drives are rejected before checking whether a target exists. It does not accept URLs,
-arbitrary REA commands, MCP sessions, or commands that mutate targets, capture
-live processes, or install/configure software. SQLite row selection and the
-full command catalog remain available through the CLI. Large analysis results
-can consume substantial memory in the results window; use the CLI to save and
-inspect very large Evidence output. A running operation cannot be cancelled from
-the GUI, and the window stays open until it finishes. If the GUI process is
+drives are rejected before checking whether a target exists, and reparse-point
+targets are resolved to reject paths that lead to network locations. It does not
+accept URLs, arbitrary REA commands, MCP sessions, or commands that mutate
+targets, capture live processes, or install/configure software. SQLite row
+selection and the full command catalog remain available through the CLI. Standard
+output and errors are kept separate so the standard-output tab remains valid JSON.
+Large analysis results can consume substantial memory in the results window; use
+the CLI to save and inspect very large Evidence output. A running operation
+cannot be cancelled from the GUI, and the window stays open until it finishes.
+If the GUI process is
 force-terminated, Windows closes its owned Job Object and terminates the CLI and
 its child processes. The portable ZIP is Windows x64 only; native analysis
 remains subject to the selected provider's requirements and the Windows native

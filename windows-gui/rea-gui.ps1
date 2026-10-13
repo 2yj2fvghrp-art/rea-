@@ -298,24 +298,56 @@ $statusLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $form.Controls.Add($statusLabel)
 
 $resultsLabel = New-Object System.Windows.Forms.Label
-$resultsLabel.Text = "실행 결과 (표준 출력 / 오류)"
+$resultsLabel.Text = "실행 결과"
 $resultsLabel.SetBounds(16, 218, 940, 24)
 $form.Controls.Add($resultsLabel)
 
+$outputTabs = New-Object System.Windows.Forms.TabControl
+$outputTabs.SetBounds(16, 244, 940, 450)
+$outputTabs.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$form.Controls.Add($outputTabs)
+
+$stdoutTab = New-Object System.Windows.Forms.TabPage
+$stdoutTab.Text = "표준 출력 (JSON)"
+$outputTabs.TabPages.Add($stdoutTab)
 $resultsBox = New-Object System.Windows.Forms.RichTextBox
 $resultsBox.ReadOnly = $true
 $resultsBox.WordWrap = $false
 $resultsBox.DetectUrls = $false
 $resultsBox.Font = New-Object System.Drawing.Font("Consolas", 9)
-$resultsBox.SetBounds(16, 244, 940, 450)
-$resultsBox.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
-$form.Controls.Add($resultsBox)
+$resultsBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+$stdoutTab.Controls.Add($resultsBox)
 $resultsBox.Text = "작업과 대상을 선택한 다음 '분석 실행'을 누르세요.`r`n분석 대상 프로그램 자체는 실행하지 않습니다."
+
+$stderrTab = New-Object System.Windows.Forms.TabPage
+$stderrTab.Text = "오류"
+$outputTabs.TabPages.Add($stderrTab)
+$errorsBox = New-Object System.Windows.Forms.RichTextBox
+$errorsBox.ReadOnly = $true
+$errorsBox.WordWrap = $false
+$errorsBox.DetectUrls = $false
+$errorsBox.Font = New-Object System.Drawing.Font("Consolas", 9)
+$errorsBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+$stderrTab.Controls.Add($errorsBox)
 
 $processState = [pscustomobject]@{
   Runner = $null
   IsRunning = $false
 }
+function Add-ReaOutputLine {
+  param(
+    [Parameter(Mandatory)]
+    [Rea.WindowsGui.ReaGuiOutputLine]$Line
+  )
+
+  if ($Line.Stream -eq "stdout") {
+    $resultsBox.AppendText("$($Line.Text)`r`n")
+  }
+  else {
+    $errorsBox.AppendText("$($Line.Text)`r`n")
+  }
+}
+
 $outputTimer = New-Object System.Windows.Forms.Timer
 $outputTimer.Interval = 100
 $providerLabel.Enabled = $script:GuiCommands[0].UsesProvider
@@ -325,20 +357,20 @@ $folderButton.Enabled = $script:GuiCommands[0].AllowsDirectory
 $outputTimer.add_Tick({
   $line = $null
   while ($processState.Runner.TryDequeue([ref]$line)) {
-    $streamLabel = if ($line.Stream -eq "stdout") { "표준 출력" } else { "오류" }
-    $resultsBox.AppendText("[$streamLabel] $($line.Text)`r`n")
+    Add-ReaOutputLine -Line $line
     $line = $null
   }
   $resultsBox.SelectionStart = $resultsBox.TextLength
   $resultsBox.ScrollToCaret()
+  $errorsBox.SelectionStart = $errorsBox.TextLength
+  $errorsBox.ScrollToCaret()
   if (-not $processState.Runner.HasExited) {
     return
   }
 
   $processState.Runner.WaitForExit()
   while ($processState.Runner.TryDequeue([ref]$line)) {
-    $streamLabel = if ($line.Stream -eq "stdout") { "표준 출력" } else { "오류" }
-    $resultsBox.AppendText("[$streamLabel] $($line.Text)`r`n")
+    Add-ReaOutputLine -Line $line
     $line = $null
   }
   $exitCode = $processState.Runner.ExitCode
@@ -434,6 +466,27 @@ $runButton.add_Click({
     ) | Out-Null
     return
   }
+  try {
+    $isLocalTarget = [Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalTargetPath($targetPath)
+  }
+  catch {
+    [System.Windows.Forms.MessageBox]::Show(
+      "분석 대상의 실제 경로를 확인할 수 없습니다.`r`n$($_.Exception.Message)",
+      "경로 확인 실패",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+    return
+  }
+  if (-not $isLocalTarget) {
+    [System.Windows.Forms.MessageBox]::Show(
+      "네트워크 경로는 지원하지 않습니다. 실제 대상이 로컬 드라이브에 있는 파일 또는 폴더를 선택하세요.",
+      "로컬 경로 필요",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Warning
+    ) | Out-Null
+    return
+  }
   if (-not $selectedCommand.AllowsDirectory -and (Test-Path -LiteralPath $targetPath -PathType Container)) {
     [System.Windows.Forms.MessageBox]::Show(
       "선택한 작업에는 파일 경로가 필요합니다.",
@@ -456,13 +509,13 @@ $runButton.add_Click({
   }
   catch {
     $statusLabel.Text = "명령 구성 실패"
-    $resultsBox.AppendText("[오류] $($_.Exception.Message)`r`n")
+    $errorsBox.AppendText("$($_.Exception.Message)`r`n")
     return
   }
 
   $resultsBox.Clear()
-  $resultsBox.AppendText("작업: $($selectedCommand.Label)`r`n대상: $targetPath`r`n`r`n")
-  $statusLabel.Text = "실행 중..."
+  $errorsBox.Clear()
+  $statusLabel.Text = "실행 중: $($selectedCommand.Label)"
   $runButton.Enabled = $false
   $commandCombo.Enabled = $false
   $targetTextBox.Enabled = $false
@@ -496,7 +549,7 @@ $runButton.add_Click({
     $providerLabel.Enabled = $selectedCommand.UsesProvider
     $providerCombo.Enabled = $selectedCommand.UsesProvider
     $statusLabel.Text = "실행 실패"
-    $resultsBox.AppendText("[오류] $($_.Exception.Message)`r`n")
+    $errorsBox.AppendText("$($_.Exception.Message)`r`n")
   }
 }.GetNewClosure())
 
@@ -509,9 +562,9 @@ $clearButton.add_Click({
 
 $form.add_FormClosing({
   param($sender, $eventArgs)
-  if ($processState.IsRunning) {
+  if ($processState.IsRunning -and $eventArgs.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing) {
     [System.Windows.Forms.MessageBox]::Show(
-      "분석이 끝날 때까지 기다린 뒤 창을 닫으세요. 현재 실행 중인 CLI 작업은 이 GUI에서 취소할 수 없습니다.",
+      "분석이 끝날 때까지 기다린 뒤 창을 닫으세요. Windows 종료 시에는 실행 중인 CLI 작업도 함께 종료됩니다.",
       "분석 진행 중",
       [System.Windows.Forms.MessageBoxButtons]::OK,
       [System.Windows.Forms.MessageBoxIcon]::Information

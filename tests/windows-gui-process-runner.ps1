@@ -6,8 +6,14 @@ Add-Type -Path $runnerSource
 if (-not [Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalPath($env:TEMP)) {
   throw "The local temporary directory was not recognized as a local path."
 }
+if (-not [Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalTargetPath($env:TEMP)) {
+  throw "The local temporary directory's resolved path was not recognized as local."
+}
 if ([Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalPath("\\server\share\sample.exe")) {
   throw "A UNC target was accepted as a local path."
+}
+if ([Rea.WindowsGui.ReaGuiProcessRunner]::IsLocalTargetPath("\\server\share\sample.exe")) {
+  throw "A UNC target was accepted after final-path resolution."
 }
 
 $startInfo = New-Object System.Diagnostics.ProcessStartInfo
