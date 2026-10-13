@@ -785,10 +785,7 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
     const home = javaProperty(output, "java.home");
     const vmName = javaProperty(output, "java.vm.name");
     const dataModel = javaProperty(output, "sun.arch.data.model");
-    const bits =
-      dataModel !== null && /^[0-9]+$/u.test(dataModel)
-        ? Number(dataModel)
-        : null;
+    const bits = javaDataModelBits(dataModel);
     const unparsedBits = bits === null ? dataModel : null;
     // An empty version or home cannot identify the runtime.
     if (!version || !home) return undefined;
@@ -821,6 +818,13 @@ const executablePath = (path: string): boolean => {
     void cause;
     return false;
   }
+};
+
+// Only an exactly representable decimal is a bitness; other text stays unparsed.
+const javaDataModelBits = (dataModel: string | null): number | null => {
+  if (dataModel === null || !/^[0-9]+$/u.test(dataModel)) return null;
+  const bits = Number(dataModel);
+  return Number.isSafeInteger(bits) ? bits : null;
 };
 
 // Horizontal whitespace only: an empty value must not absorb the next line.
