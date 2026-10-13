@@ -861,6 +861,152 @@ describe("managed member comparison of unresolved and held identities", () => {
   });
 });
 
+describe("managed member comparison of signature contention and consumed ambiguity", () => {
+  it("contests same-signature methods even when their bodies differ", () => {
+    const base = inspect(
+      buildManagedPeFixture(),
+      "/tmp/ownerless-signatures.dll",
+    );
+    const [method] = base.result.methods;
+    if (method === undefined) throw new Error("Expected a fixture method");
+    const changedBody = (hash: string, stack: number) => ({
+      ...method.body,
+      normalized_il_sha256: hash.repeat(64),
+      max_stack: stack,
+    });
+    const withOwnerless = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [
+          { ...method, body: changedBody("a", 1) },
+          {
+            ...method,
+            token: "0x06000002",
+            declaring_type: null,
+            declaring_type_token: null,
+            body: changedBody("b", 2),
+          },
+        ],
+      },
+    };
+    const resolvedOnly = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [{ ...method, body: changedBody("c", 3) }],
+      },
+    };
+    for (const result of [
+      compareManagedMembers(withOwnerless, resolvedOnly),
+      compareManagedMembers(resolvedOnly, withOwnerless),
+    ])
+      expect(
+        result.methods.filter(({ match }) => match.status === "matched"),
+      ).toEqual([]);
+  });
+
+  it("contests ownerless undecoded fields by raw signature", () => {
+    const base = inspect(
+      buildManagedPeFixture({ fieldSignature: Buffer.from([0x06, 0x7f]) }),
+      "/tmp/ownerless-field-signatures.dll",
+    );
+    const [field] = base.result.fields;
+    if (field === undefined) throw new Error("Expected a fixture field");
+    expect(field.signature.parse_status).toBe("unsupported");
+    const withOwnerless = {
+      ...base,
+      result: {
+        ...base.result,
+        methods: [],
+        fields: [
+          field,
+          {
+            ...field,
+            token: "0x04000002",
+            declaring_type: null,
+            declaring_type_token: null,
+          },
+        ],
+      },
+    };
+    const resolvedOnly = {
+      ...base,
+      result: { ...base.result, methods: [], fields: [field] },
+    };
+    for (const result of [
+      compareManagedMembers(withOwnerless, resolvedOnly),
+      compareManagedMembers(resolvedOnly, withOwnerless),
+    ])
+      expect(
+        result.fields.filter(({ match }) => match.status === "matched"),
+      ).toEqual([]);
+  });
+
+  it("keeps a consumed ownerless ambiguity from authorizing a later remap", () => {
+    const base = inspect(
+      buildManagedPeFixture(),
+      "/tmp/consumed-ownerless.dll",
+    );
+    const [method] = base.result.methods;
+    if (method === undefined) throw new Error("Expected a fixture method");
+    const candidate = (
+      raw: string,
+      token: string,
+      owner: string | null,
+      name: string,
+      stack: number,
+    ) => ({
+      ...method,
+      token,
+      declaring_type: owner,
+      declaring_type_token: owner === null ? null : method.declaring_type_token,
+      name,
+      signature: { ...method.signature, raw_sha256: raw.repeat(64) },
+      body: {
+        ...method.body,
+        normalized_il_sha256: raw.repeat(64),
+        max_stack: stack,
+      },
+    });
+    const left = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [
+          candidate("a", "0x06000001", "T", "M", 1),
+          candidate("b", "0x06000002", null, "M", 1),
+          candidate("b", "0x06000003", "D", "D", 2),
+        ],
+      },
+    };
+    const right = {
+      ...base,
+      result: {
+        ...base.result,
+        fields: [],
+        methods: [
+          candidate("c", "0x06000001", "U", "N", 1),
+          candidate("b", "0x06000002", null, "M", 1),
+          candidate("d", "0x06000003", "T", "M", 3),
+        ],
+      },
+    };
+    for (const result of [
+      compareManagedMembers(left, right),
+      compareManagedMembers(right, left),
+    ]) {
+      expect(result.matching.ambiguous).toBeGreaterThan(0);
+      expect(
+        result.methods.filter(({ match }) => match.status === "matched"),
+      ).toEqual([]);
+    }
+  });
+});
+
 describe("managed member comparison of ownerless structural competitors", () => {
   it("keeps structural competitors of an ownerless method ambiguous in both directions", () => {
     const base = inspect(

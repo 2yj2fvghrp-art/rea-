@@ -32,6 +32,7 @@ interface Keyed<Item> {
   readonly identity: string;
   readonly exactKey: string | null;
   readonly signatureKey: string | null;
+  readonly rawSignatureKey: string;
   readonly structuralKey: string | null;
 }
 
@@ -51,6 +52,7 @@ interface Ambiguous<Item> {
 const keyMethod = (item: Method): Keyed<Method> => ({
   item,
   identity: identityOf(item),
+  rawSignatureKey: item.signature.raw_sha256,
   exactKey:
     item.body.status === "present" && item.body.normalized_il_sha256 !== null
       ? sha256([
@@ -100,6 +102,7 @@ const keyMethod = (item: Method): Keyed<Method> => ({
 const keyField = (item: Field): Keyed<Field> => ({
   item,
   identity: identityOf(item),
+  rawSignatureKey: item.signature.raw_sha256,
   exactKey:
     item.signature.parse_status === "decoded"
       ? sha256(["field-exact", item.signature.raw_sha256])
@@ -135,6 +138,7 @@ const matchMethods = (
       {
         basis: "exact-signature",
         key: ({ signatureKey }) => signatureKey,
+        competitionKey: ({ rawSignatureKey }) => rawSignatureKey,
       },
       {
         basis: "structural-method-shape",
@@ -173,6 +177,7 @@ const matchFields = (
       {
         basis: "exact-signature",
         key: ({ signatureKey }) => signatureKey,
+        competitionKey: ({ rawSignatureKey }) => rawSignatureKey,
       },
       {
         basis: "field-signature",
@@ -248,15 +253,22 @@ const matchByKeys = <Item extends Declared>({
     );
     const openLeft = left.filter((item) => !usedLeft.has(item));
     const openRight = right.filter((item) => !usedRight.has(item));
+    // Only open candidates can justify overriding a held declared identity:
+    // consumed ambiguous rows remain identity barriers, but cannot join a
+    // later remap group to establish its ambiguity.
+    const remapContested =
+      round.remap === true
+        ? ownerlessContested([openLeft, openRight], competitionKey)
+        : new Set<string>();
     const leftGroups = groupBy(
       round.remap === true
-        ? remappable(openLeft, unpairedRight, competitionKey)
+        ? remappable(openLeft, unpairedRight, competitionKey, remapContested)
         : openLeft.filter(declarable),
       round.key,
     );
     const rightGroups = groupBy(
       round.remap === true
-        ? remappable(openRight, unpairedLeft, competitionKey)
+        ? remappable(openRight, unpairedLeft, competitionKey, remapContested)
         : openRight.filter(declarable),
       round.key,
     );
@@ -357,9 +369,9 @@ const remappable = <Item extends Declared>(
   items: readonly Keyed<Item>[],
   others: readonly Keyed<Item>[],
   keyOf: (item: Keyed<Item>) => string | null,
+  contested: ReadonlySet<string>,
 ): Keyed<Item>[] => {
   const kept = new Set(others.map(({ identity }) => identity));
-  const contested = ownerlessContested([items, others], keyOf);
   return items.filter((member) => {
     const key = keyOf(member);
     return (
