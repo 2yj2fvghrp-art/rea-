@@ -1,6 +1,7 @@
 import * as t from "@babel/types";
 
 import type { ElectronCalleeBinding } from "./electronStaticAnalysisTypes.js";
+import { javascriptBindingAliasComponents } from "./javascriptBindingAliases.js";
 import { electronMemberPath } from "./javascriptElectronMemberWrites.js";
 import { unwrapJavaScriptExpression } from "./javascriptAstValues.js";
 import {
@@ -22,8 +23,9 @@ export const isContextBridgeExposure = (
 /**
  * Bind identifiers in contextBridge API arguments to their single stable
  * object-literal initializer, including identifiers nested as member values or
- * as branches of conditional spreads. Visible member writes to a bound object
- * are retained as a flag; writes through escaped references are not examined.
+ * as branches of conditional spreads. Visible member writes to a bound object,
+ * directly or through a direct reference alias, are retained as a flag; writes
+ * through escaped references are not examined.
  */
 export const resolveElectronApiObjects = (
   state: JavaScriptSemanticAnalysisState,
@@ -32,6 +34,11 @@ export const resolveElectronApiObjects = (
   memberWritten: ReadonlySet<string>,
 ): ReadonlyMap<number, ElectronApiObject> => {
   const objects = new Map<number, ElectronApiObject>();
+  const aliases = javascriptBindingAliasComponents(state);
+  const written = (bindingId: string): boolean =>
+    [...(aliases.get(bindingId) ?? [bindingId])].some((id) =>
+      memberWritten.has(id),
+    );
   const visit = (node: t.Node, depth: number): void => {
     if (depth >= MAX_DEPTH) return;
     const expression = unwrapJavaScriptExpression(node).node;
@@ -57,7 +64,7 @@ export const resolveElectronApiObjects = (
     if (binding === undefined || !t.isObjectExpression(object)) return;
     objects.set(expression.start ?? -1, {
       object,
-      memberWrites: memberWritten.has(binding.bindingId),
+      memberWrites: written(binding.bindingId),
     });
     visit(object, depth);
   };
