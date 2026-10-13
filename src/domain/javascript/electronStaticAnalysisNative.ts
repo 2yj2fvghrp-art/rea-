@@ -6,6 +6,12 @@ import {
 } from "../unicodeCodePointOrder.js";
 import { stripQueryAndFragment } from "../artifactPathSyntax.js";
 import type { ElectronNativeAddonBindingFinding } from "./electronStaticAnalysisTypes.js";
+import {
+  isTypeOnlyExportDeclaration,
+  isTypeOnlyExportSpecifier,
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 import { addLocatedFinding } from "./javascriptStaticAnalysisFindings.js";
 import {
   argumentNode,
@@ -105,7 +111,15 @@ const inspectImport = (
   context: JavaScriptFindingContext,
 ): void => {
   if (!isNativeSpecifier(node.source.value, "import")) return;
-  const members = node.specifiers.flatMap((specifier) => {
+  // TypeScript erases `import type` and per-binding `type` imports; they never
+  // request a runtime native-addon member.
+  if (isTypeOnlyImportDeclaration(node)) return;
+  const valueSpecifiers = node.specifiers.filter(
+    (specifier) =>
+      !(t.isImportSpecifier(specifier) && isTypeOnlyImportSpecifier(specifier)),
+  );
+  if (node.specifiers.length > 0 && valueSpecifiers.length === 0) return;
+  const members = valueSpecifiers.flatMap((specifier) => {
     if (t.isImportDefaultSpecifier(specifier)) return ["default"];
     if (t.isImportNamespaceSpecifier(specifier)) return [];
     return [propertyName(specifier.imported)];
@@ -117,7 +131,7 @@ const inspectImport = (
     kind: "import",
     moduleKind: "import",
     members,
-    namespaceAccess: node.specifiers.some((value) =>
+    namespaceAccess: valueSpecifiers.some((value) =>
       t.isImportNamespaceSpecifier(value),
     ),
     dynamicMemberAccess: false,
@@ -134,7 +148,13 @@ const inspectNamedExport = (
     !isNativeSpecifier(node.source.value, "import")
   )
     return;
-  const members = node.specifiers.flatMap((specifier) => {
+  if (isTypeOnlyExportDeclaration(node)) return;
+  const valueSpecifiers = node.specifiers.filter(
+    (specifier) =>
+      !(t.isExportSpecifier(specifier) && isTypeOnlyExportSpecifier(specifier)),
+  );
+  if (node.specifiers.length > 0 && valueSpecifiers.length === 0) return;
+  const members = valueSpecifiers.flatMap((specifier) => {
     if (t.isExportSpecifier(specifier)) return [propertyName(specifier.local)];
     if (t.isExportDefaultSpecifier(specifier)) return ["default"];
     return [];
@@ -146,7 +166,7 @@ const inspectNamedExport = (
     kind: "re-export",
     moduleKind: "import",
     members,
-    namespaceAccess: node.specifiers.some((value) =>
+    namespaceAccess: valueSpecifiers.some((value) =>
       t.isExportNamespaceSpecifier(value),
     ),
     dynamicMemberAccess: false,
@@ -159,7 +179,8 @@ const inspectExportAll = (
 ): void => {
   if (
     node.source === undefined ||
-    !isNativeSpecifier(node.source.value, "import")
+    !isNativeSpecifier(node.source.value, "import") ||
+    isTypeOnlyExportDeclaration(node)
   )
     return;
   addBinding({
