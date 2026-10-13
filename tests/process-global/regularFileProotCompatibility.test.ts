@@ -8,6 +8,7 @@ import {
   hasPRootTemporaryMount,
   isPRootDistroEnvironment,
   sameRegularFileState,
+  sameRegularFileStateAcrossPathAndDescriptor,
 } from "../../src/filesystem/RegularFile.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
@@ -113,4 +114,43 @@ it("compares BigIntStats without throwing on the file-type mask", async () => {
   const second = await stat(path, { bigint: true });
 
   expect(sameRegularFileState(first, second)).toBe(true);
+});
+
+it("limits PRoot metadata tolerance to path-to-descriptor checks", () => {
+  const previous = process.env.container;
+  process.env.container = "proot-distro";
+  try {
+    const before = {
+      dev: 1n,
+      ino: 2n,
+      size: 3n,
+      mode: 0o100644n,
+      mtimeNs: 4n,
+      ctimeNs: 5n,
+      isFile: () => true,
+    } as unknown as import("node:fs").BigIntStats;
+    const permissionsAndCtimeChanged = {
+      ...before,
+      mode: 0o100400n,
+      ctimeNs: 6n,
+    };
+    expect(
+      sameRegularFileStateAcrossPathAndDescriptor(
+        before,
+        permissionsAndCtimeChanged,
+      ),
+    ).toBe(true);
+    expect(sameRegularFileState(before, permissionsAndCtimeChanged)).toBe(
+      false,
+    );
+    expect(
+      sameRegularFileStateAcrossPathAndDescriptor(before, {
+        ...permissionsAndCtimeChanged,
+        mtimeNs: 7n,
+      }),
+    ).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.container;
+    else process.env.container = previous;
+  }
 });
