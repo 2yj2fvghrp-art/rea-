@@ -237,8 +237,15 @@ export const readMetadataUserString = (
     );
   // ECMA-335 II.24.2.4: offset 0 is the heap's empty entry, a zero length
   // with no terminal flag byte; every other item carries the flag.
-  if (index === 0 && decoded.length === 0)
-    return { offset: start, value: "", issue: null };
+  if (index === 0) {
+    if (decoded.length === 0) return { offset: start, value: "", issue: null };
+    throw managedFailure(
+      "invalid-string",
+      scope,
+      `#US offset 0 is the reserved empty entry, but it encodes ${String(decoded.length)} byte(s)`,
+      start,
+    );
+  }
   if (decoded.length % 2 !== 1)
     throw managedFailure(
       "invalid-string",
@@ -247,11 +254,15 @@ export const readMetadataUserString = (
       start,
     );
   const units = (decoded.length - 1) / 2;
+  // Admit the literal before scanning it: JSON spends at most six bytes per
+  // UTF-16 code unit.
+  const budget = managedDecodeBudget(layout);
+  budget.reserveString(units, start);
   // Check the serialized flag independently of literal decoding. A difference
   // from ECMA-335 is observable metadata, not proof of runtime rejection.
   let expectedFlag = 0;
-  for (let index = 0; index < units; index++) {
-    const unit = bytes.readUInt16LE(content + index * 2);
+  for (let unitIndex = 0; unitIndex < units; unitIndex++) {
+    const unit = bytes.readUInt16LE(content + unitIndex * 2);
     if (
       unit > 0xff ||
       (unit >= 0x01 && unit <= 0x08) ||
@@ -266,9 +277,6 @@ export const readMetadataUserString = (
   }
   const flagOffset = content + units * 2;
   const actualFlag = bytes[flagOffset];
-  // JSON spends at most six bytes per UTF-16 code unit.
-  const budget = managedDecodeBudget(layout);
-  budget.reserveString(units, start);
   if (actualFlag !== expectedFlag) budget.reserve(512, flagOffset);
   return {
     offset: start,

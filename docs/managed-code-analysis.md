@@ -153,7 +153,7 @@ assembly. Older member Evidence without `selection` remains readable.
 distinct token loaded by an inspected method body once, in token order, with
 its `#US` file offset and decoded value. Values keep their stored UTF-16 code
 units, including unpaired surrogates. Token `0x70000000` names the heap's
-empty entry at offset 0 and reads as `""`. The terminal flag is checked against
+empty entry at offset 0 and reads as `""`; any other item there is malformed. The terminal flag is checked against
 ECMA-335 II.24.2.4. A differing flag is reported with its byte offset as partial
 metadata coverage while preserving the readable literal. Toolchain conventions
 can differ; this conformance observation does not establish runtime rejection.

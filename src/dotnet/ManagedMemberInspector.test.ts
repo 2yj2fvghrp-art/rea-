@@ -815,6 +815,20 @@ describe("managed user string issues", () => {
     });
   });
 
+  it("rejects a nonempty item at the reserved #US offset 0", () => {
+    // "A" with its flag, where only the empty entry may sit.
+    const result = inspect({
+      ilBody: ldstrBody(["0x70000000"]),
+      userStringHeap: Buffer.from([3, 0x41, 0, 0]),
+    });
+
+    expect(result.user_strings).toEqual([]);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [{ code: "invalid-string", scope: "metadata.#US:0x70000000" }],
+    });
+  });
+
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
     const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
     const [ok, quoted] = tokens as [string, string];
