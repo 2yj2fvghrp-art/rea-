@@ -240,6 +240,16 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       arguments: argumentsList,
       staging: join(root, "modules"),
     });
+    const consumed = await fingerprintRecoveryFile(
+      source.snapshot_path,
+      source.bytes,
+      signal,
+    );
+    if (consumed.sha256 !== source.sha256 || consumed.bytes !== source.bytes)
+      throw new AnalysisOutputError(
+        OPERATION,
+        `The input snapshot changed during recovery: ${source.path}`,
+      );
     await inventoryRecoveryFiles(
       join(root, "modules"),
       JSBEAUTIFY_LIMITS,

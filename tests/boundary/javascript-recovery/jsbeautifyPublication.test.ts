@@ -1,7 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+const scenario = vi.hoisted(() => ({ mutateSnapshot: false }));
+beforeEach(() => {
+  scenario.mutateSnapshot = false;
+});
 
 vi.mock(
   "../../../src/javascript/recovery/JsBeautifyRelease.js",
@@ -36,6 +41,8 @@ vi.mock(
         if (!version) {
           expect(context.staging).toBe(join(context.cwd, "modules"));
           const source = await readFile(context.arguments[0]!, "utf8");
+          if (scenario.mutateSnapshot)
+            await writeFile(context.arguments[0]!, "const value = 99;");
           const output =
             context.arguments[context.arguments.indexOf("--output") + 1]!;
           await mkdir(dirname(output), { recursive: true });
@@ -132,10 +139,16 @@ it.skipIf(process.platform === "win32")(
 );
 
 it("rejects combined staging output beyond one operation's budget", async () => {
-  const evidence = await recover(["a.js", "b.js", "c.js", "d.js", "e.js"]);
+  const evidence = await recover(
+    ["a.js", "b.js", "c.js", "d.js", "e.js"],
+    true,
+  );
   expect(evidence.ok).toBe(false);
   if (!evidence.ok)
-    expect(evidence.error).toMatchObject({ _tag: "AnalysisOutputError" });
+    expect(evidence.error).toMatchObject({
+      _tag: "AnalysisOutputError",
+      message: expect.stringContaining("Recovery staging exceeds"),
+    });
 });
 
 it("does not claim successful reparsing when every file fails its gate", async () => {
@@ -167,4 +180,15 @@ it("allocates distinct discoverable outputs for an extension collision", async (
       module.provenance.original_path.split("/").at(-1),
     ),
   ).toEqual(["bundle", "bundle.js"]);
+});
+
+it("refuses output when the engine mutates its input snapshot", async () => {
+  scenario.mutateSnapshot = true;
+  const evidence = await recover(["a.js"]);
+  expect(evidence.ok).toBe(false);
+  if (!evidence.ok)
+    expect(evidence.error).toMatchObject({
+      _tag: "AnalysisOutputError",
+      message: expect.stringContaining("input snapshot changed"),
+    });
 });

@@ -28,6 +28,7 @@ export const JSBEAUTIFY_LIMITS = {
 
 /** Public limitations for per-file jsbeautify recovery. */
 export const JSBEAUTIFY_LIMITATIONS = [
+  "Real jsbeautify CLI/MCP compatibility remains unverified; current adapter regressions use controlled stand-ins.",
   "Recovered sources are derived artifacts; recovered names are heuristic guesses and runtime equivalence is not established.",
   "jsbeautify rewrites each selected file separately; modules are not split, so each module's byte range is its whole input file.",
   "A file is published only when jsbeautify exits 0 and, for deobfuscation, both of its generated-output re-parse checks (phases 19.6 and 21.5) report success. Re-parsing proves syntax, not behaviour.",

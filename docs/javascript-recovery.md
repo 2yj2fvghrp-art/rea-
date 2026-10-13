@@ -49,6 +49,12 @@ Both give the same binary (SHA-256
 
 ### jsbeautify
 
+The jsbeautify adapter remains unverified against the real executable. Current
+coverage uses controlled stand-ins; the existing real CLI/MCP lane covers only
+Wakaru. The jsbeautify version banner, rewrite arguments, and stderr re-parse
+phase gates require real-binary CLI/MCP qualification before compatibility can
+be claimed. No such provider run was performed for this revision.
+
 `engine: "jsbeautify"` (CLI `--engine jsbeautify`) uses a caller-supplied
 [jsbeautify](https://github.com/coleleavitt/jsbeautify) binary on Linux
 (any architecture). Set `REA_JSBEAUTIFY_COMMAND` to its absolute path; util-linux
@@ -172,7 +178,7 @@ equivalence remain unknown. No network fetching occurs.
 
 ## Resource policy and verification
 
-Each operation uses one worker, a 1 GiB address-space ceiling and a 120-second
+Each Wakaru operation uses one worker, a 1 GiB address-space ceiling and a 120-second
 deadline; it accepts up to 64 MiB of total input across all selected files and
 128 MiB/10000 entries of staged
 output, with 8 MiB per diagnostic/report stream. Exceeding a limit is an explicit
