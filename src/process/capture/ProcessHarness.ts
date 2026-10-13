@@ -24,7 +24,7 @@ import { startProcessSampler } from "./ProcessSampling.js";
 import { snapshotRoots } from "./FilesystemSnapshot.js";
 import { TerminalRenderer } from "./TerminalRenderer.js";
 import type { ProcessTimer } from "./ProcessTimer.js";
-import { normalizeProcessText } from "./ProcessNormalization.js";
+import { createProcessTextNormalizer } from "./ProcessNormalization.js";
 import { selectCapturedProcessGroupIds } from "../ProcessOwnershipProcessTree.js";
 import {
   awaitTerminalExit,
@@ -231,8 +231,11 @@ const createTerminalRenderer = (
     rows: scenario.terminal.rows,
     scrollback: scenario.terminal.scrollback,
     maxBytes: scenario.limits.output_bytes,
-    normalize: (value) =>
-      normalizeProcessText(value, scenario, temporaryRoot, terminalPid()),
+    normalize: createProcessTextNormalizer(
+      scenario,
+      temporaryRoot,
+      terminalPid,
+    ),
     recordEvent,
   });
 
