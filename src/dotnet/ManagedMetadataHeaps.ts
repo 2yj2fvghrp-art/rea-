@@ -237,10 +237,23 @@ export const readMetadataUserString = (
       "User string leaves #US",
       start,
     );
+  const budget = managedDecodeBudget(layout);
+  const issues: ManagedParseIssue[] = [];
+  // A wider length prefix than the value needs still reads unambiguously, so
+  // it is reported like the flag rather than discarding the literal.
+  if (!decoded.minimal) {
+    budget.reserve(512, start);
+    issues.push({
+      code: "invalid-string",
+      scope,
+      offset: start,
+      detail: `User string length ${String(decoded.length)} uses a ${String(decoded.prefix)}-byte prefix wider than ECMA-335 II.23.2 assigns; readable UTF-16 is preserved and runtime acceptance is not assessed`,
+    });
+  }
   // ECMA-335 II.24.2.4: offset 0 is the heap's empty entry, a zero length
   // with no terminal flag byte; every other item carries the flag.
   if (index === 0) {
-    if (decoded.length === 0) return { offset: start, value: "", issues: [] };
+    if (decoded.length === 0) return { offset: start, value: "", issues };
     throw managedFailure(
       "invalid-string",
       scope,
@@ -258,7 +271,6 @@ export const readMetadataUserString = (
   const units = (decoded.length - 1) / 2;
   // Admit the literal before scanning it: JSON spends at most six bytes per
   // UTF-16 code unit.
-  const budget = managedDecodeBudget(layout);
   budget.reserveString(units, start);
   // Check the serialized flag independently of literal decoding. A difference
   // from ECMA-335 is observable metadata, not proof of runtime rejection.
@@ -279,18 +291,6 @@ export const readMetadataUserString = (
   }
   const flagOffset = content + units * 2;
   const actualFlag = bytes[flagOffset];
-  const issues: ManagedParseIssue[] = [];
-  // A wider length prefix than the value needs still reads unambiguously, so
-  // it is reported like the flag rather than discarding the literal.
-  if (!decoded.minimal) {
-    budget.reserve(512, start);
-    issues.push({
-      code: "invalid-string",
-      scope,
-      offset: start,
-      detail: `User string length ${String(decoded.length)} uses a ${String(decoded.prefix)}-byte prefix wider than ECMA-335 II.23.2 assigns; readable UTF-16 is preserved and runtime acceptance is not assessed`,
-    });
-  }
   if (actualFlag !== expectedFlag) {
     budget.reserve(512, flagOffset);
     issues.push({

@@ -829,27 +829,34 @@ describe("managed user string issues", () => {
     });
   });
 
-  it("keeps a literal whose length prefix is wider than ECMA-335 assigns", () => {
+  it.each([
     // "ok" is 5 bytes, which ECMA-335 encodes in one prefix byte, not 0x80 0x05.
-    const result = inspect({
-      ilBody: ldstrBody(["0x70000001"]),
-      userStringHeap: Buffer.from([0, 0x80, 0x05, 0x6f, 0, 0x6b, 0, 0]),
-    });
+    ["0x70000001", [0, 0x80, 0x05, 0x6f, 0, 0x6b, 0, 0], "ok"],
+    // The empty entry at offset 0 is the single byte 0x00, not 0x80 0x00.
+    ["0x70000000", [0x80, 0x00], ""],
+  ])(
+    "keeps %s when its length prefix is wider than ECMA-335 assigns",
+    (token, heap, value) => {
+      const result = inspect({
+        ilBody: ldstrBody([token]),
+        userStringHeap: Buffer.from(heap),
+      });
 
-    expect(result.user_strings).toEqual([
-      { token: "0x70000001", offset: expect.any(Number), value: "ok" },
-    ]);
-    expect(result.coverage).toMatchObject({
-      state: "partial",
-      issues: [
-        {
-          code: "invalid-string",
-          scope: "metadata.#US:0x70000001",
-          detail: expect.stringContaining("prefix wider than ECMA-335"),
-        },
-      ],
-    });
-  });
+      expect(result.user_strings).toEqual([
+        { token, offset: expect.any(Number), value },
+      ]);
+      expect(result.coverage).toMatchObject({
+        state: "partial",
+        issues: [
+          {
+            code: "invalid-string",
+            scope: `metadata.#US:${token}`,
+            detail: expect.stringContaining("prefix wider than ECMA-335"),
+          },
+        ],
+      });
+    },
+  );
 
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
     const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
