@@ -153,7 +153,7 @@ const evaluateClaim = (
     ...sourceCallCoverageLimitations(
       claim,
       functionSourceFacts,
-      observation.status,
+      observation.hasIndependentFunctionChange === true,
     ),
   ];
   const relatedUnknowns = reconstructionClaimUnknowns(
@@ -249,6 +249,7 @@ const observedStatus = (
 ): {
   readonly status: ObservedStatus;
   readonly limitations: readonly string[];
+  readonly hasIndependentFunctionChange?: boolean;
 } => {
   if (claim.kind === "behavioral") {
     const result = processCaptureComparisonSchema.parse(
@@ -266,7 +267,20 @@ const observedStatus = (
       evidence.normalized_result,
     );
     if (claim.dimension === "overall")
-      return { status: result.status, limitations: [] };
+      return {
+        status: result.status,
+        limitations: [],
+        // Overall changes may come only from incomplete call sets. Keep
+        // main's call-coverage rule while normalized views are added below.
+        hasIndependentFunctionChange:
+          result.function_match.status === "mismatched" ||
+          (result.function_match.status === "matched" &&
+            result.dimensions.some(
+              (dimension) =>
+                dimension.dimension !== "calls" &&
+                dimension.status === "changed",
+            )),
+      };
     const normalized = isNormalizedViewDimension(claim.dimension);
     const view = normalized
       ? result.normalized_views?.views.find(
@@ -360,12 +374,12 @@ const authorityLimitations = (
 const sourceCallCoverageLimitations = (
   claim: Claim,
   functionSources: readonly FunctionSourceFacts[],
-  observed: ObservedStatus,
+  hasIndependentFunctionChange: boolean,
 ): string[] => {
   if (
     claim.kind !== "structural-function" ||
     (claim.dimension !== "calls" &&
-      !(claim.dimension === "overall" && observed !== "changed"))
+      !(claim.dimension === "overall" && !hasIndependentFunctionChange))
   )
     return [];
   return functionSources.flatMap(({ evidence_id, callCoverageLimitations }) =>
