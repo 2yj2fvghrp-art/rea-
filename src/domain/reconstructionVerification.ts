@@ -246,7 +246,10 @@ const validateComparisonIdentity = (claim: Claim, evidence: Evidence): void => {
 const observedStatus = (
   claim: Claim,
   evidence: Evidence,
-): { readonly status: ObservedStatus; readonly limitations: readonly string[] } => {
+): {
+  readonly status: ObservedStatus;
+  readonly limitations: readonly string[];
+} => {
   if (claim.kind === "behavioral") {
     const result = processCaptureComparisonSchema.parse(
       evidence.normalized_result,

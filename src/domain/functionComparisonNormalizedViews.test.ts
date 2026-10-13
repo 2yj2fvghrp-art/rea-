@@ -119,22 +119,28 @@ describe("wallace relocation-only function pair", () => {
     expect(dimension(result, "cfg")).toMatchObject({ status: "unchanged" });
   });
 
-  it("separates the relocation-only change in both opt-in normalized views", () => {
+  it("leaves relocation-only views unknown when masked callees cannot be matched", () => {
     const result = compareFunctions(left, right, {
       includeNormalizedViews: true,
     });
     for (const name of ["pseudocode_normalized", "assembly_normalized"]) {
       const projection = view(result, name);
       expect(projection, name).toMatchObject({
-        status: "unchanged",
-        conclusion_kind: "derived_relationship",
+        status: "unknown",
+        conclusion_kind: "unresolved_branch",
         evidence_links: [left.evidence_id, right.evidence_id],
+        masking: null,
+        limitations: expect.arrayContaining([
+          expect.stringContaining(
+            "exact calls dimension is unknown; normalized equality cannot establish callee identity or call order",
+          ),
+        ]),
       });
-      expect(projection?.masking?.rules.map(({ rule }) => rule)).toEqual([
-        "address_derived_identifier",
-        "function_relative_address",
-        "corroborated_external_address",
-      ]);
+      expect(projection?.limitations).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("do not establish that both sides reference"),
+        ]),
+      );
     }
   });
 
@@ -156,25 +162,29 @@ describe("wallace relocation-only function pair", () => {
     );
   });
 
-  it("masks the relocated call target and label, never the string literals or constants", () => {
-    const result = compareFunctions(left, right, {
+  it("masks a relocated function label while leaving equal uncorroborated constants visible", () => {
+    const [before, after] = syntheticPair(
+      addressRelocationText("0x411700"),
+      addressRelocationText("0x4116f0"),
+    );
+    const result = compareFunctions(before, after, {
       includeNormalizedViews: true,
     });
     const projection = view(result, "pseudocode_normalized");
-    // The function name plus six calls to the relocated thunk.
+    // Only the function's own provider-generated name is address-derived.
     expect(projection?.masking?.left).toMatchObject({
-      address_derived_identifiers: 7,
+      address_derived_identifiers: 1,
       unmasked_address_derived_identifiers: 0,
       corroborated_addresses: 0,
-      visible_addresses: 2,
+      visible_addresses: 1,
     });
     expect(projection?.masking?.right).toMatchObject({
-      address_derived_identifiers: 7,
+      address_derived_identifiers: 1,
       unmasked_address_derived_identifiers: 0,
       corroborated_addresses: 0,
-      visible_addresses: 2,
+      visible_addresses: 1,
     });
-    // Every body address became an entry-relative offset, so the counts match.
+    expect(projection).toMatchObject({ status: "unchanged" });
     expect(projection?.left_count).toBe(projection?.right_count);
   });
 });
@@ -369,6 +379,17 @@ const relocatedText = (
   });
 };
 
+const addressRelocationText = (address: string) => {
+  const name = `FUN_${BigInt(address).toString(16).padStart(8, "0")}`;
+  const nextInstruction = `0x${(BigInt(address) + 1n).toString(16)}`;
+  return syntheticDossier({
+    base: address,
+    name,
+    pseudocode: `void ${name}(void) { if (size == 0x1000) return; }`,
+    assembly: [`${address}: PUSH EBP`, `${nextInstruction}: CALL 0x00411195`],
+  });
+};
+
 const relocatedPseudocode = (address: string, body: string) =>
   `void FUN_${BigInt(address).toString(16).padStart(8, "0")}(void) { ${body}; }`;
 
@@ -392,8 +413,8 @@ const unresolvedCallPair = () => {
 describe("normalized view edge cases", () => {
   it("reports a relocated pair as unchanged without touching exact statuses", () => {
     const [left, right] = syntheticPair(
-      relocatedText("0x411700"),
-      relocatedText("0x4116f0"),
+      addressRelocationText("0x411700"),
+      addressRelocationText("0x4116f0"),
     );
     const result = compareFunctions(left, right, {
       includeNormalizedViews: true,
@@ -406,12 +427,16 @@ describe("normalized view edge cases", () => {
         ["cfg", "unchanged"],
       ]),
     );
-    expect(view(result, "pseudocode_normalized")).toMatchObject({
-      status: "unchanged",
-    });
-    expect(view(result, "assembly_normalized")).toMatchObject({
-      status: "unchanged",
-    });
+    for (const name of ["pseudocode_normalized", "assembly_normalized"]) {
+      expect(view(result, name)).toMatchObject({ status: "unchanged" });
+      expect(
+        view(result, name)?.masking?.rules.map(({ rule }) => rule),
+      ).toEqual([
+        "address_derived_identifier",
+        "function_relative_address",
+        "corroborated_external_address",
+      ]);
+    }
   });
 
   it.each([
@@ -729,13 +754,13 @@ describe("normalized view edge cases", () => {
       includeNormalizedViews: true,
     });
     expect(view(result, "pseudocode_normalized")).toMatchObject({
-      status: "unchanged",
+      status: "unknown",
       limitations: expect.arrayContaining([
         expect.stringContaining("did not observe its own function body extent"),
       ]),
     });
     expect(view(result, "assembly_normalized")).toMatchObject({
-      status: "unchanged",
+      status: "unknown",
     });
   });
 
@@ -758,7 +783,9 @@ describe("normalized view edge cases", () => {
         ]),
       });
     }
-    expect(result.summary).toMatchObject({ unknown: 3 });
+    expect(result.summary.unknown).toBe(
+      result.dimensions.filter(({ status }) => status === "unknown").length,
+    );
   });
 
   it("omits normalized views unless the caller opts in", () => {
@@ -817,12 +844,12 @@ describe("normalized view consumers", () => {
   const [editedLeft, editedRight] = initializePeoplePair();
 
   it("verifies a declared normalized claim from the requested view", () => {
-    const evidence = comparisonEvidence(relocatedLeft, relocatedRight, true);
-    const bundle = createEvidenceBundle([
-      relocatedLeft,
-      relocatedRight,
-      evidence,
-    ]);
+    const [before, after] = syntheticPair(
+      addressRelocationText("0x411700"),
+      addressRelocationText("0x4116f0"),
+    );
+    const evidence = comparisonEvidence(before, after, true);
+    const bundle = createEvidenceBundle([before, after, evidence]);
     const result = verifyReconstruction(
       claim("pseudocode_normalized", evidence),
       bundle,
@@ -861,20 +888,26 @@ describe("normalized view consumers", () => {
     );
   });
 
-  it("keeps relocation-only comparisons free of normalized findings", () => {
-    const findings = findChangedBehavior([
-      comparisonEvidence(relocatedLeft, relocatedRight, true),
-    ]).findings.items;
-    expect(findings.map(({ dimension }) => dimension)).not.toContain(
-      "pseudocode_normalized",
+  it("reports unresolved normalized findings when relocation masks unknown callees", () => {
+    const findings = findChangedBehavior({
+      comparisons: [comparisonEvidence(relocatedLeft, relocatedRight, true)],
+    }).result.findings.items;
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimension: "pseudocode_normalized",
+          status: "unknown",
+          classification: "unresolved_branch",
+        }),
+      ]),
     );
     expect(findings.map(({ dimension }) => dimension)).toContain("pseudocode");
   });
 
   it("reports a normalized change as its own static candidate", () => {
-    const findings = findChangedBehavior([
-      comparisonEvidence(editedLeft, editedRight, true),
-    ]).findings.items;
+    const findings = findChangedBehavior({
+      comparisons: [comparisonEvidence(editedLeft, editedRight, true)],
+    }).result.findings.items;
     expect(findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
