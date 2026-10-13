@@ -56,7 +56,10 @@ const readContainer = (bytes: Buffer) => {
       });
     if (cause instanceof GoBinaryResourceFailure)
       throw new RustAuditableResourceFailure(
-        cause.maximum_bytes,
+        {
+          resource: "memory",
+          reported_limits: { maximum_bytes: cause.maximum_bytes },
+        },
         cause.message,
         {
           cause,
@@ -152,7 +155,10 @@ const collectHashes = (
     if (hash !== null && !seen.has(hash)) {
       if (seen.size >= MAX_RUSTC_HASHES)
         throw new RustAuditableResourceFailure(
-          MAX_RUSTC_HASHES,
+          {
+            resource: "capacity",
+            reported_limits: { maximum_rustc_hashes: MAX_RUSTC_HASHES },
+          },
           `Read-only data contains more than ${MAX_RUSTC_HASHES} distinct rustc commit paths.`,
         );
       seen.add(hash);

@@ -165,3 +165,30 @@ it.each([{ packages: [] }, { packages: [{ future_package_field: true }] }])(
     );
   },
 );
+
+it("admits dependency expansion before allocating normalized or reverse edges", () => {
+  const document = {
+    packages: [
+      {
+        name: "a",
+        version: "1",
+        source: "local",
+        dependencies: Array<number>(400_000).fill(0),
+      },
+    ],
+  };
+  // An uncompressed zlib stream clears the ratio guard while remaining below
+  // the one-MiB section limit, isolating the graph representation admission.
+  const payload = deflateSync(Buffer.from(JSON.stringify(document)), {
+    level: 0,
+  });
+  expect(payload.length).toBeLessThan(RUST_SECTION_BYTES);
+  expect(() => readAuditableSection(".dep-v0", 0, payload)).toThrow(
+    expect.objectContaining({
+      constraint: {
+        resource: "transport",
+        reported_limits: { maximum_output_bytes: 8 * 1024 * 1024 },
+      },
+    }),
+  );
+});

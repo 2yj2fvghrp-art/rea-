@@ -48,10 +48,25 @@ export class RustAuditableFormatFailure extends Error {
   }
 }
 
-/** Inflate or section-size limit exceeded before a report is produced. */
+/** A resource admission limit with explicit semantic units. */
+export type RustAuditableConstraint =
+  | {
+      readonly resource: "memory";
+      readonly reported_limits: { readonly maximum_bytes: number };
+    }
+  | {
+      readonly resource: "transport";
+      readonly reported_limits: { readonly maximum_output_bytes: number };
+    }
+  | {
+      readonly resource: "capacity";
+      readonly reported_limits: { readonly maximum_rustc_hashes: number };
+    };
+
+/** Admission refused before retained output or graph expansion. */
 export class RustAuditableResourceFailure extends Error {
   constructor(
-    readonly maximum_bytes: number,
+    readonly constraint: RustAuditableConstraint,
     message: string,
     options?: ErrorOptions,
   ) {
@@ -73,7 +88,10 @@ export const readAuditableSection = (
     );
   if (bytes.length > RUST_SECTION_BYTES)
     throw new RustAuditableResourceFailure(
-      RUST_SECTION_BYTES,
+      {
+        resource: "memory",
+        reported_limits: { maximum_bytes: RUST_SECTION_BYTES },
+      },
       "Dependency section exceeds the 1 MiB compressed limit",
     );
   const inflated = inflateSection(bytes);
@@ -176,7 +194,7 @@ const inflateFailure = (cause: unknown, maximum: number): Error => {
     cause instanceof Error && "code" in cause ? String(cause.code) : "";
   if (code === "ERR_BUFFER_TOO_LARGE")
     return new RustAuditableResourceFailure(
-      maximum,
+      { resource: "memory", reported_limits: { maximum_bytes: maximum } },
       "Inflated dependency JSON exceeds the size limit",
     );
   if (
@@ -228,6 +246,7 @@ const parseDocument = (bytes: Buffer): z.infer<typeof documentSchema> => {
       "unsupported",
       `Unsupported cargo-auditable format version ${version.data.format}`,
     );
+  admitGraphExpansion(value);
   const parsed = documentSchema.safeParse(value);
   if (!parsed.success)
     throw new RustAuditableFormatFailure(
@@ -236,6 +255,62 @@ const parseDocument = (bytes: Buffer): z.infer<typeof documentSchema> => {
       { cause: parsed.error },
     );
   return parsed.data;
+};
+
+// These are lower bounds on the required normalized representation, not
+// guessed per-object heap sizes. Count source arrays before Zod clones them,
+// normalization builds edge objects, or SCC analysis creates reverse edges.
+const MIN_PACKAGE_OUTPUT_BYTES = JSON.stringify({
+  name: "a",
+  version: "a",
+  source: "a",
+  kind: null,
+  dependencies: [],
+  root: true,
+}).length;
+const MIN_EDGE_OUTPUT_BYTES = JSON.stringify({
+  from_index: 0,
+  to_index: 0,
+}).length;
+const admitGraphExpansion = (value: unknown): void => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("packages" in value) ||
+    !Array.isArray(value.packages)
+  )
+    return;
+  const packages: readonly unknown[] = value.packages;
+  let minimumBytes =
+    packages.length * MIN_PACKAGE_OUTPUT_BYTES +
+    Math.max(0, packages.length - 1);
+  let edges = 0;
+  const admit = () => {
+    const edgeBytes = edges * MIN_EDGE_OUTPUT_BYTES + Math.max(0, edges - 1);
+    if (minimumBytes + edgeBytes > RUST_OUTPUT_BYTES)
+      throw new RustAuditableResourceFailure(
+        {
+          resource: "transport",
+          reported_limits: { maximum_output_bytes: RUST_OUTPUT_BYTES },
+        },
+        "Dependency graph exceeds the complete report byte budget before expansion",
+      );
+  };
+  admit();
+  for (const pkg of packages) {
+    // Shape and index validity remain owned by documentSchema/rootIndex.
+    if (
+      typeof pkg !== "object" ||
+      pkg === null ||
+      !("dependencies" in pkg) ||
+      !Array.isArray(pkg.dependencies)
+    )
+      continue;
+    const count = pkg.dependencies.length;
+    edges += count;
+    minimumBytes += Math.max(0, count * 2 - 1);
+    admit();
+  }
 };
 
 const assertDepth = (text: string): void => {

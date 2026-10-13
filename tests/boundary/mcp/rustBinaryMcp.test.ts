@@ -5,7 +5,10 @@ import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
-import { createRustImage } from "../../fixtures/rust/image.js";
+import {
+  createRustImage,
+  createRustHashOverflowImage,
+} from "../../fixtures/rust/image.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { mcpTest, type TestMcp } from "../../support/mcp/mcpFixture.js";
 
@@ -82,6 +85,36 @@ mcpTest(
         code: "invalid_request",
         details: { operation: "inspect_rust_binary" },
       });
+    } finally {
+      await session.close();
+    }
+  },
+);
+
+mcpTest(
+  "preserves rustc hash capacity units through the public error contract",
+  async ({ mcp }) => {
+    const { client, session } = await connect(mcp);
+    try {
+      const root = await createTestTempDirectory("rea-rust-mcp-");
+      const path = join(root, "many-hashes.elf");
+      await writeFile(path, createRustHashOverflowImage());
+      const response = await client.callTool({
+        name: "inspect_rust_binary",
+        arguments: { path },
+      });
+      expect(response.isError).toBe(true);
+      expect(parseMcpToolError(response).error).toMatchObject({
+        code: "resource_constraint",
+        details: {
+          operation: "inspect_rust_binary",
+          resource: "capacity",
+          reported_limits: { maximum_rustc_hashes: 64 },
+        },
+      });
+      expect(parseMcpToolError(response).error.details).not.toHaveProperty(
+        "reported_limits.maximum_bytes",
+      );
     } finally {
       await session.close();
     }

@@ -60,3 +60,8 @@ packages or the compiler.
 
 Universal Mach-O containers are unsupported. Select a thin slice first. ELF,
 PE, and thin Mach-O are the supported containers.
+
+Package and dependency counts are checked against the minimum required JSON
+representation before graph allocation or schema cloning. Oversized graphs
+report the output byte budget; the compiler-path capacity reports
+`maximum_rustc_hashes` in hashes, independently of byte limits.

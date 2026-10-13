@@ -246,3 +246,18 @@ const writeMachoSegment = ({
   little(header + 64, flags, 32);
   body.copy(bytes, fileOffset);
 };
+
+/** Read-only ELF data exceeding the distinct rustc-hash retention capacity. */
+export const createRustHashOverflowImage = (): Buffer => {
+  const bytes = createRustImage({ format: "elf", omitSection: true });
+  // Without .dep-v0 the read-only section header is the second one, at 384.
+  // Section names end before byte 800, so the hash block starts there.
+  bytes.writeBigUInt64LE(800n, 384 + 24);
+  bytes.writeBigUInt64LE(3296n, 384 + 32);
+  bytes.fill(0, 800);
+  for (let index = 0; index < 65; index += 1) {
+    const hash = index.toString(16).padStart(40, "0");
+    bytes.write(`/rustc/${hash}/`, 800 + index * 48, "latin1");
+  }
+  return bytes;
+};
