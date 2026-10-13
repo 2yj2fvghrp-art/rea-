@@ -9,7 +9,13 @@ assert.equal(pkg.name, "dsh-rea-bundle");
 assert.equal(pkg.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.equal(pkg.type, "module");
 assert.equal(pkg.dependencies["rea-agents"], "6.4.0");
-for (const script of ["prepare", "prepack", "install", "postinstall", "preinstall"]) {
+for (const script of [
+  "prepare",
+  "prepack",
+  "install",
+  "postinstall",
+  "preinstall",
+]) {
   assert.equal(pkg.scripts?.[script], undefined);
 }
 for (const file of [
@@ -18,6 +24,7 @@ for (const file of [
   "README.md",
   "README.zh-CN.md",
   "LICENSE",
+  "scripts/activate-installed.mjs",
 ]) {
   assert(existsSync(join(root, file)), `missing bundled file ${file}`);
   assert(pkg.files.includes(file), `missing packlist file ${file}`);

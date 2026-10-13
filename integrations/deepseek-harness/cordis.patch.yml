@@ -15,5 +15,5 @@
         command: !!js ctx.reaLauncher.command
         args: !!js ctx.reaLauncher.args
         env: !!js ctx.reaLauncher.env
-        toolCallTimeoutMs: 120000
+        toolCallTimeoutMs: !!js ctx.reaLauncher.toolCallTimeoutMs
         failOnStartupError: true

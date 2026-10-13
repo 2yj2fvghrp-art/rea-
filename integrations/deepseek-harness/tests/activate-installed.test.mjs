@@ -6,7 +6,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,40 +13,58 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const script = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts/activate-installed.mjs");
+const script = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../scripts/activate-installed.mjs",
+);
 
 function fixture(fn, options = {}) {
   const home = mkdtempSync(join(tmpdir(), "rea-desktop-activation-"));
   const profile = join(home, "profiles", "desktop");
   const bundleDir = join(profile, "node_modules", "dsh-rea-bundle");
   mkdirSync(bundleDir, { recursive: true });
-  const earlier = Array.from({ length: 35 }, (_, n) => n === 34 ? "dsh-prompt-enhancer" : "other-" + n);
+  const earlier = Array.from({ length: 35 }, (_, n) =>
+    n === 34 ? "dsh-prompt-enhancer" : "other-" + n,
+  );
   const manifest = join(profile, "package.json");
   const document = {
     dependencies: {
       "another-plugin": "1.0.0",
-      ...options.noDependency ? {} : {
-        "dsh-rea-bundle": "https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz",
+      ...(options.noDependency
+        ? {}
+        : {
+            "dsh-rea-bundle":
+              "https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz",
+          }),
+    },
+    dsh: {
+      profile: {
+        bundles: options.active ? [...earlier, "dsh-rea-bundle"] : earlier,
       },
     },
-    dsh: { profile: { bundles: options.active ? [...earlier, "dsh-rea-bundle"] : earlier } },
     settings: { retain: true },
   };
   writeFileSync(manifest, JSON.stringify(document, null, 2) + "\n");
   if (!options.badPackage) {
-    writeFileSync(join(bundleDir, "package.json"), JSON.stringify({
-      name: "dsh-rea-bundle",
-      version: "0.2.0",
-      dsh: { bundle: { patch: "./cordis.patch.yml" } },
-    }));
-    writeFileSync(join(bundleDir, "cordis.patch.yml"),
-      "- insert:\n    - id: rea-launcher\n      name: dsh-rea-bundle/launcher\n"
-      + "    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n");
+    writeFileSync(
+      join(bundleDir, "package.json"),
+      JSON.stringify({
+        name: "dsh-rea-bundle",
+        version: "0.2.0",
+        dsh: { bundle: { patch: "./cordis.patch.yml" } },
+      }),
+    );
+    writeFileSync(
+      join(bundleDir, "cordis.patch.yml"),
+      "- insert:\n    - id: rea-launcher\n      name: dsh-rea-bundle/launcher\n" +
+        "    - id: rea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n",
+    );
   }
-  const run = (args) => spawnSync(process.execPath, [script, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, DSH_HOME: home },
-  });
+  const run = (args) =>
+    spawnSync(process.execPath, [script, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, DSH_HOME: home },
+    });
   try {
     fn({ manifest, profile, document, run });
   } finally {
@@ -56,7 +73,9 @@ function fixture(fn, options = {}) {
 }
 
 function backups(profile) {
-  return readdirSync(profile).filter((item) => item.startsWith("package.json.rea-backup-"));
+  return readdirSync(profile).filter((item) =>
+    item.startsWith("package.json.rea-backup-"),
+  );
 }
 
 test("status reports installed-but-disabled without changing the profile", () => {
@@ -64,7 +83,10 @@ test("status reports installed-but-disabled without changing the profile", () =>
     const original = readFileSync(manifest);
     const result = run([]);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Enabled in dsh\.profile\.bundles: NO \(35 bundles\)/);
+    assert.match(
+      result.stdout,
+      /Enabled in dsh\.profile\.bundles: NO \(35 bundles\)/,
+    );
     assert.deepEqual(readFileSync(manifest), original);
     assert.deepEqual(backups(profile), []);
   });
@@ -76,7 +98,10 @@ test("activation preserves 35 entries, other dependencies and exact backup; is i
     const first = run(["--activate"]);
     assert.equal(first.status, 0, first.stderr);
     const after = JSON.parse(readFileSync(manifest, "utf8"));
-    assert.deepEqual(after.dsh.profile.bundles.slice(0, 35), document.dsh.profile.bundles);
+    assert.deepEqual(
+      after.dsh.profile.bundles.slice(0, 35),
+      document.dsh.profile.bundles,
+    );
     assert.equal(after.dsh.profile.bundles[35], "dsh-rea-bundle");
     assert.deepEqual(after.dependencies, document.dependencies);
     assert.deepEqual(after.settings, document.settings);
@@ -108,17 +133,19 @@ test("rejects missing dependency, invalid bundle, and malformed profile without 
   });
 });
 
-test("post-restart verification distinguishes enabled from actually composed", () => {
-  fixture(({ profile, run }) => {
-    assert.notEqual(run(["--verify"]).status, 0);
-    writeFileSync(join(profile, "cordis.yml"), "- id: something-else\n");
-    assert.match(run(["--verify"]).stderr, /lacks rea-launcher/);
-    writeFileSync(join(profile, "cordis.yml"),
-      "- id: rea-launcher\n- id: rea-mcp\n");
-    const final = run(["--verify"]);
-    assert.equal(final.status, 0, final.stderr);
-    assert.match(final.stdout, /PASS: selected bundle/);
-  }, { active: true });
+test("verification leaves live composition unknown instead of inventing compiled root rows", () => {
+  fixture(
+    ({ profile, run }) => {
+      writeFileSync(join(profile, "cordis.yml"), "[]\n");
+      const outcome = run(["--verify"]);
+      assert.notEqual(outcome.status, 0);
+      assert.match(
+        outcome.stderr,
+        /Live Desktop composition remains unverified/,
+      );
+    },
+    { active: true },
+  );
 });
 
 test("unknown options and malformed bundle array fail closed", () => {
@@ -130,23 +157,6 @@ test("unknown options and malformed bundle array fail closed", () => {
     assert.notEqual(run(["--activate"]).status, 0);
     assert.deepEqual(backups(profile), []);
   });
-});
-
-test("verification rejects stale Cordis output despite matching row IDs", () => {
-  fixture(({ manifest, profile, run }) => {
-    const compiled = join(profile, "cordis.yml");
-    writeFileSync(compiled, "- id: rea-launcher\n- id: rea-mcp\n");
-    const now = new Date();
-    const stale = new Date(now.getTime() - 10000);
-    utimesSync(compiled, stale, stale);
-    utimesSync(manifest, now, now);
-    const old = run(["--verify"]);
-    assert.notEqual(old.status, 0);
-    assert.match(old.stderr, /older than the profile change/);
-    const fresh = new Date(now.getTime() + 2000);
-    utimesSync(compiled, fresh, fresh);
-    assert.equal(run(["--verify"]).status, 0);
-  }, { active: true });
 });
 
 test("duplicate bundle selection is rejected without modifying any file", () => {

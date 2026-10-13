@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const script = resolve(repo, "integrations/deepseek-harness/scripts/stage-git-plugin.sh");
+const script = resolve(
+  repo,
+  "integrations/deepseek-harness/scripts/stage-git-plugin.sh",
+);
 
 test("tag staging is valid and creates a standalone build-free package tree", () => {
   const syntax = spawnSync("bash", ["-n", script], { encoding: "utf8" });
@@ -16,10 +19,13 @@ test("tag staging is valid and creates a standalone build-free package tree", ()
     encoding: "utf8",
   });
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.match(run.stdout, /Distribution tag: dsh-plugin-v[0-9]+\.[0-9]+\.[0-9]+/);
+  assert.match(
+    run.stdout,
+    /Distribution tag: dsh-plugin-v[0-9]+\.[0-9]+\.[0-9]+/,
+  );
   const tree = /Standalone DSH tree: ([a-f0-9]{40})/.exec(run.stdout)?.[1];
   assert(tree, "a standalone tree should exist");
-  const listed = spawnSync("git", ["ls-tree", "--name-only", tree], {
+  const listed = spawnSync("git", ["ls-tree", "-r", "--name-only", tree], {
     cwd: repo,
     encoding: "utf8",
   });
@@ -31,6 +37,7 @@ test("tag staging is valid and creates a standalone build-free package tree", ()
     "cordis.patch.yml",
     "launcher.mjs",
     "package.json",
+    "scripts/activate-installed.mjs",
   ]);
   const metadata = spawnSync("git", ["show", `${tree}:package.json`], {
     cwd: repo,

@@ -275,16 +275,16 @@ the root package to `allowBuilds`: it still would not be a Harness bundle.
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
-curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
-printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  | shasum -a 256 -c -
-printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+(cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 1. Open **DeepSeek Harness Desktop → Plugins → Add plugin** (the sidebar's
    Plugins page), and paste the **absolute local `.tgz` path** printed by
-   the final command. Do **not** paste a Git URL or a remote tarball URL.
+   the final command. Do **not** paste the untagged repository URL. Tagged plugin Git URLs and versioned Release tarballs are supported alternatives.
 2. Install and enable **`dsh-rea-bundle`**, then completely quit and
    reopen Desktop. Inspect its plugin list for the `rea-launcher` and
    `rea-mcp` rows. If a prior `rea setup --client dsh` created a
@@ -311,7 +311,7 @@ the application menu **Manage dsh Command…**, fully quit Desktop and
 optionally run:
 
 ```sh
-dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 A standalone `npm install -g @deepseek-ai/dsh` launcher may reject this
@@ -325,7 +325,7 @@ For a **direct install in Desktop → Plugins → Add plugin**, enter
 the **exact complete Git source**:
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
 ```
 
 This immutable tag points to a separate root `dsh-rea-bundle` package
@@ -341,7 +341,7 @@ report `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on Git dependencies.
 Alternatively enter the Release's direct tarball address:
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 Both install sources are recognized as Git/tarball install specs by the
@@ -350,7 +350,7 @@ and fully restart Desktop. A CLI profile is separate; on a Web CLI
 installation use:
 
 ```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.0'
+dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.1'
 dsh --profile web --dump-config
 ```
 

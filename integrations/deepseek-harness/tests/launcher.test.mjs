@@ -30,6 +30,7 @@ test("launches a packaged REA using the active Node without shell or network ins
       command: "/usr/local/bin/node",
       args: [launcher, "mcp"],
       env: { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" },
+      toolCallTimeoutMs: 2147483647,
     });
     assert(Object.isFrozen(result));
     assert(Object.isFrozen(result.args));

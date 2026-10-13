@@ -14,6 +14,11 @@ const child = spawn(launcher.command, launcher.args, {
     ...launcher.env,
   },
 });
+const exited = new Promise((resolve) => child.once("exit", resolve));
+let hasExited = false;
+child.once("exit", () => {
+  hasExited = true;
+});
 let stderr = "";
 child.stderr.setEncoding("utf8");
 child.stderr.on("data", (chunk) => {
@@ -87,7 +92,28 @@ try {
   process.exitCode = 1;
 } finally {
   clearTimeout(timeout);
-  child.kill("SIGTERM");
   messages.close();
   child.stdin.destroy();
+  const waitForExit = async (milliseconds) => {
+    if (hasExited) return true;
+    let timer;
+    try {
+      return await Promise.race([
+        exited.then(() => true),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), milliseconds);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  if (!hasExited) child.kill("SIGTERM");
+  if (!(await waitForExit(5000))) {
+    child.kill("SIGKILL");
+    if (!(await waitForExit(5000))) {
+      console.error("REA MCP child did not exit after forced termination");
+      process.exitCode = 1;
+    }
+  }
 }

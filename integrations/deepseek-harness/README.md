@@ -11,8 +11,7 @@ engineering engine or parallel tool schema to keep synchronized.
 
 Symptoms: `~/.dsh/profiles/desktop/package.json` lists
 `dsh-rea-bundle` in `dependencies`, but **not** in
-`dsh.profile.bundles`. The generated `cordis.yml` has no
-`rea-launcher` or `rea-mcp` entries, and there are no `mcp__rea__*` tools.
+`dsh.profile.bundles`. There are no `mcp__rea__*` tools in the live session. The stored `cordis.yml` is an empty loader root and does not describe effective composition.
 
 **Do not reinstall the already working package.** The upstream Harness
 plugin manager separates **install** from **enable now**; closing the
@@ -29,16 +28,13 @@ bundle list; other plugins, dependencies, and lock files remain unchanged.
 
 ```sh
 # Review the source before executing it.
-curl -fL --retry 3 \
-  -o "$HOME/Downloads/rea-desktop-activate.mjs" \
-  https://raw.githubusercontent.com/xxxxxwater/rea/main/integrations/deepseek-harness/scripts/activate-installed.mjs
-node "$HOME/Downloads/rea-desktop-activate.mjs" --status
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --status
 
 # Fully quit DeepSeek Harness Desktop first:
-node "$HOME/Downloads/rea-desktop-activate.mjs" --activate
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --activate
 
-# Relaunch Desktop; after cordis.yml is regenerated:
-node "$HOME/Downloads/rea-desktop-activate.mjs" --verify
+# Relaunch Desktop; live composition is checked through session tool discovery:
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --verify
 ```
 
 Successful activation prints the exact `package.json.rea-backup-...`
@@ -52,11 +48,11 @@ handshake listed 170 tools, which is **not a universal runtime guarantee**.
 
 ## Desktop “Add plugin” — the supported Git installation spec
 
-**Paste this exact URL**, including the `#dsh-plugin-v0.2.0` tag,
+**Paste this exact URL**, including the `#dsh-plugin-v0.2.1` tag,
 into DeepSeek Harness Desktop → **Plugins → Add plugin**:
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
 ```
 
 Do **not** paste the repository's untagged URL. It resolves to the
@@ -69,7 +65,7 @@ the current Desktop plugin manager; it does not require `allowBuilds`.
 Alternatively paste the versioned GitHub Release tarball URL directly:
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 The URL is a plugin-install source, not a page to open in the browser.
@@ -92,7 +88,7 @@ Use a published GitHub Release **tarball** for a reproducible, build-free
 install. As of 2026-10-13, npm's `@deepseek-ai/dsh@latest` dist-tag is
 `0.2.0-rc.2`; upstream `master` can be newer/experimental. This procedure
 uses the current `dsh plugin --profile <name> add ...` syntax and pins
-this repository's REA plugin to release `dsh-v0.2.0`.
+this repository's REA plugin to release `dsh-v0.2.1`.
 
 Prerequisites: a supported Node.js runtime, npm, network access on first
 installation, and `pnpm` for plugin management. The bundle does not install
@@ -102,10 +98,11 @@ optional Ghidra, IDA or other analysis engines.
 # Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
 npm install --global @deepseek-ai/dsh@latest pnpm@11
 
-curl -fL --retry 3 --output dsh-rea-bundle-0.2.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
-printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' 'dsh-rea-bundle-0.2.0.tgz' | shasum -a 256 -c -
+curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output SHA256SUMS https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+shasum -a 256 -c SHA256SUMS
 
-dsh plugin --profile web add ./dsh-rea-bundle-0.2.0.tgz
+dsh plugin --profile web add ./dsh-rea-bundle-0.2.1.tgz
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -154,16 +151,16 @@ the root package to `allowBuilds`: it still would not be a Harness bundle.
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
-curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
-printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  | shasum -a 256 -c -
-printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+(cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 1. Open **DeepSeek Harness Desktop → Plugins → Add plugin** (the sidebar's
    Plugins page), and paste the **absolute local `.tgz` path** printed by
-   the final command. Do **not** paste a Git URL or a remote tarball URL.
+   the final command. Do **not** paste the untagged repository URL. Tagged plugin Git URLs and versioned Release tarballs are supported alternatives.
 2. Install and enable **`dsh-rea-bundle`**, then completely quit and
    reopen Desktop. Inspect its plugin list for the `rea-launcher` and
    `rea-mcp` rows. If a prior `rea setup --client dsh` created a
@@ -190,7 +187,7 @@ the application menu **Manage dsh Command…**, fully quit Desktop and
 optionally run:
 
 ```sh
-dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 A standalone `npm install -g @deepseek-ai/dsh` launcher may reject this
@@ -201,7 +198,7 @@ desktop` (which tries to boot the reserved profile).
 ### Desktop versus CLI
 
 The commands above target the `web` **CLI profile**. A Desktop application
-manages its own installed profile; install the same `dsh-rea-bundle-0.2.0.tgz`
+manages its own installed profile; install the same `dsh-rea-bundle-0.2.1.tgz`
 through the Desktop application's supported plugin installer when available.
 Do **not** run `dsh --profile desktop` (that name is reserved).
 Native Desktop installation, including Intel macOS builds, needs validation
@@ -292,8 +289,8 @@ the fork checkout. Check target-engine prerequisites separately.
 
 ## Versioned GitHub release
 
-GitHub Release `dsh-v0.2.0` is published with the build-free
-`dsh-rea-bundle-0.2.0.tgz` file. Later `dsh-v*` releases use separate,
+GitHub Release `dsh-v0.2.1` is prepared for publication with the build-free
+`dsh-rea-bundle-0.2.1.tgz` file. Later `dsh-v*` releases use separate,
 versioned archives. The root REA npm/MCP Registry release process remains
 separate and unchanged.
 
@@ -309,3 +306,10 @@ initialization/tool discovery, and latest-upstream Harness bundle composition.
 A successful config dump alone does **not** establish a live DeepSeek model
 API call, a Desktop GUI integration, or access to optional Ghidra/IDA/JEB.
 These require separate end-to-end acceptance on the target system.
+
+Version 0.2.1 is a release candidate; its URLs become available only after publication.
+For Electron hosts, set `REA_DSH_NODE_PATH` to an installed standalone Node executable.
+`REA_DSH_TOOL_CALL_TIMEOUT_MS` selects the client timer (default 2147483647 ms);
+choose a value longer than the operation analysis budget and cleanup. Operations
+at the maximum timer boundary need a direct REA workflow because the client timer
+cannot exceed that boundary. Live native Desktop composition remains unverified.

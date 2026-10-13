@@ -8,7 +8,7 @@
 
 适用的典型症状：Desktop 中的 `package.json` 已声明 `dsh-rea-bundle`，
 插件安装日志显示成功，但 `dsh.profile.bundles` 没有这个名字，
-`cordis.yml` 内找不到 `rea-launcher` / `rea-mcp`，会话中也没有
+会话中也没有
 `mcp__rea__*` 工具。
 
 **这不是重新安装或 REA MCP 引擎故障。** 当前 Harness 插件管理器把
@@ -34,17 +34,14 @@ dsh-rea-bundle**，将该包的开关**开启**，不是去修改 `rea-agents`
 在 Mac 的终端执行（可先打开链接阅读脚本再运行）：
 
 ```sh
-curl -fL --retry 3 \
-  -o "$HOME/Downloads/rea-desktop-activate.mjs" \
-  https://raw.githubusercontent.com/xxxxxwater/rea/main/integrations/deepseek-harness/scripts/activate-installed.mjs
 
-node "$HOME/Downloads/rea-desktop-activate.mjs" --status
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --status
 
 # 先从菜单中完全退出 DeepSeek Harness Desktop，然后执行：
-node "$HOME/Downloads/rea-desktop-activate.mjs" --activate
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --activate
 
-# 重新打开 Desktop，等它生成 cordis.yml，再执行：
-node "$HOME/Downloads/rea-desktop-activate.mjs" --verify
+# 重新打开 Desktop；运行时组合需在会话中检查工具发现：
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --verify
 ```
 
 其中 `node` 使用 Mac 本机已有的 Node.js（满足插件运行版本要求），
@@ -56,12 +53,12 @@ node "$HOME/Downloads/rea-desktop-activate.mjs" --verify
 
 ### 验证层次
 
-| 检查 | 预期结果 |
-| --- | --- |
-| `package.json.dependencies` | 有 `dsh-rea-bundle` |
-| `dsh.profile.bundles` | 有且仅有一个 `dsh-rea-bundle` |
-| 重启生成的 `cordis.yml` | 有 `rea-launcher` 与 `rea-mcp` |
-| Desktop 的 Loader / 新会话 | `rea-mcp` 成功启动，出现 `mcp__rea__*` 工具 |
+| 检查                        | 预期结果                                    |
+| --------------------------- | ------------------------------------------- |
+| `package.json.dependencies` | 有 `dsh-rea-bundle`                         |
+| `dsh.profile.bundles`       | 有且仅有一个 `dsh-rea-bundle`               |
+| 重启生成的 `cordis.yml`     | 有 `rea-launcher` 与 `rea-mcp`              |
+| Desktop 的 Loader / 新会话  | `rea-mcp` 成功启动，出现 `mcp__rea__*` 工具 |
 
 `--verify` 只检查已启用与合成配置，不保证 MCP 子进程与工具真的就绪。
 如果前三项通过却仍无 REA 工具，应检查 Desktop 插件详情中的
@@ -74,10 +71,10 @@ node "$HOME/Downloads/rea-desktop-activate.mjs" --verify
 **直接复制整行地址到 DeepSeek Harness Desktop → 插件 → 添加插件**：
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
 ```
 
-这个 `#dsh-plugin-v0.2.0` **不能省略**。它指向独立的、根目录
+这个 `#dsh-plugin-v0.2.1` **不能省略**。它指向独立的、根目录
 就是 `dsh-rea-bundle` 的 Git 发行快照，具备 Harness 要求的
 `dsh.bundle`，并且没有 `prepare` 或其他安装期构建脚本。
 
@@ -88,7 +85,7 @@ https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
 也可以在「添加插件」直接输入这个 Release 安装包 URL：
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 这两个地址任选一个，不需要同时安装。安装后启用
@@ -110,16 +107,16 @@ Desktop 正在安装**整个 REA GitHub 仓库的 CLI**，不是 Harness 插件�
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
-curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
-printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
-  | shasum -a 256 -c -
-printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+(cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 校验显示 `OK` 后，打开 **DeepSeek Harness Desktop → 插件 → 添加插件**，
 粘贴最后打印的**本地 `.tgz` 文件绝对路径**进行安装，不要填
-`https://github.com/xxxxxwater/rea`，也不要直接填远程压缩包 URL。
+`https://github.com/xxxxxwater/rea`，；带版本标签的插件 Git URL 和版本化 Release 压缩包 URL 也是受支持的安装来源。
 安装并启用 `dsh-rea-bundle` 后，完全退出并重新打开 Desktop。
 
 如果之前的失败安装已经将 Git 依赖写进
@@ -142,7 +139,7 @@ bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh
 `dsh`，完全退出 Desktop 后，也可执行：
 
 ```sh
-dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 注意：通过 npm 全局安装的普通 `dsh` 可能拒绝 `desktop`
@@ -157,15 +154,16 @@ Profile（它只属于 Electron 应用）。遇到这种提示时改用应用内
 # Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
 npm install --global @deepseek-ai/dsh@latest pnpm@11
 
-curl -fL --retry 3 --output dsh-rea-bundle-0.2.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
-printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' 'dsh-rea-bundle-0.2.0.tgz' | shasum -a 256 -c -
+curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output SHA256SUMS https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+shasum -a 256 -c SHA256SUMS
 
-dsh plugin --profile web add ./dsh-rea-bundle-0.2.0.tgz
+dsh plugin --profile web add ./dsh-rea-bundle-0.2.1.tgz
 dsh --profile web --dump-config
 dsh --profile web
 ```
 
-其中 SHA-256 为 GitHub Release `dsh-v0.2.0` 的附件摘要。校验失败时应停止安装；
+其中 SHA-256 为 GitHub Release `dsh-v0.2.1` 的附件摘要。校验失败时应停止安装；
 不要绕过校验。最后的 `dsh --profile web` 将启动 Web 版 Harness。
 可以通过 `dsh --version` 查看本机版本、
 `npm view @deepseek-ai/dsh dist-tags --json` 查看 npm 当前标签。
@@ -222,3 +220,10 @@ GitHub CI 测试包括 Node/Cordis 插件合同、REA MCP 握手、
 工具列表和 Harness CLI 原生配置组合。
 真实 DeepSeek 付费模型调用、macOS Desktop 图形界面以及 Ghidra/IDA 等
 第三方分析工具的工作状态不在这组验证之内。
+
+Version 0.2.1 is a release candidate; its URLs become available only after publication.
+For Electron hosts, set `REA_DSH_NODE_PATH` to an installed standalone Node executable.
+`REA_DSH_TOOL_CALL_TIMEOUT_MS` selects the client timer (default 2147483647 ms);
+choose a value longer than the operation analysis budget and cleanup. Operations
+at the maximum timer boundary need a direct REA workflow because the client timer
+cannot exceed that boundary. Live native Desktop composition remains unverified.

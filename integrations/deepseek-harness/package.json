@@ -1,6 +1,6 @@
 {
   "name": "dsh-rea-bundle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Installable DeepSeek Harness bundle for REA's local MCP reverse-engineering tools.",
   "type": "module",
   "license": "MIT",
@@ -18,7 +18,8 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/activate-installed.mjs"
   ],
   "engines": {
     "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
