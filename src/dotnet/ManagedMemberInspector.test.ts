@@ -199,7 +199,7 @@ describe("managed edge target declaring types", () => {
     [
       "names a TypeSpec as its generic type",
       [0x15, 0x12, (1 << 2) | 2, 0x01, 0x0e],
-      "invalid-blob",
+      "invalid-row",
       "metadata.TypeSpec:0x1b000001",
     ],
     [
@@ -212,13 +212,19 @@ describe("managed edge target declaring types", () => {
       "names a missing TypeRef",
       [0x15, 0x12, (9 << 2) | 1, 0x01, 0x0e],
       "invalid-row",
-      "metadata.TypeRef",
+      "metadata.TypeSpec:0x1b000001",
     ],
     [
       "names a missing TypeDef",
       [0x15, 0x12, (9 << 2) | 0, 0x01, 0x0e],
       "invalid-row",
-      "metadata.TypeDef",
+      "metadata.TypeSpec:0x1b000001",
+    ],
+    [
+      "has a type argument naming a missing TypeRef",
+      [0x15, 0x12, (1 << 2) | 1, 0x01, 0x12, (9 << 2) | 1],
+      "invalid-row",
+      "metadata.TypeSpec:0x1b000001",
     ],
   ])(
     "reports a generic TypeSpec parent that %s and leaves it unknown",
@@ -260,18 +266,6 @@ describe("managed edge target declaring types", () => {
           scope: "metadata.MethodSpec:0x2b000001",
         },
       ],
-    });
-  });
-
-  it("keeps a TypeRef name beside an invalid resolution scope", () => {
-    // AssemblyRef 9 does not exist.
-    const result = inspect({ typeRefScopeRaw: (9 << 2) | 2 });
-
-    expect(result.member_refs[0]?.parent_name).toBe(attribute);
-    expect(result.call_edges[0]?.target_declaring_type).toBe(attribute);
-    expect(result.coverage).toMatchObject({
-      state: "partial",
-      issues: [{ code: "invalid-row", scope: "metadata.TypeRef:0x01000001" }],
     });
   });
 
@@ -333,6 +327,33 @@ describe("managed edge target declaring types", () => {
   });
 });
 
+describe("managed TypeRef resolution scopes", () => {
+  it.each([
+    // AssemblyRef 9 does not exist.
+    ["an invalid", (9 << 2) | 2, "is invalid"],
+    // The TypeRef is its own enclosing type.
+    ["a cyclic", (1 << 2) | 3, "contains a cycle"],
+  ])(
+    "keeps a TypeRef name beside %s resolution scope",
+    (_case, typeRefScopeRaw, detail) => {
+      const result = inspect({ typeRefScopeRaw });
+
+      expect(result.member_refs[0]?.parent_name).toBe(attribute);
+      expect(result.call_edges[0]?.target_declaring_type).toBe(attribute);
+      expect(result.coverage).toMatchObject({
+        state: "partial",
+        issues: [
+          {
+            code: "invalid-row",
+            scope: "metadata.TypeRef:0x01000001",
+            detail: expect.stringContaining(detail),
+          },
+        ],
+      });
+    },
+  );
+});
+
 describe("managed MethodSpec call targets", () => {
   it("names generic method calls after the method they instantiate", () => {
     const result = inspect({
@@ -390,6 +411,12 @@ describe("managed MethodSpec call targets", () => {
       { memberRefSignature: Buffer.from([0x30, 0x01, 0x00]) },
       Buffer.from([0x0a, 0x01, 0x0e]),
       "does not have a decodable method signature",
+    ],
+    [
+      "a type argument naming a missing TypeRef",
+      { memberRefSignature: genericRef },
+      Buffer.from([0x0a, 0x01, 0x12, (9 << 2) | 1]),
+      "TypeDefOrRefOrSpec operand 0x25 is invalid",
     ],
     [
       "an unmanaged-convention signature",
