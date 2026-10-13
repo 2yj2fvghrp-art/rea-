@@ -37,6 +37,18 @@ WEBSITE = load_script("website")
 class WebsiteSearchChecks(unittest.TestCase):
     """Use authored pages and temporary fixtures to check the publishing boundary."""
 
+    def test_language_prefixes_use_inventory_instead_of_english_route_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory)
+            pages = {}
+            for route, language, direction in (("faq/index.html", "en", "ltr"), ("ckb/faq/index.html", "ckb", "rtl")):
+                page = VERIFY.HtmlReferences()
+                page.feed(f'<html lang="{language}" dir="{direction}"><head><title>FAQ</title><meta name="robots" content="noindex"></head><body><h1>FAQ</h1></body></html>')
+                pages[site / route] = page
+            _, errors = VERIFY.check_search_metadata(site, pages, languages(ROOT))
+            language_errors = [error for error in errors if "needs lang=" in error or "needs dir=" in error]
+            self.assertEqual(language_errors, [])
+
     def test_sitemap_tracks_added_moved_removed_and_nonindexable_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             site = Path(directory)
@@ -401,7 +413,7 @@ class WebsiteTranslationChecks(unittest.TestCase):
                 server.shutdown()
                 worker.join()
 
-    def test_every_reading_page_offers_light_and_dark_theme_colors(self):
+    def test_every_reading_page_loads_theme_before_styles(self):
         site = ROOT / "website/_site"
         english_pages = reading_pages(ROOT / "website/public")
         self.assertTrue(english_pages)
@@ -412,10 +424,20 @@ class WebsiteTranslationChecks(unittest.TestCase):
                 for path in {original, site / relative if code == "en" else site / code / relative}:
                     with self.subTest(language=code, page=str(path.relative_to(ROOT))):
                         doc = Document(path.read_text())
-                        media = sorted(node.attrs.get("media") for node in doc.nodes if node.tag == "meta" and node.attrs.get("name") == "theme-color")
-                        self.assertEqual(media, ["(prefers-color-scheme: dark)", "(prefers-color-scheme: light)"])
-        styles = (ROOT / "website/public/assets/styles.css").read_text()
-        self.assertTrue("@media (prefers-color-scheme: dark)" in styles, "styles.css has no dark color scheme block")
+                        colors = [node for node in doc.nodes if node.tag == "meta" and node.attrs.get("name") == "theme-color"]
+                        self.assertEqual(len(colors), 1)
+                        self.assertEqual(colors[0].attrs.get("content"), "#ffffff")
+                        self.assertNotIn("media", colors[0].attrs)
+                        theme = [node for node in doc.nodes if node.tag == "script" and (node.attrs.get("src") or "").endswith("/assets/theme.js")]
+                        self.assertEqual(len(theme), 1)
+                        for deferred in ("defer", "async", "type"):
+                            self.assertNotIn(deferred, theme[0].attrs)
+                        stylesheet = next(node for node in doc.nodes if node.tag == "link" and node.attrs.get("rel") == "stylesheet")
+                        self.assertLess(theme[0].start, stylesheet.start)
+                        toggle = [node for node in doc.nodes if "data-theme-toggle" in node.attrs]
+                        self.assertEqual(len(toggle), 1)
+                        self.assertEqual(toggle[0].tag, "button")
+                        self.assertIn("hidden", toggle[0].attrs)
 
 
 if __name__ == "__main__":
