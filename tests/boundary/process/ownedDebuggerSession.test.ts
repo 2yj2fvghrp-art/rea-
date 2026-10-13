@@ -137,7 +137,7 @@ it("retries provider detachment after a rejected attempt", async () => {
   expect(detachInferior).toHaveBeenCalledTimes(2);
 });
 
-it("transfers an open debugger output drain after confirmed stop", async () => {
+it("retains a stopped debugger while descendants still hold its output streams", async () => {
   let exited = false;
   const supervisor = {
     ...createFakeSupervisor(),
@@ -162,9 +162,13 @@ it("transfers an open debugger output drain after confirmed stop", async () => {
 
   await expect(
     stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
-  ).resolves.toEqual({ status: "stopped" });
-  expect(supervisor.unrefOutputStreams).toHaveBeenCalledOnce();
-  expect(supervisor.disposeAfterOutputClose).toHaveBeenCalledOnce();
+  ).resolves.toEqual({
+    status: "incomplete",
+    reason:
+      "Owned GDB process leader exited, but inherited output streams are still open or have not reported settlement.",
+  });
+  expect(supervisor.unrefOutputStreams).not.toHaveBeenCalled();
+  expect(supervisor.disposeAfterOutputClose).not.toHaveBeenCalled();
   expect(supervisor.dispose).not.toHaveBeenCalled();
 });
 
@@ -1064,7 +1068,7 @@ it("disposes supervision when the debugger exits after SIGKILL", async () => {
 });
 
 it.skipIf(process.platform === "win32")(
-  "lets the probe exit while an inferior still holds debugger output pipes open",
+  "retains the probe while an inferior still holds debugger output pipes open",
   async () => {
     const providerProcessUrl = new URL(
       "../../../dist/process/ProviderProcess.js",
@@ -1117,7 +1121,7 @@ it.skipIf(process.platform === "win32")(
         const onData = (chunk: Buffer | string): void => {
           const text = chunk.toString();
           const line = text.match(
-            /\{"pid":\d+,"result":\{"status":"stopped"\}\}/u,
+            /\{"pid":\d+,"result":\{"status":"incomplete","reason":"Owned GDB process leader exited, but inherited output streams are still open or have not reported settlement\."\}\}/u,
           );
           if (line !== null) {
             clearTimeout(timeout);
@@ -1139,8 +1143,8 @@ it.skipIf(process.platform === "win32")(
           setTimeout(() => resolve(false), 1_000),
         ),
       ]);
-      expect(exited).toBe(true);
-      expect(stopProbe.output).toContain('"status":"stopped"');
+      expect(exited).toBe(false);
+      expect(stopProbe.output).toContain('"status":"incomplete"');
       expect(() => process.kill(inferiorPid!, 0)).not.toThrow();
     } finally {
       if (inferiorPid !== undefined) {

@@ -42,11 +42,22 @@ export class CutterBridgeService {
       readonly failure: AnalysisOutputError;
     }
   >();
+  #cleanupInFlight: Promise<Result<null, AnalysisError>> | undefined;
 
   constructor(readonly client: CutterBridgePort = new CutterBridgeClient()) {}
 
   /** Release timed-out work only after producer-owned terminal proof. */
-  async retryCleanup(): Promise<Result<null, AnalysisError>> {
+  retryCleanup(): Promise<Result<null, AnalysisError>> {
+    if (this.#cleanupInFlight !== undefined) return this.#cleanupInFlight;
+    const attempt = this.#retryCleanupOnce();
+    this.#cleanupInFlight = attempt;
+    void attempt.finally(() => {
+      if (this.#cleanupInFlight === attempt) this.#cleanupInFlight = undefined;
+    });
+    return attempt;
+  }
+
+  async #retryCleanupOnce(): Promise<Result<null, AnalysisError>> {
     for (const [requestId, pending] of this.#pendingCleanup) {
       const confirmCommandCompletion = this.client.confirmCommandCompletion;
       if (confirmCommandCompletion === undefined) return err(pending.failure);
@@ -56,6 +67,7 @@ export class CutterBridgeService {
         requestId,
         pending.completionToken,
       );
+      if (!this.#pendingCleanup.has(requestId)) continue;
       if (!receipt.ok || !receipt.value) return err(pending.failure);
       const { failure } = pending;
       failure.resolveCleanup();

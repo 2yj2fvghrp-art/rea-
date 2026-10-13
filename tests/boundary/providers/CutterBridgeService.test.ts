@@ -328,3 +328,79 @@ it("preserves cancellation unless the bridge reports an ambiguous completion", a
     error: { _tag: "AnalysisCapabilityUnavailableError" },
   });
 });
+
+it("shares one cleanup attempt when commands retry the same receipt together", async () => {
+  const requestId = "4b18ce4d-bf31-456e-ae31-e8c547b2f9db";
+  let receiptPresent = false;
+  let releaseConfirm: (() => void) | undefined;
+  let confirms = 0;
+  const confirmCommandCompletion = vi.fn(async () => {
+    confirms += 1;
+    if (!receiptPresent) return { ok: true as const, value: false };
+    if (confirms === 1) {
+      await new Promise<void>((resolve) => {
+        releaseConfirm = resolve;
+      });
+    }
+    if (!receiptPresent) return { ok: true as const, value: false };
+    receiptPresent = false;
+    return { ok: true as const, value: true };
+  });
+  let dispatches = 0;
+  const service = new CutterBridgeService({
+    listSessions: async () => ({
+      sessions: [],
+      bridge_directory: "/private/bridge",
+      discovery_status: "no_live_bridge_found",
+      bridge_directory_security: "private_verified",
+    }),
+    confirmCommandCompletion,
+    execute: async () => {
+      dispatches += 1;
+      if (dispatches === 1) {
+        receiptPresent = true;
+        return {
+          requestId,
+          output: null,
+          currentFile: "/fixtures/sample.bin",
+          documentGeneration: 7,
+          identityStatus: "partial" as const,
+          cutterVersion: null,
+          executionState: "unknown" as const,
+          error: "transport-response-missing",
+          message: "cancelled after dispatch",
+          outputTruncated: false,
+        };
+      }
+      return {
+        requestId: "8ca93d11-107d-41ed-8b40-31dd53cd26a6",
+        output: "complete",
+        currentFile: "/fixtures/sample.bin",
+        documentGeneration: 7,
+        identityStatus: "partial" as const,
+        cutterVersion: null,
+        executionState: "complete" as const,
+        error: null,
+        message: null,
+        outputTruncated: false,
+      };
+    },
+  });
+
+  const blocked = await service.execute(cutterInput);
+  expect(blocked).toMatchObject({
+    ok: false,
+    error: { cleanupIncomplete: true },
+  });
+
+  const concurrent = [
+    service.execute(cutterInput),
+    service.execute(cutterInput),
+  ];
+  if (releaseConfirm === undefined) throw new Error("cleanup did not start");
+  releaseConfirm();
+  const recovered = await Promise.all(concurrent);
+  expect(recovered.every((result) => result.ok)).toBe(true);
+  expect(confirms).toBe(1);
+  expect(dispatches).toBe(3);
+});

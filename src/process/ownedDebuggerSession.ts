@@ -96,11 +96,6 @@ const finishExitedDebuggerSession = async (
       MAX_LATE_DEBUGGER_OUTPUT_BYTES,
     );
     if (!(await session.supervisor.waitForOutputClose(1_000))) {
-      if (status === "stopped") {
-        session.supervisor.unrefOutputStreams();
-        session.supervisor.disposeAfterOutputClose();
-        return { status };
-      }
       return {
         status: "incomplete",
         reason:
