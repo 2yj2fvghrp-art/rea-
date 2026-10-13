@@ -445,7 +445,7 @@ exit 1`,
   },
 );
 
-it("projects a destination the output filesystem cannot create before pulling", async () => {
+it("refuses an overlong filename before creating output or pulling", async () => {
   const fileName = `${"a".repeat(300)}.apk`;
   const { binary, root } = await writeAdbStub(
     (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
@@ -466,16 +466,15 @@ exit 1`,
     code: "unreadable_output",
     retryable: false,
     details: {
-      reason: "local_destination_unavailable",
+      reason: "unsafe_device_path",
       diagnostics: {
         package_name: "com.example",
-        device_path: `/data/app/x/${fileName}`,
-        file_name: fileName,
-        error_code: "ENAMETOOLONG",
+        rejected_paths: [{ device_path: `/data/app/x/${fileName}`, reason: "file_name_too_long" }],
       },
     },
   });
-  expect(projected.message).toContain("ENAMETOOLONG");
+  expect(projected.message).toContain("file_name_too_long");
+  await expect(lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
   await expect(readFile(join(root, "pull-ran"))).rejects.toThrow();
   await expect(lstat(join(output, "com.example"))).rejects.toMatchObject({
     code: "ENOENT",

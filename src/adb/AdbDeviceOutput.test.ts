@@ -258,6 +258,20 @@ describe("parsePmPathOutput", () => {
     });
   });
 
+  it("retains an LF-framed Package Manager source path exactly", () => {
+    const devicePath = "/data/app/例/résumé.apk";
+    expect(parsePmPathOutput(`package:${devicePath}\n`).paths).toEqual([
+      { device_path: devicePath, file_name: "résumé.apk", role: "unknown" },
+    ]);
+  });
+
+  it("refuses a payload CR without treating it as transport framing", () => {
+    const devicePath = "/data/app/base.apk\r";
+    expect(parsePmPathOutput(`package:${devicePath}\n`).rejectedPaths).toEqual([
+      { device_path: devicePath, reason: "unsupported_character" },
+    ]);
+  });
+
   it("refuses Package Manager whitespace without changing the source path", () => {
     const devicePath = "/data/app/My App/base.apk";
     const parsed = parsePmPathOutput(`package:${devicePath}\n`);
