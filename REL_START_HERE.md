@@ -58,3 +58,7 @@ Static relationships are **inferences, not proof of execution**. Observations, d
 - Keep changes on a separate branch; preserve the original engine while learning.
 
 **Milestone 1 is complete only when** the demo works, the explanation is reproducible, and any full REA analyzer run is truthfully labeled verified or unverified. No broader reconstruction-accuracy claims.
+
+## Phase 2: verify the actual REA engine
+
+Follow [the real-analyzer exercise](experiments/rel-first-lab/REAL_ANALYZER.md). The fork-only workflow builds this repository, analyzes the same fictional program, and preserves full Evidence plus a readable report. **This is pending verification until a successful real-analyzer run is recorded**; the 11 sample checks alone do not establish it.

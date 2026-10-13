@@ -1,0 +1,45 @@
+name: REL first real analysis
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "REL_START_HERE.md"
+      - "experiments/rel-first-lab/**"
+      - ".github/workflows/rel-first-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first-lab:
+    name: Static analysis of fork-owned fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HUSKY: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build local fork (not npm-published upstream)
+        run: npm run build:cached
+      - name: Verify report fail-closed behavior
+        run: node --test experiments/rel-first-lab/report.test.mjs
+      - name: Run real REL/REA JavaScript analyzer
+        run: node experiments/rel-first-lab/run-real-analysis.mjs "$RUNNER_TEMP/rel-first-lab"
+      - name: Add verified report to GitHub job summary
+        if: success()
+        run: cat "$RUNNER_TEMP/rel-first-lab/REL_EVIDENCE_REPORT.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain evidence, logs and readable summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rel-first-lab-evidence
+          path: ${{ runner.temp }}/rel-first-lab/
+          if-no-files-found: warn
+          retention-days: 7
