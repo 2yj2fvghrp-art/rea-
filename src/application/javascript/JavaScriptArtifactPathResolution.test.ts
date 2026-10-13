@@ -1578,13 +1578,13 @@ describe("package import alias patterns", () => {
 });
 
 describe("package import alias pattern refusals", () => {
-  it("keeps a literal star in an import specifier refused", () => {
+  it("preserves a literal star in an import pattern capture", () => {
     const files = aliasFiles({
       "package.json": JSON.stringify({
         imports: { "#internal/*": "./src/*.js" },
       }),
       "main.js": "",
-      "src/util.js": "",
+      "src/*.js": "",
     });
     const outcome = resolve({
       declaredPath: "#internal/*",
@@ -1594,10 +1594,9 @@ describe("package import alias pattern refusals", () => {
       files,
     });
     expect(outcome).toMatchObject({
-      resolution_status: "external",
-      resolved_path: null,
+      resolution_status: "resolved",
+      resolved_path: "src/*.js",
     });
-    expect(outcome.limitations.join(" ")).toContain("pattern itself");
   });
 
   it("names the expanded recursive target a pattern alias selects", () => {

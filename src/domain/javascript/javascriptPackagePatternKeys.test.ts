@@ -45,11 +45,19 @@ describe("package pattern key matching", () => {
   });
 
   it.each([
-    ["a request containing a star", "./internal/*", ["./internal/*.js"]],
-    ["a trailing-slash request", "./internal/", ["./internal/*"]],
     ["a request no key encloses", "./other/db", ["./internal/*.js"]],
     ["a map without pattern keys", "./internal/db", ["./internal/exact"]],
   ])("refuses %s", (_name, request, keys) => {
     expect(matchPackagePatternKey(keys, request)).toBeNull();
+  });
+
+  it.each([
+    ["./internal/x*", "x*"],
+    ["./internal/x/", "x/"],
+  ])("captures literal request text in %j", (request, capture) => {
+    expect(matchPackagePatternKey(["./internal/*"], request)).toEqual({
+      key: "./internal/*",
+      capture,
+    });
   });
 });

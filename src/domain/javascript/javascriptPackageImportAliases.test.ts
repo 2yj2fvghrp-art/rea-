@@ -34,10 +34,11 @@ describe("package import specifier classification", () => {
   );
 
   it.each(["#internal/*", "#*"])(
-    "leaves pattern specifier %j unresolved",
+    "keeps the literal star in request %j",
     (specifier) => {
       expect(classifyPackageImportSpecifier(specifier)).toEqual({
-        kind: "pattern",
+        kind: "exact",
+        key: specifier,
       });
     },
   );
@@ -117,11 +118,13 @@ describe("exact package import lookup", () => {
     },
   );
 
-  it("does not treat a pattern key as an exact match for itself", () => {
+  it("matches a literal star request by pattern capture rather than exact lookup", () => {
     expect(
       lookupExactPackageImport({ "#internal/*": "./src/*.js" }, "#internal/*"),
     ).toEqual({
-      kind: "pattern-unresolved",
+      kind: "pattern-found",
+      target: "./src/*.js",
+      capture: "*",
       declared: ["#internal/*"],
     });
   });

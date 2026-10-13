@@ -17,16 +17,15 @@ export const isSingleStarPatternKey = (key: string): boolean =>
   key.includes("*") && key.split("*").length === 2;
 
 /**
- * Match one request against pattern keys in Node's pattern-key order. Requests
- * containing `*` or ending in "/" never match, so a pattern key can never
- * match itself or stand in for the deprecated directory form. The capture
+ * Match one request against pattern keys in Node's pattern-key order. A star
+ * in a request is literal captured text; trailing slash exports still match
+ * on supported Node runtimes. Imports reject their invalid names upstream. The capture
  * must consume at least one character, as in Node's `(.+)` pattern match.
  */
 export const matchPackagePatternKey = (
   keys: readonly string[],
   request: string,
 ): MatchedPackagePatternKey | null => {
-  if (request.includes("*") || request.endsWith("/")) return null;
   const patterns: { key: string; prefix: string; suffix: string }[] = [];
   for (const key of keys) {
     if (!isSingleStarPatternKey(key)) continue;

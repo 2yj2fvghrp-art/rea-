@@ -583,7 +583,7 @@ as exports subpaths. A missing key, explicit null, or out-of-scope alias keeps
 an unresolved edge with that reason. Single-`*` pattern keys such as
 `#internal/*` resolve concrete specifiers the same way as exports pattern
 keys: exact keys win, the longest matching prefix orders pattern keys, and the
-captured substring is substituted and revalidated, with forbidden segments
+declared target and capture are validated separately before substitution into the normalized target URL, with forbidden segments
 refused. Recursive `#` targets and external-package import targets remain
 unresolved.
 

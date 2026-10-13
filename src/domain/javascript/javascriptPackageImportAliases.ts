@@ -13,7 +13,6 @@ import { matchPackagePatternKey } from "./javascriptPackagePatternKeys.js";
 /** How one `#` specifier participates in import-alias lookup. */
 export type PackageImportSpecifierClassification =
   | { readonly kind: "invalid" }
-  | { readonly kind: "pattern" }
   | { readonly kind: "exact"; readonly key: string };
 
 /** Outcome of looking up one `#` key in a package `imports` object. */
@@ -49,14 +48,13 @@ export type PackageImportTargetClassification =
 /**
  * Classify a `#` module specifier before any package-scope walk.
  * `#` and names ending in `/` are invalid. A literal `*` in the specifier
- * never matches an imports key; other keys, including `#/…`, participate in
+ * participates as captured text; other keys, including `#/…`, participate in
  * exact and pattern lookup.
  */
 export const classifyPackageImportSpecifier = (
   specifier: string,
 ): PackageImportSpecifierClassification => {
   if (specifier === "#" || specifier.endsWith("/")) return { kind: "invalid" };
-  if (specifier.includes("*")) return { kind: "pattern" };
   return { kind: "exact", key: specifier };
 };
 
