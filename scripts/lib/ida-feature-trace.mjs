@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 
+const NEGATIVE_REASONS = new Set(["not_in_procedure", "outside_segments"]);
+
 /**
  * Assert the `trace_feature` result of the real IDA lane for one selected
- * procedure: its procedure match is present and its references are contained.
+ * procedure. The query is a substring search, so the trace may also match other
+ * procedures and strings; each reference is checked against its own matched
+ * target, and a source outside every function (a data reference) is valid.
  */
 export function assertFeatureTrace(trace, procedure) {
   assert.ok(
@@ -10,10 +14,18 @@ export function assertFeatureTrace(trace, procedure) {
       ({ type, address }) =>
         type === "procedure" && address === procedure.address,
     ),
+    "The trace omitted the selected procedure's match.",
   );
   assert.equal(typeof trace.truncated, "boolean");
+  const matched = new Set(trace.matches.map(({ address }) => address));
   for (const reference of trace.references) {
-    assert.equal(reference.target_address, procedure.address);
-    assert.equal(reference.containing_procedure.found, true);
+    assert.ok(
+      matched.has(reference.target_address),
+      `A reference targets ${reference.target_address}, which is not a match.`,
+    );
+    const { containing_procedure: containing } = reference;
+    if (containing.found)
+      assert.equal(typeof containing.procedure.address, "string");
+    else assert.ok(NEGATIVE_REASONS.has(containing.reason));
   }
 }
