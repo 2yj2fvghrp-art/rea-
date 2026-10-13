@@ -96,13 +96,16 @@ export class PlaywrightElectronActiveProvider implements ElectronActiveObservati
         await systemProcessOwnershipHost.captureBaseline?.(options.signal);
       if (options.signal?.aborted)
         throw new BrowserObservationError(OPERATION, "cancelled");
-      application = await this.launch({
+      const launchOptions: Parameters<typeof electron.launch>[0] = {
         executablePath: paths.executable,
         cwd: paths.root,
         env: safeElectronEnvironment(this.environment, runId),
         args: ["-r", hookPath, paths.application, ...input.args],
         timeout: Math.max(1, startupDeadline - performance.now()),
-      });
+      };
+      application = await containLaunchRejections(() =>
+        this.launch(launchOptions),
+      );
       const leaderPid = application.process().pid;
       if (
         typeof leaderPid !== "number" ||
@@ -376,6 +379,27 @@ const safeElectronEnvironment = (
       ),
     ["REA_PROCESS_RUN_ID", runId] as const,
   ]);
+
+const PLAYWRIGHT_INTERNAL_FRAME = /playwright-core[\\/]lib[\\/]/;
+
+/** Playwright rejects launch promises nobody awaits; absorb only those while it launches. */
+const containLaunchRejections = async <T>(
+  launch: () => Promise<T>,
+): Promise<T> => {
+  const absorb = (reason: unknown): void => {
+    if (
+      !(reason instanceof Error) ||
+      !PLAYWRIGHT_INTERNAL_FRAME.test(reason.stack ?? "")
+    )
+      throw reason;
+  };
+  process.on("unhandledRejection", absorb);
+  try {
+    return await launch();
+  } finally {
+    process.off("unhandledRejection", absorb);
+  }
+};
 
 const providerError = (cause: unknown): AnalysisError =>
   cause instanceof AnalysisError
