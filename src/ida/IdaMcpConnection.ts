@@ -53,6 +53,10 @@ const toolResultSchema = z.object({
     .optional(),
 });
 
+// Legacy IDA string inventories arrive in one stdio reply. Keep that message
+// bounded while allowing inventories larger than the SDK's 10 MiB default.
+const IDA_STDIO_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+
 const parseIdaJsonText = (text: string): JsonValue => {
   let value: unknown;
   try {
@@ -188,6 +192,7 @@ export const createIdaMcpConnection = (
             ...snapshotEnvironment(config.env),
           },
           stderr: "pipe",
+          maxBufferSize: IDA_STDIO_MAX_MESSAGE_BYTES,
         })
       : new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: config.headers, redirect: "error" },
