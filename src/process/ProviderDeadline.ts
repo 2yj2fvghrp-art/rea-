@@ -79,7 +79,9 @@ export class ProviderStartupDeadline {
 
   /** Milliseconds still available to the next startup phase. */
   remainingMs(): number {
-    // A terminal timeout cannot regain budget, including after clock queries.
+    // Node timers can fire a fraction of a millisecond before the monotonic
+    // deadline, so an elapsed timer must not report time left to spend. A
+    // terminal timeout also cannot regain budget after later clock queries.
     if (this.#interruption === "timeout") return 0;
     return Math.max(0, Math.ceil(this.#deadlineAt - performance.now()));
   }
