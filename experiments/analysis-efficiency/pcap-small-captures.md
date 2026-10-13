@@ -126,7 +126,7 @@ validated.
 Both real CLI complete results match full MCP normalized results, subjects,
 parameters, IDs and limitations. Portable CLI summary/URI views match MCP retained
 normalized facts and subjects; source forms/caller parameters remain distinct.
-Source bytes stay unchanged. Thirty-one context/grading regressions pass, including
+Source bytes stay unchanged. Thirty-two context/grading regressions pass, including
 cited complete metadata/counts/UTF-16 diagnostics and exact ordered response ID
 lists that reject parent lookups, duplicates and nested representations. URI
 prefix coverage must come from its cited page, even if an uncited page has the
@@ -159,7 +159,7 @@ the preceding driver accepts inconsistent coverage, while the corrected driver
 rejects wrong status, next offset or exhaustion. Unmodified exhausted and
 continuable URI pages still pass. The grader also requires each cited receipt's
 subject digest and local path to identify the reference capture, and uses the
-reference page's verified coverage. Thirty-one grading/context regressions pass,
+reference page's verified coverage. Thirty-two grading/context regressions pass,
 including missing or malformed subjects and faithful but inconsistent coverage;
 all four original model answers still pass factual regrading. Strict resource
 grades remain false where terminal whole-scope counters are unknown.
@@ -267,3 +267,9 @@ completed status. Extra, reversed, failed or undecodable attempts fail workflow
 acceptance even when the final cited facts are correct; their actual cost and
 errors remain recorded. All four original model trials pass both factual and
 workflow checks without model reruns. Strict resource grades remain unchanged.
+
+Each planned call must also decode as an Evidence object with its own cited
+response ID. An unreadable planned reply cannot independently pass workflow
+checks merely because tool names, arguments and terminal status match. The
+regression reproduces the previous workflow-only false success; original model
+factual/workflow grades remain unchanged.

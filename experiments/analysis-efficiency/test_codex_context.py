@@ -117,7 +117,7 @@ class PcapGraderWorkflowTests(unittest.TestCase):
                 'parent_evidence_id': value['parent_evidence_id'], 'coverage': value['coverage'],
                 'unknowns': value['unknowns'], 'normalized_limitations': value['limitations']}
 
-    def grade(self, answer, records, reference, producer_tools=None, producer_arguments=None, extra_events=None):
+    def grade(self, answer, records, reference, producer_tools=None, producer_arguments=None, extra_events=None, producer_results=None):
         review = runpy.run_path(str(Path(__file__).with_name('review-model.py')))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory);trial = root / 'trial';trial.mkdir()
@@ -141,7 +141,7 @@ class PcapGraderWorkflowTests(unittest.TestCase):
                     arguments = producer_arguments[index]
                 events.append({'type': 'item.completed', 'item': {'type': 'mcp_tool_call',
                                'tool': tool, 'arguments': arguments, 'status': 'completed',
-                               'result': {'structuredContent': value}}})
+                               'result': {'structuredContent': value} if producer_results is None else producer_results[index]}})
             events.extend(extra_events or [])
             (trial / 'events.jsonl').write_text(''.join(json.dumps(value) + '\n' for value in events))
             source = root / 'reference';source.mkdir();(source / 'answer.json').write_text(json.dumps(reference))
@@ -462,6 +462,13 @@ class PcapGraderWorkflowTests(unittest.TestCase):
         for index in [0, 1]:
             answer, records, reference = self.fixture();records[index]['operation'] = 'inspect_pcap_capture'
             self.assertFalse(self.grade(answer, records, reference)['all_factual_checks_pass'])
+
+    def test_unreadable_planned_reply_does_not_pass_workflow_acceptance(self):
+        answer, records, reference = self.fixture()
+        report = self.grade(answer, records, reference,
+                            producer_results=[{'structuredContent': records[0]}, {}])
+        self.assertFalse(report['all_factual_checks_pass'])
+        self.assertFalse(report['all_workflow_checks_pass'])
 
     def test_extra_calls_are_not_an_equivalent_workflow_even_with_correct_facts(self):
         for status in ['completed', 'failed']:

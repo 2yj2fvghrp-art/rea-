@@ -131,11 +131,16 @@ def main():
             item = event.get('item', {})
             if event.get('type') != 'item.completed' or item.get('type') != 'mcp_tool_call':
                 continue
-            if args.domain == 'pcap':
-                pcap_attempts.append({'tool': item.get('tool'), 'arguments': item.get('arguments'),
-                                      'status': item.get('status')})
             result = item.get('result') or {}
             parsed = decode(result)
+            if args.domain == 'pcap':
+                pcap_attempts.append({'tool': item.get('tool'), 'arguments': item.get('arguments'),
+                                      'status': item.get('status'),
+                                      'evidence_id': parsed.get('evidence_id') if isinstance(parsed, dict) else None,
+                                      'readable_evidence': isinstance(parsed, dict)
+                                      and isinstance(parsed.get('normalized_result'), dict)
+                                      and isinstance(parsed.get('evidence_id'), str)
+                                      and re.fullmatch(r'ev_[a-f0-9]{64}', parsed['evidence_id']) is not None})
             if item['status'] == 'completed':
                 # Only response text contributes observed IDs, never model arguments.
                 for text in strings(result):
@@ -293,8 +298,9 @@ def main():
                   json.dumps(expected_arguments, sort_keys=True))
             workflow_checks['pcap_exact_call_sequence'] = (
                 json.dumps(pcap_attempts, sort_keys=True) == json.dumps([
-                    {'tool': tool, 'arguments': arguments, 'status': 'completed'}
-                    for tool, arguments in zip(expected_tools, expected_arguments)
+                    {'tool': tool, 'arguments': arguments, 'status': 'completed',
+                     'evidence_id': identity, 'readable_evidence': True}
+                    for tool, arguments, identity in zip(expected_tools, expected_arguments, identities)
                 ], sort_keys=True)
             )
             check('pcap_cited_parameters', json.dumps([record.get('parameters') if isinstance(record, dict) else None for record in cited], sort_keys=True),
