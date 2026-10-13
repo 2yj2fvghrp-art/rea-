@@ -56,15 +56,15 @@ export class ElectronFuseProvider implements ElectronFusePort {
         options?.signal,
       );
       options?.signal?.throwIfAborted();
-      const image = await readElectronFuseImage(
-        located.resolvedPath,
-        options?.signal === undefined ? undefined : { signal: options.signal },
-      );
+      const image = await readElectronFuseImage(located.file.path, {
+        selection: located.file,
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      });
       const findings = describeElectronFuseFindings(image.slices, image.format);
       const parsed = electronFuseReportSchema.safeParse({
         artifact: {
-          selected_path: input.path,
-          resolved_path: located.resolvedPath,
+          selected_path: located.selectedPath,
+          resolved_path: located.file.path,
           sha256: image.sha256,
           bytes: image.bytes,
           format: image.format,

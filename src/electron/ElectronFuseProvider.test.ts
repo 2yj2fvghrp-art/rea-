@@ -1,4 +1,6 @@
-import { mkdir, symlink, writeFile, truncate } from "node:fs/promises";
+import { resolveElectronFuseTarget } from "./ElectronFusePath.js";
+import { RegularFileChangedError } from "../filesystem/RegularFile.js";
+import { mkdir, symlink, writeFile, truncate, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -534,4 +536,66 @@ it("rejects a sparse artifact over 1 GiB before scanning", async () => {
       details: { reported_limits: { maximum_input_bytes: 1024 * 1024 * 1024 } },
     });
   }
+});
+
+it("follows the active framework binary while an inactive A version remains", async () => {
+  const root = await createTestTempDirectory("rea-electron-current-version-");
+  const app = join(root, "Fixture.app");
+  const framework = join(
+    app,
+    "Contents",
+    "Frameworks",
+    "Electron Framework.framework",
+  );
+  for (const [version, state] of [
+    ["A", 0x30],
+    ["B", 0x31],
+  ] as const) {
+    await mkdir(join(framework, "Versions", version), { recursive: true });
+    await writeFile(
+      join(framework, "Versions", version, "Electron Framework"),
+      thinFuseImage([state]).bytes,
+    );
+  }
+  await symlink("B", join(framework, "Versions", "Current"));
+  await symlink(
+    "Versions/Current/Electron Framework",
+    join(framework, "Electron Framework"),
+  );
+  for (const path of [app, framework, join(framework, "Electron Framework")]) {
+    const report = await inspect(path);
+    expect(report.artifact.resolved_path).toBe(
+      join(framework, "Versions", "B", "Electron Framework"),
+    );
+    expect(report.slices[0]?.sentinels[0]?.fuses[0]?.state).toBe("enabled");
+  }
+});
+
+it("rejects a checked version directory swapped before the reader opens it", async () => {
+  const root = await createTestTempDirectory("rea-electron-directory-swap-");
+  const app = join(root, "Fixture.app");
+  const framework = join(
+    app,
+    "Contents",
+    "Frameworks",
+    "Electron Framework.framework",
+  );
+  const version = join(framework, "Versions", "A");
+  const outside = join(root, "outside");
+  await mkdir(version, { recursive: true });
+  await mkdir(outside);
+  await writeFile(
+    join(version, "Electron Framework"),
+    thinFuseImage([0x30]).bytes,
+  );
+  await writeFile(
+    join(outside, "Electron Framework"),
+    thinFuseImage([0x31]).bytes,
+  );
+  const located = await resolveElectronFuseTarget(app);
+  await rename(version, `${version}.saved`);
+  await symlink(outside, version);
+  await expect(
+    readElectronFuseImage(located.file.path, { selection: located.file }),
+  ).rejects.toBeInstanceOf(RegularFileChangedError);
 });

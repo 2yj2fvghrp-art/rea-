@@ -1,3 +1,4 @@
+import type { BigIntStats } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
@@ -7,10 +8,19 @@ const FRAMEWORK_NAME = "Electron Framework.framework";
 const BINARY_NAME = "Electron Framework";
 const MAX_SYMLINK_HOPS = 32;
 
-/** Caller path plus the regular file whose bytes will be scanned. */
+/** Filesystem facts owned by path admission and consumed unchanged by the reader. */
+export interface ElectronFusePathNode {
+  readonly path: string;
+  readonly metadata: BigIntStats;
+}
+export interface ResolvedElectronFuseFile {
+  readonly path: string;
+  readonly metadata: BigIntStats;
+  readonly nodes: readonly ElectronFusePathNode[];
+}
 export interface ResolvedElectronFuseTarget {
   readonly selectedPath: string;
-  readonly resolvedPath: string;
+  readonly file: ResolvedElectronFuseFile;
 }
 
 /** A selected path is not an admitted Electron bundle or regular file. */
@@ -25,7 +35,7 @@ export class ElectronFusePathFailure extends Error {
 }
 
 type WalkResult =
-  | { readonly kind: "file"; readonly path: string }
+  | ({ readonly kind: "file" } & ResolvedElectronFuseFile)
   | { readonly kind: "absent" | "escapes" | "not-file" | "loop" };
 
 /**
@@ -37,44 +47,36 @@ export const resolveElectronFuseTarget = async (
   signal?: AbortSignal,
 ): Promise<ResolvedElectronFuseTarget> => {
   signal?.throwIfAborted();
-  const metadata = await lstat(selectedPath);
+  const metadata = await lstat(selectedPath, { bigint: true });
+  let file: ResolvedElectronFuseFile;
   if (metadata.isSymbolicLink())
-    return {
-      selectedPath,
-      resolvedPath: await resolveFrameworkSymlink(selectedPath, signal),
-    };
-  if (metadata.isFile())
-    return {
-      selectedPath,
-      // `lstat` follows intermediate links such as `Versions/Current`, so a
-      // file inside the framework is re-walked from the framework root.
-      resolvedPath:
-        frameworkRootOf(selectedPath) === null
-          ? selectedPath
-          : await resolveFrameworkSymlink(selectedPath, signal),
-    };
-  if (!metadata.isDirectory())
+    file = await resolveFrameworkSymlink(selectedPath, signal);
+  else if (metadata.isFile())
+    file =
+      frameworkRootOf(selectedPath) === null
+        ? { path: selectedPath, metadata, nodes: [] }
+        : await resolveFrameworkSymlink(selectedPath, signal);
+  else if (metadata.isDirectory())
+    file = await resolveBundleBinary(selectedPath, signal);
+  else
     throw new ElectronFusePathFailure(
       "invalid_format",
       `Expected a regular file or Electron app bundle: ${selectedPath}`,
     );
-  return {
-    selectedPath,
-    resolvedPath: await resolveBundleBinary(selectedPath, signal),
-  };
+  return { selectedPath, file };
 };
 
 const resolveFrameworkSymlink = async (
   selectedPath: string,
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<ResolvedElectronFuseFile> => {
   const root = frameworkRootOf(selectedPath);
   if (root === null)
     throw new ElectronFusePathFailure(
       "invalid_format",
       `Expected a regular file without a symlink: ${selectedPath}`,
     );
-  await requireFrameworkRoot(root, selectedPath);
+  const nodes = await requireFrameworkRoot(root, selectedPath);
   const relativePath = relativeInside(root, selectedPath);
   if (relativePath === null)
     throw new ElectronFusePathFailure(
@@ -84,13 +86,14 @@ const resolveFrameworkSymlink = async (
   return requireFile(
     await resolveInside(root, relativePath, signal),
     selectedPath,
+    nodes,
   );
 };
 
 const resolveBundleBinary = async (
   selectedPath: string,
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<ResolvedElectronFuseFile> => {
   const name = basename(selectedPath);
   if (name === FRAMEWORK_NAME)
     return resolveKnownBinary(selectedPath, selectedPath, signal);
@@ -112,28 +115,22 @@ const resolveKnownBinary = async (
   root: string,
   bundle: string,
   signal: AbortSignal | undefined,
-): Promise<string> => {
-  await requireFrameworkRoot(root, bundle);
-  const versioned = await resolveInside(
-    root,
-    `Versions/A/${BINARY_NAME}`,
-    signal,
-  );
-  if (versioned.kind === "file") return versioned.path;
-  if (versioned.kind !== "absent")
-    throw pathWalkFailure(versioned.kind, bundle);
-  const current = await resolveInside(
-    root,
+): Promise<ResolvedElectronFuseFile> => {
+  const nodes = await requireFrameworkRoot(root, bundle);
+  for (const candidate of [
+    BINARY_NAME,
     `Versions/Current/${BINARY_NAME}`,
-    signal,
+    `Versions/A/${BINARY_NAME}`,
+  ]) {
+    const selected = await resolveInside(root, candidate, signal);
+    if (selected.kind === "file") return requireFile(selected, bundle, nodes);
+    if (selected.kind !== "absent")
+      throw pathWalkFailure(selected.kind, bundle);
+  }
+  throw new ElectronFusePathFailure(
+    "invalid_value",
+    `Electron Framework binary was not found inside ${bundle}.`,
   );
-  if (current.kind === "file") return current.path;
-  if (current.kind === "absent")
-    throw new ElectronFusePathFailure(
-      "invalid_value",
-      `Electron Framework binary was not found inside ${bundle}.`,
-    );
-  throw pathWalkFailure(current.kind, bundle);
 };
 
 const resolveInside = async (
@@ -143,6 +140,8 @@ const resolveInside = async (
 ): Promise<WalkResult> => {
   const pending = relativePath.split("/").filter((segment) => segment !== "");
   const resolved: string[] = [];
+  const nodes: ElectronFusePathNode[] = [];
+  let fileMetadata: BigIntStats | undefined;
   let hops = 0;
   let last: "file" | "directory" | undefined;
   while (pending.length > 0) {
@@ -159,12 +158,13 @@ const resolveInside = async (
     if (!isPathWithinRoot(root, absolute)) return { kind: "escapes" };
     let metadata;
     try {
-      metadata = await lstat(absolute);
+      metadata = await lstat(absolute, { bigint: true });
     } catch (cause: unknown) {
       if (isMissing(cause)) return { kind: "absent" };
       throw cause;
     }
     if (metadata.isSymbolicLink()) {
+      nodes.push({ path: absolute, metadata });
       hops += 1;
       if (hops > MAX_SYMLINK_HOPS) return { kind: "loop" };
       const target = await readlink(absolute);
@@ -173,18 +173,21 @@ const resolveInside = async (
       continue;
     }
     if (metadata.isDirectory()) {
+      nodes.push({ path: absolute, metadata });
       resolved.push(segment);
       last = "directory";
       continue;
     }
     if (!metadata.isFile() || pending.length > 0) return { kind: "not-file" };
     resolved.push(segment);
+    fileMetadata = metadata;
     last = "file";
   }
-  if (last !== "file") return { kind: "not-file" };
+  if (last !== "file" || fileMetadata === undefined)
+    return { kind: "not-file" };
   const path = join(root, ...resolved);
   return isPathWithinRoot(root, path)
-    ? { kind: "file", path }
+    ? { kind: "file", path, metadata: fileMetadata, nodes }
     : { kind: "escapes" };
 };
 
@@ -192,7 +195,7 @@ const resolveInside = async (
 const requireFrameworkRoot = async (
   root: string,
   selectedPath: string,
-): Promise<void> => {
+): Promise<readonly ElectronFusePathNode[]> => {
   const frameworks = dirname(root);
   const contents = dirname(frameworks);
   const app = dirname(contents);
@@ -201,13 +204,17 @@ const requireFrameworkRoot = async (
     basename(contents) === "Contents" &&
     basename(app).endsWith(".app")
   )
-    await requireRealDirectories(
+    return requireRealDirectories(
       dirname(app),
       [basename(app), "Contents", "Frameworks", FRAMEWORK_NAME],
       selectedPath,
     );
   else
-    await requireRealDirectories(dirname(root), [basename(root)], selectedPath);
+    return requireRealDirectories(
+      dirname(root),
+      [basename(root)],
+      selectedPath,
+    );
 };
 
 /**
@@ -218,13 +225,14 @@ const requireRealDirectories = async (
   anchor: string,
   segments: readonly string[],
   selectedPath: string,
-): Promise<void> => {
+): Promise<readonly ElectronFusePathNode[]> => {
   let current = anchor;
+  const nodes: ElectronFusePathNode[] = [];
   for (const segment of segments) {
     current = join(current, segment);
     let metadata;
     try {
-      metadata = await lstat(current);
+      metadata = await lstat(current, { bigint: true });
     } catch (cause: unknown) {
       if (isMissing(cause))
         throw new ElectronFusePathFailure(
@@ -233,15 +241,26 @@ const requireRealDirectories = async (
         );
       throw cause;
     }
+    nodes.push({ path: current, metadata });
     if (metadata.isSymbolicLink())
       throw pathWalkFailure("escapes", selectedPath);
     if (!metadata.isDirectory())
       throw pathWalkFailure("not-file", selectedPath);
   }
+  return nodes;
 };
 
-const requireFile = (walk: WalkResult, selectedPath: string): string => {
-  if (walk.kind === "file") return walk.path;
+const requireFile = (
+  walk: WalkResult,
+  selectedPath: string,
+  nodes: readonly ElectronFusePathNode[],
+): ResolvedElectronFuseFile => {
+  if (walk.kind === "file")
+    return {
+      path: walk.path,
+      metadata: walk.metadata,
+      nodes: [...nodes, ...walk.nodes],
+    };
   if (walk.kind === "absent")
     throw new ElectronFusePathFailure(
       "invalid_value",

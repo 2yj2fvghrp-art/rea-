@@ -1,3 +1,4 @@
+import type { ResolvedElectronFuseFile } from "./ElectronFusePath.js";
 import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
 
@@ -75,11 +76,36 @@ export class ElectronFuseResourceFailure extends Error {
  */
 export const readElectronFuseImage = async (
   path: string,
-  options?: { readonly signal?: AbortSignal; readonly chunkBytes?: number },
+  options?: {
+    readonly signal?: AbortSignal;
+    readonly chunkBytes?: number;
+    readonly selection?: ResolvedElectronFuseFile;
+  },
 ): Promise<ElectronFuseImage> => {
   const signal = options?.signal;
   signal?.throwIfAborted();
-  const before = await lstat(path);
+  const selection = options?.selection;
+  const assertPathNodes = async (): Promise<void> => {
+    if (selection === undefined) return;
+    if (selection.path !== path) throw new RegularFileChangedError(path);
+    for (const node of selection.nodes) {
+      const current = await lstat(node.path, { bigint: true });
+      if (
+        current.dev !== node.metadata.dev ||
+        current.ino !== node.metadata.ino ||
+        current.isDirectory() !== node.metadata.isDirectory() ||
+        current.isSymbolicLink() !== node.metadata.isSymbolicLink()
+      )
+        throw new RegularFileChangedError(path);
+    }
+  };
+  await assertPathNodes();
+  const before = await lstat(path, { bigint: true });
+  if (
+    selection !== undefined &&
+    !sameRegularFileState(selection.metadata, before)
+  )
+    throw new RegularFileChangedError(path);
   if (!before.isFile() || before.isSymbolicLink())
     throw new ElectronFuseFormatFailure(
       "unsupported",
@@ -93,9 +119,10 @@ export const readElectronFuseImage = async (
   const size = Number(before.size);
   const handle = await openRegularFile(path, { symlinks: "reject", signal });
   try {
-    const opened = await handle.stat();
+    const opened = await handle.stat({ bigint: true });
     if (!sameRegularFileState(before, opened))
       throw new RegularFileChangedError(path);
+    await assertPathNodes();
     const readAt = readerFor(handle, size, path, signal);
     const container = await identifyContainer(readAt, size, path);
     const scanned = await scanSlices(
@@ -106,9 +133,10 @@ export const readElectronFuseImage = async (
       options?.chunkBytes ?? ELECTRON_FUSE_LIMITS.chunkBytes,
       signal,
     );
-    const current = await lstat(path);
+    const current = await lstat(path, { bigint: true });
     if (!sameRegularFileState(before, current))
       throw new RegularFileChangedError(path);
+    await assertPathNodes();
     return {
       sha256: scanned.sha256,
       bytes: size,
