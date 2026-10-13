@@ -29,9 +29,8 @@ import {
   WasmComponentReader,
 } from "./WasmComponentReader.js";
 import {
-  createRelationshipBudget,
+  RelationshipBudget,
   resolveCanonRelationships,
-  type RelationshipBudget,
 } from "./WasmComponentRelationships.js";
 import {
   decodeTypeAtomically,
@@ -103,7 +102,12 @@ export interface WasmComponentDecoding {
   readonly components: DecodedComponent[];
   readonly typeScopes: TypeScope[];
   readonly features: GatedFeature[];
-  readonly notDecoded: { component: number; range: Range; reason: string }[];
+  readonly notDecoded: {
+    component: number;
+    range: Range;
+    kind: WasmComponentFormatFailure["kind"];
+    reason: string;
+  }[];
 }
 
 interface DecodeState {
@@ -219,7 +223,7 @@ export const decodeWasmComponent = async (
     types: { scopes: [], features, depth: 0 },
     notDecoded: [],
     signal,
-    relationships: createRelationshipBudget(),
+    relationships: new RelationshipBudget(),
     items: new DecodeItemBudget(),
     sectionsSinceYield: 0,
   };
@@ -309,12 +313,30 @@ const decodeRecordedSection = async (
     if (cause.kind === "malformed") throw cause;
     entry.status = "not_decoded";
     context.spaces.invalidate(SECTION_SORTS[id] ?? "all");
-    context.state.notDecoded.push({
-      component: context.component.id,
-      range: { start: Math.max(cause.offset, payload.start), end: payload.end },
-      reason: cause.message,
-    });
+    recordNotDecoded(context, payload, cause);
   }
+};
+
+/**
+ * Record content that was not decoded, from the failure offset to the end of
+ * its range. Only embedded core modules and the name section can report
+ * `malformed` here; malformed component framing rejects the whole decode.
+ */
+const recordNotDecoded = (
+  context: SectionContext,
+  range: Range,
+  failure: WasmComponentFormatFailure,
+  subject?: string,
+): void => {
+  context.state.notDecoded.push({
+    component: context.component.id,
+    range: { start: Math.max(failure.offset, range.start), end: range.end },
+    kind: failure.kind,
+    reason:
+      subject === undefined
+        ? failure.message
+        : `${subject}: ${failure.message}`,
+  });
 };
 
 /** Decode `vec(T)` that must fill its section exactly. */
@@ -333,23 +355,29 @@ type SectionDecoder = (
   reader: WasmComponentReader,
 ) => void | Promise<void>;
 
-const decodeCoreModuleSection: SectionDecoder = (
-  { state, component, spaces },
-  reader,
-) => {
+const decodeCoreModuleSection: SectionDecoder = (context, reader) => {
+  const { state, component, spaces } = context;
   const range = { start: reader.offset, end: reader.end };
+  const decoded = decodeCoreModuleInterface(
+    state.bytes,
+    range.start,
+    range.end,
+    state.items,
+  );
   component.core_modules.push({
     index: spaces.add("core module", { kind: "other" }),
     range,
     sha256: sha256(state.bytes, range),
     core_version: coreModuleVersion(state.bytes, range.start, range.end),
-    interface: decodeCoreModuleInterface(
-      state.bytes,
-      range.start,
-      range.end,
-      state.items,
-    ),
+    interface: decoded.interface,
   });
+  if (decoded.failure !== null)
+    recordNotDecoded(
+      context,
+      range,
+      decoded.failure,
+      "Embedded core module interface",
+    );
 };
 
 const decodeNestedComponent: SectionDecoder = async (
@@ -373,7 +401,15 @@ const decodeNestedComponent: SectionDecoder = async (
 
 /** Decoders for each admitted section id. */
 const SECTION_DECODERS = new Map<number, SectionDecoder>([
-  [0, ({ component }, reader) => decodeCustomSection(component, reader)],
+  [
+    0,
+    (context, reader) => {
+      const range = { start: reader.offset, end: reader.end };
+      const failure = decodeCustomSection(context.component, reader);
+      if (failure !== null)
+        recordNotDecoded(context, range, failure, "component-name section");
+    },
+  ],
   [1, decodeCoreModuleSection],
   [
     2,

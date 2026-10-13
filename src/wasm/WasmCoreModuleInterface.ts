@@ -63,27 +63,67 @@ const decodeExports = (
   return exports;
 };
 
+/** An embedded module's interface, with the failure that left it incomplete. */
+export interface CoreModuleInterfaceDecoding {
+  readonly interface: CoreModuleInterface;
+  readonly failure: WasmComponentFormatFailure | null;
+}
+
+/** Why an embedded module's header is not a decodable core 1 header, if it is not. */
+const headerFailure = (
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): WasmComponentFormatFailure | null => {
+  const preamble = readWasmPreamble(bytes, start, end);
+  if (preamble === undefined)
+    return new WasmComponentFormatFailure(
+      "malformed",
+      start,
+      "Embedded module has no WebAssembly header",
+    );
+  if (preamble.layer !== 0)
+    return new WasmComponentFormatFailure(
+      "unsupported",
+      start,
+      `Embedded module has layer ${String(preamble.layer)}, not a core module`,
+    );
+  if (preamble.version !== 1)
+    return new WasmComponentFormatFailure(
+      "unsupported",
+      start,
+      `Embedded core module version ${String(preamble.version)} is not decoded`,
+    );
+  return null;
+};
+
+const incomplete = (
+  failure: WasmComponentFormatFailure,
+  imports: CoreModuleInterface["imports"],
+  exports: CoreModuleInterface["exports"],
+): CoreModuleInterfaceDecoding => ({
+  interface: {
+    status: "not_decoded",
+    reason: failure.message,
+    imports,
+    exports,
+  },
+  failure,
+});
+
 /**
  * Read an embedded core module's import and export names. Other sections are
  * skipped by length; the module is never validated, instantiated or run.
+ * Names read before a failure are kept.
  */
 export const decodeCoreModuleInterface = (
   bytes: Uint8Array,
   start: number,
   end: number,
   budget: DecodeItemBudget,
-): CoreModuleInterface => {
-  const version = coreModuleVersion(bytes, start, end);
-  if (version !== 1)
-    return {
-      status: "not_decoded",
-      reason:
-        version === null
-          ? "Embedded module does not start with a core WebAssembly header."
-          : `Embedded core module version ${String(version)} is not decoded.`,
-      imports: [],
-      exports: [],
-    };
+): CoreModuleInterfaceDecoding => {
+  const header = headerFailure(bytes, start, end);
+  if (header !== null) return incomplete(header, [], []);
   const imports: CoreModuleInterface["imports"] = [];
   const exports: CoreModuleInterface["exports"] = [];
   try {
@@ -101,12 +141,10 @@ export const decodeCoreModuleInterface = (
     }
   } catch (cause: unknown) {
     if (!(cause instanceof WasmComponentFormatFailure)) throw cause;
-    return {
-      status: "not_decoded",
-      reason: `Core module interface: ${cause.message}.`,
-      imports,
-      exports,
-    };
+    return incomplete(cause, imports, exports);
   }
-  return { status: "decoded", reason: null, imports, exports };
+  return {
+    interface: { status: "decoded", reason: null, imports, exports },
+    failure: null,
+  };
 };

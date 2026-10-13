@@ -9,8 +9,12 @@ import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createServer } from "../../../src/server/createServer.js";
 import {
   component,
+  externName,
   representativeComponent,
   section,
+  u32,
+  vec,
+  vecOf,
 } from "../../../src/wasm/WasmComponentBinary.fixture.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
@@ -123,7 +127,7 @@ componentMcpTest(
 );
 
 componentMcpTest(
-  "reports core modules, malformed components and relative paths as typed MCP errors",
+  "reports core modules, malformed components, oversized results and relative paths as typed MCP errors",
   async ({ wasm: { client } }) => {
     const root = await createTestTempDirectory("rea-wasm-component-mcp-err-");
     const core = join(root, "core.wasm");
@@ -165,6 +169,32 @@ componentMcpTest(
       },
     });
 
+    // One 1 MiB import name repeated by 1,000 lowers would serialize to 1 GiB.
+    const repeated = join(root, "repeated.wasm");
+    await writeFile(
+      repeated,
+      component(
+        section(10, vec([...externName("f".repeat(1 << 20)), 0x01, ...u32(0)])),
+        section(
+          8,
+          vecOf(Array.from({ length: 1_000 }, () => [0x01, 0x00, 0x00, 0x00])),
+        ),
+      ),
+    );
+    const oversized = await client.callTool({
+      name: "inspect_wasm_component",
+      arguments: { path: repeated },
+    });
+    expect(parseMcpToolError(oversized)).toMatchObject({
+      error: {
+        code: "resource_constraint",
+        details: {
+          resource: "transport",
+          reported_limits: { maximum_output_bytes: 8 * 1024 * 1024 },
+        },
+      },
+    });
+
     const partial = join(root, "partial.wasm");
     await writeFile(partial, component(section(13, [0x00])));
     const decoded = await client.callTool({
@@ -181,6 +211,7 @@ componentMcpTest(
         {
           component: 0,
           range: { start: 10, end: 11 },
+          kind: "unsupported",
           reason: "Unknown section id 13 at offset 10",
         },
       ],

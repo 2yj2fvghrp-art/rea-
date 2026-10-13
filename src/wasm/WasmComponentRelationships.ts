@@ -4,22 +4,28 @@ import type {
   ComponentIndexSpaces,
   IndexOrigin,
 } from "./WasmComponentIndexSpaces.js";
-import { WasmComponentLimitExceeded } from "./WasmComponentReader.js";
+import {
+  MAX_INLINE_RESULT_BYTES,
+  WasmComponentLimitExceeded,
+} from "./WasmComponentReader.js";
 
 /**
- * Bindings of lowered functions to core imports can grow multiplicatively.
- * At roughly 170 bytes each, more than this exceeds the 8 MiB inline budget.
+ * Serialized bytes that relationship facts of one whole decode may still
+ * add, shared by nested components. Lifts and lowers repeat names, so their
+ * size can grow multiplicatively; each fact is charged before it is kept.
  */
-export const MAX_CORE_IMPORT_BINDINGS = 65_536;
+export class RelationshipBudget {
+  #remaining = MAX_INLINE_RESULT_BYTES;
 
-/** Remaining core import bindings for one whole decode, shared by nested components. */
-export interface RelationshipBudget {
-  remaining: number;
+  charge(fact: unknown): void {
+    this.#remaining -= Buffer.byteLength(JSON.stringify(fact), "utf8");
+    if (this.#remaining < 0)
+      throw new WasmComponentLimitExceeded(
+        "output-bytes",
+        MAX_INLINE_RESULT_BYTES,
+      );
+  }
 }
-
-export const createRelationshipBudget = (): RelationshipBudget => ({
-  remaining: MAX_CORE_IMPORT_BINDINGS,
-});
 
 type CoreBinding = DecodedComponent["lowers"][number]["satisfies"][number];
 type Defining = { readonly index: number; readonly origin: IndexOrigin };
@@ -58,17 +64,55 @@ const memoizedWalk = <T>(
   };
 };
 
-/** Follow export re-aliases back to the entry that defined an index. */
+/**
+ * Find an export of an inline-exports instance by name, caching each
+ * instance's exports of one sort. The first export of a name wins.
+ */
+const inlineExportLookup = (
+  spaces: ComponentIndexSpaces,
+  instanceSort: "instance" | "core instance",
+  memberSort: ComponentSort,
+): ((instance: number, name: string) => number | undefined) => {
+  const byInstance = new Map<number, Map<string, number> | undefined>();
+  return (instance, name) => {
+    if (!byInstance.has(instance)) {
+      const origin = spaces.origin(instanceSort, instance);
+      byInstance.set(
+        instance,
+        origin?.kind === "inline-exports"
+          ? new Map(
+              origin.exports
+                .filter(({ sort }) => sort === memberSort)
+                .reverse()
+                .map((entry) => [entry.name, entry.index] as const),
+            )
+          : undefined,
+      );
+    }
+    return byInstance.get(instance)?.get(name);
+  };
+};
+
+/**
+ * Follow export re-aliases and aliases out of inline-exports instances back
+ * to the entry that defined an index.
+ */
 const definingResolver = (
   spaces: ComponentIndexSpaces,
   sort: ComponentSort,
-): ((index: number) => Defining | undefined) =>
-  memoizedWalk<Defining | undefined>((index) => {
+): ((index: number) => Defining | undefined) => {
+  const inlineExport = inlineExportLookup(spaces, "instance", sort);
+  return memoizedWalk<Defining | undefined>((index) => {
     const origin = spaces.origin(sort, index);
     if (origin === undefined) return { done: undefined };
     if (origin.kind === "export") return { next: origin.of };
-    return { done: { index, origin } };
+    const next =
+      origin.kind === "alias-export"
+        ? inlineExport(origin.instance, origin.name)
+        : undefined;
+    return next === undefined ? { done: { index, origin } } : { next };
   });
+};
 
 /**
  * Resolve a core function aliased out of inline-export core instances to the
@@ -77,26 +121,11 @@ const definingResolver = (
 const coreFuncResolver = (
   spaces: ComponentIndexSpaces,
 ): ((index: number) => number | undefined) => {
-  const inlineExports = new Map<number, Map<string, number> | undefined>();
-  const exportsOf = (instance: number): Map<string, number> | undefined => {
-    if (inlineExports.has(instance)) return inlineExports.get(instance);
-    const origin = spaces.origin("core instance", instance);
-    const named =
-      origin?.kind === "core-inline-exports"
-        ? new Map(
-            origin.exports
-              .filter(({ sort }) => sort === "core func")
-              .reverse()
-              .map(({ name, index }) => [name, index] as const),
-          )
-        : undefined;
-    inlineExports.set(instance, named);
-    return named;
-  };
+  const inlineExport = inlineExportLookup(spaces, "core instance", "core func");
   return memoizedWalk<number>((index) => {
     const origin = spaces.origin("core func", index);
     if (origin?.kind !== "alias-core-export") return { done: index };
-    const next = exportsOf(origin.instance)?.get(origin.name);
+    const next = inlineExport(origin.instance, origin.name);
     return next === undefined ? { done: index } : { next };
   });
 };
@@ -190,14 +219,8 @@ const coreImportBindings = (
     const bindings: CoreBinding[] = [];
     for (const provider of providers.get(coreFunc) ?? [])
       for (const consumer of consumers.get(provider.instance) ?? []) {
-        budget.remaining -= 1;
-        if (budget.remaining < 0)
-          throw new WasmComponentLimitExceeded(
-            "lower-bindings",
-            MAX_CORE_IMPORT_BINDINGS,
-          );
         const declared = interfaces.imports.get(consumer.module);
-        bindings.push({
+        const binding: CoreBinding = {
           core_instance: consumer.instance,
           core_module: consumer.module,
           import_module: consumer.argument,
@@ -206,7 +229,9 @@ const coreImportBindings = (
             declared === undefined
               ? null
               : declared.has(importKey(consumer.argument, provider.name)),
-        });
+        };
+        budget.charge(binding);
+        bindings.push(binding);
       }
     return bindings;
   };
@@ -254,8 +279,8 @@ const componentSource = (
 /**
  * Trace each canonical lift to the core export it wraps, and each lower to
  * its component source and the core imports it is bound to. Memoized
- * resolvers and lookup tables keep the work linear; unknown index spaces
- * leave facts null or empty.
+ * resolvers and lookup tables keep the work linear, the budget bounds the
+ * serialized facts, and unknown indices leave facts null or empty.
  */
 export const resolveCanonRelationships = (
   component: DecodedComponent,
@@ -282,7 +307,7 @@ export const resolveCanonRelationships = (
       canon.type !== undefined
     ) {
       const func = canon.defines.index;
-      lifts.push({
+      const lift: DecodedComponent["lifts"][number] = {
         canon: position,
         func,
         core_func: canon.core_func,
@@ -293,11 +318,13 @@ export const resolveCanonRelationships = (
           canonicalCoreFunc(canon.core_func),
         ),
         exported_as: func === null ? [] : (exportedAs.get(func) ?? []),
-      });
+      };
+      budget.charge(lift);
+      lifts.push(lift);
     }
     if (canon.kind === "lower" && canon.func !== undefined) {
       const coreFunc = canon.defines.index;
-      lowers.push({
+      const lower: DecodedComponent["lowers"][number] = {
         canon: position,
         func: canon.func,
         core_func: coreFunc,
@@ -306,8 +333,11 @@ export const resolveCanonRelationships = (
           definingInstance,
           canon.func,
         ),
-        satisfies: coreFunc === null ? [] : bindingsOf(coreFunc),
-      });
+        satisfies: [],
+      };
+      budget.charge(lower);
+      if (coreFunc !== null) lower.satisfies = bindingsOf(coreFunc);
+      lowers.push(lower);
     }
   }
   return { lifts, lowers };

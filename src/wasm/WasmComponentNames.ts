@@ -34,16 +34,16 @@ const decodeNameSubsection = (
 /**
  * Record one custom section, decoding `component-name` when present. An
  * invalid name section never rejects the component; names decoded before the
- * failure are kept.
+ * failure are kept, and the failure is returned for coverage.
  */
 export const decodeCustomSection = (
   component: DecodedComponent,
   reader: WasmComponentReader,
-): void => {
+): WasmComponentFormatFailure | null => {
   const range = { start: reader.offset, end: reader.end };
   const name = reader.name("custom section name");
   component.custom_sections.push({ name, range });
-  if (name !== COMPONENT_NAME) return;
+  if (name !== COMPONENT_NAME) return null;
   const names: ComponentNames = {
     range,
     status: "decoded",
@@ -62,5 +62,7 @@ export const decodeCustomSection = (
     if (!(cause instanceof WasmComponentFormatFailure)) throw cause;
     names.status = "invalid";
     names.reason = cause.message;
+    return cause;
   }
+  return null;
 };

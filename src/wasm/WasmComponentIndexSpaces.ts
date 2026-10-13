@@ -20,7 +20,8 @@ export type IndexOrigin =
       readonly args: readonly { name: string; instance: number }[];
     }
   | {
-      readonly kind: "core-inline-exports";
+      /** A core or component instance made of exports of earlier indices. */
+      readonly kind: "inline-exports";
       readonly exports: readonly {
         name: string;
         sort: ComponentSort;
@@ -40,12 +41,13 @@ interface IndexSpace {
 
 /**
  * Index spaces of one component. Counts are numbers, so file-controlled
- * counts such as start results cost no per-entry memory. A sort becomes
- * unknown after an undecoded definition.
+ * counts such as start results cost no per-entry memory. After an undecoded
+ * definition, a sort keeps its known prefix; only later indices are unknown.
  */
 export class ComponentIndexSpaces {
   readonly #spaces = new Map<ComponentSort, IndexSpace>();
-  readonly #unknown = new Set<ComponentSort>();
+  /** Known prefix length of each sort that an undecoded definition ended. */
+  readonly #prefixes = new Map<ComponentSort, number>();
   #allUnknown = false;
 
   #space(sort: ComponentSort): IndexSpace {
@@ -57,8 +59,15 @@ export class ComponentIndexSpaces {
     return space;
   }
 
-  #known(sort: ComponentSort): boolean {
-    return !this.#allUnknown && !this.#unknown.has(sort);
+  /** Whether an undecoded definition ended this sort's known prefix. */
+  #ended(sort: ComponentSort): boolean {
+    return this.#allUnknown || this.#prefixes.has(sort);
+  }
+
+  /** Number of leading indices whose positions are known. */
+  #knownLength(sort: ComponentSort): number {
+    if (!this.#ended(sort)) return this.#spaces.get(sort)?.length ?? 0;
+    return this.#prefixes.get(sort) ?? 0;
   }
 
   /** Append one entry; its index is null once the sort's count is unknown. */
@@ -66,8 +75,9 @@ export class ComponentIndexSpaces {
     const space = this.#space(sort);
     const index = space.length;
     space.length += 1;
+    if (this.#ended(sort)) return null;
     if (origin.kind !== "other") space.origins.set(index, origin);
-    return this.#known(sort) ? index : null;
+    return index;
   }
 
   /** Append `count` entries without traceable origins in constant time. */
@@ -77,14 +87,20 @@ export class ComponentIndexSpaces {
 
   /** Origin at a known index, or undefined when it is unknown or absent. */
   origin(sort: ComponentSort, index: number): IndexOrigin | undefined {
-    if (!this.#known(sort)) return undefined;
-    const space = this.#spaces.get(sort);
-    if (space === undefined || index >= space.length) return undefined;
-    return space.origins.get(index) ?? OTHER;
+    if (index >= this.#knownLength(sort)) return undefined;
+    return this.#spaces.get(sort)?.origins.get(index) ?? OTHER;
   }
 
+  /** End the known prefix of these sorts at their current lengths. */
   invalidate(sorts: readonly ComponentSort[] | "all"): void {
-    if (sorts === "all") this.#allUnknown = true;
-    else for (const sort of sorts) this.#unknown.add(sort);
+    if (sorts === "all") {
+      for (const [sort, space] of this.#spaces)
+        if (!this.#prefixes.has(sort)) this.#prefixes.set(sort, space.length);
+      this.#allUnknown = true;
+      return;
+    }
+    for (const sort of sorts)
+      if (!this.#prefixes.has(sort))
+        this.#prefixes.set(sort, this.#knownLength(sort));
   }
 }

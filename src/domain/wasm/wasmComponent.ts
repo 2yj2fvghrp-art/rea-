@@ -280,9 +280,15 @@ export const gatedFeatureSchema = z.enum([
 ]);
 export type GatedFeature = z.infer<typeof gatedFeatureSchema>;
 
+/**
+ * Content that was not decoded. `unsupported` is well-framed content outside
+ * the decoded grammar; `malformed` is broken framing inside an embedded core
+ * module or the name section, which never rejects the component itself.
+ */
 const notDecodedSchema = z.strictObject({
   component: indexSchema,
   range: byteRangeSchema,
+  kind: z.enum(["unsupported", "malformed"]),
   reason: z.string().min(1),
 });
 

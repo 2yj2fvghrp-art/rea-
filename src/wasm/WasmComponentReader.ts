@@ -14,14 +14,19 @@ export class WasmComponentFormatFailure extends Error {
   }
 }
 
+/** Complete component results are returned inline, within this many UTF-8 bytes. */
+export const MAX_INLINE_RESULT_BYTES = 8 * 1024 * 1024;
+
 /** A decode-wide resource limit was reached before its facts were built. */
 export class WasmComponentLimitExceeded extends Error {
   constructor(
-    readonly limit: "decoded-items" | "lower-bindings",
+    readonly limit: "decoded-items" | "output-bytes",
     readonly maximum: number,
   ) {
     super(
-      `${limit === "decoded-items" ? "Decoded entries" : "Canonical lower bindings"} exceed ${String(maximum)}`,
+      limit === "decoded-items"
+        ? `Decoded entries exceed ${String(maximum)}`
+        : `Decoded component facts exceed the ${String(maximum)}-byte inline output budget`,
     );
     this.name = "WasmComponentLimitExceeded";
   }
@@ -30,9 +35,9 @@ export class WasmComponentLimitExceeded extends Error {
 /**
  * Every decoded vector entry and section becomes at least one reported fact,
  * and each serializes to more than 16 bytes, so more than this many could
- * not fit the 8 MiB inline result anyway.
+ * not fit the inline result anyway.
  */
-export const MAX_DECODED_ITEMS = 524_288;
+export const MAX_DECODED_ITEMS = MAX_INLINE_RESULT_BYTES / 16;
 
 /** Entries one decode may still create, shared by every reader it uses. */
 export class DecodeItemBudget {

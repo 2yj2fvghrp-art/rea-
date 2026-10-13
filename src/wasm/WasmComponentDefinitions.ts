@@ -62,7 +62,7 @@ export const decodeCoreInstance = (
   return {
     kind: "inline-exports",
     index: spaces.add("core instance", {
-      kind: "core-inline-exports",
+      kind: "inline-exports",
       exports,
     }),
     range: { start, end: reader.offset },
@@ -117,7 +117,7 @@ export const decodeInstance = (
   }
   return {
     kind: "inline-exports",
-    index: spaces.add("instance", { kind: "other" }),
+    index: spaces.add("instance", { kind: "inline-exports", exports }),
     range: { start, end: reader.offset },
     exports,
   };

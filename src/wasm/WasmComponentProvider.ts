@@ -25,6 +25,7 @@ import {
 } from "../domain/wasm/wasmComponent.js";
 import { decodeWasmComponent } from "./WasmComponentDecoder.js";
 import {
+  MAX_INLINE_RESULT_BYTES,
   WasmComponentFormatFailure,
   WasmComponentLimitExceeded,
 } from "./WasmComponentReader.js";
@@ -37,7 +38,6 @@ export const WASM_COMPONENT_PROVIDER_IDENTITY = {
 } as const;
 const OPERATION = "inspect_wasm_component";
 const INPUT_BYTES = 8 * 1024 * 1024;
-const OUTPUT_BYTES = 8 * 1024 * 1024;
 
 const isAbort = (cause: unknown, signal?: AbortSignal): boolean =>
   signal?.aborted === true ||
@@ -49,15 +49,21 @@ const decoderFailure = (
   path: string,
 ): AnalysisError => {
   if (cause instanceof WasmComponentLimitExceeded)
-    return new AnalysisResourceConstraintError(
-      OPERATION,
-      "memory",
-      `${cause.message} for ${path}, so the complete result would exceed the inline output budget; no partial success is returned.`,
-      cause.limit === "decoded-items"
-        ? { maximum_decoded_entries: cause.maximum }
-        : { maximum_lower_bindings: cause.maximum },
-      { cause },
-    );
+    return cause.limit === "decoded-items"
+      ? new AnalysisResourceConstraintError(
+          OPERATION,
+          "memory",
+          `${cause.message} for ${path}, so the complete result would exceed the inline output budget; no partial success is returned.`,
+          { maximum_decoded_entries: cause.maximum },
+          { cause },
+        )
+      : new AnalysisResourceConstraintError(
+          OPERATION,
+          "transport",
+          `${cause.message} for ${path}; no partial success is returned.`,
+          { maximum_output_bytes: cause.maximum },
+          { cause },
+        );
   return cause.kind === "unsupported"
     ? new AnalysisUnsupportedTargetError(OPERATION, path, cause.message, {
         cause,
@@ -224,7 +230,7 @@ export class WasmComponentProvider implements WasmComponentPort {
           ...(decoded.notDecoded.length === 0
             ? []
             : [
-                "Some sections were not decoded (see coverage.not_decoded). Indices that sections in those sorts define afterwards are null because their positions are unknown.",
+                "Some content was not decoded (see coverage.not_decoded). After a section that was not decoded, indices that later definitions add to its sorts are null because their positions are unknown; earlier indices stay known.",
               ]),
           ...(invalidNames
             ? [
@@ -233,12 +239,13 @@ export class WasmComponentProvider implements WasmComponentPort {
             : []),
         ],
       };
-      if (Buffer.byteLength(JSON.stringify(report), "utf8") > OUTPUT_BYTES)
-        throw new AnalysisResourceConstraintError(
-          OPERATION,
-          "transport",
-          `Decoded component facts for ${input.path} exceed the inline output budget; no partial success is returned.`,
-          { maximum_output_bytes: OUTPUT_BYTES },
+      if (
+        Buffer.byteLength(JSON.stringify(report), "utf8") >
+        MAX_INLINE_RESULT_BYTES
+      )
+        throw new WasmComponentLimitExceeded(
+          "output-bytes",
+          MAX_INLINE_RESULT_BYTES,
         );
       const parsed = wasmComponentSchema.safeParse(report);
       if (!parsed.success)

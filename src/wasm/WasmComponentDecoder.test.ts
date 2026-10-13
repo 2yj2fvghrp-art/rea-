@@ -17,10 +17,10 @@ import {
 } from "./WasmComponentBinary.fixture.js";
 import {
   MAX_DECODED_ITEMS,
+  MAX_INLINE_RESULT_BYTES,
   WasmComponentFormatFailure,
   WasmComponentLimitExceeded,
 } from "./WasmComponentReader.js";
-import { MAX_CORE_IMPORT_BINDINGS } from "./WasmComponentRelationships.js";
 
 const failureOf = async (bytes: Uint8Array) => {
   try {
@@ -286,12 +286,30 @@ describe("decodeWasmComponent partial coverage", () => {
     ]);
   });
 
+  it("keeps sources defined before a later undecoded section", async () => {
+    const decoded = await decodeWasmComponent(
+      component(
+        section(10, vec([...externName("f"), 0x01, ...u32(0)])),
+        section(8, vec([0x01, 0x00, ...u32(0), ...vec()])),
+        section(13, [0x01]),
+        section(8, vec([0x01, 0x00, ...u32(0), ...vec()])),
+      ),
+    );
+    const lowers = decoded.components[0]?.lowers;
+    expect(lowers?.map(({ core_func }) => core_func)).toEqual([0, null]);
+    expect(lowers?.map(({ component_source }) => component_source)).toEqual([
+      { kind: "import", name: "f" },
+      { kind: "import", name: "f" },
+    ]);
+  });
+
   it("keeps decoding when the name section is invalid or a module is not core", async () => {
     const decoded = await decodeWasmComponent(
       component(
         section(1, [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00]),
         section(0, [...name("component-name"), ...section(0, [0x05, 0x61])]),
         section(1, coreModule(section(2, [0x01, 0x7f]))),
+        section(1, [0x01, 0x02]),
       ),
     );
     const [root] = decoded.components;
@@ -308,6 +326,27 @@ describe("decodeWasmComponent partial coverage", () => {
     ).toEqual([
       { index: 0, core_version: null, status: "not_decoded" },
       { index: 1, core_version: 1, status: "not_decoded" },
+      { index: 2, core_version: null, status: "not_decoded" },
+    ]);
+    expect(
+      decoded.notDecoded.map(({ kind, reason }) => ({ kind, reason })),
+    ).toEqual([
+      {
+        kind: "unsupported",
+        reason: expect.stringContaining("layer 1, not a core module"),
+      },
+      {
+        kind: "malformed",
+        reason: expect.stringContaining("component-name section:"),
+      },
+      {
+        kind: "malformed",
+        reason: expect.stringContaining("Embedded core module interface:"),
+      },
+      {
+        kind: "malformed",
+        reason: expect.stringContaining("no WebAssembly header"),
+      },
     ]);
   });
 });
@@ -351,17 +390,18 @@ describe("decodeWasmComponent resource bounds", () => {
   });
 
   it("fails instead of materializing multiplicative lower bindings", async () => {
-    const names = Array.from({ length: 300 }, (_, index) => [
+    const names = Array.from({ length: 400 }, (_, index) => [
       ...name(`n${String(index)}`),
       0x00,
       ...u32(0),
     ]);
-    const instantiations = Array.from({ length: 300 }, () => [
+    const instantiations = Array.from({ length: 400 }, () => [
       0x00,
       ...u32(0),
       ...vec([...name("a"), 0x12, ...u32(0)]),
     ]);
-    expect(300 * 300).toBeGreaterThan(MAX_CORE_IMPORT_BINDINGS);
+    // 160,000 bindings of at least 100 serialized bytes each.
+    expect(400 * 400 * 100).toBeGreaterThan(MAX_INLINE_RESULT_BYTES);
     await expect(
       decodeWasmComponent(
         component(
@@ -372,7 +412,31 @@ describe("decodeWasmComponent resource bounds", () => {
       ),
     ).rejects.toMatchObject({
       name: "WasmComponentLimitExceeded",
-      limit: "lower-bindings",
+      limit: "output-bytes",
+    });
+  });
+
+  it("stops tracing before a long name repeated by every lower outgrows the output", async () => {
+    const lowers = Array.from({ length: 1_000 }, () => [
+      0x01,
+      0x00,
+      ...u32(0),
+      ...vec(),
+    ]);
+    await expect(
+      decodeWasmComponent(
+        component(
+          section(
+            10,
+            vec([...externName("f".repeat(1 << 20)), 0x01, ...u32(0)]),
+          ),
+          section(8, vecOf(lowers)),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "WasmComponentLimitExceeded",
+      limit: "output-bytes",
+      maximum: MAX_INLINE_RESULT_BYTES,
     });
   });
 
@@ -440,6 +504,21 @@ describe("decodeWasmComponent relationship resolution", () => {
         declared_by_module: true,
       },
     ]);
+  });
+
+  it("traces a lowered import re-exported through a component inline-export instance", async () => {
+    const decoded = await decodeWasmComponent(
+      component(
+        section(10, vec([...externName("f"), 0x01, ...u32(0)])),
+        section(5, vec([0x01, ...vec([...externName("g"), 0x01, ...u32(0)])])),
+        section(6, vec([0x01, 0x00, ...u32(0), ...name("g")])),
+        section(8, vec([0x01, 0x00, ...u32(1), ...vec()])),
+      ),
+    );
+    expect(decoded.components[0]?.lowers[0]).toMatchObject({
+      func: 1,
+      component_source: { kind: "import", name: "f" },
+    });
   });
 
   it("follows export chains longer than any fixed hop limit", async () => {
