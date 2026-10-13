@@ -728,7 +728,10 @@ const originalModuleEdges = (
       );
       continue;
     }
-    const parsed = parseJavaScriptSource(source.artifact.text);
+    const parsed = parseJavaScriptSource(
+      source.artifact.text,
+      URL.parse(sourceName)?.pathname ?? sourceName,
+    );
     check();
     if (parsed === null) {
       incomplete.push(sourceName);
