@@ -32,6 +32,12 @@ import {
   propertyName,
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
+import {
+  isTypeOnlyExportDeclaration,
+  isTypeOnlyExportSpecifier,
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 
 interface CollectCallableInput {
   readonly node: t.Node;
@@ -95,7 +101,7 @@ export const collectSemanticModuleLink = (
     addModuleLink(
       state,
       {
-        kind: "re-export",
+        kind: isTypeOnlyExportDeclaration(node) ? "type-import" : "re-export",
         ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: "*",
@@ -129,12 +135,19 @@ const collectImportEquals = (
   node: t.TSImportEqualsDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const specifier = semanticImportEqualsSpecifier(node);
+  const moduleReference = node.moduleReference;
+  const specifier =
+    semanticImportEqualsSpecifier(node) ??
+    (node.importKind === "type" &&
+    t.isTSExternalModuleReference(moduleReference) &&
+    t.isStringLiteral(moduleReference.expression)
+      ? moduleReference.expression.value
+      : null);
   if (specifier === null) return;
   addModuleLink(
     state,
     {
-      kind: "require",
+      kind: node.importKind === "type" ? "type-import" : "require",
       specifier,
       importedName: null,
       localName: node.id.name,
@@ -309,7 +322,7 @@ const collectImports = (
     addModuleLink(
       state,
       {
-        kind: "import",
+        kind: isTypeOnlyImportDeclaration(node) ? "type-import" : "import",
         ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: null,
@@ -323,7 +336,12 @@ const collectImports = (
     addModuleLink(
       state,
       {
-        kind: "import",
+        kind:
+          isTypeOnlyImportDeclaration(node) ||
+          (t.isImportSpecifier(specifier) &&
+            isTypeOnlyImportSpecifier(specifier))
+            ? "type-import"
+            : "import",
         ...(resolutionMode === undefined ? {} : { resolutionMode }),
         specifier: node.source.value,
         importedName: t.isImportDefaultSpecifier(specifier)
@@ -344,12 +362,13 @@ const collectNamedExports = (
   state: JavaScriptSemanticAnalysisState,
 ): void => {
   const resolutionMode = typescriptImportResolutionMode(node);
+  const declarationTypeOnly = isTypeOnlyExportDeclaration(node);
   if (node.declaration !== null && node.declaration !== undefined)
     for (const localName of declarationNames(node.declaration))
       addModuleLink(
         state,
         {
-          kind: "export",
+          kind: declarationTypeOnly ? "type-import" : "export",
           specifier: null,
           importedName: null,
           localName,
@@ -367,7 +386,14 @@ const collectNamedExports = (
       addModuleLink(
         state,
         {
-          ...declarationExportProperties(node, specifier),
+          kind:
+            declarationTypeOnly ||
+            (t.isExportSpecifier(specifier) &&
+              isTypeOnlyExportSpecifier(specifier))
+              ? "type-import"
+              : node.source == null
+                ? "export"
+                : "re-export",
           ...(resolutionMode === undefined ? {} : { resolutionMode }),
           specifier: node.source?.value ?? null,
           importedName: t.isExportNamespaceSpecifier(specifier)
@@ -377,29 +403,12 @@ const collectNamedExports = (
             node.source == null && t.isExportSpecifier(specifier)
               ? propertyName(specifier.local)
               : null,
+          exportedName: propertyName(specifier.exported),
           location: range(specifier),
         },
         node,
       );
 };
-
-const declarationExportProperties = (
-  node: t.ExportNamedDeclaration,
-  specifier: t.ExportSpecifier | t.ExportNamespaceSpecifier,
-): Pick<
-  JavaScriptSemanticModuleLink,
-  "kind" | "exportedName" | "exportedTypeName"
-> =>
-  t.isExportNamespaceSpecifier(specifier) && node.exportKind === "type"
-    ? {
-        kind: "type-import",
-        exportedName: null,
-        exportedTypeName: propertyName(specifier.exported),
-      }
-    : {
-        kind: node.source == null ? "export" : "re-export",
-        exportedName: propertyName(specifier.exported),
-      };
 
 const collectRequireLink = (
   node: t.VariableDeclarator,
@@ -785,6 +794,13 @@ const declarationNames = (declaration: t.Declaration): string[] => {
   if (
     (t.isFunctionDeclaration(declaration) ||
       t.isClassDeclaration(declaration)) &&
+    t.isIdentifier(declaration.id)
+  )
+    return [declaration.id.name];
+  if (
+    (t.isTSInterfaceDeclaration(declaration) ||
+      t.isTSTypeAliasDeclaration(declaration) ||
+      t.isTSDeclareFunction(declaration)) &&
     t.isIdentifier(declaration.id)
   )
     return [declaration.id.name];

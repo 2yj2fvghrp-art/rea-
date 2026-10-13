@@ -49,6 +49,16 @@ const nativeDefaultSource = (mode: "import" | "require") =>
     "console.log(JSON.stringify(value.source));",
   ].join("\n");
 
+const nativeMixedSource = [
+  'import { type NativeMode as NativeType, NativeMode as runtimeNative } from "native-mixed/addon.node";',
+  'export { type NativeMode as NativeTypeExport, NativeMode as runtimeNativeExport } from "native-mixed/addon.node";',
+  "console.log(runtimeNative);",
+].join("\n");
+const nativeInlineOnlySource = [
+  'import { type NativeMode } from "native-mixed/addon.node";',
+  'export { type NativeMode as NativeTypeExport } from "native-mixed/addon.node";',
+].join("\n");
+
 export const modeSourceFiles = {
   "cts/inline.cts": inlineSource,
   "cts/script.ts": inlineSource,
@@ -58,9 +68,21 @@ export const modeSourceFiles = {
   "cts/recovered.cts": recoveredSource,
   "cts/native-default.cts": nativeDefaultSource("require"),
   "cts/native-default.mts": nativeDefaultSource("import"),
+  "cts/native-mixed.mts": nativeMixedSource,
+  "cts/native-inline-only.mts": nativeInlineOnlySource,
 };
 
 export const modePackageFiles = {
+  "node_modules/native-mixed/package.json": JSON.stringify({
+    exports: {
+      "./addon.node": {
+        import: { types: "./addon.d.mts", default: "./addon.node" },
+      },
+    },
+  }),
+  "node_modules/native-mixed/addon.d.mts":
+    'export interface NativeMode { source: "import"; } export const NativeMode: NativeMode;',
+  "node_modules/native-mixed/addon.node": "source-owned native placeholder",
   "node_modules/same-mode/package.json": JSON.stringify({
     exports: { import: "./both.js", require: "./both.js" },
   }),
@@ -86,46 +108,58 @@ export const modePackageFiles = {
 export const expectReviewModeEvidence = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
-  const sourceEdges = (source: string) =>
-    graph.edges.filter(
-      ({ evidence }) =>
-        evidence.location.available &&
-        evidence.location.value.kind === "source-range" &&
-        evidence.location.value.source === source,
-    );
-  for (const [source, text, target] of [
-    ["cts/same.cts", sameSource, "node_modules/same-mode/both.js"],
-    ["cts/unresolved.cts", unresolvedSource, null],
+  for (const [source, text] of [
+    ["cts/same.cts", sameSource],
+    ["cts/unresolved.cts", unresolvedSource],
   ] as const) {
-    const links = sourceEdges(source).filter(
-      ({ properties }) =>
-        properties.module_link_kind === "import" ||
-        properties.kind === "static-import",
-    );
-    for (const mode of ["import", "require"])
-      expect
-        .soft(
-          links.filter(({ properties }) => properties.resolution_mode === mode),
-        )
-        .toMatchObject([
-          {
-            properties: { resolved_path: target },
-            evidence: {
-              artifact: {
-                sha256: createHash("sha256").update(text).digest("hex"),
-              },
-            },
-          },
-          {
-            properties: { resolved_path: target },
-            evidence: {
-              artifact: {
-                sha256: createHash("sha256").update(text).digest("hex"),
-              },
-            },
-          },
-        ]);
+    expect
+      .soft(
+        graph.edges.filter(
+          ({ relation, evidence }) =>
+            (relation === "imports" || relation === "loads") &&
+            evidence.location.available &&
+            evidence.location.value.kind === "source-range" &&
+            evidence.location.value.source === source,
+        ),
+      )
+      .toEqual([]);
+    expect
+      .soft(graph.nodes.flatMap(({ observations }) => observations))
+      .toContainEqual(
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            semantic_role: "source-module",
+            path: source,
+            import_relationships: 0,
+            type_relationships: 2,
+          }),
+          evidence: expect.objectContaining({
+            artifact: expect.objectContaining({
+              sha256: createHash("sha256").update(text).digest("hex"),
+            }),
+          }),
+        }),
+      );
   }
+  for (const source of [
+    "cts/native.mts",
+    "cts/native-default.cts",
+    "cts/native-default.mts",
+  ])
+    expect
+      .soft(
+        graph.edges.filter(
+          ({ relation, evidence }) =>
+            (relation === "imports" ||
+              relation === "exposes" ||
+              relation === "loads") &&
+            evidence.location.available &&
+            evidence.location.value.kind === "source-range" &&
+            evidence.location.value.source === source,
+        ),
+      )
+      .toEqual([]);
+  expectNativeMixedEvidence(graph);
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
@@ -154,6 +188,8 @@ export const expectReviewModeEvidence = (
         properties: expect.objectContaining({
           resolved_path: `node_modules/native-mode/${mode}.node`,
           native_export_verification: "not-performed",
+          type_only: true,
+          module_kind: mode,
           ...nativeQualifierProperties(line),
         }),
         evidence: expect.objectContaining({
@@ -193,6 +229,8 @@ const expectNativeDefaultEvidence = (
           resolved_path: `node_modules/native-mode/${mode}.node`,
           requested_members: ["NativeMode"],
           native_export_verification: "not-performed",
+          type_only: true,
+          module_kind: mode,
         },
         evidence: {
           artifact: {
@@ -218,56 +256,18 @@ const nativeQualifierProperties = (line: number) => {
 const expectInlineTypeEvidence = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
-  for (const source of ["cts/inline.cts", "cts/script.ts"]) {
-    for (const [line, mode, target, path] of [
-      [1, "import", "decoy.mjs", ["ImportOnly"]],
-      [2, "require", "actual.cjs", ["RequireOnly"]],
-      [3, "import", "decoy.mjs", ["Shapes", "ImportOnly"]],
-    ] as const) {
-      const links = graph.edges.filter(
-        ({ properties, evidence }) =>
-          (properties.module_link_kind === "type-import" ||
-            properties.kind === "type-import") &&
-          evidence.location.available &&
-          evidence.location.value.kind === "source-range" &&
-          evidence.location.value.source === source &&
-          evidence.location.value.start.line === line,
-      );
-      expect.soft(links).toHaveLength(2);
-      for (const link of links)
-        expect.soft(link).toMatchObject({
-          properties: {
-            resolved_path: "node_modules/cts-package/" + target,
-            resolution_mode: mode,
-          },
-          evidence: {
-            artifact: {
-              sha256: createHash("sha256").update(inlineSource).digest("hex"),
-            },
-          },
-        });
-      expect
-        .soft(
-          links.filter(
-            ({ properties }) => properties.module_link_kind === "type-import",
-          ),
-        )
-        .toMatchObject([
-          { properties: { imported_name: path.at(-1), imported_path: path } },
-        ]);
-    }
-  }
-  expect
-    .soft(graph.nodes.flatMap(({ observations }) => observations))
-    .toContainEqual(
-      expect.objectContaining({
-        properties: expect.objectContaining({
-          semantic_role: "source-module",
-          path: "cts/script.ts",
-          module_format: "unknown",
-        }),
-      }),
-    );
+  for (const source of ["cts/inline.cts", "cts/script.ts"])
+    expect
+      .soft(
+        graph.edges.filter(
+          ({ relation, evidence }) =>
+            (relation === "imports" || relation === "loads") &&
+            evidence.location.available &&
+            evidence.location.value.kind === "source-range" &&
+            evidence.location.value.source === source,
+        ),
+      )
+      .toEqual([]);
 };
 
 const expectRecoveredTypeEvidence = (
@@ -284,26 +284,70 @@ const expectRecoveredTypeEvidence = (
         }),
       }),
     );
-  const valid = graph.edges.filter(
-    ({ properties, evidence }) =>
-      (properties.module_link_kind === "type-import" ||
-        properties.kind === "type-import") &&
-      properties.specifier === "cts-package" &&
-      evidence.location.available &&
-      evidence.location.value.kind === "source-range" &&
-      evidence.location.value.source === "cts/recovered.cts",
+  expect
+    .soft(
+      graph.edges.filter(
+        ({ relation, evidence }) =>
+          (relation === "imports" || relation === "loads") &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === "cts/recovered.cts",
+      ),
+    )
+    .toEqual([]);
+};
+
+const expectNativeMixedEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  const nativeObservations = (source: string) =>
+    graph.nodes
+      .flatMap(({ observations }) => observations)
+      .filter(
+        ({ properties, evidence }) =>
+          "native_export_verification" in properties &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === source,
+      );
+  const nativeEdges = (source: string) =>
+    graph.edges.filter(
+      ({ properties, evidence }) =>
+        "requested_members" in properties &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === source,
+    );
+  const mixed = nativeObservations("cts/native-mixed.mts");
+  expect(mixed).toHaveLength(4);
+  expect(
+    mixed.filter(({ properties }) => properties.type_only === true),
+  ).toHaveLength(2);
+  expect(
+    mixed.filter(({ properties }) => properties.type_only === false),
+  ).toHaveLength(2);
+  const runtime = nativeEdges("cts/native-mixed.mts");
+  expect(runtime).toHaveLength(4);
+  expect(
+    runtime.every(({ properties }) => properties.type_only === false),
+  ).toBe(true);
+  expect(runtime.map(({ properties }) => properties.requested_members)).toEqual(
+    [["NativeMode"], ["NativeMode"], ["NativeMode"], ["NativeMode"]],
   );
-  expect.soft(valid).toHaveLength(2);
-  for (const link of valid)
-    expect.soft(link).toMatchObject({
-      properties: {
-        resolved_path: "node_modules/cts-package/decoy.mjs",
-        resolution_mode: "import",
-      },
-      evidence: {
-        artifact: {
-          sha256: createHash("sha256").update(recoveredSource).digest("hex"),
-        },
-      },
-    });
+  const inline = nativeObservations("cts/native-inline-only.mts");
+  expect(inline).toHaveLength(2);
+  expect(inline.every(({ properties }) => properties.type_only === true)).toBe(
+    true,
+  );
+  expect(nativeEdges("cts/native-inline-only.mts")).toEqual([]);
+  // Compiler options are unavailable: keep the two possible module side effects.
+  expect(
+    graph.edges.filter(
+      ({ relation, evidence }) =>
+        relation === "loads" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === "cts/native-inline-only.mts",
+    ),
+  ).toHaveLength(2);
 };

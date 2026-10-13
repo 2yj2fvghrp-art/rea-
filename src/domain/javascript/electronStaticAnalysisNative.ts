@@ -19,6 +19,12 @@ import {
 } from "./javascriptAstValues.js";
 import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
 import { typescriptImportTypeName } from "./typescriptImportResolutionMode.js";
+import {
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+  isTypeOnlyExportDeclaration,
+  isTypeOnlyExportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 
 interface NativeBindingInput {
   readonly context: JavaScriptFindingContext;
@@ -29,6 +35,7 @@ interface NativeBindingInput {
   readonly members: readonly string[];
   readonly namespaceAccess: boolean;
   readonly dynamicMemberAccess: boolean;
+  readonly typeOnly?: boolean;
 }
 
 /** Inspect JavaScript-side imports and re-exports of native .node addons. */
@@ -37,9 +44,8 @@ export const inspectElectronNativeNode = (
   context: JavaScriptFindingContext,
   resolutionMode: "import" | "require" = "import",
 ): void => {
-  if (t.isImportDeclaration(node)) inspectImport(node, context, resolutionMode);
-  else if (t.isExportNamedDeclaration(node))
-    inspectNamedExport(node, context, resolutionMode);
+  if (t.isImportDeclaration(node) || t.isExportNamedDeclaration(node))
+    inspectDeclaration(node, context, resolutionMode);
   else if (t.isExportAllDeclaration(node))
     inspectExportAll(node, context, resolutionMode);
   else if (t.isTSImportType(node))
@@ -65,65 +71,65 @@ const inspectTypeImport = (
     specifier: node.source.value,
     kind: "import",
     moduleKind,
+    typeOnly: true,
     members: member === undefined ? [] : [member],
     namespaceAccess: member === undefined,
     dynamicMemberAccess: false,
   });
 };
 
-const inspectImport = (
-  node: t.ImportDeclaration,
+const inspectDeclaration = (
+  node: t.ImportDeclaration | t.ExportNamedDeclaration,
   context: JavaScriptFindingContext,
   moduleKind: "import" | "require",
 ): void => {
-  if (!isNativeSpecifier(node.source.value, moduleKind)) return;
-  const members = node.specifiers.flatMap((specifier) => {
-    if (t.isImportDefaultSpecifier(specifier)) return ["default"];
-    if (t.isImportNamespaceSpecifier(specifier)) return [];
-    return [propertyName(specifier.imported)];
-  });
-  addBinding({
-    context,
-    node,
-    specifier: node.source.value,
-    kind: "import",
-    moduleKind,
-    members,
-    namespaceAccess: node.specifiers.some((value) =>
-      t.isImportNamespaceSpecifier(value),
-    ),
-    dynamicMemberAccess: false,
-  });
-};
-
-const inspectNamedExport = (
-  node: t.ExportNamedDeclaration,
-  context: JavaScriptFindingContext,
-  moduleKind: "import" | "require",
-): void => {
-  if (
-    node.source === null ||
-    node.source === undefined ||
-    !isNativeSpecifier(node.source.value, moduleKind)
-  )
+  if (node.source == null || !isNativeSpecifier(node.source.value, moduleKind))
     return;
-  const members = node.specifiers.flatMap((specifier) => {
-    if (t.isExportSpecifier(specifier)) return [propertyName(specifier.local)];
-    if (t.isExportDefaultSpecifier(specifier)) return ["default"];
-    return [];
-  });
-  addBinding({
-    context,
-    node,
-    specifier: node.source.value,
-    kind: "re-export",
-    moduleKind,
-    members,
-    namespaceAccess: node.specifiers.some((value) =>
-      t.isExportNamespaceSpecifier(value),
-    ),
-    dynamicMemberAccess: false,
-  });
+  const declarationTypeOnly = t.isImportDeclaration(node)
+    ? isTypeOnlyImportDeclaration(node)
+    : isTypeOnlyExportDeclaration(node);
+  for (const typeOnly of [false, true]) {
+    const specifiers = node.specifiers.filter(
+      (specifier) =>
+        (declarationTypeOnly ||
+          (t.isImportSpecifier(specifier) &&
+            isTypeOnlyImportSpecifier(specifier)) ||
+          (t.isExportSpecifier(specifier) &&
+            isTypeOnlyExportSpecifier(specifier))) === typeOnly,
+    );
+    if (
+      specifiers.length === 0 &&
+      (node.specifiers.length > 0 || typeOnly !== declarationTypeOnly)
+    )
+      continue;
+    const members = specifiers.flatMap((specifier) => {
+      if (
+        t.isImportDefaultSpecifier(specifier) ||
+        t.isExportDefaultSpecifier(specifier)
+      )
+        return ["default"];
+      if (t.isImportSpecifier(specifier))
+        return [propertyName(specifier.imported)];
+      if (t.isExportSpecifier(specifier))
+        return [propertyName(specifier.local)];
+      return [];
+    });
+    addBinding({
+      context,
+      node,
+      specifier: node.source.value,
+      kind: t.isImportDeclaration(node) ? "import" : "re-export",
+      moduleKind,
+      typeOnly,
+      members,
+      namespaceAccess: specifiers.some(
+        (specifier) =>
+          t.isImportNamespaceSpecifier(specifier) ||
+          t.isExportNamespaceSpecifier(specifier),
+      ),
+      dynamicMemberAccess: false,
+    });
+  }
 };
 
 const inspectExportAll = (
@@ -142,6 +148,7 @@ const inspectExportAll = (
     specifier: node.source.value,
     kind: "re-export",
     moduleKind,
+    typeOnly: isTypeOnlyExportDeclaration(node),
     members: [],
     namespaceAccess: true,
     dynamicMemberAccess: false,
@@ -191,6 +198,8 @@ const addBinding = (input: NativeBindingInput): void => {
       "native-addon-binding",
       kind,
       specifier,
+      input.moduleKind,
+      input.typeOnly ?? false,
       members,
       input.namespaceAccess,
       input.dynamicMemberAccess,
@@ -200,6 +209,7 @@ const addBinding = (input: NativeBindingInput): void => {
       specifier,
       binding_kind: kind,
       module_kind: input.moduleKind,
+      type_only: input.typeOnly ?? false,
       members,
       namespace_access: input.namespaceAccess,
       dynamic_member_access: input.dynamicMemberAccess,

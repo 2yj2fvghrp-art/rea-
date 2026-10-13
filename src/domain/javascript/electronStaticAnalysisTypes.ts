@@ -175,6 +175,8 @@ export type ElectronUtilityProcessFinding = ElectronUtilityProcessFindingState &
 
 /** JavaScript-side binding or re-export requested from one native .node addon. */
 export interface ElectronNativeAddonBindingFinding {
+  /** Erased type request; legacy omission leaves its runtime category unknown. */
+  readonly type_only?: boolean;
   readonly specifier: string;
   readonly binding_kind: "import" | "require" | "re-export";
   readonly module_kind: "import" | "require";

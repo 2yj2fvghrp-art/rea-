@@ -80,7 +80,6 @@ export interface JavaScriptFindingContext {
 
 /** Candidate import, require, worker, or service-worker reference. */
 export interface JavaScriptReferenceInput {
-  readonly resolutionMode?: "import" | "require";
   readonly node: t.Node;
   readonly kind: JavaScriptStaticReference["kind"];
   readonly specifier: string | undefined;

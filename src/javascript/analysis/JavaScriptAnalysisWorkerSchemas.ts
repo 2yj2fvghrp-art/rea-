@@ -27,17 +27,15 @@ const withRuntime = <
   Value extends {
     module_runtime?: string | undefined;
     resolution_basis?: "wrapper-substitution" | undefined;
-    resolution_mode?: "import" | "require" | undefined;
   },
 >(
   value: Value,
 ) => {
-  const { module_runtime, resolution_basis, resolution_mode, ...rest } = value;
+  const { module_runtime, resolution_basis, ...rest } = value;
   return {
     ...rest,
     ...(module_runtime === undefined ? {} : { module_runtime }),
     ...(resolution_basis === undefined ? {} : { resolution_basis }),
-    ...(resolution_mode === undefined ? {} : { resolution_mode }),
   };
 };
 const staticValue = z.discriminatedUnion("status", [
@@ -270,6 +268,7 @@ const electron = z
         specifier: z.string(),
         binding_kind: z.enum(["import", "require", "re-export"]),
         module_kind: z.enum(["import", "require"]),
+        type_only: z.boolean().optional(),
         members: strings,
         namespace_access: z.boolean().optional(),
         dynamic_member_access: z.boolean().optional(),
@@ -282,10 +281,8 @@ const electron = z
   }));
 const referenceShape = {
   ...findingContext,
-  resolution_mode: z.enum(["import", "require"]).optional(),
   kind: z.enum([
     "static-import",
-    "type-import",
     "dynamic-import",
     "require",
     "worker",
@@ -391,10 +388,15 @@ export const javaScriptWorkerStaticAnalysisSchema = z
       sender_validations: analysis.electron.sender_validations.map(withRuntime),
       native_addon_bindings: analysis.electron.native_addon_bindings.map(
         (value) => {
-          const { namespace_access, dynamic_member_access, ...rest } =
-            withRuntime(value);
+          const {
+            namespace_access,
+            dynamic_member_access,
+            type_only,
+            ...rest
+          } = withRuntime(value);
           return {
             ...rest,
+            ...(type_only === undefined ? {} : { type_only }),
             ...(namespace_access === undefined ? {} : { namespace_access }),
             ...(dynamic_member_access === undefined
               ? {}
@@ -535,7 +537,6 @@ const coverage = z
 const moduleLink = z
   .strictObject({
     resolutionMode: z.enum(["import", "require"]).optional(),
-    exportedTypeName: z.string().optional(),
     kind: z.enum([
       "import",
       "type-import",
@@ -551,10 +552,9 @@ const moduleLink = z
     callableId: z.string().nullable(),
     location: range,
   })
-  .transform(({ resolutionMode, exportedTypeName, ...rest }) => ({
+  .transform(({ resolutionMode, ...rest }) => ({
     ...rest,
     ...(resolutionMode === undefined ? {} : { resolutionMode }),
-    ...(exportedTypeName === undefined ? {} : { exportedTypeName }),
   }));
 const definitionKind = z.enum([
   "import",

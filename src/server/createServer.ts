@@ -54,6 +54,7 @@ import { silentLogger } from "../logger.js";
 import type { Logger } from "pino";
 import { registerApplicationTools } from "./registerApplicationTools.js";
 import { registerArtifactTools } from "./registerArtifactTools.js";
+import { registerNativeTools } from "./registerNativeTools.js";
 import { registerBrowserScenarioTool } from "./registerBrowserScenarioTool.js";
 import { registerBrowserTools } from "./registerBrowserTools.js";
 import { registerWebScriptTool } from "./registerWebScriptTool.js";
@@ -84,6 +85,7 @@ import type { FirmwareAnalysisPort } from "../application/firmware/FirmwareAnaly
 import { createFirmwareAnalysisProvider } from "../composition/firmware.js";
 import { registerAndroidTools } from "./registerAndroidTools.js";
 import { registerApktoolTools } from "./registerApktoolTools.js";
+import { registerPcapTools } from "./registerPcapTools.js";
 import { registerFlutterTools } from "./registerFlutterTools.js";
 import { registerJebTools } from "./registerJebTools.js";
 import { registerAdbTools } from "./registerAdbTools.js";
@@ -91,11 +93,14 @@ import { AndroidAnalysisService } from "../application/android/AndroidAnalysisSe
 import { JebAnalysisService } from "../application/jeb/JebAnalysisService.js";
 import type { AndroidAnalysisPort } from "../application/android/AndroidAnalysisPort.js";
 import type { ApktoolResourceAnalysisPort } from "../application/apktool/ApktoolResourceAnalysisPort.js";
+import type { PcapAnalysisPort } from "../application/pcap/PcapAnalysisPort.js";
+import { PcapAnalysisService } from "../application/pcap/PcapAnalysisService.js";
 import { ApktoolResourceAnalysisService } from "../application/apktool/ApktoolResourceAnalysisService.js";
 import type { FlutterBuildAnalysisPort } from "../application/flutter/FlutterBuildAnalysisPort.js";
 import { FlutterBuildAnalysisService } from "../application/flutter/FlutterBuildAnalysisService.js";
 import { createAndroidAnalysisProvider } from "../composition/android.js";
 import { createApktoolResourceAnalysisProvider } from "../composition/apktool.js";
+import { createPcapAnalysisProvider } from "../composition/pcap.js";
 import { createFlutterBuildAnalysisProvider } from "../composition/flutter.js";
 import type { JebAnalysisPort } from "../application/jeb/JebAnalysisPort.js";
 import { createJebAnalysisProvider } from "../composition/jeb.js";
@@ -103,8 +108,6 @@ import type { AdbDeviceAnalysisPort } from "../application/adb/AdbDeviceAnalysis
 import { AdbDeviceAnalysisService } from "../application/adb/AdbDeviceAnalysisService.js";
 import { createAdbDeviceAnalysisProvider } from "../composition/adb.js";
 import { registerManagedWorkflowTools } from "./registerManagedWorkflowTools.js";
-import { NATIVE_TOOL_CONTRACTS } from "../contracts/native/nativeToolContracts.js";
-import { registerEvidenceTools } from "./registerEvidenceTools.js";
 import { registerOfficialTools } from "./registerOfficialTools.js";
 import { registerGuidedPrompts } from "./registerPrompts.js";
 import { registerSessionTools } from "./registerSessionTools.js";
@@ -146,6 +149,7 @@ export interface CreateServerOptions {
   readonly webNetworkCapture?: WebNetworkCaptureService;
   readonly androidAnalysis?: AndroidAnalysisPort;
   readonly apktoolAnalysis?: ApktoolResourceAnalysisPort;
+  readonly pcapAnalysis?: PcapAnalysisPort;
   readonly flutterAnalysis?: FlutterBuildAnalysisPort;
   readonly jebAnalysis?: JebAnalysisPort;
   readonly adbDeviceAnalysis?: AdbDeviceAnalysisPort;
@@ -303,6 +307,7 @@ export const createServer = (
   );
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
+  const pcap = options.pcapAnalysis ?? createPcapAnalysisProvider(environment);
   const flutter =
     options.flutterAnalysis ?? createFlutterBuildAnalysisProvider();
   const fridaInstrumentation =
@@ -333,6 +338,7 @@ export const createServer = (
       jeb.close(),
       adbDevice.close(),
       flutter.close(),
+      pcap.close(),
       evmInterface.close(),
       sqliteDatabase.close(),
       binaryLayout.close(),
@@ -438,12 +444,21 @@ export const createServer = (
     recordEvidence,
     analysisAdmission,
   );
+  registerPcapTools(
+    server,
+    new PcapAnalysisService(pcap),
+    toolLogger,
+    recordEvidence,
+    analysisAdmission,
+    evidenceById,
+  );
   registerFlutterTools(
     server,
     new FlutterBuildAnalysisService(flutter),
     toolLogger,
     recordEvidence,
     analysisAdmission,
+    evidenceById,
   );
   registerApktoolTools(
     server,
@@ -709,7 +724,7 @@ const registerBinaryAnalysisTools = ({
     recordEvidence,
     withAdmittedAnalysis,
   };
-  registerEvidenceTools(server, NATIVE_TOOL_CONTRACTS, evidenceOptions);
+  registerNativeTools(server, { ...evidenceOptions, evidenceById });
   registerArtifactTools(server, { ...evidenceOptions, evidenceById });
   registerManagedTools(server, { ...evidenceOptions, evidenceById });
   if (session !== undefined)

@@ -81,8 +81,13 @@ export const addJavaScriptSourceModules = (
     if (asset === undefined || semantic === null || program === undefined)
       continue;
     const exports = semantic.ir.moduleLinks
-      .flatMap(({ exportedName }) =>
-        exportedName === null ? [] : [exportedName],
+      .flatMap(({ exportedName, kind }) =>
+        exportedName === null || kind === "type-import" ? [] : [exportedName],
+      )
+      .sort(compareUnicodeCodePoints);
+    const typeExports = semantic.ir.moduleLinks
+      .flatMap(({ exportedName, kind }) =>
+        exportedName === null || kind !== "type-import" ? [] : [exportedName],
       )
       .sort(compareUnicodeCodePoints);
     const retainedExports = [...new Set(exports)];
@@ -103,13 +108,14 @@ export const addJavaScriptSourceModules = (
             logical_module_key: file.path,
             module_format: moduleFormat(file.path, semantic.ir),
             import_relationships: semantic.ir.moduleLinks.filter(
-              ({ kind }) =>
-                kind === "import" ||
-                kind === "require" ||
-                kind === "type-import",
+              ({ kind }) => kind === "import" || kind === "require",
+            ).length,
+            type_relationships: semantic.ir.moduleLinks.filter(
+              ({ kind }) => kind === "type-import",
             ).length,
             export_relationships: exports.length,
             export_names: retainedExports,
+            type_export_names: [...new Set(typeExports)],
             omitted_export_names: 0,
           },
           evidence: astObservationEvidence({
@@ -155,17 +161,13 @@ export function* addJavaScriptModuleRelationshipsSteps(
     for (const link of semantic.ir.moduleLinks) {
       // One module can export thousands of bindings, each with return shapes.
       yield;
+      if (link.kind === "type-import") continue;
       const input = { context, file, semantic, source, link };
       if (isExportLink(link)) addExportRelationship(input, omissions);
       else if (link.specifier !== null)
         addImportRelationship(input, source, omissions, {
           specifier: link.specifier,
-          importedPath:
-            link.importedName === null
-              ? []
-              : link.kind === "type-import"
-                ? link.importedName.split(".")
-                : [link.importedName],
+          importedPath: link.importedName === null ? [] : [link.importedName],
         });
     }
   }
@@ -384,7 +386,6 @@ const relationshipProperties = (
 ) => ({
   module_link_kind: link.kind,
   ...moduleResolutionModeProperties(link.resolutionMode),
-  ...typeNamespaceExportProperties(link.exportedTypeName),
   specifier: origin?.specifier ?? link.specifier,
   imported_name: origin?.importedPath.at(-1) ?? link.importedName,
   imported_path: origin?.importedPath ?? [],
@@ -398,9 +399,6 @@ const relationshipProperties = (
       ? jsonStatus(target.file)
       : null,
 });
-
-const typeNamespaceExportProperties = (name: string | undefined) =>
-  name === undefined ? {} : { exported_type_name: name };
 
 const relationshipEvidence = (
   input: RelationshipInput,

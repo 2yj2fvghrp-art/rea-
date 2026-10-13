@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -86,6 +87,14 @@ const createModuleLookupFixture = async () => {
       'import "ancestor-empty";',
       'import "ancestor-blocked";',
       'import "ancestor-sub/parser";',
+      'import "./.hidden.js";',
+      'import "./..pkg.js";',
+      'import "./exact.js/.";',
+      'import "./exact.js/child/..";',
+      'import ".hidden.js";',
+      'import "..pkg.js";',
+      'import ".";',
+      'import "..";',
       "void fallback;",
     ].join("\n"),
     "esm/extensionless.js": "module.exports = 1;",
@@ -93,6 +102,10 @@ const createModuleLookupFixture = async () => {
     "esm/explicit.js.js": "module.exports = 3;",
     "esm/exact.js": "module.exports = 4;",
     "esm/actual.cjs": "module.exports = 5;",
+    "esm/.hidden.js": "module.exports = 'local hidden';",
+    "esm/..pkg.js": "module.exports = 'local dot package';",
+    "node_modules/.hidden.js/index.js": "module.exports = 'hidden package';",
+    "node_modules/..pkg.js/index.js": "module.exports = 'dot package';",
     "esm/typed.mts": 'import value from "./typed-dep.js"; void value;',
     "esm/typed-dep.ts": "export default 42;",
     "cjs/entry.cjs": [
@@ -111,8 +124,15 @@ const createModuleLookupFixture = async () => {
       'require("ancestor-empty");',
       'require("ancestor-blocked");',
       'require("ancestor-sub/parser");',
+      'require(".hidden.js");',
+      'require("./.hidden.js");',
+      'require(".");',
+      'require("..");',
     ].join("\n"),
     "cjs/directory/index.cjs": "module.exports = 6;",
+    "cjs/index.js": "module.exports = 'current directory';",
+    "index.js": "module.exports = 'parent directory';",
+    "cjs/.hidden.js": "module.exports = 'local hidden';",
     "cjs/extensionless.cjs": "module.exports = 1;",
     "cjs/feature.cjs": "module.exports = 2;",
     "cjs/module-only.mjs": "export default 42;",
@@ -136,7 +156,7 @@ const createModuleLookupFixture = async () => {
     "node_modules/ancestor-blocked/index.js": "module.exports = 9;",
     "node_modules/ancestor-sub/parser.js": "module.exports = 10;",
     "esm/runtime-control.mjs": [
-      'const specifiers = ["./extensionless", "./directory", "./explicit.js", "./exact.js", "./actual.cjs?cache=1", "empty-main", "nested-main", "file-only", "ancestor-empty", "ancestor-blocked", "ancestor-sub/parser"];',
+      'const specifiers = ["./extensionless", "./directory", "./explicit.js", "./exact.js", "./actual.cjs?cache=1", "empty-main", "nested-main", "file-only", "ancestor-empty", "ancestor-blocked", "ancestor-sub/parser", "./.hidden.js", "./..pkg.js", "./exact.js/.", "./exact.js/child/..", ".hidden.js", "..pkg.js", ".", ".."];',
       "const results = [];",
       "for (const specifier of specifiers) {",
       "  try { const value = (await import(specifier)).default; results.push({ specifier, ok: true, value }); }",
@@ -145,7 +165,7 @@ const createModuleLookupFixture = async () => {
       "console.log(JSON.stringify(results));",
     ].join("\n"),
     "cjs/runtime-control.cjs": [
-      'const specifiers = ["./extensionless", "./directory", "./feature", "./feature.cjs", "./module-only", "./valid-directory", "./default-js", "./default-json", "empty-main", "nested-main", "file-only", "ancestor-empty", "ancestor-blocked", "ancestor-sub/parser"];',
+      'const specifiers = ["./extensionless", "./directory", "./feature", "./feature.cjs", "./module-only", "./valid-directory", "./default-js", "./default-json", "empty-main", "nested-main", "file-only", "ancestor-empty", "ancestor-blocked", "ancestor-sub/parser", ".hidden.js", "./.hidden.js", ".", ".."];',
       "const results = [];",
       "for (const specifier of specifiers) {",
       "  try { const value = require(specifier); results.push({ specifier, ok: true, value }); }",
@@ -197,10 +217,43 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/native.mts"),
       join(root, "cts/native-default.cts"),
       join(root, "cts/native-default.mts"),
+      join(root, "cts/native-mixed.mts"),
+      join(root, "cts/native-inline-only.mts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
   );
+  const mixedOutput = await readFile(join(emitted, "native-mixed.mjs"), "utf8");
+  expect(mixedOutput).toContain("NativeMode as runtimeNative");
+  expect(mixedOutput).toContain("NativeMode as runtimeNativeExport");
+  expect(mixedOutput).not.toContain("NativeType");
+  expect(
+    await readFile(join(emitted, "native-inline-only.mjs"), "utf8"),
+  ).not.toContain("native-mixed/addon.node");
+  await execute(
+    process.execPath,
+    [
+      compiler,
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "--skipLibCheck",
+      "--verbatimModuleSyntax",
+      "--outDir",
+      join(emitted, "verbatim"),
+      join(root, "cts/native-inline-only.mts"),
+    ],
+    { cwd: root, timeout: 10_000 },
+  );
+  const verbatim = await readFile(
+    join(emitted, "verbatim/native-inline-only.mjs"),
+    "utf8",
+  );
+  expect(verbatim).toContain('import {} from "native-mixed/addon.node";');
+  expect(verbatim).toContain('export {} from "native-mixed/addon.node";');
   const ctsControl = await execute(process.execPath, ["entry.cjs"], {
     cwd: emitted,
     timeout: 5_000,
@@ -328,29 +381,19 @@ const expectCtsModuleLookup = (
   );
 };
 
-const expectJavaScriptRuntime = async (root: string): Promise<void> => {
-  const [esmControl, cjsControl] = await Promise.all([
-    execute(process.execPath, ["esm/runtime-control.mjs"], {
-      cwd: root,
-      timeout: 5_000,
-    }),
-    execute(process.execPath, ["cjs/runtime-control.cjs"], {
-      cwd: root,
-      timeout: 5_000,
-    }),
-  ]);
-  const esmResults = JSON.parse(esmControl.stdout) as Array<{
-    readonly specifier: string;
-    readonly ok: boolean;
-    readonly code?: string;
-    readonly value?: unknown;
-  }>;
-  const cjsResults = JSON.parse(cjsControl.stdout) as Array<{
-    readonly specifier: string;
-    readonly ok: boolean;
-    readonly code?: string;
-    readonly value?: unknown;
-  }>;
+type RuntimeControlResult = {
+  readonly specifier: string;
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly value?: unknown;
+};
+
+const expectNodeRuntimeControls = (
+  esmOutput: string,
+  cjsOutput: string,
+): void => {
+  const esmResults = JSON.parse(esmOutput) as RuntimeControlResult[];
+  const cjsResults = JSON.parse(cjsOutput) as RuntimeControlResult[];
   expect(esmResults).toEqual([
     {
       specifier: "./extensionless",
@@ -383,6 +426,30 @@ const expectJavaScriptRuntime = async (root: string): Promise<void> => {
       ok: false,
       code: "ERR_MODULE_NOT_FOUND",
     },
+    { specifier: "./.hidden.js", ok: true, value: "local hidden" },
+    { specifier: "./..pkg.js", ok: true, value: "local dot package" },
+    {
+      specifier: "./exact.js/.",
+      ok: false,
+      code: "ERR_UNSUPPORTED_DIR_IMPORT",
+    },
+    {
+      specifier: "./exact.js/child/..",
+      ok: false,
+      code: "ERR_UNSUPPORTED_DIR_IMPORT",
+    },
+    {
+      specifier: ".hidden.js",
+      ok: false,
+      code: "ERR_INVALID_MODULE_SPECIFIER",
+    },
+    {
+      specifier: "..pkg.js",
+      ok: false,
+      code: "ERR_INVALID_MODULE_SPECIFIER",
+    },
+    { specifier: ".", ok: false, code: "ERR_UNSUPPORTED_DIR_IMPORT" },
+    { specifier: "..", ok: false, code: "ERR_UNSUPPORTED_DIR_IMPORT" },
   ]);
   expect(cjsResults).toEqual([
     {
@@ -411,93 +478,61 @@ const expectJavaScriptRuntime = async (root: string): Promise<void> => {
     { specifier: "ancestor-empty", ok: true, value: 8 },
     { specifier: "ancestor-blocked", ok: false, code: "MODULE_NOT_FOUND" },
     { specifier: "ancestor-sub/parser", ok: true, value: 10 },
+    { specifier: ".hidden.js", ok: true, value: "hidden package" },
+    { specifier: "./.hidden.js", ok: true, value: "local hidden" },
+    { specifier: ".", ok: true, value: "current directory" },
+    { specifier: "..", ok: true, value: "parent directory" },
   ]);
 };
 
-const expectCtsResolutionModes = (
+const expectErasedCtsDependencies = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
-  const references = graph.edges.filter(
-    ({ relation, evidence: edgeEvidence }) =>
-      relation === "imports" &&
-      edgeEvidence.location.available &&
-      edgeEvidence.location.value.kind === "source-range" &&
-      edgeEvidence.location.value.source === "cts/resolution.cts",
-  );
-  const digest = createHash("sha256").update(ctsResolutionSource).digest("hex");
-  for (const [name, target] of [
-    ["ImportOnly", "node_modules/cts-package/decoy.mjs"],
-    ["RequireOnly", "node_modules/cts-package/actual.cjs"],
-  ] as const)
-    for (const kind of ["import", "export"] as const)
-      expect(references).toContainEqual(
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            module_link_kind: kind,
-            imported_name: name,
-            resolved_path: target,
-            resolution_status: "resolved",
-          }),
-          evidence: expect.objectContaining({
-            artifact: expect.objectContaining({
-              available: true,
-              sha256: digest,
-            }),
-          }),
-        }),
-      );
-  const legacy = references.filter(
-    ({ properties }) => properties.kind === "static-import",
-  );
-  expect(
-    legacy.map(({ properties }) => properties.resolved_path).sort(),
-  ).toEqual([
-    "node_modules/cts-package/actual.cjs",
-    "node_modules/cts-package/decoy.mjs",
-  ]);
-  const direct = graph.edges.filter(
-    ({ relation, evidence: edgeEvidence }) =>
-      relation === "imports" &&
-      edgeEvidence.location.available &&
-      edgeEvidence.location.value.kind === "source-range" &&
-      edgeEvidence.location.value.source === "cts/reexport.cts",
-  );
-  const directDigest = createHash("sha256")
-    .update(ctsReexportSource)
-    .digest("hex");
-  expect(direct).toHaveLength(6);
-  for (const edge of direct) {
-    expect(edge.properties.resolved_path).toBe(
-      "node_modules/cts-package/decoy.mjs",
+  for (const [path, text, count, names] of [
+    [
+      "cts/resolution.cts",
+      ctsResolutionSource,
+      4,
+      ["ImportOnly", "RequireOnly"],
+    ],
+    [
+      "cts/reexport.cts",
+      ctsReexportSource,
+      3,
+      ["*", "DirectImportOnly", "Types"],
+    ],
+  ] as const) {
+    const observations = graph.nodes.flatMap(
+      ({ observations }) => observations,
     );
-    expect(edge.evidence.artifact).toMatchObject({
-      available: true,
-      sha256: directDigest,
-    });
-  }
-  expect(direct.map(({ properties }) => properties.exported_name)).toContain(
-    "DirectImportOnly",
-  );
-  expect(direct).toContainEqual(
-    expect.objectContaining({
-      properties: expect.objectContaining({
-        module_link_kind: "type-import",
-        exported_name: null,
-        exported_type_name: "Types",
-        imported_name: "*",
-        imported_path: ["*"],
-        resolution_mode: "import",
-      }),
-      evidence: expect.objectContaining({
-        location: expect.objectContaining({
-          value: expect.objectContaining({
-            source: "cts/reexport.cts",
-            start: expect.objectContaining({ line: 3 }),
+    expect(observations).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          semantic_role: "source-module",
+          path,
+          import_relationships: 0,
+          type_relationships: count,
+          export_relationships: 0,
+          export_names: [],
+          type_export_names: names,
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            sha256: createHash("sha256").update(text).digest("hex"),
           }),
         }),
       }),
-    }),
-  );
+    );
+    expect(
+      graph.edges.filter(
+        ({ relation, evidence }) =>
+          (relation === "imports" || relation === "loads") &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === path,
+      ),
+    ).toEqual([]);
+  }
 };
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
@@ -505,7 +540,17 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
   async (surface, { cli }) => {
     const root = await createModuleLookupFixture();
     await expectCtsRuntime(root);
-    await expectJavaScriptRuntime(root);
+    const [esmControl, cjsControl] = await Promise.all([
+      execute(process.execPath, ["esm/runtime-control.mjs"], {
+        cwd: root,
+        timeout: 5_000,
+      }),
+      execute(process.execPath, ["cjs/runtime-control.cjs"], {
+        cwd: root,
+        timeout: 5_000,
+      }),
+    ]);
+    expectNodeRuntimeControls(esmControl.stdout, cjsControl.stdout);
 
     const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
     const expectations = [
@@ -521,6 +566,14 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["import", "ancestor-empty", null, "not-found"],
       ["import", "ancestor-blocked", null, "not-found"],
       ["import", "ancestor-sub/parser", null, "not-found"],
+      ["import", "./.hidden.js", "esm/.hidden.js", "resolved"],
+      ["import", "./..pkg.js", "esm/..pkg.js", "resolved"],
+      ["import", ".hidden.js", null, "rejected"],
+      ["import", "..pkg.js", null, "rejected"],
+      ["import", ".", null, "not-found"],
+      ["import", "..", null, "not-found"],
+      ["import", "./exact.js/.", null, "not-found"],
+      ["import", "./exact.js/child/..", null, "not-found"],
       ["require", "./extensionless", null, "not-found"],
       ["require", "./directory", null, "not-found"],
       ["require", "./feature", null, "not-found"],
@@ -552,22 +605,33 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "node_modules/ancestor-sub/parser.js",
         "resolved",
       ],
+      ["require", ".hidden.js", "node_modules/.hidden.js/index.js", "resolved"],
+      ["require", "./.hidden.js", "cjs/.hidden.js", "resolved"],
+      ["require", ".", "cjs/index.js", "resolved"],
+      ["require", "..", "index.js", "resolved"],
     ] as const;
 
-    for (const [kind, specifier, resolvedPath, status] of expectations)
-      expect(graph.edges).toContainEqual(
+    for (const [kind, specifier, resolvedPath, status] of expectations) {
+      const matchingProperties = graph.edges
+        .filter((edge) => edge.relation === "imports")
+        .map((edge) => edge.properties)
+        .filter(
+          (properties) =>
+            "module_link_kind" in properties &&
+            properties.module_link_kind === kind &&
+            properties.specifier === specifier,
+        );
+      expect(matchingProperties).toContainEqual(
         expect.objectContaining({
-          relation: "imports",
-          properties: expect.objectContaining({
-            module_link_kind: kind,
-            specifier,
-            resolved_path: resolvedPath,
-            resolution_status: status,
-          }),
+          module_link_kind: kind,
+          specifier,
+          resolved_path: resolvedPath,
+          resolution_status: status,
         }),
       );
+    }
     expectCtsModuleLookup(graph);
-    expectCtsResolutionModes(graph);
+    expectErasedCtsDependencies(graph);
     expectReviewModeEvidence(graph);
   },
 );

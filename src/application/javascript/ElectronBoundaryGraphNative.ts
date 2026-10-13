@@ -65,6 +65,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
         value.namespace_access ?? null,
         value.dynamic_member_access ?? null,
         electronRangeKey(value.location),
+        ...(value.type_only === true ? ["type-only"] : []),
       ]),
     ),
     observations: [
@@ -75,6 +76,8 @@ const addNativeBinding = (input: NativeBindingInput): void => {
         properties: {
           specifier: value.specifier,
           binding_kind: value.binding_kind,
+          module_kind: value.module_kind,
+          type_only: value.type_only ?? null,
           requested_members: value.members,
           namespace_access: value.namespace_access ?? null,
           dynamic_member_access: value.dynamic_member_access ?? null,
@@ -94,6 +97,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
       },
     ],
   });
+  if (value.type_only !== false) return;
   addElectronInferenceEdge(context, {
     source,
     target: binding,
@@ -105,6 +109,8 @@ const addNativeBinding = (input: NativeBindingInput): void => {
     properties: {
       specifier: value.specifier,
       binding_kind: value.binding_kind,
+      module_kind: value.module_kind,
+      type_only: false,
       requested_members: value.members,
       namespace_access: value.namespace_access ?? null,
       dynamic_member_access: value.dynamic_member_access ?? null,
@@ -124,6 +130,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
     operation: "associate-native-addon-requested-exports",
     properties: {
       resolved_path: resolved,
+      type_only: false,
       requested_members: value.members,
       namespace_access: value.namespace_access ?? null,
       dynamic_member_access: value.dynamic_member_access ?? null,
