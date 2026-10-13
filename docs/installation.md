@@ -725,7 +725,9 @@ a fresh import.
 
 REA copies the project into its own runtime and opens the copy with
 `-process -noanalysis -readOnly`: the caller's directory is never written, the
-target's executable bytes are unchanged, and auto-analysis is not repeated. The
+target's executable bytes are unchanged, and auto-analysis is not repeated.
+Required post-analysis preparation, including MIPS soft-float storage repair,
+runs on the private copy before the bridge serves results. The
 analysis profile records `import_mode: "existing-project-copy"`. The bridge
 verifies the program's executable SHA-256 against the admitted target, so a
 stale or mismatched project is rejected instead of analyzed. Existing-project

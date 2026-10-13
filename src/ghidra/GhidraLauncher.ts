@@ -611,10 +611,6 @@ export const ghidraHeadlessArguments = (
       throw new Error(
         "A Ghidra language override cannot be combined with an existing project.",
       );
-    if (options.mipsSoftFloat === true)
-      throw new Error(
-        "MIPS soft-float storage applies only to a fresh import.",
-      );
     if (
       options.seedPath !== undefined ||
       (options.disabledAnalyzers?.length ?? 0) > 0
@@ -644,7 +640,7 @@ export const ghidraHeadlessArguments = (
       rawBinary !== undefined)
   )
     throw new Error(
-      "MIPS soft-float storage applies only to a generic MIPS ELF import.",
+      "MIPS soft-float storage applies only to a generic MIPS ELF program.",
     );
   if (
     override !== undefined &&
@@ -770,7 +766,8 @@ export const ghidraHeadlessArguments = (
           "-postScript",
           scriptPath.join(bridgeDirectory, "ReaGhidraNoReturnFix.java"),
         ]),
-    // After analysis and the no-return refit, before the bridge serves results.
+    // Required session preparation for both fresh imports and saved programs.
+    // Runs only in the private copy, after no-return repair and before the bridge.
     ...(options.mipsSoftFloat === true
       ? [
           "-postScript",
@@ -883,37 +880,55 @@ export const copyExistingGhidraProject = async (
   signal?.throwIfAborted();
   const source = await lstat(sourcePath).catch((cause: unknown) => {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
-      throw new Error(`Existing Ghidra project directory does not exist: ${sourcePath}`, { cause });
+      throw new Error(
+        `Existing Ghidra project directory does not exist: ${sourcePath}`,
+        { cause },
+      );
     throw cause;
   });
   if (!source.isDirectory() || source.isSymbolicLink())
-    throw new Error(`Existing Ghidra project must be a regular directory: ${sourcePath}`);
+    throw new Error(
+      `Existing Ghidra project must be a regular directory: ${sourcePath}`,
+    );
   const entries = (await readdir(sourcePath)).filter((entry) =>
     ["rea-project.gpr", "rea-project.grez", "rea-project.rep"].includes(entry),
   );
-  if (!entries.includes("rea-project.grez") && !entries.includes("rea-project.rep"))
-    throw new Error(`Existing Ghidra project directory must hold rea-project.grez or rea-project.rep: ${sourcePath}`);
+  if (
+    !entries.includes("rea-project.grez") &&
+    !entries.includes("rea-project.rep")
+  )
+    throw new Error(
+      `Existing Ghidra project directory must hold rea-project.grez or rea-project.rep: ${sourcePath}`,
+    );
   // Sequential streaming gives cancellation ownership to this copy operation.
   // A rejected copy has settled its streams before launch cleanup removes it.
   const copyEntry = async (from: string, to: string): Promise<void> => {
     signal?.throwIfAborted();
     const entry = await lstat(from);
     if (entry.isSymbolicLink())
-      throw new Error(`Existing Ghidra project contains a symbolic link: ${from}`);
+      throw new Error(
+        `Existing Ghidra project contains a symbolic link: ${from}`,
+      );
     if (entry.isDirectory()) {
       await mkdir(to, { recursive: true });
       for (const name of await readdir(from))
         await copyEntry(join(from, name), join(to, name));
     } else if (entry.isFile()) {
-      await withRegularFile(from, async (handle) => {
-        await pipeline(
-          handle.createReadStream({ autoClose: false }),
-          createWriteStream(to, { flags: "wx", mode: 0o600 }),
-          { ...(signal === undefined ? {} : { signal }) },
-        );
-      }, { symlinks: "reject", signal });
+      await withRegularFile(
+        from,
+        async (handle) => {
+          await pipeline(
+            handle.createReadStream({ autoClose: false }),
+            createWriteStream(to, { flags: "wx", mode: 0o600 }),
+            { ...(signal === undefined ? {} : { signal }) },
+          );
+        },
+        { symlinks: "reject", signal },
+      );
     } else {
-      throw new Error(`Existing Ghidra project contains a non-regular entry: ${from}`);
+      throw new Error(
+        `Existing Ghidra project contains a non-regular entry: ${from}`,
+      );
     }
     signal?.throwIfAborted();
   };

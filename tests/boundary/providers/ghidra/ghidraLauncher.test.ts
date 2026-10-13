@@ -476,6 +476,27 @@ describe("Ghidra existing project", () => {
     ]);
   });
 
+  it("prepares soft-float storage before serving a saved program without repeating import or analysis", () => {
+    const args = ghidraHeadlessArguments({
+      ...base,
+      existingProject: { programName: "fixture.elf" },
+      mipsSoftFloat: true,
+    });
+    const soft = "/package/bridge/ReaGhidraMipsSoftFloat.java";
+    expect(args).toContain("-process");
+    expect(args).toContain("-noanalysis");
+    expect(args).toContain("-readOnly");
+    expect(args).not.toContain("-import");
+    expect(args).not.toContain("-deleteProject");
+    expect(args[args.indexOf(soft) - 1]).toBe("-postScript");
+    expect(
+      args.indexOf("/package/bridge/ReaGhidraNoReturnFix.java"),
+    ).toBeLessThan(args.indexOf(soft));
+    expect(args.indexOf(soft)).toBeLessThan(
+      args.indexOf(base.bridgeScriptPath),
+    );
+  });
+
   it.each([
     { dosMz: true as const },
     { dosCom: true as const },
@@ -488,7 +509,6 @@ describe("Ghidra existing project", () => {
     },
     { languageOverride: { languageId: "x86:LE:32:default" } },
     { psp: true as const },
-    { mipsSoftFloat: true as const },
     { seedPath: "/tmp/runtime/seeds/seeds.tsv" },
     { disabledAnalyzers: ["Decompiler Parameter ID"] },
   ])(
