@@ -3767,34 +3767,67 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // charged before the analysis allocates.
         long instructionCount = 0;
         long edgeCount = 0;
-        long registerWriteCount = 0;
+        Set<Register> registerBases = new HashSet<>();
         for (Instruction instruction : currentProgram.getListing().getInstructions(function.getBody(), true)) {
             if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             instructionCount++;
-            if (instruction.getFallFrom() != null) edgeCount++;
+            if (instruction.getFallFrom() != null) {
+                edgeCount++;
+                if (!budget.fits(swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size())))
+                    return SwiftSelectProvenance.UNAVAILABLE;
+            }
             for (Reference reference : currentProgram.getReferenceManager().getReferencesTo(instruction.getAddress())) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
                 if (!reference.getReferenceType().isFlow() || reference.getReferenceType().isCall()) continue;
                 if (!function.getBody().contains(reference.getFromAddress())) continue;
                 edgeCount++;
+                if (!budget.fits(swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size())))
+                    return SwiftSelectProvenance.UNAVAILABLE;
             }
             for (Object result : instruction.getResultObjects()) {
-                if (result instanceof Register) registerWriteCount++;
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+                if (result instanceof Register written) {
+                    Register base = written.getBaseRegister();
+                    if (!registerBases.contains(base) && !budget.fits(
+                        swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size() + 1L)
+                    )) return SwiftSelectProvenance.UNAVAILABLE;
+                    registerBases.add(base);
+                }
             }
-            if (!budget.fits(swiftSelectProvenanceBytes(instructionCount, edgeCount, registerWriteCount)))
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+            Register copied = copiedRegister(instruction.getPcode());
+            if (copied != null) {
+                Register base = copied.getBaseRegister();
+                if (!registerBases.contains(base) && !budget.fits(
+                    swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size() + 1L)
+                )) return SwiftSelectProvenance.UNAVAILABLE;
+                registerBases.add(base);
+            }
+            if (!budget.fits(
+                swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size())
+            ))
                 return SwiftSelectProvenance.UNAVAILABLE;
         }
-        long charge = swiftSelectProvenanceBytes(instructionCount, edgeCount, registerWriteCount);
+        long charge = swiftSelectProvenanceBytes(instructionCount, edgeCount, registerBases.size());
         if (!budget.takeBytes(charge)) return SwiftSelectProvenance.UNAVAILABLE;
         List<Instruction> instructions = new ArrayList<>();
-        currentProgram.getListing().getInstructions(function.getBody(), true).forEach(instructions::add);
+        InstructionIterator instructionIterator = currentProgram.getListing().getInstructions(function.getBody(), true);
+        while (instructionIterator.hasNext()) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+            instructions.add(instructionIterator.next());
+        }
         Map<Address, Integer> indexes = new HashMap<>();
         for (int index = 0; index < instructions.size(); index++) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             indexes.put(instructions.get(index).getAddress(), index);
         }
         Map<Register, Integer> bits = new HashMap<>();
         int[][] predecessors = new int[instructions.size()][];
         List<List<Integer>> successors = new ArrayList<>();
-        for (int index = 0; index < instructions.size(); index++) successors.add(new ArrayList<>());
+        for (int index = 0; index < instructions.size(); index++) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+            successors.add(new ArrayList<>());
+        }
         BitSet[] defined = new BitSet[instructions.size()];
         BitSet selects = new BitSet();
         int[] copies = new int[instructions.size()];
@@ -3802,7 +3835,24 @@ public final class ReaGhidraBridge extends HeadlessScript {
             if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             Instruction instruction = instructions.get(index);
             List<Integer> from = new ArrayList<>();
-            for (Instruction predecessor : predecessors(function, instruction)) {
+            Address fallFrom = instruction.getFallFrom();
+            if (fallFrom != null) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+                Instruction predecessor = currentProgram.getListing().getInstructionAt(fallFrom);
+                if (predecessor != null) {
+                    Integer source = indexes.get(predecessor.getAddress());
+                    if (source != null) {
+                        from.add(source);
+                        successors.get(source).add(index);
+                    }
+                }
+            }
+            for (Reference reference : currentProgram.getReferenceManager().getReferencesTo(instruction.getAddress())) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+                if (!reference.getReferenceType().isFlow() || reference.getReferenceType().isCall()) continue;
+                if (!function.getBody().contains(reference.getFromAddress())) continue;
+                Instruction predecessor = currentProgram.getListing().getInstructionAt(reference.getFromAddress());
+                if (predecessor == null) continue;
                 Integer source = indexes.get(predecessor.getAddress());
                 if (source == null) continue;
                 from.add(source);
@@ -3811,10 +3861,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
             predecessors[index] = from.stream().mapToInt(Integer::intValue).toArray();
             defined[index] = new BitSet();
             for (Object result : instruction.getResultObjects()) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
                 if (result instanceof Register written) defined[index].set(swiftRegisterBit(bits, written));
             }
             PcodeOp[] operations = instruction.getPcode();
             for (PcodeOp operation : operations) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
                 if (operation.getOpcode() == PcodeOp.CBRANCH && operation.getInput(0).isConstant()) selects.set(index);
             }
             Register copied = copiedRegister(operations);
@@ -3825,6 +3877,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         ArrayDeque<Integer> pending = new ArrayDeque<>();
         boolean[] queued = new boolean[instructions.size()];
         for (int index = 0; index < instructions.size(); index++) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             entries[index] = new BitSet();
             exits[index] = new BitSet();
             pending.add(index);
@@ -3837,16 +3890,21 @@ public final class ReaGhidraBridge extends HeadlessScript {
             queued[index] = false;
             BitSet entry = entries[index];
             entry.clear();
-            for (int predecessor : predecessors[index]) entry.or(exits[predecessor]);
+            for (int predecessor : predecessors[index]) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
+                entry.or(exits[predecessor]);
+            }
             nextExit.clear();
             nextExit.or(entry);
             for (int bit = defined[index].nextSetBit(0); bit >= 0; bit = defined[index].nextSetBit(bit + 1)) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
                 nextExit.set(bit, selects.get(index) || (copies[index] >= 0 && entry.get(copies[index])));
             }
             if (nextExit.equals(exits[index])) continue;
             exits[index].clear();
             exits[index].or(nextExit);
             for (int successor : successors.get(index)) {
+                if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
                 if (!queued[successor]) {
                     queued[successor] = true;
                     pending.add(successor);
@@ -3857,11 +3915,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     /** Conservative retained-memory bound for graph, register map, and dense BitSet backing arrays. */
-    private static long swiftSelectProvenanceBytes(long instructions, long edges, long registerWrites) {
+    private static long swiftSelectProvenanceBytes(long instructions, long edges, long registers) {
         try {
-            // Register copies can introduce a source register that is not written in the body.
-            long registerCount = Math.addExact(registerWrites, instructions);
-            long registerWords = Math.addExact(registerCount, 63) / 64;
+            long registerWords = Math.addExact(registers, 63) / 64;
             long bitSetCount = Math.addExact(Math.multiplyExact(instructions, 3), 3);
             return Math.addExact(
                 Math.addExact(
@@ -3869,7 +3925,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     Math.multiplyExact(edges, SwiftSelectProvenance.BYTES_PER_EDGE)
                 ),
                 Math.addExact(
-                    Math.multiplyExact(registerCount, SwiftSelectProvenance.BYTES_PER_REGISTER),
+                    Math.multiplyExact(registers, SwiftSelectProvenance.BYTES_PER_REGISTER),
                     Math.multiplyExact(
                         Math.multiplyExact(bitSetCount, registerWords),
                         SwiftSelectProvenance.BYTES_PER_BITSET_WORD
@@ -3881,33 +3937,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
     }
 
-    // One site's question as the producer regressions ask it, answered from the whole-body
-    // analysis. A body too large for the budget is unknown, which keeps the candidate suppressed.
-    private boolean selectedValue(Function function, Instruction use, Register register) {
-        SwiftSelectProvenance provenance = swiftSelectProvenance(function, new SwiftLiteralBudget());
-        return provenance == SwiftSelectProvenance.UNAVAILABLE ||
-            provenance == SwiftSelectProvenance.CANCELLED ||
-            provenance.selected(use, register);
-    }
-
     private static int swiftRegisterBit(Map<Register, Integer> bits, Register register) {
         return bits.computeIfAbsent(register.getBaseRegister(), ignored -> bits.size());
-    }
-
-    private List<Instruction> predecessors(Function function, Instruction instruction) {
-        List<Instruction> result = new ArrayList<>();
-        Address from = instruction.getFallFrom();
-        if (from != null) {
-            Instruction previous = currentProgram.getListing().getInstructionAt(from);
-            if (previous != null) result.add(previous);
-        }
-        for (Reference reference : currentProgram.getReferenceManager().getReferencesTo(instruction.getAddress())) {
-            if (!reference.getReferenceType().isFlow() || reference.getReferenceType().isCall()) continue;
-            if (!function.getBody().contains(reference.getFromAddress())) continue;
-            Instruction source = currentProgram.getListing().getInstructionAt(reference.getFromAddress());
-            if (source != null) result.add(source);
-        }
-        return result;
     }
 
     private Register copiedRegister(PcodeOp[] operations) {
@@ -4617,7 +4648,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // dense backing words for defined/entry/exit sets plus worklist temporaries.
         static final long BYTES_PER_INSTRUCTION = 512;
         static final long BYTES_PER_EDGE = 64;
-        static final long BYTES_PER_REGISTER = 96;
+        // Covers each distinct base register held during pre-count and later in the map.
+        static final long BYTES_PER_REGISTER = 192;
         static final long BYTES_PER_BITSET_WORD = Long.BYTES;
         static final SwiftSelectProvenance UNAVAILABLE = new SwiftSelectProvenance(Map.of(), new BitSet[0], Map.of());
         // A distinct instance: the request was cancelled while provenance was being computed.

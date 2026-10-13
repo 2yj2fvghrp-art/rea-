@@ -37,6 +37,7 @@ func selectedJoin(_ condition: Bool) {
 @inline(never)
 func selectedThenOrdinaryWrite(_ condition: Bool) {
   var value = condition ? "ClearedSelect" : (CommandLine.arguments.first ?? "")
+  consume(value)
   value = "VisibleAfterWrite"
   consume(value)
 }
