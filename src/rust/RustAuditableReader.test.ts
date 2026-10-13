@@ -153,9 +153,9 @@ it("stops an inflate that exceeds the section ratio", () => {
   ).toThrow(/1 MiB/);
 });
 
-it.each([[], [{ future_package_field: true }]])(
+it.each([{ packages: [] }, { packages: [{ future_package_field: true }] }])(
   "rejects an unknown format before interpreting its packages: %j",
-  (packages) => {
+  ({ packages }) => {
     expect(() => section({ format: 99, packages })).toThrow(
       expect.objectContaining({
         name: "RustAuditableFormatFailure",
