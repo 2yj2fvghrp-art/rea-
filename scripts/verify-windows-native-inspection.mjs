@@ -64,9 +64,9 @@ assert.equal(first.retryable,true);
 assert.match(first.reason,/Delete owned object by handle failed.*Win32 5/s);
 const [name,...extra]=readdirSync(temp);assert.ok(name);assert.equal(extra.length,0);
 const path=join(temp,name);const identity=statSync(path,{bigint:true});
-// Directory handles share DELETE access. Ownership is the retained inode,
-// not a promise that its old pathname cannot move or be replaced.
-const moved=path+'-retained';renameSync(path,moved);
+// Ownership follows the retained NTFS handle even when the directory moves.
+// A replacement at its old pathname must remain caller-owned.
+const moved=path+'-renamed';renameSync(path,moved);
 assert.equal(statSync(moved,{bigint:true}).ino,identity.ino);
 mkdirSync(path);const replacement=statSync(path,{bigint:true});
 assert.notEqual(replacement.ino,identity.ino);

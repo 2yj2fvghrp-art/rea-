@@ -262,8 +262,33 @@ CI owns coverage; aggregate and domain/contract thresholds are maintained in
 `vitest.config.ts`. They are glob-specific and never updated automatically.
 Coverage does not replace named boundary or real-provider scenarios.
 
-CI runs six native Vitest shards without retries. Each shard emits a blob
-report; the merge job produces JUnit and JSON diagnostics, a module timing
+The `reverse-tools` commands run the focused tests and report coverage and
+mutation results without an additional percentage requirement. Test failures,
+invalid mutation configuration, and runner failures still fail the check.
+Mutation targets cover reviewed production behavior, including signal-terminated
+commands, Cutter descriptor identity, debugger cleanup ownership, GDB command
+exit and cancellation, and Rizin startup, timeout Evidence, and process exit.
+A second exhaustive pass runs the focused Cutter and Rizin timeout semantics tests against every compilable
+selected mutant to avoid relying on per-test mutation coverage associations;
+Stryker reports compile-error mutants separately because those cannot execute
+tests. Both passes resolve named syntax owners, scoped declarations, guards,
+callbacks, and reviewed expressions from the current TypeScript source; no
+hand-maintained line ranges select mutations. Missing, ambiguous, or malformed
+source targets stop configuration before mutation generation. The selections
+retain their review scope rather than expanding to whole source files. The
+focused suite also exercises affected MCP routes and the Python Cutter bridge.
+Contract, integration, and real-provider lanes complement these focused tests;
+simulated providers do not establish real-provider behavior.
+
+Fast CI starts the source-only projects after classification, independently of
+build and static checks, and runs five built-dependent shards after the build.
+The six test jobs still select every portable test. Full qualification keeps six
+complete Vitest shards with coverage. Neither tier retries tests. Canonical
+project ownership lives in `scripts/lib/test-projects.mjs`, shared by Vitest,
+CI group execution, and development-test preparation. A test importing compiled
+verifier code belongs to the built group even if its directory is conformance.
+Source and built blobs have separate labels to prevent merge collisions.
+Each test job emits a blob report; the merge job produces JUnit and JSON diagnostics, a module timing
 report, plus aggregate coverage during full qualification. It retains available
 reports even when a shard fails, uploads available diagnostics, and writes the
 slowest files to the workflow summary. Partial reports are marked diagnostic
@@ -297,6 +322,30 @@ for static checks, builds, docs, and report merging, and thirty minutes per
 portable test shard. These limits leave headroom for cold setup and full coverage
 while preventing a hung job from holding the active main run for hours. They do
 not bound runner queue waiting. Timeouts still fail the required gate.
+
+The separate `CI timings` workflow also diagnoses missing, startup-failed,
+queued/running, approval-required, canceled, and failed PR CI through bounded,
+read-only API scans. Incomplete pagination or changing identity stays unknown.
+It never closes/reopens PRs, reruns workflows, posts comments, or changes gates.
+The timing manifest retains each run's event and head branch, including explicit
+unknowns, so PR runs cannot consume the eligible-main comparison budget.
+Its static failure report compares supported lint/duplication diagnostics with
+failed main runs using exact source, ancestry, task hashes, and toolchain proof.
+A match describes those diagnostics only; it does not establish that every
+failure in a job came from main. Duplication reports retain the actual checker
+exit result, so passing duplication checks preserve lint failures and caller
+thresholds remain owned by the producer. Missing checker outcomes leave
+those duplication diagnostics unclassified. Missing historical receipts remain unknown.
+The reporter executes only trusted default-branch code and parses whitelisted
+JSON artifact members without executing artifact content. Reports and limits
+are retained in `ci-health-diagnostics`; its ten-minute job limit covers the
+existing four-minute timing collection plus the bounded diagnostic stages.
+
+Shard-count reduction remains deferred: the available successful timing sample
+covers an older inventory, and file phase weights are not job wall time. The
+one-source/five-built split retains six test jobs; it makes no hosted speedup
+claim. Current complete timings and completed candidate hosted runs are needed
+before enabling a smaller adaptive matrix.
 
 The separate `CI timings` workflow batches recent completed CI and Release runs
 hourly or on manual dispatch. It uploads `ci-job-timings-batch` with raw API pages and
@@ -345,6 +394,17 @@ changes also require `npm run verify:package`. The full-gate benchmark measures
 that explicit lane, not the routine iteration requirement.
 
 ## Real-toolchain verification lanes
+
+Linux Rizin debugger ownership changes require a separate real-provider gate on
+Rizin 0.7.4. Run
+`npm run test:focused -- tests/boundary/providers/RizinInferiorTty.test.ts`.
+This test verifies the caller-selected TTY against the actual inferior's file
+descriptors, confirms `dbg.exitkills=false`, detaches through the `olj`/`o-`
+protocol, and checks that the target survives debugger close and writes to the
+selected TTY. The suite is included in the reverse-tools Vitest and mutation
+typecheck selections; its real-provider assertions skip when Rizin 0.7.4 is
+unavailable. Run the focused command above on a host with that provider for the
+explicit real-provider verification gate.
 
 Each real-toolchain command must require only the host tools needed to prove
 its stated claim. Use a host-native fixture for host/provider acceptance, and

@@ -1,6 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · **한국어** · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
+· [Ελληνικά](README_el.md)
 
 # REA: 무엇이든 리버스 엔지니어링
 
@@ -19,13 +20,13 @@
 
 **[웹사이트](https://rea.tools/ko/) · [가이드](https://rea.tools/ko/guides/) · [사례](https://rea.tools/ko/showcase/)**
 
-[빠른 시작](#빠른-시작) · [REA의 작동 방식](#rea의-작동-방식) · [분석할 수 있는 대상](#분석할-수-있는-대상) · [사례](#사례) · [자주 묻는 질문](#자주-묻는-질문) · [문서](#문서)
+[빠른 시작](#빠른-시작) · [REA의 작동 방식](#rea의-작동-방식) · [분석할 수 있는 대상](#분석할-수-있는-대상) · [사례](#사례) · [자주 묻는 질문](#자주-묻는-질문) · [GNU objdump 및 Rizin 도구](../reverse-engineering-tools.md) · [문서](#문서)
+
+<code>npx rea-agents setup</code>
 
 > [!IMPORTANT]
 > REA 공식 배포처: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm).
 > 이 공식 배포처에서 제공하는 설치 및 릴리스 링크를 이용하세요. 비슷한 저장소 이름이나 복사된 README만으로는 공식 배포 파일인지 확인할 수 없습니다.
-
-<code>npx rea-agents setup</code>
 
 <br />
 
