@@ -582,6 +582,56 @@ it("adds no mitmproxy headline fields when the flow type is redacted", () => {
   expect(reported).not.toMatchObject({ request: { path: "/a" } });
 });
 
+it.each([
+  ["the flow type", "/type"],
+  ["the record root", ""],
+])(
+  "adds no mitmproxy headline fields when %s carries a numeric sidecar",
+  (_label, pointer) => {
+    const reported = nativePreview(
+      "mitmproxy",
+      { method: "GET", path: "/a" },
+      {
+        response: { http_version: "HTTP/1.1", reason: "OK" },
+        sidecars: [{ pointer, producer_type: "integer", literal: "1" }],
+      },
+    ).items[0]?.reported;
+    expect(reported).toMatchObject({ request: { method: "GET" } });
+    expect(reported).not.toMatchObject({ request: { path: "/a" } });
+  },
+);
+
+it("keeps mitmproxy headlines under a numeric sidecar out of the preview", () => {
+  const [item] = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a", port: 443 },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK", status_code: 200 },
+      sidecars: [
+        { pointer: "/request", producer_type: "integer", literal: "7" },
+        { pointer: "/request/port", producer_type: "integer", literal: "443" },
+        {
+          pointer: "/response/status_code",
+          producer_type: "integer",
+          literal: "200",
+        },
+      ],
+    },
+  ).items;
+  expect(item?.reported).toEqual({
+    type: "http",
+    request: { method: "GET" },
+    response: { http_version: "HTTP/1.1", reason: "OK", status_code: 200 },
+  });
+  expect(item?.numeric_literals).toEqual([
+    {
+      pointer: "/response/status_code",
+      producer_type: "integer",
+      literal: "200",
+    },
+  ]);
+});
+
 it("keeps sibling mitmproxy headlines next to an omitted property name", () => {
   const reported = nativePreview(
     "mitmproxy",

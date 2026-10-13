@@ -161,13 +161,20 @@ const mitmproxyHeadline = (
   }
 };
 
-/** The container format alone does not make a flow HTTP; its own unredacted type does. */
+/**
+ * The container format alone does not make a flow HTTP; its own type does,
+ * when that type is usable and was a string, not a number, in the producer.
+ */
 const mitmproxyHttpFlow = (
   format: string,
   source: Readonly<Record<string, JsonValue>>,
-  redacted: (pointer: string) => boolean,
+  usable: (pointer: string) => boolean,
+  sidecarsAt: (pointer: string) => readonly NumericSidecar[],
 ): boolean =>
-  format === "mitmproxy" && source.type === "http" && !redacted("/type");
+  format === "mitmproxy" &&
+  source.type === "http" &&
+  usable("/type") &&
+  sidecarsAt("/type").length === 0;
 
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
 const preview = (record: WebNetworkCaptureRecord, format: string) => {
@@ -193,8 +200,16 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
     record.binary_fields.some(
       (field) => field.state === "redacted" && covers(field.pointer, pointer),
     );
+  // A numeric sidecar on an ancestor says the producer held a number there,
+  // so nothing the record shows beneath it is a consistent fact.
+  const usable = (pointer: string): boolean =>
+    !redacted(pointer) &&
+    !record.numeric_literals.some(
+      (literal) =>
+        literal.pointer !== pointer && covers(literal.pointer, pointer),
+    );
   if (source !== null) {
-    const mitmproxyHttp = mitmproxyHttpFlow(format, source, redacted);
+    const mitmproxyHttp = mitmproxyHttpFlow(format, source, usable, sidecarsAt);
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
         reported[key] = source[key];
@@ -222,7 +237,7 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
           !Object.hasOwn(fields, field) ||
           fieldValue === undefined ||
           (mitmproxy &&
-            (redacted(`/${key}/${field}`) ||
+            (!usable(`/${key}/${field}`) ||
               !mitmproxyHeadline(
                 field,
                 fieldValue,
