@@ -671,6 +671,15 @@ export async function verifyIndirectBranches(client) {
     throw new Error(
       `Computed branch at ${branchAddress} is missing from unresolved_indirect_branches: ${JSON.stringify(boundary.unresolved_indirect_branches)}`,
     );
+  if (
+    unresolved.decompiler_outcome !== "jump_table_recovery_failed" ||
+    !unresolved.evidence.some(
+      (evidence) => evidence.source === "ghidra-decompiler-warning",
+    )
+  )
+    throw new Error(
+      `Computed branch at ${branchAddress} did not retain its decompiler warning evidence: ${JSON.stringify(unresolved)}`,
+    );
   // The tail call's classification depends on Ghidra's own heuristics, so it
   // is recorded rather than asserted.
   const tailCall = requireProcedure(names, "rea_indirect_tail_call");
