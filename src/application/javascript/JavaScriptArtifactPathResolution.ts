@@ -129,6 +129,8 @@ interface PackageFileTarget {
   readonly value: string;
   /** Normalized URL retained until loader-specific validation and file lookup. */
   readonly url: URL;
+  /** Structural validation remains possible when the inventory base has no URL identity. */
+  readonly lookupLimitation?: string;
 }
 
 type CandidateResolution = {
@@ -578,8 +580,6 @@ const resolvePackageImportAlias = (
     metadata.path,
     "imports",
   );
-  if (selected.kind === "unavailable")
-    return unresolvedCandidate("unavailable", [selected.limitation]);
   if (selected.kind === "invalid" || selected.kind === "invalid-config")
     return unresolvedCandidate("rejected", [
       `Package metadata ${metadata.path}: ${selected.limitation}`,
@@ -679,9 +679,10 @@ const resolveLegacyEsmSubpath = (
   );
   if (declarationRejection !== null) return declarationRejection;
   const metadataUrl = packageMetadataUrl(posix.join(directory, "package.json"));
-  if (!metadataUrl.ok)
-    return unresolvedCandidate("unavailable", [metadataUrl.error.limitation]);
-  const url = new URL(subpath, metadataUrl.value);
+  const url = new URL(
+    subpath,
+    metadataUrl.ok ? metadataUrl.value : metadataUrl.error.structuralUrl,
+  );
   if (!url.pathname.startsWith(PACKAGE_ARTIFACT_ROOT_URL.pathname))
     return unresolvedCandidate("rejected", [
       "The resolved candidate escapes the canonical artifact root.",
@@ -699,6 +700,8 @@ const resolveLegacyEsmSubpath = (
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${JSON.stringify(input.declaredPath)} has URL directory form; directory imports are unsupported and no exact-file, package main or index lookup was attempted.`,
     ]);
+  if (!metadataUrl.ok)
+    return unresolvedCandidate("unavailable", [metadataUrl.error.limitation]);
   const file = resolveFileCandidates(input, [candidate]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
@@ -721,8 +724,6 @@ const resolvePackageExports = (
     input.moduleKind,
     packagePath,
   );
-  if (exported.status === "unavailable")
-    return unresolvedCandidate("unavailable", [exported.limitation]);
   if (exported.status === "rejected")
     return unresolvedCandidate("rejected", [
       `Package metadata ${packagePath}: ${exported.limitation}`,
@@ -771,6 +772,8 @@ const resolveExportTarget = (
   if (typeof decoded !== "string") return withTargetSource(decoded);
   const candidate = confineCandidate(decoded);
   if (typeof candidate !== "string") return withTargetSource(candidate);
+  if (target.lookupLimitation !== undefined)
+    return unresolvedCandidate("unavailable", [target.lookupLimitation]);
   return (
     resolveFileCandidates(input, [candidate]) ??
     withTargetSource(exactPackageTargetNotFound(candidate, mapKind))
@@ -1134,7 +1137,6 @@ type PackageTargetBlockCause = "null" | "empty-array";
 type PackageExportOutcome =
   | ({ readonly status: "value" } & PackageFileTarget)
   | { readonly status: "rejected"; readonly limitation: string }
-  | { readonly status: "unavailable"; readonly limitation: string }
   | { readonly status: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly status: "unmatched"; readonly declared: readonly string[] };
 
@@ -1172,8 +1174,6 @@ const selectPackageExport = (
     packageExportConditions(moduleKind),
     packagePath,
   );
-  if (selected.kind === "unavailable")
-    return { status: "unavailable", limitation: selected.limitation };
   if (selected.kind === "invalid" || selected.kind === "invalid-config")
     return { status: "rejected", limitation: selected.limitation };
   if (selected.kind === "unmatched")
@@ -1192,6 +1192,9 @@ const selectPackageExport = (
     status: "value",
     value: selected.value,
     url: selected.url,
+    ...(selected.lookupLimitation === undefined
+      ? {}
+      : { lookupLimitation: selected.lookupLimitation }),
   };
 };
 
@@ -1200,7 +1203,6 @@ type ExportTargetOutcome =
   | { readonly kind: "non-relative"; readonly value: string }
   | { readonly kind: "blocked"; readonly cause: PackageTargetBlockCause }
   | { readonly kind: "unmatched"; readonly declared: readonly string[] }
-  | { readonly kind: "unavailable"; readonly limitation: string }
   | { readonly kind: "invalid"; readonly limitation: string }
   | { readonly kind: "invalid-config"; readonly limitation: string };
 
@@ -1267,12 +1269,13 @@ const selectStringPackageTarget = (
       "escapes the package root after URL normalization",
       mapKind,
     );
-  if (!metadataUrl.ok)
-    return { kind: "unavailable", limitation: metadataUrl.error.limitation };
   return {
     kind: "value",
     value,
     url,
+    ...(metadataUrl.ok
+      ? {}
+      : { lookupLimitation: metadataUrl.error.limitation }),
   };
 };
 

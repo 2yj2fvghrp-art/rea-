@@ -13,6 +13,16 @@ import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js
 const escapingTarget = "./%2\te%2\te/outside.js";
 const targets = {
   feature: { value: "./feature.js", imports: "relative", exports: "relative" },
+  encodedSeparator: {
+    value: "./feature%2\tf.js",
+    imports: "rejected",
+    exports: "rejected",
+  },
+  malformedEncoding: {
+    value: "./feature%ZZ.js",
+    imports: "rejected",
+    exports: "rejected",
+  },
   blocked: { value: null, imports: "external", exports: "external" },
   empty: { value: [], imports: "external", exports: "external" },
   inactive: {
@@ -92,6 +102,11 @@ const requests = [
     path: "node_modules/legacy/feature.js",
     status: "legacy" as const,
   },
+  {
+    specifier: "legacy/feature.js/.",
+    path: "",
+    status: "rejected" as const,
+  },
   ...Object.entries(targets).flatMap(([name, target]) => [
     { specifier: `#${name}`, path: "feature.js", status: target.imports },
     {
@@ -107,6 +122,7 @@ const sources = ["import", "require"].map((mode) => ({
   mode,
   path: mode === "import" ? "main.mjs" : "main.cjs",
   source: requests
+    .filter(({ specifier }) => mode === "import" || !specifier.endsWith("/."))
     .map(({ specifier }) =>
       mode === "import"
         ? `import ${JSON.stringify(specifier)};`
@@ -172,6 +188,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     for (const prefix of ["\ud800", "\udc00", "valid\ud83d\ude00"])
       for (const { mode, path, source } of sources)
         for (const request of requests) {
+          if (mode === "require" && request.specifier.endsWith("/.")) continue;
           const base = `app.asar/${prefix}`;
           const available =
             prefix.startsWith("valid") ||
