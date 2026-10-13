@@ -391,23 +391,42 @@ cliTest(
   30_000,
 );
 
-cliTest("keeps unreadable encrypted ZIP content unknown with complete traversal", async ({ cli }) => {
-  const root = await createTestTempDirectory("rea-encrypted-comparison-");
-  const leftPath = join(root, "left.zip");
-  const rightPath = join(root, "right.zip");
-  const writer = new ZipWriter(new Uint8ArrayWriter());
-  await writer.add("secret.txt", new TextReader("secret bytes"), { password: "fixture-password" });
-  const bytes = await writer.close();
-  await Promise.all([writeFile(leftPath, bytes), writeFile(rightPath, bytes)]);
-  const { left, right, call } = await inspectPair(cli, leftPath, rightPath);
-  for (const evidence of [left, right])
-    expect(artifactInventoryResultSchema.parse(evidence.normalized_result)).toMatchObject({
-      coverage: { scope: "container-entries", status: "complete" },
-      occurrences: expect.arrayContaining([expect.objectContaining({ logical_path: "secret.txt", hash_status: "unavailable", encrypted: true })]),
+cliTest(
+  "keeps unreadable encrypted ZIP content unknown with complete traversal",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-encrypted-comparison-");
+    const leftPath = join(root, "left.zip");
+    const rightPath = join(root, "right.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add("secret.txt", new TextReader("secret bytes"), {
+      password: "fixture-password",
     });
-  const compared = await call("compare_artifacts", { left, right });
-  expect(compared.isError, JSON.stringify(compared)).not.toBe(true);
-  const result = parseEvidence(compared.structuredContent).normalized_result;
-  expect(result).toMatchObject({ status: "unknown", summary: { unknown: expect.any(Number) } });
-  expect(result).toHaveProperty("summary.unknown", 1);
-});
+    const bytes = await writer.close();
+    await Promise.all([
+      writeFile(leftPath, bytes),
+      writeFile(rightPath, bytes),
+    ]);
+    const { left, right, call } = await inspectPair(cli, leftPath, rightPath);
+    for (const evidence of [left, right])
+      expect(
+        artifactInventoryResultSchema.parse(evidence.normalized_result),
+      ).toMatchObject({
+        coverage: { scope: "container-entries", status: "complete" },
+        occurrences: expect.arrayContaining([
+          expect.objectContaining({
+            logical_path: "secret.txt",
+            hash_status: "unavailable",
+            encrypted: true,
+          }),
+        ]),
+      });
+    const compared = await call("compare_artifacts", { left, right });
+    expect(compared.isError, JSON.stringify(compared)).not.toBe(true);
+    const result = parseEvidence(compared.structuredContent).normalized_result;
+    expect(result).toMatchObject({
+      status: "unknown",
+      summary: { unknown: expect.any(Number) },
+    });
+    expect(result).toHaveProperty("summary.unknown", 1);
+  },
+);

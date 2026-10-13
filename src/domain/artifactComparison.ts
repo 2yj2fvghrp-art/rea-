@@ -106,9 +106,9 @@ export const compareArtifacts = (
   const rightComplete = right.inventory.complete;
   const sameScope =
     left.inventory.coverage.scope === right.inventory.coverage.scope;
-  const leftCovered = sameScope && hasCompleteInventoryCoverage(left.inventory);
+  const leftCovered = sameScope && hasCompleteInventoryCoverage(left.inventory, left.inventory.coverage.scope);
   const rightCovered =
-    sameScope && hasCompleteInventoryCoverage(right.inventory);
+    sameScope && hasCompleteInventoryCoverage(right.inventory, right.inventory.coverage.scope);
   const limitations = [
     ...left.inventory.limitations.map((item) => `Left: ${item}`),
     ...right.inventory.limitations.map((item) => `Right: ${item}`),

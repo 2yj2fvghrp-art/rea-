@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   artifactInventoryOutputSchema,
   artifactInventoryResultSchema,
-  artifactInventoryOutputSchema,
   type ArtifactInventoryResult,
 } from "./artifactGraph.js";
 import { digestCanonicalValue } from "./canonicalDigest.js";

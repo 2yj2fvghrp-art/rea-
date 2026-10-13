@@ -169,7 +169,7 @@ export const projectAppleApplication = (
   );
   const uninventoriedImage =
     rootFormat === "dmg" && inventory.occurrences.length === 1;
-  const inventoryComplete = hasCompleteInventoryCoverage(inventory);
+  const inventoryComplete = hasCompleteInventoryCoverage(inventory, "container-entries");
   const complete = inventoryComplete && !uninventoriedImage;
   const limitations = projectionLimitations({
     complete: inventoryComplete,

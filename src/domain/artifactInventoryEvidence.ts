@@ -39,7 +39,8 @@ export interface InventorySet {
 /** Whether all graph members are present and the producer reports full coverage. */
 export const hasCompleteInventoryCoverage = (
   inventory: InventorySet,
-): boolean => inventory.complete && inventory.coverage.status === "complete";
+  requiredScope: ArtifactInventoryCoverage["scope"],
+): boolean => inventory.complete && inventory.coverage.scope === requiredScope && inventory.coverage.status === "complete";
 
 export interface ParsedInventorySet {
   readonly evidence: readonly Evidence[];
@@ -137,7 +138,7 @@ const assembleInventoryResults = (
     throw new TypeError("Artifact inventory requires Evidence pages");
   const manifestJson = canonicalJson(first.manifest, "Artifact inventory");
   const coverageJson = canonicalJson(
-    resolveInventoryCoverage(first),
+    { coverage: first.coverage ?? null, coverage_status: first.coverage_status ?? null },
     "Artifact inventory coverage",
   );
   const nodes = new Map<string, ArtifactNode>();
@@ -149,7 +150,7 @@ const assembleInventoryResults = (
       throw new TypeError("Artifact inventory pages do not share one manifest");
     if (
       canonicalJson(
-        resolveInventoryCoverage(page),
+        { coverage: page.coverage ?? null, coverage_status: page.coverage_status ?? null },
         "Artifact inventory coverage",
       ) !== coverageJson
     )
@@ -217,7 +218,7 @@ const orderedInventory = (
     edges,
     integrityContradictions: first.integrity_contradictions,
     limitations,
-    coverage: resolveInventoryCoverage(first),
+    coverage: resolveInventoryCoverage({ ...first, limitations }),
     complete:
       nodes.length === first.manifest.node_count &&
       occurrences.length === first.manifest.occurrence_count &&

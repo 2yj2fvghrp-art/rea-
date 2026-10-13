@@ -281,7 +281,8 @@ const buildInventorySnapshot = async (
     provenance: reader?.provenance() ?? [],
     integrity_contradictions: integrityContradictions,
     coverage: traversal.coverage,
-    coverage_status: traversal.coverage.status === "complete" ? "complete" : "partial",
+    coverage_status:
+      traversal.coverage.status === "complete" ? "complete" : "partial",
     limitations: buildLimitations(
       traversal.limitations,
       integrityContradictions,
