@@ -88,7 +88,12 @@ it.runIf(process.platform === "linux" && process.arch === "x64")(
     try {
       const failure: unknown = await verifyGhidraPrototypeDiagnostics({
         installation: { analyzeHeadlessPath: "controlled-test-producer" },
-        buildFixture: async ({ target }: { object: string; target: string }) => {
+        buildFixture: async ({
+          target,
+        }: {
+          object: string;
+          target: string;
+        }) => {
           await writeFile(target, "mocked executable fixture");
         },
       }).catch((cause: unknown) => cause);
