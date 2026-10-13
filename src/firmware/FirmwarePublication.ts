@@ -247,7 +247,7 @@ const dependencyExtractionGaps = (
                   range: affected.range,
                   root_file_range: affected.root_file_range,
                 }),
-            dependencies,
+            dependencies: [...dependencies],
             continuation_id: continuation(
               dependencies.length > 0
                 ? GAP_CONTINUATIONS["missing-extractor-dependency"]
@@ -285,7 +285,7 @@ const dependencyExtractionGaps = (
         kind: "missing-extractor-dependency",
         input_path,
         ...emptyGap,
-        dependencies,
+        dependencies: [...dependencies],
         continuation_id: continuation(
           dependencies.length > 0
             ? GAP_CONTINUATIONS["missing-extractor-dependency"]
