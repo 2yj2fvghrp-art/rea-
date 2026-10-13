@@ -38,7 +38,7 @@ const INSTALL = "/opt/ghidra_12.1.4_PUBLIC";
 const installationHost = (): GhidraInstallationHost => ({
   platform: "linux",
   architecture: "x64",
-  readText: () => "application.version=12.1.4\n",
+  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
   probeJava: () => ({
     version: "21.0.11",
@@ -46,6 +46,7 @@ const installationHost = (): GhidraInstallationHost => ({
     home: "/usr/lib/jvm/jdk-21",
     bits: 64,
     runtime: "jdk",
+    vmName: "OpenJDK 64-Bit Server VM",
   }),
 });
 
@@ -239,9 +240,10 @@ describe("Ghidra Mach-O slice support", () => {
       path: "/tmp/fixture",
       sha256: "a".repeat(64),
       kind: "executable",
-      format: "mach-o",
+      format: "mach-o-universal",
       architecture: "arm64",
       availableArchitectures: ["x86_64", "arm64"],
+      universalSlice: { offset: 0, size: 32 },
     };
 
     expect(ghidra.inspectTargetSupport(universal)).toMatchObject({
@@ -255,6 +257,13 @@ describe("Ghidra Mach-O slice support", () => {
     });
     expect(
       ghidra.inspectTargetSupport(executableTarget("mach-o", "arm64")),
+    ).toMatchObject({ status: "supported" });
+
+    expect(
+      ghidra.inspectTargetSupport({
+        ...universal,
+        availableArchitectures: ["arm64"] as const,
+      }),
     ).toMatchObject({ status: "supported" });
   });
 });
@@ -579,6 +588,7 @@ describe("Ghidra client projection", () => {
     expect(resolved.value.profile.parameters).toMatchObject({
       language_id: "auto-from-header",
       compiler_spec_id: "auto-default",
+      call_relationship_coverage: "resolved-call-reference-diagnostics-v1",
     });
 
     const result = await ghidra
@@ -590,6 +600,11 @@ describe("Ghidra client projection", () => {
       expect.objectContaining({
         runId: "11111111-1111-4111-8111-111111111111",
         platform: "linux",
+        launcher: expect.objectContaining({
+          options: expect.objectContaining({
+            javaVmName: "OpenJDK 64-Bit Server VM",
+          }),
+        }),
       }),
     ]);
     expect(toolCalls).toEqual([
@@ -747,6 +762,11 @@ describe("Ghidra result projection", () => {
       ok: false,
       error: { _tag: tag },
     });
+    if (!result.ok)
+      expect(projectAnalysisError(result.error)).toMatchObject({
+        code: "cancelled",
+        details: { diagnostics: { remote_code: code } },
+      });
   });
 
   it("returns cancellation before profile work", async () => {
@@ -781,8 +801,11 @@ describe("Ghidra relationship coverage", () => {
     if (!execution.ok) throw execution.error;
     expect(execution.value.relationshipCoverage).toEqual({
       status: "complete",
+      diagnostics: [
+        "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.",
+      ],
     });
-    expect(execution.value.limitations).toContain(
+    expect(execution.value.limitations).not.toContain(
       "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.",
     );
     await client.close();
@@ -1679,7 +1702,10 @@ it("projects Ghidra startup failure and its incomplete cleanup together", async 
         diagnostics: {
           primary_error: {
             code: "provider_timeout",
-            details: { timeout_ms: 250 },
+            details: {
+              timeout_ms: 250,
+              diagnostics: { failure_kind: "timeout" },
+            },
           },
           cleanup_error: { code: "cleanup_incomplete" },
         },

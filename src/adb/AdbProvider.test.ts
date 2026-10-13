@@ -199,7 +199,7 @@ const shellStub = (
         second === undefined
           ? `[ "$4" = "${first}" ]`
           : `[ "$4" = "${first}" ] && [ "$5" = "${second}" ]`;
-      return `  if ${guard}; then printf '%b' '${output.replace(/'/gu, "'\\''")}'; exit 0; fi`;
+      return `  if ${guard}; then printf '%b' '${output.replaceAll("\\", "\\\\").replaceAll("\0", "\\000").replace(/'/gu, "'\\''")}'; exit 0; fi`;
     })
     .join("\n");
   return () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
@@ -495,7 +495,7 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
       logcat:
-        "08-10 13:00:00.000 I/Tag( 123): first\\n08-10 13:00:01.000 I/Tag( 123): second\\n",
+        "08-10 13:00:00.000 I/Tag( 123): first\n08-10 13:00:01.000 I/Tag( 123): second\n",
     }),
   );
   const result = await evidenceResult(providerOver(binary), {
@@ -506,6 +506,44 @@ it("reads a bounded logcat dump with the caller count and buffer", async () => {
     "08-10 13:00:00.000 I/Tag( 123): first",
     "08-10 13:00:01.000 I/Tag( 123): second",
   ]);
+});
+
+it("reports UTF-8 byte counts in total_bytes for non-ASCII logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    shellStub({
+      logcat:
+        "08-10 13:00:00.000 I/Tag( 1): 中文\n08-10 13:00:00.000 I/Tag( 1): 😀\n",
+    }),
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  expect(result.lines).toEqual([
+    "08-10 13:00:00.000 I/Tag( 1): 中文",
+    "08-10 13:00:00.000 I/Tag( 1): 😀",
+  ]);
+  // 30-byte prefix + 6-byte CJK + LF = 37; 30-byte prefix + 4-byte emoji + LF = 35.
+  expect(result.total_bytes).toBe(72);
+});
+
+it("counts raw captured bytes in total_bytes for malformed UTF-8 logcat output", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "shell" ]; then
+  printf '%b' '08-10 13:00:00.000 I/Tag( 1): A\\377B\\n'
+  exit 0
+fi
+printf 'unexpected arguments: %s\\n' "$@"
+exit 1`,
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "read_adb_logcat",
+    input: { serial: "emulator-5554", count: 500, buffer: "main" },
+  });
+  // 30-byte prefix + "A" + one raw 0xff byte + "B" + LF = 34 captured bytes.
+  // Re-encoding the decoded U+FFFD replacement would report 36.
+  expect(result.total_bytes).toBe(34);
 });
 
 it("projects package details from dumpsys package output", async () => {
@@ -780,42 +818,74 @@ it("lists processes, features, and services through fixed commands", async () =>
   ]);
 });
 
-it("lists a device directory with kinds and symlink targets", async () => {
-  const { binary } = await writeAdbStub(
-    shellStub({
-      ls: "total 4\n-rw-rw---- u0_a1 u0_a1 4096 2026-01-02 11:00 app.db\nlrwxrwxrwx root root 2026-01-01 10:00 lib -> /apex/com.android.art/lib\n",
-    }),
-  );
-  const result = await evidenceResult(providerOver(binary), {
-    operation: "list_adb_directory",
-    input: {
-      serial: "emulator-5554",
-      device_path: "/data/data/com.example.app",
-    },
-  });
-  expect(result.entries).toEqual([
-    {
-      name: "app.db",
-      kind: "file",
-      permissions: "-rw-rw----",
-      owner: "u0_a1",
-      group: "u0_a1",
-      bytes: 4096,
-      date: "2026-01-02 11:00",
-      link_target: null,
-    },
-    {
-      name: "lib",
-      kind: "symlink",
-      permissions: "lrwxrwxrwx",
-      owner: "root",
-      group: "root",
-      bytes: null,
-      date: "2026-01-01 10:00",
-      link_target: "/apex/com.android.art/lib",
-    },
-  ]);
-});
+it.each(["complete", "truncated"] as const)(
+  "preserves framed directory identities with %s output",
+  async (variant) => {
+    const date = "2026-01-02 11:00:00.000000000 +0000";
+    const names = [
+      "app.db",
+      " app.db ",
+      "   ",
+      "one -> two -> three",
+      "line\r",
+      "line\u2028break",
+      "foo\n-rw-rw---- root root 0 2026-01-01 10:00 ghost",
+      "literal\\n",
+    ];
+    const links = [
+      ["lib", "/apex/com.android.art/lib"],
+      [" lib ", " /apex/lib "],
+      ["one -> two\n", "three -> four\n\n"],
+    ] as const;
+    const truncated = `-rw-rw----|u0_a1|u0_a1|4096|${date}\0unfinished`;
+    const output = [
+      ...names.map(
+        (name) => `-rw-rw----|u0_a1|u0_a1|4096|${date}\0${name}\0\0`,
+      ),
+      ...links.map(
+        ([name, target]) =>
+          `lrwxrwxrwx|root|root|${Buffer.byteLength(target)}|${date}\0${name}\0${target}\0`,
+      ),
+      ...(variant === "truncated" ? [truncated] : []),
+    ].join("");
+    const { binary } = await writeAdbStub(shellStub({ sh: output }));
+    const result = await evidenceResult(providerOver(binary), {
+      operation: "list_adb_directory",
+      input: {
+        serial: "emulator-5554",
+        device_path: "/data/data/com.example.app",
+      },
+    });
+    expect(result.entries).toEqual([
+      ...names.map((name) => ({
+        name,
+        kind: "file",
+        permissions: "-rw-rw----",
+        owner: "u0_a1",
+        group: "u0_a1",
+        bytes: 4096,
+        date,
+        link_target: null,
+      })),
+      ...links.map(([name, target]) => ({
+        name,
+        kind: "symlink",
+        permissions: "lrwxrwxrwx",
+        owner: "root",
+        group: "root",
+        bytes: Buffer.byteLength(target),
+        date,
+        link_target: target,
+      })),
+    ]);
+    expect(result.unparsed_lines).toEqual(
+      variant === "truncated" ? [truncated] : [],
+    );
+    expect(result.coverage).toBe(
+      variant === "truncated" ? "partial" : "complete",
+    );
+  },
+);
 
 it("inspects the display and window focus", async () => {
   const { binary } = await writeAdbStub(
@@ -871,7 +941,7 @@ it("resolves packages by case-insensitive substring", async () => {
   const { binary } = await writeAdbStub(
     shellStub({
       "pm:list":
-        "package:/data/app/x/base.apk=com.whatsapp\\npackage:/data/app/y/base.apk=com.whatsapp.w4b\\npackage:/data/app/z/base.apk=com.example\\n",
+        "package:/data/app/x/base.apk=com.whatsapp\npackage:/data/app/y/base.apk=com.whatsapp.w4b\npackage:/data/app/z/base.apk=com.example\n",
     }),
   );
   const result = await evidenceResult(providerOver(binary), {
@@ -1054,10 +1124,10 @@ it("rejects mistyped intent extras before touching the device", async () => {
 
 it("collects a device bugreport archive with its digest", async () => {
   const { binary, root } = await writeAdbStub(
-    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
 if [ "$1" = "-s" ] && [ "$3" = "bugreport" ]; then
-  printf 'bugreport-bytes' > "${join(root, "bugreport test.zip")}"
-  printf 'Bug report copied to ${join(root, "bugreport test.zip")}\\n'
+  printf 'bugreport-bytes' > "$4/bugreport test.zip"
+  printf 'Bug report copied to %s/bugreport test.zip\\n' "$4"
   exit 0
 fi
 exit 1`,
@@ -1071,26 +1141,29 @@ exit 1`,
     local_path: join(root, "bugreport test.zip"),
     bytes: 15,
     sha256: digest,
-    adb_reported_path: join(root, "bugreport test.zip"),
+    adb_reported_path: expect.stringContaining(".rea-bugreport-"),
   });
 });
 
 it("quotes caller text before adb joins the remote shell command", async () => {
   const { binary, root } = await writeAdbStub(
-    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
 shift 3
 # Model adb's remote command joining, then execute the resulting shell string.
-printf '#!/bin/sh\nprintf "%%s" "$@" > "${join(root, "observed")}"\n' > "${join(root, "ls")}"
-chmod +x "${join(root, "ls")}"
-PATH="${root}:$PATH" sh -c "$*"
+sh -c "$*"
 `,
   );
-  const value = `/sdcard/a 'quoted'; touch ${join(root, "injected")}`;
-  await providerOver(binary).execute({
+  const value = join(root, `device 'quoted'; touch ${join(root, "injected")}`);
+  await mkdir(value, { recursive: true });
+  const result = await evidenceResult(providerOver(binary), {
     operation: "list_adb_directory",
     input: { serial: "device", device_path: value },
   });
-  expect(await readFile(join(root, "observed"), "utf8")).toContain(value);
+  expect(result).toMatchObject({
+    device_path: value,
+    entries: [],
+    coverage: "complete",
+  });
   await expect(readFile(join(root, "injected"))).rejects.toThrow();
 });
 

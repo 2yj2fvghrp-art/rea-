@@ -13,6 +13,7 @@ import { parseDyldSymbols } from "./parsers/dyldInfo.js";
 import { parseLipoArchitectures } from "./parsers/lipo.js";
 import { withoutEchoedPathHeader } from "./parsers/echoedPath.js";
 import { parseOtoolLoadCommands } from "./parsers/otool.js";
+import { reconcileMachoUuid } from "./parsers/machoUuid.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 interface NativeMachoObservation {
@@ -50,7 +51,6 @@ const REQUIRED_SLICE_COMMANDS = [
 const OPTIONAL_VTOOL_COMMAND = ["vtool", ["-show-build"]] as const;
 const VTOOL_UNAVAILABLE_LIMITATION =
   "vtool is unavailable; build metadata is normalized from otool only.";
-
 /** Inspect one Mach-O with the required native commands and normalized output. */
 export const inspectNativeMacho = async (
   context: NativeMachoInspectionContext,
@@ -79,8 +79,11 @@ export const inspectNativeMacho = async (
     );
   const selectedArchitecture =
     selection.status === "selected" ? selection.architecture : null;
-  for (const [tool, prefix] of REQUIRED_SLICE_COMMANDS) {
-    const captured = await context.run(
+  const runSliceCommand = ([tool, prefix]: readonly [
+    string,
+    readonly string[],
+  ]) =>
+    context.run(
       tool,
       [
         ...prefix,
@@ -89,20 +92,18 @@ export const inspectNativeMacho = async (
       ],
       context.signal,
     );
+  // Slice commands only read the selected artifact, so launch them together.
+  // Every launch settles before return; declared order fixes provenance and
+  // which failure is reported.
+  const [required, optional] = await Promise.all([
+    Promise.all(REQUIRED_SLICE_COMMANDS.map(runSliceCommand)),
+    runSliceCommand(OPTIONAL_VTOOL_COMMAND),
+  ]);
+  for (const captured of required) {
     if (!captured.ok) return err(captured.error);
     captures.push(captured.value);
   }
   const limitations: string[] = [];
-  const [tool, prefix] = OPTIONAL_VTOOL_COMMAND;
-  const optional = await context.run(
-    tool,
-    [
-      ...prefix,
-      ...selectedArchitectureArguments(tool, selectedArchitecture),
-      context.target.path,
-    ],
-    context.signal,
-  );
   if (optional.ok) captures.push(optional.value);
   else if (optional.error._tag === "AnalysisCapabilityUnavailableError")
     limitations.push(VTOOL_UNAVAILABLE_LIMITATION);
@@ -148,6 +149,7 @@ export const inspectNativeMacho = async (
     limitations,
     load,
     architectures,
+    context.target.path,
     {
       name: selectedArchitectureName,
       container_file_offset: containerOffset ?? null,
@@ -178,6 +180,7 @@ const normalizeMacho = (
   additionalLimitations: readonly string[],
   load: ReturnType<typeof parseOtoolLoadCommands>,
   architectures: ReturnType<typeof parseLipoArchitectures>,
+  artifactPath: string,
   selectedArchitecture: {
     readonly name: string | null;
     readonly container_file_offset: number | null;
@@ -200,9 +203,13 @@ const normalizeMacho = (
     new Set(nmExports.map(({ name }) => name)),
   );
   const exports = uniqueSymbols([...dyldExports, ...nmExports]);
-  const uuid =
-    /UUID:\s*([A-Fa-f0-9-]+)/u.exec(byTool("dwarfdump").stdout)?.[1] ??
-    load.uuid;
+  const dwarfdump = byTool("dwarfdump");
+  const uuid = reconcileMachoUuid(
+    load.commands,
+    dwarfdump.stdout,
+    artifactPath,
+    selectedArchitecture.name,
+  );
   const provenance = captures.map(toInvocation);
   // A thread-state command carries the entrypoint in architecture-specific
   // register state, so an absent decoded offset means unknown, not absent.
@@ -222,6 +229,7 @@ const normalizeMacho = (
         ]
       : []),
     ...additionalLimitations,
+    ...uuid.limitations,
     ...(threadEntrypoint ? [threadEntrypointLimitation] : []),
     ...(imageBase === null &&
     /^\s*offset\s+symbol\s*$/mu.test(sliceOutput(byTool("dyld_info", 1)))
@@ -237,7 +245,7 @@ const normalizeMacho = (
     word_size: parseWordSize(byTool("file").stdout),
     file_type: load.fileType,
     flags: load.flags,
-    uuid: uuid ?? null,
+    uuid: uuid.value,
     entrypoints: covered(
       load.entrypoints,
       !threadEntrypoint,
