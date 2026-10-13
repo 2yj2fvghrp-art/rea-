@@ -232,7 +232,9 @@ const verifySetupPlan = async ({
   cli,
   environment,
   claudeConfig,
+  claudeOriginal,
   cursorConfig,
+  cursorOriginal,
   codexTarget,
   opencodeConfig,
   opencodeOriginal,
@@ -255,9 +257,9 @@ const verifySetupPlan = async ({
       planned.appliedActions.length !== 0 ||
       !planned.plannedActions.some(({ kind }) => kind === "configure_client") ||
       !planned.plannedActions.some(({ kind }) => kind === "install_skill") ||
-      plannedClaudeConfig !== '{"existing":true}\n' ||
+      plannedClaudeConfig !== claudeOriginal ||
       plannedCodexConfig !== CODEX_ORIGINAL ||
-      plannedCursorConfig !== '{"existing":true}\n' ||
+      plannedCursorConfig !== cursorOriginal ||
       plannedOpenCodeConfig !== opencodeOriginal
     )
       throw new Error(
@@ -457,7 +459,6 @@ const assertCodexSymlink = async ({
   codexConfig,
   cursorConfig,
   codexTarget,
-  cursorOriginal,
 }) => {
   const codex = await readFile(codexTarget, "utf8");
   if (
@@ -467,8 +468,7 @@ const assertCodexSymlink = async ({
     !codex.includes(`command = "${cli}"`) ||
     !codex.includes("startup_timeout_sec = 30") ||
     !codex.startsWith(CODEX_ORIGINAL) ||
-    (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL ||
-    (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !== cursorOriginal
+    (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL
   )
     throw new Error("packaged setup did not preserve config symlinks");
 };
@@ -566,10 +566,11 @@ const verifySetupFailureRecovery = async ({
   environment,
   claudeConfig,
   cursorConfig,
+  cursorOriginal,
   status,
 }) => {
   await writeFile(claudeConfig, "malformed");
-  await writeFile(cursorConfig, '{"existing":true}\n');
+  await writeFile(cursorConfig, cursorOriginal);
   const failedExecution = await runWithStatus(
     cli,
     ["setup", "--yes", "--all-detected", "--json"],
@@ -583,8 +584,7 @@ const verifySetupFailureRecovery = async ({
     failed.appliedActions.length !== 0 ||
     !failed.remediation?.includes("Claude Desktop") ||
     (await readFile(claudeConfig, "utf8")) !== "malformed" ||
-    json(await readFile(cursorConfig, "utf8")).existing !== true ||
-    json(await readFile(cursorConfig, "utf8")).mcpServers?.rea !== undefined
+    (await readFile(cursorConfig, "utf8")) !== cursorOriginal
   )
     throw new Error(
       `packaged setup mutated clients after a preflight failure: ${JSON.stringify(failed)}`,
@@ -749,7 +749,9 @@ export async function verifyPackageSetup({
     cli,
     environment,
     claudeConfig,
+    claudeOriginal,
     cursorConfig,
+    cursorOriginal,
     codexTarget,
     opencodeConfig,
     opencodeOriginal: OPENCODE_ORIGINAL,
@@ -784,6 +786,7 @@ export async function verifyPackageSetup({
       environment,
       claudeConfig,
       cursorConfig,
+      cursorOriginal,
       status: apply.status,
     });
     await verifyDanglingSymlink({ cli, environment, home });

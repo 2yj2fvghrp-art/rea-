@@ -18,9 +18,11 @@ export function verifyPackageEnvironment(input: {
   readonly home: string;
   readonly npxLog: string;
   readonly claudeConfig: string;
+  readonly claudeOriginal: string;
   readonly codexConfig: string;
   readonly codexTarget: string;
   readonly cursorConfig: string;
+  readonly cursorOriginal: string;
   readonly cursorTarget: string;
   readonly environment: Readonly<Record<string, string | undefined>>;
 }>;
