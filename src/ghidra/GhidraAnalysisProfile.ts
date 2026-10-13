@@ -161,6 +161,7 @@ export const resolveGhidraAnalysisProfile = async (
   const pinnedLanguage = ghidraPinnedLanguage(target);
   if (
     pinnedLanguage !== undefined &&
+    target.architecture !== "powerpc" &&
     languageOverride !== undefined &&
     (languageOverride.languageId !== pinnedLanguage.languageId ||
       (languageOverride.compilerSpecId !== undefined &&
