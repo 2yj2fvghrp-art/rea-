@@ -110,17 +110,15 @@ describe("IDA JSON diagnostic source preservation", () => {
     ).toBe(`"${marker}${marker}"`);
   });
 
-  it("decodes unquoted fragments only for a known malformed JSON body", () => {
+  it("handles unquoted JSON fragments while retaining ordinary text semantics", () => {
     const source = String.raw`\u003csecret\u003e`;
     const redactor = forCredential("<secret>");
-    expect(redactor.json(source)).toBe(source);
-    expect(redactor.json(source, { malformed: true })).toBe(marker);
+    expect(redactor.text(source)).toBe(source);
+    expect(redactor.json(source)).toBe(marker);
     const invalid = String.raw`<sec\qret>`;
-    expect(redactor.json(invalid, { malformed: true })).toBe(invalid);
+    expect(redactor.json(invalid)).toBe(invalid);
     const unrelated = String.raw`\u003cpublic\u003e`;
-    expect(forCredential("u003c").json(unrelated, { malformed: true })).toBe(
-      unrelated,
-    );
+    expect(forCredential("u003c").json(unrelated)).toBe(unrelated);
   });
   it("leaves ordinary text diagnostics and credential-free configurations unchanged", () => {
     const source = String.raw`{"x":"\u003csecret\u003e"}`;

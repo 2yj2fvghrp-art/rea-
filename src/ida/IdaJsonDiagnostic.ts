@@ -67,11 +67,10 @@ const appendCharacterRunMatches = (
   return decodedRuns;
 };
 
-/** Redact diagnostic JSON source without folding duplicate keys or numeric lexemes. */
+/** Redact complete or malformed JSON diagnostics without rewriting unrelated source. */
 export const redactIdaJsonDiagnostic = (
   text: string,
   matches: Matches,
-  options?: Readonly<{ malformed?: boolean }>,
 ): string => {
   const ranges: Match[] = [];
   const literalMatches = matches(text);
@@ -104,9 +103,9 @@ export const redactIdaJsonDiagnostic = (
     if (scanner.getToken() !== JSON_STRING_LITERAL) continue;
     const start = scanner.getTokenOffset();
     const end = start + scanner.getTokenLength();
-    // Only a confirmed JSON decoding failure gives unquoted fragments this
-    // interpretation; ordinary HTTP text keeps literal semantics in these gaps.
-    if (options?.malformed === true && scannedEnd < start)
+    // This boundary owns JSON diagnostics, including incomplete documents.
+    // Callers select the format; they do not select a separate recovery policy.
+    if (scannedEnd < start)
       appendLiteralMatches(
         appendCharacterRunMatches(
           text.slice(scannedEnd, start),
@@ -137,14 +136,12 @@ export const redactIdaJsonDiagnostic = (
     scannedEnd = end;
   }
   appendLiteralMatches(
-    options?.malformed === true
-      ? appendCharacterRunMatches(
-          text.slice(scannedEnd),
-          scannedEnd,
-          matches,
-          ranges,
-        )
-      : [],
+    appendCharacterRunMatches(
+      text.slice(scannedEnd),
+      scannedEnd,
+      matches,
+      ranges,
+    ),
     text.length,
   );
   if (ranges.length === 0) return text;

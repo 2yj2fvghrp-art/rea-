@@ -54,7 +54,7 @@ export const createIdaDiagnosticRedactor = (
   config: IdaConfiguration,
 ): Readonly<{
   text(message: string): string;
-  json(message: string, options?: Readonly<{ malformed?: boolean }>): string;
+  json(message: string): string;
 }> => {
   const headers = "headers" in config ? Object.entries(config.headers) : [];
   const values = headers.flatMap(([name, value]) => {
@@ -84,15 +84,12 @@ export const createIdaDiagnosticRedactor = (
   );
   return {
     text: (message) => message.replace(pattern, IDA_REDACTION_MARKER),
-    json: (message, options) =>
-      redactIdaJsonDiagnostic(
-        message,
-        (value) =>
-          [...value.matchAll(pattern)].map((match) => ({
-            start: match.index,
-            end: match.index + match[0].length,
-          })),
-        options,
+    json: (message) =>
+      redactIdaJsonDiagnostic(message, (value) =>
+        [...value.matchAll(pattern)].map((match) => ({
+          start: match.index,
+          end: match.index + match[0].length,
+        })),
       ),
   };
 };

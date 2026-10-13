@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { ProtocolError } from "@modelcontextprotocol/client";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { AnalysisProtocolError } from "../../../src/domain/analysisErrorCore.js";
@@ -22,25 +23,31 @@ const requestSchema = z.object({
     .passthrough()
     .optional(),
 });
+type IdaTransportFixtureOptions = {
+  readonly redirectUrl?: string;
+  readonly cycle?: boolean;
+  readonly native?: boolean;
+  readonly toolResult?: JsonValue;
+  readonly toolRpcError?: {
+    readonly code: number;
+    readonly message: string;
+  };
+  readonly toolStatus?: number;
+  readonly toolContentType?: string;
+  readonly toolResponseBody?: string;
+  readonly configurationHeaders?: Readonly<Record<string, string>>;
+};
 const fixture = async ({
   redirectUrl,
   cycle = false,
   native = false,
   toolResult,
+  toolRpcError,
   toolStatus = 200,
   toolContentType = "application/json",
   toolResponseBody,
   configurationHeaders = { Authorization: "Bearer transport-fixture-secret" },
-}: {
-  readonly redirectUrl?: string;
-  readonly cycle?: boolean;
-  readonly native?: boolean;
-  readonly toolResult?: JsonValue;
-  readonly toolStatus?: number;
-  readonly toolContentType?: string;
-  readonly toolResponseBody?: string;
-  readonly configurationHeaders?: Readonly<Record<string, string>>;
-} = {}) => {
+}: IdaTransportFixtureOptions = {}) => {
   const methods: string[] = [];
   const headers: (string | undefined)[] = [];
   const server = createServer(async (request, response) => {
@@ -128,7 +135,13 @@ const fixture = async ({
     response.end(
       input.method === "tools/call" && toolResponseBody !== undefined
         ? toolResponseBody
-        : JSON.stringify({ jsonrpc: "2.0", id: input.id, result }),
+        : JSON.stringify({
+            jsonrpc: "2.0",
+            id: input.id,
+            ...(input.method === "tools/call" && toolRpcError !== undefined
+              ? { error: toolRpcError }
+              : { result }),
+          }),
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -510,27 +523,47 @@ it.each<{
   },
 );
 
-it.each([
-  {
-    label: "unquoted escaped body",
-    credential: "<token>",
-    wire: String.raw`\u003ctoken\u003e`,
-    toolResponseBody: String.raw`\u003ctoken\u003e`,
-    safeBody: "[redacted transport credential]",
-  },
-  {
-    label: "quoted escaped array entry before invalid JSON",
-    credential: "<s>",
-    wire: String.raw`\u003cs\u003e`,
-    toolResponseBody: String.raw`["\u003cs\u003e",x]`,
-    safeBody: '["[redacted transport credential]",x]',
-  },
-])(
-  "redacts $label from malformed successful HTTP JSON responses",
-  async ({ credential, wire, toolResponseBody, safeBody }) => {
+it.each(
+  [
+    { toolStatus: 200, toolContentType: "application/json" },
+    { toolStatus: 500, toolContentType: "application/json" },
+    {
+      toolStatus: 500,
+      toolContentType: "application/problem+json; charset=utf-8",
+    },
+  ].flatMap((response) =>
+    [
+      {
+        label: "unquoted escaped body",
+        credential: "<token>",
+        wire: String.raw`\u003ctoken\u003e`,
+        toolResponseBody: String.raw`\u003ctoken\u003e`,
+        safeBody: "[redacted transport credential]",
+      },
+      {
+        label: "quoted escaped array entry before invalid JSON",
+        credential: "<s>",
+        wire: String.raw`\u003cs\u003e`,
+        toolResponseBody: String.raw`["\u003cs\u003e",x]`,
+        safeBody: '["[redacted transport credential]",x]',
+      },
+    ].map((body) => ({ ...response, ...body })),
+  ),
+)(
+  "redacts $label from malformed HTTP $toolStatus $toolContentType responses",
+  async ({
+    credential,
+    wire,
+    toolResponseBody,
+    safeBody,
+    toolStatus,
+    toolContentType,
+  }) => {
     const { connection } = await fixture({
       configurationHeaders: { Cookie: "token=" + credential },
       toolResponseBody,
+      toolStatus,
+      toolContentType,
     });
     await connection.connect();
     const failure = await connection
@@ -540,12 +573,32 @@ it.each([
     if (!(failure instanceof Error))
       throw new Error("Expected the SDK to reject malformed JSON");
     expect(failure.message).toContain(safeBody);
-    expect(failure.message).toMatch(/malformed.*HTTP.*JSON/iu);
+    if (toolStatus === 200)
+      expect(failure.message).toMatch(/malformed.*HTTP.*JSON/iu);
+    else expect(failure.cause).toMatchObject({ data: { status: 500 } });
     expect(failure.message).not.toContain(toolResponseBody);
     expect(failure.message).not.toContain(wire);
     expect(failure.message).not.toContain(credential);
   },
 );
+
+it("preserves JSON escape syntax that spells a configured credential without containing its value", async () => {
+  const toolResponseBody = String.raw`{"reason":"\u003cpublic\u003e","numeric":9007199254740993}`;
+  const { connection } = await fixture({
+    toolStatus: 500,
+    configurationHeaders: { Cookie: "token=u003c" },
+    toolResponseBody,
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+  if (!(failure instanceof Error))
+    throw new Error("Expected the SDK to reject the HTTP failure");
+  expect(failure.message).toContain(toolResponseBody);
+  expect(failure.message).not.toContain("[redacted transport credential]");
+});
 
 it("redacts complete opaque authentication values containing quotes from plain HTTP error bodies", async () => {
   const credential = 'prefix"quoted"suffix';
@@ -595,3 +648,26 @@ it.each(["Rejected ", ""])(
     expect(failure.message).not.toContain(credential);
   },
 );
+
+it("redacts a JSON-RPC error exactly once after successful HTTP delivery", async () => {
+  const { connection } = await fixture({
+    configurationHeaders: { Cookie: "token=redacted" },
+    toolRpcError: { code: -32602, message: "redacted at /caller/input" },
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error))
+    throw new Error("Expected the SDK to reject the JSON-RPC error");
+  expect(failure.cause).toBeInstanceOf(ProtocolError);
+  expect(
+    failure.message.endsWith(
+      "[redacted transport credential] at /caller/input",
+    ),
+  ).toBe(true);
+  expect(
+    failure.message.match(/\[redacted transport credential\]/gu),
+  ).toHaveLength(1);
+  expect(failure.message).not.toContain("[[redacted");
+});

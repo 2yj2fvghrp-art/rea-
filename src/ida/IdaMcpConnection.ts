@@ -132,7 +132,7 @@ export const createIdaMcpConnection = (
   const transportFailure = (cause: unknown): never => {
     if (cause instanceof IdaHttpJsonError)
       throw new Error(
-        `${cause.message} Response body: ${redactor.json(cause.text, { malformed: true })}`,
+        `${cause.message} Response body: ${redactor.json(cause.text)}`,
         { cause },
       );
     const message =
