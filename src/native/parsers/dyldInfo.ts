@@ -99,9 +99,8 @@ interface ReexportRow {
  * Split a `[re-export]` row without nested lazy quantifiers.
  *
  * Returns null when the line is not a re-export row so callers fall through
- * to the plain export parser. A `[re-export]` line without a valid trailing
- * `(from lib)` / `(old from lib)` suffix keeps its whole remainder as a bare
- * name, matching the previous optional-suffix behaviour.
+ * to the plain export parser. Known names disambiguate nested parentheses;
+ * when that inventory is incomplete, retain the suffix-based fallback.
  */
 const parseReexportRow = (
   line: string,
@@ -126,8 +125,7 @@ const parseReexportRow = (
   // Competing known interpretations remain unknown rather than creating a new name.
   if (candidates.length > 0)
     return candidates.length === 1 ? candidates[0]! : null;
-  if (knownNames.size > 0)
-    return knownNames.has(rest) ? { name: rest, source: null } : null;
+  if (knownNames.has(rest)) return { name: rest, source: null };
   let depth = 0;
   for (let index = rest.length - 1; index >= 0; index--) {
     if (rest[index] === ")") depth++;

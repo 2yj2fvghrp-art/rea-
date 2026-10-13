@@ -522,6 +522,25 @@ it("leaves an ambiguous short and literal name to the caller's nm inventory", ()
   ).toEqual([]);
 });
 
+it("retains unmatched re-export rows when the known export inventory is incomplete", () => {
+  expect(
+    parseDyldSymbols(
+      "[re-export] _g (from libfoo)",
+      "exports",
+      null,
+      new Set(["_own"]),
+    ),
+  ).toEqual([
+    {
+      name: "_g",
+      address: null,
+      weak: null,
+      reexport: true,
+      source: "libfoo",
+    },
+  ]);
+});
+
 it("retains annotation parsing without nm name evidence", () => {
   expect(parseDyldSymbols("0x120 _weak [weak-def]", "exports")).toEqual([
     {
