@@ -92,6 +92,7 @@ export const collectSemanticModuleLink = (
         kind: "type-import",
         specifier: request.specifier,
         importedName: request.path.length === 0 ? null : request.path.join("."),
+        importedPath: request.path,
         localName: null,
         exportedName: null,
         ...(resolutionMode === undefined ? {} : { resolutionMode }),

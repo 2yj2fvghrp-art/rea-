@@ -551,14 +551,16 @@ const moduleLink = z
     ]),
     specifier: z.string().nullable(),
     importedName: z.string().nullable(),
+    importedPath: z.array(z.string()).optional(),
     localName: z.string().nullable(),
     exportedName: z.string().nullable(),
     callableId: z.string().nullable(),
     location: range,
   })
-  .transform(({ resolutionMode, ...rest }) => ({
+  .transform(({ resolutionMode, importedPath, ...rest }) => ({
     ...rest,
     ...(resolutionMode === undefined ? {} : { resolutionMode }),
+    ...(importedPath === undefined ? {} : { importedPath }),
   }));
 const definitionKind = z.enum([
   "import",

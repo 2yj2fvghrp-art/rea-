@@ -442,3 +442,29 @@ it("keeps malformed mode attribute lists and interpolated type keys unknown", as
     await worker.close();
   }
 });
+
+it("retains inline type segment identity across the worker boundary", async () => {
+  const worker = new JavaScriptAnalysisWorker({
+    heapMb: 128,
+    timeoutMs: 30_000,
+  });
+  try {
+    const result = await worker.analyze(
+      source(
+        "segments.mts",
+        [
+          'type Nested = import("native-mode/addon.node").A.B;',
+          'type Literal = (typeof import("native-mode/addon.node"))["A.B"];',
+        ].join("\n"),
+      ),
+      100,
+    );
+    if (!result.ok) throw result.error.error;
+    expect(result.value.module?.moduleLinks).toMatchObject([
+      { importedName: "A.B", importedPath: ["A", "B"] },
+      { importedName: "A.B", importedPath: ["A.B"] },
+    ]);
+  } finally {
+    await worker.close();
+  }
+});
