@@ -160,7 +160,9 @@ const viteHelperCandidate = (
     name,
     helper,
     table: cache.right.right,
-    uncertain: defaults.uncertain,
+    uncertain:
+      defaults.uncertain ||
+      state.ambientWrites.covers(["global", "Array", "prototype", "map"]),
   };
 };
 
@@ -277,14 +279,16 @@ const assignmentGuardedParameterDefault = (
           t.isLogicalExpression(statement.expression, { operator: "&&" })
         ? statement.expression.left
         : undefined;
-  if (
-    test === undefined ||
-    !t.isBinaryExpression(test, { operator: "===" }) ||
-    !t.isIdentifier(test.left, { name })
-  )
+  if (test === undefined || !t.isBinaryExpression(test, { operator: "===" }))
     return undefined;
-  const exactUndefined = defaultUndefined(test.right, state);
-  if (!exactUndefined && !t.isIdentifier(test.right, { name: "undefined" }))
+  const undefinedValue = t.isIdentifier(test.left, { name })
+    ? test.right
+    : t.isIdentifier(test.right, { name })
+      ? test.left
+      : undefined;
+  if (undefinedValue === undefined) return undefined;
+  const exactUndefined = defaultUndefined(undefinedValue, state);
+  if (!exactUndefined && !t.isIdentifier(undefinedValue, { name: "undefined" }))
     return undefined;
   const consequent = t.isIfStatement(statement)
     ? statement.consequent

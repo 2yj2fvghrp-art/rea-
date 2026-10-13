@@ -156,7 +156,7 @@ function* createViteCacheOriginsSteps(
     const previous = cached.get(node);
     if (previous !== undefined) return previous;
     let ownership: CacheOwnership | undefined;
-    for (const [source, suffix] of viteAliasSources(node, state))
+    for (const [source, suffix] of viteAliasSources(node, state, facts))
       if (facts.has(source)) {
         const selected = selectOwnership(facts.get(source), suffix);
         if (selected !== undefined)
@@ -234,6 +234,32 @@ function* indexViteAliasesSteps(
             }
           : {}),
       });
+      const expression = unwrapJavaScriptExpression(initializer.node).node;
+      if (
+        initializer.projection.length === 0 &&
+        t.isObjectExpression(expression) &&
+        expression.properties.every(
+          (property) =>
+            t.isObjectProperty(property) &&
+            semanticStaticPropertyKey(property.key, property.computed) !== null,
+        )
+      ) {
+        const properties = new Map<string, t.Node>();
+        for (const property of expression.properties.toReversed())
+          if (t.isObjectProperty(property)) {
+            const key = semanticStaticPropertyKey(
+              property.key,
+              property.computed,
+            );
+            if (key !== null && !properties.has(key))
+              properties.set(key, property.value);
+          }
+        for (const [key, value] of properties)
+          connect(value, {
+            target: viteCacheMemberVertex(binding.bindingId, key),
+            first: undefined,
+          });
+      }
     }
   }
   // shared initializer expressions are vertices, rather than duplicating all
@@ -309,7 +335,13 @@ function* aliasProducerInputsSteps(
           overwritten = true;
       } else {
         const key = semanticStaticPropertyKey(property.key, property.computed);
-        if (key === "f" && t.isObjectProperty(property)) {
+        if (
+          key !== null &&
+          (first === undefined || first === null
+            ? key === "f"
+            : key === first) &&
+          t.isObjectProperty(property)
+        ) {
           if (
             yield* freshCacheReplacementSteps(property.value, freshFacts, state)
           ) {
@@ -445,6 +477,8 @@ function* freshCacheReplacementSteps(
       if (
         binding === undefined ||
         initializer === undefined ||
+        binding.mutatedPaths.length > 0 ||
+        binding.escapedPaths.length > 0 ||
         activeBindings.has(binding.bindingId)
       ) {
         facts.set(current.node, false);
@@ -618,6 +652,7 @@ const selectOwnership = (
 const viteAliasSources = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
+  facts: ReadonlyMap<AliasVertex, CacheOwnership>,
   first: CacheKey = undefined,
 ): ReadonlyMap<string, CacheKey> => {
   const sources = new Map<string, CacheKey>();
@@ -630,11 +665,14 @@ const viteAliasSources = (
     if (t.isIdentifier(root)) {
       const binding = resolveSemanticBindingState(state, root, root.name);
       if (binding === undefined) continue;
-      const previous = sources.get(binding.bindingId);
-      sources.set(
-        binding.bindingId,
-        sources.has(binding.bindingId) && previous !== key ? null : key,
-      );
+      const member =
+        key === undefined || key === null
+          ? undefined
+          : viteCacheMemberVertex(binding.bindingId, key);
+      const source =
+        member !== undefined && facts.has(member) ? member : binding.bindingId;
+      const previous = sources.get(source);
+      sources.set(source, sources.has(source) && previous !== key ? null : key);
     } else if (t.isConditionalExpression(root))
       pending.push(
         { node: root.consequent, first: key },
@@ -653,3 +691,6 @@ const viteAliasSources = (
   }
   return sources;
 };
+
+const viteCacheMemberVertex = (binding: string, key: string): string =>
+  `${binding}:vite-member:${encodeURIComponent(key)}`;

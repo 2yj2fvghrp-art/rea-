@@ -55,6 +55,16 @@ const typescriptEs5Minified = typescriptEs5
     'd === void 0 && (d = m.f || (m.f = ["./caf\\u00e9.js", \'./nested\\/dep.js\', "./bracket].js"]));',
   );
 
+const typescriptEs5ReversedGuard = typescriptEs5Minified
+  .replace(
+    "m === void 0 && (m = __vite__mapDeps);",
+    "void 0 === m && (m = __vite__mapDeps);",
+  )
+  .replace(
+    "d === void 0 && (d = m.f || (m.f =",
+    "void 0 === d && (d = m.f || (m.f =",
+  );
+
 const scenarios = [
   {
     file: "escaped.js",
@@ -74,6 +84,12 @@ const scenarios = [
   {
     file: "typescript-es5-minified.js",
     source: typescriptEs5Minified,
+    resolved: ["café.js", "nested/dep.js", "bracket].js"],
+    unknown: false,
+  },
+  {
+    file: "typescript-es5-reversed-guards.js",
+    source: typescriptEs5ReversedGuard,
     resolved: ["café.js", "nested/dep.js", "bracket].js"],
     unknown: false,
   },
@@ -386,6 +402,11 @@ const scenarios = [
       kept: true,
     },
     {
+      file: "mutated-replacement-alias.js",
+      mutation:
+        '__vite__mapDeps([0]); const replacement = []; replacement[0] = __vite__mapDeps.f; const copy = {f: replacement}; copy.f[0] = "./last.js";',
+    },
+    {
       file: "spread-overridden-child.js",
       mutation:
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: []}; copy.f[0] = "./last.js";',
@@ -456,6 +477,24 @@ const scenarios = [
     source: mapDependencies('["./first.js"]', "[0]").replace(
       "__vite__mapDeps([0]);",
       '__vite__mapDeps([0]); const box = {f: __vite__mapDeps.f}; box.f[0] = "./last.js"; __vite__mapDeps([0]);',
+    ),
+    resolved: [],
+    unknown: true,
+  },
+  {
+    file: "cache-non-f-property.js",
+    source: mapDependencies('["./first.js"]', "[0]").replace(
+      "__vite__mapDeps([0]);",
+      '__vite__mapDeps([0]); const box = {cache: __vite__mapDeps.f}; box.cache[0] = "./last.js"; __vite__mapDeps([0]);',
+    ),
+    resolved: [],
+    unknown: true,
+  },
+  {
+    file: "mutated-array-map.js",
+    source: mapDependencies('["./first.js"]', "[0]").replace(
+      "const __vite__mapDeps",
+      'Array.prototype.map = function () { return ["./last.js"]; };\nconst __vite__mapDeps',
     ),
     resolved: [],
     unknown: true,
