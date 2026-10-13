@@ -52,8 +52,7 @@ const appendCharacterRunMatches = (
   offset: number,
   matches: Matches,
   ranges: Match[],
-): readonly Match[] => {
-  const decodedRuns: Match[] = [];
+): void => {
   for (const run of encoded.matchAll(JSON_CHARACTER_RUN)) {
     // The run grammar admits only complete JSON characters. JSON.parse owns
     // their decoded meaning; malformed units remain verbatim between runs.
@@ -61,10 +60,8 @@ const appendCharacterRunMatches = (
     if (typeof decoded !== "string")
       throw new TypeError("A JSON character run did not decode to a string.");
     const start = offset + run.index;
-    decodedRuns.push({ start, end: start + run[0].length });
     appendStringMatches(run[0], decoded, start, matches, ranges);
   }
-  return decodedRuns;
 };
 
 /** Redact complete or malformed JSON diagnostics without rewriting unrelated source. */
@@ -73,26 +70,27 @@ export const redactIdaJsonDiagnostic = (
   matches: Matches,
 ): string => {
   const ranges: Match[] = [];
+  let validDocument = false;
+  try {
+    JSON.parse(text);
+    validDocument = true;
+  } catch {
+    // Recovery cannot establish a unique meaning for a malformed document.
+    // Retain both its raw credentials and complete decoded character matches.
+  }
   const literalMatches = matches(text);
   let literalIndex = 0;
-  const appendLiteralMatches = (
-    decodedRuns: readonly Match[],
-    end: number,
-  ): void => {
-    // Only trusted decoded runs supersede literal interpretation. Preserve raw
-    // credentials crossing quotes or malformed units; ignore escape syntax
-    // matches entirely inside a run whose decoded value owns that meaning.
-    let runIndex = 0;
+  const appendLiteralMatches = (end: number, completeString?: Match): void => {
+    // Only a complete string in a valid document owns decoded-only semantics.
+    // Raw matches crossing tokens remain visible to the credential boundary.
     while (literalIndex < literalMatches.length) {
       const match = literalMatches[literalIndex];
       if (match === undefined || match.start >= end) break;
-      while (
-        runIndex < decodedRuns.length &&
-        (decodedRuns[runIndex]?.end ?? 0) <= match.start
+      if (
+        completeString === undefined ||
+        match.start < completeString.start ||
+        match.end > completeString.end
       )
-        runIndex++;
-      const run = decodedRuns[runIndex];
-      if (run === undefined || match.start < run.start || match.end > run.end)
         ranges.push(match);
       literalIndex++;
     }
@@ -103,19 +101,15 @@ export const redactIdaJsonDiagnostic = (
     if (scanner.getToken() !== JSON_STRING_LITERAL) continue;
     const start = scanner.getTokenOffset();
     const end = start + scanner.getTokenLength();
-    // This boundary owns JSON diagnostics, including incomplete documents.
-    // Callers select the format; they do not select a separate recovery policy.
-    if (scannedEnd < start)
-      appendLiteralMatches(
-        appendCharacterRunMatches(
-          text.slice(scannedEnd, start),
-          scannedEnd,
-          matches,
-          ranges,
-        ),
-        start,
+    if (scannedEnd < start) {
+      appendCharacterRunMatches(
+        text.slice(scannedEnd, start),
+        scannedEnd,
+        matches,
+        ranges,
       );
-    let decodedRuns: readonly Match[];
+      appendLiteralMatches(start);
+    }
     if (scanner.getTokenError() === JSON_NO_ERROR) {
       appendStringMatches(
         text.slice(start + 1, end - 1),
@@ -124,26 +118,25 @@ export const redactIdaJsonDiagnostic = (
         matches,
         ranges,
       );
-      decodedRuns = [{ start, end }];
-    } else
-      decodedRuns = appendCharacterRunMatches(
+      appendLiteralMatches(end, validDocument ? { start, end } : undefined);
+    } else {
+      appendCharacterRunMatches(
         text.slice(start + 1, end),
         start + 1,
         matches,
         ranges,
       );
-    appendLiteralMatches(decodedRuns, end);
+      appendLiteralMatches(end);
+    }
     scannedEnd = end;
   }
-  appendLiteralMatches(
-    appendCharacterRunMatches(
-      text.slice(scannedEnd),
-      scannedEnd,
-      matches,
-      ranges,
-    ),
-    text.length,
+  appendCharacterRunMatches(
+    text.slice(scannedEnd),
+    scannedEnd,
+    matches,
+    ranges,
   );
+  appendLiteralMatches(text.length);
   if (ranges.length === 0) return text;
   ranges.sort(
     (left, right) => left.start - right.start || right.end - left.end,

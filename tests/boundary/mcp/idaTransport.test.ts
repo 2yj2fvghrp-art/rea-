@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AnalysisProtocolError } from "../../../src/domain/analysisErrorCore.js";
 import type { JsonValue } from "../../../src/domain/jsonValue.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { ProviderAdapterError } from "../../../src/domain/providerAdapterError.js";
 import { createIdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 import type { IdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 
@@ -523,15 +524,17 @@ it.each<{
   },
 );
 
+const jsonFailureResponses = [
+  { toolStatus: 200, toolContentType: "application/json" },
+  { toolStatus: 500, toolContentType: "application/json" },
+  {
+    toolStatus: 500,
+    toolContentType: "application/problem+json; charset=utf-8",
+  },
+] as const;
+
 it.each(
-  [
-    { toolStatus: 200, toolContentType: "application/json" },
-    { toolStatus: 500, toolContentType: "application/json" },
-    {
-      toolStatus: 500,
-      toolContentType: "application/problem+json; charset=utf-8",
-    },
-  ].flatMap((response) =>
+  jsonFailureResponses.flatMap((response) =>
     [
       {
         label: "unquoted escaped body",
@@ -579,6 +582,75 @@ it.each(
     expect(failure.message).not.toContain(toolResponseBody);
     expect(failure.message).not.toContain(wire);
     expect(failure.message).not.toContain(credential);
+  },
+);
+
+it.each(
+  jsonFailureResponses.flatMap((response) =>
+    [
+      {
+        credentialLabel: "literal short escape",
+        credential: String.raw`folder\tmp`,
+      },
+      {
+        credentialLabel: "literal Unicode escape",
+        credential: String.raw`folder\u0061`,
+      },
+    ].flatMap((credentialCase) =>
+      [
+        {
+          bodyLabel: "unquoted body",
+          prefix: "Rejected ",
+          suffix: " at /caller/input?cursor=visible",
+        },
+        {
+          bodyLabel: "quoted value in an invalid document",
+          prefix: 'Rejected "',
+          suffix: '" at /caller/input?cursor=visible',
+        },
+        {
+          bodyLabel: "unfinished JSON string",
+          prefix: '{"reason":"Rejected ',
+          suffix: " at /caller/input?cursor=visible",
+        },
+      ].map((body) => ({ ...response, ...credentialCase, ...body })),
+    ),
+  ),
+)(
+  "redacts $credentialLabel in $bodyLabel from HTTP $toolStatus $toolContentType diagnostics and their public projection",
+  async ({ credential, toolStatus, toolContentType, prefix, suffix }) => {
+    const { connection } = await fixture({
+      configurationHeaders: { Authorization: "Custom " + credential },
+      toolStatus,
+      toolContentType,
+      toolResponseBody: prefix + credential + suffix,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error))
+      throw new Error("Expected the SDK to reject malformed JSON");
+    expect(failure.message).toContain(
+      prefix + "[redacted transport credential]" + suffix,
+    );
+    expect(failure.message).not.toContain(credential);
+    if (toolStatus === 200)
+      expect(failure.message).toMatch(/malformed.*HTTP.*JSON/iu);
+    else expect(failure.cause).toMatchObject({ data: { status: 500 } });
+    const projected = projectAnalysisError(
+      new ProviderAdapterError("ida", "decompile", {
+        cause: failure,
+        diagnostics: { reason: failure.message },
+      }),
+    );
+    expect(projected).toMatchObject({
+      code: "execution_failure",
+      details: { diagnostics: { reason: failure.message } },
+    });
+    expect(JSON.stringify(projected)).not.toContain(
+      JSON.stringify(credential).slice(1, -1),
+    );
   },
 );
 

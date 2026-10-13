@@ -88,6 +88,32 @@ describe("IDA JSON diagnostic source preservation", () => {
     ).toBe(`{"x":"${marker}"}`);
   });
 
+  it.each(
+    ["b", "f", "n", "r", "t", "/", '"', "\\", "u0061"].map(
+      (escape) => "folder\\" + escape + "tmp",
+    ),
+  )(
+    "retains literal credentials in ambiguous malformed fragments: %s",
+    (credential) => {
+      const redactor = forCredential(credential);
+      for (const [before, after] of [
+        ["Rejected ", ""],
+        ['Rejected "', '"'],
+        ['{"reason":"Rejected ', ""],
+        ['{"reason":"Rejected ', String.raw`\q"}`],
+      ])
+        expect(redactor.json(before + credential + after)).toBe(
+          before + marker + after,
+        );
+      expect(redactor.json('"' + credential + '"')).toBe(
+        '"' + credential + '"',
+      );
+      expect(redactor.json(JSON.stringify("Rejected " + credential))).toBe(
+        JSON.stringify("Rejected " + marker),
+      );
+    },
+  );
+
   it("uses decoded values instead of matching unrelated escape syntax", () => {
     const source = String.raw`{"x":"\u003cpublic\u003e","y":"u003c"}`;
     expect(forCredential("u003c").json(source)).toBe(
@@ -117,8 +143,11 @@ describe("IDA JSON diagnostic source preservation", () => {
     expect(redactor.json(source)).toBe(marker);
     const invalid = String.raw`<sec\qret>`;
     expect(redactor.json(invalid)).toBe(invalid);
-    const unrelated = String.raw`\u003cpublic\u003e`;
+    const unrelated = String.raw`"\u003cpublic\u003e"`;
     expect(forCredential("u003c").json(unrelated)).toBe(unrelated);
+    expect(forCredential("u003c").json(unrelated.slice(1, -1))).toBe(
+      "\\" + marker + String.raw`public\u003e`,
+    );
   });
   it("leaves ordinary text diagnostics and credential-free configurations unchanged", () => {
     const source = String.raw`{"x":"\u003csecret\u003e"}`;
