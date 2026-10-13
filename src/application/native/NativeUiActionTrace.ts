@@ -449,7 +449,7 @@ const addDirectCallees = async (input: {
         evidence: [
           {
             kind: "reference",
-            description: unknown.reason,
+            description: `${unknown.provider.name} reported an unresolved call: ${unknown.reason}`,
             location: { address: unknown.address, file_offset: null },
             artifact_path: null,
             artifact_sha256: input.targetSha256,

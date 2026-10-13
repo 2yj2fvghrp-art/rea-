@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   AnalysisOperationPort,
   ExecutionOptions,
+  ProviderIdentity,
 } from "../AnalysisProvider.js";
 import {
   parseRelatedAddresses,
@@ -40,6 +41,11 @@ export const readNativeCallRoutes = async (
     { procedure, direction: "outgoing" },
     options,
   );
+  let unknowns: Array<{
+    address: string;
+    reason: string;
+    provider: ProviderIdentity;
+  }> = [];
   if (execution.ok) {
     const parsed = referencesSchema.safeParse(execution.value.result);
     if (!parsed.success)
@@ -49,6 +55,13 @@ export const readNativeCallRoutes = async (
           "Invalid typed call references",
         ),
       );
+    // Missing detailed reference flags do not invalidate observed targetless
+    // calls. Keep their producing provider even if another provider supplies
+    // the fallback callee inventory.
+    unknowns = parsed.data.unresolved_calls.map((call) => ({
+      ...call,
+      provider: execution.value.provider,
+    }));
     const references = parsed.data.references;
     if (
       parsed.data.reference_kinds_available === true ||
@@ -81,7 +94,7 @@ export const readNativeCallRoutes = async (
                 ? ("resolved" as const)
                 : ("observed" as const),
         })),
-        unknowns: parsed.data.unresolved_calls,
+        unknowns,
       });
     }
   } else if (execution.error._tag !== "AnalysisCapabilityUnavailableError")
@@ -102,7 +115,7 @@ export const readNativeCallRoutes = async (
           relation: "provider_call" as const,
           resolution: "inferred" as const,
         })),
-        unknowns: [],
+        unknowns,
       })
     : parsed;
 };
