@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, writeFile } from "node:fs/promises";
+import { access, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
@@ -46,6 +46,7 @@ const packageRoot = resolve(
   values["package-root"] ?? fileURLToPath(new URL("..", import.meta.url)),
 );
 const target = resolve(values.target);
+const admittedDocument = await realpath(target);
 const entry = join(packageRoot, "scripts", "rea.mjs");
 const importBuilt = (path) =>
   import(pathToFileURL(join(packageRoot, "dist", path)).href);
@@ -98,6 +99,10 @@ const expectedXref =
 let phase = "target admission";
 const workspaces = new Set();
 const databases = new Set();
+let cliOverviewResult;
+let mcpOverview;
+let procedureInventoryCount;
+let stringInventoryCount;
 const digest = async () => {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(target)) hash.update(chunk);
@@ -142,7 +147,8 @@ const verifyOverview = (input, surface) => {
   assert.equal(upstream.parameters.engine_version, null);
   report.observations.push(evidence);
   const overview = evidence.normalized_result;
-  assert.equal(overview.document, target);
+  assert.equal(evidence.subject?.local_path, admittedDocument);
+  assert.equal(overview.document, admittedDocument);
   assert.equal(typeof overview.procedure_count, "number");
   assert.equal(typeof overview.string_count, "number");
   for (const omitted of ["segments", "segment_count", "image_base"])
@@ -150,6 +156,7 @@ const verifyOverview = (input, surface) => {
   report.checks.push(
     `${surface} binary overview identifies the admitted program, reports procedure/string counts, and omits unobserved segment fields`,
   );
+  return overview;
 };
 const cliOverview = async () => {
   phase = "production CLI binary overview";
@@ -162,7 +169,7 @@ const cliOverview = async () => {
       maxBuffer: 16 * 1024 * 1024,
     },
   );
-  verifyOverview(JSON.parse(stdout), `${config.mode} CLI`);
+  cliOverviewResult = verifyOverview(JSON.parse(stdout), `${config.mode} CLI`);
 };
 const cli = async () => {
   phase = "production CLI function analysis";
@@ -225,7 +232,10 @@ const mcp = async (cliDossier) => {
     assert.equal(dossier.pseudocode, cliDossier.pseudocode);
     assert.deepEqual(dossier.assembly, cliDossier.assembly);
     assert.equal(analyzed.operation, "analyze_function");
-    verifyOverview(await call("binary_overview", {}), `${config.mode} MCP`);
+    mcpOverview = verifyOverview(
+      await call("binary_overview", {}),
+      `${config.mode} MCP`,
+    );
     for (const [name, args] of [
       ["list_procedures", {}],
       ["list_strings", {}],
@@ -261,6 +271,8 @@ const mcp = async (cliDossier) => {
             ),
             `${name} omitted the resolved procedure.`,
           );
+          if (name === "list_procedures")
+            procedureInventoryCount = value.length;
           break;
         case "procedure_address":
           assert.equal(value, dossier.procedure.address);
@@ -287,6 +299,7 @@ const mcp = async (cliDossier) => {
           break;
         case "list_strings":
         case "search_strings":
+          if (name === "list_strings") stringInventoryCount = value.length;
           if (values["expected-string"] !== undefined)
             assert.ok(
               value.some((item) =>
@@ -463,6 +476,26 @@ try {
   const before = await digest();
   await cliOverview();
   await mcp(await cli());
+  assert.equal(typeof procedureInventoryCount, "number");
+  assert.equal(typeof stringInventoryCount, "number");
+  for (const [surface, overview] of [
+    ["CLI", cliOverviewResult],
+    ["MCP", mcpOverview],
+  ]) {
+    assert.equal(
+      overview.procedure_count,
+      procedureInventoryCount,
+      `${surface} binary overview disagrees with the complete procedure inventory`,
+    );
+    assert.equal(
+      overview.string_count,
+      stringInventoryCount,
+      `${surface} binary overview disagrees with the complete string inventory`,
+    );
+  }
+  report.checks.push(
+    "CLI and MCP overview totals match the real procedure and string inventories",
+  );
   await cleanup();
   assert.equal(await digest(), before);
   report.checks.push("original binary unchanged and never executed");
