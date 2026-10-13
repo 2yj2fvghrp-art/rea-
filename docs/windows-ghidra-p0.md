@@ -177,6 +177,8 @@ npm run verify:ghidra:windows
 npm run verify:ghidra:windows -- --x86
 npm run verify:ghidra:windows -- --dll
 npm run verify:ghidra:windows -- --x86 --dll
+npm run verify:ghidra:windows -- --arm64
+npm run verify:ghidra:windows -- --arm64 --dll
 npm run verify:ghidra:windows:package -- --x86
 npm run verify:ghidra:windows:package -- --dll
 npm run verify:ghidra:windows:package -- --x86 --dll

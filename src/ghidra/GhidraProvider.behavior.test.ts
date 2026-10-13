@@ -415,12 +415,18 @@ describe("Ghidra Windows PE fixture admission", () => {
       join(root, "scripts/create-ghidra-windows-fixture.mjs"),
     ]);
     const ghidra = provider({ ...installationHost(), platform: "win32" });
-    for (const architecture of ["x86", "x86_64"] as const) {
+    for (const architecture of ["x86", "x86_64", "arm64"] as const) {
       for (const dll of [false, true]) {
+        const suffix =
+          architecture === "x86"
+            ? "-x86"
+            : architecture === "arm64"
+              ? "-arm64"
+              : "";
         const path = join(
           root,
           "build/fixtures",
-          `rea-ghidra-windows${architecture === "x86" ? "-x86" : ""}.${dll ? "dll" : "exe"}`,
+          `rea-ghidra-windows${suffix}.${dll ? "dll" : "exe"}`,
         );
         const bytes = await readFile(path);
         const metadata = parseExecutableHeader(bytes, "x64");
