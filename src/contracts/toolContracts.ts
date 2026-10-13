@@ -1,3 +1,5 @@
+import { CAPTURE_TOOL_CONTRACTS } from "./captures/captureToolContracts.js";
+import { SIGNAL_TOOL_CONTRACTS } from "./signals/signalToolContracts.js";
 import { WASM_TOOL_CONTRACTS } from "./wasm/wasmToolContracts.js";
 import { EVM_TOOL_CONTRACTS } from "./evm/evmToolContracts.js";
 import { GO_TOOL_CONTRACTS } from "./go/goToolContracts.js";
@@ -10,6 +12,7 @@ import { MANAGED_TOOL_CONTRACTS } from "./managed/managedToolContracts.js";
 import { FIRMWARE_TOOL_CONTRACTS } from "./firmware/firmwareToolContracts.js";
 import { ANDROID_TOOL_CONTRACTS } from "./android/androidToolContracts.js";
 import { APKTOOL_TOOL_CONTRACTS } from "./apktool/apktoolToolContracts.js";
+import { PCAP_TOOL_CONTRACTS } from "./pcap/pcapToolContracts.js";
 import { FLUTTER_TOOL_CONTRACTS } from "./flutter/flutterToolContracts.js";
 import { JEB_TOOL_CONTRACTS } from "./jeb/jebToolContracts.js";
 import { ADB_TOOL_CONTRACTS } from "./adb/adbToolContracts.js";
@@ -39,9 +42,12 @@ export const TOOL_CONTRACTS = [
   ...GO_TOOL_CONTRACTS,
   ...WASM_TOOL_CONTRACTS,
   ...SQLITE_TOOL_CONTRACTS,
+  ...CAPTURE_TOOL_CONTRACTS,
+  ...SIGNAL_TOOL_CONTRACTS,
   ...MANAGED_TOOL_CONTRACTS,
   ...ANDROID_TOOL_CONTRACTS,
   ...APKTOOL_TOOL_CONTRACTS,
+  ...PCAP_TOOL_CONTRACTS,
   ...FLUTTER_TOOL_CONTRACTS,
   ...JEB_TOOL_CONTRACTS,
   ...ADB_TOOL_CONTRACTS,

@@ -30,6 +30,8 @@ export const toolFamilyCatalog = (sources) => {
         ...sources.goContracts.GO_TOOL_CONTRACTS,
         ...sources.wasmContracts.WASM_TOOL_CONTRACTS,
         ...sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
+        ...sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
+        ...sources.signalContracts.SIGNAL_TOOL_CONTRACTS,
       ],
     },
     {
@@ -49,6 +51,11 @@ export const toolFamilyCatalog = (sources) => {
       id: "android",
       surface: "android-provider",
       contracts: sources.androidContracts.ANDROID_TOOL_CONTRACTS,
+    },
+    {
+      id: "pcap",
+      surface: "pcap-provider",
+      contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
     },
     {
       id: "flutter",
@@ -197,6 +204,14 @@ export const providerCatalog = (sources) => {
         ),
     },
     {
+      identity: sources.captureProvider.TSHARK_PROVIDER_IDENTITY,
+      contracts: sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.signalProvider.SIGROK_PROVIDER_IDENTITY,
+      contracts: sources.signalContracts.SIGNAL_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.wasmProvider.WABT_PROVIDER_IDENTITY,
       contracts: sources.wasmContracts.WASM_TOOL_CONTRACTS,
     },
@@ -242,6 +257,10 @@ export const providerCatalog = (sources) => {
       contracts: sources.androidContracts.ANDROID_TOOL_CONTRACTS,
     },
     {
+      identity: sources.pcapProvider.PCAP_PROVIDER_IDENTITY,
+      contracts: sources.pcapContracts.PCAP_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.flutterProvider.FLUTTER_PROVIDER_IDENTITY,
       contracts: sources.flutterContracts.FLUTTER_TOOL_CONTRACTS,
     },
@@ -259,6 +278,11 @@ export const providerCatalog = (sources) => {
     },
     {
       identity: sources.webNetworkCaptureProvider.HAR_CAPTURE_PROVIDER_IDENTITY,
+      contracts:
+        sources.webNetworkCaptureContracts.WEB_NETWORK_CAPTURE_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.webNetworkCaptureProvider.SAZ_CAPTURE_PROVIDER_IDENTITY,
       contracts:
         sources.webNetworkCaptureContracts.WEB_NETWORK_CAPTURE_TOOL_CONTRACTS,
     },
