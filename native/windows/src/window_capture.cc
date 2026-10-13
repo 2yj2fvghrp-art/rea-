@@ -3,8 +3,10 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <objbase.h>
 #include <objidl.h>
+#include <thread>
 #include <wincodec.h>
 
 namespace rea {
@@ -235,6 +237,22 @@ class SelectedObject {
  private:
   HDC dc_;
   HGDIOBJ previous_;
+};
+
+// Own the bitmap and DC as one unit. A timed-out cross-process WM_PRINT may
+// still be using the HDC, so this owner can outlive the capture request.
+class CaptureSurface {
+ public:
+  CaptureSurface(int width, int height)
+      : bitmap_(width, height), selected_(dc_.get(), bitmap_.get()) {}
+  HDC dc() const { return dc_.get(); }
+  void* pixels() const { return bitmap_.pixels(); }
+  void makeOpaque() const { bitmap_.setOpaqueAlpha(); }
+
+ private:
+  DeviceContext dc_;
+  Bitmap bitmap_;
+  SelectedObject selected_;
 };
 
 void checkHr(HRESULT result, const char* constraint) {
@@ -498,7 +516,9 @@ void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::w
 
 WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
                           const std::wstring& targetPath, const std::wstring& targetSha256,
-                          const std::wstring& targetFileIdentity, const CaptureControl& control) {
+                          const std::wstring& targetFileIdentity, const CaptureControl& control,
+                          std::unique_ptr<CaptureSurface>& retainedSurface,
+                          Handle& retainedProcess) {
   const HWND window = reinterpret_cast<HWND>(handle);
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
@@ -521,23 +541,29 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
           "Selected window client area exceeds the capture limit", L"", ERROR_NOT_ENOUGH_MEMORY,
           FailureKind::SourcePixelLimit);
 
-  DeviceContext dc;
-  Bitmap bitmap(width, height);
-  SelectedObject selected(dc.get(), bitmap.get());
+  auto surface = std::make_unique<CaptureSurface>(width, height);
   DWORD_PTR ignored = 0;
   const UINT flags = PRF_CLIENT | PRF_ERASEBKGND;
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
   // Keep the revalidated process object alive through rendering and encoding.
   auto paintProcess = validateProcessIdentity(pid, startToken, imagePath);
+  SetLastError(ERROR_SUCCESS);
   const LRESULT delivered = SendMessageTimeoutW(window, WM_PRINT,
-                                                 reinterpret_cast<WPARAM>(dc.get()), flags,
+                                                 reinterpret_cast<WPARAM>(surface->dc()), flags,
                                                  SMTO_ABORTIFHUNG | SMTO_BLOCK, CAPTURE_TIMEOUT_MS, &ignored);
+  const DWORD deliveryError = GetLastError();
+  if (delivered == 0) {
+    // Timeout can return while the target's paint handler is still drawing.
+    // Keep both the surface and a process handle alive until that process exits.
+    retainedSurface = std::move(surface);
+    retainedProcess = std::move(paintProcess);
+    throw Failure("Selected window did not render within the capture deadline", L"",
+                  deliveryError == ERROR_SUCCESS ? ERROR_TIMEOUT : deliveryError);
+  }
   checkCaptureCancellation(control);
-  require(delivered != 0, "Selected window did not render within the capture deadline", L"",
-          GetLastError() == ERROR_SUCCESS ? ERROR_TIMEOUT : GetLastError());
   require(GdiFlush() != FALSE, "Flush selected-window drawing commands failed");
-  bitmap.setOpaqueAlpha();
+  surface->makeOpaque();
   validateWindowOwner(window, pid);
   auto observedProcess = validateProcessIdentity(pid, startToken, imagePath);
   const int longest = std::max(width, height);
@@ -546,7 +572,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   const int renderedHeight = std::max(1, static_cast<int>(std::floor(height * scale)));
 
   checkCaptureCancellation(control);
-  auto png = pngFromDib(width, height, bitmap.pixels(), maximumDimension);
+  auto png = pngFromDib(width, height, surface->pixels(), maximumDimension);
   checkCaptureCancellation(control);
   return {pid, handle, imagePath, startTimeMs, title, width, height,
           renderedWidth, renderedHeight, std::move(png)};
@@ -558,7 +584,8 @@ std::atomic_bool capturePending{false};
 
 struct CaptureWork {
   bool admitted = false;
-  ~CaptureWork() { if (admitted) capturePending.store(false); }
+  bool retained = false;
+  ~CaptureWork() { if (admitted && !retained) capturePending.store(false); }
   std::shared_ptr<CaptureControl> control = std::make_shared<CaptureControl>();
   napi_deferred deferred = nullptr;
   DWORD pid = 0;
@@ -568,6 +595,8 @@ struct CaptureWork {
   std::wstring targetSha256;
   std::wstring targetFileIdentity;
   WindowImage image;
+  std::unique_ptr<CaptureSurface> retainedSurface;
+  Handle retainedProcess;
   std::unique_ptr<Failure> failure;
 };
 
@@ -577,11 +606,44 @@ void executeCapture(napi_env, void* pointer) {
     // All Win32, GDI and COM resources live and unwind on this worker thread.
     // No N-API values or JavaScript handles are accessed here.
     work.image = captureWindow(work.pid, work.windowHandle, work.maximumDimension,
-                               work.targetPath, work.targetSha256, work.targetFileIdentity, *work.control);
+                               work.targetPath, work.targetSha256, work.targetFileIdentity, *work.control,
+                               work.retainedSurface, work.retainedProcess);
   } catch (const Failure& failure) {
     work.failure = std::make_unique<Failure>(failure);
   } catch (const std::exception& failure) {
     work.failure = std::make_unique<Failure>(failure.what(), L"", ERROR_GEN_FAILURE);
+  }
+  if (work.retainedSurface != nullptr && work.retainedProcess.valid()) {
+    struct RetainedOwner {
+      std::unique_ptr<CaptureSurface> surface;
+      Handle process;
+    };
+    auto* owner = new (std::nothrow) RetainedOwner{
+        std::move(work.retainedSurface), std::move(work.retainedProcess)};
+    if (owner == nullptr) {
+      // Allocation failure must not release a surface that the target may use.
+      (void)work.retainedSurface.release();
+      (void)work.retainedProcess.release();
+      work.retained = true;
+      return;
+    }
+    work.retained = true;
+    try {
+      std::thread([owner]() {
+        if (WaitForSingleObject(owner->process.get(), INFINITE) == WAIT_OBJECT_0) {
+          delete owner;
+          capturePending.store(false);
+        }
+        // If process wait itself fails, leak the owner and keep admission closed.
+      }).detach();
+    } catch (...) {
+      // If the reaper cannot start, retain the owner and keep admission closed.
+    }
+  } else if (work.retainedSurface != nullptr) {
+    // Without a waitable process identity there is no safe release condition.
+    (void)work.retainedSurface.release();
+    (void)work.retainedProcess.release();
+    work.retained = true;
   }
 }
 
