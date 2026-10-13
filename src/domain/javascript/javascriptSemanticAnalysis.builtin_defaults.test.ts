@@ -2,6 +2,59 @@ import { expect, it } from "vitest";
 
 import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
 
+it.each(["import fs from 'node:fs';", "const fs = require('node:fs');"])(
+  "retains reads and saved methods before a later write: %s",
+  (declaration) => {
+    const ir = analyzeJavaScriptSemantics(`${declaration}
+      fs.readFileSync('before');
+      const saved = fs.readFileSync;
+      const { readFileSync: destructured } = fs;
+      const namespace = fs;
+      fs.readFileSync = custom;
+      saved('saved'); destructured('destructured');
+      namespace.readFileSync('wrong'); fs.readFileSync('wrong');
+    `);
+    expect(ir.configurationOperations.map(({ key }) => key)).toEqual([
+      "before",
+      "saved",
+      "destructured",
+    ]);
+  },
+);
+
+it.each([
+  "const { readFileSync: read } = require('fs');",
+  "const read = require('fs').readFileSync;",
+])("checks cached module writes at the projected capture: %s", (capture) => {
+  const ir = analyzeJavaScriptSemantics(`
+    const fs = require('node:fs');
+    const saved = require('fs').readFileSync;
+    fs.readFileSync = custom;
+    ${capture}
+    read('wrong'); saved('saved');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["saved"]);
+});
+
+it("retains captured methods across later escapes without freezing a namespace alias", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    const fs = require('node:fs'); const saved = require('fs').readFileSync;
+    const namespace = require('fs'); patch(fs);
+    const late = require('fs').readFileSync;
+    saved('saved'); late('wrong'); namespace.readFileSync('wrong');
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["saved"]);
+});
+
+it("keeps writes in repeated callable and loop activations conservative", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    const fs = require('node:fs');
+    function run() { fs.readFileSync('wrong'); fs.readFileSync = custom; }
+    for (;;) { const read = require('fs').readFileSync; read('wrong'); fs.readFileSync = custom; }
+  `);
+  expect(ir.configurationOperations).toEqual([]);
+});
+
 it("does not propagate a reassigned local object's writes into cached exports", () => {
   const ir = analyzeJavaScriptSemantics(
     `let a = require('node:fs'); const b = require('node:fs'); a = {}; a.readFileSync = custom; b.readFileSync('kept');`,

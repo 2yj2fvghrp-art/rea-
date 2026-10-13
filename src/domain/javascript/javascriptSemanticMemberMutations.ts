@@ -48,39 +48,6 @@ export function* collectSemanticMemberMutationsSteps(
 ): Generator<void, void> {
   const parents = state.parentsByNode;
   const observablePaths = observableMutationPaths(state);
-  const requiredNamespaces = new Map<
-    string,
-    JavaScriptSemanticBindingState[]
-  >();
-  for (const binding of state.bindingsById.values()) {
-    for (const initializer of binding.initializers) {
-      const required = semanticRequireOrigin(initializer.node, state);
-      if (
-        required === undefined ||
-        required.origin.importedPath.length !== 0 ||
-        initializer.projection.length !== 0
-      )
-        continue;
-      const name = required.origin.specifier.replace(/^node:/u, "");
-      if (
-        ![
-          "fs",
-          "fs/promises",
-          "child_process",
-          "timers",
-          "http",
-          "https",
-          "process",
-          "net",
-          "tls",
-        ].includes(name)
-      )
-        continue;
-      const group = requiredNamespaces.get(name) ?? [];
-      if (!group.includes(binding)) group.push(binding);
-      requiredNamespaces.set(name, group);
-    }
-  }
   const returnedReferences = createSemanticReturnedReferences(state);
   const recordedEffects = new Set<string>();
   const selections = new Map<string, readonly string[]>();
@@ -146,24 +113,20 @@ export function* collectSemanticMemberMutationsSteps(
         // the captured initializer first so writes after reassignment do not
         // invalidate an unrelated original module object.
         const path = [...required.origin.importedPath, ...current.path];
-        for (const binding of requiredNamespaces.get(
-          required.origin.specifier.replace(/^node:/u, ""),
-        ) ?? []) {
-          const identity = JSON.stringify([
-            "required",
-            binding.bindingId,
-            effect,
-            path,
-            mutation?.start,
-            mutation?.end,
-          ]);
-          if (recordedEffects.has(identity)) continue;
-          recordedEffects.add(identity);
-          if (effect === "escape")
-            binding.escapedPaths.push({ path, node: mutation });
-          else binding.mutatedPaths.push(path);
-        }
-        clearSemanticPrimitiveBindingValues(state);
+        const name = required.origin.specifier.replace(/^node:/u, "");
+        const identity = JSON.stringify([
+          "required",
+          name,
+          effect,
+          path,
+          mutation?.start,
+          mutation?.end,
+        ]);
+        if (recordedEffects.has(identity)) continue;
+        recordedEffects.add(identity);
+        const effects = state.requiredModuleEffects.get(name) ?? [];
+        effects.push({ path, node: mutation, kind: effect });
+        state.requiredModuleEffects.set(name, effects);
         continue;
       }
       if (t.isIdentifier(expression)) {
@@ -301,7 +264,7 @@ export function* collectSemanticMemberMutationsSteps(
         // only its first write can target a primitive. Re-evaluating it would
         // replay every earlier write and make repeated writes superlinear.
         const value =
-          effect === "write" && binding.mutatedPaths.length === 0
+          effect === "write" && binding.memberWrites.length === 0
             ? evaluateSemanticBinding(binding, state)
             : undefined;
         const primitiveWrite =
@@ -315,7 +278,7 @@ export function* collectSemanticMemberMutationsSteps(
         if (!primitiveWrite) {
           if (effect === "escape")
             binding.escapedPaths.push({ path, node: mutation });
-          else binding.mutatedPaths.push(path);
+          else binding.memberWrites.push({ path, node: mutation });
           clearSemanticValueCaches(state);
           for (const initializer of origins.initializers)
             pending.push({

@@ -26,7 +26,18 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
   );
   await writeFile(
     join(root, "sibling.mjs"),
-    `import fs from 'node:fs'; fs.writeFileSync = custom; fs.readFileSync('sibling.json');`,
+    `import fs from 'node:fs'; fs.writeFileSync = custom; fs.readFileSync('sibling.json'); fs.readFileSync = custom;`,
+  );
+  await writeFile(
+    join(root, "captures.cjs"),
+    `const fs = require('node:fs');
+     const saved = require('fs').readFileSync;
+     const { readFileSync: savedDestructured } = fs;
+     fs.readFileSync('before-write.json'); fs.readFileSync = custom;
+     const { readFileSync: late } = require('fs');
+     const lateMember = require('fs').readFileSync;
+     saved('saved.json'); savedDestructured('saved-destructured.json');
+     late('wrong-late.json'); lateMember('wrong-member.json');`,
   );
   const { stdout } = await execute(
     process.execPath,
@@ -42,7 +53,13 @@ it("preserves earlier and sibling effects without inventing replaced cached-modu
       .filter(({ kind }) => kind === "config-source")
       .map(({ properties }) => properties.key)
       .sort(),
-  ).toEqual(["before.json", "sibling.json"]);
+  ).toEqual([
+    "before-write.json",
+    "before.json",
+    "saved-destructured.json",
+    "saved.json",
+    "sibling.json",
+  ]);
   expect(
     result.semantic_graph.nodes.filter(({ kind }) => kind === "resource"),
   ).toHaveLength(1);

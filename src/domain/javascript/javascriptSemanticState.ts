@@ -32,17 +32,19 @@ interface JavaScriptSemanticReferenceInitializer extends JavaScriptSemanticIniti
 }
 
 /** Mutable binding state used only while constructing the immutable IR. */
+export interface JavaScriptSemanticMemberEffect {
+  readonly path: JavaScriptSemanticPropertyPath;
+  readonly node: t.Node | undefined;
+}
+
 export interface JavaScriptSemanticBindingState {
   readonly bindingId: string;
   readonly scopeId: string;
   readonly name: string;
   kind: JavaScriptSemanticDefinition["kind"];
   mutable: boolean;
-  readonly mutatedPaths: JavaScriptSemanticPropertyPath[];
-  readonly escapedPaths: {
-    readonly path: JavaScriptSemanticPropertyPath;
-    readonly node: t.Node | undefined;
-  }[];
+  readonly memberWrites: JavaScriptSemanticMemberEffect[];
+  readonly escapedPaths: JavaScriptSemanticMemberEffect[];
   readonly definitions: JavaScriptSemanticDefinition[];
   readonly initializers: JavaScriptSemanticInitializer[];
   readonly referenceInitializers: JavaScriptSemanticReferenceInitializer[];
@@ -71,6 +73,13 @@ export interface JavaScriptSemanticAnalysisState {
   /** Scope boundaries and descendant scopes resolved on demand. */
   readonly scopeByNode: WeakMap<t.Node, JavaScriptSemanticScopeState>;
   readonly bindingsById: Map<string, JavaScriptSemanticBindingState>;
+  /** Effects on a cached require exports object, independent of local projections. */
+  readonly requiredModuleEffects: Map<
+    string,
+    (JavaScriptSemanticMemberEffect & {
+      readonly kind: "write" | "escape";
+    })[]
+  >;
   readonly callables: JavaScriptSemanticCallable[];
   readonly callableNodesById: Map<string, t.Node>;
   readonly moduleLinks: JavaScriptSemanticModuleLink[];

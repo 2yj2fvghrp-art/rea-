@@ -1,6 +1,7 @@
 import * as t from "@babel/types";
 
 import { semanticBuiltinNamespacePath } from "./javascriptSemanticProvenance.js";
+import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
 import {
   semanticPropertyPathKeyMatches,
@@ -182,8 +183,14 @@ const builtinBindingPath = (
   // Provenance identifies the module, independently of whether a selected slot
   // still refers to its original built-in after member mutation or escape.
   if (
-    binding.mutatedPaths.some((path) =>
-      affectsBuiltinPath(path, selectedPath),
+    binding.memberWrites.some(
+      ({ path, node }) =>
+        affectsBuiltinPath(path, selectedPath) &&
+        !semanticTopLevelEffectFollowsCapture(
+          capture,
+          node,
+          state.parentsByNode,
+        ),
     ) ||
     binding.escapedPaths.some(
       ({ path, node }) =>
@@ -201,12 +208,14 @@ const builtinBindingPath = (
   if (provenance.status !== "module") return null;
   const { specifier, importedPath } = provenance.origins[0];
   if (!specifiers.includes(specifier)) return null;
+  let resolvedPath: readonly string[] = importedPath;
   const ancestors = new Set([...visited, binding.bindingId]);
   for (const initializer of binding.initializers) {
     const pending = [
       {
         node: initializer.node,
         path: [...initializer.projection.map(String), ...selectedPath],
+        capture: initializer.projection.length > 0 ? initializer.node : capture,
       },
     ];
     while (pending.length > 0) {
@@ -214,34 +223,55 @@ const builtinBindingPath = (
       const node = unwrapJavaScriptExpression(current.node).node;
       if (t.isIdentifier(node)) {
         const source = resolveSemanticBindingState(state, node, node.name);
-        if (
-          builtinBindingPath(
-            source,
-            state,
-            specifiers,
-            capture,
-            current.path,
-            ancestors,
-          ) === null
-        )
-          return null;
+        const sourcePath = builtinBindingPath(
+          source,
+          state,
+          specifiers,
+          current.capture,
+          current.path,
+          ancestors,
+        );
+        if (sourcePath === null) return null;
+        // Normalize ESM default namespaces at their owner before projecting an alias.
+        resolvedPath = [...sourcePath, ...current.path].slice(
+          0,
+          sourcePath.length + current.path.length - selectedPath.length,
+        );
       } else if (
         t.isMemberExpression(node) ||
         t.isOptionalMemberExpression(node)
       ) {
         const key = semanticStaticPropertyName(node.property, node.computed);
         if (key === null) return null;
-        pending.push({ node: node.object, path: [key, ...current.path] });
+        pending.push({
+          node: node.object,
+          path: [key, ...current.path],
+          capture: node,
+        });
       } else if (t.isConditionalExpression(node)) {
         pending.push(
-          { node: node.consequent, path: current.path },
-          { node: node.alternate, path: current.path },
+          { ...current, node: node.consequent },
+          { ...current, node: node.alternate },
         );
       } else if (t.isLogicalExpression(node)) {
         pending.push(
-          { node: node.left, path: current.path },
-          { node: node.right, path: current.path },
+          { ...current, node: node.left },
+          { ...current, node: node.right },
         );
+      } else {
+        const required = semanticRequireOrigin(node, state);
+        if (
+          required !== undefined &&
+          requiredModuleChanged(
+            required.origin.specifier,
+            [...required.origin.importedPath, ...current.path],
+            current.capture,
+            binding,
+            state,
+            specifiers,
+          )
+        )
+          return null;
       }
     }
   }
@@ -250,7 +280,7 @@ const builtinBindingPath = (
   return binding.directOrigins.length > 0 &&
     semanticBuiltinNamespacePath(importedPath)
     ? []
-    : importedPath;
+    : resolvedPath;
 };
 
 const affectsBuiltinPath = (
@@ -260,6 +290,29 @@ const affectsBuiltinPath = (
   path.length <= selected.length &&
   path.every((key, index) =>
     semanticPropertyPathKeyMatches(key, selected[index]!),
+  );
+
+/** Check shared exports at the use or method-capture point, not at every later call. */
+const requiredModuleChanged = (
+  specifier: string,
+  selected: readonly string[],
+  capture: t.Node,
+  binding: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+  specifiers: readonly string[],
+): boolean =>
+  (
+    state.requiredModuleEffects.get(specifier.replace(/^node:/u, "")) ?? []
+  ).some(
+    ({ path, node, kind }) =>
+      affectsBuiltinPath(path, selected) &&
+      !semanticTopLevelEffectFollowsCapture(
+        capture,
+        node,
+        state.parentsByNode,
+      ) &&
+      (kind === "write" ||
+        !originalBuiltinReceiver(node, binding, state, specifiers)),
   );
 
 /** Calling an unchanged built-in as a member is not an escape to unknown code. */
@@ -297,7 +350,21 @@ const originalBuiltinReceiver = (
   const method = semanticStaticPropertyName(callee.property, callee.computed);
   if (
     method === null ||
-    binding.mutatedPaths.some((path) => affectsBuiltinPath(path, [method]))
+    receiver.memberWrites.some(
+      ({ path, node: write }) =>
+        affectsBuiltinPath(path, [method]) &&
+        !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
+    ) ||
+    (
+      state.requiredModuleEffects.get(
+        provenance.origins[0].specifier.replace(/^node:/u, ""),
+      ) ?? []
+    ).some(
+      ({ path, node: write, kind }) =>
+        kind === "write" &&
+        affectsBuiltinPath(path, [method!]) &&
+        !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
+    )
   )
     return false;
   return !node.arguments.some((argument) => {
