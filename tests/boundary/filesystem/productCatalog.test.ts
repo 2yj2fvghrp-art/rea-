@@ -206,18 +206,12 @@ describe("canonical product catalog drift", () => {
         "(docs/installation.md#supported-agents)",
         "(docs/installation.md#missing-agents)",
       ],
+      ["docs/native-investigation.md", "https://rea.tools/zh-CN/missing/"],
       [
-        "https://rea.tools/zh-CN/guides/native/",
-        "https://rea.tools/zh-CN/missing/",
-      ],
-      [
-        "https://rea.tools/zh-CN/guides/native/",
+        "docs/native-investigation.md",
         "https://rea.tools/zh-TW/guides/native/",
       ],
-      [
-        "https://rea.tools/zh-CN/guides/native/",
-        "https://rea.tools/zh-CN/guides/native/?other=1",
-      ],
+      ["docs/native-investigation.md", "docs/native-investigation.md?other=1"],
     ] as const) {
       expect(translated).toContain(original);
       await writeFile(
