@@ -152,7 +152,9 @@ describe("bounded Ghidra ARM admission", () => {
     const other = { language_selection: "configured-v1" };
     expect(ghidraPinnedArmLanguage(other)).toBeUndefined();
   });
+});
 
+describe("Ghidra ARM client import wiring", () => {
   it.each(["pinned", "override", "conflicting override"] as const)(
     "binds ARM client import and readback for %s",
     async (mode) => {
