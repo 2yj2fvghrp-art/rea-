@@ -129,6 +129,16 @@ try {
     sha256,
   );
   assert.match(pseudo.normalized_result, /\+\s*(?:3|0x3|'\\x03')/u);
+  const filePseudo = evidence(
+    await call("procedure_pseudo_code", { procedure: "file-offset:0xf" }),
+    sha256,
+  );
+  assert.equal(filePseudo.normalized_result, pseudo.normalized_result);
+  assert.ok(
+    filePseudo.locations.some(
+      (location) => location.kind === "file-offset" && location.offset === 15,
+    ),
+  );
   const rejected = await client.callTool({
     name: "open_binary",
     arguments: {
@@ -167,6 +177,29 @@ try {
   assert.deepEqual(cli.normalized_result, image.normalized_result);
   assert.equal(cli.analysis_profile.digest, image.analysis_profile.digest);
   assert.equal(cli.subject.digest.sha256, sha256);
+  const fileCli = await exec(
+    process.execPath,
+    [
+      entrypoint,
+      "decompile",
+      path,
+      "--file-offset=0xf",
+      "--target-format",
+      "raw-binary",
+      "--architecture",
+      "6502",
+      "--entry-point",
+      "0x8001",
+      "--provider",
+      "ghidra",
+      "--json",
+    ],
+    { env, timeout: 240000, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const fileCliEvidence = parseEvidence(JSON.parse(fileCli.stdout));
+  assert.equal(fileCliEvidence.normalized_result, filePseudo.normalized_result);
+  assert.deepEqual(fileCliEvidence.locations, filePseudo.locations);
+  assert.equal(fileCliEvidence.subject.digest.sha256, sha256);
   assert.deepEqual(await readFile(path), bytes);
   assert.deepEqual(await readdir(runtime), []);
   const lowMemory = [];
@@ -398,6 +431,7 @@ try {
     cli_mcp_load_image_parity: true,
     instructions_and_call_reference: true,
     decompilation: true,
+    file_offset_decompilation_cli_mcp: true,
     invalid_mapping_preserves_session: true,
     low_memory_cli_mcp_parity: lowMemory,
     windows_reparse_admission: windowsReparseAdmission,
