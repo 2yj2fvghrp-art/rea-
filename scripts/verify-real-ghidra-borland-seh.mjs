@@ -26,6 +26,10 @@ import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 
 const exec = promisify(execFile);
 const run = createVerifierRun();
+assert.ok(
+  process.platform === "darwin" || process.platform === "linux",
+  "Handler recovery verification requires a POSIX Ghidra host; Windows P0 is observe-only.",
+);
 const workspace = await mkdtemp(join(tmpdir(), "rea-borland-seh-"));
 const runtime = join(workspace, "runtime");
 const scripts = join(workspace, "scripts");
