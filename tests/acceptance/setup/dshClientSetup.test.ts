@@ -297,3 +297,46 @@ cliTest.for([
     }
   },
 );
+
+cliTest(
+  "empty inherited DSH_HOME plans and writes the home patch through setup",
+  async ({ cli }) => {
+    const home = await createTestTempDirectory("rea-dsh-empty-home-");
+    const cwd = join(home, "working");
+    await mkdir(cwd);
+    const config = join(home, ".dsh", "cordis.patch.yml");
+    const environment = { HOME: home, USERPROFILE: home, DSH_HOME: "" };
+    const run = (approval: string) =>
+      cli.run({
+        arguments: [
+          "setup",
+          "--client",
+          "dsh",
+          "--skill=false",
+          approval,
+          "--json",
+        ],
+        cwd,
+        environment,
+        timeoutMs: 20_000,
+      });
+    const plan = await run("--dry-run");
+    expect(plan.exitCode).toBe(0);
+    expect(plan.json).toMatchObject({
+      status: "planned",
+      plannedActions: expect.arrayContaining([
+        expect.objectContaining({ id: "configure_client:dsh", target: config }),
+      ]),
+    });
+    await expect(readFile(config)).rejects.toMatchObject({ code: "ENOENT" });
+    const configured = await run("--yes");
+    expect(configured.exitCode).toBe(0);
+    expect(configured.json).toMatchObject({
+      clients: { dsh: { status: "configured" } },
+    });
+    expect(await readFile(config, "utf8")).toContain("rea-mcp");
+    await expect(readFile(join(cwd, "cordis.patch.yml"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+  },
+);
