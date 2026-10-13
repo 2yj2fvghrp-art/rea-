@@ -112,6 +112,8 @@ describe("Linux Hopper host classification", () => {
     'ID=debian\nVERSION_ID="13"\nID_LIKE=debian\n',
     'ID=linuxmint\nVERSION_ID="22.1"\nID_LIKE="ubuntu debian"\n',
     "ID=manjaro\nID_LIKE=arch\n",
+    "ID=derivative\nID_LIKE='debian'\n",
+    "ID='debian'\nVERSION_ID='13'\n",
   ])(
     "hosts REA on a distribution Hopper has no tested package for: %s",
     (document) => {

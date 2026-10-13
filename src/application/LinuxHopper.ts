@@ -157,10 +157,13 @@ export const parseLinuxDistribution = (text: string): LinuxDistribution => {
     const key = match[1];
     const encoded = match[2];
     if (key === undefined || encoded === undefined) continue;
-    const value =
-      encoded.startsWith('"') && encoded.endsWith('"')
-        ? encoded.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\\\", "\\")
-        : encoded;
+    const quote = encoded[0];
+    const quoted = (quote === "'" || quote === '"') && encoded.endsWith(quote);
+    const value = !quoted
+      ? encoded
+      : quote === "'"
+        ? encoded.slice(1, -1)
+        : encoded.slice(1, -1).replace(/\\(["\\$`])/gu, "$1");
     fields.set(key, value);
   }
   const id = (fields.get("ID") ?? "unknown").toLowerCase();
