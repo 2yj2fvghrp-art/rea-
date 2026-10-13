@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { parseEnvironment } from "../config/environment.js";
+import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -56,7 +57,10 @@ export const clientRegistrationEnvironment = (
   // Seeded registration defaults sit beneath an explicitly configured value,
   // so an existing entry keeps whatever the caller chose. Layers collide under
   // platform environment-key identity (Windows names are case-insensitive),
-  // and the winning layer keeps its own spelling.
+  // and the winning layer keeps its own spelling. Validate a copy folded the
+  // way the runtime snapshots keys (snapshotEnvironment canonicalizes Windows
+  // names), so a case-variant spelling of a known setting is still value-checked
+  // before the source spelling is retained.
   const environment: Record<string, string> = {};
   for (const layer of [defaults, existing.data, overrides])
     for (const [key, value] of Object.entries(layer)) {
@@ -64,7 +68,9 @@ export const clientRegistrationEnvironment = (
       if (prior !== undefined && prior !== key) delete environment[prior];
       environment[key] = value;
     }
-  const validated = parseEnvironment(environment);
+  const validated = parseEnvironment(
+    snapshotEnvironment(environment, platform),
+  );
   if (!validated.ok) return validated;
   return ok(
     Object.fromEntries(

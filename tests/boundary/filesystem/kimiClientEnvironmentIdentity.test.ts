@@ -67,4 +67,64 @@ describe("Kimi Code environment-key identity", () => {
     ).find(({ client: name }) => name === "kimi_code");
     expect(status).toMatchObject({ state: "aligned" });
   });
+
+  it.each([["bogus"], [""]])(
+    "rejects the case-variant invalid profile %j before retaining it",
+    (value) => {
+      const merged = clientRegistrationEnvironment(
+        parseClientConfiguration(
+          JSON.stringify({
+            mcpServers: {
+              rea: {
+                command: command[0],
+                args: command.slice(1),
+                env: { rea_mcp_input_schema_profile: value },
+              },
+            },
+          }),
+          "json",
+        ),
+        {},
+        { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" },
+        "win32",
+      );
+      expect(merged.ok).toBe(false);
+    },
+  );
+
+  it.each([
+    ["win32", "rea_mcp_input_schema_profile", "bogus", "stale"],
+    ["linux", "REA_MCP_INPUT_SCHEMA_PROFILE", "bogus", "invalid"],
+  ] as const)(
+    "reads the invalid profile on %j as %j",
+    async (platform, spelling, value, state) => {
+      const home = await createTestTempDirectory("rea-kimi-");
+      const client = supportedClients(home, process.platform, {}).find(
+        ({ name }) => name === "kimi_code",
+      );
+      if (client?.markerPath === undefined)
+        throw new Error("missing Kimi Code client");
+      await mkdir(client.markerPath, { recursive: true });
+      const runner = npxRegistrationCommand(platform);
+      await writeFile(
+        client.configPath,
+        JSON.stringify({
+          mcpServers: {
+            rea: {
+              command: runner[0],
+              args: runner.slice(1),
+              env: { [spelling]: value },
+            },
+          },
+        }),
+      );
+      const status = (
+        await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
+          environment: {},
+          platform,
+        })
+      ).find(({ client: name }) => name === "kimi_code");
+      expect(status).toMatchObject({ state });
+    },
+  );
 });
