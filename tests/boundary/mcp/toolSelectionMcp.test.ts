@@ -3,7 +3,11 @@ import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from "@modelcontextprotocol/server";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { parseMcpToolSelection } from "../../../src/config/mcpToolSelection.js";
-import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
+import {
+  TOOL_CONTRACTS,
+  toolContract,
+} from "../../../src/contracts/toolContracts.js";
+import { expandToolAvailability } from "../../../src/contracts/toolOutputSchemaPrimitives.js";
 import { MCP_TOOLSETS } from "../../../src/contracts/toolsets.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { EvidenceMcpServer } from "../../../src/server/EvidenceMcpServer.js";
@@ -68,6 +72,18 @@ describe("MCP tool selection", () => {
     ).rejects.toMatchObject({ code: -32602 });
   });
 
+  it("excludes the process-launching availability probe when process launches are denied", async () => {
+    const client = await connect(
+      selectedServer({ REA_MCP_DENY_EFFECTS: "launchesProcess" }),
+    );
+    expect(
+      (await client.listTools()).tools.map(({ name }) => name),
+    ).not.toContain("binary_session");
+    await expect(
+      client.callTool({ name: "binary_session", arguments: {} }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+
   it("applies the environment selection when composing the production server", async () => {
     const session = createTestBinarySession(() => {
       throw new Error("Tool listing must not acquire a deep provider");
@@ -98,15 +114,13 @@ describe("MCP tool selection", () => {
       name: "binary_session",
       arguments: {},
     });
-    const inventory = status.structuredContent as {
-      readonly result?: {
-        readonly tool_availability?: readonly { readonly name: string }[];
-      };
-      readonly tool_availability?: readonly { readonly name: string }[];
-    };
-    const availability =
-      inventory.tool_availability ?? inventory.result?.tool_availability;
-    expect(availability?.map(({ name }) => name).sort()).toEqual(
+    const inventory = toolContract("binary_session").outputSchema.parse(
+      status.structuredContent,
+    );
+    const availability = expandToolAvailability(
+      inventory.result.tool_availability,
+    );
+    expect(availability.map(({ name }) => name).sort()).toEqual(
       [...advertised].sort(),
     );
   });

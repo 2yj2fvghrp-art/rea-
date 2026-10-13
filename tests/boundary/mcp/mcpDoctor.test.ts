@@ -45,6 +45,32 @@ describe("production MCP doctor", () => {
     );
   }, 30_000);
 
+  it.each([
+    { REA_MCP_DENY_TOOLS: "binary_session" },
+    { REA_MCP_DENY_EFFECTS: "launchesProcess" },
+  ])(
+    "accepts a server honoring the operator's excluded probe: %j",
+    async (selection) => {
+      const result = await runProductionMcpDoctor({
+        command: process.execPath,
+        args: [resolve("scripts/rea.mjs"), "mcp"],
+        cwd: process.cwd(),
+        environment: { PATH: process.env.PATH ?? "", ...selection },
+      });
+      expect(result.healthy).toBe(true);
+      expect(result.request_flow).toMatchObject({
+        tool: "binary_session",
+        ok: null,
+        skipped: true,
+      });
+      for (const name of ["server-identity", "request-flow"])
+        expect(result.checks).toContainEqual(
+          expect.objectContaining({ name, ok: true, skipped: true }),
+        );
+    },
+    30_000,
+  );
+
   it("rejects a schema-invalid probe while retaining the discovered inventory", async () => {
     const root = await createTestTempDirectory("rea-mcp-doctor-reply-");
     const snapshotPath = join(root, "reply.json");

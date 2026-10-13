@@ -115,6 +115,18 @@ describe("MCP tool selection configuration", () => {
     );
   });
 
+  it.each(["executesForeignCode", "mutatesDevice"] as const)(
+    "honors the current declared effect %s",
+    (effect) => {
+      expect(select({ REA_MCP_DENY_EFFECTS: effect })).toEqual(
+        allNames.filter(
+          (name) =>
+            TOOL_EFFECTS[name] !== undefined && !TOOL_EFFECTS[name]?.[effect],
+        ),
+      );
+    },
+  );
+
   it("removes explicitly denied tools after toolset and effect selection", () => {
     const selected = select({
       REA_MCP_TOOLSETS: "web,javascript",

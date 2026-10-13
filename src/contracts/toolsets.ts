@@ -1,3 +1,11 @@
+import { CAPTURE_TOOL_CONTRACTS } from "./captures/captureToolContracts.js";
+import { SIGNAL_TOOL_CONTRACTS } from "./signals/signalToolContracts.js";
+import { WASM_TOOL_CONTRACTS } from "./wasm/wasmToolContracts.js";
+import { GO_TOOL_CONTRACTS } from "./go/goToolContracts.js";
+import { SQLITE_TOOL_CONTRACTS } from "./sqlite/sqliteToolContracts.js";
+import { PCAP_TOOL_CONTRACTS } from "./pcap/pcapToolContracts.js";
+import { FLUTTER_TOOL_CONTRACTS } from "./flutter/flutterToolContracts.js";
+import { FRIDA_TOOL_CONTRACTS } from "./fridaToolContracts.js";
 import { ADB_TOOL_CONTRACTS } from "./adb/adbToolContracts.js";
 import { ANALYSIS_VIEW_TOOL_CONTRACTS } from "./analysisViewToolContracts.js";
 import { ANDROID_TOOL_CONTRACTS } from "./android/androidToolContracts.js";
@@ -83,6 +91,13 @@ export const MCP_TOOLSETS = {
     ...APPLE_PROJECTION_TOOL_NAMES,
   ],
   evm: familyTools(EVM_TOOL_CONTRACTS),
+  go: familyTools(GO_TOOL_CONTRACTS),
+  wasm: familyTools(WASM_TOOL_CONTRACTS),
+  sqlite: familyTools(SQLITE_TOOL_CONTRACTS),
+  captures: familyTools(CAPTURE_TOOL_CONTRACTS, PCAP_TOOL_CONTRACTS),
+  signals: familyTools(SIGNAL_TOOL_CONTRACTS),
+  flutter: familyTools(FLUTTER_TOOL_CONTRACTS),
+  frida: familyTools(FRIDA_TOOL_CONTRACTS),
   managed: familyTools(MANAGED_TOOL_CONTRACTS, MANAGED_WORKFLOW_TOOL_CONTRACTS),
   android: [
     ...familyTools(

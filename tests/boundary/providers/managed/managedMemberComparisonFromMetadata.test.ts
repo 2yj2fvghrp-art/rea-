@@ -116,6 +116,66 @@ describe("managed member comparison", () => {
   });
 });
 
+describe("managed member comparison floating-point constants", () => {
+  it.each([
+    {
+      opcode: "ldc.r4",
+      positive: "22000000002a",
+      negative: "22000000802a",
+      type: 0x0c,
+    },
+    {
+      opcode: "ldc.r8",
+      positive: "2300000000000000002a",
+      negative: "2300000000000000802a",
+      type: 0x0d,
+    },
+  ])(
+    "detects a change from positive to negative zero in $opcode",
+    ({ opcode, positive, negative, type }) => {
+      const observe = (hex: string, path: string) => {
+        const il = Buffer.from(hex, "hex");
+        return inspect(
+          buildManagedPeFixture({
+            methodSignature: Buffer.from([0x00, 0x00, type]),
+            ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
+          }),
+          path,
+        );
+      };
+      const left = observe(positive, "/tmp/positive-zero.dll");
+      const right = observe(negative, "/tmp/negative-zero.dll");
+      const comparison = compareManagedMembers(left, right);
+
+      expect(comparison.methods[0]).toMatchObject({
+        status: "changed",
+        match: { status: "matched", basis: "exact-signature" },
+        dimensions: ["cil"],
+      });
+      for (const [observation, operand] of [
+        [left, "0"],
+        [right, "-0"],
+      ] as const) {
+        expect(observation.result.methods[0]?.body).toMatchObject({
+          status: "present",
+          anchors: [
+            { il_offset: 0, opcode, operand_kind: "constant", operand },
+          ],
+        });
+      }
+      expect(left.result.methods[0]?.body.normalized_il_sha256).not.toBe(
+        right.result.methods[0]?.body.normalized_il_sha256,
+      );
+      const repeated = observe(negative, "/tmp/negative-zero-copy.dll");
+      expect(compareManagedMembers(right, repeated).methods[0]).toMatchObject({
+        status: "unchanged",
+        match: { status: "matched", basis: "exact-il-signature" },
+        dimensions: [],
+      });
+    },
+  );
+});
+
 describe("managed member comparison uncertainty", () => {
   it("does not infer a structural method match from undecoded signature fields", () => {
     const left = inspect(
@@ -311,7 +371,7 @@ describe("managed member comparison of undecoded signatures", () => {
   it("pairs undecoded signatures by exact declared type, name, and raw bytes", () => {
     const undecoded = {
       methodSignature: Buffer.from([0x00, 0x00, 0x7f]),
-      fieldSignature: Buffer.from([0x06, 0x15]),
+      fieldSignature: Buffer.from([0x06, 0x7f]),
     };
     const left = inspect(
       buildManagedPeFixture(undecoded),
@@ -346,7 +406,7 @@ describe("managed member comparison of undecoded signatures", () => {
     const left = inspect(
       buildManagedPeFixture({
         methodSignature: Buffer.from([0x00, 0x00, 0x7f]),
-        fieldSignature: Buffer.from([0x06, 0x15]),
+        fieldSignature: Buffer.from([0x06, 0x7f]),
       }),
       "/tmp/undecoded-before.dll",
     );
@@ -374,7 +434,7 @@ describe("managed member comparison of undecoded signatures", () => {
     const right = inspect(
       buildManagedPeFixture({
         methodSignature: Buffer.from([0x00, 0x00, 0x7f]),
-        fieldSignature: Buffer.from([0x06, 0x15]),
+        fieldSignature: Buffer.from([0x06, 0x7f]),
       }),
       "/tmp/undecoded-after.dll",
     );
@@ -459,9 +519,83 @@ describe("managed member comparison of ambiguous undecoded signatures", () => {
   });
 });
 
-const inspect = (bytes: Buffer, path: string) => {
+describe("managed member comparison of selected types", () => {
+  it("keeps members outside the other side's selection unknown", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-all.dll");
+    const right = inspect(buildManagedPeFixture(), "/tmp/right-selected.dll", [
+      "Missing.Type",
+    ]);
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.summary).toMatchObject({ added: 0, removed: 0, unknown: 2 });
+    expect(result.methods[0]).toMatchObject({
+      status: "unknown",
+      left: { token: "0x06000001" },
+      right: null,
+    });
+    expect(result.coverage.status).toBe("partial");
+    expect(result.limitations).toContain(
+      "The observations select different declaring types; a member outside the other side's selection is unknown, not added or removed.",
+    );
+  });
+
+  it("does not remap members across types neither side observed", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-a.dll", [
+      "Fixture.Program",
+    ]);
+    const right = inspect(
+      buildManagedPeFixture({
+        mvid: Buffer.from("00112233445566778899aabbccddeefe", "hex"),
+        typeName: "A",
+        typeNamespace: "X",
+      }),
+      "/tmp/right-b.dll",
+      ["X.A"],
+    );
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.matching.exact_il_signature).toBe(0);
+    expect(result.summary).toMatchObject({
+      unchanged: 0,
+      added: 0,
+      removed: 0,
+      unknown: 4,
+    });
+  });
+
+  it("compares two identical selections within those types", () => {
+    const left = inspect(buildManagedPeFixture(), "/tmp/left-sel.dll", [
+      "Fixture.Program",
+    ]);
+    const right = inspect(buildManagedPeFixture(), "/tmp/right-sel.dll", [
+      "Fixture.Program",
+    ]);
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(result.methods[0]).toMatchObject({ status: "unchanged" });
+    expect(result.coverage.status).toBe("complete-within-inputs");
+    expect(result.limitations).toContain(
+      "Both observations cover only the selected declaring types (Fixture.Program); member totals and statuses describe those types, not the whole assembly.",
+    );
+  });
+});
+
+const inspect = (bytes: Buffer, path: string, typeNames?: string[]) => {
   const target = managedPeFixtureTarget(bytes, path);
-  const result = inspectManagedMembersBytes(bytes, target);
+  const result = inspectManagedMembersBytes(
+    bytes,
+    target,
+    typeNames === undefined ? {} : { typeNames },
+  );
   return {
     result,
     evidenceId: `ev_${hash(Buffer.from(path))}`,

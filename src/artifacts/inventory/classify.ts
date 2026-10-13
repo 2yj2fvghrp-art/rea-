@@ -9,10 +9,12 @@ import { ARTIFACT_CLASSIFICATION_PREFIX_BYTES } from "../ArtifactHash.js";
 import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import {
   hasZipSignature,
+  isZipPackageFormat,
   zipPackageFormatForPath,
+  type ZipPackageFormat,
 } from "../../domain/zipPackageFormat.js";
 import { ArtifactReaderFailure } from "../ArtifactReader.js";
-import { type ArtifactResourceOwner } from "../ArtifactResourceScope.js";
+import type { ArtifactResourceOwner } from "../ArtifactResourceScope.js";
 import type { HashResult } from "../ArtifactHash.js";
 import {
   hashStableRootArtifactHandle,
@@ -109,7 +111,8 @@ export const classifyAndHashRootForInventory = async (
       initial,
       options.signal,
     );
-    const retainSource = isZipFormat(format) || format === "mach-o-universal";
+    const retainSource =
+      isZipPackageFormat(format) || format === "mach-o-universal";
     outcome = {
       kind: "completed",
       value: {
@@ -138,13 +141,6 @@ export const classifyAndHashRootForInventory = async (
   return outcome.value;
 };
 
-const isZipFormat = (format: ArtifactOccurrence["artifact_format"]): boolean =>
-  format === "zip" ||
-  format === "ipa" ||
-  format === "apk" ||
-  format === "msix" ||
-  format === "appx";
-
 const classifyRootFormat = async (
   path: string,
   handle: FileHandle,
@@ -153,10 +149,10 @@ const classifyRootFormat = async (
   const observed = await handle.read(magic, 0, magic.length, 0);
   const prefix = magic.subarray(0, observed.bytesRead);
   const lower = path.toLowerCase();
-  if (hasZipSignature(prefix)) return zipPackageFormatForPath(lower) ?? "zip";
+  if (hasZipSignature(prefix)) return zipRootPackageFormat(lower);
   if (
     lower.endsWith(".pkg") &&
-    prefix.subarray(0, 4).toString("ascii") === "xar!"
+    prefix.subarray(0, 4).equals(Buffer.from("xar!"))
   )
     return "pkg";
   if (lower.endsWith(".dmg") && (await hasKolyTrailer(handle))) return "dmg";
@@ -165,10 +161,16 @@ const classifyRootFormat = async (
     .format;
 };
 
+/** App Pack is a verified ZIP root role; nested .app members retain their observed format. */
+const zipRootPackageFormat = (lower: string): ZipPackageFormat =>
+  lower.endsWith(".app")
+    ? "app-pack"
+    : (zipPackageFormatForPath(lower) ?? "zip");
+
 const hasKolyTrailer = async (handle: FileHandle): Promise<boolean> => {
   const size = (await handle.stat()).size;
   if (size < 512) return false;
   const trailer = Buffer.alloc(4);
   const read = await handle.read(trailer, 0, trailer.length, size - 512);
-  return read.bytesRead === 4 && trailer.toString("ascii") === "koly";
+  return read.bytesRead === 4 && trailer.equals(Buffer.from("koly"));
 };

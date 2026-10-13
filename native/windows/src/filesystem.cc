@@ -212,16 +212,22 @@ static void verifyPrivate(HANDLE handle, const std::wstring& path, bool root) {
 }
 
 std::unique_ptr<Runtime> createRuntime(const std::wstring& parentPath, const std::wstring& prefix) {
-  auto parent = openFile(parentPath, 0, true);
+  std::unique_ptr<File> parent;
+  try { parent = openFile(parentPath, 0, true); }
+  catch (Failure& failure) {
+    failure.runtimeDirectoryUnallocated = true;
+    throw;
+  }
   require(!prefix.empty() && prefix.find_first_of(L"\\/:\"<>|?*") == std::wstring::npos,
           "Runtime prefix must be one filename component", parentPath, ERROR_INVALID_PARAMETER);
   std::array<unsigned char, 16> random;
   require(BCryptGenRandom(nullptr, random.data(), random.size(), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0,
           "Generate runtime identity failed", parentPath, ERROR_GEN_FAILURE);
   auto result = std::make_unique<Runtime>();
-  result->path = parent->path + L"\\" + prefix + hex(random.data(), random.size());
+  const auto name = prefix + hex(random.data(), random.size());
+  result->path = parent->path + (parent->path.back() == L'\\' ? L"" : L"\\") + name;
   Security security;
-  result->directory = createRelative(parent->get(), prefix + hex(random.data(), random.size()),
+  result->directory = createRelative(parent->get(), name,
                                      DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
                                      true, security, result->path);
   try {

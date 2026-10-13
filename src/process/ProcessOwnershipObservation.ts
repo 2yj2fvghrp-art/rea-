@@ -4,7 +4,10 @@ import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.
 import { launcherIdentityFailure } from "./ProcessOwnershipIdentity.js";
 import { descendantsOf, liveProcesses } from "./ProcessOwnershipProcessTree.js";
 import { execFileOutput } from "./ExecFileOutput.js";
-import { createDarwinProcessRunTokenReader } from "./DarwinProcessRunTokenReader.js";
+import {
+  createDarwinProcessRunTokenReader,
+  type DarwinProcessReaderCompiler,
+} from "./DarwinProcessRunTokenReader.js";
 import { readProcessRunTokens } from "./ProcessRunTokenObservations.js";
 import type {
   OwnedProcessGroup,
@@ -116,7 +119,7 @@ export const observeOwnedProcessLineage = async (
   const identityFailure = launcherIdentityFailure(launcher, ownership);
   if (identityFailure !== null)
     return unavailableLineage(ownership, identityFailure);
-  const descendants = descendantsOf(launcher.pid, processes);
+  const descendants = descendantsOf([launcher.pid], processes);
   const verifiedDescendants: ProcessTableEntry[] = [];
   for await (const { process: member, observation } of readProcessRunTokens(
     host,
@@ -219,16 +222,32 @@ export const createSystemProcessOwnershipHost = (
   hostEnvironment: NodeJS.ProcessEnv = process.env,
   options: {
     /** Override the compiler executable used by the Darwin native reader. */
-    readonly darwinXcrun?: string;
+    readonly darwinCompiler?: DarwinProcessReaderCompiler;
+    /** Override the caller-owned module cache used compiling that helper. */
+    readonly darwinModuleCachePath?: string;
   } = {},
 ): ProcessOwnershipHost => {
+  const darwinModuleCachePath =
+    options.darwinModuleCachePath ??
+    hostEnvironment.REA_DARWIN_MODULE_CACHE_PATH;
+  const swiftcPath = hostEnvironment.REA_DARWIN_SWIFTC_PATH;
+  const darwinCompiler =
+    options.darwinCompiler ??
+    (swiftcPath === undefined || swiftcPath === ""
+      ? undefined
+      : {
+          kind: "swiftc" as const,
+          executable: swiftcPath,
+          sdkRoot: hostEnvironment.SDKROOT ?? "",
+        });
   const darwinTokens =
     platform === "darwin"
-      ? createDarwinProcessRunTokenReader(
-          options.darwinXcrun === undefined
+      ? createDarwinProcessRunTokenReader({
+          ...(darwinCompiler === undefined ? {} : { compiler: darwinCompiler }),
+          ...(darwinModuleCachePath === undefined
             ? {}
-            : { xcrun: options.darwinXcrun },
-        )
+            : { moduleCachePath: darwinModuleCachePath }),
+        })
       : undefined;
   const listProcesses = async (signal?: AbortSignal) => {
     if (platform === "win32") return [];
@@ -431,10 +450,15 @@ export const createSystemProcessOwnershipHost = (
 
 export const systemProcessOwnershipHost = createSystemProcessOwnershipHost();
 
-/** Observe the current OS start identity for one live PID, when supported. */
+/**
+ * Observe a live PID's start identity, optionally binding it to an owned run.
+ * Token validation is bracketed by identity reads so PID reuse cannot supply
+ * the first identity of a different process for an owned launch.
+ */
 export const observeProcessStartIdentity = async (
   pid: number,
   host: ProcessOwnershipHost = systemProcessOwnershipHost,
+  expectedRunId?: string,
 ): Promise<ProcessIdentityObservation | undefined> => {
   const process = (await host.listProcesses()).find(
     (entry) => entry.pid === pid,
@@ -443,12 +467,42 @@ export const observeProcessStartIdentity = async (
     return undefined;
   if (host.processIdentities === undefined)
     return { state: "unavailable", reason: "process identity is unsupported" };
-  return (
-    (await host.processIdentities([process])).get(pid) ?? {
+  const identity: ProcessIdentityObservation = (
+    await host.processIdentities([process])
+  ).get(pid) ?? {
+    state: "unavailable",
+    reason: "process identity was not returned",
+  };
+  if (expectedRunId === undefined || identity.state !== "readable")
+    return identity;
+  let owned = false;
+  for await (const { observation } of readProcessRunTokens(host, [process])) {
+    if (observation.state === "unavailable")
+      return {
+        state: "unavailable",
+        reason: `process ownership token could not be read for PID ${String(pid)}: ${observation.reason}`,
+      };
+    if (observation.runId !== expectedRunId)
+      return {
+        state: "unavailable",
+        reason: `process ownership token did not match the captured run for PID ${String(pid)}`,
+      };
+    owned = true;
+  }
+  if (!owned)
+    return {
       state: "unavailable",
-      reason: "process identity was not returned",
-    }
-  );
+      reason: `process ownership token was not returned for PID ${String(pid)}`,
+    };
+  const confirmed = await observeProcessStartIdentity(pid, host);
+  if (confirmed === undefined || confirmed.state !== "readable")
+    return confirmed;
+  return confirmed.identity === identity.identity
+    ? identity
+    : {
+        state: "unavailable",
+        reason: `process identity changed while validating the captured run token for PID ${String(pid)}`,
+      };
 };
 
 /** Revalidate a launch-time start identity immediately before signaling a PID. */

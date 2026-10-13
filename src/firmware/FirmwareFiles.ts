@@ -19,6 +19,7 @@ import {
 import type { FirmwareRequest } from "../domain/firmware/firmwareAnalysis.js";
 import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
 import { FIRMWARE_LIMITS } from "./FirmwareRelease.js";
+import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 /** One regular file or unpublished filesystem entry in a private extraction. */
 export interface FirmwareEntry {
@@ -212,19 +213,15 @@ export const inventoryFirmwareOutput = async (
     });
     if (handle === undefined) continue;
     const names: string[] = [];
-    try {
-      for await (const entry of handle) {
-        throwIfFirmwareInventoryCancelled(signal, operation);
-        count++;
-        if (count > maxEntries)
-          throw new AnalysisOutputError(
-            operation,
-            `Staging entry budget exceeded (${maxEntries})`,
-          );
-        names.push(entry.name);
-      }
-    } finally {
-      await handle.close().catch(() => undefined);
+    for await (const entry of handle) {
+      throwIfFirmwareInventoryCancelled(signal, operation);
+      count++;
+      if (count > maxEntries)
+        throw new AnalysisOutputError(
+          operation,
+          `Staging entry budget exceeded (${maxEntries})`,
+        );
+      names.push(entry.name);
     }
     for (const name of names.sort()) {
       const path = join(directory, name);
@@ -261,7 +258,9 @@ export const inventoryFirmwareOutput = async (
       });
     }
   }
-  return entries.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return entries.sort((a, b) =>
+    compareUnicodeCodePoints(a.relativePath, b.relativePath),
+  );
 };
 
 /** Bind producer paths to the selected input or private extraction tree. */

@@ -1,3 +1,4 @@
+import { TOOL_EFFECT_NAMES } from "../contracts/toolOutputSchemaPrimitives.js";
 import { TOOL_CONTRACTS } from "../contracts/toolContracts.js";
 import { TOOL_EFFECTS, type ToolEffects } from "../contracts/toolEffects.js";
 import { MCP_TOOLSETS, MCP_TOOLSET_NAMES } from "../contracts/toolsets.js";
@@ -9,15 +10,9 @@ export type McpToolSelection = (name: string) => boolean;
 
 type DeniableToolEffect = Exclude<keyof ToolEffects, "idempotent">;
 
-const DENIABLE_TOOL_EFFECTS = [
-  "mutatesTarget",
-  "mutatesSession",
-  "writesFilesystem",
-  "launchesProcess",
-  "accessesNetwork",
-  "changesUiState",
-  "mayDiscardData",
-] as const satisfies readonly DeniableToolEffect[];
+const DENIABLE_TOOL_EFFECTS = TOOL_EFFECT_NAMES.filter(
+  (name): name is DeniableToolEffect => name !== "idempotent",
+);
 
 const PUBLIC_TOOL_NAMES: ReadonlySet<string> = new Set(
   TOOL_CONTRACTS.map(({ name }) => name),

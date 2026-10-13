@@ -1,19 +1,19 @@
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
 import { z } from "zod";
 
-import {
-  type ArtifactInventoryResult,
-  type ArtifactNode,
-  type ArtifactOccurrence,
+import type {
+  ArtifactInventoryResult,
+  ArtifactNode,
+  ArtifactOccurrence,
 } from "./artifactGraph.js";
 import { evidenceSchema } from "./evidence.js";
 import {
+  hasCompleteInventoryCoverage,
   parseArtifactInventoryEvidence,
   type InventorySet,
 } from "./artifactInventoryEvidence.js";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 import { canonicalJson } from "./comparisonSemantics.js";
-import { ZIP_NON_ENTRY_TAIL_LIMITATION } from "./zipPackageFormat.js";
 
 const evidenceIdSchema = prefixedDigestSchema("ev");
 const comparisonStatusSchema = z.enum([
@@ -104,10 +104,8 @@ export const compareArtifacts = (
   const right = parseArtifactInventoryEvidence(rightEvidence);
   const leftComplete = left.inventory.complete;
   const rightComplete = right.inventory.complete;
-  const leftCovered =
-    leftComplete && !hasCoverageLimitation(left.inventory.limitations);
-  const rightCovered =
-    rightComplete && !hasCoverageLimitation(right.inventory.limitations);
+  const leftCovered = hasCompleteInventoryCoverage(left.inventory);
+  const rightCovered = hasCompleteInventoryCoverage(right.inventory);
   const limitations = [
     ...left.inventory.limitations.map((item) => `Left: ${item}`),
     ...right.inventory.limitations.map((item) => `Right: ${item}`),
@@ -123,11 +121,10 @@ export const compareArtifacts = (
     ],
     leftCovered && rightCovered,
   );
-  const rootChange = rootHashChange(left.inventory, right.inventory, changes, [
+  applyRootHashChange(left.inventory, right.inventory, changes, [
     ...left.evidence.map(({ evidence_id: id }) => id),
     ...right.evidence.map(({ evidence_id: id }) => id),
   ]);
-  if (rootChange !== null) changes.push(rootChange);
   const summary = summarize(
     left.inventory,
     right.inventory,
@@ -434,34 +431,45 @@ const summarize = (
   };
 };
 
-const hasCoverageLimitation = (limitations: readonly string[]): boolean =>
-  limitations.some(
-    (limitation) =>
-      limitation !== ZIP_NON_ENTRY_TAIL_LIMITATION &&
-      !/integrity contradiction\(s\) were recorded/u.test(limitation),
-  );
-
-const rootHashChange = (
+// Differing manifest root digests prove a root content change even when node
+// details are unavailable. Fold that fact into an existing root row so one
+// logical path keeps one classification.
+const applyRootHashChange = (
   left: InventorySet,
   right: InventorySet,
-  changes: readonly ArtifactChange[],
+  changes: ArtifactChange[],
   evidenceLinks: readonly string[],
-): ArtifactChange | null => {
-  if (left.manifest.root_sha256 === right.manifest.root_sha256) return null;
-  if (
-    changes.some(
-      (change) =>
-        change.logical_path === "." && change.dimensions.includes("content"),
+): void => {
+  if (left.manifest.root_sha256 === right.manifest.root_sha256) return;
+  const index = changes.findIndex((change) => change.logical_path === ".");
+  const existing = changes[index];
+  if (existing !== undefined) {
+    if (
+      existing.dimensions.includes("content") ||
+      (existing.classification !== "unknown" &&
+        existing.classification !== "changed")
     )
-  )
-    return null;
+      return;
+    changes[index] = {
+      ...existing,
+      classification: "changed",
+      dimensions: comparisonDimensionSchema.options.filter(
+        (dimension) =>
+          dimension === "content" || existing.dimensions.includes(dimension),
+      ),
+      evidence_links: [
+        ...new Set([...existing.evidence_links, ...evidenceLinks]),
+      ],
+    };
+    return;
+  }
   const leftRoot = left.occurrences.find(
     (occurrence) => occurrence.logical_path === ".",
   );
   const rightRoot = right.occurrences.find(
     (occurrence) => occurrence.logical_path === ".",
   );
-  return {
+  changes.push({
     classification: "changed",
     logical_path: ".",
     dimensions: ["content"],
@@ -470,5 +478,5 @@ const rootHashChange = (
     left_artifact_id: leftRoot?.artifact_id ?? null,
     right_artifact_id: rightRoot?.artifact_id ?? null,
     evidence_links: [...evidenceLinks],
-  };
+  });
 };

@@ -26,7 +26,7 @@ export const inspectElectronIpcNode = (
   node: t.Node,
   context: JavaScriptFindingContext,
 ): void => {
-  if (t.isCallExpression(node)) {
+  if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
     inspectIpcCall(node, context);
     inspectValidationCall(node, context);
   }
@@ -34,7 +34,7 @@ export const inspectElectronIpcNode = (
 };
 
 const inspectIpcCall = (
-  node: t.CallExpression,
+  node: t.CallExpression | t.OptionalCallExpression,
   context: JavaScriptFindingContext,
 ): void => {
   const descriptor = ipcDescriptor(electronCalleePath(node.callee, context));
@@ -117,7 +117,7 @@ const inspectValidationComparison = (
 };
 
 const inspectValidationCall = (
-  node: t.CallExpression,
+  node: t.CallExpression | t.OptionalCallExpression,
   context: JavaScriptFindingContext,
 ): void => {
   if (
@@ -175,7 +175,7 @@ const addValidation = (
   });
 };
 
-const ipcDescriptor = (
+export const ipcDescriptor = (
   path: readonly string[] | undefined,
 ): ElectronIpcDescriptor | undefined => {
   if (path?.length !== 2) return undefined;
@@ -201,6 +201,7 @@ const ipcDescriptor = (
           operation: "send-to-host",
           mode: "send",
         };
+      case "addListener":
       case "on":
         return { side: "renderer", operation: "on", mode: "listen" };
       case "once":
@@ -209,6 +210,7 @@ const ipcDescriptor = (
   }
   const main = object === "ipcMain" ? operation : undefined;
   switch (main) {
+    case "addListener":
     case "on":
       return { side: "main", operation: "on", mode: "listen" };
     case "once":
@@ -225,9 +227,10 @@ const ipcDescriptor = (
 const senderSubject = (
   node: t.Node,
 ): ElectronSenderValidationFinding["subject"] | undefined => {
-  const name = t.isCallExpression(node)
-    ? calleeName(node.callee)
-    : calleeName(node);
+  const name =
+    t.isCallExpression(node) || t.isOptionalCallExpression(node)
+      ? calleeName(node.callee)
+      : calleeName(node);
   if (/(?:^|\.)sender\.getURL$/u.test(name)) return "sender-url";
   if (/(?:^|\.)senderFrame\.origin$/u.test(name)) return "sender-origin";
   if (/(?:^|\.)senderFrame\.url$/u.test(name)) return "sender-url";

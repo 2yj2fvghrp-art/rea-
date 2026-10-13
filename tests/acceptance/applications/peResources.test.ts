@@ -8,7 +8,87 @@ import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { peResourcesSchema } from "../../../src/domain/native/peResources.js";
 import { peResourceFixture } from "../../../src/native/pe/PeResources.fixture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
-import { cliTest } from "../../support/cli/cliFixture.js";
+import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
+import { cliTest, type TestCli } from "../../support/cli/cliFixture.js";
+
+const expectPeInputFailureAcrossAdapters = async (input: {
+  readonly cli: TestCli;
+  readonly client: Client;
+  readonly toolName: string;
+  readonly path: string;
+  readonly reason: "invalid_format" | "invalid_value";
+}) => {
+  const { cli, client, toolName, path, reason } = input;
+  const result = await cli.run({
+    arguments: ["inspect-pe-resources", path, "--json"],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.json).toMatchObject({
+    code: "invalid_request",
+    category: "invalid_input",
+    details: {
+      operation: "inspect_pe_resources",
+      issues: [{ path: ["path"], reason }],
+    },
+  });
+  const response = await client.callTool({
+    name: toolName,
+    arguments: { path },
+  });
+  expect(response.isError).toBe(true);
+  expect(parseMcpToolError(response)).toEqual({ error: result.json });
+};
+
+const expectPePaddingFailureAcrossAdapters = async (input: {
+  readonly cli: TestCli;
+  readonly client: Client;
+  readonly toolName: string;
+  readonly path: string;
+}) => {
+  const { cli, client, toolName, path } = input;
+  const fixture = peResourceFixture();
+  const virtualSize = fixture.bytes.readUInt32LE(fixture.sectionAt + 8);
+  fixture.bytes.writeUInt32LE(
+    0x2000 + virtualSize,
+    fixture.dataOffsets[0] ?? 0,
+  );
+  fixture.bytes.writeUInt32LE(4, (fixture.dataOffsets[0] ?? 0) + 4);
+  await writeFile(path, fixture.bytes);
+  const cliResult = await cli.run({
+    arguments: ["inspect-pe-resources", path, "--json"],
+  });
+  expect(cliResult.exitCode).not.toBe(0);
+  const mcpResult = await client.callTool({
+    name: toolName,
+    arguments: { path },
+  });
+  expect(mcpResult.isError).toBe(true);
+  expect(peResourcesSchema.safeParse(mcpResult.structuredContent).success).toBe(
+    false,
+  );
+};
+
+const expectPeInputFailuresAcrossAdapters = async (input: {
+  readonly cli: TestCli;
+  readonly client: Client;
+  readonly toolName: string;
+  readonly root: string;
+}) => {
+  const { cli, client, toolName, root } = input;
+  const malformedPath = join(root, "malformed.exe");
+  await writeFile(malformedPath, Buffer.from("not a PE image"));
+  for (const [path, reason] of [
+    [join(root, "missing.exe"), "invalid_value"],
+    [malformedPath, "invalid_format"],
+  ] as const)
+    await expectPeInputFailureAcrossAdapters({
+      cli,
+      client,
+      toolName,
+      path,
+      reason,
+    });
+};
 
 cliTest(
   "inspects PE32/PE32+ resources through compiled CLI and real stdio MCP without an active target",
@@ -92,6 +172,18 @@ cliTest(
         ).toBe(evidence.evidence_id);
         expect(await readFile(path)).toEqual(fixture.bytes);
       }
+      await expectPePaddingFailureAcrossAdapters({
+        cli,
+        client,
+        toolName: contract.name,
+        path: join(root, "raw-padding.exe"),
+      });
+      await expectPeInputFailuresAcrossAdapters({
+        cli,
+        client,
+        toolName: contract.name,
+        root,
+      });
       const absent = peResourceFixture();
       absent.bytes.fill(0, absent.directoryAt, absent.directoryAt + 8);
       const path = join(root, "absent.exe");

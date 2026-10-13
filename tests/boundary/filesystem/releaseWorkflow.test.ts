@@ -34,6 +34,12 @@ async function readReleaseWorkflow() {
         "release-proposal": jobSchema,
         "release-please": jobSchema,
         "merged-release": jobSchema,
+        qualification: z.object({
+          if: z.string(),
+          needs: z.array(z.string()),
+          uses: z.string(),
+          with: z.record(z.string(), z.string()),
+        }),
         publish: jobSchema,
         "publish-mcp": jobSchema,
       }),
@@ -103,6 +109,9 @@ it("keeps main pushes proposal-only and gates merged-release automation", async 
     "skip-github-release": true,
   });
   expect(action?.with?.["skip-github-pull-request"]).not.toBe(true);
+  expect(action?.if).toBe("steps.editorial.outputs.frozen != 'true'");
+  expect(proposal.steps[0]?.run).toContain("rea:release-notes-finalized");
+  expect(proposal.steps[0]?.run).toContain("--paginate");
   const merged = workflow.jobs["merged-release"];
   expect(merged.if).toContain("github.event.pull_request.merged == true");
   expect(merged.if).toContain("github.repository");
@@ -147,6 +156,12 @@ it("validates the reviewed merge before creating its release", async () => {
     SOURCE_SHA: "${{ github.event.pull_request.merge_commit_sha }}",
     RELEASE_SHA: "${{ steps.release.outputs.sha }}",
   });
+  const notesIndex = steps.findIndex((step) =>
+    step.run?.includes("release-notes.mjs publication"),
+  );
+  expect(notesIndex).toBeGreaterThan(steps.indexOf(checkpoint!));
+  expect(notesIndex).toBeLessThan(steps.indexOf(release!));
+  expect(steps[notesIndex]?.run).toContain('--pr "$RELEASE_PR"');
 });
 
 it("keeps frozen candidate preparation and publication explicit", async () => {
@@ -171,6 +186,17 @@ it("keeps frozen candidate preparation and publication explicit", async () => {
     "skip-github-release": "${{ inputs.phase == 'prepare' }}",
     "skip-github-pull-request": "${{ inputs.phase == 'publish' }}",
   });
+  const steps = workflow.jobs["release-please"].steps;
+  const notesIndex = steps.findIndex((step) =>
+    step.run?.includes("release-notes.mjs publication"),
+  );
+  expect(notesIndex).toBeGreaterThan(
+    steps.findIndex((step) =>
+      step.run?.includes("verify-release-checkpoint.mjs"),
+    ),
+  );
+  expect(notesIndex).toBeLessThan(steps.indexOf(release!));
+  expect(steps[notesIndex]?.if).toBe("inputs.phase == 'publish'");
   const catalogValidation = workflow.jobs["release-please"].steps.find(
     (step) => step.name === "Validate generated release documentation",
   );
@@ -251,9 +277,18 @@ it("binds npm and MCP publication to the same immutable release SHA", async () =
     release_created: "${{ steps.release.outputs.release_created }}",
     sha: "${{ steps.release.outputs.sha }}",
   });
-  expect(workflow.jobs.publish.if).toContain("inputs.phase == 'publish'");
-  expect(workflow.jobs.publish.if).toContain(
+  expect(workflow.jobs.qualification.if).toContain("inputs.phase == 'publish'");
+  expect(workflow.jobs.qualification.if).toContain(
     "needs.release-please.outputs.release_created",
+  );
+  expect(workflow.jobs.qualification.uses).toBe("./.github/workflows/ci.yml");
+  expect(workflow.jobs.qualification.with).toEqual({
+    source_sha:
+      "${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}",
+  });
+  expect(workflow.jobs.publish.needs).toContain("qualification");
+  expect(workflow.jobs.publish.if).toContain(
+    "needs.qualification.result == 'success'",
   );
   expect(workflow.jobs["publish-mcp"].if).toContain(
     "needs.publish.result == 'success'",
@@ -289,7 +324,7 @@ it("binds npm and MCP publication to the same immutable release SHA", async () =
   )?.run;
   expect(publishCommand).toContain("scripts/release-npm-tag.mjs");
   expect(publishCommand).toContain(
-    'npm publish --access public --tag "${tag}"',
+    'npm publish "${VERIFIED_PACKAGE_TARBALL}" --access public --tag "${tag}"',
   );
   for (const [version, tag] of [
     ["6.1.0", "latest"],
@@ -624,7 +659,7 @@ it("routes website verification through the central PR policy", async () => {
 
 // Publishing is irreversible. Keep the release authority invariant as a static
 // boundary check; it is not proof that package installation or publishing works.
-it("requires package verification before publishing and retains the registry canary", async () => {
+it("requires qualified package validation before publishing and retains the registry canary", async () => {
   const workflow = z
     .object({
       jobs: z.object({
@@ -643,7 +678,7 @@ it("requires package verification before publishing and retains the registry can
     );
   const commands = workflow.jobs.publish.steps.map(({ run }) => run ?? "");
   const verify = commands.findIndex((command) =>
-    command.includes("npm run verify:package"),
+    command.includes("scripts/ci/verified-package.mjs validate"),
   );
   const publish = commands.findIndex((command) =>
     command.includes("npm publish"),
