@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { expect, it as nativeTest, onTestFinished } from "vitest";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { SqliteDatabaseProvider } from "../../../src/sqlite/SqliteDatabaseProvider.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
@@ -355,6 +356,30 @@ it("does not execute views when selecting rows", async () => {
     error: { _tag: "AnalysisInputError" },
   });
 });
+
+nativeTest.each(["absent.db", "absent-parent/absent.db"])(
+  "classifies a missing %s as an invalid value",
+  async (name) => {
+    const workspace = await createTestWorkspace("rea-sqlite-missing-");
+    onTestFinished(() => removeTestWorkspace(workspace.root));
+    const path = workspace.path(name);
+    const provider = createProvider();
+    onTestFinished(() => provider.close());
+    const result = await provider.inspect({ path });
+    if (result.ok) throw new Error("Expected a missing database rejection");
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      details: {
+        issues: [
+          {
+            path: ["path"],
+            reason: "invalid_value",
+            message: `Selected SQLite database does not exist: ${path}`,
+          },
+        ],
+      },
+    });
+  },
+);
 
 it("rejects malformed databases without altering the selected file", async () => {
   const workspace = await createTestWorkspace("rea-sqlite-invalid-");
