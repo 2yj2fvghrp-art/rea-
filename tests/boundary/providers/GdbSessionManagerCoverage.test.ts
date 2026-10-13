@@ -682,7 +682,7 @@ it("reports an MI stream failure when the child has no stdin pipe", async () => 
     expect(started.error.message).toContain("input stream is closed");
   }
   expect(fake.children[0]?.exitCode).toBeNull();
-  expect(fake.children[0]?.killSignals).toEqual([]);
+  expect(fake.children[0]?.killSignals).toEqual(["SIGTERM"]);
 });
 
 it("fails pending commands when the child closes stdin unexpectedly", async () => {
@@ -980,6 +980,18 @@ it("permanently revokes automatic detach after an abbreviated TTY change and res
   expect(commands).not.toContain("-target-detach");
 });
 
+it("revokes detach proof when a GDB alias can redirect inferior output", async () => {
+  const { manager, sessionId, commands } =
+    await startWithVerifiedInferiorTty("/dev/pts/42");
+
+  await manager.execute(sessionId, "alias launch = run");
+
+  expect(manager.status(sessionId)?.inferior_tty_verified).toBe(false);
+  const closed = await manager.close(sessionId);
+  expect(closed.ok).toBe(false);
+  expect(commands).not.toContain("-target-detach");
+});
+
 it("revokes detach proof for redirection attached to a run argument", async () => {
   const tty = "/dev/pts/42";
   const { manager, sessionId, commands } =
@@ -1051,6 +1063,7 @@ it("does not detach a live inferior when no durable TTY was selected", async () 
   const fake = createFakeSpawner(responder.respond);
   const manager = managerWithFakeSpawner(fake.spawnProcess);
   const started = await expectGdbSessionStarted(manager);
+  await manager.execute(started.value.session_id, "run");
 
   await expect(manager.closeAll()).rejects.toMatchObject({
     errors: [
@@ -1073,6 +1086,7 @@ it("retains ownership without signaling when recursive MI reports multiple infer
   const fake = createFakeSpawner(responder.respond);
   const manager = managerWithFakeSpawner(fake.spawnProcess);
   const started = await expectGdbSessionStarted(manager);
+  await manager.execute(started.value.session_id, "run");
 
   await expect(manager.closeAll()).rejects.toMatchObject({
     errors: [

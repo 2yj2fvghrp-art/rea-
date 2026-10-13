@@ -94,8 +94,16 @@ export abstract class AnalysisError extends Error {
     failure: AnalysisError,
     diagnostics: Readonly<Record<string, JsonValue>>,
   ): this {
+    const cleanup = failure.cleanup ?? this.cleanup;
     Object.assign(this, {
       diagnostics: structuredClone({ ...this.diagnostics, ...diagnostics }),
+      ...(cleanup === undefined
+        ? {}
+        : {
+            cleanup: { ...cleanup, resources: [...cleanup.resources] },
+            cleanupResources: [...cleanup.resources],
+            cleanupIncomplete: true,
+          }),
       cause: new AggregateError(
         this.cause === undefined ? [failure] : [this.cause, failure],
         "Analysis failed and a later lifecycle operation also failed.",

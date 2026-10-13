@@ -216,6 +216,8 @@ interface GdbSession {
   inferiorTtyVerified: boolean;
   noInferiorVerified: boolean;
   stopAttempt: ReturnType<typeof stopOwnedDebuggerProcess> | undefined;
+  detachBarrier: Promise<void> | undefined;
+  readonly retainPendingDetach: (pending: Promise<OwnedDebuggerDetachResult>) => void;
   readonly pending: Map<number, PendingCommand>;
   readonly cleanupFailures: Set<AnalysisError>;
   readonly lines: string[];
@@ -453,6 +455,13 @@ export class GdbSessionManager {
       // provider supplies no executable or attach arguments.
       noInferiorVerified: true,
       stopAttempt: undefined,
+      detachBarrier: undefined,
+      retainPendingDetach: (pending) => {
+        session.detachBarrier = pending.then(
+          () => undefined,
+          () => undefined,
+        );
+      },
       pending: new Map(),
       cleanupFailures: new Set(),
       lines: [],
@@ -547,6 +556,27 @@ export class GdbSessionManager {
           `GDB rejected the required automatic-loading disable command (${autoLoad.mi}); the session was not started.`,
         );
       }
+      const callerRunId = Object.hasOwn(this.#environment, "REA_PROCESS_RUN_ID")
+        ? this.#environment.REA_PROCESS_RUN_ID
+        : undefined;
+      const restoreRunId = await this.#request(
+        session,
+        callerRunId === undefined
+          ? "-gdb-unset environment REA_PROCESS_RUN_ID"
+          : `-gdb-set environment REA_PROCESS_RUN_ID ${miQuote(callerRunId)}`,
+        signal,
+        "start_gdb_session",
+      );
+      if (
+        restoreRunId.completion_status !== "complete" ||
+        restoreRunId.output_truncated ||
+        !/^\d+\^done(?:,|$)/u.test(restoreRunId.mi)
+      )
+        throw new AnalysisCapabilityUnavailableError(
+          "gdb",
+          "start_gdb_session",
+          "GDB could not preserve the caller's REA_PROCESS_RUN_ID for the inferior.",
+        );
       if (inferiorTty !== undefined) {
         const configured = await this.#request(
           session,
@@ -1138,6 +1168,10 @@ export class GdbSessionManager {
       acquired = true;
       return await operation();
     } finally {
+      if (acquired && session.detachBarrier !== undefined) {
+        await session.detachBarrier;
+        session.detachBarrier = undefined;
+      }
       if (acquired) {
         session.pendingCommandCount -= 1;
         release?.();
@@ -1824,11 +1858,15 @@ const commandMayChangeInferiorOutput = (command: string): boolean => {
     firstToken !== undefined &&
     ["run", "start", "starti"].some((name) => name.startsWith(firstToken)) &&
     /[<>]{1,2}|&>/u.test(command.slice(firstToken.length));
+  const mayRedefineCommands =
+    firstToken !== undefined &&
+    ["alias", "unalias"].some((name) => name.startsWith(firstToken));
   return (
     maySetInferiorTty ||
     mayBeTtyCommand ||
     /\binferior-tty\b/iu.test(command) ||
     mayRunSourceScript ||
+    mayRedefineCommands ||
     /^\s*(?:wit(?:h)?(?:\s|$)|tty(?:\s|$)|py\w*|define\b)/iu.test(command) ||
     mayRunWithOutputRedirection
   );

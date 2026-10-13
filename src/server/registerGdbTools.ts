@@ -150,10 +150,32 @@ export const registerGdbTools = (
   server.registerTool(
     close.name,
     toolRegistrationOptions(close),
-    async (input) => {
-      const result = await logToolExecution(logger, close.name, () =>
-        manager.close(input.session_id),
-      );
+    async (input, context: ServerContext) => {
+      const execute = () =>
+        logToolExecution(logger, close.name, () =>
+          manager.close(input.session_id),
+        );
+      const admitted =
+        session === undefined
+          ? undefined
+          : await session.withAdmittedExternalMutation(
+              session.activeTarget()?.path,
+              context.mcpReq.signal,
+              execute,
+              (value, cause) => {
+                if (!value.ok)
+                  return value.error.retainSecondaryFailure(cause, {
+                    rebind_error: projectAnalysisError(cause),
+                  });
+                return new AnalysisOutputError(
+                  close.name,
+                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
+                  { cause },
+                );
+              },
+              close.name,
+            );
+      const result = admitted ?? (await execute());
       return result.ok
         ? delivery.toCallToolResult({ ok: true, value: result.value }, close)
         : delivery.toCallToolResult(result, close);

@@ -232,6 +232,7 @@ it("records partial GDB Evidence from an MCP command error", async () => {
         process_exit_code: 7,
         process_exit_signal: null,
         output_truncated: false,
+        output_invalid_utf8: false,
         completion_status: "unknown",
       },
       rawResult: {
@@ -245,6 +246,7 @@ it("records partial GDB Evidence from an MCP command error", async () => {
         process_exit_code: 7,
         process_exit_signal: null,
         output_truncated: false,
+        output_invalid_utf8: false,
         completion_status: "unknown",
       },
       subjectUnavailableReason:
@@ -339,6 +341,7 @@ it("records partial GDB startup Evidence from an MCP start error", async () => {
         process_exit_code: 7,
         process_exit_signal: null,
         output_truncated: false,
+        output_invalid_utf8: false,
         completion_status: "unknown",
       },
       rawResult: {
@@ -352,6 +355,7 @@ it("records partial GDB startup Evidence from an MCP start error", async () => {
         process_exit_code: 7,
         process_exit_signal: null,
         output_truncated: false,
+        output_invalid_utf8: false,
         completion_status: "unknown",
       },
       subjectUnavailableReason:

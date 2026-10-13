@@ -88,7 +88,7 @@ it("returns complete Evidence after a successful retry of cleanup-only failure",
   );
   const service = {
     inspectWithObjdump: vi.fn(async () => err(error)),
-    close: vi.fn(async () => undefined),
+    close: vi.fn(async () => { error.resolveCleanup(); }),
   };
 
   const result = await runObjdump(service);

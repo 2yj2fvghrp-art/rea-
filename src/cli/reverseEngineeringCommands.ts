@@ -32,6 +32,8 @@ const executeWithCleanup = async (
     await service.close().catch(() => undefined);
     throw cause;
   }
+  const cleanupOnlyCandidate =
+    !result.ok && result.error.cleanupIncomplete;
   try {
     await service.close();
   } catch (cause) {
@@ -53,7 +55,7 @@ const executeWithCleanup = async (
     );
     return err(error);
   }
-  if (!result.ok && result.error.cleanupIncomplete) {
+  if (cleanupOnlyCandidate && !result.ok) {
     result.error.resolveCleanup();
     const evidence = cleanupOnlyCompleteEvidence(result.error);
     if (evidence !== undefined) return { ok: true, value: evidence };
@@ -101,7 +103,6 @@ export const registerReverseEngineeringCommands = (
     new GdbSessionManager({ environment: providerEnvironment }),
   createService: typeof createReverseEngineeringService = createReverseEngineeringService,
 ): void => {
-  const service = createService(environment);
   cli.command(CLI_COMMANDS.inspectWithObjdump, {
     description:
       "Inspect a local artifact with GNU objdump and retain its raw output as Evidence",
@@ -134,6 +135,7 @@ export const registerReverseEngineeringCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.inspectWithObjdump, async () => {
+          const service = createService(environment);
           const result = await executeWithCleanup(service, () =>
             service.inspectWithObjdump(
               {
@@ -159,6 +161,7 @@ export const registerReverseEngineeringCommands = (
     run: ({ args }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.executeRizinCommand, async () => {
+          const service = createService(environment);
           const result = await executeWithCleanup(service, () =>
             service.executeRizinCommand(args, { signal }),
           );

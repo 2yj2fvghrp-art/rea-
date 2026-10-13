@@ -584,7 +584,10 @@ export class ProviderProcessSupervisor {
 }
 
 class ProcessOutputCapture {
+  static readonly #slabBytes = 64 * 1024;
   readonly #chunks: Buffer[] = [];
+  #slab = Buffer.allocUnsafe(ProcessOutputCapture.#slabBytes);
+  #slabBytesUsed = 0;
   #bytes = 0;
 
   get bytes(): number {
@@ -593,16 +596,35 @@ class ProcessOutputCapture {
 
   reset(): void {
     this.#chunks.length = 0;
+    this.#slabBytesUsed = 0;
     this.#bytes = 0;
   }
 
   append(chunk: Buffer): void {
-    this.#bytes += chunk.byteLength;
-    this.#chunks.push(Buffer.from(chunk));
+    let offset = 0;
+    while (offset < chunk.byteLength) {
+      if (this.#slabBytesUsed === this.#slab.byteLength) {
+        this.#chunks.push(this.#slab);
+        this.#slab = Buffer.allocUnsafe(ProcessOutputCapture.#slabBytes);
+        this.#slabBytesUsed = 0;
+      }
+      const copied = chunk.copy(
+        this.#slab,
+        this.#slabBytesUsed,
+        offset,
+        Math.min(chunk.byteLength, offset + this.#slab.byteLength - this.#slabBytesUsed),
+      );
+      offset += copied;
+      this.#slabBytesUsed += copied;
+      this.#bytes += copied;
+    }
   }
 
   snapshot(observedBytes: number): ProviderProcessSnapshot["stdout"] {
-    const buffer = Buffer.concat(this.#chunks, this.#bytes);
+    const chunks = [...this.#chunks];
+    if (this.#slabBytesUsed > 0)
+      chunks.push(this.#slab.subarray(0, this.#slabBytesUsed));
+    const buffer = Buffer.concat(chunks, this.#bytes);
     const text = buffer.toString("utf8");
     let invalidUtf8 = false;
     try {

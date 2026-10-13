@@ -37,12 +37,19 @@ const waitForInferiorDetach = async (
   }
   let timer: NodeJS.Timeout | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       attempt,
       new Promise<undefined>((resolve) => {
         timer = setTimeout(() => resolve(undefined), DETACH_TIMEOUT_MS);
       }),
     ]);
+    if (result === undefined) {
+      const retain = (session as {
+        retainPendingDetach?: (pending: Promise<OwnedDebuggerDetachResult>) => void;
+      }).retainPendingDetach;
+      retain?.(attempt);
+    }
+    return result;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
