@@ -19,6 +19,13 @@ import {
   sourceResult,
 } from "./CdpCaptureValues.js";
 
+const workerAutoAttachParameters = {
+  autoAttach: true,
+  waitForDebuggerOnStart: false,
+  flatten: true,
+  filter: [{ type: "worker" }, { type: "service_worker" }, { exclude: true }],
+};
+
 type Worker = WebPageInspection["workers"][number];
 type Observation = NonNullable<Worker["observation"]>;
 interface WorkerState {
@@ -26,6 +33,7 @@ interface WorkerState {
   sessionId: string | undefined;
   detached: boolean;
   enabled: boolean;
+  autoAttach: boolean;
   events: CdpCaptureEvents;
   sources: Map<string, Observation["scripts"][number]>;
 }
@@ -75,16 +83,7 @@ export class CdpWorkerCapture {
     if (this.context.sessionId !== undefined)
       await this.#command(
         "Target.setAutoAttach",
-        {
-          autoAttach: true,
-          waitForDebuggerOnStart: false,
-          flatten: true,
-          filter: [
-            { type: "worker" },
-            { type: "service_worker" },
-            { exclude: true },
-          ],
-        },
+        workerAutoAttachParameters,
         this.context.sessionId,
       );
     await this.#inventory();
@@ -180,9 +179,16 @@ export class CdpWorkerCapture {
         this.context.sessionId,
       );
     await send("ServiceWorker.disable", {}, this.context.sessionId);
-    for (const [sessionId, worker] of this.#sessions)
-      if (!worker.detached)
-        await send("Target.detachFromTarget", { sessionId });
+    for (const [sessionId, worker] of this.#sessions) {
+      if (worker.detached) continue;
+      if (worker.autoAttach)
+        await send(
+          "Target.setAutoAttach",
+          { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+          sessionId,
+        );
+      await send("Target.detachFromTarget", { sessionId });
+    }
   }
 
   async #inventory(): Promise<void> {
@@ -267,6 +273,7 @@ export class CdpWorkerCapture {
       sessionId: undefined,
       detached: false,
       enabled: false,
+      autoAttach: false,
       events: new CdpCaptureEvents(this.context.input, this.allowedOrigins),
       sources: new Map(),
     };
@@ -324,7 +331,7 @@ export class CdpWorkerCapture {
       if (
         worker.item.type === "worker" &&
         (parent === undefined ||
-          parent.item.observation.ownership === "page_related")
+          parent.item.observation.ownership !== "unknown")
       ) {
         worker.item.observation.ownership = "page_related";
         worker.item.observation.page_target_id = this.context.target.id;
@@ -530,6 +537,16 @@ export class CdpWorkerCapture {
     )
       return;
     worker.enabled = true;
+    if (worker.item.observation.ownership !== "unknown") {
+      const attached = await this.#command(
+        "Target.setAutoAttach",
+        workerAutoAttachParameters,
+        worker.sessionId,
+        worker.item.observation.limitations,
+      );
+      worker.autoAttach = attached !== undefined;
+      if (!worker.autoAttach) worker.events.completeness.unavailable("workers");
+    }
     for (const domain of ["Runtime", "Debugger", "Network"]) {
       if (worker.detached) return;
       try {
