@@ -12,12 +12,14 @@ import {
   detectReferenceSourceLanguage,
 } from "../domain/referenceSourceClassification.js";
 import type { HistoricalSourceGraphInput } from "../domain/referenceSourceGraph.js";
-import { parseReferenceSourceImports } from "../domain/referenceSourceImportParsing.js";
+import {
+  parseReferenceSourceImports,
+  PARSEABLE_REFERENCE_SOURCE_LANGUAGES,
+} from "../domain/referenceSourceImportParsing.js";
 import type {
   ReferenceSourceEntry,
   ReferenceSourceRead,
 } from "../reference/ReferenceSourceReaderTypes.js";
-import { PARSEABLE_REFERENCE_SOURCE_LANGUAGES } from "./ReferenceSourceImportTypes.js";
 import { typescriptEmittedSourceCandidates } from "./TypeScriptEmittedSourceCandidates.js";
 
 export interface ParsedReferenceSourceEntries {
@@ -109,12 +111,18 @@ const resolveInternalSpecifier = (
     : { to: match, resolution: "internal" };
 };
 
+type ReadFile = Extract<ReferenceSourceEntry, { status: "read"; kind: "file" }>;
+
 const appendFile = (
-  entry: Extract<ReferenceSourceEntry, { status: "read"; kind: "file" }>,
+  entry: ReadFile,
   lookupPath: ReferenceSourcePathLookup,
   output: ParsedReferenceSourceEntries,
 ): void => {
   const language = detectReferenceSourceLanguage(entry.path);
+  const parsed =
+    language === null || !PARSEABLE_REFERENCE_SOURCE_LANGUAGES.has(language)
+      ? undefined
+      : parseReferenceSourceImports(entry.path, entry.bytes, language);
   output.entries.push({
     path: entry.path,
     kind: "file",
@@ -123,11 +131,9 @@ const appendFile = (
     language,
     classifications: classifyReferenceSourcePath(entry.path),
     content_state: "hashed",
-    limitations: [],
+    limitations: [...(parsed?.limitations ?? [])],
   });
-  if (language === null || !PARSEABLE_REFERENCE_SOURCE_LANGUAGES.has(language))
-    return;
-  const parsed = parseReferenceSourceImports(entry.path, entry.bytes, language);
+  if (parsed === undefined) return;
   for (const relationship of parsed.relationships) {
     if (relationship.resolution !== "internal") {
       output.relationships.push(relationship);
