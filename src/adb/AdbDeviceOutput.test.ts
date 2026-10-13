@@ -269,7 +269,7 @@ describe("parsePmPathOutput", () => {
   it("refuses a payload CR without treating it as transport framing", () => {
     const devicePath = "/data/app/base.apk\r";
     expect(parsePmPathOutput(`package:${devicePath}\n`).rejectedPaths).toEqual([
-      { device_path: devicePath, reason: "unsupported_character" },
+      { device_path: devicePath, reason: "unsupported_protocol_character" },
     ]);
   });
 
@@ -277,7 +277,9 @@ describe("parsePmPathOutput", () => {
     const devicePath = "/data/app/My App/base.apk";
     const parsed = parsePmPathOutput(`package:${devicePath}\n`);
     expect(parsed.paths).toEqual([]);
-    expect(parsed.rejectedPaths).toEqual([{ device_path: devicePath, reason: "unsupported_character" }]);
+    expect(parsed.rejectedPaths).toEqual([
+      { device_path: devicePath, reason: "unsupported_protocol_character" },
+    ]);
     expect(parsed.unparsedLines).toEqual([]);
   });
 
@@ -302,6 +304,6 @@ it("bounds display expansion while keeping the parsed rejected path intact", () 
   expect(displayDevicePath(devicePath).length).toBeLessThan(1100);
   expect(displayDevicePath(devicePath)).toContain("(excerpt)");
   expect(parsePmPathOutput(`package:${devicePath}\n`).rejectedPaths).toEqual([
-    { device_path: devicePath, reason: "unsupported_character" },
+    { device_path: devicePath, reason: "unsupported_protocol_character" },
   ]);
 });

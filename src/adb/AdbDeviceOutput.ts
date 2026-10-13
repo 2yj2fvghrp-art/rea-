@@ -212,7 +212,10 @@ export const displayDevicePath = (devicePath: string): string => {
   }
   const quoted = JSON.stringify(excerpt).replace(
     /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu,
-    (character) => character === " " ? character : `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`,
+    (character) =>
+      character === " "
+        ? character
+        : `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`,
   );
   return excerpt.length === devicePath.length ? quoted : `${quoted} (excerpt)`;
 };
@@ -223,6 +226,10 @@ export interface AdbPackagePathEntry {
   readonly file_name: string;
   readonly role: "base" | "split" | "unknown";
 }
+
+type AdbPackagePathRejectionReason =
+  | AdbHostFileNameReason
+  | "unsupported_protocol_character";
 
 /**
  * Parse `pm path PACKAGE` lines. The base/split role is derived from the file
@@ -235,14 +242,14 @@ export const parsePmPathOutput = (
   paths: readonly AdbPackagePathEntry[];
   rejectedPaths: readonly {
     device_path: string;
-    reason: AdbHostFileNameReason;
+    reason: AdbPackagePathRejectionReason;
   }[];
   unparsedLines: readonly string[];
 } => {
   const paths: AdbPackagePathEntry[] = [];
   const rejectedPaths: {
     device_path: string;
-    reason: AdbHostFileNameReason;
+    reason: AdbPackagePathRejectionReason;
   }[] = [];
   const unparsedLines: string[] = [];
   for (const rawLine of stdout.split("\n")) {
@@ -252,8 +259,15 @@ export const parsePmPathOutput = (
       continue;
     }
     const devicePath = rawLine.slice("package:".length);
-    if (/[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u.test(devicePath)) {
-      rejectedPaths.push({ device_path: devicePath, reason: "unsupported_character" });
+    if (
+      /[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u.test(
+        devicePath,
+      )
+    ) {
+      rejectedPaths.push({
+        device_path: devicePath,
+        reason: "unsupported_protocol_character",
+      });
       continue;
     }
     const validated = adbHostFileName(devicePath);

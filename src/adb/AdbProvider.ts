@@ -394,8 +394,11 @@ const removeOwnedOutputDirectory = async (
   await rm(path, { recursive: true, force: true });
 };
 
-const PM_PATH_REFUSAL_REMEDIATION =
+const HOST_PATH_REFUSAL_REMEDIATION =
   "Review details.diagnostics for the refused device paths and details.captured_output for the retained pm path output. REA never renames device-reported APK paths, so repeating the request against the same device state and output filesystem is refused the same way.";
+
+const PM_PROTOCOL_PATH_REFUSAL_REMEDIATION =
+  "Review details.diagnostics and details.captured_output for the rejected pm path. REA does not rewrite Package Manager paths; correct the device-reported path policy before retrying.";
 
 /** The `pm path` listing a package pull refuses, with its retained output. */
 interface PmPathRefusalContext {
@@ -417,10 +420,19 @@ const unsafePackagePathsError = (
     rejected.length === 1
       ? ""
       : ` and ${String(rejected.length - 1)} other path(s)`;
+  const packageManagerPolicyRefusal = rejected.some(
+    ({ reason }) => reason === "unsupported_protocol_character",
+  );
+  const userMessage =
+    first.reason === "unsupported_protocol_character"
+      ? `pm path for ${packageName} reported a path rejected by Package Manager's path policy: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`
+      : `pm path for ${packageName} reported an APK path that cannot be written as a file on this host: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`;
   return new AnalysisOutputError(operation, "unsafe_device_path", {
     capturedOutput,
-    userMessage: `pm path for ${packageName} reported an APK path that cannot be written as a file on this host: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`,
-    remediationAction: PM_PATH_REFUSAL_REMEDIATION,
+    userMessage,
+    remediationAction: packageManagerPolicyRefusal
+      ? PM_PROTOCOL_PATH_REFUSAL_REMEDIATION
+      : HOST_PATH_REFUSAL_REMEDIATION,
     diagnostics: {
       package_name: packageName,
       rejected_paths: rejected.map(({ device_path, reason }) => ({
@@ -1321,17 +1333,22 @@ export class AdbProvider {
     } catch (cause: unknown) {
       return err(
         new AnalysisOutputError(operation, "invalid_utf8", {
-            cause,
-            userMessage: "pm path output is not valid UTF-8. No APK was pulled; captured stdout preserves the original bytes as base64.",
-            remediationAction: "Inspect details.captured_output.stdout as base64 bytes and correct the device's pm path response or adb transport encoding before retrying. REA does not replace malformed path bytes.",
-            diagnostics: { package_name: packageName, expected_encoding: "UTF-8", stdout_encoding: "base64" },
-            capturedOutput: {
-              stdout: `base64:${paths.value.stdout.toString("base64")}`,
-              stderr: paths.value.stderr.toString("utf8"),
-              truncated: false,
-            },
+          cause,
+          userMessage:
+            "pm path output is not valid UTF-8. No APK was pulled; captured stdout preserves the original bytes as base64.",
+          remediationAction:
+            "Inspect details.captured_output.stdout as base64 bytes and correct the device's pm path response or adb transport encoding before retrying. REA does not replace malformed path bytes.",
+          diagnostics: {
+            package_name: packageName,
+            expected_encoding: "UTF-8",
+            stdout_encoding: "base64",
           },
-        ),
+          capturedOutput: {
+            stdout: `base64:${paths.value.stdout.toString("base64")}`,
+            stderr: paths.value.stderr.toString("utf8"),
+            truncated: false,
+          },
+        }),
       );
     }
     const parsed = parsePmPathOutput(stdout);

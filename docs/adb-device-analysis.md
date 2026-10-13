@@ -121,7 +121,9 @@ existing analysis families directly, for example
   Host filenames longer than 255 UTF-8 bytes on POSIX or 255 UTF-16 code units on Windows are refused
   before output creation. `pm path` runs without a PTY and uses LF framing;
   whitespace, control, private-use, default-ignorable and noncharacter code
-  points in its reported paths are refused without normalizing the source.
+  points in its reported paths are refused without normalizing the source and
+  reported as `unsupported_protocol_character`, separate from host filename
+  refusal reasons.
   This Package Manager protocol policy is separate from caller-selected
   `pull_adb_file` paths, which retain legal POSIX spaces and colons.
 - **Package path refusals are diagnosable.** These `pull_adb_package`

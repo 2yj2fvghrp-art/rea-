@@ -471,7 +471,10 @@ exit 1`,
   expect(projectAnalysisError(result.error)).toMatchObject({
     code: "unreadable_output",
     message: expect.stringContaining("not valid UTF-8"),
-    details: { reason: "invalid_utf8", diagnostics: { stdout_encoding: "base64" } },
+    details: {
+      reason: "invalid_utf8",
+      diagnostics: { stdout_encoding: "base64" },
+    },
   });
   expect(result.error.capturedOutput?.stdout).toBe(
     `base64:${bytes.toString("base64")}`,
@@ -540,16 +543,56 @@ exit 1`,
     reason: "unsafe_device_path",
     diagnostics: {
       rejected_paths: [
-        { device_path: devicePath, reason: "unsupported_character" },
+        { device_path: devicePath, reason: "unsupported_protocol_character" },
         {
           device_path: "/data/app/y/\u202egpj.apk",
-          reason: "unsupported_character",
+          reason: "unsupported_protocol_character",
         },
       ],
     },
   });
   expect(projected.message).toContain('"/data/app/x/\\u{202E}gpj.apk"');
+  expect(projected.message).toContain("Package Manager's path policy");
+  expect(projected.details.remediationAction).toContain(
+    "does not rewrite Package Manager paths",
+  );
   expect(projected.message).not.toContain("\u202e");
+});
+
+it("distinguishes a Package Manager protocol refusal from an invalid host filename", async () => {
+  const { binary, root } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf 'package:/data/My App/base.apk\\n'; exit 0; fi
+exit 1`,
+  );
+  const projected = await refusedBy(providerOver(binary), {
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.example",
+      output_directory: join(root, "pulls"),
+    },
+  });
+
+  expect(projected.details).toMatchObject({
+    reason: "unsafe_device_path",
+    diagnostics: {
+      rejected_paths: [
+        {
+          device_path: "/data/My App/base.apk",
+          reason: "unsupported_protocol_character",
+        },
+      ],
+    },
+  });
+  expect(projected.message).toContain("Package Manager's path policy");
+  expect(projected.message).not.toContain(
+    "cannot be written as a file on this host",
+  );
+  expect(projected.details.remediationAction).toContain(
+    "does not rewrite Package Manager paths",
+  );
+  await expect(lstat(join(root, "pull-ran"))).rejects.toThrow();
 });
 
 it.each([
