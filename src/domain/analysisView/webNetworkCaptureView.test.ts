@@ -601,6 +601,29 @@ it.each([
   },
 );
 
+it("adds no mitmproxy headline fields when the flow type was producer bytes", () => {
+  const http = Buffer.from("http");
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      binaryFields: [
+        {
+          pointer: "/type",
+          representation: "producer-bytes",
+          state: "retained",
+          content_base64: http.toString("base64"),
+          bytes: http.length,
+          sha256: createHash("sha256").update(http).digest("hex"),
+        },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toMatchObject({ type: "http", request: { method: "GET" } });
+  expect(reported).not.toMatchObject({ request: { path: "/a" } });
+});
+
 it("keeps mitmproxy headlines under a numeric sidecar out of the preview", () => {
   const [item] = nativePreview(
     "mitmproxy",

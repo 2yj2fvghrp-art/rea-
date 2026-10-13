@@ -163,18 +163,14 @@ const mitmproxyHeadline = (
 
 /**
  * The container format alone does not make a flow HTTP; its own type does,
- * when that type is usable and was a string, not a number, in the producer.
+ * when the producer supplied that type as text.
  */
 const mitmproxyHttpFlow = (
   format: string,
   source: Readonly<Record<string, JsonValue>>,
-  usable: (pointer: string) => boolean,
-  sidecarsAt: (pointer: string) => readonly NumericSidecar[],
+  producerText: (pointer: string) => boolean,
 ): boolean =>
-  format === "mitmproxy" &&
-  source.type === "http" &&
-  usable("/type") &&
-  sidecarsAt("/type").length === 0;
+  format === "mitmproxy" && source.type === "http" && producerText("/type");
 
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
 const preview = (record: WebNetworkCaptureRecord, format: string) => {
@@ -208,8 +204,14 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
       (literal) =>
         literal.pointer !== pointer && covers(literal.pointer, pointer),
     );
+  // A numeric sidecar or a byte descriptor means the producer held a number
+  // or bytes there, whatever display text the record shows.
+  const producerText = (pointer: string): boolean =>
+    usable(pointer) &&
+    sidecarsAt(pointer).length === 0 &&
+    !record.binary_fields.some((field) => covers(field.pointer, pointer));
   if (source !== null) {
-    const mitmproxyHttp = mitmproxyHttpFlow(format, source, usable, sidecarsAt);
+    const mitmproxyHttp = mitmproxyHttpFlow(format, source, producerText);
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
         reported[key] = source[key];
