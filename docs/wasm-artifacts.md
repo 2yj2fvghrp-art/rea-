@@ -4,6 +4,15 @@
 local WASM bytes using caller-supplied WABT 1.0.42. No active binary target is
 required. REA does not install tools or fetch artifacts and does not execute WASM.
 
+`open_binary` is not the WASM inspection route. A recognized WASM v1 header
+returns `target_unavailable` with category `unsupported_target` and constraint
+`wasm_requires_static_inspection`, including the selected path in a valid
+`inspect_wasm_artifact` call. Use that target-free tool or
+`rea inspect-wasm-artifact <path> --format json` with the toolchain below.
+Check `binary_session` for configured capability availability. A recognized
+header is not validation of the complete module; missing WABT is reported
+separately as an unavailable capability, not as missing native engine support.
+
 Set `REA_WABT_BIN_DIRECTORY` to an absolute directory containing executable
 `wasm-validate`, `wasm-objdump` and `wasm2wat` (with `.exe` on Windows). Missing
 executables, unsupported banners and inaccessible tools produce actionable
@@ -68,5 +77,5 @@ Candidates are caller-selected files; their identity does not imply validation.
 
 Both CLI and MCP use the same typed port and application service. MCP publishes
 SDK-compatible schemas and records Evidence for `get_evidence_bundle` readback.
-See [WABT provenance](../third_party/wabt/README.md) and
+See [WABT provenance](https://github.com/morluto/rea/blob/main/third_party/wabt/README.md) and
 [testing](testing.md#offline-wasm-artifacts) for real-tool verification.

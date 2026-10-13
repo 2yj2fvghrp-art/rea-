@@ -9,10 +9,18 @@ import {
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { NativeCommandCapture } from "./CommandRunner.js";
+import {
+  MACHO_ARCHITECTURE_POLICIES,
+  selectMachoArchitectureName,
+} from "./MachoArchitectureSelection.js";
 import { parseDyldSymbols } from "./parsers/dyldInfo.js";
-import { parseLipoArchitectures } from "./parsers/lipo.js";
+import {
+  parseLipoArchitectures,
+  type LipoArchitecture,
+} from "./parsers/lipo.js";
 import { withoutEchoedPathHeader } from "./parsers/echoedPath.js";
 import { parseOtoolLoadCommands } from "./parsers/otool.js";
+import { reconcileMachoUuid } from "./parsers/machoUuid.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 interface NativeMachoObservation {
@@ -50,7 +58,6 @@ const REQUIRED_SLICE_COMMANDS = [
 const OPTIONAL_VTOOL_COMMAND = ["vtool", ["-show-build"]] as const;
 const VTOOL_UNAVAILABLE_LIMITATION =
   "vtool is unavailable; build metadata is normalized from otool only.";
-
 /** Inspect one Mach-O with the required native commands and normalized output. */
 export const inspectNativeMacho = async (
   context: NativeMachoInspectionContext,
@@ -67,10 +74,8 @@ export const inspectNativeMacho = async (
   }
   const lipo = captures.find(({ tool }) => tool === "lipo");
   if (lipo === undefined) throw new TypeError("Missing lipo capture");
-  const availableArchitectures = parseLipoArchitectures(lipo.stdout).map(
-    ({ name }) => name,
-  );
-  const selection = selectArchitecture(context.target, availableArchitectures);
+  const architectures = parseLipoArchitectures(lipo.stdout);
+  const selection = selectArchitecture(context.target, architectures);
   if (selection.status === "absent")
     return err(
       new AnalysisOutputError(
@@ -80,8 +85,11 @@ export const inspectNativeMacho = async (
     );
   const selectedArchitecture =
     selection.status === "selected" ? selection.architecture : null;
-  for (const [tool, prefix] of REQUIRED_SLICE_COMMANDS) {
-    const captured = await context.run(
+  const runSliceCommand = ([tool, prefix]: readonly [
+    string,
+    readonly string[],
+  ]) =>
+    context.run(
       tool,
       [
         ...prefix,
@@ -90,20 +98,18 @@ export const inspectNativeMacho = async (
       ],
       context.signal,
     );
+  // Slice commands only read the selected artifact, so launch them together.
+  // Every launch settles before return; declared order fixes provenance and
+  // which failure is reported.
+  const [required, optional] = await Promise.all([
+    Promise.all(REQUIRED_SLICE_COMMANDS.map(runSliceCommand)),
+    runSliceCommand(OPTIONAL_VTOOL_COMMAND),
+  ]);
+  for (const captured of required) {
     if (!captured.ok) return err(captured.error);
     captures.push(captured.value);
   }
   const limitations: string[] = [];
-  const [tool, prefix] = OPTIONAL_VTOOL_COMMAND;
-  const optional = await context.run(
-    tool,
-    [
-      ...prefix,
-      ...selectedArchitectureArguments(tool, selectedArchitecture),
-      context.target.path,
-    ],
-    context.signal,
-  );
   if (optional.ok) captures.push(optional.value);
   else if (optional.error._tag === "AnalysisCapabilityUnavailableError")
     limitations.push(VTOOL_UNAVAILABLE_LIMITATION);
@@ -133,31 +139,44 @@ export const inspectNativeMacho = async (
       ),
     );
   }
+  const selectedArchitectureName =
+    selectedArchitecture ??
+    (architectures.length === 1 ? (architectures[0]?.name ?? null) : null);
+  const containerOffset =
+    selectedArchitectureName === null
+      ? undefined
+      : /^Non-fat file:/mu.test(lipo.stdout)
+        ? 0
+        : (architectures.find(({ name }) => name === selectedArchitectureName)
+            ?.file_offset ?? undefined);
   const normalized = normalizeMacho(
     captures,
     context.invocation,
     limitations,
     load,
-  );
-  const segmentOffset = segmentContainerOffset(
-    normalized,
-    selectedArchitecture,
-    /^Non-fat file:/mu.test(lipo.stdout),
+    architectures,
+    context.target.path,
+    {
+      name: selectedArchitectureName,
+      container_file_offset: containerOffset ?? null,
+    },
   );
   const result =
-    segmentOffset === undefined
+    containerOffset === undefined
       ? inspectMachoSchema.parse({
           ...normalized,
           limitations: [
             ...normalized.limitations,
-            "Segment evidence file offsets are unavailable because the selected Mach-O slice's container offset was not observed.",
+            selectedArchitectureName === null
+              ? "The selected Mach-O slice is unknown; slice-based evidence locations are unavailable."
+              : "The selected Mach-O slice's container file offset was not observed; slice-based evidence locations are unavailable.",
           ],
         })
       : normalized;
   return ok({
     result: jsonValueSchema.parse(result),
     limitations: result.limitations,
-    locations: fileOffsetLocations(result, segmentOffset),
+    locations: fileOffsetLocations(result, containerOffset),
   });
 };
 
@@ -166,9 +185,14 @@ const normalizeMacho = (
   toInvocation: (capture: NativeCommandCapture) => NativeCommandInvocation,
   additionalLimitations: readonly string[],
   load: ReturnType<typeof parseOtoolLoadCommands>,
+  architectures: ReturnType<typeof parseLipoArchitectures>,
+  artifactPath: string,
+  selectedArchitecture: {
+    readonly name: string | null;
+    readonly container_file_offset: number | null;
+  },
 ) => {
   const byTool = captureLookup(captures);
-  const architectures = parseLipoArchitectures(byTool("lipo").stdout);
   const imports = parseDyldSymbols(
     sliceOutput(byTool("dyld_info", 0)),
     "imports",
@@ -185,9 +209,13 @@ const normalizeMacho = (
     new Set(nmExports.map(({ name }) => name)),
   );
   const exports = uniqueSymbols([...dyldExports, ...nmExports]);
-  const uuid =
-    /UUID:\s*([A-Fa-f0-9-]+)/u.exec(byTool("dwarfdump").stdout)?.[1] ??
-    load.uuid;
+  const dwarfdump = byTool("dwarfdump");
+  const uuid = reconcileMachoUuid(
+    load.commands,
+    dwarfdump.stdout,
+    artifactPath,
+    selectedArchitecture.name,
+  );
   const provenance = captures.map(toInvocation);
   // A thread-state command carries the entrypoint in architecture-specific
   // register state, so an absent decoded offset means unknown, not absent.
@@ -207,6 +235,7 @@ const normalizeMacho = (
         ]
       : []),
     ...additionalLimitations,
+    ...uuid.limitations,
     ...(threadEntrypoint ? [threadEntrypointLimitation] : []),
     ...(imageBase === null &&
     /^\s*offset\s+symbol\s*$/mu.test(sliceOutput(byTool("dyld_info", 1)))
@@ -217,11 +246,12 @@ const normalizeMacho = (
   ];
   return inspectMachoSchema.parse({
     format: "mach-o",
+    selected_architecture: selectedArchitecture,
     endian: parseEndian(byTool("file").stdout),
     word_size: parseWordSize(byTool("file").stdout),
     file_type: load.fileType,
     flags: load.flags,
-    uuid: uuid ?? null,
+    uuid: uuid.value,
     entrypoints: covered(
       load.entrypoints,
       !threadEntrypoint,
@@ -307,43 +337,29 @@ const uniqueSymbols = <Value extends { readonly name: string }>(
 
 const fileOffsetLocations = (
   macho: ReturnType<typeof inspectMachoSchema.parse>,
-  segmentOffset: number | undefined,
+  containerOffset: number | undefined,
 ): EvidenceLocation[] => {
   const locations = architectureLocations(macho.architectures.items);
-  if (segmentOffset === undefined) return locations;
+  if (containerOffset === undefined) return locations;
+  for (const entrypoint of macho.entrypoints.items)
+    locations.push({
+      kind: "file-offset",
+      offset: containerOffset + entrypoint.file_offset,
+    });
   for (const segment of macho.segments.items) {
-    if (segment.file_offset === null || segment.file_size === null) continue;
+    if (
+      segment.file_offset === null ||
+      segment.file_size === null ||
+      segment.file_size === 0
+    )
+      continue;
     locations.push({
       kind: "file-offset-range",
-      start: segmentOffset + segment.file_offset,
-      end: segmentOffset + segment.file_offset + segment.file_size,
+      start: containerOffset + segment.file_offset,
+      end: containerOffset + segment.file_offset + segment.file_size,
     });
   }
   return locations;
-};
-
-/** otool segment offsets are slice-relative; evidence addresses the input file. */
-const segmentContainerOffset = (
-  macho: ReturnType<typeof inspectMachoSchema.parse>,
-  selectedArchitecture: string | null,
-  thinInput: boolean,
-): number | undefined => {
-  const architectures = macho.architectures.items;
-  const slice =
-    selectedArchitecture === null
-      ? architectures.length === 1
-        ? architectures[0]
-        : undefined
-      : architectures.find(({ name }) => name === selectedArchitecture);
-  if (slice?.file_offset !== null && slice?.file_offset !== undefined)
-    return slice.file_offset;
-  // A thin lipo observation has no separate slice offset. Unknown FAT slice
-  // offsets must not silently become zero and identify unrelated container bytes.
-  return thinInput &&
-    selectedArchitecture === null &&
-    architectures.length === 1
-    ? 0
-    : undefined;
 };
 
 /** Project architecture slices into evidence file-offset locations. */
@@ -387,25 +403,24 @@ type ArchitectureSelection =
 
 const selectArchitecture = (
   target: BinaryTarget,
-  available: readonly string[],
+  available: readonly LipoArchitecture[],
 ): ArchitectureSelection => {
-  if (target.kind !== "executable" || target.availableArchitectures.length < 2)
+  // BinaryTarget lists CPU families and lipo lists slices. A universal file
+  // can hold several slices of one family (arm64e and arm64e.x1), and slice
+  // tools without -arch print every slice.
+  if (
+    target.kind !== "executable" ||
+    (target.availableArchitectures.length < 2 && available.length < 2)
+  )
     return { status: "unfiltered" };
   const normalized =
     target.architecture === "x86" ? "i386" : target.architecture;
-  if (available.includes(normalized))
-    return { status: "selected", architecture: normalized };
-  // BinaryTarget intentionally normalizes ARM64 CPU subtypes. Recover the
-  // concrete arm64e slice name from lipo before invoking slice-aware tools.
-  if (normalized === "arm64") {
-    const arm64e = available.find((architecture) => architecture === "arm64e");
-    if (arm64e !== undefined)
-      return { status: "selected", architecture: arm64e };
-    const variant = available.find((architecture) =>
-      /^arm64e\.[A-Za-z0-9_]+$/u.test(architecture),
-    );
-    if (variant !== undefined)
-      return { status: "selected", architecture: variant };
-  }
+  const policy = MACHO_ARCHITECTURE_POLICIES[target.architecture];
+  const selected =
+    policy === undefined
+      ? available.find(({ name }) => name === normalized)?.name
+      : selectMachoArchitectureName(policy, available);
+  if (selected !== undefined)
+    return { status: "selected", architecture: selected };
   return { status: "absent", architecture: normalized };
 };

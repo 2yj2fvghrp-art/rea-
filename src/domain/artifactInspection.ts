@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  artifactInventoryOutputSchema,
   artifactInventoryResultSchema,
   type ArtifactInventoryResult,
 } from "./artifactGraph.js";
@@ -102,6 +103,24 @@ export const artifactInspectionResultSchema = z.strictObject({
 export type ArtifactInspectionResult = z.infer<
   typeof artifactInspectionResultSchema
 >;
+
+/**
+ * The current producer guarantees a concrete inventory payload. Specialize
+ * its output without narrowing the historical inspection/Evidence input
+ * parser or applying inventory defaults inside an authenticated imported record.
+ */
+export const artifactInspectionOutputSchema =
+  artifactInspectionResultSchema.safeExtend({
+    substeps: z
+      .array(
+        artifactInspectionResultSchema.shape.substeps.element.safeExtend({
+          evidence: evidenceSchema.safeExtend({
+            normalized_result: artifactInventoryOutputSchema,
+          }),
+        }),
+      )
+      .min(1),
+  });
 
 /** Project one successful inventory Evidence record into an inspection report. */
 export const createArtifactInspection = (
@@ -302,11 +321,14 @@ const DIRECTORY_MEMBER_FORMATS: readonly ArtifactInventoryResult["manifest"]["ro
 const directoryProbes = (
   inventory: ArtifactInventoryResult,
 ): ArtifactInspectionResult["next_probes"] => {
-  // A symlink keeps the role its path suggests, but inventory and the
-  // analyzers never follow it, so it cannot supply member bytes.
+  // JavaScript acquisition does not follow symlinks. Other probes retain
+  // their own applicability rules; plist inspection follows readable links.
   const present = new Set(
     inventory.occurrences
-      .filter(({ entry_kind }) => entry_kind !== "symlink")
+      .filter(
+        ({ entry_kind, artifact_format }) =>
+          entry_kind !== "symlink" || artifact_format !== "javascript-bundle",
+      )
       .map(({ artifact_format }) => artifact_format),
   );
   const members = DIRECTORY_MEMBER_FORMATS.filter((format) =>

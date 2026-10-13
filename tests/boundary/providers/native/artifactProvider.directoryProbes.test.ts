@@ -81,17 +81,36 @@ describe("directory inspection probes", () => {
     ]);
   });
 
-  it("proposes JavaScript analysis for TypeScript sources the analyzer reads", async () => {
-    const root = await createTestTempDirectory("rea-artifact-typescript-");
-    const bundle = join(root, "Fixture.app");
-    await writeTree(bundle, {
-      "Contents/MacOS/Fixture": MACH_O_64,
-      "Contents/Info.plist": INFO_PLIST,
-      "Contents/Resources/app/main.ts": "export const ok = true;\n",
-    });
+  it.each(["cjs", "cts", "mjs", "mts", "js", "jsx", "ts", "tsx"])(
+    "proposes JavaScript analysis for .%s sources the analyzer reads",
+    async (extension) => {
+      const root = await createTestTempDirectory("rea-artifact-typescript-");
+      const bundle = join(root, "Fixture.app");
+      await writeTree(bundle, {
+        "Contents/MacOS/Fixture": MACH_O_64,
+        "Contents/Info.plist": INFO_PLIST,
+        [`Contents/Resources/app/main.${extension}`]:
+          "export const ok = true;\n",
+      });
 
+      expect(await probeOperations(bundle)).toEqual([
+        "analyze_javascript_application",
+        "open_binary",
+        "inspect_plist",
+      ]);
+    },
+  );
+
+  it("preserves plist inspection for a readable Info.plist symlink", async () => {
+    const root = await createTestTempDirectory("rea-artifact-plist-link-");
+    const bundle = join(root, "Fixture.app");
+    await writeTree(bundle, { "Contents/MacOS/Fixture": MACH_O_64 });
+    await writeFile(join(root, "bundle-metadata"), INFO_PLIST);
+    await symlink(
+      join(root, "bundle-metadata"),
+      join(bundle, "Contents/Info.plist"),
+    );
     expect(await probeOperations(bundle)).toEqual([
-      "analyze_javascript_application",
       "open_binary",
       "inspect_plist",
     ]);

@@ -45,3 +45,7 @@ export interface JavaScriptArtifactFileSet {
   readonly invalid_utf8_files: number;
   readonly source_selection?: JavaScriptSourceSelection;
 }
+
+/** Source suffixes admitted by the JavaScript artifact acquisition boundary. */
+export const isJavaScriptSourcePath = (path: string): boolean =>
+  /\.(?:cjs|cts|mjs|mts|js|jsx|ts|tsx)$/iu.test(path);

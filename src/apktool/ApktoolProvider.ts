@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream, constants as fsConstants } from "node:fs";
+import { createWriteStream } from "node:fs";
 import {
   access,
   chmod,
@@ -117,13 +117,20 @@ const readBoundedText = async (
     throwIfCancelled(operation, signal);
     const truncated = length > budget;
     // A prefix may end within a UTF-8 character; omit those trailing bytes.
-    const decoder = new TextDecoder("utf-8");
-    return {
-      text: decoder.decode(bytes.subarray(0, Math.min(length, budget)), {
-        stream: truncated,
-      }),
-      truncated,
-    };
+    try {
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      return {
+        text: decoder.decode(bytes.subarray(0, Math.min(length, budget)), {
+          stream: truncated,
+        }),
+        truncated,
+      };
+    } catch (cause: unknown) {
+      throw new AnalysisProtocolError(
+        `apktool produced invalid UTF-8 in ${path}`,
+        { cause },
+      );
+    }
   } finally {
     await file.close();
   }
@@ -649,7 +656,9 @@ export class ApktoolProvider {
       );
       const manifest = manifestRead.text;
       const packageName =
-        manifest === null ? null : parseManifestPackage(manifest);
+        manifest === null || manifestRead.truncated
+          ? null
+          : parseManifestPackage(manifest);
       const stringsDirectory =
         input.locale === undefined
           ? "values"
@@ -717,7 +726,7 @@ export class ApktoolProvider {
                 : []),
               ...(parsedStrings.unparsedCount > 0
                 ? [
-                    `${String(parsedStrings.unparsedCount)} string entries with nested markup were not projected`,
+                    `String entries omitted due to malformed XML or unsupported markup: ${String(parsedStrings.unparsedCount)}`,
                   ]
                 : []),
               ...(parsedStrings.entries.length > MAX_STRINGS

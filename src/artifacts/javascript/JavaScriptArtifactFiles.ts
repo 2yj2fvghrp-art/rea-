@@ -1,3 +1,4 @@
+import { isJavaScriptSourcePath } from "../../domain/javascript/javascriptArtifactFiles.js";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { Readable } from "node:stream";
@@ -465,7 +466,7 @@ const relevantKind = (path: string): JavaScriptArtifactFileKind | undefined => {
   if (lower === "package.json" || lower.endsWith("/package.json"))
     return "package-json";
   if (lower.endsWith(".json")) return "json";
-  if (/\.(?:cjs|cts|mjs|mts|js|jsx|ts|tsx)$/u.test(lower)) return "javascript";
+  if (isJavaScriptSourcePath(path)) return "javascript";
   if (/\.html?$/u.test(lower)) return "html";
   if (lower.endsWith(".map")) return "source-map";
   if (lower.endsWith(".node")) return "native-addon";

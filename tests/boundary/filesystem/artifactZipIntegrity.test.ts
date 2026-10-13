@@ -1,16 +1,187 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect, it } from "vitest";
 
 import { writeOrderedZip } from "../../fixtures/artifactEntryOrder.js";
+import { inventoryArtifact } from "../../fixtures/artifactInventory.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
 import { ZipArtifactReader } from "../../../src/artifacts/ZipArtifactReader.js";
 import { withArtifactClient } from "../../support/artifactClientScope.js";
-import { artifactInventoryResultSchema } from "../../../src/domain/artifactGraph.js";
+import {
+  artifactExtractionResultSchema,
+  artifactInventoryResultSchema,
+} from "../../../src/domain/artifactGraph.js";
+
+it("completes an empty ZIP extraction with an empty identity", async () => {
+  const root = await createTestTempDirectory("rea-empty-artifact-extraction-");
+  const archive = join(root, "empty.zip");
+  await writeOrderedZip(archive, []);
+  const archiveTarget = await parseBinaryTarget(archive);
+  if (!archiveTarget.ok) throw archiveTarget.error;
+
+  const output = join(root, "output");
+  const result = await withArtifactClient(archiveTarget.value, (client) =>
+    client.execute("extract_artifact", { output_root: output }),
+  );
+  if (!result.ok) throw result.error;
+  const extraction = artifactExtractionResultSchema.parse(result.value.result);
+  expect(extraction.extraction_manifest).toMatchObject({
+    source_manifest_id: extraction.manifest.manifest_id,
+    selected_occurrence_ids: [],
+  });
+  expect(extraction.artifacts).toEqual([]);
+  expect(extraction.containment_verified).toBe(true);
+  expect(await readdir(output)).toEqual([]);
+});
+
+const legacyControlNames = [
+  ["legacy ASCII control", Buffer.from("Icon\r"), false, "Icon\r"],
+  [
+    "legacy CP437 control",
+    Buffer.from([0x82, 0x09, 0x7f, 0x2e, 0x61]),
+    false,
+    "é\t\u007F.a",
+  ],
+] as const;
+
+it.each([
+  ["legacy CP437", Buffer.from([0x82, 0x2e, 0x74, 0x78, 0x74]), false, "é.txt"],
+  ...legacyControlNames,
+  [
+    "EFS with leading U+FEFF",
+    Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x62]),
+    true,
+    "\uFEFFab",
+  ],
+] as const)(
+  "preserves %s ZIP member names",
+  async (_label, rawName, utf8Flag, logicalPath) => {
+    const root = await createTestTempDirectory("rea-zip-decoded-name-");
+    const path = join(root, "names.zip");
+    await writeSingleEntryZip(path, "x.txt");
+    const archive = await readFile(path);
+    await writeFile(
+      path,
+      rewriteSingleEntryName(archive, "x.txt", rawName, utf8Flag),
+    );
+
+    const inventory = await inventoryArtifact(path);
+    expect(inventory.occurrences).toContainEqual(
+      expect.objectContaining({
+        logical_path: logicalPath,
+        hash_status: "verified",
+      }),
+    );
+  },
+);
+
+it.skipIf(process.platform === "win32").each(legacyControlNames)(
+  "extracts %s ZIP members under their stored names",
+  async (_label, rawName, utf8Flag, logicalPath) => {
+    const root = await createTestTempDirectory("rea-zip-extracted-name-");
+    const path = join(root, "names.zip");
+    await writeSingleEntryZip(path, "x.txt");
+    const archive = await readFile(path);
+    await writeFile(
+      path,
+      rewriteSingleEntryName(archive, "x.txt", rawName, utf8Flag),
+    );
+    const target = await parseBinaryTarget(path);
+    if (!target.ok) throw target.error;
+
+    const output = join(root, "output");
+    const result = await withArtifactClient(target.value, (client) =>
+      client.execute("extract_artifact", { output_root: output }),
+    );
+    if (!result.ok) throw result.error;
+    const extraction = artifactExtractionResultSchema.parse(
+      result.value.result,
+    );
+    expect(
+      extraction.artifacts.map(({ relative_path }) => relative_path),
+    ).toEqual([logicalPath]);
+    expect(await readdir(output)).toEqual([logicalPath]);
+    expect(await readFile(join(output, logicalPath), "utf8")).toBe(
+      "member bytes",
+    );
+  },
+);
+
+it("preserves valid Info-ZIP Unicode Path overrides", async () => {
+  const root = await createTestTempDirectory("rea-zip-unicode-path-");
+  const path = join(root, "unicode-path.zip");
+  const rawName = Buffer.from("legacy.txt");
+  const unicodeName = Buffer.from("café.txt", "utf8");
+  const field = Buffer.alloc(5 + unicodeName.length);
+  field[0] = 1;
+  field.writeUInt32LE(zipCrc32(rawName), 1);
+  unicodeName.copy(field, 5);
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  await writer.add("legacy.txt", new TextReader("unicode path"), {
+    extraField: new Map([[0x7075, field]]),
+  });
+  const archive = Buffer.from(await writer.close());
+  await writeFile(
+    path,
+    rewriteSingleEntryName(archive, "legacy.txt", rawName, false),
+  );
+
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.occurrences).toContainEqual(
+    expect.objectContaining({
+      logical_path: "café.txt",
+      hash_status: "verified",
+    }),
+  );
+});
+
+it("rejects malformed UTF-8 in flagged ZIP member names", async () => {
+  const root = await createTestTempDirectory("rea-zip-invalid-utf8-name-");
+  const path = join(root, "invalid-utf8.zip");
+  await writeSingleEntryZip(path, "x.txt");
+  const archive = await readFile(path);
+  const malformedName = Buffer.from([0xc3, 0x28, 0x2e, 0x74, 0x78]);
+  await writeFile(
+    path,
+    rewriteSingleEntryName(archive, "x.txt", malformedName, true),
+  );
+
+  await expect(inventoryArtifact(path)).rejects.toMatchObject({
+    name: "ArtifactReaderFailure",
+    reason: "format",
+    message: "ZIP filename is not valid UTF-8",
+  });
+});
+
+it("rejects malformed UTF-8 in a CRC-valid Unicode Path extra field", async () => {
+  const root = await createTestTempDirectory("rea-zip-invalid-unicode-extra-");
+  const path = join(root, "invalid-unicode-extra.zip");
+  const rawName = Buffer.from("legacy.txt");
+  const malformedName = Buffer.from([0xc3, 0x28, 0x2e, 0x74, 0x78]);
+  const field = Buffer.alloc(5 + malformedName.length);
+  field[0] = 1;
+  field.writeUInt32LE(zipCrc32(rawName), 1);
+  malformedName.copy(field, 5);
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  await writer.add("legacy.txt", new TextReader("malformed extra"), {
+    extraField: new Map([[0x7075, field]]),
+  });
+  const archive = Buffer.from(await writer.close());
+  await writeFile(
+    path,
+    rewriteSingleEntryName(archive, "legacy.txt", rawName, false),
+  );
+
+  await expect(inventoryArtifact(path)).rejects.toMatchObject({
+    name: "ArtifactReaderFailure",
+    reason: "format",
+    message: "ZIP Unicode Path extra field is not valid UTF-8",
+  });
+});
 
 it("bounds a requested metadata read without rejecting the underlying valid ZIP", async () => {
   const root = await createTestTempDirectory("rea-zip-metadata-budget-");
@@ -295,3 +466,66 @@ it("rejects a truncated ZIP through artifact inventory", async () => {
     error: { _tag: "ArtifactOperationError", reason: "io" },
   });
 });
+
+const writeSingleEntryZip = async (
+  path: string,
+  name: string,
+): Promise<void> => {
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  await writer.add(name, new TextReader("member bytes"));
+  await writeFile(path, await writer.close());
+};
+
+const rewriteSingleEntryName = (
+  archive: Buffer,
+  originalName: string,
+  rawName: Buffer,
+  utf8Flag: boolean,
+): Buffer => {
+  const rewritten = Buffer.from(archive);
+  const expectedName = Buffer.from(originalName, "utf8");
+  for (const { signature, nameOffset, flagsOffset, lengthOffset } of [
+    {
+      signature: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      nameOffset: 30,
+      flagsOffset: 6,
+      lengthOffset: 26,
+    },
+    {
+      signature: Buffer.from([0x50, 0x4b, 0x01, 0x02]),
+      nameOffset: 46,
+      flagsOffset: 8,
+      lengthOffset: 28,
+    },
+  ]) {
+    const header = rewritten.indexOf(signature);
+    if (header < 0) throw new Error("Expected ZIP member header");
+    const nameLength = rewritten.readUInt16LE(header + lengthOffset);
+    if (
+      nameLength !== expectedName.length ||
+      nameLength !== rawName.length ||
+      !rewritten
+        .subarray(header + nameOffset, header + nameOffset + nameLength)
+        .equals(expectedName)
+    )
+      throw new Error("Expected the original ZIP member name");
+    rawName.copy(rewritten, header + nameOffset);
+    const flags = rewritten.readUInt16LE(header + flagsOffset);
+    rewritten.writeUInt16LE(
+      utf8Flag ? flags | 0x0800 : flags & ~0x0800,
+      header + flagsOffset,
+    );
+  }
+  return rewritten;
+};
+
+const zipCrc32 = (bytes: Uint8Array): number => {
+  let checksum = 0xffffffff;
+  for (const byte of bytes) {
+    checksum ^= byte;
+    for (let bit = 0; bit < 8; bit += 1)
+      checksum =
+        (checksum & 1) === 1 ? (checksum >>> 1) ^ 0xedb88320 : checksum >>> 1;
+  }
+  return (checksum ^ 0xffffffff) >>> 0;
+};
