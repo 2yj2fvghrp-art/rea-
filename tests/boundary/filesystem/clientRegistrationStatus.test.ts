@@ -287,6 +287,11 @@ it.each([
     "rea setup --client claude_code --scope local --project",
   ],
   [
+    { command: "/old/rea", args: ["mcp"] },
+    "stale",
+    "rea setup --client claude_code --scope local --project",
+  ],
+  [
     { command: "/old/rea", args: ["mcp"], disabled: true },
     "stale",
     "Re-enable it in /mcp",
