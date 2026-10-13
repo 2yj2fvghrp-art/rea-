@@ -715,11 +715,14 @@ export class IdaSessionClient implements AnalysisClient {
               entry.session_id === workspace.sessionId &&
               sameIdaHostPath(entry.input_path, workspace.inputPath),
           )?.session_id;
-          // Every same-input session, including the requested worker, stays
-          // reported until a later successful inventory confirms release.
+          // Every same-input session and any entry under the requested ID,
+          // whatever its input, stays reported until a later successful
+          // inventory confirms release.
           const blocked = this.#recordBlockingSessions(
-            inventory.sessions.filter((entry) =>
-              sameIdaHostPath(entry.input_path, workspace.inputPath),
+            inventory.sessions.filter(
+              (entry) =>
+                entry.session_id === workspace.sessionId ||
+                sameIdaHostPath(entry.input_path, workspace.inputPath),
             ),
           );
           if (this.#database === undefined && blocked)
