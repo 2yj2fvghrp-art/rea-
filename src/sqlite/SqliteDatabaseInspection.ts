@@ -236,6 +236,11 @@ const readSchema = (
       metadata.set(value.name, value);
     }
   }
+  // A trigger stores its target as written in CREATE TRIGGER, which SQLite
+  // resolves by ASCII case folding; report the stored table or view name.
+  const storedNames = new Map(
+    [...metadata.keys()].map((name) => [sqliteIdentifierKey(name), name]),
+  );
   const unresolvedVirtualTables = [...metadata.values()]
     .filter((value) => value.type === "virtual" && value.ncol === 0)
     .map((value) => ({
@@ -253,8 +258,11 @@ const readSchema = (
   // Raw bytes preserve text without hex expansion; avoid sorter records that
   // duplicate large names or definitions beyond SQLite's native record limit.
   const declaration = scope === "inventory" ? "" : ", CAST(sql AS BLOB) AS sql";
+  // NOCASE folds only ASCII letters, as SQLite does when it resolves the
+  // table named by an index or trigger. The selected table itself must still
+  // match exactly before rows are read.
   const selection =
-    scope === "selected_table" ? " WHERE tbl_name = ? COLLATE BINARY" : "";
+    scope === "selected_table" ? " WHERE tbl_name = ? COLLATE NOCASE" : "";
   const statement = db.prepare(
     `SELECT type, CAST(name AS BLOB) AS name, CAST(tbl_name AS BLOB) AS tbl_name, rootpage${declaration} FROM main.sqlite_schema${selection}`,
   );
@@ -349,7 +357,9 @@ const readSchema = (
     } else {
       const trigger = {
         name: value.name,
-        table: value.tbl_name,
+        table:
+          storedNames.get(sqliteIdentifierKey(value.tbl_name)) ??
+          value.tbl_name,
         ...(scope === "inventory" ? {} : { sql: value.sql }),
       };
       budget.retain(trigger);
