@@ -109,6 +109,7 @@ const runSetupWorkflow = async (
     forceHopperInstall: options.installHopper,
     proposeHopper:
       options.proposeHopper ?? (confirm !== undefined && !options.structured),
+    hopperLauncherConfigured: initialState.hopperLauncherConfigured,
     initialDoctor: initialState.doctor,
   });
   clientStates = discovery.clientStates;

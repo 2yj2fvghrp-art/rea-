@@ -30,6 +30,7 @@ export class FakeSetupHost implements SetupHost {
   version: string | undefined = "14.5";
   distribution: LinuxDistribution | undefined;
   hopper: string | undefined;
+  hopperLauncherConfigured = false;
   ghidra: string | undefined;
   javaHome: string | undefined;
   hopperInstallSucceeds = true;
@@ -64,6 +65,7 @@ export class FakeSetupHost implements SetupHost {
     Promise.resolve(this.distribution);
   initialSetupState = async (scope?: DoctorScope) => ({
     ...(this.hopper === undefined ? {} : { hopperPath: this.hopper }),
+    hopperLauncherConfigured: this.hopperLauncherConfigured,
     providerEnvironment: {
       ...(this.hopper === undefined
         ? {}

@@ -13,6 +13,13 @@ export type SetupProviderEnvironment = Readonly<Record<string, string>>;
 /** Read-only host facts shared by the initial setup plan. */
 export interface SetupInitialState {
   readonly hopperPath?: string;
+  /**
+   * Whether the user explicitly configured a Hopper launcher through
+   * HOPPER_LAUNCHER_PATH. A configured launcher is the user's chosen provider:
+   * setup must not propose reinstalling Hopper over it just because the pinned
+   * build digest or demo runtime checks fail.
+   */
+  readonly hopperLauncherConfigured: boolean;
   readonly providerEnvironment: SetupProviderEnvironment;
   readonly doctor: DoctorReport;
 }
