@@ -323,7 +323,9 @@ const checkSymlinks = (
 ): void => {
   const lookupPath = createReferenceSourcePathLookup(paths);
   const excludedPaths = createReferenceSourcePathLookup(
-    graph.exclusions.map(({ path }) => path),
+    graph.exclusions
+      .filter(({ reason }) => reason !== "symlink-escape")
+      .map(({ path }) => path),
   );
   const excludedDirectories = new Set(
     graph.exclusions.flatMap((entry) =>

@@ -435,6 +435,15 @@ describe("historical source graph validation", () => {
 });
 
 describe("historical source graph symlink path identity", () => {
+  it("does not use a recorded escape to establish an internal target", () => {
+    const input = { ...graphInput(), inventory_state: "partial" as const };
+    input.exclusions = [{ path: "omitted", reason: "symlink-escape" }];
+    input.entries[2] = symlinkEntry({ target: "../omitted" });
+    expect(() => createHistoricalSourceGraph(input)).toThrow(
+      /recorded exclusion/u,
+    );
+  });
+
   it("requires directory coverage for descendants but reads legacy exact exclusions", () => {
     const input = { ...graphInput(), inventory_state: "partial" as const };
     input.exclusions = [
