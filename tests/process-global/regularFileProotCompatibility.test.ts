@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
 import {
+  hasPRootTemporaryMount,
   isPRootDistroEnvironment,
   sameRegularFileState,
 } from "../../src/filesystem/RegularFile.js";
@@ -19,17 +20,26 @@ const isPRootHost = (): boolean => {
     /* fall through */
   }
   try {
-    if (
-      /(?:^|\s)\/\S*\/proot(?:-\S*)?(?:\s|\/)/u.test(
-        readFileSync("/proc/self/mountinfo", "utf8"),
-      )
-    )
+    if (hasPRootTemporaryMount(readFileSync("/proc/self/mountinfo", "utf8")))
       return true;
   } catch {
     /* fall through */
   }
   return false;
 };
+
+it("recognizes only PRoot temporary mount points", () => {
+  expect(
+    hasPRootTemporaryMount(
+      "36 25 0:32 / /data/proot-XyZ123 rw - tmpfs tmpfs rw",
+    ),
+  ).toBe(true);
+  expect(
+    hasPRootTemporaryMount(
+      "36 25 0:32 /srv/proot-backups /srv rw - ext4 /dev/proot-backups rw",
+    ),
+  ).toBe(false);
+});
 
 it("recognizes the PRoot-Distro identity marker", () => {
   expect(isPRootDistroEnvironment({ container: "proot-distro" })).toBe(true);

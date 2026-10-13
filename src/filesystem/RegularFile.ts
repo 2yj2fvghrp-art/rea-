@@ -177,28 +177,34 @@ export const isPRootDistroEnvironment = (
   environment: Readonly<NodeJS.ProcessEnv>,
 ): boolean => environment.container === "proot-distro";
 
+export const hasPRootTemporaryMount = (mountInfo: string): boolean =>
+  mountInfo.split("\n").some((line) => {
+    const mountPoint = line
+      .split(" ")[4]
+      ?.replace(/\\([0-7]{3})/gu, (_, octal: string) =>
+        String.fromCharCode(Number.parseInt(octal, 8)),
+      );
+    return (
+      mountPoint !== undefined &&
+      /(?:^|\/)proot-[a-zA-Z0-9]{6,}(?:\/|$)/u.test(mountPoint)
+    );
+  });
+
 const detectPRootEnvironment = (): boolean => {
   // PRoot-Distro exports this identity variable in login/run, including its
   // minimal mode; unlike a bound /proc, it identifies the userspace runtime.
   if (isPRootDistroEnvironment(process.env)) return true;
-  // /proc/version can report a PRoot release when the runtime exposes one.
-  // The kernel release string is the most reliable marker: PRoot sets it
-  // itself, so it cannot collide with ordinary mount names or file paths.
+  // Some custom runtime configurations expose PRoot in /proc/version; the
+  // standard Termux bind does not, so this is only an additional marker.
   try {
     if (readFileSync("/proc/version", "utf8").includes("PRoot")) return true;
   } catch {
     // /proc/version unreadable — fall through to the mountinfo probe.
   }
-  // /proc/self/mountinfo lists proot-managed bind mounts whose mount point
-  // contains a "/proot" path component (e.g. Termux's proot-XXXXXX temp dirs).
-  // Matching a whole path component rather than a bare substring keeps an
-  // unrelated mount such as "/srv/proot-backups" from counting as PRoot.
+  // Inspect only mountinfo's mount-point field; source paths and mount
+  // options may contain unrelated names such as "/srv/proot-backups".
   try {
-    if (
-      /(?:^|\s)\/\S*\/proot(?:-\S*)?(?:\s|\/)/u.test(
-        readFileSync("/proc/self/mountinfo", "utf8"),
-      )
-    )
+    if (hasPRootTemporaryMount(readFileSync("/proc/self/mountinfo", "utf8")))
       return true;
   } catch {
     // /proc/self/mountinfo unreadable — treat the host as non-PRoot.
