@@ -151,6 +151,10 @@ export const readMipsElfMetadata = async (
       checkCancelled();
       const position = i * table.entrySize;
       const type = u32(contents.value, position + table.typeOffset);
+      if (table.optional && type === 0x6ffffff5)
+        return err(
+          `MIPS SHT_GNU_ATTRIBUTES at section index ${i} is uninspected; its GNU ABI declarations cannot be treated as absent. GNU MIPS attribute parsing requires separate verification.`,
+        );
       if (metadata.type === 3 && table.optional && (type === 4 || type === 9))
         relocationSections.push({
           type,

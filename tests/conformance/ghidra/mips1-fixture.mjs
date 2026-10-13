@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-/** Source-owned recordless MIPS I/o32 ELF. Encode only the declared integer probe. */
+/** Source-owned MIPS I/o32 refusal control. Its integer words do not establish load-delay semantics. */
 export async function buildMips1Fixture(directory, byteOrder) {
   if (!["little", "big"].includes(byteOrder))
     throw new Error("Unknown fixture byte order");

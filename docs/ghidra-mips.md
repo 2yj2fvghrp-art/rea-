@@ -8,6 +8,23 @@ PSP/Allegrex has a [separate static-ELF profile](ghidra-psp.md) tracked in
 
 ## Admission boundary
 
+MIPS I remains unsupported. The generic Ghidra MIPS processor's immediate load
+assignment does not establish MIPS I load-delay behavior; correctly decoding a
+small integer fixture does not verify its decompiler/dataflow semantics.
+
+The ELF metadata reader refuses typed `SHT_GNU_ATTRIBUTES` sections before
+provider selection. GNU MIPS ABI attributes can declare floating-point storage
+that differs from MIPS ABI-flags records. Until this declaration source is parsed
+and reconciled, its presence must not be treated as recordless absence. Section
+names and attacker-controlled section sizes do not bypass that refusal.
+
+After building, `node scripts/verify-real-ghidra-mips-boundaries.mjs` checks both
+byte orders through production CLI/MCP. GNU readelf independently decodes the
+soft-float attribute fixture; MIPS I and uninspected GNU attributes are refused,
+while a recordless MIPS32 control still produces a real Ghidra dossier and exact
+loaded bytes. Supply existing Ghidra/Java and GNU readelf (`REA_READELF`). Source
+hashes are checked after inspection, and no target is executed.
+
 ELF `EM_MIPS` is retained as the provider-neutral `mips` family. The target also
 retains class, byte order, `e_type`, raw `e_flags`, and inspected ABI declarations.
 Recognition does not mean every provider or MIPS variant is supported. Existing
@@ -43,25 +60,6 @@ extends past the captured bytes without a program-header record) does not
 establish the recordless admission, and an `EF_MIPS_ARCH_32` header that
 _declares_ an ABI is refused rather than relabeled, because the declared-ABI
 lane is verified for `EF_MIPS_ARCH_32R2` headers only.
-
-A third admission covers recordless MIPS I ELF32 `ET_EXEC` images whose header
-explicitly declares o32, with complete ABI-record inspection and no ASE,
-machine-specific, n32, 32-bit-on-64-bit, FP64 or NaN2008 declarations. Both byte
-orders use the pinned `MIPS:<LE|BE>:32:default` language, checked after import.
-The header's o32 declaration is retained as a fact; floating-point storage remains
-unverified and is reported in Evidence limitations. ABI-record-bearing MIPS I,
-MIPS II/III, relocatable/shared MIPS I and unspecified-ABI MIPS I remain outside
-this increment. This does not widen the existing Windows P0 boundary.
-
-Run `node scripts/verify-real-ghidra-mips1.mjs` after building, with the existing
-Ghidra/Java installation and `REA_READELF` when GNU readelf is not on PATH.
-The source-owned integer fixture is encoded directly from its declared MIPS I
-instructions; no cross compiler is required. GNU readelf independently checks
-its header and symbol. The verifier checks both byte orders through production
-MCP, exact loaded words, instruction/delay-slot decoding, dossier output, retained
-FP uncertainty, source immutability and snapshot replay; it also checks the LE
-fixture through the production CLI. Real macOS arm64/Ghidra 12.1.4 was exercised;
-Linux, Windows and a real firmware corpus were not.
 
 Explicit `EF_MIPS_FP64` and `EF_MIPS_NAN2008` declarations are refused. Their
 absence is insufficient: Clang can emit identical `e_flags` for FP32, FP64 and
