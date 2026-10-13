@@ -47,6 +47,7 @@ export const isLegacyMipsAdmission = (target: BinaryTarget): boolean => {
   return (
     // The lane and its verification cover executable firmware images only;
     // recordless relocatable objects stay outside the inferred-o32 assumption.
+    target.mips.elfClass === 32 &&
     target.mips.type === MIPS_ET_EXEC &&
     (arch === 0x50000000 || arch === 0x70000000) &&
     (flags & 0x0000f000) === 0 &&
@@ -256,7 +257,7 @@ export const ghidraMipsProfileParameters = (
     legacy && languageOverride === undefined && language !== undefined
       ? {
           language_id: language.languageId,
-          compiler_spec_id: language.compilerSpecId,
+          compiler_spec_id: language.compilerSpecId ?? "default",
           language_selection: "provider-pinned-v1",
         }
       : {};
