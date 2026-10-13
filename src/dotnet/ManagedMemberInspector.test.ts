@@ -320,27 +320,6 @@ describe("managed user strings", () => {
     expect(result.user_strings).toEqual([]);
   });
 
-  it("reports a missing #US stream once and keeps the method", () => {
-    const result = inspect({
-      ilBody: ldstrBody(["0x70000001", "0x70000005", "0x70000001"]),
-    });
-
-    expect(result.methods).toHaveLength(1);
-    expect(result.user_strings).toEqual([]);
-    expect(result.coverage).toEqual({
-      state: "partial",
-      issues: [
-        {
-          code: "missing-stream",
-          scope: "metadata.#US",
-          offset: null,
-          detail:
-            "2 distinct ldstr operand(s) reference #US, but the metadata has no #US stream",
-        },
-      ],
-    });
-  });
-
   it("admits ldstr tokens before collecting them", () => {
     const layout = { userStrings: null } as unknown as ManagedMetadataLayout;
     // Leave 1 KiB of the 64 MiB budget: too little for 100 distinct tokens.
@@ -369,7 +348,7 @@ describe("managed user strings", () => {
     // 0xe0 is a reserved compressed-length prefix.
     heap.writeUInt8(0xe0, Number.parseInt(worse.slice(4), 16));
     const result = inspect({
-      ilBody: ldstrBody([ok, bad, worse, "0x70ffffff"]),
+      ilBody: ldstrBody([ok, bad, worse, "0x70ffffff", "0x06000001"]),
       userStringHeap: heap,
     });
 
@@ -380,6 +359,7 @@ describe("managed user strings", () => {
     expect(
       result.coverage.issues.map(({ code, scope }) => [code, scope]),
     ).toEqual([
+      ["invalid-heap-index", "metadata.#US:0x06000001"],
       ["invalid-string", `metadata.#US:${bad}`],
       ["invalid-string", `metadata.#US:${worse}`],
       ["invalid-heap-index", "metadata.#US:0x70ffffff"],
@@ -426,7 +406,45 @@ describe("managed user strings", () => {
   });
 });
 
-describe("managed user string terminal flags", () => {
+describe("managed user string issues", () => {
+  const inspect = (options: Parameters<typeof buildManagedPeFixture>[0]) => {
+    const bytes = buildManagedPeFixture(options);
+    return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes));
+  };
+
+  it("reports a missing #US stream once and keeps the method", () => {
+    const result = inspect({
+      // A MethodDef operand is not a #US reference, so it is reported alone.
+      ilBody: ldstrBody([
+        "0x70000001",
+        "0x70000005",
+        "0x70000001",
+        "0x06000001",
+      ]),
+    });
+
+    expect(result.methods).toHaveLength(1);
+    expect(result.user_strings).toEqual([]);
+    expect(result.coverage).toEqual({
+      state: "partial",
+      issues: [
+        {
+          code: "invalid-heap-index",
+          scope: "metadata.#US:0x06000001",
+          offset: null,
+          detail: "ldstr operand does not name an item inside #US",
+        },
+        {
+          code: "missing-stream",
+          scope: "metadata.#US",
+          offset: null,
+          detail:
+            "2 distinct ldstr operand(s) reference #US, but the metadata has no #US stream",
+        },
+      ],
+    });
+  });
+
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
     const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
     const [ok, quoted] = tokens as [string, string];
@@ -435,14 +453,10 @@ describe("managed user string terminal flags", () => {
       Number.parseInt(token.slice(4), 16) + 1 + value.length * 2;
     heap.writeUInt8(1, flagAt(ok, "ok"));
     heap.writeUInt8(0, flagAt(quoted, "it's"));
-    const bytes = buildManagedPeFixture({
+    const result = inspect({
       ilBody: ldstrBody([ok, quoted]),
       userStringHeap: heap,
     });
-    const result = inspectManagedMembersBytes(
-      bytes,
-      managedPeFixtureTarget(bytes),
-    );
 
     expect(result.user_strings?.map(({ value }) => value)).toEqual([
       "ok",

@@ -195,9 +195,10 @@ export const readMetadataBlob = (
 };
 
 /**
- * Read the #US literal named by an `ldstr` token: a compressed byte length,
- * UTF-16LE code units, then one ECMA-335 terminal flag byte. Code units are
- * kept as stored, including unpaired surrogates.
+ * Read the #US literal named by a `0x70` user-string token: a compressed byte
+ * length, UTF-16LE code units, then one ECMA-335 terminal flag byte. Code units
+ * are kept as stored, including unpaired surrogates. `parseUserStrings` owns
+ * which `ldstr` operands are user-string tokens.
  */
 export const readMetadataUserString = (
   bytes: Buffer,
@@ -217,12 +218,12 @@ export const readMetadataUserString = (
       "ldstr references #US, but the metadata has no #US stream",
     );
   const index = Number.parseInt(token.slice(4), 16);
-  if (!token.startsWith("0x70") || index >= heap.size)
+  if (index >= heap.size)
     throw managedFailure(
       "invalid-heap-index",
       scope,
       "ldstr operand does not name an item inside #US",
-      token.startsWith("0x70") ? heap.offset + index : null,
+      heap.offset + index,
     );
   const start = heap.offset + index;
   const decoded = compressedLength(bytes, start, scope, "userString");

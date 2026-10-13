@@ -343,7 +343,26 @@ export const parseUserStrings = (
           budget.admitTransient(USER_STRING_TOKEN_BYTES, null);
           tokens.add(operand);
         }
-    if (tokens.size > 0 && layout.userStrings === null) {
+    // Tokens are fixed-width lowercase hex, so string order is token order.
+    const references: string[] = [];
+    for (const token of [...tokens].sort()) {
+      if (token.startsWith("0x70")) references.push(token);
+      // An operand from another table names no #US item, with or without
+      // the stream.
+      else
+        issues.push(
+          admitManagedProjection(
+            {
+              code: "invalid-heap-index",
+              scope: `metadata.#US:${token}`,
+              offset: null,
+              detail: "ldstr operand does not name an item inside #US",
+            },
+            budget,
+          ),
+        );
+    }
+    if (references.length > 0 && layout.userStrings === null) {
       // A missing stream is one fact about the metadata, not one per token.
       issues.push(
         admitManagedProjection(
@@ -351,15 +370,14 @@ export const parseUserStrings = (
             code: "missing-stream",
             scope: "metadata.#US",
             offset: null,
-            detail: `${String(tokens.size)} distinct ldstr operand(s) reference #US, but the metadata has no #US stream`,
+            detail: `${String(references.length)} distinct ldstr operand(s) reference #US, but the metadata has no #US stream`,
           },
           budget,
         ),
       );
       return { userStrings, issues };
     }
-    // Tokens are fixed-width lowercase hex, so string order is token order.
-    for (const token of [...tokens].sort()) {
+    for (const token of references) {
       const failures: ManagedParseIssue[] = [];
       readManagedValue(() => {
         const { offset, value, issue } = readMetadataUserString(
