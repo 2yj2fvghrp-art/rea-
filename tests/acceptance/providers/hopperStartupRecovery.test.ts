@@ -201,7 +201,7 @@ test("recovers a denied Hopper launch through the same stdio MCP session and CLI
   ).toBe(false);
 });
 
-test.each(["handoff", "not-found"] as const)(
+test.for(["handoff", "not-found"] as const)(
   "preserves an unconfirmed %s handoff and closes only a late bridge with matching run identity",
   { timeout: 60_000 },
   async (launchMode, { workspace }) => {
@@ -279,7 +279,11 @@ test.each(["handoff", "not-found"] as const)(
     const status = z.object({
       result: z.object({
         provider_operation_health: z.object({
-          state: z.literal("not_started"),
+          // A launcher that exits non-zero leaves the provider state unknown;
+          // a timeout after a clean helper exit has not started it.
+          state: z.literal(
+            launchMode === "handoff" ? "not_started" : "unknown",
+          ),
           stage: z.literal("launch"),
         }),
       }),
