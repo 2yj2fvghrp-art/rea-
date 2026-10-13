@@ -328,3 +328,47 @@ cliTest(
     expect(joins.map((e) => e.properties.channel)).toEqual(["test:cut"]);
   },
 );
+
+cliTest(
+  "keeps shallow bridge members when a sibling exceeds the nesting limit",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-deep-bridge-");
+    let deepMember = '() => e.ipcRenderer.send("deep:run")';
+    for (let index = 0; index < 129; index += 1)
+      deepMember = `{ level${index}: ${deepMember} }`;
+    await writeFixtureFiles(root, {
+      "preload.js": `const e=require("electron");
+        e.contextBridge.exposeInMainWorld("desktop", {
+          deep: ${deepMember},
+          shallow: () => e.ipcRenderer.send("shallow:run")
+        });`,
+      "main.js": `const e=require("electron");
+        e.ipcMain.on("shallow:run", event => event.sender.copy());
+        e.ipcMain.on("deep:run", event => event.sender.copy());`,
+    });
+    const output = await cli.run({
+      arguments: ["analyze-javascript-application", root, "--json"],
+    });
+    expect(output.exitCode).toBe(0);
+    const { normalized_result: application } = z
+      .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
+      .parse(output.json);
+    const { graph } = application;
+    const joins = graph.edges.filter(
+      (edge) =>
+        edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+    );
+    expect(joins.map((edge) => edge.properties.channel)).toEqual([
+      "shallow:run",
+    ]);
+    expect(
+      graph.nodes
+        .flatMap((node) => node.observations)
+        .some(
+          (observation) =>
+            observation.properties.entry === "desktop.shallow" &&
+            observation.properties.step_kind === "exposure",
+        ),
+    ).toBe(true);
+  },
+);

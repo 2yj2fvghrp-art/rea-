@@ -129,7 +129,7 @@ export const collectElectronWrappedCallPaths = (
   ): readonly { readonly name: string; readonly fn: SymbolicFunction }[] => {
     if (active.has(value)) return [];
     if (active.size >= 128) {
-      remainingVisits = -1;
+      accumulator.unknownFindings += 1;
       return [];
     }
     const nested = new Set(active);
