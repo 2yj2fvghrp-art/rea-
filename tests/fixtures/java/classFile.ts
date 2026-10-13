@@ -49,8 +49,11 @@ class PoolBuilder {
     return this.#add(`c:${name}`, [7, ...u2(this.utf8(name))]);
   }
 
-  string(text: string): number {
-    return this.#add(`s:${text}`, [8, ...u2(this.utf8(text))]);
+  string(text: string, duplicate = false): number {
+    return this.#add(duplicate ? `s:${text}:${this.count}` : `s:${text}`, [
+      8,
+      ...u2(this.utf8(text)),
+    ]);
   }
 
   integer(value: number): number {
@@ -89,6 +92,13 @@ export interface ClassFixture {
   readonly annotations?: Readonly<
     Record<string, Readonly<Record<string, string | number>>>
   >;
+  readonly invisibleAnnotations?: Readonly<
+    Record<string, Readonly<Record<string, string | number>>>
+  >;
+  readonly duplicateStringEntries?: {
+    readonly value: string;
+    readonly count: number;
+  };
   readonly fields?: readonly {
     readonly name: string;
     readonly descriptor: string;
@@ -100,6 +110,7 @@ export interface ClassFixture {
     readonly descriptor: string;
     readonly access?: number;
     readonly codeBytes?: number;
+    readonly declaredCodeBytes?: number;
   }[];
   readonly strings?: readonly string[];
 }
@@ -116,6 +127,13 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
     pool.classRef(name),
   );
   for (const text of fixture.strings ?? []) pool.string(text);
+  if (fixture.duplicateStringEntries !== undefined)
+    for (
+      let index = 0;
+      index < fixture.duplicateStringEntries.count;
+      index += 1
+    )
+      pool.string(fixture.duplicateStringEntries.value, true);
   const fields = (fixture.fields ?? []).map((field) => {
     const attributes: number[] = [];
     if (field.constant !== undefined) {
@@ -146,7 +164,7 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
     const body = [
       ...u2(1),
       ...u2(1),
-      ...u4(code.length),
+      ...u4(method.declaredCodeBytes ?? code.length),
       ...code,
       ...u2(0),
       ...u2(0),
@@ -168,8 +186,12 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
       ...u4(2),
       ...u2(pool.utf8(fixture.sourceFile)),
     ]);
-  const annotations = Object.entries(fixture.annotations ?? {});
-  if (annotations.length > 0) {
+  for (const [attribute, values] of [
+    ["RuntimeVisibleAnnotations", fixture.annotations],
+    ["RuntimeInvisibleAnnotations", fixture.invisibleAnnotations],
+  ] as const) {
+    const annotations = Object.entries(values ?? {});
+    if (annotations.length === 0) continue;
     const body = [...u2(annotations.length)];
     for (const [type, elements] of annotations) {
       body.push(...u2(pool.utf8(type)), ...u2(Object.keys(elements).length));
@@ -183,7 +205,7 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
         );
     }
     classAttributes.push([
-      ...u2(pool.utf8("RuntimeVisibleAnnotations")),
+      ...u2(pool.utf8(attribute)),
       ...u4(body.length),
       ...body,
     ]);

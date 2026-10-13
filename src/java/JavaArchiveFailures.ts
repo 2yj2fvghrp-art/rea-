@@ -9,7 +9,10 @@ import {
   AnalysisUnsupportedTargetError,
 } from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
-import { JavaClassFormatFailure } from "./JavaClassFile.js";
+import {
+  JavaClassFormatFailure,
+  JavaClassResourceFailure,
+} from "./JavaClassFile.js";
 import {
   JAVA_ARCHIVE_LIMITS,
   JavaArchiveFormatFailure,
@@ -49,7 +52,10 @@ export const javaArchiveFailure = (
     (cause instanceof ArtifactReaderFailure && cause.reason === "cancelled")
   )
     return new AnalysisCancelledError(operation, { cause });
-  if (cause instanceof JavaArchiveResourceFailure)
+  if (
+    cause instanceof JavaArchiveResourceFailure ||
+    cause instanceof JavaClassResourceFailure
+  )
     return new AnalysisResourceConstraintError(
       operation,
       "memory",
@@ -81,9 +87,11 @@ export const javaArchiveFailure = (
     if (cause.reason === "limit")
       return new AnalysisResourceConstraintError(
         operation,
-        "file-size",
+        cause.resourceLimit === undefined ? "file-size" : "memory",
         cause.message,
-        { maximum_input_bytes: JAVA_ARCHIVE_LIMITS.inputBytes },
+        cause.resourceLimit === undefined
+          ? { maximum_input_bytes: JAVA_ARCHIVE_LIMITS.inputBytes }
+          : { ...cause.resourceLimit },
         { cause },
       );
     if (cause.reason === "path")

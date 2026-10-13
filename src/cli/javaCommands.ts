@@ -57,7 +57,9 @@ export const registerJavaCommands = (
       class_name: z
         .string()
         .optional()
-        .describe("Binary class name; required for a JAR"),
+        .describe(
+          "Binary name, exact .class path, or inventory entry_id; required for an archive",
+        ),
     }),
     run: ({ args }) =>
       withCommandCancellation((signal) =>
@@ -83,32 +85,31 @@ export const registerJavaCommands = (
       class_name: z
         .string()
         .optional()
-        .describe("Binary class name; required for a JAR"),
+        .describe(
+          "Binary name, exact .class path, or inventory entry_id; required for an archive",
+        ),
     }),
     run: ({ args }) =>
-      withCommandCancellation(async (signal) => {
-        try {
-          return await logCliCommand(
-            logger,
-            CLI_COMMANDS.decompileJavaClass,
-            async () => {
-              const result = await service.decompile(
-                {
-                  path: resolve(args.path),
-                  ...(args.class_name === undefined
-                    ? {}
-                    : { class_name: args.class_name }),
-                },
-                { signal },
-              );
-              return result.ok
-                ? result.value
-                : projectAnalysisError(result.error);
+      withCommandCancellation((signal) =>
+        logCliCommand(logger, CLI_COMMANDS.decompileJavaClass, async () => {
+          const result = await service.decompile(
+            {
+              path: resolve(args.path),
+              ...(args.class_name === undefined
+                ? {}
+                : { class_name: args.class_name }),
             },
+            { signal },
           );
-        } finally {
-          await service.close();
-        }
-      }),
+          try {
+            await service.close();
+          } catch (cause) {
+            // The operation already owns the original failure and cleanup paths.
+            // A shutdown retry must not replace that richer typed projection.
+            if (result.ok) throw cause;
+          }
+          return result.ok ? result.value : projectAnalysisError(result.error);
+        }),
+      ),
   });
 };

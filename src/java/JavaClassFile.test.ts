@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildClassFile } from "../../tests/fixtures/java/classFile.js";
-import { JavaClassFormatFailure, parseJavaClassFile } from "./JavaClassFile.js";
+import {
+  JavaClassFormatFailure,
+  JavaClassResourceFailure,
+  parseJavaClassFile,
+} from "./JavaClassFile.js";
 
 describe("parseJavaClassFile", () => {
   it.each([
@@ -27,6 +31,44 @@ describe("parseJavaClassFile", () => {
       expect(JSON.parse(JSON.stringify(parsed))).toEqual(parsed);
     },
   );
+
+  it("bounds repeated string expansion before report serialization", () => {
+    const bytes = buildClassFile({
+      name: "p/Expansion",
+      duplicateStringEntries: { value: "x".repeat(16_000), count: 2000 },
+    });
+    expect(bytes.length).toBeLessThan(32_000);
+    expect(() => parseJavaClassFile(bytes)).toThrow(JavaClassResourceFailure);
+  });
+
+  it("rejects Code lengths whose method bytes are missing", () => {
+    const bytes = buildClassFile({
+      name: "p/TruncatedCode",
+      methods: [
+        {
+          name: "run",
+          descriptor: "()V",
+          codeBytes: 1,
+          declaredCodeBytes: 1000,
+        },
+      ],
+    });
+    expect(() => parseJavaClassFile(bytes)).toThrow(JavaClassFormatFailure);
+  });
+
+  it("keeps runtime-visible and runtime-invisible annotation provenance", () => {
+    const parsed = parseJavaClassFile(
+      buildClassFile({
+        name: "p/Annotations",
+        annotations: { "Lp/Visible;": { value: "visible" } },
+        invisibleAnnotations: { "Lp/Invisible;": { value: "invisible" } },
+      }),
+    );
+    expect(parsed.annotations).toMatchObject([
+      { type: "Lp/Visible;", visibility: "runtime-visible" },
+      { type: "Lp/Invisible;", visibility: "runtime-invisible" },
+    ]);
+  });
 
   it("decodes declared structure, literals and annotation values", () => {
     const parsed = parseJavaClassFile(

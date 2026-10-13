@@ -72,8 +72,8 @@ The result contains:
 `Signature`s, class/field/method annotations with element values, fields with
 JVM descriptors and `ConstantValue` literals, and methods with descriptors and
 bytecode length. `string_constants` lists every constant-pool string literal in
-pool order; `referenced_classes` lists every class constant except the class
-itself. `nested_class_entries` lists sibling `Name$*.class` entries.
+pool order, subject to the 16 MiB expanded JSON text budget;
+`referenced_classes` lists every class constant except the class itself. `nested_class_entries` lists sibling `Name$*.class` entries.
 
 Literals are decoded from the JVM's modified UTF-8, so embedded NUL and
 supplementary characters round-trip exactly. 64-bit `long` and `double`
@@ -108,8 +108,9 @@ process starts.
 The Evidence is `derived`. The provider version is the engine manifest's
 `Implementation-Version`, and `tool_profile` records the engine path, SHA-256,
 Java executable and arguments with the private root shown as `<private-root>`.
-The complete source is returned with its SHA-256. A limitation reports how many
-members Vineflower marked as not decompiled.
+The complete source is returned with its SHA-256. The provider does not infer
+a failed-member count from arbitrary source text;
+Vineflower failure comments require analyst review.
 
 Decompiled source is a reconstruction. Renamed identifiers stay as found, and
 local variable names, comments and formatting are synthesized. Classes outside
@@ -143,8 +144,14 @@ not partial success. Encrypted ZIP entries are counted but not read.
 
 Archive selection uses each class file's declared binary name, including classes
 under Spring Boot, WAR, and multi-release prefixes. If that name occurs more
-than once, supply the exact `.class` entry returned by `inspect_java_archive`;
-REA does not silently choose a base or versioned occurrence. Descriptor text is
+than once, supply the exact `.class` entry returned by `inspect_java_archive`.
+If that path itself is duplicated, use the row's unique `entry_id` (`zip-entry:N`)
+as `class_name`; that identity is scoped to the selected archive digest.
+REA does not silently choose a base, versioned, or duplicate occurrence.
+Class-report text expansion is bounded before Evidence serialization; exceeding
+the 16 MiB JSON text budget is a typed resource failure with no partial success.
+Runtime annotation visibility is retained; nested annotation values have no
+independent runtime visibility and record `null`. Descriptor text is
 a bounded prefix; inventory limitations report descriptors omitted by the file
 budget. Archive pages retain compact class facts instead of full member bodies.
 

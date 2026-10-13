@@ -10,6 +10,16 @@ export class JavaClassFormatFailure extends Error {
   override readonly name = "JavaClassFormatFailure";
 }
 
+/** Expanded text is charged on every pool use before it enters a report. */
+export class JavaClassResourceFailure extends Error {
+  override readonly name = "JavaClassResourceFailure";
+  readonly boundary = "class_report_text_bytes";
+  readonly maximum = 16 * 1024 * 1024;
+  constructor() {
+    super("Expanded class-report text exceeds the 16 MiB JSON text budget.");
+  }
+}
+
 const CLASS_FLAGS: readonly (readonly [number, string])[] = [
   [0x0001, "public"],
   [0x0010, "final"],
@@ -229,6 +239,8 @@ const readPool = (cursor: ByteCursor): (PoolEntry | undefined)[] => {
 };
 
 class ConstantPool {
+  #reportTextBytes = 0;
+  readonly #textCosts = new Map<number, number>();
   constructor(readonly entries: readonly (PoolEntry | undefined)[]) {}
 
   #entry(index: number, what: string): PoolEntry {
@@ -246,6 +258,16 @@ class ConstantPool {
       throw new JavaClassFormatFailure(
         `${what} entry ${String(index)} is not UTF-8 text.`,
       );
+    let cost = this.#textCosts.get(index);
+    if (cost === undefined) {
+      // JSON escaping can expand one code unit sixfold. Cache the exact encoded
+      // cost for each UTF-8 pool entry, but charge every reference independently.
+      cost = Buffer.byteLength(JSON.stringify(entry.text), "utf8");
+      this.#textCosts.set(index, cost);
+    }
+    this.#reportTextBytes += cost;
+    if (this.#reportTextBytes > 16 * 1024 * 1024)
+      throw new JavaClassResourceFailure();
     return entry.text;
   }
 
@@ -336,6 +358,7 @@ const readAnnotation = (
   cursor: ByteCursor,
   pool: ConstantPool,
   depth: number,
+  visibility: JavaAnnotation["visibility"] = null,
 ): JavaAnnotation => {
   const type = pool.utf8(cursor.u2(), "Annotation type");
   const count = cursor.u2();
@@ -345,7 +368,7 @@ const readAnnotation = (
       name: pool.utf8(cursor.u2(), "Annotation element name"),
       value: readAnnotationValue(cursor, pool, depth),
     });
-  return { type, elements };
+  return { type, visibility, elements };
 };
 
 interface ParsedAttributes {
@@ -377,7 +400,16 @@ const readAttributes = (
       case "RuntimeInvisibleAnnotations": {
         const annotations = body.u2();
         for (let item = 0; item < annotations; item += 1)
-          parsed.annotations.push(readAnnotation(body, pool, 0));
+          parsed.annotations.push(
+            readAnnotation(
+              body,
+              pool,
+              0,
+              name === "RuntimeVisibleAnnotations"
+                ? "runtime-visible"
+                : "runtime-invisible",
+            ),
+          );
         break;
       }
       case "SourceFile":
@@ -393,6 +425,21 @@ const readAttributes = (
         body.u2();
         body.u2();
         parsed.codeBytes = body.u4();
+        body.slice(parsed.codeBytes);
+        // Verify the Code structure without interpreting instructions.
+        body.slice(body.u2() * 8);
+        for (
+          let attributes = body.u2(), item = 0;
+          item < attributes;
+          item += 1
+        ) {
+          pool.utf8(body.u2(), "Code attribute name");
+          body.slice(body.u4());
+        }
+        if (body.offset !== body.bytes.length)
+          throw new JavaClassFormatFailure(
+            "Code attribute has trailing bytes.",
+          );
         break;
       default:
         break;

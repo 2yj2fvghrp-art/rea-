@@ -57,7 +57,7 @@ for (const entry of staged.filter((path) => !path.includes("$"))) {
     await buildJar([
       [
         "META-INF/MANIFEST.MF",
-        "Manifest-Version: 1.0\r\nImplementation-Version: 9.9.9-test\r\n\r\n",
+        "Manifest-Version: 1.0\r\nimplementation-version: 9.9.9-test\r\n\r\n",
       ],
     ]),
   );
@@ -472,4 +472,126 @@ cliTest.skipIf(process.env.REA_VERIFY_VINEFLOWER_REAL !== "1")(
     }
   },
   240000,
+);
+
+cliTest("unfolds manifest UTF-8 bytes before decoding", async ({ cli }) => {
+  const root = await createTestTempDirectory("rea-java-manifest-utf8-");
+  const path = join(root, "unicode.jar");
+  const value = Buffer.from("café", "utf8");
+  const manifest = Buffer.concat([
+    Buffer.from("Manifest-Version: 1.0\r\nComment: "),
+    value.subarray(0, 4),
+    Buffer.from("\r\n "),
+    value.subarray(4),
+    Buffer.from("\r\n\r\n"),
+  ]);
+  await writeFile(path, await buildJar([["META-INF/MANIFEST.MF", manifest]]));
+  const result = await cli.run({
+    arguments: ["inspect-java-archive", path, "--json"],
+  });
+  expect(result.exitCode, result.stderr).toBe(0);
+  const report = toolContract("inspect_java_archive").outputSchema.parse(
+    result.json,
+  ).normalized_result;
+  expect(report.manifest?.attributes).toContainEqual({
+    name: "Comment",
+    value: "café",
+  });
+});
+
+cliTest(
+  "does not attribute unrelated malformed suffixes to a requested class",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-unrelated-");
+    const path = join(root, "classes.jar");
+    await writeFile(
+      path,
+      await buildJar([
+        ["x/p/A.class", Buffer.from("malformed")],
+        ["p/A.class", buildClassFile({ name: "p/A" })],
+      ]),
+    );
+    const result = await cli.run({
+      arguments: ["inspect-java-class", path, "p.A", "--json"],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(
+      toolContract("inspect_java_class").outputSchema.parse(result.json)
+        .normalized_result.class.name,
+    ).toBe("p/A");
+  },
+);
+
+cliTest(
+  "selects duplicate ZIP paths by inventory occurrence identity",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-duplicates-");
+    const path = join(root, "duplicates.jar");
+    const bytes = await buildJar([
+      ["p/A.class", buildClassFile({ name: "p/A" })],
+      ["p/B.class", buildClassFile({ name: "p/B" })],
+    ]);
+    // ZIP filenames are outside the payload CRC: equal-width replacement produces
+    // two valid directory occurrences with one path and different class contents.
+    const original = Buffer.from("p/B.class");
+    for (
+      let at = bytes.indexOf(original);
+      at !== -1;
+      at = bytes.indexOf(original, at + original.length)
+    )
+      bytes.set(Buffer.from("p/A.class"), at);
+    await writeFile(path, bytes);
+    const inventory = await cli.run({
+      arguments: ["inspect-java-archive", path, "--json"],
+    });
+    expect(inventory.exitCode, inventory.stderr).toBe(0);
+    const rows = toolContract("inspect_java_archive").outputSchema.parse(
+      inventory.json,
+    ).normalized_result.classes.rows;
+    expect(rows.map(({ entry }) => entry)).toEqual(["p/A.class", "p/A.class"]);
+    expect(new Set(rows.map(({ entry_id }) => entry_id)).size).toBe(2);
+    for (const row of rows) {
+      expect(row.entry_id).not.toBeNull();
+      const result = await cli.run({
+        arguments: ["inspect-java-class", path, row.entry_id!, "--json"],
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(
+        toolContract("inspect_java_class").outputSchema.parse(result.json)
+          .normalized_result,
+      ).toMatchObject({ entry_id: row.entry_id, class: { name: row.name } });
+    }
+  },
+);
+
+cliTest(
+  "reports ZIP expansion limits separately from selected input size",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-expansion-");
+    const path = join(root, "expansion.jar");
+    const bytes = await buildJar([["resource.bin", "small"]]);
+    const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    expect(central).toBeGreaterThanOrEqual(0);
+    // A metadata-only carrier: enumeration rejects the size before decompression.
+    bytes.writeUInt32LE(2_147_483_647, central + 24);
+    await writeFile(path, bytes);
+    const result = await cli.run({
+      arguments: ["inspect-java-archive", path, "--json"],
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.json).toMatchObject({
+      code: "resource_constraint",
+      details: {
+        resource: "memory",
+        reported_limits: {
+          boundary: "decompressed_bytes",
+          maximum: 256 * 1024 * 1024,
+          actual: 2_147_483_647,
+        },
+      },
+    });
+    expect(result.json).not.toHaveProperty(
+      "details.reported_limits.maximum_input_bytes",
+    );
+  },
 );

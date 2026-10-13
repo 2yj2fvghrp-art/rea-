@@ -117,6 +117,7 @@ export class JavaArchiveEntries {
   readonly #reader: ZipArtifactReader;
   #entries: ArtifactEntry[] | undefined;
   #classBytes = 0;
+  readonly #countedClasses = new Set<string>();
 
   constructor(snapshot: JavaInputSnapshot) {
     this.#reader = new ZipArtifactReader(snapshot.bytes, "zip");
@@ -147,7 +148,7 @@ export class JavaArchiveEntries {
     return entries;
   }
 
-  /** Read one regular entry, counting class bytes against the archive-wide budget. */
+  /** Read one entry; each stable class occurrence contributes once to the total. */
   async read(
     entry: ArtifactEntry,
     maximum: number,
@@ -158,7 +159,10 @@ export class JavaArchiveEntries {
       maximum,
       entry.path,
     );
-    if (entry.path.endsWith(".class")) {
+    if (
+      entry.path.endsWith(".class") &&
+      !this.#countedClasses.has(entry.adapterKey)
+    ) {
       this.#classBytes += bytes.length;
       if (this.#classBytes > JAVA_ARCHIVE_LIMITS.totalClassBytes)
         throw new JavaArchiveResourceFailure(
@@ -166,6 +170,7 @@ export class JavaArchiveEntries {
           JAVA_ARCHIVE_LIMITS.totalClassBytes,
           `Decompressed class bytes exceed ${String(JAVA_ARCHIVE_LIMITS.totalClassBytes)} bytes.`,
         );
+      this.#countedClasses.add(entry.adapterKey);
     }
     return bytes;
   }
@@ -260,23 +265,31 @@ export const metadataText = (
 export const parseManifestMainSection = (
   bytes: Buffer,
 ): NonNullable<JavaArchive["manifest"]> => {
-  let text: string;
-  try {
-    text = STRICT_UTF8.decode(bytes);
-  } catch (cause: unknown) {
-    throw new JavaArchiveFormatFailure(
-      "malformed",
-      "META-INF/MANIFEST.MF is not valid UTF-8.",
-      { cause },
-    );
+  // The manifest's 72-byte wrapping may split a UTF-8 character. Unfold
+  // physical bytes before asking the UTF-8 decoder to interpret a header.
+  const lines: Buffer[][] = [];
+  for (let start = 0; start < bytes.length;) {
+    let end = start;
+    while (end < bytes.length && bytes[end] !== 10 && bytes[end] !== 13)
+      end += 1;
+    const line = bytes.subarray(start, end);
+    start = end + (bytes[end] === 13 && bytes[end + 1] === 10 ? 2 : 1);
+    if (line.length === 0) break;
+    if (line[0] === 32 && lines.length > 0)
+      lines.at(-1)!.push(line.subarray(1));
+    else lines.push([line]);
   }
   const attributes: { name: string; value: string }[] = [];
-  for (const line of text.replace(/^﻿/u, "").split(/\r\n|\r|\n/u)) {
-    if (line === "") break;
-    const last = attributes.at(-1);
-    if (line.startsWith(" ") && last !== undefined) {
-      last.value += line.slice(1);
-      continue;
+  for (const chunks of lines) {
+    let line: string;
+    try {
+      line = STRICT_UTF8.decode(Buffer.concat(chunks));
+    } catch (cause: unknown) {
+      throw new JavaArchiveFormatFailure(
+        "malformed",
+        "META-INF/MANIFEST.MF is not valid UTF-8.",
+        { cause },
+      );
     }
     const separator = line.indexOf(": ");
     if (separator <= 0)

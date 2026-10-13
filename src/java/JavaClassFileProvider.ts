@@ -75,6 +75,7 @@ interface ArchiveClassFacts {
 const archiveClassFacts = (
   entry: string,
   parsed: JavaClass,
+  entryId: string | null = null,
 ): ArchiveClassFacts => {
   let members = 0;
   let shortMembers = 0;
@@ -87,6 +88,7 @@ const archiveClassFacts = (
   return {
     row: {
       entry,
+      entry_id: entryId,
       name: parsed.name,
       access: parsed.access,
       super_class: parsed.super_class,
@@ -137,6 +139,7 @@ export class JavaClassFileProvider implements Pick<
         return {
           artifact: javaArtifactIdentity(snapshot),
           entry: selected.entry,
+          entry_id: selected.entryId,
           class: selected.parsed,
           nested_class_entries: selected.nested.map(({ entry }) => entry),
           limitations: [STRUCTURE_LIMITATION],
@@ -236,7 +239,11 @@ export class JavaClassFileProvider implements Pick<
               signal,
             );
             classes.push(
-              archiveClassFacts(entry.path, parseJavaClassFile(bytes)),
+              archiveClassFacts(
+                entry.path,
+                parseJavaClassFile(bytes),
+                entry.adapterKey,
+              ),
             );
           } catch (cause: unknown) {
             if (!(cause instanceof JavaClassFormatFailure)) throw cause;
@@ -397,6 +404,7 @@ const summarize = (
 
 /** A selected class with the nested-class entries a decompiler needs alongside it. */
 export interface SelectedJavaClass {
+  readonly entryId: string | null;
   readonly entry: string | null;
   readonly parsed: JavaClass;
   readonly bytes: Buffer;
@@ -427,7 +435,13 @@ export const selectJavaClass = async (
           message: `The selected class file declares ${parsed.name}, not ${className}. Omit class_name for a single class file.`,
         },
       ]);
-    return { entry: null, parsed, bytes: snapshot.bytes, nested: [] };
+    return {
+      entry: null,
+      entryId: null,
+      parsed,
+      bytes: snapshot.bytes,
+      nested: [],
+    };
   }
   if (className === undefined)
     throw new AnalysisInputError(operation, undefined, [
@@ -441,15 +455,19 @@ export const selectJavaClass = async (
   const archive = new JavaArchiveEntries(snapshot);
   try {
     const entries = (await archive.list(signal)).filter(isClassEntry);
-    const exact = className.endsWith(".class")
-      ? entries.filter((entry) => entry.path === className)
-      : [];
+    const exact = /^zip-entry:[0-9]+$/u.test(className)
+      ? entries.filter((entry) => entry.adapterKey === className)
+      : className.endsWith(".class")
+        ? entries.filter((entry) => entry.path === className)
+        : [];
+    if (className.startsWith("zip-entry:") && exact.length === 0)
+      throw missingJavaClass(operation, className);
     if (exact.length > 1)
       throw new AnalysisInputError(operation, undefined, [
         {
           path: ["class_name"],
           reason: "invalid_value",
-          message: `Archive entry ${className} is duplicated and ambiguous.`,
+          message: `Archive entry ${className} is duplicated; select the unique entry_id returned by inspect_java_archive.`,
         },
       ]);
     let selected:
@@ -480,7 +498,11 @@ export const selectJavaClass = async (
             // A malformed matching coordinate is not proof of absence.
             if (
               entry.path === `${wanted}.class` ||
-              entry.path.endsWith(`/${wanted}.class`)
+              entry.path === `BOOT-INF/classes/${wanted}.class` ||
+              entry.path === `WEB-INF/classes/${wanted}.class` ||
+              (/^META-INF\/versions\/[0-9]+\//u.test(entry.path) &&
+                entry.path.replace(/^META-INF\/versions\/[0-9]+\//u, "") ===
+                  `${wanted}.class`)
             )
               throw cause;
             continue;
@@ -493,7 +515,7 @@ export const selectJavaClass = async (
             {
               path: ["class_name"],
               reason: "invalid_value",
-              message: `Binary name ${className} occurs at ${selected.entry.path} and ${entry.path}; select an exact .class entry from inspect_java_archive.`,
+              message: `Binary name ${className} occurs at ${selected.entry.path} and ${entry.path}; select an exact .class entry or unique entry_id from inspect_java_archive.`,
             },
           ]);
         selected = { entry, bytes, parsed };
@@ -513,7 +535,13 @@ export const selectJavaClass = async (
             signal,
           ),
         });
-    return { entry: entry.path, parsed, bytes, nested };
+    return {
+      entry: entry.path,
+      entryId: entry.adapterKey,
+      parsed,
+      bytes,
+      nested,
+    };
   } finally {
     await archive.close();
   }

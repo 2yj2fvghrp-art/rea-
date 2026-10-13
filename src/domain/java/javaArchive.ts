@@ -34,11 +34,13 @@ export type JavaAnnotationValue =
   | { kind: "array"; values: JavaAnnotationValue[] };
 export type JavaAnnotation = {
   type: string;
+  visibility: "runtime-visible" | "runtime-invisible" | null;
   elements: { name: string; value: JavaAnnotationValue }[];
 };
 
 const annotationSchema = z.strictObject({
   type: z.string(),
+  visibility: z.enum(["runtime-visible", "runtime-invisible"]).nullable(),
   elements: z.array(
     z.strictObject({ name: z.string(), value: jsonValueSchema }),
   ),
@@ -55,7 +57,7 @@ const classEntrySchema = z
   .string()
   .min(1)
   .describe(
-    "Declared binary class name with dots or slashes, or exact archive .class entry path. Ambiguous binary names require an exact entry; required for a JAR, omitted for a .class file",
+    "Declared binary class name with dots or slashes, exact archive .class entry path, or inventory entry_id (zip-entry:N). Duplicate paths require entry_id; ambiguous binary names require an exact entry; required for a JAR, omitted for a .class file",
   );
 
 /** Parsed class-file structure; method bodies are measured but not decoded here. */
@@ -118,6 +120,7 @@ export const javaClassSelectionInputSchema = z.strictObject({
 const classRowSchema = z.strictObject({
   name: z.string(),
   entry: z.string(),
+  entry_id: z.string().nullable(),
   access: z.array(z.string()),
   super_class: z.string().nullable(),
   interfaces: z.array(z.string()),
@@ -206,6 +209,7 @@ export const javaArchiveSchema = z.strictObject({
 export const javaClassReportSchema = z.strictObject({
   artifact: artifactSchema,
   entry: z.string().nullable(),
+  entry_id: z.string().nullable(),
   class: javaClassSchema,
   nested_class_entries: z.array(z.string()),
   limitations: z.array(z.string()),
@@ -216,6 +220,7 @@ export const javaDecompilationSchema = z
   .strictObject({
     artifact: artifactSchema,
     class_name: z.string(),
+    entry_id: z.string().nullable(),
     entries: z.array(z.string()).min(1),
     source: z.strictObject({
       representation: z.literal("decompiled-java"),

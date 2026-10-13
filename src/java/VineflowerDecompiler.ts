@@ -56,7 +56,6 @@ export const VINEFLOWER_LIMITS = Object.freeze({
   diagnosticBytes: 8 * 1024 * 1024,
   sourceBytes: 32 * 1024 * 1024,
 });
-const FAILURE_MARKER = "$VF: Couldn't be decompiled";
 
 /**
  * Archive names are untrusted. Only plain relative segments may become
@@ -323,10 +322,10 @@ export class VineflowerDecompiler implements Pick<
       selected.parsed.name,
       signal,
     );
-    const failures = source.split(FAILURE_MARKER).length - 1;
     return javaDecompilationSchema.parse({
       artifact: javaArtifactIdentity(snapshot),
       class_name: selected.parsed.name,
+      entry_id: selected.entryId,
       entries: inputs.map(({ entry }) => entry),
       source: {
         representation: "decompiled-java",
@@ -347,11 +346,7 @@ export class VineflowerDecompiler implements Pick<
       target_execution: "not-performed",
       limitations: [
         ...LIMITATIONS,
-        ...(failures === 0
-          ? []
-          : [
-              `Vineflower marked ${String(failures)} member(s) as not decompiled; their bodies are fallback bytecode comments.`,
-            ]),
+        "Generated source may contain decompiler failure comments; the provider does not infer a failed-member count from arbitrary source text.",
       ],
     });
   }
@@ -488,8 +483,9 @@ const engineVersion = async (
       await archive.read(manifest, 1024 * 1024, signal),
     ).attributes;
     return (
-      attributes.find(({ name }) => name === "Implementation-Version")?.value ??
-      null
+      attributes.find(
+        ({ name }) => name.toLowerCase() === "implementation-version",
+      )?.value ?? null
     );
   } catch (cause: unknown) {
     if (signal?.aborted === true) throw cause;
