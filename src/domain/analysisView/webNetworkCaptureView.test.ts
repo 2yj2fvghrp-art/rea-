@@ -601,27 +601,67 @@ it.each([
   },
 );
 
+const retainedBytes = (pointer: string, text: string) => {
+  const bytes = Buffer.from(text);
+  return {
+    pointer,
+    representation: "producer-bytes",
+    state: "retained",
+    content_base64: bytes.toString("base64"),
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+};
+
 it("adds no mitmproxy headline fields when the flow type was producer bytes", () => {
-  const http = Buffer.from("http");
   const reported = nativePreview(
     "mitmproxy",
     { method: "GET", path: "/a" },
     {
       response: { http_version: "HTTP/1.1", reason: "OK" },
-      binaryFields: [
-        {
-          pointer: "/type",
-          representation: "producer-bytes",
-          state: "retained",
-          content_base64: http.toString("base64"),
-          bytes: http.length,
-          sha256: createHash("sha256").update(http).digest("hex"),
-        },
-      ],
+      binaryFields: [retainedBytes("/type", "http")],
     },
   ).items[0]?.reported;
   expect(reported).toMatchObject({ type: "http", request: { method: "GET" } });
   expect(reported).not.toMatchObject({ request: { path: "/a" } });
+});
+
+it("keeps mitmproxy headlines under a byte-valued side out of the preview", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a", port: 443 },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK", status_code: 200 },
+      binaryFields: [
+        retainedBytes("/request", "GET /a"),
+        retainedBytes("/response", "200"),
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toEqual({
+    type: "http",
+    request: { method: "GET" },
+    response: { http_version: "HTTP/1.1", reason: "OK" },
+  });
+});
+
+it("previews a byte-backed path but not a byte-backed port", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a", port: 443 },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      binaryFields: [
+        retainedBytes("/request/path", "/a"),
+        retainedBytes("/request/port", "443"),
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toEqual({
+    type: "http",
+    request: { method: "GET", path: "/a" },
+    response: { http_version: "HTTP/1.1", reason: "OK" },
+  });
 });
 
 it("keeps mitmproxy headlines under a numeric sidecar out of the preview", () => {

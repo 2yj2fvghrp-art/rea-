@@ -111,16 +111,19 @@ type NumericSidecar = WebNetworkCaptureRecord["numeric_literals"][number];
 const MITMPROXY_INTEGER_FIELDS = new Set(["port", "status_code"]);
 /**
  * Integer slots need exactly one integer sidecar whose literal is the value's
- * canonical decimal; string slots need none. Selecting a field also selects
- * its sidecars, so this keeps every copied literal small and consistent.
+ * canonical decimal, and no byte descriptor; string slots need no sidecar and
+ * may be byte-backed. Selecting a field also selects its sidecars, so this
+ * keeps every copied literal small and consistent.
  */
-const sidecarsMatch = (
+const representationMatches = (
   field: string,
   value: JsonValue,
   sidecars: readonly NumericSidecar[],
+  bytes: boolean,
 ): boolean =>
   MITMPROXY_INTEGER_FIELDS.has(field)
-    ? typeof value === "number" &&
+    ? !bytes &&
+      typeof value === "number" &&
       sidecars.length === 1 &&
       sidecars[0]?.producer_type === "integer" &&
       sidecars[0].literal === String(value)
@@ -129,8 +132,9 @@ const mitmproxyHeadline = (
   field: string,
   value: JsonValue,
   sidecars: readonly NumericSidecar[],
+  bytes: boolean,
 ): boolean => {
-  if (!sidecarsMatch(field, value, sidecars)) return false;
+  if (!representationMatches(field, value, sidecars, bytes)) return false;
   switch (field) {
     case "scheme":
       return (
@@ -196,20 +200,20 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
     record.binary_fields.some(
       (field) => field.state === "redacted" && covers(field.pointer, pointer),
     );
-  // A numeric sidecar on an ancestor says the producer held a number there,
-  // so nothing the record shows beneath it is a consistent fact.
+  const bytesAt = (pointer: string): boolean =>
+    record.binary_fields.some((field) => field.pointer === pointer);
+  // A numeric sidecar or a byte descriptor on an ancestor says the producer
+  // held a scalar there, so nothing the record shows beneath it is a
+  // consistent fact.
   const usable = (pointer: string): boolean =>
     !redacted(pointer) &&
-    !record.numeric_literals.some(
-      (literal) =>
-        literal.pointer !== pointer && covers(literal.pointer, pointer),
+    ![...record.numeric_literals, ...record.binary_fields].some(
+      (facet) => facet.pointer !== pointer && covers(facet.pointer, pointer),
     );
   // A numeric sidecar or a byte descriptor means the producer held a number
   // or bytes there, whatever display text the record shows.
   const producerText = (pointer: string): boolean =>
-    usable(pointer) &&
-    sidecarsAt(pointer).length === 0 &&
-    !record.binary_fields.some((field) => covers(field.pointer, pointer));
+    usable(pointer) && sidecarsAt(pointer).length === 0 && !bytesAt(pointer);
   if (source !== null) {
     const mitmproxyHttp = mitmproxyHttpFlow(format, source, producerText);
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
@@ -244,6 +248,7 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
                 field,
                 fieldValue,
                 sidecarsAt(`/${key}/${field}`),
+                bytesAt(`/${key}/${field}`),
               )))
         )
           continue;
