@@ -14,11 +14,13 @@ import {
 } from "./javascriptSemanticPropertyPaths.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 
-interface ReferencedValue {
+export interface JavaScriptSemanticObjectReference {
   readonly node: t.Node;
   readonly path: PropertyPath;
   /** The value may be reached at any depth; consumers record an escape. */
   readonly escapes?: true;
+  /** The allocation owned by this binding, rather than a read of its prior value. */
+  readonly ownerInitializer?: t.Node;
 }
 
 export const semanticClassCandidates = (
@@ -74,10 +76,10 @@ const instanceFieldReferences = (
   path: PropertyPath,
   state: JavaScriptSemanticAnalysisState,
 ): {
-  readonly references: readonly ReferencedValue[];
+  readonly references: readonly JavaScriptSemanticObjectReference[];
   readonly definiteNames: ReadonlySet<string>;
 } => {
-  const references: ReferencedValue[] = [];
+  const references: JavaScriptSemanticObjectReference[] = [];
   const pending = [{ klass: root, excluded: new Set<string>() }];
   const selections = new Map<t.Node, ReadonlySet<string>>();
   let definiteNames: ReadonlySet<string> | undefined;
@@ -211,7 +213,7 @@ export const semanticClassPropertyReferences = (
   state: JavaScriptSemanticAnalysisState,
   activeGetters: ReadonlyMap<t.Node, number> = new Map(),
   throughUnknownKey = false,
-): readonly ReferencedValue[] => {
+): readonly JavaScriptSemanticObjectReference[] => {
   const root = lookup.owner;
   const receiver = lookup.receiver ?? root;
   const [key, ...path] = selection;
@@ -226,7 +228,7 @@ export const semanticClassPropertyReferences = (
     return escapedClassValues(lookup, state);
   const pending: (t.ClassDeclaration | t.ClassExpression)[] = [root];
   const seen = new Set<t.Node>();
-  const possibleResults: ReferencedValue[] = [];
+  const possibleResults: JavaScriptSemanticObjectReference[] = [];
   // Instance fields are own properties, including fields initialized by base
   // constructors. They take precedence over every prototype descriptor.
   let instanceFields: ReadonlySet<string> = new Set();
@@ -278,8 +280,8 @@ export const semanticClassPropertyReferences = (
 const escapedClassValues = (
   lookup: ClassPropertyLookup,
   state: JavaScriptSemanticAnalysisState,
-): readonly ReferencedValue[] => {
-  const values: ReferencedValue[] = [];
+): readonly JavaScriptSemanticObjectReference[] => {
+  const values: JavaScriptSemanticObjectReference[] = [];
   const classes = [lookup.receiver ?? lookup.owner];
   const seenClasses = new Set<t.Node>();
   const expressions: t.Node[] = [];
@@ -357,18 +359,21 @@ const escapedClassValues = (
 
 /** Drop repeated node and path pairs while keeping first-seen order. */
 const uniqueReferences = (
-  references: readonly ReferencedValue[],
-): ReferencedValue[] => {
-  const seen = new Map<t.Node, Set<string>>();
+  references: readonly JavaScriptSemanticObjectReference[],
+): JavaScriptSemanticObjectReference[] => {
+  const seen = new Map<t.Node, Map<t.Node | undefined, Set<string>>>();
   return references.filter((reference) => {
     const identity = JSON.stringify([
       reference.path,
       reference.escapes ?? false,
     ]);
-    const paths = seen.get(reference.node) ?? new Set<string>();
+    const owners =
+      seen.get(reference.node) ?? new Map<t.Node | undefined, Set<string>>();
+    const paths = owners.get(reference.ownerInitializer) ?? new Set<string>();
     if (paths.has(identity)) return false;
     paths.add(identity);
-    seen.set(reference.node, paths);
+    owners.set(reference.ownerInitializer, paths);
+    seen.set(reference.node, owners);
     return true;
   });
 };
@@ -377,11 +382,11 @@ const objectReceiverReference = (
   object: t.ObjectExpression,
   path: PropertyPath,
   state: JavaScriptSemanticAnalysisState,
-): readonly ReferencedValue[] => {
+): readonly JavaScriptSemanticObjectReference[] => {
   // A literal's enclosing binding owns its slots. Returning the literal
   // itself would bypass invalidation of that binding's observed properties.
   let current: t.Node = object;
-  const projection: (string | number | null)[] = [];
+  const projection: PropertyPath[number][] = [];
   while (true) {
     const parent = state.parentsByNode.get(current);
     if (
@@ -389,7 +394,43 @@ const objectReceiverReference = (
       parent.init === current &&
       t.isIdentifier(parent.id)
     )
-      return [{ node: parent.id, path: [...projection, ...path] }];
+      return [
+        {
+          node: parent.id,
+          path: [...projection, ...path],
+          ownerInitializer: current,
+        },
+      ];
+    if (
+      t.isAssignmentExpression(parent, { operator: "=" }) &&
+      parent.right === current &&
+      t.isIdentifier(parent.left)
+    )
+      return [
+        {
+          node: parent.left,
+          path: [...projection, ...path],
+          ownerInitializer: current,
+        },
+      ];
+    if (t.isArrayExpression(parent)) {
+      let minimumIndex = 0;
+      let uncertainIndex = false;
+      for (const element of parent.elements) {
+        if (element === current) break;
+        if (t.isSpreadElement(element)) uncertainIndex = true;
+        else minimumIndex++;
+      }
+      // A spread contributes an unknown number of slots. Retain the known
+      // prefix without treating the element's syntax position as its index.
+      projection.unshift(
+        uncertainIndex
+          ? { excludedKeys: [], startIndex: minimumIndex }
+          : minimumIndex,
+      );
+      current = parent;
+      continue;
+    }
     if (t.isObjectProperty(parent) && parent.value === current) {
       projection.unshift(
         semanticStaticPropertyKey(parent.key, parent.computed),
@@ -423,7 +464,7 @@ const getterResultReferences = (
   state: JavaScriptSemanticAnalysisState,
   activeGetters: ReadonlyMap<t.Node, number> = new Map(),
   throughUnknownKey = false,
-): readonly ReferencedValue[] => {
+): readonly JavaScriptSemanticObjectReference[] => {
   const { getter, owner, receiver = owner } = invocation;
   const previousLength = activeGetters.get(getter);
   if (previousLength !== undefined && previousLength <= path.length) return [];
@@ -434,7 +475,7 @@ const getterResultReferences = (
   const resolve = (
     node: t.Node,
     remaining: PropertyPath,
-  ): readonly ReferencedValue[] => {
+  ): readonly JavaScriptSemanticObjectReference[] => {
     const expression = unwrapJavaScriptExpression(node).node;
     if (t.isThisExpression(expression)) {
       if (t.isClass(receiver)) {
@@ -518,9 +559,9 @@ export const semanticObjectPropertyReferences = (
   node: t.ObjectExpression,
   path: PropertyPath,
   state: JavaScriptSemanticAnalysisState,
-): readonly ReferencedValue[] => {
+): readonly JavaScriptSemanticObjectReference[] => {
   const [key, ...remaining] = path;
-  const references: ReferencedValue[] = [];
+  const references: JavaScriptSemanticObjectReference[] = [];
   const overwritten = new Set<string>();
   const dataOverwritten = new Set<string>();
   const accessorNames = new Set<string>();
