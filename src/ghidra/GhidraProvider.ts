@@ -185,7 +185,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         status: "unsupported",
         code: "architecture_unsupported",
         reason:
-          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, or raw 6502 target profile.",
+          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, RISC-V, or raw 6502 target profile.",
         diagnostics,
       };
     return {

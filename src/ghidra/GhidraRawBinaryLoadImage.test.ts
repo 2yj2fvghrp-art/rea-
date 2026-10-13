@@ -25,7 +25,7 @@ describe("raw-binary Ghidra language binding", () => {
   });
 });
 
-describe("raw-binary independent load-image checks", () => {
+describe("raw-binary mapped-block state", () => {
   it.each([
     ["initialized", false],
     ["loaded", false],
@@ -81,6 +81,9 @@ describe("raw-binary independent load-image checks", () => {
       },
     });
   });
+});
+
+describe("raw-binary independent load-image checks", () => {
   it("retains uninitialized language memory without treating it as file-backed bytes", () => {
     const f = fixtureRawBinaryLoadImage();
     const zeroPage = {

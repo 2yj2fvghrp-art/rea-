@@ -851,7 +851,7 @@ describe("Ghidra relationship coverage", () => {
   });
 });
 
-describe("Ghidra measured load-image projection", () => {
+describe("Ghidra measured raw load-image projection", () => {
   it.each([
     "verified",
     "mapping-mismatch",
@@ -955,7 +955,9 @@ describe("Ghidra measured load-image projection", () => {
       }
     },
   );
+});
 
+describe("Ghidra measured DOS load-image projection", () => {
   it.each([
     "verified",
     "mismatch",
