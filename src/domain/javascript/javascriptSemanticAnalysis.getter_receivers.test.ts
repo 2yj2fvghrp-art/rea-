@@ -223,6 +223,17 @@ describe("getters reached through unknown receiver keys", () => {
       ),
     ).toMatchObject({ status: "literal", value: 1 });
   });
+
+  it("carries the active getter cycle guard through method-return widening", () => {
+    const value = resultValue(`class R {
+      method() { return this[k3].x; }
+      get s() { return this.method(); }
+      get a() { return this[k1].x; }
+      get b() { return this[k2].y; }
+    }
+    new R().a.x = 2;`);
+    expect(value?.status).toBe("unknown");
+  });
 });
 
 it("widens private receiver aliases through repeated unknown getter reads", () => {

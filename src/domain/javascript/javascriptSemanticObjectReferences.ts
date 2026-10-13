@@ -240,7 +240,7 @@ export const semanticClassPropertyReferences = (
     key == null || typeof key === "object" ? null : String(key);
   // Widen a second unknown getter hop instead of enumerating getter orderings.
   if (propertyName === null && throughUnknownKey && !lookup.fieldsOnly)
-    return escapedClassValues(lookup, state);
+    return escapedClassValues(lookup, state, activeGetters);
   const pending: (t.ClassDeclaration | t.ClassExpression)[] = [root];
   const seen = new Set<t.Node>();
   const possibleResults: JavaScriptSemanticObjectReference[] = [];
@@ -302,6 +302,7 @@ export const semanticClassPropertyReferences = (
 const escapedClassValues = (
   lookup: ClassPropertyLookup,
   state: JavaScriptSemanticAnalysisState,
+  activeGetters: ReadonlyMap<t.Node, number>,
 ): readonly JavaScriptSemanticObjectReference[] => {
   const values: JavaScriptSemanticObjectReference[] = [];
   const classes = [lookup.receiver ?? lookup.owner];
@@ -378,6 +379,8 @@ const escapedClassValues = (
                   },
                   [],
                   state,
+                  activeGetters,
+                  true,
                 ))
                   expressions.push(reference.node);
       }
