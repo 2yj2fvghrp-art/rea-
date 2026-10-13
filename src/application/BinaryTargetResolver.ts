@@ -183,6 +183,12 @@ export const parseBinaryTarget = async (
             availableArchitectures: ["x86"],
           });
         }
+        // Probe content before suffix-only database routing; explicit database
+        // selection preserves the caller's chosen interpretation.
+        const artifactFormat =
+          targetKind === "database"
+            ? undefined
+            : await detectArtifactFormat(path, handle, signal);
         const databaseTarget =
           targetKind === "database" ||
           (targetKind === undefined && path.toLowerCase().endsWith(".hop"));
@@ -202,7 +208,6 @@ export const parseBinaryTarget = async (
             kind: "database",
             format: "analysis-database",
           });
-        const artifactFormat = await detectArtifactFormat(path, handle, signal);
         if (artifactFormat !== undefined && dsymPath !== undefined)
           return err(
             new BinaryTargetError(
