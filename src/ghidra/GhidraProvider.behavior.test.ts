@@ -1479,12 +1479,22 @@ describe("Ghidra PDB coverage", () => {
     { name: "missing bridge report", pdb: undefined, warns: true },
     {
       name: "report without a PDB reference",
-      pdb: { file: null, guid: null, age: null, signature: null, version: null, loaded: null },
+      pdb: {
+        file: null,
+        guid: null,
+        age: null,
+        signature: null,
+        version: null,
+        loaded: null,
+      },
       warns: false,
     },
   ])("distinguishes $name in direct PE searches", async ({ pdb, warns }) => {
     const ghidra = provider(installationHost(), () => ({
-      start: () => Promise.resolve(ok(pdb === undefined ? sessionInfo() : { ...sessionInfo(), pdb })),
+      start: () =>
+        Promise.resolve(
+          ok(pdb === undefined ? sessionInfo() : { ...sessionInfo(), pdb }),
+        ),
       callTool: () => Promise.resolve(ok([])),
       close: () => Promise.resolve(ok(null)),
     }));
@@ -1494,11 +1504,21 @@ describe("Ghidra PDB coverage", () => {
       throw new Error("Expected a PE profile");
     const client = ghidra.createClient(target, resolved.value.profile);
     try {
-      const searched = await client.execute("search_procedures", { pattern: "add_numbers" });
+      const searched = await client.execute("search_procedures", {
+        pattern: "add_numbers",
+      });
       if (!searched.ok) throw searched.error;
       expect(searched.value.result).toEqual([]);
-      const warnings = searched.value.limitations.filter((limitation) => limitation.includes("PDB"));
-      expect(warnings).toEqual(warns ? ["Ghidra did not report PDB attributes; debug-symbol coverage is unknown."] : []);
+      const warnings = searched.value.limitations.filter((limitation) =>
+        limitation.includes("PDB"),
+      );
+      expect(warnings).toEqual(
+        warns
+          ? [
+              "Ghidra did not report PDB attributes; debug-symbol coverage is unknown.",
+            ]
+          : [],
+      );
     } finally {
       await client.close();
     }
