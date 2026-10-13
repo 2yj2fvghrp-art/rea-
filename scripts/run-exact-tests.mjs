@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { parse, relative, resolve, sep } from "node:path";
 
 import { createVitest, parseCLI } from "vitest/node";
 
@@ -35,10 +35,9 @@ try {
     for (const path of filter) {
       const absolute = resolve(path);
       let matches = discovered.get(absolute) ?? [];
-      if (matches.length === 0 && process.platform === "win32") {
-        let selectedEntry;
+      if (matches.length === 0) {
         try {
-          selectedEntry = await lstat(absolute);
+          await lstat(absolute);
         } catch (cause) {
           if (cause?.code === "ENOENT" || cause?.code === "ENOTDIR") {
             missing.push(path);
@@ -46,29 +45,19 @@ try {
           }
           throw cause;
         }
-        if (selectedEntry.isSymbolicLink()) {
-          missing.push(path);
-          continue;
-        }
-        if (await hasSymbolicLinkInPath(absolute)) {
-          missing.push(path);
-          continue;
-        }
         const canonical = await realpath(absolute);
         for (const [candidate, specifications] of discovered) {
-          // Confirm filesystem identity: Windows directories may opt into case
-          // sensitivity. Do not collapse distinct symlink entries to one target.
+          // Case-fold only to find candidates. realpath confirms whether this
+          // filesystem resolves the selected spelling to the discovered entry.
           if (candidate.toLowerCase() !== absolute.toLowerCase()) continue;
-          let candidateEntry;
           try {
-            candidateEntry = await lstat(candidate);
+            await lstat(candidate);
           } catch (cause) {
             if (cause?.code === "ENOENT" || cause?.code === "ENOTDIR") continue;
             throw cause;
           }
           if (
-            !candidateEntry.isSymbolicLink() &&
-            !(await hasSymbolicLinkInPath(candidate)) &&
+            !(await hasCaseMismatchedSymlinkComponent(absolute, candidate)) &&
             (await realpath(candidate)) === canonical
           )
             matches = [...matches, ...specifications];
@@ -90,17 +79,36 @@ try {
 if (shutdownSignal !== undefined)
   process.exitCode = signalExitCodes[shutdownSignal];
 
-async function hasSymbolicLinkInPath(path) {
-  let current = resolve(path);
-  for (;;) {
-    try {
-      if ((await lstat(current)).isSymbolicLink()) return true;
-    } catch (cause) {
-      if (cause?.code === "ENOENT" || cause?.code === "ENOTDIR") return false;
-      throw cause;
+async function hasCaseMismatchedSymlinkComponent(selected, candidate) {
+  const selectedAbsolute = resolve(selected);
+  const candidateAbsolute = resolve(candidate);
+  const root = parse(selectedAbsolute).root;
+  if (root !== parse(candidateAbsolute).root) return true;
+  const selectedParts = relative(root, selectedAbsolute).split(sep);
+  const candidateParts = relative(root, candidateAbsolute).split(sep);
+  let selectedPath = root;
+  let candidatePath = root;
+  for (let index = 0; index < selectedParts.length; index += 1) {
+    const selectedPart = selectedParts[index];
+    const candidatePart = candidateParts[index];
+    if (selectedPart === undefined || candidatePart === undefined) return true;
+    selectedPath = selectedPath
+      ? resolve(selectedPath, selectedPart)
+      : selectedPart;
+    candidatePath = candidatePath
+      ? resolve(candidatePath, candidatePart)
+      : candidatePart;
+    if (
+      selectedPart !== candidatePart &&
+      selectedPart.toLowerCase() === candidatePart.toLowerCase()
+    ) {
+      const [selectedEntry, candidateEntry] = await Promise.all([
+        lstat(selectedPath),
+        lstat(candidatePath),
+      ]);
+      if (selectedEntry.isSymbolicLink() || candidateEntry.isSymbolicLink())
+        return true;
     }
-    const parent = dirname(current);
-    if (parent === current) return false;
-    current = parent;
   }
+  return false;
 }

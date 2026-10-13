@@ -1,5 +1,6 @@
 import {
   copyFile,
+  lstat,
   mkdir,
   readFile,
   symlink,
@@ -77,14 +78,30 @@ const testCommand = (root: string, ...arguments_: string[]) =>
   ]);
 
 describe("development test runner exact selection", () => {
-  it.skipIf(process.platform !== "win32")(
-    "accepts the filesystem's case-insensitive file spelling",
-    async () => {
-      const root = await fixture();
-      await testCommand(root, "focused", "src/VALUE.test.ts");
-      expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
-    },
-  );
+  it("matches selected test spelling to the filesystem's case behavior", async () => {
+    const root = await fixture();
+    try {
+      await lstat(join(root, "src/VALUE.test.ts"));
+    } catch (cause) {
+      if (
+        !(cause instanceof Error) ||
+        !("code" in cause) ||
+        cause.code !== "ENOENT"
+      )
+        throw cause;
+      await expect(
+        testCommand(root, "focused", "src/VALUE.test.ts"),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining(
+          "Selected test files were not discovered",
+        ),
+      });
+      return;
+    }
+    await testCommand(root, "focused", "src/VALUE.test.ts");
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
 
   it.each(["local", "focused"])(
     "runs only the exact selected file in %s mode",
