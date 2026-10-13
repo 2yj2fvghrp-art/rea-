@@ -59,13 +59,26 @@ export const run = async (
   const logger = createLogger("mcp", config.value.logLevel);
   const serverLogger = logger.child({ layer: "server" });
   const session = createBinarySession(config.value, logger, environment);
+  // Startup can wait on slow providers, so process-lifetime shutdown events
+  // are captured from here on; the dispatcher hands requests to the lifecycle
+  // owner once it exists and only records the intent until then.
+  let startupShutdownRequested = false;
+  let onShutdownRequest = (): void => {
+    startupShutdownRequested = true;
+  };
+  const unregisterShutdown = dependencies.registerShutdown(() => {
+    onShutdownRequest();
+  });
   const opened = await openInitialTarget(
     session,
     config.value,
     serverLogger,
     dependencies.writeStderr,
   );
-  if (!opened.ok) return opened.exitCode;
+  if (!opened.ok) {
+    unregisterShutdown();
+    return opened.exitCode;
+  }
   const transport = await startMcpTransport(dependencies, session, {
     logger,
     serverLogger,
@@ -78,15 +91,25 @@ export const run = async (
           createOptionalObservationFactories(environment),
         )),
   });
-  if (!transport.ok) return 1;
-  createShutdown({
+  if (!transport.ok) {
+    unregisterShutdown();
+    return 1;
+  }
+  const lifecycle = createShutdown({
     handle: transport.handle,
     closeAndroid: transport.closeAndroid,
     closeOptionalProviders: transport.closeOptionalProviders,
     session,
-    dependencies,
+    dependencies: {
+      ...dependencies,
+      registerShutdown: (handler) => {
+        onShutdownRequest = handler;
+        return unregisterShutdown;
+      },
+    },
     serverLogger,
   });
+  if (startupShutdownRequested) lifecycle.request();
   return 0;
 };
 

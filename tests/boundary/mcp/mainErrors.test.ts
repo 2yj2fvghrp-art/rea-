@@ -140,6 +140,33 @@ describe("MCP runtime errors", () => {
     ]);
   });
 
+  it("honors a shutdown request that arrives during transport startup", async () => {
+    const shutdown: Array<() => void> = [];
+    const exitCodes: number[] = [];
+    let closeCalls = 0;
+    expect(
+      await run(
+        dependencies({
+          serve: () => ({
+            close: async () => {
+              closeCalls += 1;
+            },
+          }),
+          output: [],
+          shutdown,
+          exitCodes,
+          loadOptionalProviders: async () => {
+            shutdown[0]?.();
+            return {};
+          },
+        }),
+      ),
+    ).toBe(0);
+    await nextTurn();
+    expect(closeCalls).toBe(1);
+    expect(exitCodes).toEqual([]);
+  });
+
   it("reports an unexpected entrypoint failure without its cause", async () => {
     const output: string[] = [];
     const exitCodes: number[] = [];
