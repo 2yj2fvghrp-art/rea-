@@ -160,7 +160,7 @@ describe("static Electron application analysis", () => {
 
 const exactRuntimeEntrypointFixture = async (): Promise<void> => {
   const root = await createTestTempDirectory("rea-electron-exact-entrypoints-");
-  await mkdir(join(root, "renderer"), { recursive: true });
+  await mkdir(join(root, "renderer/page"), { recursive: true });
   await Promise.all([
     writeFile(
       join(root, "main.cjs"),
@@ -170,6 +170,9 @@ const path = require("node:path");
 new BrowserWindow({ webPreferences: { preload: "./entry" } });
 new BrowserWindow().loadURL("file:///renderer/index.html");
 new BrowserWindow().loadURL("./renderer/other.html?theme=dark#home");
+new BrowserWindow().loadURL("./renderer/missing.html");
+new BrowserWindow().loadFile("./renderer/page");
+new BrowserWindow().loadFile("./renderer/exact");
 new BrowserWindow({ webPreferences: { preload: path.join(__dirname, "preload") } });
 new BrowserWindow({ webPreferences: { preload: "./explicit-preload.js" } });
 utilityProcess.fork("./worker");
@@ -181,6 +184,9 @@ utilityProcess.fork("./service.js");
     writeFile(join(root, "worker.html"), "<title>sibling</title>"),
     writeFile(join(root, "renderer/index.html"), "<title>renderer</title>"),
     writeFile(join(root, "renderer/other.html"), "<title>other</title>"),
+    writeFile(join(root, "renderer/missing.html.js"), "module.exports = {};"),
+    writeFile(join(root, "renderer/page/index.html"), "<title>directory</title>"),
+    writeFile(join(root, "renderer/exact"), "<title>extensionless</title>"),
     writeFile(join(root, "explicit-preload.js"), "module.exports = {};"),
     writeFile(join(root, "service.js"), "module.exports = {};"),
   ]);
@@ -204,6 +210,38 @@ utilityProcess.fork("./service.js");
       }),
     ]),
   );
+  const rendererByDeclaration = new Map(
+    graph.nodes
+      .filter(({ kind }) => kind === "electron-renderer")
+      .map((renderer) => [
+        renderer.observations[0]?.properties.declared_path,
+        renderer,
+      ]),
+  );
+  expect(
+    rendererByDeclaration.get("./renderer/exact")?.observations[0]?.properties,
+  ).toMatchObject({
+    resolved_path: "renderer/exact",
+    resolution_status: "resolved",
+  });
+  for (const [declaredPath, candidatePath] of [
+    ["./renderer/missing.html", "renderer/missing.html"],
+    ["./renderer/page", "renderer/page"],
+  ]) {
+    const renderer = rendererByDeclaration.get(declaredPath);
+    expect(renderer?.observations[0]?.properties).toMatchObject({
+      resolved_path: null,
+      resolution_status: "not-found",
+      candidate_path: candidatePath,
+    });
+    expect(
+      graph.edges.some(
+        (edge) =>
+          edge.source_node_id === renderer?.node_id &&
+          edge.relation === "maps_to",
+      ),
+    ).toBe(false);
+  }
   const roles = graph.nodes.filter(({ kind }) => kind === "electron-preload");
   const roleByDeclaration = new Map(
     roles.map((role) => [

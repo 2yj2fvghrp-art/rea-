@@ -80,6 +80,8 @@ export interface ResolveArtifactPathInput {
   readonly moduleKind?: JavaScriptModuleResolutionMode;
   /** Electron runtime paths identify the exact filename supplied by the caller. */
   readonly runtimeEntrypoint?: boolean;
+  /** Resolve a runtime URL as an exact URL resource while retaining its source context. */
+  readonly exactUrlResource?: boolean;
 }
 
 /** Preserve an explicitly retained loader mode on graph relationships. */
@@ -191,6 +193,13 @@ const conditionalResolution = (
 });
 
 const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
+  if (input.exactUrlResource) {
+    return resolvePath({
+      ...input,
+      context: "url-reference",
+      exactUrlResource: false,
+    });
+  }
   if (input.moduleKind === "compiler-dependent") {
     const imported = resolvePath({ ...input, moduleKind: "import" });
     const required = resolvePath({ ...input, moduleKind: "require" });
