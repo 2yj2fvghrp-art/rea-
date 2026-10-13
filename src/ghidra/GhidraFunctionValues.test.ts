@@ -49,6 +49,9 @@ describe("Ghidra function-analysis result values", () => {
       procedure_address: "0x140001010",
     };
     const wire = { value: "return 42;", limitations: [], selection };
+    expect(parseGhidraFunctionResult("procedure_assembly", wire)).toMatchObject(
+      { ok: false, error: { _tag: "AnalysisOutputError" } },
+    );
     const parsed = parseGhidraFunctionResult("procedure_pseudo_code", wire);
     if (!parsed.ok) throw parsed.error;
     expect(parsed.value.locations).toEqual([

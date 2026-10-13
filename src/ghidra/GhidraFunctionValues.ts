@@ -429,12 +429,16 @@ export const parseGhidraFunctionResult = (
   };
   if (functionBoundaryObservationOperations.has(operation)) {
     const envelope = functionObservationEnvelope.safeParse(value);
-    if (!envelope.success)
+    if (
+      !envelope.success ||
+      (operation !== "procedure_pseudo_code" &&
+        envelope.data.selection !== undefined)
+    )
       return err(
         new AnalysisOutputError(
           operation,
           "Ghidra bridge omitted the function observation envelope",
-          { cause: envelope.error },
+          envelope.success ? undefined : { cause: envelope.error },
         ),
       );
     observation = envelope.data;
