@@ -129,7 +129,19 @@ const observe = (input) => {
 const verifyOverview = (input, surface) => {
   const evidence = evidenceSchema.parse(input);
   assert.equal(evidence.operation, "binary_overview");
-  const overview = observe(evidence);
+  assert.equal(evidence.provider.id, "rea-workflow");
+  assert.equal(evidence.provider.version, "1");
+  assert.equal(evidence.raw_result, null);
+  assert.equal(evidence.analysis_profile?.provider.id, "rea-workflow");
+  const upstream =
+    evidence.analysis_profile?.parameters.upstream_analysis_profile;
+  assert.ok(upstream && typeof upstream === "object");
+  assert.equal(upstream.provider.id, "ida");
+  assert.equal(upstream.provider.version, "1");
+  assert.equal(upstream.parameters.cache_policy, "live");
+  assert.equal(upstream.parameters.engine_version, null);
+  report.observations.push(evidence);
+  const overview = evidence.normalized_result;
   assert.equal(overview.document, target);
   assert.equal(typeof overview.procedure_count, "number");
   assert.equal(typeof overview.string_count, "number");
