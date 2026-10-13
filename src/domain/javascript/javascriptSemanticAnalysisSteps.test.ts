@@ -279,3 +279,29 @@ namespace A.A { renderer.send("repeated"); }`;
     ["ipcRenderer"],
   ]);
 });
+
+it("resolves nested namespace references through enclosing private bindings first", () => {
+  const source = `import electron = require("electron");
+namespace A { export const ipc = electron.ipcMain; }
+namespace A { const ipc = electron.ipcRenderer; export namespace B { ipc.send("ping", () => undefined); } }`;
+  const parsed = parseJavaScriptSource(source, "nested-private.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
+  expect(calls).toContainEqual([
+    source.indexOf('ipc.send("ping"'),
+    ["ipcRenderer"],
+  ]);
+});
+
+it("keeps enclosing namespace privates ahead of program names", () => {
+  const source = `import electron = require("electron");
+const ipc = electron.ipcRenderer;
+namespace A { const ipc = electron.ipcMain; export namespace B { ipc.handle("ping", () => "pong"); } }`;
+  const parsed = parseJavaScriptSource(source, "nested-program.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
+  expect(calls).toContainEqual([
+    source.indexOf('ipc.handle("ping"'),
+    ["ipcMain"],
+  ]);
+});

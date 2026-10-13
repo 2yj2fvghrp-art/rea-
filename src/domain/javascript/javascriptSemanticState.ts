@@ -103,7 +103,9 @@ export const semanticStableInitializer = (
     ((definition?.kind === "variable" &&
       binding.definitions.every(({ kind }) => kind === "variable")) ||
       (binding.definitions.length === 1 &&
-        (definition?.kind === "function" || definition?.kind === "class" || (definition?.kind === "import" && !binding.runtimeImport)))) &&
+        (definition?.kind === "function" ||
+          definition?.kind === "class" ||
+          (definition?.kind === "import" && !binding.runtimeImport)))) &&
     binding.initializers.length === 1 &&
     initializer !== undefined &&
     !state.conditionalInitializers.has(initializer.node)
@@ -138,7 +140,9 @@ export const resolveSemanticBindingState = (
   name: string,
 ): JavaScriptSemanticBindingState | undefined => {
   const scope = semanticScopeForNode(state, node);
-  return scope === undefined ? undefined : resolveSemanticBindingFromScope(scope, name, state);
+  return scope === undefined
+    ? undefined
+    : resolveSemanticBindingFromScope(scope, name, state);
 };
 
 /** Report whether an omitted binding scope blocks a trustworthy miss. */
@@ -208,18 +212,46 @@ const semanticScopedBinding = (
 ): JavaScriptSemanticBindingState | undefined => {
   const privateBinding = scope.bindings.get(name);
   if (privateBinding !== undefined) return privateBinding;
-  let owner = scope.namespaceExportScopeId === undefined
-    ? undefined
-    : state.scopesById.get(scope.namespaceExportScopeId);
-  // Dotted namespace blocks have the lexical program as their parent, while
-  // the shared owner chain retains intermediate namespaces such as A in A.B.
-  while (owner !== undefined && owner.scopeId !== scope.parentScopeId) {
+  let owner =
+    scope.namespaceExportScopeId === undefined
+      ? undefined
+      : state.scopesById.get(scope.namespaceExportScopeId);
+  // A dotted body's lexical parent skips its outer segments, so only the
+  // shared owner chain retains namespaces such as A in A.B. An owner that an
+  // enclosing lexical scope already claims is deferred to that scope's own
+  // lookup, keeping block-private names ahead of outer shared exports.
+  while (owner !== undefined && !deferredNamespaceOwner(owner, scope, state)) {
     const exported = owner.bindings.get(name);
     if (exported !== undefined) return exported;
-    if (!owner.bindingsComplete || owner.parentScopeId === null) return undefined;
+    if (!owner.bindingsComplete || owner.parentScopeId === null)
+      return undefined;
     owner = state.scopesById.get(owner.parentScopeId);
   }
   return undefined;
+};
+
+/** Report a shared owner that an enclosing lexical scope resolves itself. */
+const deferredNamespaceOwner = (
+  owner: JavaScriptSemanticScopeState,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  let lexical =
+    scope.parentScopeId === null
+      ? undefined
+      : state.scopesById.get(scope.parentScopeId);
+  while (lexical !== undefined) {
+    if (
+      lexical.scopeId === owner.scopeId ||
+      lexical.namespaceExportScopeId === owner.scopeId
+    )
+      return true;
+    lexical =
+      lexical.parentScopeId === null
+        ? undefined
+        : state.scopesById.get(lexical.parentScopeId);
+  }
+  return false;
 };
 
 /** Select the function/program owner for a var declaration. */
