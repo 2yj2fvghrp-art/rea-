@@ -116,7 +116,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
             return { kind: "opaque", path: bound.path, arguments: undefined };
           // Function.prototype.call/apply uses the outer explicit receiver
           // as its callable, even when the member was read from a bound value.
-          const callable = explicitReceiver ? receiver : callee.object;
+          const callable: t.Node | undefined = explicitReceiver
+            ? receiver
+            : callee.object;
           if (!t.isExpression(callable)) return undefined;
           receiver = arguments_?.[0];
           explicitReceiver = true;

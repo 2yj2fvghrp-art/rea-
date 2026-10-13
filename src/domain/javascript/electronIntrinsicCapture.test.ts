@@ -232,7 +232,9 @@ describe("identifier-aliased intrinsic invocation members", () => {
       invocationKinds(`const metadata = {}; ${source}`).invocations,
     ).toEqual([expect.objectContaining({ kind: "opaque" })]);
   });
+});
 
+describe("intrinsic invocation member effects", () => {
   it("retains a converted Electron window evaluated inside an opaque invocation's arguments", () => {
     const result = analyzeJavaScriptStaticSource(`
       ${ROLLDOWN_MODULE_INTEROP}

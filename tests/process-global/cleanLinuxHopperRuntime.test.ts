@@ -39,15 +39,12 @@ it
       await chmod(launcher, 0o700);
       await symlink(launcher, alternate);
     }
-<<<<<<< HEAD
-=======
     // A rejection must come from the fixture we are about to launch. An
     // existing Xvfb would otherwise mask a broken executable-identity check.
     await assertCleanLinuxHopperRuntime(
       alternateMode ? [launcher] : [],
       procRoot,
     );
->>>>>>> 8cac51e12 (fix(ci): isolate Linux Hopper process fixture inventory)
     const command = alternateMode ? alternate : process.execPath;
     const arguments_ = alternateMode ? ["30"] : ["-e", childCode];
     const parentCode = `
