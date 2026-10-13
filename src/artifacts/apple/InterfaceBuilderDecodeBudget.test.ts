@@ -91,4 +91,16 @@ describe("inert XML declaration examples in Interface Builder archives", () => {
       preflightPropertyListDecode(Buffer.from(xml), 16 * 1024 * 1024),
     ).not.toThrow();
   });
+
+  it.each([
+    '<!DOCTYPE plist SYSTEM "example>[edition].dtd">',
+    "<!DOCTYPE plist SYSTEM 'example>[edition].dtd'>",
+    "<?example <!DOCTYPE document [ harmless example ]> ?>",
+  ])("consumes quoted or opaque declaration text once: %s", (declaration) => {
+    const xml = archive("Build").replace("<plist", `${declaration}<plist`);
+    expect(() => parseXmlPropertyList(xml)).not.toThrow();
+    expect(
+      preflightPropertyListDecode(Buffer.from(xml), 16 * 1024 * 1024),
+    ).toMatchObject({ binaryPrototypeKeyObserved: false });
+  });
 });
