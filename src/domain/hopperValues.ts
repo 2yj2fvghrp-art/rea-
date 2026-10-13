@@ -428,7 +428,7 @@ export const parseSegments = (
     : invalid("segment list", parsed.error);
 };
 
-/** Retain main's optional overview base only when every parsed segment agrees. */
+/** Return a reported overview base only when every parsed segment agrees. */
 export const parseSegmentImageBase = (
   segments: readonly SegmentSummary[],
 ): string | undefined => {

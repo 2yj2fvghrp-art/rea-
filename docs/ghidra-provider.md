@@ -61,6 +61,13 @@ Multiple mapping candidates fail as ambiguous rather than selecting a bank or
 address space. A successful conversion retains the file offset, mapped address
 and procedure entry in raw Evidence and `locations`.
 
+Both mapping directions require a complete original `FileBytes` source whose
+SHA-256 matches the admitted target. Auxiliary files and partial source objects
+remain visible in the load-image inventory but do not establish offsets in the
+original target. Ghidra's object-local offsets are not silently treated as
+original-file coordinates. Original-source identity is checked once per source
+object per session; analysis-memory edits do not change the original bytes.
+
 ELF virtual addresses and file offsets are
 different coordinates. Ghidra can rebase a PIE ELF during import: in the
 source-owned verification fixture, ELF entry `0x1013` becomes Ghidra procedure

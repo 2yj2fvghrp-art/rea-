@@ -106,6 +106,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private static final int MAX_HIGH_PCODE_INPUTS_PER_OP = 64;
     private static final int MAX_HIGH_PCODE_DEF_USE_EDGES = 12000;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
+    private final Map<FileBytes, Boolean> targetSourceIdentity = new IdentityHashMap<>();
+    private String admittedTargetSha256;
     private static final Set<String> DESCRIPTOR_KEYS = Set.of(
         "transport",
         "endpoint_path",
@@ -207,6 +209,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Ghidra imported-byte digest does not match the admitted target"
             );
         }
+        admittedTargetSha256 = descriptor.targetSha256;
         // GhidraScript wraps run() in a transaction. End it before serving so
         // each edit owns a real outer transaction and can roll back immediately.
         end(true);
@@ -633,7 +636,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
-    private JsonObject addressToFileOffset(JsonObject params) {
+    private JsonObject addressToFileOffset(JsonObject params) throws Exception {
         requireKeys(params, Set.of("document", "address"));
         requireDocument(params);
         Address address = requireAddress(params, "address");
@@ -643,14 +646,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
         Long fileOffset = null;
         int mappings = 0;
         for (MemoryBlockSourceInfo source : block.getSourceInfos()) {
-            if (!source.contains(address) || source.getFileBytes().isEmpty()) continue;
+            if (!source.contains(address) || source.getFileBytes().isEmpty() ||
+                !isTargetSource(source.getFileBytes().get())) continue;
             long offset = source.getFileBytesOffset(address);
             if (offset < 0) continue;
             fileOffset = offset;
             mappings++;
         }
         if (mappings != 1)
-            throw new RequestFailure("invalid_request", "Address has " + mappings + " authoritative source mappings: " + canonicalAddress(address));
+            throw new RequestFailure("invalid_request", "Address has " + mappings + " authoritative target-file mappings: " + canonicalAddress(address));
         JsonObject result = new JsonObject();
         result.addProperty("address", canonicalAddress(address));
         result.addProperty("file_offset", fileOffset);
@@ -708,15 +712,27 @@ public final class ReaGhidraBridge extends HeadlessScript {
             throw new RequestFailure("invalid_request", "File offset exceeds the exact JSON integer range");
         long offset = parsed.longValueExact();
         monitor.checkCancelled();
-        List<Address> candidates = currentProgram.getMemory().locateAddressesForFileOffset(offset)
-            .stream().distinct().toList();
+        // Ghidra's convenience lookup spans every FileBytes and uses coordinates
+        // local to each object. Only a complete, digest-matched target source
+        // establishes that the caller's offset belongs to the admitted file.
+        Set<Address> mappedAddresses = new java.util.LinkedHashSet<>();
+        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
+            for (MemoryBlockSourceInfo source : block.getSourceInfos()) {
+                monitor.checkCancelled();
+                FileBytes backing = source.getFileBytes().orElse(null);
+                if (backing == null || !isTargetSource(backing)) continue;
+                Address mapped = source.locateAddressForFileOffset(offset);
+                if (mapped != null) mappedAddresses.add(mapped);
+            }
+        }
+        List<Address> candidates = new ArrayList<>(mappedAddresses);
         if (candidates.size() > 1)
             throw new RequestFailure("ambiguous", "File offset " + coordinate +
                 " has multiple loaded mappings: " + candidates.stream().map(ReaGhidraBridge::canonicalAddress).toList() +
                 "; select an explicit analysis address");
         if (candidates.isEmpty())
             throw new RequestFailure("not_found", "File offset " + coordinate +
-                " has no loaded source mapping; Ghidra image base: " + canonicalAddress(currentProgram.getImageBase()) +
+                " has no loaded source mapping for the admitted target file; Ghidra image base: " + canonicalAddress(currentProgram.getImageBase()) +
                 ". Inspect mappings with rea inspect-native-load-image <path> --provider ghidra --json or MCP inspect_native_load_image.");
         Address mapped = candidates.get(0);
         Function function = resolveProcedure(canonicalAddress(mapped));
@@ -724,6 +740,18 @@ public final class ReaGhidraBridge extends HeadlessScript {
         selection.addProperty("mapped_address", canonicalAddress(mapped));
         selection.addProperty("procedure_address", canonicalAddress(function.getEntryPoint()));
         return function;
+    }
+
+    private boolean isTargetSource(FileBytes source) throws Exception {
+        Boolean observed = targetSourceIdentity.get(source);
+        if (observed != null) return observed;
+        // Original FileBytes are immutable even when analysis memory is edited.
+        // Partial/auxiliary sources remain inspectable but cannot establish an
+        // original-target offset from their object-local coordinates alone.
+        boolean matched = source.getFileOffset() == 0 &&
+            constantTimeEquals(hashFileBytes(source, false), admittedTargetSha256);
+        targetSourceIdentity.put(source, matched);
+        return matched;
     }
 
     private JsonElement procedureAssembly(JsonObject params) throws Exception {
