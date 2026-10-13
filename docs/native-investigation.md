@@ -267,7 +267,9 @@ tail call through a loaded function pointer both report the recovery failure.
 Any entry adds
 `indirect-branch-target-recovery` to `inspect_native_api.unsupported_branches`
 and a residual unknown per site. The field is absent when the provider did not
-inspect indirect branches.
+inspect indirect branches; `inspect_native_api` then reports
+`indirect-branch-inventory` as unsupported with a residual unknown, so an
+uninspected function is not presented as having none.
 
 ## Static inspection
 

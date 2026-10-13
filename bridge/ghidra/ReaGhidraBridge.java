@@ -2271,7 +2271,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     private static final Pattern DECOMPILER_JUMP_TABLE_FAILURE = Pattern.compile(
-        "Could not recover jumptable at (?:[A-Za-z_][A-Za-z0-9_]*:)?(?:0x)?([0-9A-Fa-f]+)[^\\r\\n*]*"
+        "Could not recover jumptable at (?:([A-Za-z_][A-Za-z0-9_]*):+)?(?:0x)?([0-9A-Fa-f]+)[^\\r\\n*]*"
     );
 
     /**
@@ -2291,13 +2291,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
     ) throws Exception {
         Set<Address> switches = new HashSet<>();
         for (JumpTable table : recoveredJumpTables) switches.add(table.getSwitchAddress());
-        Map<Long, String> failedRecoveries = new TreeMap<>();
+        // Keyed by address space and offset: an unprefixed warning address is
+        // in the default space, and a prefixed one must name the branch's space.
+        Map<String, String> failedRecoveries = new TreeMap<>();
         if (pseudocode != null) {
             java.util.regex.Matcher matcher = DECOMPILER_JUMP_TABLE_FAILURE.matcher(pseudocode);
             while (matcher.find()) {
                 try {
                     failedRecoveries.putIfAbsent(
-                        Long.parseUnsignedLong(matcher.group(1), 16),
+                        warningSpaceKey(matcher.group(1), Long.parseUnsignedLong(matcher.group(2), 16)),
                         matcher.group(0).trim()
                     );
                 }
@@ -2318,7 +2320,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             Address address = instruction.getAddress();
             if (switches.contains(address)) continue;
             String warning = address.isMemoryAddress()
-                ? failedRecoveries.get(address.getOffset())
+                ? failedRecoveries.get(
+                    warningSpaceKey(address.getAddressSpace().getName(), address.getOffset())
+                )
                 : null;
             JsonObject branch = new JsonObject();
             String branchAddress = canonicalAddress(address);
@@ -2350,7 +2354,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                         "indirect-branch",
                         "ghidra-decompiler-warning",
                         "The decompiler reported \"" + warning +
-                        "\" and treated the branch as a call or return in its pseudocode."
+                        "\" and rewrote the branch as a call or return in its pseudocode."
                     )
                 );
             }
@@ -2358,6 +2362,13 @@ public final class ReaGhidraBridge extends HeadlessScript {
             branches.add(branch);
         }
         return branches;
+    }
+
+    /** An absent or default-space name both denote the default address space. */
+    private String warningSpaceKey(String space, long offset) {
+        String defaultSpace = currentProgram.getAddressFactory().getDefaultAddressSpace().getName();
+        String normalized = space == null || space.equals(defaultSpace) ? "" : space;
+        return normalized + ":" + Long.toUnsignedString(offset, 16);
     }
 
     private static JsonObject unavailableNativeApiBoundary(String reason) {

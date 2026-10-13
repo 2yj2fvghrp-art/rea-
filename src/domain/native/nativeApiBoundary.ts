@@ -115,7 +115,7 @@ const availableNativeApiBoundarySchema = z
       .array(unresolvedIndirectBranchSchema)
       .exactOptional()
       .describe(
-        "Computed jumps inside the function with no recovered jump table. Absent when the provider does not inspect indirect branches.",
+        "Computed jumps inside the function with no recovered jump table. Absent when the provider did not inspect indirect branches, which is not evidence that none exist.",
       ),
     pseudocode: z
       .object({
