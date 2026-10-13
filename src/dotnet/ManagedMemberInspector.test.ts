@@ -426,6 +426,39 @@ describe("managed user strings", () => {
   });
 });
 
+describe("managed user string terminal flags", () => {
+  it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
+    const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
+    const [ok, quoted] = tokens as [string, string];
+    // A short item is a one-byte length, the UTF-16 text, then the flag byte.
+    const flagAt = (token: string, value: string) =>
+      Number.parseInt(token.slice(4), 16) + 1 + value.length * 2;
+    heap.writeUInt8(1, flagAt(ok, "ok"));
+    heap.writeUInt8(0, flagAt(quoted, "it's"));
+    const bytes = buildManagedPeFixture({
+      ilBody: ldstrBody([ok, quoted]),
+      userStringHeap: heap,
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.user_strings?.map(({ value }) => value)).toEqual([
+      "ok",
+      "it's",
+    ]);
+    expect(result.coverage).toMatchObject({
+      state: "partial",
+      issues: [ok, quoted].map((token) => ({
+        code: "invalid-string",
+        scope: `metadata.#US:${token}`,
+        detail: expect.stringContaining("terminal flag"),
+      })),
+    });
+  });
+});
+
 describe("managed member decoding budget", () => {
   it("admits a wide-instruction method whose actual records fit the budget", () => {
     // Five-byte branches all target the next instruction. A final ret leaves

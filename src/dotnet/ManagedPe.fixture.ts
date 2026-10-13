@@ -412,6 +412,25 @@ const fixedStringAttributeBlob = (value: string): Buffer => {
  * Lay out ECMA-335 #US items (compressed length, UTF-16LE, terminal flag byte)
  * and return the `ldstr` token that names each value.
  */
+// ECMA-335 II.24.2.4 terminal flag: 1 when a code unit has a high byte or a
+// low byte in 0x01-0x08, 0x0E-0x1F, 0x27, 0x2D, or 0x7F.
+const userStringFlag = (text: Buffer): number => {
+  for (let index = 0; index < text.length; index += 2) {
+    const unit = text.readUInt16LE(index);
+    if (
+      unit > 0xff ||
+      (unit >= 0x01 && unit <= 0x08) ||
+      (unit >= 0x0e && unit <= 0x1f) ||
+      unit === 0x27 ||
+      unit === 0x2d ||
+      unit === 0x7f
+    )
+      return 1;
+  }
+  return 0;
+};
+
+/** A #US heap whose items carry the ECMA-335 terminal flag, and their tokens. */
 export const fixtureUserStringHeap = (
   values: readonly string[],
 ): { readonly heap: Buffer; readonly tokens: readonly string[] } => {
@@ -428,7 +447,11 @@ export const fixtureUserStringHeap = (
         ? Buffer.from([length])
         : Buffer.from([0x80 | (length >> 8), length & 0xff]);
     tokens.push(`0x70${size.toString(16).padStart(6, "0")}`);
-    const item = Buffer.concat([prefix, text, Buffer.from([0])]);
+    const item = Buffer.concat([
+      prefix,
+      text,
+      Buffer.from([userStringFlag(text)]),
+    ]);
     items.push(item);
     size += item.length;
   }
