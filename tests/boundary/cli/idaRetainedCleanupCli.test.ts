@@ -78,6 +78,7 @@ describe("headless IDA timeout through the one-shot CLI", () => {
                       session_id: expect.stringMatching(/^rea-/),
                       backend: "worker",
                       owned: null,
+                      input_path: null,
                     },
                   ],
                 },

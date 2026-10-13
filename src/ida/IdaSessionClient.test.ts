@@ -813,7 +813,8 @@ describe("headless IDA session ownership and cleanup", () => {
       reportsSessions({
         session_id: sessionId,
         backend: "worker",
-        owned: null,
+        owned: true,
+        input_path: producer.inputPath,
       }),
     );
     expect(
