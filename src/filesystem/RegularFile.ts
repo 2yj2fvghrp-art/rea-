@@ -92,7 +92,7 @@ export const openRegularFile = async (
       options.signal?.throwIfAborted();
       if (named.isSymbolicLink())
         throw new NonRegularFileReadError(path, false);
-      if (!sameRegularFileState(metadata, named))
+      if (!sameRegularFileStateAcrossPathAndDescriptor(metadata, named))
         throw new RegularFileChangedError(path);
     }
     return handle;
@@ -213,31 +213,43 @@ const detectPRootEnvironment = (): boolean => {
 };
 
 /**
- * True on PRoot hosts (Termux on Android), where stat() and fstat() report
- * different mode permission bits and ctime for the very same file, because
- * PRoot's syscall interception resolves inode metadata per call. On those
- * hosts sameRegularFileState excludes the permission bits and ctime from its
- * comparison, because they are not reliable stability indicators there.
+ * True on PRoot hosts (Termux on Android), where stat() and fstat() can
+ * report different mode permission bits and ctime for the same file. Only
+ * explicit path-to-descriptor comparisons use that compatibility allowance;
+ * descriptor-to-descriptor checks retain strict ctime validation.
  */
 const isPRootEnvironment = (): boolean => {
   prootEnvironment ??= detectPRootEnvironment();
   return prootEnvironment;
 };
 
-/** Compare one regular file's identity and mutable metadata across a read. */
+/** Compare snapshots with strict metadata equality for one representation. */
 export const sameRegularFileState = (
   expected: Stats | BigIntStats,
   observed: Stats | BigIntStats,
+): boolean => compareRegularFileState(expected, observed, false);
+
+/**
+ * Compare a path stat with a descriptor stat. PRoot can vary permission bits
+ * and ctime between those representations, but same-representation reads must
+ * retain strict ctime checks.
+ */
+export const sameRegularFileStateAcrossPathAndDescriptor = (
+  expected: Stats | BigIntStats,
+  observed: Stats | BigIntStats,
+): boolean => compareRegularFileState(expected, observed, true);
+
+const compareRegularFileState = (
+  expected: Stats | BigIntStats,
+  observed: Stats | BigIntStats,
+  allowPRootRepresentationDifferences: boolean,
 ): boolean => {
   if (!observed.isFile()) return false;
   if (expected.dev !== observed.dev) return false;
   if (expected.ino !== observed.ino) return false;
   if (expected.size !== observed.size) return false;
-  if (isPRootEnvironment()) {
-    // Permission bits differ between stat() and fstat() under PRoot; only a
-    // genuine change of the file type itself still counts as a change.
+  if (allowPRootRepresentationDifferences && isPRootEnvironment()) {
     if (!sameFileType(expected.mode, observed.mode)) return false;
-    // ctime is updated asynchronously by PRoot, so it is never compared here.
     if ("mtimeNs" in expected && "mtimeNs" in observed) {
       if (expected.mtimeNs !== observed.mtimeNs) return false;
     } else {
