@@ -102,7 +102,7 @@ export const JAVASCRIPT_RUNTIME_RECONCILIATION_PROVIDER = {
 export const ANALYSIS_VIEW_PROVIDER = {
   id: "rea-analysis-view",
   name: "REA analysis view projection",
-  version: "1",
+  version: "2",
 } as const;
 
 /** Provider identity for graph-native feature tracing and version comparison. */

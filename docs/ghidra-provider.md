@@ -156,7 +156,7 @@ address space; its end remains `null` because the warning does not establish an
 extent. These are observations of Ghidra's warnings, not independent proof of
 unreachable code. `no-warnings-reported` does not establish complete recovery.
 Pseudocode reads retain warnings in Evidence limitations. Compact native views
-expose the `decompiler_completeness` facet and keep a warning notice on paged
+expose a compact `decompiler_completeness` summary and keep a warning notice on paged
 pseudocode. Missing observations in older or other-provider Evidence remain
 unavailable. Function comparisons keep warned pseudocode unresolved, while
 independently available assembly remains comparable.
@@ -172,6 +172,13 @@ empty-output failures, and qualifies its Evidence with the observed procedure
 address (or original selector when procedure identity is unavailable). The shared
 completeness contract retains producer provenance without requiring a particular
 engine; the Ghidra adapter validates its own producer identifier.
+
+`decompiler_warnings` and `decompiler_dropped_blocks` page records by offset and
+limit, with original warning indices retained. `decompiler_diagnostic` pages text
+in UTF-16 code units. The `limitations` facet pages the complete combined provider
+limitations. Warned native-view metadata points to those retained facts with a
+short notice, so warning-heavy functions do not repeat every diagnostic on every
+page. Refreshed annotation Evidence also retains its dossier's limitations.
 
 Function extents and instruction completeness refer to Ghidra's analyzed body.
 An inferred no-return call can terminate that body before subsequent bytes.

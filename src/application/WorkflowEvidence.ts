@@ -18,8 +18,12 @@ import {
 import type { JsonValue } from "../domain/jsonValue.js";
 import type { UnknownRegistryPort } from "./investigation/InvestigationRecordPort.js";
 import { UnknownRegistryError } from "../domain/unknownRegistryError.js";
-import { nativeApiInspectionResultSchema } from "../domain/native/nativeApiBoundary.js";
-import { nativeValueTraceSchema } from "../domain/native/nativeValueTrace.js";
+import { z } from "zod";
+
+// The producer owns whole-result validation. Evidence consumes only this metadata projection.
+const workflowLimitationsProjection = z.object({
+  limitations: z.array(z.string()).default([]),
+});
 
 /** Build the shared Evidence record for a successful composed binary workflow. */
 export const createWorkflowEvidence = (input: {
@@ -56,12 +60,11 @@ const nativeWorkflowLimitations = (
   result: JsonValue,
 ): readonly string[] => {
   if (operation === "batch_decompile") return batchProcedureLimitations(result);
-  if (operation === "inspect_native_api") {
-    const parsed = nativeApiInspectionResultSchema.safeParse(result);
-    return parsed.success ? parsed.data.limitations : [];
-  }
-  if (operation === "trace_native_values") {
-    const parsed = nativeValueTraceSchema.safeParse(result);
+  if (
+    operation === "inspect_native_api" ||
+    operation === "trace_native_values"
+  ) {
+    const parsed = workflowLimitationsProjection.safeParse(result);
     return parsed.success ? parsed.data.limitations : [];
   }
   return [];

@@ -437,6 +437,12 @@ const functionObservationEnvelope = z.strictObject({
     .exactOptional(),
 });
 
+// The annotation result already validates the full refreshed dossier. Extract
+// its producer limitations without another traversal of the dossier graph.
+const annotationLimitationsProjection = z.object({
+  dossier: z.object({ limitations: z.array(z.string()) }),
+});
+
 export interface ParsedGhidraFunctionResult {
   readonly value: JsonValue;
   readonly limitations: readonly string[];
@@ -477,7 +483,11 @@ export const parseGhidraFunctionResult = (
   return parsed.success
     ? ok({
         value: jsonValueSchema.parse(parsed.data),
-        limitations: observation.limitations,
+        limitations:
+          operation === "annotate_native_function"
+            ? annotationLimitationsProjection.parse(parsed.data).dossier
+                .limitations
+            : observation.limitations,
         ...(observation.selection === undefined
           ? {}
           : {

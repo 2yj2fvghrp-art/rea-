@@ -53,12 +53,22 @@ const parentFields = (
     parent_digest: parent.evidenceId.slice(3),
     procedure_address: dossier.procedure.address,
     artifact,
-    limitations: uniqueSorted([
-      ...parent.limitations,
-      ...dossier.limitations,
-      ...(flow?.limitations ?? []),
-      ...(api?.available ? api.limitations : []),
-    ]),
+    limitations:
+      dossier.decompiler_completeness?.status === "warnings"
+        ? [
+            "This view selects retained function facts; complete provider limitations remain in the parent Evidence and are paged by the limitations facet.",
+            ...(dossier.decompiler_completeness?.status === "warnings"
+              ? [
+                  "Decompiler warnings were reported; warning, dropped-block and diagnostic details are separately paged.",
+                ]
+              : []),
+          ]
+        : uniqueSorted([
+            ...parent.limitations,
+            ...dossier.limitations,
+            ...(flow?.limitations ?? []),
+            ...(api?.available ? api.limitations : []),
+          ]),
     unknowns: uniqueSorted(unknowns),
   };
 };
@@ -70,6 +80,9 @@ const nativeRows = (
     | "procedure"
     | "pseudocode"
     | "decompiler_completeness"
+    | "decompiler_warnings"
+    | "decompiler_diagnostic"
+    | "limitations"
     | "native_api"
     | "value_flow_summary"
   >,
@@ -80,6 +93,7 @@ const nativeRows = (
     assembly: dossier.assembly,
     basic_blocks: dossier.basic_blocks,
     comments: dossier.comments,
+    decompiler_dropped_blocks: dossier.decompiler_completeness?.dropped_blocks,
     callers: dossier.callers,
     callees: dossier.callees,
     incoming_references: dossier.incoming_references,
@@ -143,6 +157,52 @@ export const projectNativeFunctionView = (
   });
   if (availability?.available === false) return ok(singleton(availability));
   const flow = dossier.native_value_flow;
+  const completeness = dossier.decompiler_completeness;
+  if (view.facet.startsWith("decompiler_") && completeness === undefined)
+    return ok(
+      singleton({
+        available: false,
+        reason: "Decompiler warning observations were not recorded.",
+      }),
+    );
+  if (view.facet === "decompiler_diagnostic") {
+    const page = analysisTextPage(
+      completeness?.diagnostic ?? "",
+      view.offset,
+      view.limit,
+      "Decompiler diagnostic",
+    );
+    return page.ok
+      ? ok({ kind: "native", view, ...page.value, ...common })
+      : page;
+  }
+  if (view.facet === "decompiler_warnings" || view.facet === "limitations") {
+    const rows =
+      view.facet === "decompiler_warnings"
+        ? (completeness?.warnings ?? [])
+        : uniqueSorted([
+            ...parent.limitations,
+            ...dossier.limitations,
+            ...(flow?.limitations ?? []),
+            ...(dossier.native_api?.available
+              ? dossier.native_api.limitations
+              : []),
+          ]);
+    const page = rows.slice(view.offset, view.offset + view.limit);
+    return ok({
+      kind: "native",
+      view,
+      item:
+        view.facet === "decompiler_warnings"
+          ? page.map((text, index) => ({
+              warning_index: view.offset + index,
+              text,
+            }))
+          : page,
+      coverage: pageViewCoverage(view.offset, page.length, rows.length),
+      ...common,
+    });
+  }
   if (
     view.facet === "procedure" ||
     view.facet === "decompiler_completeness" ||
@@ -155,10 +215,19 @@ export const projectNativeFunctionView = (
     if (view.facet === "decompiler_completeness")
       return ok(
         singleton(
-          dossier.decompiler_completeness ?? {
-            available: false,
-            reason: "Decompiler warning observations were not recorded.",
-          },
+          completeness === undefined
+            ? {
+                available: false,
+                reason: "Decompiler warning observations were not recorded.",
+              }
+            : {
+                status: completeness.status,
+                provenance: completeness.provenance,
+                warning_count: completeness.warning_count,
+                dropped_block_count: completeness.dropped_blocks.length,
+                diagnostic_present: completeness.diagnostic !== null,
+                disassembly_available: completeness.disassembly_available,
+              },
         ),
       );
     if (view.facet === "native_api")

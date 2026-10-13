@@ -130,10 +130,35 @@ try {
     assert.deepEqual(after.decompiler_completeness.dropped_blocks, []);
     assert.ok(after.comments.some((comment) => comment.text === authored));
     assert.doesNotMatch(after.pseudocode, /0xdeadbeef/u);
+    const warnedRaw = await invoke("analyze_function", { procedure });
     const warned = functionDossierSchema.parse(
-      await call("analyze_function", { procedure }),
+      requireMcpEvidenceResult(warnedRaw, "analyze_function"),
     );
     assert.equal(warned.decompiler_completeness.status, "warnings");
+    const warningParent = JSON.parse(mcpTextValue(warnedRaw)).evidence_id;
+    for (const facet of [
+      "decompiler_completeness",
+      "decompiler_warnings",
+      "decompiler_dropped_blocks",
+      "decompiler_diagnostic",
+      "limitations",
+    ]) {
+      const selected = await call("inspect_analysis_view", {
+        source: { kind: "retained-evidence", evidence_id: warningParent },
+        view: { kind: "native", facet, offset: 0, limit: 1 },
+      });
+      assert.ok(selected.coverage.examined <= 1);
+    }
+    const warnedAnnotationRaw = await invoke("annotate_native_function", {
+      procedure,
+      comment: "Owned warning-retention probe",
+    });
+    requireMcpEvidenceResult(warnedAnnotationRaw, "annotate_native_function");
+    assert.ok(
+      JSON.parse(mcpTextValue(warnedAnnotationRaw)).limitations.some((text) =>
+        text.includes("Removing unreachable block"),
+      ),
+    );
     const batchRaw = await invoke("batch_decompile", {
       addresses: [procedure, cleanProcedure],
     });
@@ -209,6 +234,8 @@ try {
         authored_comments_retained: true,
         workflow_warnings: "verified through MCP and Evidence",
         batch_warning_limits: "verified per item and in Evidence",
+        annotation_warning_limits: "verified in Evidence",
+        paged_warning_views: "verified through production MCP",
       },
       null,
       2,

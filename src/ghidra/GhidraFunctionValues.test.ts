@@ -43,6 +43,35 @@ const parseFunctionValueFixture = (
   return parsed.ok ? { ok: true as const, value: parsed.value.value } : parsed;
 };
 
+it("lifts refreshed annotation dossier limitations into its Evidence boundary", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const warning =
+    "Ghidra pseudocode warning: Removing unreachable block (ram,0x401020)";
+  dossier.limitations.push(warning);
+  const result = parseGhidraFunctionResult(
+    "annotate_native_function",
+    jsonValueSchema.parse({
+      annotations: {
+        address: dossier.procedure.address,
+        name: dossier.procedure.name,
+        comment: "owned fixture",
+        inline_comment: null,
+      },
+      dossier,
+      effects: {
+        scope: "session-analysis-database",
+        source_bytes_modified: false,
+        persists_after_close: false,
+      },
+    }),
+  );
+  if (!result.ok) throw result.error;
+  expect(result.value.limitations).toContain(warning);
+  expect(result.value.value).toMatchObject({
+    dossier: { limitations: expect.arrayContaining([warning]) },
+  });
+});
+
 describe("Ghidra function-analysis result values", () => {
   it("keeps Ghidra producer provenance validation at the adapter boundary", () => {
     const dossier = functionDossierSchema.parse(ghidraFunctionDossier());

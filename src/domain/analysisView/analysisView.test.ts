@@ -92,7 +92,12 @@ it("retains warning status in paged pseudocode and exposes exact completeness fa
     );
     if (facet === "decompiler_completeness")
       expect(result.value).toMatchObject({
-        item: dossier.decompiler_completeness,
+        item: {
+          status: "warnings",
+          warning_count: 1,
+          dropped_block_count: 1,
+          diagnostic_present: false,
+        },
       });
   }
   delete dossier.decompiler_completeness;
@@ -202,7 +207,16 @@ it("preserves native API limitations and unavailable residual unknowns", () => {
   const available = projectAnalysisView(nativeParent(), view);
   if (!available.ok) throw available.error;
   if (!original.native_api?.available) throw new Error("expected API fixture");
-  expect(available.value.limitations).toEqual(
+  const limitations = projectAnalysisView(nativeParent(), {
+    kind: "native",
+    facet: "limitations",
+    offset: 0,
+    limit: 100,
+  });
+  if (!limitations.ok) throw limitations.error;
+  if (limitations.value.kind !== "native")
+    throw new Error("Expected native limitation view");
+  expect(limitations.value.item).toEqual(
     expect.arrayContaining(original.native_api.limitations),
   );
 });
