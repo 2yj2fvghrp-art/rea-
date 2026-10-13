@@ -476,7 +476,15 @@ export const selectJavaClass = async (
         try {
           parsed = parseJavaClassFile(bytes);
         } catch (cause) {
-          if (cause instanceof JavaClassFormatFailure) continue;
+          if (cause instanceof JavaClassFormatFailure) {
+            // A malformed matching coordinate is not proof of absence.
+            if (
+              entry.path === `${wanted}.class` ||
+              entry.path.endsWith(`/${wanted}.class`)
+            )
+              throw cause;
+            continue;
+          }
           throw cause;
         }
         if (parsed.name !== wanted) continue;
