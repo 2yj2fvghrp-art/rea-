@@ -375,6 +375,11 @@ const scenarios = [
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, ...{f: [__vite__mapDeps.f]}}; copy.f[0][0] = "./last.js";',
     },
     {
+      file: "getter-cache-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, get f() { return __vite__mapDeps.f; }}; copy.f[0] = "./last.js";',
+    },
+    {
       file: "regexp-override.js",
       mutation:
         "__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: /x/g}; copy.f.lastIndex = 1;",

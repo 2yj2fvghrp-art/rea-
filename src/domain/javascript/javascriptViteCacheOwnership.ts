@@ -360,6 +360,17 @@ const freshCacheReplacement = (
       facts.set(expression, false);
       continue;
     }
+    if (
+      t.isObjectExpression(expression) &&
+      expression.properties.some(
+        (property) =>
+          !t.isSpreadElement(property) && !t.isObjectProperty(property),
+      )
+    ) {
+      facts.set(current.node, false);
+      facts.set(expression, false);
+      continue;
+    }
     if (!current.finish) {
       pending.push({ node: current.node, finish: true });
       for (const child of freshContainerValues(expression))
