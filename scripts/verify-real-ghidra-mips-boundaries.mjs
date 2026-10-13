@@ -14,6 +14,7 @@ import {
   requireMcpOperationResult,
   requireMcpToolError,
 } from "./lib/mcp-verifier-results.mjs";
+import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 import { functionDossierSchema } from "../dist/domain/hopperValues.js";
 
 // Static source-owned controls. Never execute an ELF or acquire a toolchain.
@@ -22,6 +23,7 @@ if (!process.env.GHIDRA_INSTALL_DIR || !process.env.JAVA_HOME)
     "Supply GHIDRA_INSTALL_DIR and JAVA_HOME for the MIPS32 positive control.",
   );
 const execute = promisify(execFile);
+const run = createVerifierRun();
 const root = await mkdtemp(join(tmpdir(), "rea-mips-boundaries-"));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const cli = fileURLToPath(new URL("./rea.mjs", import.meta.url));
@@ -32,6 +34,7 @@ const env = {
   TMPDIR: root,
   REA_ANALYSIS_PROVIDER: "ghidra",
   REA_LOG_LEVEL: "silent",
+  REA_PROCESS_RUN_ID: run.run_id,
   GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR,
   JAVA_HOME: process.env.JAVA_HOME,
   HOPPER_LAUNCHER_PATH: "/rea-unconfigured-deep-provider/hopper",
@@ -40,6 +43,7 @@ for (const setting of ["GHIDRA_HEADLESS_MAXMEM", "GHIDRA_MAXMEM"]) {
   if (process.env[setting] !== undefined) env[setting] = process.env[setting];
 }
 const reports = [];
+let primaryFailure;
 try {
   for (const byteOrder of ["little", "big"]) {
     const original = await buildMips1Fixture(root, byteOrder);
@@ -76,6 +80,7 @@ try {
     const { stdout: attributes } = await execute(
       process.env.REA_READELF ?? "readelf",
       ["-A", gnuPath],
+      { env: { PATH: env.PATH, LC_ALL: "C" } },
     );
     assert.match(attributes, /Tag_GNU_MIPS_ABI_FP.*Soft float/iu);
     const transport = new StdioClientTransport({
@@ -163,7 +168,24 @@ try {
       }
     }
   }
-  console.log(JSON.stringify({ status: "passed", reports }, null, 2));
-} finally {
-  await rm(root, { recursive: true, force: true });
+} catch (cause) {
+  primaryFailure = cause;
 }
+const completed = await completeVerifierRun(run);
+if (
+  completed.process_lineage.status !== "verified" ||
+  completed.process_lineage.descendants.length !== 0
+)
+  throw new Error(
+    `Cleanup unverified; retained diagnostic workspace: ${root}`,
+    { cause: primaryFailure },
+  );
+if (primaryFailure !== undefined)
+  throw new Error(
+    `MIPS boundary verification failed; retained workspace: ${root}`,
+    { cause: primaryFailure },
+  );
+await rm(root, { recursive: true, force: true });
+console.log(
+  JSON.stringify({ ...completed, status: "passed", reports }, null, 2),
+);
