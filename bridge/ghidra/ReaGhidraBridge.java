@@ -880,12 +880,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
         JsonObject selection = new JsonObject();
         Function function = resolveDecompileProcedure(selector, selection);
         try {
-            String value = decompiledText(decompile(function));
+            DecompileResults decompilation = decompile(function);
+            String value = decompiledText(decompilation);
+            List<String> limitations = new ArrayList<>(noReturnCallLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true)
+            ));
+            limitations.addAll(decompilerLimitations(decompilerCompleteness(decompilation, value, !function.getBody().isEmpty())));
             JsonObject result = functionObservation(
                 value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value),
-                noReturnCallLimitations(
-                    currentProgram.getListing().getInstructions(function.getBody(), true)
-                )
+                limitations
             );
             if (selection.size() > 0) result.add("selection", selection);
             return result;
@@ -1515,6 +1518,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         JsonObject result = new JsonObject();
         result.add("procedure", procedure);
         result.addProperty("pseudocode", pseudocode);
+        JsonObject completeness = decompilerCompleteness(decompilation, pseudocode, !scan.instructions.isEmpty());
+        result.add("decompiler_completeness", completeness);
         result.add("assembly", assembly);
         result.add("comments", comments);
         result.add("callers", callers);
@@ -1563,13 +1568,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Swift String literal decoding is implemented for AArch64 register pairs only; no Swift literals were decoded for this architecture."
             );
         }
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        List<String> boundaryLimitations = new ArrayList<>(noReturnCallLimitations(scan.instructions));
+        boundaryLimitations.addAll(decompilerLimitations(completeness));
         for (String limitation : boundaryLimitations) {
             limitations.add(limitation);
-        }
-        if (decompilation != null && decompilation.getErrorMessage() != null &&
-            !decompilation.getErrorMessage().isBlank()) {
-            limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
         }
         result.add("limitations", limitations);
         return new FunctionAnalysisObservation(result, boundaryLimitations);
@@ -3252,6 +3254,59 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         DecompiledFunction value = results.getDecompiledFunction();
         return value == null ? null : value.getC();
+    }
+
+    private JsonObject decompilerCompleteness(DecompileResults results, String pseudocode, boolean assemblyAvailable) {
+        JsonArray warnings = new JsonArray();
+        JsonArray dropped = new JsonArray();
+        // These are reported warning comments, not independently proved unreachable code.
+        if (pseudocode != null) {
+            var comments = Pattern.compile("(?m)^\\s*/\\* WARNING: ([\\s\\S]*?)\\*/").matcher(pseudocode);
+            while (comments.find()) {
+                String text = comments.group(1).strip();
+                int index = warnings.size();
+                warnings.add(text);
+                var removed = Pattern.compile("Removing unreachable block \\(([^,]+),([^\\)]+)\\)").matcher(text);
+                if (removed.find()) {
+                    String space = removed.group(1).strip();
+                    Address address = currentProgram.getAddressFactory().getAddress(space + ":" + removed.group(2).strip());
+                    JsonObject block = new JsonObject();
+                    block.add("start", address == null ? JsonNull.INSTANCE : GSON.toJsonTree(canonicalAddress(address)));
+                    block.add("end", JsonNull.INSTANCE);
+                    block.addProperty("address_space", space);
+                    block.addProperty("reason", "unreachable");
+                    block.addProperty("warning_index", index);
+                    dropped.add(block);
+                }
+            }
+        }
+        String diagnostic = results == null ? null : results.getErrorMessage();
+        if (diagnostic != null && diagnostic.isBlank()) diagnostic = null;
+        JsonObject result = new JsonObject();
+        result.addProperty("status", results == null ? "unavailable" :
+            warnings.size() > 0 || diagnostic != null ? "warnings" : "no-warnings-reported");
+        result.addProperty("provenance", "ghidra-decompiler-warning-observations");
+        result.addProperty("warning_count", warnings.size());
+        result.add("warnings", warnings);
+        result.add("diagnostic", diagnostic == null ? JsonNull.INSTANCE : GSON.toJsonTree(diagnostic));
+        result.add("dropped_blocks", dropped);
+        result.addProperty("disassembly_available", assemblyAvailable);
+        return result;
+    }
+
+    private List<String> decompilerLimitations(JsonObject observation) {
+        List<String> limitations = new ArrayList<>();
+        if (observation.get("status").getAsString().equals("unavailable")) {
+            limitations.add("Ghidra decompiler output is unavailable for this function.");
+        }
+        for (JsonElement warning : observation.getAsJsonArray("warnings")) {
+            limitations.add("Ghidra pseudocode warning: " + warning.getAsString());
+        }
+        if (!observation.get("diagnostic").isJsonNull()) {
+            limitations.add("Ghidra decompiler diagnostic: " + observation.get("diagnostic").getAsString());
+        }
+        limitations.add("Decompiler warnings are provider observations; no warnings does not establish complete control-flow recovery. Dropped-block end addresses are unknown.");
+        return limitations;
     }
 
     private InstructionScan scanInstructions(Function function, int maximum) throws Exception {

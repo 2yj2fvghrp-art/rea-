@@ -1,0 +1,28 @@
+/* Source-owned static analysis fixture. Never execute this program. */
+#ifdef __APPLE__
+#define ENTRY _main
+#else
+#define ENTRY main
+#endif
+.text
+.globl ENTRY
+ENTRY:
+#ifdef __aarch64__
+    cmp w0, w0
+    b.ne 1f
+    mov w0, #7
+    ret
+1:
+    mov w0, #9
+    ret
+#elif defined(__x86_64__)
+    cmp %edi, %edi
+    jne 1f
+    mov $7, %eax
+    ret
+1:
+    mov $9, %eax
+    ret
+#else
+#error This completeness fixture supports AArch64 and x86_64 hosts.
+#endif
