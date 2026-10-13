@@ -286,6 +286,18 @@ and top-level key when it upserts `rea`. WorkBuddy also reads a project-level
 user-level file only. Loading this registration and real REA tool calls
 through WorkBuddy are verified.
 
+## CodeBuddy
+
+For CodeBuddy, setup writes `mcpServers.rea` into the global
+`~/.codebuddy/mcp.json` (a standard `mcpServers` JSON file at the user home
+root on every platform). Entries carry `command`, `args`, and `env`; stdio is
+the default transport. CodeBuddy discovers personal skills from
+`~/.codebuddy/skills`, so setup installs its skill copy there.
+
+The global MCP path is a plain JSON file; setup preserves every other server
+and top-level key when it upserts `rea`. Loading this registration in
+CodeBuddy remains unverified.
+
 ## ZCode
 
 For [ZCode](https://zcode.z.ai/en/docs/mcp-services), setup registers `rea` in the nested `mcp.servers` table of the
