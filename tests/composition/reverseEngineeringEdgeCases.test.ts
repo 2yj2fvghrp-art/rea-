@@ -923,7 +923,7 @@ it("classifies E2BIG as a provider command resource constraint", async () => {
   }
 });
 
-it("does not claim provider completion or a final digest while owned cleanup is incomplete", async () => {
+it("preserves completed command Evidence while its post-run digest awaits cleanup", async () => {
   const { directory, path } = await createArtifact();
   const service = new ReverseEngineeringService({
     runOwned: async () => {
@@ -947,12 +947,14 @@ it("does not claim provider completion or a final digest while owned cleanup is 
         partialObservation: {
           raw_result: {
             exit_code: 0,
-            completion_status: "unknown",
+            completion_status: "complete",
             artifact_sha256_after: null,
             artifact_changed: null,
           },
           limitations: expect.arrayContaining([
-            expect.stringContaining("owned provider cleanup is incomplete"),
+            expect.stringContaining(
+              "owned provider cleanup was incomplete at observation time",
+            ),
           ]),
         },
       },

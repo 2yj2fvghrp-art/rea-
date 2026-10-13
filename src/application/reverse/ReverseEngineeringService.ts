@@ -324,6 +324,7 @@ export class ReverseEngineeringService {
     let stdoutInvalidUtf8 = false;
     let stderrInvalidUtf8 = false;
     let cleanupIncomplete = false;
+    let cleanupOnlyFailure = false;
     let completionStatus: "complete" | "unknown" = "complete";
     let failure: AnalysisError | undefined;
     let cleanupOwner: ProviderProcessSupervisor | undefined;
@@ -478,12 +479,25 @@ export class ReverseEngineeringService {
           cause.cleanup !== undefined
         ) {
           cleanupIncomplete = true;
-          if (failure === undefined)
+          if (failure === undefined) {
+            cleanupOnlyFailure =
+              !capture.collectionFailure &&
+              !capture.outputTruncated &&
+              !capture.killed &&
+              capture.signal === null &&
+              typeof capture.code === "number" &&
+              !signal?.aborted;
             failure = new AnalysisOutputError(
               operation,
               "Provider process cleanup remains incomplete.",
-              { cause, capturedOutput, cleanup: cause.cleanup },
+              {
+                cause,
+                capturedOutput,
+                cleanup: cause.cleanup,
+                cleanupOnly: cleanupOnlyFailure,
+              },
             );
+          }
         }
         if (
           failure === undefined &&
@@ -495,7 +509,11 @@ export class ReverseEngineeringService {
             "Provider output collection failed.",
             { cause, capturedOutput },
           );
-        if (capture.signal !== null || typeof capture.code !== "number") {
+        if (
+          capture.killed ||
+          capture.signal !== null ||
+          typeof capture.code !== "number"
+        ) {
           exitCode = null;
           completionStatus = "unknown";
         }
@@ -513,7 +531,7 @@ export class ReverseEngineeringService {
     if (absolutePath === undefined) {
       digestAfter = null;
     } else if (cleanupIncomplete) {
-      completionStatus = "unknown";
+      if (!cleanupOnlyFailure) completionStatus = "unknown";
     } else {
       try {
         digestAfter = await this.#digest(absolutePath, signal, this.#stat);
@@ -592,7 +610,8 @@ export class ReverseEngineeringService {
         : [
             `The provider process terminated by signal ${signalName}; captured output may be partial and command completion is unknown.`,
           ]),
-      ...(failure === undefined
+      ...(failure === undefined ||
+      (failure instanceof AnalysisOutputError && failure.cleanupOnly)
         ? []
         : [
             `Command completion is unknown because the operation failed with ${failure._tag}: ${failure.message}`,
@@ -612,7 +631,7 @@ export class ReverseEngineeringService {
       ...(absolutePath !== undefined && digestAfter === null
         ? [
             cleanupIncomplete
-              ? "The post-run artifact digest is unknown because owned provider cleanup is incomplete; a remaining process may still change the artifact."
+              ? "The post-run artifact digest was not captured because owned provider cleanup was incomplete at observation time; artifact changes during the command remain unquantified."
               : signal?.aborted
                 ? "The post-run artifact digest is unknown because cancellation interrupted the digest."
                 : "The post-run artifact digest is unknown because the artifact could not be read after the provider call.",

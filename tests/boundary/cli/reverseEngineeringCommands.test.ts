@@ -1,6 +1,7 @@
 import pino from "pino";
 import { Cli, z } from "incur";
 import { afterEach, expect, it, vi } from "vitest";
+import { rm } from "node:fs/promises";
 
 import { registerReverseEngineeringCommands } from "../../../src/cli/reverseEngineeringCommands.js";
 import { CLI_COMMANDS } from "../../../src/cliCommandNames.js";
@@ -10,9 +11,20 @@ import {
   AnalysisOutputError,
 } from "../../../src/domain/analysisErrorCore.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
-import { createEvidence } from "../../../src/domain/evidence.js";
+import {
+  createEvidence,
+  evidenceSchema,
+} from "../../../src/domain/evidence.js";
 import { err, ok } from "../../../src/domain/result.js";
 import { RizinDebugSessionManager } from "../../../src/rizin/RizinDebugSessionManager.js";
+import { ReverseEngineeringService as CoreReverseEngineeringService } from "../../../src/application/reverse/ReverseEngineeringService.js";
+import { createReverseEngineeringCommandPort } from "../../../src/composition/reverseEngineering.js";
+import { OwnedCommandFailure } from "../../../src/process/OwnedCommand.js";
+import type { ProviderProcessSupervisor } from "../../../src/process/ProviderProcess.js";
+import {
+  createArtifact,
+  providerSnapshot,
+} from "../../support/reverseEngineeringCompositionFixtures.js";
 import type { CliInstance } from "../../../src/cli/types.js";
 import type { ReverseEngineeringService } from "../../../src/application/reverse/ReverseEngineeringService.js";
 
@@ -35,7 +47,10 @@ const observation = (completionStatus: "complete" | "unknown") =>
     },
   );
 
-const runObjdump = async (service: Partial<ReverseEngineeringService>) => {
+const runObjdump = async (
+  service: Partial<ReverseEngineeringService>,
+  path = "/tmp/sample",
+) => {
   const commands = new Map<
     string,
     {
@@ -70,7 +85,7 @@ const runObjdump = async (service: Partial<ReverseEngineeringService>) => {
   if (command === undefined)
     throw new Error("objdump CLI command was not registered");
   return command.run({
-    args: { path: "/tmp/sample", operation: "file_headers" },
+    args: { path, operation: "file_headers" },
     options: { followDebugLinks: false },
   });
 };
@@ -136,58 +151,119 @@ it("lists objdump architectures without inventing an artifact path", async () =>
   ).toBe(false);
 });
 
-it("returns complete Evidence after a successful retry of cleanup-only failure", async () => {
-  const evidence = observation("complete");
-  const error = Object.assign(
-    new AnalysisOutputError(
-      "inspect_with_objdump",
-      "Provider process cleanup remains incomplete.",
-      {
-        cleanup: { reason: "first stop incomplete", resources: ["owned-run"] },
-        partialObservation: evidence,
-      },
-    ),
-    { cleanupOnly: true },
+it("promotes only complete production cleanup-only Evidence after CLI cleanup retry", async () => {
+  const { directory, path } = await createArtifact();
+  const owner = {
+    stop: vi.fn(async () => ({ status: "verified-cleanup" as const })),
+  } as unknown as ProviderProcessSupervisor;
+  const service = new CoreReverseEngineeringService({
+    commands: createReverseEngineeringCommandPort({}),
+    runOwned: vi.fn(async () => {
+      throw new OwnedCommandFailure(
+        "process",
+        "Cleanup after process completion was incomplete.",
+        providerSnapshot(),
+        "provider process still running",
+        undefined,
+        ["owned-run"],
+        owner,
+      );
+    }),
+  });
+  const inspect = service.inspectWithObjdump.bind(service);
+  let producedCleanupFailure: AnalysisOutputError | undefined;
+  let cleanupIncompleteBeforeClose: boolean | undefined;
+  let completionBeforeClose: unknown;
+  vi.spyOn(service, "inspectWithObjdump").mockImplementation(
+    async (...args) => {
+      const result = await inspect(...args);
+      if (!result.ok && result.error instanceof AnalysisOutputError) {
+        producedCleanupFailure = result.error;
+        cleanupIncompleteBeforeClose = result.error.cleanupIncomplete;
+        const partialEvidence = evidenceSchema.safeParse(
+          result.error.partialObservation,
+        );
+        if (partialEvidence.success)
+          completionBeforeClose = partialEvidence.data.normalized_result;
+      }
+      return result;
+    },
   );
-  const service = {
-    inspectWithObjdump: vi.fn(async () => err(error)),
-    close: vi.fn(async () => undefined),
-  };
 
-  const result = await runObjdump(service);
+  try {
+    const result = await runObjdump(service, path);
 
-  expect(result).toEqual(evidence);
-  expect(service.close).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      provider: { id: "gnu.objdump" },
+      normalized_result: { completion_status: "complete" },
+    });
+    expect(producedCleanupFailure?.cleanupOnly).toBe(true);
+    expect(cleanupIncompleteBeforeClose).toBe(true);
+    expect(completionBeforeClose).toMatchObject({
+      completion_status: "complete",
+    });
+    expect(producedCleanupFailure).toMatchObject({
+      cleanupIncomplete: false,
+      cleanup: { resources: ["owned-run"] },
+      partialObservation: {
+        normalized_result: { completion_status: "complete" },
+      },
+    });
+    expect(owner.stop).toHaveBeenCalledOnce();
+  } finally {
+    await service.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
-it("clears recovered cleanup state without promoting unknown Evidence", async () => {
-  const evidence = observation("unknown");
-  const error = Object.assign(
-    new AnalysisOutputError(
-      "inspect_with_objdump",
-      "Provider process cleanup remains incomplete.",
-      {
-        cleanup: { reason: "first stop incomplete", resources: ["owned-run"] },
-        partialObservation: evidence,
-      },
-    ),
-    { cleanupOnly: true },
-  );
-  const service = {
-    inspectWithObjdump: vi.fn(async () => err(error)),
-    close: vi.fn(async () => undefined),
-  };
-
-  const result = await runObjdump(service);
-
-  expect(result).toMatchObject({
-    code: "unreadable_output",
-    details: {
-      partial_observation: {
-        normalized_result: { completion_status: "unknown" },
-      },
-    },
+it("preserves an operation timeout and unknown partial Evidence after cleanup retry", async () => {
+  const { directory, path } = await createArtifact();
+  const owner = {
+    stop: vi.fn(async () => ({ status: "verified-cleanup" as const })),
+  } as unknown as ProviderProcessSupervisor;
+  const service = new CoreReverseEngineeringService({
+    commands: createReverseEngineeringCommandPort({}),
+    runOwned: vi.fn(async () => {
+      throw new OwnedCommandFailure(
+        "timeout",
+        "Provider command timed out.",
+        providerSnapshot({ exitCode: null }),
+        "provider process still running",
+        undefined,
+        ["owned-run"],
+        owner,
+      );
+    }),
   });
+  let timeout: AnalysisTimeoutError | undefined;
+  const inspect = service.inspectWithObjdump.bind(service);
+  vi.spyOn(service, "inspectWithObjdump").mockImplementation(
+    async (...args) => {
+      const result = await inspect(...args);
+      if (!result.ok && result.error instanceof AnalysisTimeoutError)
+        timeout = result.error;
+      return result;
+    },
+  );
+
+  try {
+    const result = await runObjdump(service, path);
+
+    expect(result).toMatchObject({
+      code: "provider_timeout",
+      details: {
+        partial_observation: {
+          normalized_result: { completion_status: "unknown" },
+        },
+      },
+    });
+    expect(timeout).toBeInstanceOf(AnalysisTimeoutError);
+    expect(timeout?.cleanupIncomplete).toBe(false);
+    expect(owner.stop).toHaveBeenCalledOnce();
+  } finally {
+    await service.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 it("preserves an independent timeout after cleanup succeeds", async () => {
@@ -198,7 +274,9 @@ it("preserves an independent timeout after cleanup succeeds", async () => {
   });
   const service = {
     inspectWithObjdump: vi.fn(async () => err(error)),
-    close: vi.fn(async () => undefined),
+    close: vi.fn(async () => {
+      error.resolveCleanup();
+    }),
   };
 
   const result = await runObjdump(service);
@@ -222,7 +300,9 @@ it("does not project cancellation cleanup as incomplete after a successful retry
   });
   const service = {
     inspectWithObjdump: vi.fn(async () => err(error)),
-    close: vi.fn(async () => undefined),
+    close: vi.fn(async () => {
+      error.resolveCleanup();
+    }),
   };
 
   await runObjdump(service);

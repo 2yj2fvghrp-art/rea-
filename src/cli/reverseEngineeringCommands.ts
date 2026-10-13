@@ -33,6 +33,7 @@ const executeWithCleanup = async (
     await service.close().catch(() => undefined);
     throw cause;
   }
+  const hadIncompleteCleanup = !result.ok && result.error.cleanupIncomplete;
   try {
     await service.close();
   } catch (cause) {
@@ -54,8 +55,7 @@ const executeWithCleanup = async (
     );
     return err(error);
   }
-  if (!result.ok && result.error.cleanupIncomplete) {
-    result.error.resolveCleanup();
+  if (!result.ok && hadIncompleteCleanup && !result.error.cleanupIncomplete) {
     const evidence = cleanupOnlyCompleteEvidence(result.error);
     if (evidence !== undefined) return { ok: true, value: evidence };
   }
