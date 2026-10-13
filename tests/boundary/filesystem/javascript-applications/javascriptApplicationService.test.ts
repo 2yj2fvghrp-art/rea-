@@ -426,3 +426,21 @@ it("reserves node capacity for a selected source before earlier unselected inven
     expect.objectContaining({ name: "semantic_graph_node_ceiling", value: 1 }),
   );
 });
+
+it("offers an empty source its module root before a later source's share", async () => {
+  const root = await createTestTempDirectory("rea-js-empty-source-share-");
+  await writeFile(join(root, "a-empty.mjs"), "");
+  await writeFile(join(root, "b-main.mjs"), "export const value = 1;\n");
+  const result = await analyzeJavaScriptApplication({ input_path: root });
+  if (!result.ok) throw result.error;
+  const analysis = javascriptApplicationAnalysisResultSchema.parse(
+    result.value.normalized_result,
+  );
+  expect(analysis.semantic_graph.coverage.truncated).toBe(false);
+  expect(analysis.semantic_graph.coverage.files).toContainEqual(
+    expect.objectContaining({ module_path: "a-empty.mjs", status: "complete" }),
+  );
+  expect(
+    analysis.semantic_graph.nodes.filter(({ kind }) => kind === "module"),
+  ).toHaveLength(2);
+});

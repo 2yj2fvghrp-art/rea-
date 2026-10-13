@@ -39,9 +39,13 @@ export interface JavaScriptSourceWorkerAnalyzer {
       readonly phase: (
         phase: "parse" | "static" | "semantic" | "projection",
       ) => Promise<void>;
-      /** Retain static facts; resolve the parent's offered semantic budgets. */
+      /**
+       * Retain static facts and report the module-root bytes projection
+       * requires first; resolve the parent's offered semantic budgets.
+       */
       readonly checkpoint: (
         facts: JavaScriptStaticAnalysis,
+        semanticRootBytes: number,
       ) => Promise<JavaScriptWorkerSemanticAdmission>;
     },
   ): Promise<{
@@ -125,7 +129,7 @@ const analyzeJob = async (
       request.node_budget,
       {
         phase: async (phase) => send({ kind: "phase", id: request.id, phase }),
-        checkpoint: async (facts) => {
+        checkpoint: async (facts, semanticRootBytes) => {
           const value = javaScriptWorkerStaticAnalysisSchema.parse(facts);
           const text = JSON.stringify(value);
           const bytes = Buffer.byteLength(text);
@@ -148,6 +152,7 @@ const analyzeJob = async (
             id: request.id,
             bytes,
             sha256: createHash("sha256").update(text).digest("hex"),
+            semantic_root_bytes: semanticRootBytes,
           });
           const next = await requests.next();
           if (

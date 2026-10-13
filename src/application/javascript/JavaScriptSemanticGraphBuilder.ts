@@ -563,14 +563,7 @@ export const createJavaScriptSemanticGraphProjection = (
         remainingFileNodeBudget(),
       );
       local.fileBudget = budget;
-      const module = retainNode(local, file, {
-        kind: "module",
-        roleKey: "module",
-        location: null,
-        label: file.path,
-        functionNodeId: null,
-      });
-      if (module !== null) local.roots.add(module.node_id);
+      const module = retainModuleRoot(local, file);
       const evidence = {
         ...observedSemanticEvidence(file, null),
         authority: "unknown" as const,
@@ -662,6 +655,36 @@ export const createJavaScriptSemanticGraphProjection = (
   };
 };
 
+/** Admit the module root that every projected or unavailable source starts with. */
+const retainModuleRoot = (
+  state: BuilderState,
+  file: JavaScriptArtifactFile,
+): JavaScriptSemanticGraphNode | null => {
+  const module = retainNode(state, file, {
+    kind: "module",
+    roleKey: "module",
+    location: null,
+    label: file.path,
+    functionNodeId: null,
+  });
+  if (module !== null) state.roots.add(module.node_id);
+  return module;
+};
+
+/**
+ * Serialized bytes of a source's module root and its evidence context, which
+ * projection admits before any fact regardless of source length.
+ */
+export const semanticModuleRootBytes = (
+  file: JavaScriptArtifactFile,
+): number => {
+  const state = emptyState();
+  const budget = new SemanticFileGraphBudget(null);
+  state.fileBudget = budget;
+  retainModuleRoot(state, file);
+  return budget.used;
+};
+
 const fileCoverage = (
   file: JavaScriptArtifactFile,
   coverage: JavaScriptSemanticFileProjectionCoverage,
@@ -743,15 +766,8 @@ function* projectFileSteps(
   paths: readonly ElectronCallPath[],
 ): Generator<void, JavaScriptSemanticFingerprint[]> {
   yield;
-  const moduleNode = retainNode(state, file, {
-    kind: "module",
-    roleKey: "module",
-    location: null,
-    label: file.path,
-    functionNodeId: null,
-  });
+  const moduleNode = retainModuleRoot(state, file);
   if (moduleNode === null) return [];
-  state.roots.add(moduleNode.node_id);
   yield* projectElectronSemanticCallPaths(file, paths, state);
   // Node creation keeps source order, which the per-file byte budget relies
   // on; yields between nodes do not change it.

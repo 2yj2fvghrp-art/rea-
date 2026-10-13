@@ -314,7 +314,11 @@ export class JavaScriptAnalysisWorker {
             semantic_graph_bytes:
               offeredResultBudget === 0
                 ? 0
-                : this.#evidenceShare(file.bytes, sourceBytesRemaining),
+                : this.#evidenceShare(
+                    file.bytes,
+                    sourceBytesRemaining,
+                    response.semantic_root_bytes,
+                  ),
           });
           await new Promise<void>((resolve, reject) =>
             stdin.write(`${JSON.stringify(admission)}\n`, (error) =>
@@ -746,19 +750,26 @@ export class JavaScriptAnalysisWorker {
   }
 
   /**
-   * Share of the remaining Evidence budget in proportion to this source's
-   * bytes among the sources not yet analyzed, since projected semantic facts
+   * This source's module root, which projection admits before any fact, plus
+   * a share of the rest of the remaining Evidence budget in proportion to its
+   * bytes among the sources not yet analyzed, since further semantic facts
    * grow with source length. Bytes an earlier source left unused remain
    * available to later sources.
    */
-  #evidenceShare(bytes: number, sourceBytesRemaining: number): number {
+  #evidenceShare(
+    bytes: number,
+    sourceBytesRemaining: number,
+    rootBytes: number,
+  ): number {
     const remaining = Math.max(
       0,
       this.#evidenceBudgetBytes - this.#evidenceChargedBytes,
     );
-    return sourceBytesRemaining <= bytes
-      ? remaining
-      : Math.floor((remaining * bytes) / sourceBytesRemaining);
+    if (sourceBytesRemaining <= bytes) return remaining;
+    const root = Math.min(rootBytes, remaining);
+    return (
+      root + Math.floor(((remaining - root) * bytes) / sourceBytesRemaining)
+    );
   }
 
   #limits() {

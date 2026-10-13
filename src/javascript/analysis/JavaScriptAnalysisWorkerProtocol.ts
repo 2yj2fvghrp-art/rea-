@@ -64,6 +64,8 @@ export const javaScriptWorkerMessageSchema = z.discriminatedUnion("kind", [
     ...identity,
     bytes: z.number().int().nonnegative(),
     sha256: digestSchema,
+    /** Serialized module-root bytes projection admits before any fact. */
+    semantic_root_bytes: z.number().int().nonnegative(),
   }),
   z.strictObject({
     kind: z.literal("complete"),
