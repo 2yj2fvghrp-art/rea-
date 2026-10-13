@@ -18,11 +18,12 @@ export const workflowAnalysisProfile = (
 ): AnalysisProfileCommitment =>
   createAnalysisProfile(REA_WORKFLOW_PROVIDER, {
     upstream_analysis_profile: upstream,
-    ...(operation === "binary_overview"
+    ...(operation === "binary_overview" ||
+    operation === "inspect_native_api" ||
+    operation === "trace_native_values" ||
+    operation === "batch_decompile"
       ? { workflow_revision: 3 }
-      : operation === "batch_decompile" ||
-          operation === "get_call_graph" ||
-          operation === "trace_feature"
+      : operation === "get_call_graph" || operation === "trace_feature"
         ? { workflow_revision: 2 }
         : {}),
   });
@@ -101,7 +102,7 @@ export const JAVASCRIPT_RUNTIME_RECONCILIATION_PROVIDER = {
 export const ANALYSIS_VIEW_PROVIDER = {
   id: "rea-analysis-view",
   name: "REA analysis view projection",
-  version: "1",
+  version: "2",
 } as const;
 
 /** Provider identity for graph-native feature tracing and version comparison. */
@@ -122,7 +123,7 @@ export const ARTIFACT_COMPARISON_PROVIDER = {
 export const FUNCTION_COMPARISON_PROVIDER = {
   id: "rea-function-comparison",
   name: "REA function comparison",
-  version: "1",
+  version: "2",
 } as const;
 
 /** Provider identity for deterministic Evidence bundle comparisons. */

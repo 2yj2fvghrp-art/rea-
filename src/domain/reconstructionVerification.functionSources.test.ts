@@ -34,6 +34,16 @@ const dossier = jsonValueSchema.parse(
       locals: [],
     },
     pseudocode: "return 0;",
+    // Synthetic producer explicitly records the warning observation used here.
+    decompiler_completeness: {
+      status: "no-warnings-reported",
+      provenance: "fixture-warning-observations",
+      warning_count: 0,
+      warnings: [],
+      diagnostic: null,
+      dropped_blocks: [],
+      disassembly_available: true,
+    },
     assembly: [],
     comments: [],
     callers: [],
@@ -101,7 +111,7 @@ const plural = {
 const provider = {
   id: "rea-function-comparison",
   name: "REA function comparison",
-  version: "1",
+  version: "2",
 };
 const baselineResult = compareFunctions(left, right);
 
@@ -697,7 +707,7 @@ describe("function reconstruction evidence integrity", () => {
   it.each([
     { ...provider, id: "other-comparison" },
     { ...provider, name: "Other comparison" },
-    { ...provider, version: "2" },
+    { ...provider, version: "1" },
   ])("rejects comparison provider %j", (identity) => {
     expect(
       admittedVerification(
