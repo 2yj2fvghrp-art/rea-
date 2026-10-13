@@ -239,6 +239,16 @@ export const collectElectronWrappedCallPaths = (
       if (remainingVisits < 0) return;
     }
   }
+  // An exit guarded by a test an element proves false cannot run.
+  const iterationMayExit = (
+    loop: t.ForOfStatement,
+    environments: readonly SymbolicEnvironment[],
+  ): boolean =>
+    environments.some((iteration) =>
+      symbolicLoopHasExit(loop, (test) =>
+        symbolicTruth(resolver.evaluate(test, iteration)),
+      ),
+    );
   const isolatedBridgeCall = (
     node: t.CallExpression | t.OptionalCallExpression,
   ):
@@ -762,10 +772,6 @@ export const collectElectronWrappedCallPaths = (
     }
     if (t.isForOfStatement(node) && !node.await) {
       walk(node.right, env, context);
-      if (symbolicLoopHasExit(node)) {
-        accumulator.unknownFindings += 1;
-        return;
-      }
       const iterable = resolver.evaluate(node.right, env);
       // Each element of an exact array is substituted into the loop body.
       const iterations =
@@ -776,10 +782,14 @@ export const collectElectronWrappedCallPaths = (
               resolver.bindIteration(node, element, env),
             )
           : [undefined];
-      for (const iteration of iterations.includes(undefined)
+      const environments = iterations.includes(undefined)
         ? [env]
-        : iterations)
-        walk(node.body, iteration ?? env, context);
+        : iterations.map((iteration) => iteration ?? env);
+      if (iterationMayExit(node, environments)) {
+        accumulator.unknownFindings += 1;
+        return;
+      }
+      for (const iteration of environments) walk(node.body, iteration, context);
       return;
     }
     if (t.isCallExpression(node) || t.isOptionalCallExpression(node))

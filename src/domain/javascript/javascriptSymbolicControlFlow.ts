@@ -45,13 +45,25 @@ export const symbolicDefiniteExit = (
   );
 };
 
-/** Unsupported loop exits prevent exact iteration substitution. */
-export const symbolicLoopHasExit = (loop: t.ForOfStatement): boolean => {
+/**
+ * Unsupported loop exits prevent exact iteration substitution. An `if` branch
+ * that `truth` proves is not taken cannot exit.
+ */
+export const symbolicLoopHasExit = (
+  loop: t.ForOfStatement,
+  truth: (test: t.Expression) => boolean | undefined = () => undefined,
+): boolean => {
   const pending: t.Node[] = [loop.body];
   while (pending.length > 0) {
     const node = pending.pop();
     if (node === undefined) break;
     if (t.isFunction(node)) continue;
+    if (t.isIfStatement(node)) {
+      const taken = truth(node.test);
+      if (taken !== false) pending.push(node.consequent);
+      if (taken !== true && node.alternate) pending.push(node.alternate);
+      continue;
+    }
     if (
       t.isBreakStatement(node) ||
       t.isContinueStatement(node) ||

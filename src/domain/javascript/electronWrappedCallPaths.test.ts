@@ -893,6 +893,29 @@ describe("substituted wrapper values", () => {
       ["desktop.redo", "app:redo"],
     ]);
   });
+  it("substitutes loop elements past exits that their guards rule out", () => {
+    const channels = (handlers: string) =>
+      analyzeJavaScriptStaticSource(`
+        const e=require("electron");
+        function serve(names,handlers,transport){
+          for(const name of names){
+            const handler=handlers[name];
+            if(handler==null)throw new Error(name);
+            transport.handle("app:"+name,handler);
+          }
+        }
+        serve(["open","close"],${handlers},{handle:(channel,handler)=>e.ipcMain.handle(channel,handler)});
+      `)
+        .electron.ipc.filter(
+          ({ resolution_basis }) => resolution_basis === "wrapper-substitution",
+        )
+        .map(({ channel }) => channel);
+    expect(channels("{open:()=>1,close:()=>2}")).toEqual([
+      "app:open",
+      "app:close",
+    ]);
+    expect(channels("{open:()=>1}")).toEqual([]);
+  });
   it("traces a handler registered through an inferred wrapper parameter", () => {
     const result = analyzeJavaScriptStaticSource(`
       const electron=require("electron");
