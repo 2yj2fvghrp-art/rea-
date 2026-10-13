@@ -224,6 +224,10 @@ async function verifyPublicWorkflows({
     env,
     stderr: "pipe",
   });
+  let stderrTail = "";
+  transport.stderr?.on("data", (chunk) => {
+    stderrTail = (stderrTail + chunk.toString("utf8")).slice(-65536);
+  });
   const client = new Client({ name: "rea-real-prototype-proof", version: "1" });
   let opened = false;
   let primaryFailure;
@@ -346,8 +350,14 @@ async function verifyPublicWorkflows({
       observations.push({ procedure, diagnostics, cli_mcp_equal: true });
     }
   } catch (cause) {
-    primaryFailure = cause;
-    throw cause;
+    const failure =
+      stderrTail.length === 0
+        ? cause
+        : new Error(`${String(cause)}\nMCP stderr tail:\n${stderrTail}`, {
+            cause,
+          });
+    primaryFailure = failure;
+    throw failure;
   } finally {
     await retirePrototypePublicClient({
       client,
