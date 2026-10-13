@@ -135,7 +135,10 @@ it("retains every source declared by every included local source map", async () 
 it.each([
   ["a non-array sourcesContent value", { sourcesContent: "source" }],
   ["a non-string, non-null source entry", { sourcesContent: [42] }],
-  ["a source-content array with the wrong length", { sourcesContent: [] }],
+  [
+    "an invalid entry beyond the source inventory",
+    { sourcesContent: [null, 42] },
+  ],
 ])(
   "reports %s as an invalid local source map",
   async (_description, content) => {

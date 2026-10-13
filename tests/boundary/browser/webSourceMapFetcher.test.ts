@@ -708,11 +708,113 @@ describe("indexed source-map offsets", () => {
   });
 });
 
+it("retains partial and excess content by source ordinal over HTTP", async () => {
+  const text = JSON.stringify({
+    version: 3,
+    sections: [
+      {
+        offset: { line: 0, column: 0 },
+        map: {
+          version: 3,
+          names: [],
+          sources: ["first.ts", "empty.ts", "missing.ts"],
+          sourcesContent: ["export const value = 1;", ""],
+          mappings: "AAAA;ACAA;ACAA",
+        },
+      },
+      {
+        offset: { line: 3, column: 0 },
+        map: {
+          version: 3,
+          names: [],
+          sources: ["last.ts"],
+          sourcesContent: [null, "orphan text has no source declaration"],
+          mappings: "AAAA",
+        },
+      },
+    ],
+  });
+  const server = createServer((_incoming, response) => {
+    response.setHeader("content-type", "application/source-map+json");
+    response.end(text);
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string")
+      throw new TypeError("Expected a TCP listener address");
+    const localOrigin = `http://127.0.0.1:${String(address.port)}`;
+    const url = `${localOrigin}/app.js.map`;
+    const result = await fetchWebSourceMaps(
+      [{ ...request, declaredUrl: url, fetchUrl: url }],
+      input({ allowed_origins: [localOrigin] }),
+    );
+    expect(result.items[0]).toMatchObject({
+      status: "included",
+      artifact: {
+        text,
+        sha256: createHash("sha256").update(text).digest("hex"),
+      },
+    });
+    expect(result.items[0]?.original_sources).toEqual([
+      expect.objectContaining({
+        source_index: 0,
+        declaration_index: 0,
+        source: `${localOrigin}/first.ts`,
+        artifact: expect.objectContaining({
+          text: "export const value = 1;",
+        }),
+      }),
+      expect.objectContaining({
+        source_index: 1,
+        declaration_index: 1,
+        source: `${localOrigin}/empty.ts`,
+        artifact: expect.objectContaining({ text: "", bytes: 0 }),
+      }),
+      expect.objectContaining({
+        source_index: 2,
+        declaration_index: 2,
+        source: `${localOrigin}/missing.ts`,
+        artifact: null,
+      }),
+      expect.objectContaining({
+        source_index: 0,
+        declaration_index: 3,
+        source: `${localOrigin}/last.ts`,
+        artifact: null,
+      }),
+    ]);
+    expect(result.items[0]?.mappings).toEqual(
+      [0, 1, 2, 3].map((index) =>
+        expect.objectContaining({
+          source_index: index === 3 ? 0 : index,
+          declaration_index: index,
+          generated_line: index + 1,
+        }),
+      ),
+    );
+  } finally {
+    server.closeAllConnections();
+    if (server.listening)
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+  }
+});
+
 describe("web source-map sourcesContent validation", () => {
   it.each([
     ["a scalar sourcesContent value", { sourcesContent: "source" }],
     ["a non-string, non-null source entry", { sourcesContent: [42] }],
-    ["a sourcesContent array with the wrong length", { sourcesContent: [] }],
+    [
+      "an invalid entry beyond the source inventory",
+      { sourcesContent: [null, 42] },
+    ],
   ])("reports %s as invalid", async (_description, content) => {
     const result = await fetchWebSourceMaps([request], input(), undefined, {
       fetch: () =>

@@ -231,3 +231,84 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     expect(await readFile(join(root, "invalid.js.map"), "utf8")).toBe(mapText);
   },
 );
+
+cliTest.for(["CLI", "stdio MCP"] as const)(
+  "retains source ordinals when indexed maps have unequal content counts through %s",
+  async (surface, { cli }) => {
+    const root = await createTestTempDirectory("rea-partial-map-contents-");
+    const content = "export const answer: number = 42;";
+    const mapText = JSON.stringify({
+      version: 3,
+      sections: [
+        {
+          offset: { line: 0, column: 0 },
+          map: {
+            version: 3,
+            names: [],
+            sources: ["first.ts", "empty.ts", "missing.ts"],
+            sourcesContent: [content, ""],
+            mappings: "AAAA;ACAA;ACAA",
+          },
+        },
+        {
+          offset: { line: 3, column: 0 },
+          map: {
+            version: 3,
+            names: [],
+            sources: ["last.ts"],
+            sourcesContent: [null, "orphan text has no source declaration"],
+            mappings: "AAAA",
+          },
+        },
+        {
+          offset: { line: 4, column: 0 },
+          map: {
+            version: 3,
+            names: [],
+            sources: ["empty-contents.ts"],
+            sourcesContent: [],
+            mappings: "AAAA",
+          },
+        },
+      ],
+    });
+    await writeFixtureFiles(root, { "bundle.js.map": mapText });
+    const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
+    const originals = graph.nodes.filter(
+      (node) => node.identity.strategy === "source-map-original",
+    );
+    expect(originals).toHaveLength(5);
+    const mapDigest = createHash("sha256").update(mapText).digest("hex");
+    for (const [name, sourceIndex, declarationIndex, text] of [
+      ["first.ts", 0, 0, content],
+      ["empty.ts", 1, 1, ""],
+      ["missing.ts", 2, 2, null],
+      ["last.ts", 0, 3, null],
+      ["empty-contents.ts", 0, 4, null],
+    ] as const) {
+      const contentDigest =
+        text === null ? null : createHash("sha256").update(text).digest("hex");
+      expect(originals).toContainEqual(
+        expect.objectContaining({
+          identity: expect.objectContaining({
+            original_source: name,
+            source_map_sha256: mapDigest,
+            source_sha256: contentDigest,
+          }),
+          observations: expect.arrayContaining([
+            expect.objectContaining({
+              properties: expect.objectContaining({
+                source_index: sourceIndex,
+                declaration_index: declarationIndex,
+                content_available: text !== null,
+                content_sha256: contentDigest,
+              }),
+            }),
+          ]),
+        }),
+      );
+    }
+    expect(graph.coverage.status).toBe("complete");
+    expect(await readFile(join(root, "bundle.js.map"), "utf8")).toBe(mapText);
+  },
+);
