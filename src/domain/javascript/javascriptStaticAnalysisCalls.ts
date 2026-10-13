@@ -12,6 +12,7 @@ import {
   argumentValue,
   calleeName,
   endpointArgument as endpointArgumentHelper,
+  isImportMetaUrl,
   prefixedArgument,
   range,
   rangeForOffsets,
@@ -33,7 +34,10 @@ import type {
 } from "./javascriptStaticAnalysisState.js";
 import {
   resolveSemanticBindingState,
+  semanticResolutionBlocked,
+  semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
+  type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
 import {
   isUnmodifiedGlobalReference,
@@ -57,7 +61,7 @@ export const inspectCall = (
   const first = stringValue(node.arguments[0]);
   const module = context.accumulator.moduleRangeIndex.find(node.start);
   const moduleRequireName = module?.requireName ?? null;
-  const requireCall = requireCallSpecifier(node, name, moduleRequireName);
+  const requireCall = requireCallSpecifier(node, name, moduleRequireName, bindings);
   if (requireCall !== null)
     addReference(context, {
       node,
@@ -214,9 +218,18 @@ const requireCallSpecifier = (
   node: JavaScriptCallLike,
   name: string,
   moduleRequireName: string | null,
+  bindings: JavaScriptSemanticAnalysisState,
 ): { readonly specifier: string | undefined } | null => {
-  if (name === "require" || name.endsWith(".require"))
+  if (name === "require" || name.endsWith(".require")) {
+    // A bare `require` is the CommonJS loader only while its callee
+    // identifier is lexically unbound. A local parameter, hoisted function,
+    // catch binding or block binding shadows the wrapper loader, so the call
+    // cannot be a module load. The binding index is consulted at the call
+    // site; no file-wide walk is needed.
+    if (name === "require" && isShadowedRequireCallee(node, bindings))
+      return null;
     return { specifier: argumentValue(node.arguments[0]) };
+  }
   if (name === "__webpack_require__" || name === moduleRequireName)
     return { specifier: argumentValue(node.arguments[0]) };
   if (
@@ -225,6 +238,95 @@ const requireCallSpecifier = (
   )
     return { specifier: argumentValue(node.arguments[1]) };
   return null;
+};
+
+/**
+ * Decide whether a bare `require(...)` / `require?.(...)` callee resolves to
+ * a local binding that shadows the CommonJS loader. Unbound identifiers keep
+ * the loader; only a binding that provably retains or aliases the loader
+ * (uninitialized top-level `var require`, direct `createRequire` alias)
+ * preserves the candidate.
+ */
+const isShadowedRequireCallee = (
+  node: JavaScriptCallLike,
+  bindings: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const callee = unwrapJavaScriptExpression(node.callee).node;
+  if (!t.isIdentifier(callee, { name: "require" })) return false;
+  // An incomplete scope cannot prove shadowing; keep the candidate.
+  if (semanticResolutionBlocked(bindings, callee, "require")) return false;
+  const binding = resolveSemanticBindingState(bindings, callee, "require");
+  if (binding === undefined) return false;
+  return !isRetainedRequireLoader(binding, node, bindings);
+};
+
+const isRetainedRequireLoader = (
+  binding: JavaScriptSemanticBindingState,
+  node: JavaScriptCallLike,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  isDirectCreateRequireBinding(binding, state) ||
+  isUninitializedTopLevelVarRequire(binding, state, node);
+
+/**
+ * `const require = createRequire(import.meta.url)` aliases the ESM loader.
+ * Erased TypeScript syntax around the initializer (e.g. `as NodeRequire`)
+ * is unwrapped before matching, mirroring the reference-source classifier.
+ */
+const isDirectCreateRequireBinding = (
+  binding: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const initializer = semanticStableInitializer(binding, state);
+  if (initializer === undefined) return false;
+  const init = unwrapJavaScriptExpression(initializer.node).node;
+  if (!t.isCallExpression(init)) return false;
+  const callee = unwrapJavaScriptExpression(init.callee).node;
+  if (!t.isIdentifier(callee)) return false;
+  const calleeBinding = resolveSemanticBindingState(state, callee, callee.name);
+  const [origin] = calleeBinding?.directOrigins ?? [];
+  return (
+    calleeBinding?.runtimeImport === true &&
+    origin !== undefined &&
+    (origin.specifier === "node:module" || origin.specifier === "module") &&
+    origin.importedPath.length === 1 &&
+    origin.importedPath[0] === "createRequire" &&
+    isImportMetaUrl(init.arguments[0])
+  );
+};
+
+/**
+ * An uninitialized top-level `var require` retains Node's wrapper loader, but
+ * a later write replaces it. Write handling is positional: a call that runs
+ * before every write still sees the loader (this covers loader calls before
+ * reassignment and eagerly evaluated computed method keys without classifying
+ * enclosing functions as deferred). A call at or after a write is shadowed.
+ */
+const isUninitializedTopLevelVarRequire = (
+  binding: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+  node: JavaScriptCallLike,
+): boolean => {
+  const assignmentCount = binding.definitions.filter(
+    ({ kind }) => kind === "assignment",
+  ).length;
+  if (
+    binding.kind !== "variable" ||
+    !binding.definitions.every(
+      ({ kind }) => kind === "variable" || kind === "assignment",
+    ) ||
+    // A declaration initializer means the loader was replaced at declaration.
+    binding.initializers.length !== assignmentCount ||
+    state.scopesById.get(binding.scopeId)?.kind !== "program"
+  )
+    return false;
+  const { line, column } = range(node).start;
+  return !binding.definitions.some(
+    ({ kind, location }) =>
+      kind === "assignment" &&
+      (location.start.line < line ||
+        (location.start.line === line && location.start.column <= column)),
+  );
 };
 
 const chunkLoadSpecifier = (
