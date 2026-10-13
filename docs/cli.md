@@ -61,7 +61,10 @@ original content, typed diagnostics and provenance. `--jsonl` explicitly selects
 the default; `--format jsonl` also works. Batch does not apply human output,
 filtering, token-window or full-output controls. Project saved results separately.
 
-`--out DIR` writes `DIR/<id>.json` exclusively. IDs must be portable basenames,
+`--out DIR` writes `DIR/<id>.json` exclusively. File IDs use the portable ASCII
+filename characters (letters, digits, `.`, `_`, `-`), without a trailing dot or
+a Windows device name, and must fit the 255-byte filename component limit.
+IDs must be
 unique even on case-insensitive filesystems. Existing result files cause failure
 before any provider is acquired, and publication never overwrites them. JSONL
 output permits IDs that are not valid filenames. `--out` and `--jsonl` conflict.
@@ -157,6 +160,18 @@ rea inspect-go-binary /absolute/path/to/program --json
 The shared CLI/MCP workflow reports compiler version, modules, replacements,
 build settings, original bytes and SHA-256. See [Go binaries](go-binaries.md)
 for supported containers and absent or malformed metadata.
+
+Inspect an embedded cargo-auditable Rust dependency list without installing
+Rust or configuring a disassembler:
+
+```bash
+rea inspect-rust-binary /absolute/path/to/program --json
+```
+
+The same workflow reports package names, versions, sources, the root package,
+dependency edges, and the section's file range. A missing `.dep-v0` section is
+null metadata, not proof that the binary has no dependencies. See
+[Rust binaries](rust-binaries.md).
 
 Configure [Hopper or Ghidra](installation.md#hopper), or the
 [IDA adapter](ida-provider.md), before analyzing a native target. Substitute

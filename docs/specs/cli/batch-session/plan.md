@@ -13,3 +13,23 @@
    errors, duplicate/path IDs, stop/continue, output collisions and cancellation.
    Measure equivalent multi-query sessions; distinguish synthetic timing from
    real-provider costs. Run static, discovery and documentation checks.
+
+## Executed validation
+
+On upstream `3620074b3`, Node 24.18.0 and darwin/arm64:
+
+- 18 CLI/session and tool-coverage tests passed; static checks and discovery
+  passed (1,168 test files, each discovered once).
+- Real Ghidra 12.1.4 verified equivalent results, one open followed by three
+  calls, saved snapshot, immutable target bytes and empty owned runtime.
+- Three standalone imports took 44.645 seconds; the batch took 16.775 seconds.
+  Host-cache warming makes this an illustrative run, not a controlled speed
+  benchmark. CPU totals were 77.41 user / 5.26 system seconds versus
+  29.76 / 2.00 seconds. Peak individual RSS was 1.42 GB versus 1.18 GB;
+  process-family peak memory was not measured.
+- Output-only token estimates were 9,489 versus 9,787, including the batch
+  open record and metadata. Live model/input-schema tokens were not measured.
+- `docs:check` is blocked by unchanged Greek README link drift tracked in
+  https://github.com/morluto/rea/issues/3022.
+- Full package verification passed, including archive/install, CLI, MCP,
+  setup/uninstall and verified empty process lineage.

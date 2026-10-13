@@ -155,7 +155,7 @@ const preflightOutput = async (
     if (directory !== undefined) {
       const id = String(call.id);
       if (
-        !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(id) ||
+        !/^[A-Za-z0-9_.-]+$/u.test(id) ||
         id.endsWith(".") ||
         id.length + ".json".length > 255 ||
         /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(id) ||
