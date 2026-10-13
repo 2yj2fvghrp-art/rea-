@@ -283,7 +283,7 @@ it("points omitted inline messages to the caller's parent without promising sess
   const messages = Array.from(
     { length: 65 },
     (_, index) => `Limitation ${String(index).padStart(2, "0")}`,
-  );
+  ).concat("z".repeat(300_000));
   const parent = analysisViewLayoutEvidence({
     ...analysisViewLayoutFixture(),
     limitations: messages,
@@ -304,7 +304,7 @@ it("points omitted inline messages to the caller's parent without promising sess
     .object({ limitations: z.array(z.string()) })
     .parse(view.normalized_result);
   expect(projected.limitations).toEqual([
-    ...messages.slice(0, 64),
+    ...messages.slice(0, 65),
     `1 additional limitations omitted from this view; consult source parent Evidence ${parent.evidence_id} for the complete list (the caller-supplied record, or its retaining session).`,
   ]);
   expect(session.evidenceById(parent.evidence_id)).toBeUndefined();

@@ -758,11 +758,19 @@ it.each([63, 64, 65, 10_000])(
         const unknowns = result.value.unknowns;
         expect(limitations.length).toBeGreaterThan(65);
         expect(limitations.at(-1)).toBe(
-          notice(count - limitations.length + 1, "limitations", parent.evidenceId),
+          notice(
+            count - limitations.length + 1,
+            "limitations",
+            parent.evidenceId,
+          ),
         );
         expect(unknowns.length).toBeGreaterThan(65);
         expect(unknowns.at(-1)).toBe(
-          notice(count + 1 - unknowns.length + 1, "unknowns", parent.evidenceId),
+          notice(
+            count + 1 - unknowns.length + 1,
+            "unknowns",
+            parent.evidenceId,
+          ),
         );
       }
     }
@@ -781,9 +789,17 @@ it.each([63, 64, 65, 10_000])(
     ] as const) {
       const result = projectAnalysisView(layoutWithMessages, view);
       if (!result.ok) throw result.error;
-      expect(result.value.limitations).toEqual(
-        expectedLimitations(layout.evidenceId),
-      );
+      if (count <= 65) expect(result.value.limitations).toEqual(messages);
+      else {
+        expect(result.value.limitations.length).toBeGreaterThan(65);
+        expect(result.value.limitations.at(-1)).toBe(
+          notice(
+            count - result.value.limitations.length + 1,
+            "limitations",
+            layout.evidenceId,
+          ),
+        );
+      }
     }
   },
 );
@@ -808,10 +824,14 @@ it.each(["partial", "unknown"] as const)(
         evidence: observation.evidence,
       })),
     });
-    const messages = Array.from(
-      { length: 65 },
-      (_, index) => `Module ${String(index).padStart(5, "0")} was not parsed.`,
-    );
+    const messages = [
+      ...Array.from(
+        { length: 65 },
+        (_, index) =>
+          `Module ${String(index).padStart(5, "0")} was not parsed.`,
+      ),
+      "z".repeat(300_000),
+    ];
     const { graph_id: _applicationId, ...application } = analysis.graph;
     const graph = createJavaScriptApplicationGraph({
       ...application,
@@ -842,10 +862,10 @@ it.each(["partial", "unknown"] as const)(
       expect(result.value.coverage.exhausted).toBe(true);
       expect(result.value.unknowns).toEqual([
         "1 application graph unknowns remain in the parent Evidence.",
-        ...messages.slice(0, 61),
+        ...messages.slice(0, 65),
         `graph.coverage.status is ${status}`,
         "semantic_graph.coverage.status is unknown",
-        `4 additional unknowns omitted from this view; consult source parent Evidence ${parent.evidenceId} for the complete list (the caller-supplied record, or its retaining session).`,
+        `1 additional unknowns omitted from this view; consult source parent Evidence ${parent.evidenceId} for the complete list (the caller-supplied record, or its retaining session).`,
       ]);
     }
   },
@@ -935,7 +955,10 @@ it("keeps the complete unique set when it fits the byte budget", () => {
 });
 
 it("does not impose a message-count cutoff below the byte budget", () => {
-  const messages = Array.from({ length: 100 }, (_, index) => `message ${index}`);
+  const messages = Array.from(
+    { length: 100 },
+    (_, index) => `message ${index}`,
+  );
   expect(
     boundedViewMessages(messages, `ev_${"a".repeat(64)}`, "limitations"),
   ).toEqual(messages);
