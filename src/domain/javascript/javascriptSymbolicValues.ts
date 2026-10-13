@@ -106,6 +106,8 @@ export type SymbolicValue = (
       readonly node: t.Node;
       /** Whether it is created fulfilled; otherwise its settlement is unknown. */
       readonly fulfilled: boolean;
+      /** Value an `await` reads if the promise fulfills, when it is known. */
+      readonly fulfillment?: SymbolicValue;
     }
   | SymbolicFunction
 ) &
@@ -165,6 +167,21 @@ export const symbolicCondition = (
     );
   return { ...value, conditions: [...(value.conditions ?? []), condition] };
 };
+
+/** The value `await` reads: a known fulfillment keeps its promise's predicates. */
+export const symbolicAwaited = (value: SymbolicValue): SymbolicValue =>
+  symbolicUnion(
+    symbolicVariants(value).map((variant) => {
+      if (variant.kind !== "promise" || variant.fulfillment === undefined)
+        return variant;
+      let awaited = variant.fulfillment;
+      for (const condition of variant.conditions ?? [])
+        awaited = symbolicCondition(awaited, condition);
+      return variant.conditionUnresolved
+        ? symbolicConditionsUnresolved(awaited)
+        : awaited;
+    }),
+  );
 
 export const symbolicConditionsUnresolved = (
   value: SymbolicValue,

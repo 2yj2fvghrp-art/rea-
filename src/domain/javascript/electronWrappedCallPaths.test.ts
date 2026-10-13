@@ -872,6 +872,27 @@ describe("substituted wrapper values", () => {
       ]),
     );
   });
+  it("does not fold an async or generator call result into a channel", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const e=require("electron");
+      const id=async name=>name;
+      function* names(name){return name}
+      function send(name){e.ipcRenderer.send("app:"+name)}
+      e.contextBridge.exposeInMainWorld("desktop",{
+        copy:()=>send(["copy"].map(name=>name)[0]),
+        paste:()=>send(["paste"].map(async name=>name)[0]),
+        cut:()=>send(id("cut")),
+        undo:()=>send(names("undo")),
+        redo:async()=>send(await id("redo")),
+      });
+    `);
+    expect(
+      result.electron.call_paths?.map(({ entry, channel }) => [entry, channel]),
+    ).toEqual([
+      ["desktop.copy", "app:copy"],
+      ["desktop.redo", "app:redo"],
+    ]);
+  });
   it("traces a handler registered through an inferred wrapper parameter", () => {
     const result = analyzeJavaScriptStaticSource(`
       const electron=require("electron");

@@ -46,6 +46,7 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import {
+  symbolicAwaited,
   symbolicCondition,
   symbolicUnion,
   symbolicUnknown,
@@ -893,7 +894,8 @@ export class JavaScriptSymbolicBindings {
       return node.operator === "="
         ? this.evaluate(node.right, env)
         : symbolicUnknown("compound assignment depends on its prior value");
-    if (t.isAwaitExpression(node)) return this.evaluate(node.argument, env);
+    if (t.isAwaitExpression(node))
+      return symbolicAwaited(this.evaluate(node.argument, env));
     // Negation reads truthiness, which objects and functions also have.
     if (t.isUnaryExpression(node, { operator: "!" })) {
       const truth = symbolicTruth(this.evaluate(node.argument, env));
@@ -1395,6 +1397,8 @@ export class JavaScriptSymbolicBindings {
     args: readonly SymbolicValue[],
     node: t.Node,
   ): SymbolicValue {
+    // A generator call returns an iterator before its body runs.
+    if (fn.node.generator) return symbolicUnknown("generator object");
     if (this.#activeFunctions.has(fn.node))
       return symbolicUnknown("recursive call");
     this.#activeFunctions.add(fn.node);
@@ -1403,7 +1407,7 @@ export class JavaScriptSymbolicBindings {
       const returned = t.isBlockStatement(fn.node.body)
         ? this.#returns(fn.node.body.body, bound)
         : this.evaluate(fn.node.body, bound);
-      return symbolicUnion(
+      const completed = symbolicUnion(
         symbolicVariants(returned).map((v) => {
           if (v.kind === "function")
             return {
@@ -1426,6 +1430,10 @@ export class JavaScriptSymbolicBindings {
           return v;
         }),
       );
+      // An async call returns a promise; only `await` reads the returned value.
+      return fn.node.async
+        ? { kind: "promise", node, fulfilled: false, fulfillment: completed }
+        : completed;
     } finally {
       this.#activeFunctions.delete(fn.node);
     }
