@@ -42,5 +42,5 @@ export const hasXmlPlistSignature = (bytes: Uint8Array): boolean => {
     if (end === -1) return false;
     text = text.slice(end + 3);
   }
-  return /^<!DOCTYPE\s+plist\b/u.test(text) || /^<plist[\s>]/u.test(text);
+  return /^<!DOCTYPE\s+plist(?:\s|\[|>)/u.test(text) || /^<plist[\s>]/u.test(text);
 };
