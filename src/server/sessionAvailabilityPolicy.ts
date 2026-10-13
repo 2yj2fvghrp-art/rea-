@@ -8,6 +8,8 @@ export interface SessionAvailabilityDefaults {
     | undefined;
   readonly optionalFeatures?: Pick<
     AvailabilityPolicy,
+    | "packetCaptureEnabled"
+    | "signalRecordingEnabled"
     | "wasmArtifactEnabled"
     | "evmInterfaceEnabled"
     | "browserObservationEnabled"
@@ -16,6 +18,7 @@ export interface SessionAvailabilityDefaults {
     | "electronAutomationEnabled"
     | "v8InspectorObservationEnabled"
     | "javascriptRecoveryEnabled"
+    | "javascriptRecoveryEngines"
     | "webModuleResolutionEnabled"
     | "binaryLayoutEnabled"
     | "recordedCrashEnabled"
@@ -32,6 +35,10 @@ export const sessionAvailabilityPolicy = (
   const policy =
     configured ??
     (() => ({
+      packetCaptureEnabled:
+        defaults.optionalFeatures?.packetCaptureEnabled ?? false,
+      signalRecordingEnabled:
+        defaults.optionalFeatures?.signalRecordingEnabled ?? false,
       wasmArtifactEnabled:
         defaults.optionalFeatures?.wasmArtifactEnabled ?? false,
       evmInterfaceEnabled:
@@ -45,6 +52,12 @@ export const sessionAvailabilityPolicy = (
         defaults.optionalFeatures?.firmwareInspectionEnabled ?? false,
       firmwareExtractionEnabled:
         defaults.optionalFeatures?.firmwareExtractionEnabled ?? false,
+      ...(defaults.optionalFeatures?.javascriptRecoveryEngines === undefined
+        ? {}
+        : {
+            javascriptRecoveryEngines:
+              defaults.optionalFeatures.javascriptRecoveryEngines,
+          }),
       javascriptRecoveryEnabled:
         defaults.optionalFeatures?.javascriptRecoveryEnabled ?? false,
       webModuleResolutionEnabled:

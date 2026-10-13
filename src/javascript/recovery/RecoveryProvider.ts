@@ -9,7 +9,11 @@ import type {
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
 import { SafeOutputTreeCreationFailure } from "../../artifacts/SafeOutputTreeCreationFailure.js";
 import { AnalysisError } from "../../domain/analysisErrorBase.js";
-import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisOutputError,
+} from "../../domain/analysisErrorCore.js";
+import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
 import {
   javascriptRecoveryResultSchema,
   type JavaScriptRecoveryInput,
@@ -111,7 +115,7 @@ export class RecoveryProvider implements JavaScriptRecoveryPort {
     let failed: { readonly cause: unknown } | undefined;
     let execution: AnalysisExecution | undefined;
     const deadline = {
-      at: Date.now() + engine.limits.timeoutMs,
+      at: performance.now() + engine.limits.timeoutMs,
       timeoutMs: engine.limits.timeoutMs,
     };
     try {
@@ -153,12 +157,16 @@ export class RecoveryProvider implements JavaScriptRecoveryPort {
       await rm(root, { recursive: true, force: true });
       root = undefined;
       checkRecoveryDeadline(deadline, options?.signal);
-      await tree.commit();
+      await tree.commit(options?.signal);
     } catch (cause: unknown) {
       failed = { cause };
     }
     if (failed !== undefined) {
-      const failure = failed.cause;
+      const failure =
+        failed.cause instanceof ArtifactReaderFailure &&
+        failed.cause.reason === "cancelled"
+          ? new AnalysisCancelledError(OPERATION, { cause: failed.cause })
+          : failed.cause;
       const residuals: string[] = [];
       const cleanupFailures: { resource: string; reason: string }[] = [];
       const cleanupOwner =

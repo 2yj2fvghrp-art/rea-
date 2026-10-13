@@ -158,6 +158,7 @@ export const runRecoveryCommand = async (context: RecoveryCommandContext) => {
         spawned.cleanup ?? (() => cleanupOwnedProcessGroup(spawned.ownership)),
     },
     {
+      maxDiagnosticBytes: 2 * context.limits.reportBytes,
       onDiagnostic: (event) => {
         if (
           event.type === "output" &&

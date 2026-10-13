@@ -497,3 +497,21 @@ it("reports host denial before target mismatch but keeps composed workflow prere
     ).reason,
   ).toBe("target_required");
 });
+
+it("reports a configured jsbeautify engine without claiming the default Wakaru mode", () => {
+  const recovery = buildCapabilityInventory(
+    { open: false, capabilities: [] },
+    {
+      processCaptureEnabled: false,
+      javascriptRecoveryEngines: { wakaru: false, jsbeautify: true },
+    },
+  ).find((tool) => tool.name === "recover_javascript_sources");
+  expect(recovery).toMatchObject({
+    available: true,
+    default_mode_available: false,
+    modes: [
+      { name: "wakaru", available: false },
+      { name: "jsbeautify", available: true },
+    ],
+  });
+});

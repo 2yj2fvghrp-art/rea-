@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 import { AnalysisCapabilityUnavailableError } from "../../domain/analysisErrorCore.js";
 import { projectAnalysisError } from "../../domain/analysisErrorProjection.js";
 import { runRecoveryCommand } from "./RecoveryCommand.js";
@@ -16,7 +17,7 @@ const wakaru = {
   bytes: 0,
 };
 const expired = () => ({
-  at: Date.now() - 1,
+  at: performance.now() - 1,
   timeoutMs: WAKARU_LIMITS.timeoutMs,
 });
 
@@ -99,7 +100,10 @@ const commandFixture = (
       arguments: ["--version"],
       cwd: "/tmp/unused",
       environment: {},
-      deadline: { at: Date.now() + 5_000, timeoutMs: WAKARU_LIMITS.timeoutMs },
+      deadline: {
+        at: performance.now() + 5_000,
+        timeoutMs: WAKARU_LIMITS.timeoutMs,
+      },
       launcher,
     },
   };
@@ -155,7 +159,10 @@ it("enforces the shared deadline while exited output streams remain open", async
     await expect(
       runRecoveryCommand({
         ...context,
-        deadline: { at: Date.now() + 50, timeoutMs: WAKARU_LIMITS.timeoutMs },
+        deadline: {
+          at: performance.now() + 50,
+          timeoutMs: WAKARU_LIMITS.timeoutMs,
+        },
       }),
     ).rejects.toMatchObject({
       _tag: "AnalysisTimeoutError",
@@ -184,5 +191,33 @@ it("honors cancellation while waiting for output after exit", async () => {
   } finally {
     producer.stdout.destroy();
     producer.stderr.destroy();
+  }
+});
+
+it("caps retained diagnostics as a noisy process emits them, while preserving overflow rejection", async () => {
+  const snapshots = vi.spyOn(ProviderProcessSupervisor.prototype, "snapshot");
+  const { context } = commandFixture((producer) => {
+    producer.stdout.end("0123456789abcdef");
+    producer.stderr.end();
+    producer.emit("exit", 0, null);
+    producer.emit("close", 0, null);
+  });
+  try {
+    await expect(
+      runRecoveryCommand({
+        ...context,
+        limits: { ...context.limits, reportBytes: 4 },
+      }),
+    ).rejects.toMatchObject({ _tag: "AnalysisOutputError" });
+    expect(snapshots).toHaveBeenCalled();
+    for (const result of snapshots.mock.results) {
+      if (result.type === "return")
+        expect(
+          Buffer.byteLength(result.value.stdout.text) +
+            Buffer.byteLength(result.value.stderr.text),
+        ).toBeLessThanOrEqual(8);
+    }
+  } finally {
+    snapshots.mockRestore();
   }
 });

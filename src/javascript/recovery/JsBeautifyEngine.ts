@@ -17,6 +17,7 @@ import { resolveRecoveryTool, runRecoveryCommand } from "./RecoveryCommand.js";
 import type { RecoveryEngine, RecoveryWorkspace } from "./RecoveryEngine.js";
 import {
   fingerprintRecoveryFile,
+  inventoryRecoveryFiles,
   readRecoveryFile,
   recoveryDigest,
   recoveryInputFailure,
@@ -52,12 +53,19 @@ const sourceTypeArguments = (path: string): readonly string[] =>
       ? ["--source-type", "module"]
       : [];
 
-/** Published module name: the original basename for one input, else its preserved layout. */
+/** Keep the selected layout where safe, and give every published script a JS extension. */
 const moduleName = (source: RecoveryInputSnapshot, single: boolean): string => {
-  const name = basename(source.path);
-  return single && normalizeArtifactPath(name) === name
-    ? name
-    : source.relative_path;
+  let name = source.relative_path;
+  if (single) {
+    const selectedName = basename(source.path);
+    try {
+      if (normalizeArtifactPath(selectedName) === selectedName)
+        name = selectedName;
+    } catch {
+      // The snapshot already owns a safe fallback for a native-only basename.
+    }
+  }
+  return /\.(?:[cm]?js|jsx)$/i.test(name) ? name : `${name}.js`;
 };
 
 /** Validity gate read from jsbeautify's stderr phase log. */
@@ -188,7 +196,13 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     const run = await runRecoveryCommand({
       ...command,
       arguments: argumentsList,
+      staging: join(root, "modules"),
     });
+    await inventoryRecoveryFiles(
+      join(root, "modules"),
+      JSBEAUTIFY_LIMITS,
+      signal,
+    );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
     logs.push(`# ${name}\n${phaseLog(run.stderr)}`);
@@ -262,9 +276,12 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     status:
       warnings.length === 0 ? ("complete" as const) : ("partial" as const),
     detected_formats: [...formats],
-    reported_safety: deobfuscated
-      ? "rewritten; generated output re-parsed"
-      : "formatted; layout verified by jsbeautify",
+    reported_safety:
+      modules.length === 0
+        ? "No output passed the validity gate; no generated output was published"
+        : deobfuscated
+          ? "Published modules only: rewritten; generated output re-parsed"
+          : "Published modules only: formatted; layout verified by jsbeautify",
     reported_strategy: deobfuscated
       ? `jsbeautify ${LEVEL_ARGUMENTS[input.rewrite_level].join(" ")}`
       : "jsbeautify",

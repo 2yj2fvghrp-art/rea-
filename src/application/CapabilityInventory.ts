@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sqliteDatabaseCapability } from "./sqlite/SqliteDatabaseCapability.js";
 import type {
   OptionalProviderLoadFailures,
   OptionalProviderLoadFailure,
@@ -22,6 +23,7 @@ import type { JsonValue } from "../domain/jsonValue.js";
 import { isMachOFormat } from "../domain/binaryTargetTypes.js";
 import type { ProviderAvailability } from "./AnalysisProvider.js";
 import { TOOL_CONTRACTS } from "../contracts/toolContracts.js";
+import { FRIDA_TOOL_CONTRACTS } from "../contracts/fridaToolContracts.js";
 import {
   clientRequirementsFor,
   NO_CLIENT_FEATURES,
@@ -41,6 +43,8 @@ type ToolAvailabilityReason = "available" | ToolUnavailabilityReason;
 
 type ProviderDescriptor = ProviderCapability;
 export type AvailabilityPolicy = {
+  readonly packetCaptureEnabled?: boolean;
+  readonly signalRecordingEnabled?: boolean;
   readonly wasmArtifactEnabled?: boolean;
   readonly evmInterfaceEnabled?: boolean;
   readonly processCaptureEnabled: boolean;
@@ -52,6 +56,9 @@ export type AvailabilityPolicy = {
   readonly androidAnalysisAvailability?: ProviderAvailability;
   readonly jebAnalysisAvailability?: ProviderAvailability;
   readonly javascriptRecoveryEnabled?: boolean;
+  readonly javascriptRecoveryEngines?: Readonly<
+    Record<"wakaru" | "jsbeautify", boolean>
+  >;
   readonly webModuleResolutionEnabled?: boolean;
   readonly browserObservationEnabled?: boolean;
   readonly browserScenarioEnabled?: boolean;
@@ -131,6 +138,9 @@ const ACTIVE_TARGET_KINDS: ReadonlySet<ToolKind> = new Set([
   "native-provider",
   "artifact-provider",
 ]);
+const FRIDA_OPERATION_NAMES: ReadonlySet<string> = new Set(
+  FRIDA_TOOL_CONTRACTS.map(({ name }) => name),
+);
 
 /** Native contracts defined only for an active Mach-O executable. */
 const MACHO_TARGET_OPERATIONS: ReadonlySet<string> = new Set([
@@ -316,6 +326,7 @@ const optionalProviderFailureFor = ({
   if (kind === "electron-provider") return failures?.electronObservation;
   if (kind === "runtime-provider")
     return failures?.javascriptRuntimeObservation;
+  if (FRIDA_OPERATION_NAMES.has(name)) return failures?.fridaInstrumentation;
   return undefined;
 };
 
@@ -336,6 +347,15 @@ const workflowAvailabilityFor = ({
 }: AvailabilityContext): Availability | null => {
   if (name === "inspect_go_binary")
     return { reason: "available", remediation: null };
+  if (name === "inspect_sqlite_database") {
+    const capability = sqliteDatabaseCapability(process.versions.node);
+    return capability.available
+      ? { reason: "available", remediation: null }
+      : {
+          reason: "provider_unavailable",
+          remediation: capability.reason,
+        };
+  }
   if (name === "trace_web_module_imports")
     return {
       reason: "available",
@@ -364,6 +384,35 @@ const workflowAvailabilityFor = ({
             },
       ],
     };
+  if (
+    name === "recover_javascript_sources" &&
+    policy.javascriptRecoveryEngines !== undefined
+  ) {
+    const engines = policy.javascriptRecoveryEngines;
+    const available = engines.wakaru || engines.jsbeautify;
+    return {
+      reason: available ? "available" : "provider_missing",
+      remediation: available
+        ? null
+        : "Configure a caller-supplied JavaScript recovery engine; see docs/javascript-recovery.md.",
+      defaultModeAvailable: engines.wakaru,
+      modes: (["wakaru", "jsbeautify"] as const).map((engine) =>
+        engines[engine]
+          ? {
+              name: engine,
+              available: true as const,
+              missing_operations: [],
+              remediation: null,
+            }
+          : {
+              name: engine,
+              available: false as const,
+              missing_operations: [engine],
+              remediation: `Configure the caller-supplied ${engine} engine; see docs/javascript-recovery.md.`,
+            },
+      ),
+    };
+  }
   if (name === "recover_javascript_sources")
     return policy.javascriptRecoveryEnabled === true
       ? { reason: "available", remediation: null }
@@ -379,6 +428,22 @@ const workflowAvailabilityFor = ({
           reason: "provider_missing",
           remediation:
             "On Linux x64, set absolute REA_PWNTOOLS_PYTHON to caller-supplied Python with pwntools 4.15.0. No active binary target is required.",
+        };
+  if (name === "inspect_packet_capture" || name === "inspect_packet_fields")
+    return policy.packetCaptureEnabled === true
+      ? { reason: "available", remediation: null }
+      : {
+          reason: "provider_missing",
+          remediation:
+            "On Linux, supply TShark 4.x via absolute REA_TSHARK_COMMAND and util-linux prlimit (REA_TSHARK_PRLIMIT_COMMAND, default /usr/bin/prlimit). No active binary target or hardware is required; the tool is checked at execution.",
+        };
+  if (name === "decode_signal_recording" || name === "inspect_signal_decoders")
+    return policy.signalRecordingEnabled === true
+      ? { reason: "available", remediation: null }
+      : {
+          reason: "provider_missing",
+          remediation:
+            "On Linux, supply sigrok-cli 0.7.2 via absolute REA_SIGROK_COMMAND and util-linux prlimit (REA_SIGROK_PRLIMIT_COMMAND, default /usr/bin/prlimit). No active binary target or hardware is required; the tool is checked at execution.",
         };
   if (name === "inspect_wasm_artifact")
     return policy.wasmArtifactEnabled === true
@@ -448,6 +513,8 @@ const workflowAvailabilityFor = ({
       remediation: "Run process capture on a supported Linux or macOS host.",
     };
   if (kind === "application") return { reason: "available", remediation: null };
+  if (kind === "pcap-provider" || kind === "flutter-provider")
+    return { reason: "available", remediation: null };
   const electron = electronProviderAvailability(name, kind, policy);
   if (electron !== null) return electron;
   if (kind === "runtime-provider")
@@ -533,6 +600,7 @@ const targetAvailability = ({
   targetFormat,
   targetOpen,
 }: AvailabilityContext): Availability | null => {
+  if (FRIDA_OPERATION_NAMES.has(name)) return null;
   if (!targetOpen && ACTIVE_TARGET_KINDS.has(kind))
     return {
       reason: "target_required",
