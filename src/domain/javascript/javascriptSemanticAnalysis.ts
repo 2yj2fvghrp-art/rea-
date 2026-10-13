@@ -42,6 +42,8 @@ import {
 } from "./javascriptSemanticTraversal.js";
 import { semanticRequireOrigin } from "./javascriptSemanticRequireOrigin.js";
 import { collectSemanticMemberMutationsSteps } from "./javascriptSemanticMemberMutations.js";
+import { indexJavaScriptAmbientWritesSteps } from "./javascriptSemanticAmbientWrites.js";
+import { hasUncertainTypeOnlyModuleSideEffect } from "./javascriptModuleDeclaration.js";
 import {
   collectSemanticReturns,
   resolveSemanticModuleCallables,
@@ -66,6 +68,7 @@ import {
 import { isJavaScriptRpcClientFactory } from "./javascriptRpcEndpoints.js";
 import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
 import { SemanticPropertyPathCoverage } from "./javascriptSemanticPropertyPaths.js";
+import type { JavaScriptModuleResolutionMode } from "./javascriptModuleResolutionMode.js";
 
 interface BindPatternInput {
   readonly pattern: t.Node;
@@ -99,6 +102,7 @@ interface AddBindingInput {
   readonly definitionNode: t.Node;
   readonly initializer: t.Node | null;
   readonly directOrigin?: JavaScriptModuleOrigin;
+  readonly runtimeImport?: boolean;
   readonly projection?: readonly (string | number | null)[];
 }
 
@@ -128,14 +132,18 @@ export function* indexJavaScriptBindingsSteps(
 ): Generator<void, JavaScriptSemanticAnalysisState> {
   const state = createState(program);
   yield* collectDefinitionsSteps(program, state);
+  yield* indexJavaScriptAmbientWritesSteps(program, state);
   return state;
 }
 
 /** Recover semantics from an already parsed JavaScript artifact. */
 export const analyzeParsedJavaScriptSemantics = (
   file: ParsedJavaScriptSource,
+  staticImportResolutionMode: JavaScriptModuleResolutionMode = "import",
 ): JavaScriptSemanticIr =>
-  completeSemanticSteps(analyzeParsedJavaScriptSemanticsSteps(file));
+  completeSemanticSteps(
+    analyzeParsedJavaScriptSemanticsSteps(file, staticImportResolutionMode),
+  );
 
 /**
  * Recover semantics from a parsed artifact with a yield between analysis
@@ -145,8 +153,9 @@ export const analyzeParsedJavaScriptSemantics = (
  */
 export function* analyzeParsedJavaScriptSemanticsSteps(
   file: ParsedJavaScriptSource,
+  staticImportResolutionMode: JavaScriptModuleResolutionMode = "import",
 ): Generator<void, JavaScriptSemanticIr> {
-  const state = createState(file.program);
+  const state = createState(file.program, staticImportResolutionMode);
   yield* collectDefinitionsSteps(file.program, state);
   yield* collectSemanticMemberMutationsSteps(file.program, state);
   yield* traverseJavaScriptAstSteps(file.program, {
@@ -159,7 +168,11 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
   yield;
   const callables = collectSemanticReturns(state, parserPartial);
   yield;
-  const moduleLinks = resolveSemanticModuleCallables(state, callables);
+  const moduleLinks = resolveSemanticModuleCallables(
+    state,
+    callables,
+    bindings,
+  );
   const derived = yield* collectJavaScriptDerivedSemanticsSteps(
     file.program,
     state,
@@ -187,6 +200,11 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
       ...(parserPartial
         ? [
             "The parser recovered from syntax errors; affected bindings are partial.",
+          ]
+        : []),
+      ...(hasUncertainTypeOnlyModuleSideEffect(file.program)
+        ? [
+            "Compiler options are unavailable; inline type-only imports or re-exports may preserve a module side-effect dependency.",
           ]
         : []),
       "Values and aliases were recovered from inert syntax only; no JavaScript was executed.",
@@ -229,19 +247,24 @@ export function* classifyParsedJavaScriptRpcClientRootsSteps(
   return roots;
 }
 
-/** Receiver identity facts for the overloaded `.open` syntax only. */
+/**
+ * Receiver identity facts for the overloaded `.open` syntax, plus
+ * `configuration` for `.get` reads of a `getConfiguration(...)` result.
+ */
 export type JavaScriptOpenReceiverFact =
   | "window"
   | "indexed-db"
   | "cache-storage"
   | "local"
   | "local-indexed-db"
-  | "local-cache-storage";
+  | "local-cache-storage"
+  | "configuration";
 
 /**
  * Resolve only the lexical receiver identity needed to distinguish browser
- * `window.open` from XHR and global storage `.open` calls. This deliberately
- * builds definitions without running semantic value or provenance analysis.
+ * `window.open` from XHR and global storage `.open` calls, and configuration
+ * `.get` reads from HTTP client calls. This deliberately builds definitions
+ * without running semantic value or provenance analysis.
  */
 export const classifyParsedJavaScriptOpenReceivers = (
   file: ParsedJavaScriptSource,
@@ -260,14 +283,19 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
       if (
         (!t.isCallExpression(node) && !t.isOptionalCallExpression(node)) ||
         (!t.isMemberExpression(node.callee) &&
-          !t.isOptionalMemberExpression(node.callee)) ||
-        semanticStaticPropertyKey(
-          node.callee.property,
-          node.callee.computed,
-        ) !== "open" ||
-        !t.isIdentifier(node.callee.object)
+          !t.isOptionalMemberExpression(node.callee))
       )
         return;
+      const method = semanticStaticPropertyKey(
+        node.callee.property,
+        node.callee.computed,
+      );
+      if (method === "get") {
+        if (isConfigurationReceiver(state, node.callee.object))
+          facts.set(node.start ?? -1, "configuration");
+        return;
+      }
+      if (method !== "open" || !t.isIdentifier(node.callee.object)) return;
       const receiver = node.callee.object.name;
       const binding = resolveSemanticBindingState(state, node, receiver);
       if (binding === undefined) {
@@ -332,6 +360,82 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
   });
   return facts;
 }
+
+/**
+ * Whether a call spells VS Code's `workspace.getConfiguration(section)`, whose
+ * result `.get` reads setting keys rather than request paths. The `workspace`
+ * member is required: a bare or differently scoped `getConfiguration` may be
+ * an application's own HTTP client factory. Minifiers keep property names, so
+ * bundled `x.workspace.getConfiguration` still matches.
+ */
+const isConfigurationAccessorCall = (
+  state: JavaScriptSemanticAnalysisState,
+  node: t.Node,
+): boolean => {
+  if (!t.isCallExpression(node) && !t.isOptionalCallExpression(node))
+    return false;
+  const callee = node.callee;
+  if (
+    (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee)) ||
+    semanticStaticPropertyKey(callee.property, callee.computed) !==
+      "getConfiguration"
+  )
+    return false;
+  const host = callee.object;
+  const matchesSpelling = t.isIdentifier(host)
+    ? host.name === "workspace"
+    : (t.isMemberExpression(host) || t.isOptionalMemberExpression(host)) &&
+      semanticStaticPropertyKey(host.property, host.computed) === "workspace";
+  if (!matchesSpelling) return false;
+  const root = t.isIdentifier(host)
+    ? host
+    : t.isMemberExpression(host) || t.isOptionalMemberExpression(host)
+      ? host.object
+      : undefined;
+  if (!t.isIdentifier(root)) return false;
+  const binding = resolveSemanticBindingState(state, root, root.name);
+  if (binding === undefined)
+    return !semanticResolutionBlocked(state, root, root.name);
+  const initializer = semanticStableInitializer(binding, state);
+  const origins = [
+    ...binding.directOrigins,
+    ...(initializer === undefined
+      ? []
+      : [semanticRequireOrigin(initializer.node, state)?.origin]),
+  ];
+  return origins.some(
+    (origin) =>
+      origin?.specifier === "vscode" &&
+      (t.isIdentifier(host)
+        ? origin.importedPath.at(-1) === "workspace" ||
+          initializer?.projection.at(-1) === "workspace"
+        : origin.importedPath.length === 0 ||
+          (origin.importedPath.length === 1 &&
+            (origin.importedPath[0] === "*" ||
+              origin.importedPath[0] === "default"))),
+  );
+};
+
+/**
+ * Whether a `.get` receiver is a configuration accessor result, either inline
+ * or through a binding whose only visible write is one unconditional
+ * initializer. Minifiers emit `let` for such bindings, so declaration kind
+ * alone does not decide.
+ */
+const isConfigurationReceiver = (
+  state: JavaScriptSemanticAnalysisState,
+  receiver: t.Node,
+): boolean => {
+  if (isConfigurationAccessorCall(state, receiver)) return true;
+  if (!t.isIdentifier(receiver)) return false;
+  const binding = resolveSemanticBindingState(state, receiver, receiver.name);
+  const initializer = semanticStableInitializer(binding, state);
+  return (
+    initializer !== undefined &&
+    initializer.projection.length === 0 &&
+    isConfigurationAccessorCall(state, initializer.node)
+  );
+};
 
 const openGlobalFact = (
   name: string,
@@ -428,15 +532,18 @@ export function* indexJavaScriptElectronIdentitySteps(
   };
   yield* collectJavaScriptIdentityWritesSteps(
     program,
-    (root, kind) => {
-      if (kind === "opaque-call") return interop.opaqueMutationPath(root);
+    (node, kind) => {
+      if (kind === "opaque-call") return [interop.opaqueMutationPath(node)];
+      const { root, members } = electronMemberPath(node);
       const exported = kind === "binding" ? undefined : rootExport(root);
-      return exported === undefined
-        ? (interop.intrinsicPath(root) ??
+      const path =
+        exported === undefined
+          ? (interop.intrinsicPath(root) ??
             (kind === "member"
               ? interop.boundIntrinsic(root)?.path
               : undefined))
-        : ["electron", ...exported];
+          : ["electron", ...exported];
+      return path === undefined ? [] : [[...path, ...members]];
     },
     interop.intrinsicInvocation,
     interop.staticString,
@@ -517,7 +624,10 @@ const bindingOrigin = (
     : { ...origin, importedPath: [...origin.importedPath, ...projection] };
 };
 
-const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
+const createState = (
+  program: t.Program,
+  staticImportResolutionMode: JavaScriptModuleResolutionMode = "import",
+): JavaScriptSemanticAnalysisState => {
   const root: JavaScriptSemanticScopeState = {
     scopeId: semanticScopeId("program", program),
     parentScopeId: null,
@@ -527,6 +637,7 @@ const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
     bindings: new Map(),
   };
   return {
+    staticImportResolutionMode,
     parentsByNode: new WeakMap(),
     scopes: [root],
     scopesById: new Map([[root.scopeId, root]]),
@@ -538,6 +649,7 @@ const createState = (program: t.Program): JavaScriptSemanticAnalysisState => {
     linkedRequireCalls: new WeakSet(),
     moduleLinkBindings: new WeakMap(),
     conditionalInitializers: new WeakSet(),
+    ambientWrites: new SemanticPropertyPathCoverage(),
   };
 };
 
@@ -803,7 +915,7 @@ const bindImportEquals = (
     mutable: false,
     definitionNode: node.id,
     initializer: null,
-    directOrigin: { specifier, importedPath: [] },
+    directOrigin: { specifier, importedPath: [], resolutionMode: "require" },
   });
 };
 
@@ -992,6 +1104,12 @@ const bindImports = (
       definitionNode: specifier.local,
       initializer: null,
       directOrigin: { specifier: node.source.value, importedPath },
+      runtimeImport:
+        node.importKind !== "type" &&
+        node.importKind !== "typeof" &&
+        (!t.isImportSpecifier(specifier) ||
+          (specifier.importKind !== "type" &&
+            specifier.importKind !== "typeof")),
     });
   }
 };
@@ -1168,6 +1286,7 @@ const addBinding = (input: AddBindingInput): void => {
     definitionNode,
     initializer,
     directOrigin,
+    runtimeImport,
     projection = [],
   } = input;
   let binding = scope.bindings.get(name);
@@ -1181,7 +1300,17 @@ const addBinding = (input: AddBindingInput): void => {
   binding.definitions.push({ kind, location: range(definitionNode) });
   if (initializer !== null)
     binding.initializers.push({ node: initializer, projection });
-  if (directOrigin !== undefined) binding.directOrigins.push(directOrigin);
+  if (directOrigin !== undefined)
+    binding.directOrigins.push(
+      directOrigin.resolutionMode === undefined &&
+        state.staticImportResolutionMode !== "import"
+        ? {
+            ...directOrigin,
+            resolutionMode: state.staticImportResolutionMode,
+          }
+        : directOrigin,
+    );
+  binding.runtimeImport ||= runtimeImport === true;
 };
 
 const createBinding = (
@@ -1201,6 +1330,7 @@ const createBinding = (
   initializers: [],
   referenceInitializers: [],
   directOrigins: [],
+  runtimeImport: false,
 });
 
 const addAssignment = (

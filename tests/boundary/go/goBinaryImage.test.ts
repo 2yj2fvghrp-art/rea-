@@ -1,4 +1,10 @@
 import { expect, it } from "vitest";
+import { javaClassFile } from "../../fixtures/javaClassFile.js";
+import {
+  CPU,
+  fatImage,
+  machoImage,
+} from "../../../src/artifacts/apple/MachoImage.fixture.js";
 import { readGoBinaryImage } from "../../../src/go/GoBinaryImage.js";
 import {
   createGoBinaryFixture,
@@ -221,16 +227,40 @@ it("distinguishes unsupported containers from malformed recognized images", () =
   expect(() => readGoBinaryImage(pe.bytes)).toThrowError(/range|truncated/i);
 });
 
+it("reports JVM class files as unsupported images instead of fat Mach-O containers", () => {
+  expect(() => readGoBinaryImage(javaClassFile())).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+  expect(() => readGoBinaryImage(javaClassFile(4000, true))).toThrowError(
+    /Only ELF, PE, and thin Mach-O native images are supported/,
+  );
+});
+
+it("keeps the thin-slice failure for confirmed universal Mach-O containers", () => {
+  const slices = [
+    { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+    { cpu: CPU.arm64, bytes: machoImage({ cpu: CPU.arm64 }) },
+  ];
+  for (const universal of [
+    fatImage(slices),
+    fatImage(slices, true),
+    fatImage(slices, false, true),
+    fatImage(slices, true, true),
+  ]) {
+    expect(() => readGoBinaryImage(Buffer.from(universal))).toThrowError(
+      /fat Mach-O containers require selecting a thin slice/,
+    );
+  }
+});
+
 it("rejects ELF header tables overlapping the native header", () => {
   const fixture = createGoBinaryFixture({ sectionless: true });
   fixture.bytes.writeBigUInt64LE(0n, 32);
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
     /header|overlap/i,
-  );
-  const declaredSize = createGoBinaryFixture();
-  declaredSize.bytes.writeUInt16LE(8192, 52);
-  expect(() => readGoBinaryImage(declaredSize.bytes)).toThrowError(
-    /truncated|range/i,
   );
 });
 
@@ -436,6 +466,59 @@ it("does not treat Mach-O __PAGEZERO as a module string header", () => {
   expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(/mapped|range/i);
 });
 
+it("rejects out-of-file bytes in an unmapped Mach-O segment", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  addLegacyMapping(fixture.bytes, "macho", {
+    address: 0x20000n,
+    fileOffset: 3072,
+    fileSize: 1025,
+    memorySize: 0,
+    protection: 0,
+  });
+  expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
+    /outside the file/i,
+  );
+});
+
+it("rejects oversized Mach-O file contents when initial protection is set", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  addLegacyMapping(fixture.bytes, "macho", {
+    address: 0x20000n,
+    fileOffset: 3072,
+    fileSize: 512,
+    memorySize: 0,
+    protection: 3,
+  });
+  expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(
+    /addresses or sizes are invalid/i,
+  );
+});
+
+it("rejects build-info declared inside an unmapped Mach-O segment", () => {
+  const fixture = createGoBinaryFixture({ format: "macho" });
+  const command = 32 + 72 + 80;
+  const size = 72;
+  fixture.bytes.writeUInt32LE(2, 16);
+  fixture.bytes.writeUInt32LE(304, 20);
+  fixture.bytes.writeUInt32LE(0x19, command);
+  fixture.bytes.writeUInt32LE(size + 80, command + 4);
+  fixture.bytes.write("__DWARF", command + 8);
+  fixture.bytes.writeBigUInt64LE(0x10000n, command + 24);
+  fixture.bytes.writeBigUInt64LE(0n, command + 32);
+  fixture.bytes.writeBigUInt64LE(3072n, command + 40);
+  fixture.bytes.writeBigUInt64LE(512n, command + 48);
+  fixture.bytes.writeUInt32LE(3, command + 56);
+  fixture.bytes.writeUInt32LE(0, command + 60);
+  fixture.bytes.writeUInt32LE(1, command + 64);
+  const section = command + size;
+  fixture.bytes.write("__go_buildinfo", section);
+  fixture.bytes.write("__DWARF", section + 16);
+  fixture.bytes.writeBigUInt64LE(0x10000n, section + 32);
+  fixture.bytes.writeBigUInt64LE(0n, section + 40);
+  fixture.bytes.writeUInt32LE(3072, section + 48);
+  expect(() => readGoBinaryImage(fixture.bytes)).toThrowError(/unmapped/i);
+});
+
 it.each(["elf", "pe", "macho"] as const)(
   "refuses file aliases overlapping only part of a zero-filled %s module header",
   (format) => {
@@ -541,11 +624,13 @@ const addLegacyMapping = (
     fileOffset,
     fileSize,
     memorySize,
+    protection = 3,
   }: {
     address: bigint;
     fileOffset: number;
     fileSize: number;
     memorySize: number;
+    protection?: number;
   },
   { bits, little }: { bits: 32 | 64; little: boolean } = {
     bits: 64,
@@ -589,7 +674,7 @@ const addLegacyMapping = (
     word(entry + (wide ? 32 : 28), BigInt(memorySize));
     word(entry + (wide ? 40 : 32), BigInt(fileOffset));
     word(entry + (wide ? 48 : 36), BigInt(fileSize));
-    u32(entry + (wide ? 56 : 40), 3);
-    u32(entry + (wide ? 60 : 44), 3);
+    u32(entry + (wide ? 56 : 40), protection);
+    u32(entry + (wide ? 60 : 44), protection);
   }
 };

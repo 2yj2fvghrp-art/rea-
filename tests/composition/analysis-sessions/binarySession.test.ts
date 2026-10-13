@@ -374,9 +374,7 @@ describe("evidence metadata imports and snapshot cache", () => {
     expect(session.exportAnalysisSnapshot()).toMatchObject({
       ok: false,
       error: {
-        message: expect.stringContaining(
-          "Analysis snapshots are unavailable because analysis metadata may have changed",
-        ),
+        _tag: "EvidenceIntegrityError",
       },
     });
     expect((await session.open(target)).ok).toBe(true);
@@ -384,9 +382,7 @@ describe("evidence metadata imports and snapshot cache", () => {
     expect(session.importAnalysisSnapshot(baseline.value)).toMatchObject({
       ok: false,
       error: {
-        userMessage: expect.stringContaining(
-          "Close the active target without saving a snapshot",
-        ),
+        _tag: "EvidenceIntegrityError",
       },
     });
     expect(session.exportEvidenceBundle().records).toContainEqual(relocated);
@@ -1280,5 +1276,104 @@ describe("selector origin forwarding", () => {
       seen,
       "direct and admitted calls forward the origin; an unmarked call carries none",
     ).toEqual(["provider", "provider", undefined]);
+  });
+});
+
+describe("reference truncation forwarding", () => {
+  const referenceProvider = (
+    referencesTruncated: boolean | undefined,
+    calls: string[],
+  ): AnalysisProvider => {
+    const identity = {
+      id: "fixture",
+      name: "Fixture analysis provider",
+      version: "1",
+    } as const;
+    return {
+      identity: () => identity,
+      resolveAnalysisProfile: () =>
+        Promise.resolve(
+          resultOk({
+            profile: createAnalysisProfile(identity, { fixture: true }),
+          }),
+        ),
+      capabilities: () => [
+        {
+          provider: identity,
+          operation: "xrefs",
+          available: true,
+          reason: null,
+          effects: {
+            mutatesArtifact: false,
+            launchesProcess: false,
+            mayShowUi: false,
+            mayAccessNetwork: false,
+            mayWriteFilesystem: false,
+            changesPermissions: false,
+            requiresRoot: false,
+          },
+          limitations: [],
+        },
+      ],
+      createClient: () => ({
+        execute: (operation) => {
+          calls.push(operation);
+          return Promise.resolve(
+            resultOk(
+              createAnalysisExecution(
+                ["0x2000"],
+                identity,
+                referencesTruncated === undefined
+                  ? {}
+                  : { referencesTruncated },
+              ),
+            ),
+          );
+        },
+        close: () => Promise.resolve(resultOk(null)),
+      }),
+    };
+  };
+  const parameters = { address: "0x1000", document: "fixture" };
+
+  it("forwards a truncation on both execution paths and never replays it from the snapshot", async () => {
+    const [first] = await createBinarySessionTargets();
+    const calls: string[] = [];
+    const session = createTestBinarySession(referenceProvider(true, calls));
+    expect((await session.open(first)).ok).toBe(true);
+    calls.length = 0;
+
+    const direct = await session.execute("xrefs", parameters);
+    const admitted = await session.withAdmittedAnalysis(
+      "trace_feature",
+      undefined,
+      (analysis) => analysis.execute("xrefs", parameters),
+    );
+
+    expect(direct.ok && direct.value.referencesTruncated).toBe(true);
+    if (!admitted.ok) throw admitted.error;
+    expect(admitted.value.ok && admitted.value.value.referencesTruncated).toBe(
+      true,
+    );
+    expect(
+      calls,
+      "a truncated read is not recorded, so every call reaches the provider",
+    ).toEqual(["xrefs", "xrefs"]);
+  });
+
+  it("keeps an explicit complete report out of the way of snapshot replay", async () => {
+    const [first] = await createBinarySessionTargets();
+    const calls: string[] = [];
+    const session = createTestBinarySession(referenceProvider(false, calls));
+    expect((await session.open(first)).ok).toBe(true);
+    calls.length = 0;
+
+    const live = await session.execute("xrefs", parameters);
+    await session.execute("xrefs", parameters);
+
+    expect(live.ok && live.value.referencesTruncated).toBe(false);
+    expect(calls, "the complete read is recorded and replayed").toEqual([
+      "xrefs",
+    ]);
   });
 });
