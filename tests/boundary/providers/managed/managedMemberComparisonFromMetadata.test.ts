@@ -116,6 +116,66 @@ describe("managed member comparison", () => {
   });
 });
 
+describe("managed member comparison floating-point constants", () => {
+  it.each([
+    {
+      opcode: "ldc.r4",
+      positive: "22000000002a",
+      negative: "22000000802a",
+      type: 0x0c,
+    },
+    {
+      opcode: "ldc.r8",
+      positive: "2300000000000000002a",
+      negative: "2300000000000000802a",
+      type: 0x0d,
+    },
+  ])(
+    "detects a change from positive to negative zero in $opcode",
+    ({ opcode, positive, negative, type }) => {
+      const observe = (hex: string, path: string) => {
+        const il = Buffer.from(hex, "hex");
+        return inspect(
+          buildManagedPeFixture({
+            methodSignature: Buffer.from([0x00, 0x00, type]),
+            ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
+          }),
+          path,
+        );
+      };
+      const left = observe(positive, "/tmp/positive-zero.dll");
+      const right = observe(negative, "/tmp/negative-zero.dll");
+      const comparison = compareManagedMembers(left, right);
+
+      expect(comparison.methods[0]).toMatchObject({
+        status: "changed",
+        match: { status: "matched", basis: "exact-signature" },
+        dimensions: ["cil"],
+      });
+      for (const [observation, operand] of [
+        [left, "0"],
+        [right, "-0"],
+      ] as const) {
+        expect(observation.result.methods[0]?.body).toMatchObject({
+          status: "present",
+          anchors: [
+            { il_offset: 0, opcode, operand_kind: "constant", operand },
+          ],
+        });
+      }
+      expect(left.result.methods[0]?.body.normalized_il_sha256).not.toBe(
+        right.result.methods[0]?.body.normalized_il_sha256,
+      );
+      const repeated = observe(negative, "/tmp/negative-zero-copy.dll");
+      expect(compareManagedMembers(right, repeated).methods[0]).toMatchObject({
+        status: "unchanged",
+        match: { status: "matched", basis: "exact-il-signature" },
+        dimensions: [],
+      });
+    },
+  );
+});
+
 describe("managed member comparison uncertainty", () => {
   it("does not infer a structural method match from undecoded signature fields", () => {
     const left = inspect(
@@ -802,6 +862,53 @@ describe("managed member comparison of unresolved and held identities", () => {
 });
 
 describe("managed member comparison of ownerless members", () => {
+  it("keeps structural competitors of an ownerless method ambiguous in both directions", () => {
+    const base = inspect(
+      buildManagedPeFixture(),
+      "/tmp/ownerless-shape-competitors.dll",
+    );
+    const [method] = base.result.methods;
+    if (method === undefined) throw new Error("Expected a fixture method");
+    const withSignature = (raw: string, token: string) => ({
+      ...method,
+      token,
+      signature: { ...method.signature, raw_sha256: raw.repeat(64) },
+    });
+    const withOwnerless = {
+      ...base,
+      result: {
+        ...base.result,
+        methods: [
+          withSignature("a", "0x06000001"),
+          {
+            ...withSignature("b", "0x06000002"),
+            declaring_type: null,
+            declaring_type_token: null,
+          },
+        ],
+        fields: [],
+      },
+    };
+    const resolvedOnly = {
+      ...base,
+      result: {
+        ...base.result,
+        methods: [withSignature("c", "0x06000001")],
+        fields: [],
+      },
+    };
+    for (const result of [
+      compareManagedMembers(withOwnerless, resolvedOnly),
+      compareManagedMembers(resolvedOnly, withOwnerless),
+    ]) {
+      expect(result.matching.ambiguous).toBe(1);
+      expect(
+        result.methods.filter(({ match }) => match.status === "matched"),
+      ).toEqual([]);
+      expect(result.summary).toMatchObject({ added: 0, removed: 0 });
+    }
+  });
+
   it("keeps an ownerless member ambiguous beside a resolved copy, as main does", () => {
     const base = inspect(buildManagedPeFixture(), "/tmp/ownerless-copy.dll");
     const [method] = base.result.methods;

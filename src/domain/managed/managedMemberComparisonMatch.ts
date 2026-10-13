@@ -142,6 +142,7 @@ const matchMethods = (
         key: declaredAs((keyed) =>
           keyed.item.declaring_type === null ? null : keyed.structuralKey,
         ),
+        competitionKey: ({ structuralKey }) => structuralKey,
       },
       {
         basis: "exact-il-signature",
@@ -151,6 +152,7 @@ const matchMethods = (
       {
         basis: "structural-method-shape",
         key: ({ structuralKey }) => structuralKey,
+        competitionKey: ({ structuralKey }) => structuralKey,
         remap: true,
       },
     ],
@@ -186,6 +188,8 @@ export type ManagedFieldMatches = ReturnType<typeof matchFields>;
 interface MatchRound<Item> {
   readonly basis: ConcreteMatchBasis;
   readonly key: (item: Keyed<Item>) => string | null;
+  /** Name-free evidence whose unresolved ownership can contest this round. */
+  readonly competitionKey?: (item: Keyed<Item>) => string | null;
   /**
    * The key omits the declared type and name, so a pair joins different
    * declared identities; same-identity pairs were taken by earlier rounds.
@@ -233,19 +237,26 @@ const matchByKeys = <Item extends Declared>({
   const pairedRight = new Set<Keyed<Item>>();
   const pairs: MatchedPair<Item>[] = [];
   const ambiguous: Ambiguous<Item>[] = [];
-  const declarable = ownerlessDeclarable(left, right);
   for (const round of rounds) {
+    const competitionKey = round.competitionKey ?? ((item) => item.exactKey);
+    const unpairedLeft = unpairedOf(left, pairedLeft);
+    const unpairedRight = unpairedOf(right, pairedRight);
+    const declarable = ownerlessDeclarable(
+      unpairedLeft,
+      unpairedRight,
+      competitionKey,
+    );
     const openLeft = left.filter((item) => !usedLeft.has(item));
     const openRight = right.filter((item) => !usedRight.has(item));
     const leftGroups = groupBy(
       round.remap === true
-        ? remappable(openLeft, unpairedOf(right, pairedRight))
+        ? remappable(openLeft, unpairedRight, competitionKey)
         : openLeft.filter(declarable),
       round.key,
     );
     const rightGroups = groupBy(
       round.remap === true
-        ? remappable(openRight, unpairedOf(left, pairedLeft))
+        ? remappable(openRight, unpairedLeft, competitionKey)
         : openRight.filter(declarable),
       round.key,
     );
@@ -307,7 +318,7 @@ const unpairedOf = <Item>(
 ): Keyed<Item>[] => items.filter((item) => !paired.has(item));
 
 /**
- * Exact CIL/signature keys an unresolved owner competes for: a key held by an
+ * Round-specific evidence keys an unresolved owner competes for: a key held by an
  * ownerless member on either side that another member on the same side also
  * holds. Such an ownerless member's owner may be that other member, so the
  * whole key group belongs to the remap rounds, which keep it ambiguous, rather
@@ -316,15 +327,17 @@ const unpairedOf = <Item>(
  */
 const ownerlessContested = <Item extends Declared>(
   sides: readonly (readonly Keyed<Item>[])[],
+  keyOf: (item: Keyed<Item>) => string | null,
 ): ReadonlySet<string> => {
   const contested = new Set<string>();
   for (const side of sides) {
     const seen = new Map<string, number>();
     const ownerless = new Set<string>();
-    for (const { item, exactKey } of side) {
-      if (exactKey === null) continue;
-      seen.set(exactKey, (seen.get(exactKey) ?? 0) + 1);
-      if (item.declaring_type === null) ownerless.add(exactKey);
+    for (const member of side) {
+      const key = keyOf(member);
+      if (key === null) continue;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+      if (member.item.declaring_type === null) ownerless.add(key);
     }
     for (const key of ownerless)
       if ((seen.get(key) ?? 0) > 1) contested.add(key);
@@ -334,7 +347,7 @@ const ownerlessContested = <Item extends Declared>(
 
 /**
  * Members a remap round may group: an unresolved owner, which keeps its group
- * ambiguous; a member whose exact key an unresolved owner competes for, so the
+ * ambiguous; a member whose selected key an unresolved owner competes for, so the
  * group that preserved the base matcher's ambiguity can form; or no member of
  * the same declared identity left unpaired on the other side, whether
  * one-sided or in an ambiguous group. The sets are taken before grouping, so
@@ -343,21 +356,24 @@ const ownerlessContested = <Item extends Declared>(
 const remappable = <Item extends Declared>(
   items: readonly Keyed<Item>[],
   others: readonly Keyed<Item>[],
+  keyOf: (item: Keyed<Item>) => string | null,
 ): Keyed<Item>[] => {
   const kept = new Set(others.map(({ identity }) => identity));
-  const contested = ownerlessContested([items, others]);
-  return items.filter(
-    ({ item, identity, exactKey }) =>
-      (exactKey !== null && contested.has(exactKey)) ||
-      item.declaring_type === null ||
-      !kept.has(identity),
-  );
+  const contested = ownerlessContested([items, others], keyOf);
+  return items.filter((member) => {
+    const key = keyOf(member);
+    return (
+      (key !== null && contested.has(key)) ||
+      member.item.declaring_type === null ||
+      !kept.has(member.identity)
+    );
+  });
 };
 
 /**
  * Whether a member may pair in a declared-identity round. A member with an
  * unresolved owner may, only when no other member on either side shares its
- * exact CIL/signature key: its owner might be any of them, so a shared key
+ * selected evidence key: its owner might be any of them, so a shared key
  * leaves it to the remap rounds, which keep such a group ambiguous. The
  * resolved members that share such a key stay out too, so they cannot pair and
  * consume the candidate the ownerless member might own.
@@ -365,23 +381,27 @@ const remappable = <Item extends Declared>(
 const ownerlessDeclarable = <Item extends Declared>(
   left: readonly Keyed<Item>[],
   right: readonly Keyed<Item>[],
+  keyOf: (item: Keyed<Item>) => string | null,
 ): ((member: Keyed<Item>) => boolean) => {
   const count = (side: readonly Keyed<Item>[]) => {
     const seen = new Map<string, number>();
-    for (const { exactKey } of side)
-      if (exactKey !== null) seen.set(exactKey, (seen.get(exactKey) ?? 0) + 1);
+    for (const member of side) {
+      const key = keyOf(member);
+      if (key !== null) seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
     return seen;
   };
   const leftSeen = count(left);
   const rightSeen = count(right);
-  const contested = ownerlessContested([left, right]);
-  return ({ item, exactKey }) =>
-    exactKey !== null && contested.has(exactKey)
+  const contested = ownerlessContested([left, right], keyOf);
+  return (member) => {
+    const key = keyOf(member);
+    return key !== null && contested.has(key)
       ? false
-      : item.declaring_type !== null ||
-        exactKey === null ||
-        ((leftSeen.get(exactKey) ?? 0) <= 1 &&
-          (rightSeen.get(exactKey) ?? 0) <= 1);
+      : member.item.declaring_type !== null ||
+          key === null ||
+          ((leftSeen.get(key) ?? 0) <= 1 && (rightSeen.get(key) ?? 0) <= 1);
+  };
 };
 
 const groupBy = <Item>(
