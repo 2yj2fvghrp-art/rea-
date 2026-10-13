@@ -31,6 +31,7 @@ import {
 } from "./JavaScriptArtifactGraphEvidence.js";
 import {
   moduleKindForJavaScriptReference,
+  moduleResolutionModeProperties,
   resolveArtifactPathByContext,
   type ArtifactPathResolution,
 } from "./JavaScriptArtifactPathResolution.js";
@@ -80,8 +81,13 @@ export const addJavaScriptSourceModules = (
     if (asset === undefined || semantic === null || program === undefined)
       continue;
     const exports = semantic.ir.moduleLinks
-      .flatMap(({ exportedName }) =>
-        exportedName === null ? [] : [exportedName],
+      .flatMap(({ exportedName, kind }) =>
+        exportedName === null || kind === "type-import" ? [] : [exportedName],
+      )
+      .sort(compareUnicodeCodePoints);
+    const typeExports = semantic.ir.moduleLinks
+      .flatMap(({ exportedName, kind }) =>
+        exportedName === null || kind !== "type-import" ? [] : [exportedName],
       )
       .sort(compareUnicodeCodePoints);
     const retainedExports = [...new Set(exports)];
@@ -104,8 +110,12 @@ export const addJavaScriptSourceModules = (
             import_relationships: semantic.ir.moduleLinks.filter(
               ({ kind }) => kind === "import" || kind === "require",
             ).length,
+            type_relationships: semantic.ir.moduleLinks.filter(
+              ({ kind }) => kind === "type-import",
+            ).length,
             export_relationships: exports.length,
             export_names: retainedExports,
+            type_export_names: [...new Set(typeExports)],
             omitted_export_names: 0,
           },
           evidence: astObservationEvidence({
@@ -151,6 +161,7 @@ export function* addJavaScriptModuleRelationshipsSteps(
     for (const link of semantic.ir.moduleLinks) {
       // One module can export thousands of bindings, each with return shapes.
       yield;
+      if (link.kind === "type-import") continue;
       const input = { context, file, semantic, source, link };
       if (isExportLink(link)) addExportRelationship(input, omissions);
       else if (link.specifier !== null)
@@ -281,6 +292,7 @@ const resolveModuleTarget = (
       input.link.kind === "require" || input.link.kind === "commonjs-export"
         ? "require"
         : "static-import",
+      input.link.resolutionMode,
     ),
   });
   if (resolution.resolution_status !== "resolved")
@@ -373,6 +385,7 @@ const relationshipProperties = (
   origin?: JavaScriptModuleOrigin,
 ) => ({
   module_link_kind: link.kind,
+  ...moduleResolutionModeProperties(link.resolutionMode),
   specifier: origin?.specifier ?? link.specifier,
   imported_name: origin?.importedPath.at(-1) ?? link.importedName,
   imported_path: origin?.importedPath ?? [],
