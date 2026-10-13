@@ -86,7 +86,8 @@ export function* invalidateJavaScriptViteCachesSteps(
       }
       const invocation = interop.intrinsicInvocation(node);
       if (
-        invocation?.path.slice(0, -1).join(".") === "intrinsic.Array.prototype" &&
+        invocation?.path.slice(0, -1).join(".") ===
+          "intrinsic.Array.prototype" &&
         ARRAY_MUTATORS.has(invocation.path.at(-1) ?? "") &&
         invocation.receiver !== undefined
       )

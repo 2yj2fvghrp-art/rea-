@@ -302,8 +302,7 @@ const scenarios = [
     },
     {
       file: "borrowed-apply.js",
-      mutation:
-        'Array.prototype.fill.apply(__vite__mapDeps.f, ["./last.js"]);',
+      mutation: 'Array.prototype.fill.apply(__vite__mapDeps.f, ["./last.js"]);',
     },
     {
       file: "spread-child-write.js",
