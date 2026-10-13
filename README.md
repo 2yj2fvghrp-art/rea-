@@ -78,7 +78,7 @@ node rel.mjs inspect /absolute/path/to/authorized/app
 node rel.mjs analyze /absolute/path/to/authorized/app --authorized --out /tmp/rel-investigation-001 --question "How are its modules connected?"
 ```
 
-The authorization flag is required. This is implemented in the fork, but the new generic analyzer acceptance check must pass on GitHub before we call the flow verified. Other file types still require choosing the appropriate REA provider.
+The authorization flag is required. This is implemented in the fork, but the generic analyzer acceptance check passed in our REL GitHub Action on October 13, 2026, using our owned lab as the target. Other file types still require choosing the appropriate REA provider.
 
 **5. Use the full upstream REA CLI from the fork** when you need a supported advanced operation:
 
@@ -160,6 +160,7 @@ Four human actions: **Understand**, **Map**, **Compare**, **Reconstruct**. These
 | [`rel/intake.mjs`](rel/intake.mjs) | Read-only target classification |
 | [`rel/analyze-static.mjs`](rel/analyze-static.mjs) | Authorized static JavaScript analysis and bounded report |
 | [`.codex/config.toml`](.codex/config.toml) | Project-scoped Codex MCP connection |
+| [`rel/codex-mcp.test.mjs`](rel/codex-mcp.test.mjs) | MCP handshake and actual REA tool-discovery test |
 | [`rel-investigator skill`](.agents/skills/rel-investigator/SKILL.md) | Codex-native investigation workflow |
 | [`rel/CONNECT_CODEX.md`](rel/CONNECT_CODEX.md) | Optional Codex/MCP setup |
 | [`experiments/rel-first-lab/`](experiments/rel-first-lab/) | Safe demo and saved verification |
