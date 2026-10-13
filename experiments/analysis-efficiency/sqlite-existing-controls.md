@@ -1,10 +1,24 @@
 # SQLite existing-control measurements
 
 Continues [#2016](https://github.com/morluto/rea/issues/2016) after the Flutter
-lane. Main is `172407787f1842dedbcd27b5385177595f786ce4`. Its only post-Flutter
+lane. The measured main runtime is pinned to
+`172407787f1842dedbcd27b5385177595f786ce4`. Its only post-Flutter
 commit repairs Windows transient runtime admission (#2467); this Linux round
 does not establish Windows performance. No production/API change is proposed
 merely because another summary or cache could be added.
+
+Before PR integration, main advanced to
+`bb540826d65316c164d2de8ba4ef10f81a8ad073`. Its five intervening commits cover
+MCP archive contracts/documentation, an advertised-schema inventory test,
+pwntools cleanup identity, concurrent Mach-O slice inspection, and transient
+DMG verification retries. None changes the SQLite selector. Rebase and current
+main verification do not relabel the frozen measurements below.
+
+The committed post-format driver passes a real SDK smoke against the frozen
+runtime. After rebase, a fresh build, real all/selected-column SDK pair and docs
+check pass on the updated main. Selected facts match each other and the frozen
+runtime; artifact bytes remain unchanged. These are integration checks, not
+additional model performance pairs.
 
 ## Real application data and question
 
