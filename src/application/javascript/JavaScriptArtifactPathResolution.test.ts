@@ -2329,18 +2329,19 @@ describe("exact HTML resource resolution", () => {
 });
 
 describe("exact Electron runtime entrypoint resolution", () => {
-  it("checks the caller-declared path before package lookup or suffix decoding", () => {
+  it("checks local paths exactly while preserving bare package lookup", () => {
     const files = fileMap([
       file("app/main.cjs", "root"),
       file("app/worker.js", "root"),
       file("app/worker", "root"),
       file("app/worker#v1.js", "root"),
-      file("app/node_modules/worker.js", "root"),
+      file("node_modules/exported/package.json", "root", '{"exports":{"./parser":"./parser.cjs"}}'),
+      file("node_modules/exported/parser.cjs", "root"),
       file("app/fallback/index.js", "root"),
     ]);
     expect(
       resolve({
-        declaredPath: "worker.js",
+        declaredPath: "./worker.js",
         sourcePath: "app/main.cjs",
         context: "module-specifier",
         files,
@@ -2349,6 +2350,18 @@ describe("exact Electron runtime entrypoint resolution", () => {
     ).toMatchObject({
       resolution_status: "resolved",
       resolved_path: "app/worker.js",
+    });
+    expect(
+      resolve({
+        declaredPath: "exported/parser",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "node_modules/exported/parser.cjs",
     });
     expect(
       resolve({

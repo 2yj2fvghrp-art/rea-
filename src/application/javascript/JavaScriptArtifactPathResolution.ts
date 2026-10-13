@@ -224,7 +224,8 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
           ],
         };
   }
-  if (input.runtimeEntrypoint) return resolveRuntimeEntrypoint(input);
+  if (input.runtimeEntrypoint && isRuntimePathDeclaration(input))
+    return resolveRuntimeEntrypoint(input);
   // Package import keys are literal lookup identities, not artifact paths.
   // The selected target is admitted separately by resolveExportTarget.
   if (
@@ -263,6 +264,15 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
     );
   return resolveCandidate(input, confined, new Set(), emittedSourceCandidates);
 };
+
+const isRuntimePathDeclaration = (
+  input: ResolveArtifactPathInput,
+): boolean =>
+  input.context === "filesystem-expression" ||
+  (input.context === "module-specifier" &&
+    (isRelativeJavaScriptModuleSpecifier(input.declaredPath) ||
+      input.declaredPath.startsWith("/") ||
+      fileUrlPath(input.declaredPath) !== undefined));
 
 const resolveRuntimeEntrypoint = (
   input: ResolveArtifactPathInput,

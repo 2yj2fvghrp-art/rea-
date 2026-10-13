@@ -160,6 +160,7 @@ describe("static Electron application analysis", () => {
 
 const exactRuntimeEntrypointFixture = async (): Promise<void> => {
   const root = await createTestTempDirectory("rea-electron-exact-entrypoints-");
+  await mkdir(join(root, "renderer"), { recursive: true });
   await Promise.all([
     writeFile(
       join(root, "main.cjs"),
@@ -167,6 +168,8 @@ const exactRuntimeEntrypointFixture = async (): Promise<void> => {
 const { BrowserWindow, utilityProcess } = require("electron");
 const path = require("node:path");
 new BrowserWindow({ webPreferences: { preload: "./entry" } });
+new BrowserWindow().loadURL("file:///renderer/index.html");
+new BrowserWindow().loadURL("./renderer/other.html?theme=dark#home");
 new BrowserWindow({ webPreferences: { preload: path.join(__dirname, "preload") } });
 new BrowserWindow({ webPreferences: { preload: "./explicit-preload.js" } });
 utilityProcess.fork("./worker");
@@ -176,12 +179,31 @@ utilityProcess.fork("./service.js");
     writeFile(join(root, "entry.html"), "<title>sibling</title>"),
     writeFile(join(root, "preload.html"), "<title>sibling</title>"),
     writeFile(join(root, "worker.html"), "<title>sibling</title>"),
+    writeFile(join(root, "renderer/index.html"), "<title>renderer</title>"),
+    writeFile(join(root, "renderer/other.html"), "<title>other</title>"),
     writeFile(join(root, "explicit-preload.js"), "module.exports = {};"),
-    writeFile(join(root, "service.js"), "module.exports = {};")
+    writeFile(join(root, "service.js"), "module.exports = {};"),
   ]);
 
   const result = await reconstructJavaScriptArtifact({ input_path: root });
   const graph = parseJavaScriptApplicationGraph(result.graph);
+  const renderers = graph.nodes
+    .filter(({ kind }) => kind === "electron-renderer")
+    .map(({ observations }) => observations[0]?.properties);
+  expect(renderers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        declared_path: "file:///renderer/index.html",
+        resolved_path: "renderer/index.html",
+        resolution_status: "resolved",
+      }),
+      expect.objectContaining({
+        declared_path: "./renderer/other.html?theme=dark#home",
+        resolved_path: "renderer/other.html",
+        resolution_status: "resolved",
+      }),
+    ]),
+  );
   const roles = graph.nodes.filter(({ kind }) => kind === "electron-preload");
   const roleByDeclaration = new Map(
     roles.map((role) => [
