@@ -262,7 +262,7 @@ Güvenlik açıklarını [SECURITY.md](SECURITY.md) üzerinden bildirin.
 
 ## Yıldız geçmişi
 
-🎉 **GitHub'da 170.000 yıldız — teşekkürler!**
+🎉 **GitHub'da 180.000 yıldız — teşekkürler!**
 
 REA'yı kullanan, hata bildiren, özellik talep eden, derlemeleri test eden ve düzeltmelere katkıda bulunan herkese teşekkürler.
 
