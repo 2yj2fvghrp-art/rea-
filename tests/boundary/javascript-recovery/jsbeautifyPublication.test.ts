@@ -7,11 +7,15 @@ const scenario = vi.hoisted(() => ({
   mutateSnapshot: false,
   rejectArguments: false,
   versionStderr: "",
+  versionStdout: "jsbeautify 1.0",
+  rejectStdout: "",
 }));
 beforeEach(() => {
   scenario.mutateSnapshot = false;
   scenario.rejectArguments = false;
   scenario.versionStderr = "";
+  scenario.versionStdout = "jsbeautify 1.0";
+  scenario.rejectStdout = "";
 });
 
 vi.mock(
@@ -32,7 +36,7 @@ vi.mock(
           return {
             exit_code: 2,
             signal: null,
-            stdout: "",
+            stdout: scenario.rejectStdout,
             stderr:
               "invalid option --rename-vars\nUsage: jsbeautify [OPTIONS] <FILE>\n",
             command: context.command,
@@ -57,7 +61,7 @@ vi.mock(
         return {
           exit_code: 0,
           signal: null,
-          stdout: version ? "jsbeautify 1.0" : "",
+          stdout: version ? scenario.versionStdout : "",
           stderr,
           command: context.command,
           arguments: [...context.arguments],
@@ -239,4 +243,22 @@ it("does not attribute the configured executable to an audited source", async ()
     executed_source_revision: null,
   });
   expect(JSON.stringify(evidence.value)).not.toContain("github.com");
+});
+
+it("keeps natural output names when an extensionless input would take another input's name", async () => {
+  const evidence = await recover(["main.cjs", "bundle", "bundle.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  const byOriginal = Object.fromEntries(
+    result.modules.map((module) => [
+      module.provenance.original_path.split("/").at(-1),
+      module.reported_filename,
+    ]),
+  );
+  expect(byOriginal["main.cjs"]).toBe("main.cjs");
+  expect(byOriginal["bundle.js"]).toBe("bundle.js");
+  expect(byOriginal["bundle"]).not.toBe("bundle.js");
+  expect(byOriginal["bundle"]).toMatch(/\.js$/);
 });

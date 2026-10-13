@@ -1,8 +1,7 @@
 import { mkdir } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { createAnalysisExecution } from "../../application/AnalysisProvider.js";
-import { normalizeArtifactPath } from "../../artifacts/ArtifactPaths.js";
 import {
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
@@ -19,12 +18,12 @@ import {
   runRecoveryCommand,
 } from "./RecoveryCommand.js";
 import type { RecoveryEngine, RecoveryWorkspace } from "./RecoveryEngine.js";
+import { moduleNames } from "./JsBeautifyModuleNames.js";
 import {
   fingerprintRecoveryFile,
   readRecoveryFile,
   recoveryDigest,
   recoveryInputFailure,
-  type RecoveryInputSnapshot,
 } from "./RecoveryFiles.js";
 import {
   JSBEAUTIFY_LIMITATIONS,
@@ -37,7 +36,6 @@ const REQUIREMENT =
   "Provide an absolute REA_JSBEAUTIFY_COMMAND pointing to a jsbeautify binary on Linux; no tool is installed by REA. See docs/javascript-recovery.md#jsbeautify.";
 const JSBEAUTIFY_SUPPORTED = process.platform === "linux";
 const REPARSE_PHASES = ["19.6", "21.5"] as const;
-const FILE_NAME_MAX_BYTES = 255;
 const LEVEL_ARGUMENTS = {
   minimal: [],
   standard: ["--deobfuscate"],
@@ -61,59 +59,6 @@ const sourceTypeArguments = (path: string): readonly string[] =>
     : path.endsWith(".mjs")
       ? ["--source-type", "module"]
       : [];
-
-/** Keep the selected layout where safe, and give every published script a JS extension. */
-const moduleName = (source: RecoveryInputSnapshot, single: boolean): string => {
-  let name = source.relative_path;
-  if (single) {
-    const selectedName = basename(source.path);
-    try {
-      if (normalizeArtifactPath(selectedName) === selectedName)
-        name = selectedName;
-    } catch {
-      // The snapshot already owns a safe fallback for a native-only basename.
-    }
-  }
-  const withExtension = /\.(?:[cm]?js|jsx)$/i.test(name) ? name : `${name}.js`;
-  if (Buffer.byteLength(basename(withExtension)) <= FILE_NAME_MAX_BYTES)
-    return withExtension;
-  const replacement = `__rea_${source.sha256.slice(0, 16)}.js`;
-  return dirname(withExtension) === "."
-    ? replacement
-    : join(dirname(withExtension), replacement);
-};
-
-/** Allocate the complete output layout before any producer can overwrite a selected input's output. */
-const moduleNames = (
-  sources: RecoveryWorkspace["sources"],
-): readonly string[] => {
-  const desired = sources.map((source) =>
-    moduleName(source, sources.length === 1),
-  );
-  const allocated = new Set<string>();
-  const overlaps = (left: string, right: string): boolean =>
-    left === right ||
-    left.startsWith(`${right}/`) ||
-    right.startsWith(`${left}/`);
-  return desired.map((name, index) => {
-    let candidate = name;
-    let suffix = 0;
-    while (
-      [...allocated].some((used) => overlaps(used, candidate)) ||
-      desired.some(
-        (reserved, other) =>
-          other !== index &&
-          reserved !== candidate &&
-          overlaps(reserved, candidate),
-      )
-    ) {
-      suffix += 1;
-      candidate = `__rea_recovered_${String(index + 1)}_${String(suffix)}/${basename(name)}`;
-    }
-    allocated.add(candidate);
-    return candidate;
-  });
-};
 
 /** Validity gate read from jsbeautify's stderr phase log. */
 const gate = (run: CommandResult, deobfuscated: boolean) => {
