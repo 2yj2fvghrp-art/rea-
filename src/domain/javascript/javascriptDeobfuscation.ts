@@ -19,6 +19,14 @@ const fileSchema = z.strictObject({
   bytes: z.number().int().nonnegative(),
 });
 
+const commandDiagnosticsSchema = z.strictObject({
+  exit_code: z.number().int().nullable(),
+  exit_signal: z.string().nullable(),
+  truncated: z.boolean(),
+  stdout: fileSchema.extend({ observed_bytes: z.number().int().nonnegative() }),
+  stderr: fileSchema.extend({ observed_bytes: z.number().int().nonnegative() }),
+});
+
 export const javascriptDeobfuscationResultSchema = z.strictObject({
   source: fileSchema.extend({
     published_copy: fileSchema,
@@ -26,7 +34,9 @@ export const javascriptDeobfuscationResultSchema = z.strictObject({
   engine: z.strictObject({
     id: z.literal("js-redox"),
     version: z.string().min(1),
-    executable: fileSchema,
+    executable: fileSchema.extend({
+      resolved_path: localPathStringSchema.optional(),
+    }),
     audited_source_revision: z.string().min(1),
     executed_source_revision: z.null(),
   }),
@@ -38,6 +48,12 @@ export const javascriptDeobfuscationResultSchema = z.strictObject({
   output: fileSchema,
   report: fileSchema,
   manifest: fileSchema,
+  diagnostics: z
+    .strictObject({
+      version: commandDiagnosticsSchema,
+      execution: commandDiagnosticsSchema,
+    })
+    .optional(),
   proof: z.strictObject({
     schema: z.literal("js-safe-deobfuscate/v1"),
     iterations: z.number().int().nonnegative(),

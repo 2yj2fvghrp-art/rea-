@@ -71,20 +71,22 @@ export class JavaScriptDeobfuscationService {
       result.data.source.path !== parsed.data.path ||
       execution.value.subject.path !== result.data.source.path ||
       execution.value.subject.sha256 !== result.data.source.sha256 ||
+      result.data.options.max_iterations !== parsed.data.max_iterations ||
+      result.data.proof.iterations > parsed.data.max_iterations ||
       execution.value.provider.id !== result.data.engine.id ||
       execution.value.provider.version !== result.data.engine.version
     )
       return err(
         new AnalysisOutputError(
           OPERATION,
-          "Deobfuscation source or engine identity disagrees with its Evidence binding",
+          "Deobfuscation source, engine identity, or iteration bound disagrees with its Evidence binding",
         ),
       );
     return ok(
       createEvidence(execution.value.subject, execution.value.provider, {
         operation: OPERATION,
         parameters: jsonObjectSchema.parse(parsed.data),
-        result: result.data,
+        result: jsonObjectSchema.parse(result.data),
         ...(execution.value.rawResult === null
           ? {}
           : { rawResult: execution.value.rawResult }),

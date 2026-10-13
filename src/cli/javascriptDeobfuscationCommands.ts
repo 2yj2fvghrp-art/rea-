@@ -27,7 +27,13 @@ export const registerJavaScriptDeobfuscationCommands = (
       outputDirectory: z.string().describe("Absolute absent output directory"),
     }),
     options: z.object({
-      maxIterations: z.number().int().min(1).max(64).optional(),
+      maxIterations: z
+        .number()
+        .int()
+        .min(1)
+        .max(64)
+        .optional()
+        .describe("Maximum proof-gated optimization iterations (1–64)"),
     }),
     run: ({ args, options }) =>
       withCommandCancellation(async (signal) => {

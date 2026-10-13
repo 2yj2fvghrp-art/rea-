@@ -18,6 +18,7 @@ import {
 import type { JsRedoxReport } from "./JsRedoxProtocol.js";
 
 export interface JsRedoxEngineIdentity {
+  readonly configuredCommand: string;
   readonly command: string;
   readonly sha256: string;
   readonly bytes: number;
@@ -33,6 +34,10 @@ interface PublishedFiles {
   readonly output: Awaited<ReturnType<typeof writePublished>>;
   readonly report: Awaited<ReturnType<typeof writePublished>>;
   readonly manifest: Awaited<ReturnType<typeof writePublished>>;
+  readonly diagnostics: {
+    readonly version: Awaited<ReturnType<typeof publishCommandDiagnostics>>;
+    readonly execution: Awaited<ReturnType<typeof publishCommandDiagnostics>>;
+  };
 }
 
 export const publishJsRedox = async (input: {
@@ -56,8 +61,8 @@ export const publishJsRedox = async (input: {
     { ...JS_REDOX_PROVIDER_IDENTITY, version: input.version },
     {
       rawResult: jsonValueSchema.parse({
-        version: commandProjection(input.versionRun),
-        execution: commandProjection(input.executionRun),
+        version: files.diagnostics.version,
+        execution: files.diagnostics.execution,
       }),
       subject: {
         path: input.sourcePath,
@@ -95,8 +100,22 @@ const publishFiles = async (
     input.reportFile.bytes,
     input.signal,
   );
+  const diagnostics = {
+    version: await publishCommandDiagnostics(
+      input.tree,
+      "version",
+      input.versionRun,
+      input.signal,
+    ),
+    execution: await publishCommandDiagnostics(
+      input.tree,
+      "execution",
+      input.executionRun,
+      input.signal,
+    ),
+  };
   const manifestBytes = Buffer.from(
-    `${JSON.stringify(manifestValue(input, source, output, report), null, 2)}\n`,
+    `${JSON.stringify({ ...manifestValue(input, source, output, report), diagnostics }, null, 2)}\n`,
     "utf8",
   );
   const manifest = await writePublished(
@@ -105,7 +124,7 @@ const publishFiles = async (
     manifestBytes,
     input.signal,
   );
-  return { source, output, report, manifest };
+  return { source, output, report, manifest, diagnostics };
 };
 
 const manifestValue = (
@@ -132,7 +151,8 @@ const manifestValue = (
     bytes: input.reportFile.bytes.length,
   },
   engine: {
-    path: input.engine.command,
+    path: input.engine.configuredCommand,
+    resolved_path: input.engine.command,
     sha256: input.engine.sha256,
     bytes: input.engine.bytes,
     version: input.version,
@@ -158,7 +178,8 @@ const buildResult = (
       id: JS_REDOX_PROVIDER_IDENTITY.id,
       version: input.version,
       executable: {
-        path: input.engine.command,
+        path: input.engine.configuredCommand,
+        resolved_path: input.engine.command,
         sha256: input.engine.sha256,
         bytes: input.engine.bytes,
       },
@@ -171,6 +192,7 @@ const buildResult = (
     output: files.output,
     report: files.report,
     manifest: files.manifest,
+    diagnostics: files.diagnostics,
     proof: {
       schema: input.report.schema,
       iterations: input.report.iterations,
@@ -200,10 +222,33 @@ const buildResult = (
   });
 };
 
-const commandProjection = (snapshot: ProviderProcessSnapshot) => ({
+const publishCommandDiagnostics = async (
+  tree: SafeOutputTree,
+  name: "version" | "execution",
+  snapshot: ProviderProcessSnapshot,
+  signal?: AbortSignal,
+) => ({
   exit_code: snapshot.exitCode ?? null,
-  stdout: snapshot.stdout.text,
-  stderr: snapshot.stderr.text,
+  exit_signal: snapshot.signal ?? null,
+  truncated: snapshot.diagnosticTruncated ?? false,
+  stdout: {
+    ...(await writePublished(
+      tree,
+      `diagnostics/${name}.stdout.txt`,
+      Buffer.from(snapshot.stdout.text),
+      signal,
+    )),
+    observed_bytes: snapshot.stdout.observedBytes,
+  },
+  stderr: {
+    ...(await writePublished(
+      tree,
+      `diagnostics/${name}.stderr.txt`,
+      Buffer.from(snapshot.stderr.text),
+      signal,
+    )),
+    observed_bytes: snapshot.stderr.observedBytes,
+  },
 });
 
 const writePublished = async (

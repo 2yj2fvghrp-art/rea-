@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, unlink, symlink } from "node:fs/promises";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const args = process.argv.slice(2);
@@ -44,5 +44,26 @@ if (args.includes("--version")) {
     presentation_formatted: false,
     runtime_semantics_preserved_by_design: true,
   };
+  Object.assign(
+    report,
+    {
+      "bad-input-digest": { input_sha256: "0".repeat(64) },
+      "bad-analysis-digest": { analysis_source_sha256: "0".repeat(64) },
+      "bad-iterations": { iterations: maximum + 1 },
+      "bad-changed": { changed: source.equals(transformed) },
+      "unsafe-static": { safe_static_only: false },
+      formatted: { presentation_formatted: true },
+      "unsafe-semantics": { runtime_semantics_preserved_by_design: false },
+    }[mode] ?? {},
+  );
+  if (mode === "large-diagnostics")
+    process.stdout.write("x".repeat(6 * 1024 * 1024));
+  if (mode === "engine-retarget") {
+    await unlink(process.env.REA_DEOBFUSCATION_ENGINE_LINK);
+    await symlink(
+      process.env.REA_DEOBFUSCATION_ENGINE_REPLACEMENT,
+      process.env.REA_DEOBFUSCATION_ENGINE_LINK,
+    );
+  }
   await writeFile(reportPath, JSON.stringify(report));
 }

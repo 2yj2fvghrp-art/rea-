@@ -37,7 +37,7 @@ import { executeJsRedox, type JsRedoxRunRequest } from "./JsRedoxExecution.js";
 
 const OPERATION = "deobfuscate_javascript_source";
 const HOST_REQUIREMENT =
-  "On Linux x64, provide an absolute REA_JS_REDOX_COMMAND pointing to js-redox deobfuscate-safe 0.1.0 and util-linux prlimit.";
+  "On Linux x64, provide an absolute REA_JS_REDOX_COMMAND pointing to js-redox deobfuscate-safe 0.1.0, util-linux prlimit, and an executable private runtime filesystem (TMPDIR must not be mounted noexec).";
 
 export type JsRedoxLauncher = NonNullable<
   Parameters<typeof runOwnedCommand>[2]
@@ -247,6 +247,7 @@ export class JsRedoxProvider implements JavaScriptDeobfuscationPort {
         signal,
       );
       return {
+        configuredCommand: configured,
         command,
         limiter,
         sha256: executable.sha256,

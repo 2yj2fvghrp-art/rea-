@@ -14,7 +14,10 @@ import {
   ghidraSeedLimitations,
 } from "./GhidraAnalysisSeeds.js";
 import {
+  ghidraPinnedLanguage,
+  ghidraProfileDisabledAnalyzers,
   ghidraProfileLanguageOverride,
+  sameGhidraDisabledAnalyzers,
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
@@ -29,6 +32,7 @@ import {
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import type { EvidenceLocation } from "../domain/evidence.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -54,6 +58,15 @@ import {
   GHIDRA_PSP_LIMITATIONS,
 } from "./GhidraPspProfile.js";
 import { ghidraPspExtensionSchema } from "./GhidraPspExtension.js";
+import {
+  GHIDRA_MIPS_SOFT_FLOAT_STORAGE,
+  ghidraMipsSoftFloatFailure,
+  ghidraMipsRelocatableLimitations,
+  ghidraMipsSharedLimitations,
+  ghidraMipsSoftFloatLimitations,
+  isGhidraMipsSoftFloatTarget,
+} from "./GhidraMipsProfile.js";
+import { ghidraRiscvLimitations } from "./GhidraRiscvProfile.js";
 import { unverifiedGhidraBuildLimitation } from "./GhidraInstallationPolicy.js";
 import { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
 import { attestGhidraNativeLoadImage } from "./GhidraLoadImageAttest.js";
@@ -74,6 +87,7 @@ import {
   healthLimitations,
   windowsP0Limitations,
   limitationsFor,
+  relationshipCoverageFor,
 } from "./GhidraProviderCapabilities.js";
 import type { GhidraSessionError } from "./GhidraSessionError.js";
 import type { GhidraSessionInfo } from "./GhidraSessionValues.js";
@@ -87,12 +101,22 @@ import {
   windowsNativeAuthorityUnavailableReason,
   hasWindowsNativeAuthority,
 } from "../process/WindowsAuthority.js";
+import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 
 /** Production seam for exercising provider projection without a real process. */
 export type GhidraProviderClientFactory = (
   options: GhidraClientOptions,
 ) => Pick<GhidraClient, "start" | "callTool" | "close"> &
-  Partial<Pick<GhidraClient, "runtimeLineage" | "readTargetSnapshot">>;
+  Partial<
+    Pick<
+      GhidraClient,
+      | "callToolIfReady"
+      | "operationHealthSnapshot"
+      | "runtimeLineage"
+      | "readTargetSnapshot"
+      | "hashTargetSnapshot"
+    >
+  >;
 
 type GhidraProviderClientInstance = ReturnType<GhidraProviderClientFactory>;
 
@@ -378,6 +402,20 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
+  const softFloat = isGhidraMipsSoftFloatTarget(target);
+  if (
+    softFloat !==
+    (committedProfile.parameters.mips_soft_float_storage ===
+      GHIDRA_MIPS_SOFT_FLOAT_STORAGE)
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "Resolve the soft-float MIPS storage policy into the analysis profile before opening the session.",
+        },
+      }),
+    );
   const extensionProfile = ghidraExtensionSchema
     .array()
     .safeParse(committedProfile.parameters.analysis_extensions ?? []);
@@ -415,13 +453,33 @@ export const createGhidraProviderClient = (input: {
     committedProfile.parameters,
   );
   if (
-    !sameGhidraLanguageOverride(languageOverride, config.ghidraLanguageOverride)
+    !sameGhidraLanguageOverride(
+      languageOverride,
+      config.ghidraLanguageOverride ?? ghidraPinnedLanguage(target),
+    )
   )
     return unavailableClient(
       new ProviderAdapterError("ghidra", "open_binary", {
         diagnostics: {
           reason:
             "The committed analysis profile and REA_GHIDRA_LANGUAGE_ID/REA_GHIDRA_COMPILER_SPEC_ID differ; reopen the target to resolve a new profile.",
+        },
+      }),
+    );
+  const disabledAnalyzers = ghidraProfileDisabledAnalyzers(
+    committedProfile.parameters,
+  );
+  if (
+    !sameGhidraDisabledAnalyzers(
+      disabledAnalyzers,
+      config.ghidraDisabledAnalyzers,
+    )
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed analysis profile and REA_GHIDRA_DISABLED_ANALYZERS differ; reopen the target to resolve a new profile.",
         },
       }),
     );
@@ -440,6 +498,14 @@ export const createGhidraProviderClient = (input: {
   let extensionFailure: AnalysisError | undefined;
   // Replaced by the reported outcome once the session handshake is checked.
   const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
+  // Replaced by the reported storage outcome once the handshake is checked.
+  const softFloatLimitations: string[] = [
+    ...ghidraMipsSoftFloatLimitations(softFloat),
+  ];
+  const rawLanguage =
+    target.format === "raw-binary"
+      ? ghidraRawBinaryLanguage(target.architecture)
+      : undefined;
   const targetLimitations = [
     ...(target.format === "dos-mz"
       ? [
@@ -447,9 +513,19 @@ export const createGhidraProviderClient = (input: {
           "Static DOS analysis does not emulate BIOS, DOS interrupts, device ports, or self-modifying unpacking code. Packed targets require a separately identified unpacked artifact for original-program analysis; appended overlays are not the initialized load module.",
         ]
       : []),
+    ...(target.format === "raw-binary"
+      ? [
+          "Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.",
+          "Little-endian generic Ghidra languages are used for x86, x86_64, arm, and arm64. Big-endian, Thumb-only, Cortex-M, and other processor variants are unsupported in this increment.",
+          "Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences.",
+        ]
+      : []),
     ...(target.kind === "executable" && target.architecture === "mips"
       ? (target.mips.limitations ?? [])
       : []),
+    ...ghidraMipsRelocatableLimitations(target),
+    ...ghidraMipsSharedLimitations(target),
+    ...ghidraRiscvLimitations(target),
   ];
   const providerLimitations =
     installation.platform === "win32"
@@ -466,15 +542,31 @@ export const createGhidraProviderClient = (input: {
       environment: input.environment,
       analyzeHeadlessPath: prerequisites.value.analyzeHeadlessPath,
       javaHome: prerequisites.value.javaHome,
+      ...(installation.javaVmName === undefined
+        ? {}
+        : { javaVmName: installation.javaVmName }),
       bridgeScriptPath: fileURLToPath(
         new URL("../../bridge/ghidra/ReaGhidraBridge.java", import.meta.url),
       ),
       ...(pspExtension?.success === true
         ? { pspExtension: pspExtension.data }
         : {}),
+      ...(softFloat ? { mipsSoftFloat: true as const } : {}),
       ...(target.format === "dos-mz" ? { dosMz: true } : {}),
       ...(target.format === "dos-com" ? { dosCom: true } : {}),
+      ...(rawLanguage === undefined || target.format !== "raw-binary"
+        ? {}
+        : {
+            rawBinary: {
+              languageId: rawLanguage.languageId,
+              compilerSpecId: rawLanguage.compilerSpecId,
+              baseAddr: target.entryPoint,
+            },
+          }),
       ...(languageOverride === undefined ? {} : { languageOverride }),
+      ...(config.ghidraDisabledAnalyzers === undefined
+        ? {}
+        : { disabledAnalyzers: config.ghidraDisabledAnalyzers }),
       ...(seeds === undefined ? {} : { analysisSeeds: seeds }),
       platform: installation.platform,
       ...(extensions.length === 0 ? {} : { analysisExtensions: extensions }),
@@ -495,13 +587,18 @@ export const createGhidraProviderClient = (input: {
           expectedLanguageId: "x86:LE:16:Real Mode",
           expectedCompilerSpecId: "default",
         }
-      : languageOverride === undefined
-        ? {}
+      : rawLanguage === undefined
+        ? languageOverride === undefined
+          ? {}
+          : {
+              expectedLanguageId: languageOverride.languageId,
+              ...(languageOverride.compilerSpecId === undefined
+                ? {}
+                : { expectedCompilerSpecId: languageOverride.compilerSpecId }),
+            }
         : {
-            expectedLanguageId: languageOverride.languageId,
-            ...(languageOverride.compilerSpecId === undefined
-              ? {}
-              : { expectedCompilerSpecId: languageOverride.compilerSpecId }),
+            expectedLanguageId: rawLanguage.languageId,
+            expectedCompilerSpecId: rawLanguage.compilerSpecId,
           }),
     ...(psp
       ? {
@@ -516,17 +613,36 @@ export const createGhidraProviderClient = (input: {
     operation: AnalysisOperation,
     info: GhidraSessionInfo,
   ): Promise<AnalysisError | undefined> => {
+    const softFloatReason = ghidraMipsSoftFloatFailure(
+      softFloat,
+      info.mips_soft_float_storage,
+    );
     extensionFailure =
       ghidraExtensionFailure(
         extensions,
         info.analysis_extensions ?? [],
         operation,
-      ) ?? ghidraSeedFailure(seeds, info.analysis_seeds, operation);
+      ) ??
+      ghidraSeedFailure(seeds, info.analysis_seeds, operation) ??
+      (softFloatReason === undefined
+        ? undefined
+        : new ProviderAdapterError("ghidra", operation, {
+            diagnostics: { reason: softFloatReason },
+          }));
     if (extensionFailure === undefined && info.analysis_seeds !== undefined)
       seedLimitations.splice(
         0,
         seedLimitations.length,
         ...ghidraSeedLimitations(seeds, info.analysis_seeds),
+      );
+    if (extensionFailure === undefined)
+      softFloatLimitations.splice(
+        0,
+        softFloatLimitations.length,
+        ...ghidraMipsSoftFloatLimitations(
+          softFloat,
+          info.mips_soft_float_storage,
+        ),
       );
     if (extensionFailure === undefined) return undefined;
     const closed = await client.close();
@@ -545,6 +661,7 @@ export const createGhidraProviderClient = (input: {
     ...providerLimitations,
     ...targetLimitations,
     ...(psp ? GHIDRA_PSP_LIMITATIONS : []),
+    ...softFloatLimitations,
     ...ghidraExtensionLimitations(extensions),
     ...seedLimitations,
     ...(releaseLimitation === undefined ? [] : [releaseLimitation]),
@@ -557,6 +674,42 @@ export const createGhidraProviderClient = (input: {
           startupTimeoutMs: config.ghidraStartupTimeoutMs,
         })
       : undefined;
+  const projectExecution = (
+    operation: AnalysisOperation,
+    normalized: JsonValue,
+    rawResult: JsonValue,
+    observationLimitations: readonly string[] = [],
+    locations: readonly EvidenceLocation[] = [],
+  ) => {
+    const relationshipCoverage = relationshipCoverageFor(operation);
+    return createAnalysisExecution(normalized, committedProfile.provider, {
+      rawResult,
+      locations,
+      analysisProfile: committedProfile,
+      ...(relationshipCoverage === undefined ? {} : { relationshipCoverage }),
+      limitations: [
+        ...limitationsFor(operation),
+        ...observationLimitations,
+        ...sessionLimitations(),
+      ],
+    });
+  };
+  const inventoryExecution = (
+    operation: "list_documents" | "list_procedures",
+    called: Result<JsonValue, GhidraSessionError>,
+  ) => {
+    if (!called.ok)
+      return err(
+        projectSessionError(
+          operation,
+          called.error,
+          config.ghidraStartupTimeoutMs,
+        ),
+      );
+    const parsed = parseGhidraInventoryResult(operation, called.value);
+    if (!parsed.ok) return parsed;
+    return ok(projectExecution(operation, parsed.value, called.value));
+  };
   return {
     execute: async (operation, parameters, options) => {
       if (extensionFailure !== undefined) return err(extensionFailure);
@@ -573,7 +726,7 @@ export const createGhidraProviderClient = (input: {
           ),
         );
       if (operation === "health") {
-        const started = await client.start(options?.signal);
+        const started = await client.start(options?.signal, options?.progress);
         if (!started.ok)
           return err(
             projectSessionError(
@@ -595,8 +748,8 @@ export const createGhidraProviderClient = (input: {
         ? parseGhidraFunctionInput(operation, parameters)
         : parseGhidraInventoryInput(operation, parameters);
       if (!input.ok) return input;
-      if (extensions.length > 0 || seeds !== undefined) {
-        const started = await client.start(options?.signal);
+      if (extensions.length > 0 || seeds !== undefined || softFloat) {
+        const started = await client.start(options?.signal, options?.progress);
         if (!started.ok)
           return err(
             projectSessionError(
@@ -608,11 +761,14 @@ export const createGhidraProviderClient = (input: {
         const failed = await checkExtensions(operation, started.value);
         if (failed !== undefined) return err(failed);
       }
-      const called = await client.callTool(
-        operation,
-        input.value,
-        options?.signal === undefined ? {} : { signal: options.signal },
-      );
+      const called = await client.callTool(operation, input.value, {
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+        ...(options?.progress === undefined
+          ? {}
+          : { progress: options.progress }),
+      });
+      if (operation === "list_documents" || operation === "list_procedures")
+        return inventoryExecution(operation, called);
       if (!called.ok)
         return err(
           projectSessionError(
@@ -623,11 +779,13 @@ export const createGhidraProviderClient = (input: {
         );
       let normalized: JsonValue;
       let observationLimitations: readonly string[] = [];
+      let observationLocations: readonly EvidenceLocation[] = [];
       if (isGhidraFunctionOperation(operation)) {
         const result = parseGhidraFunctionResult(operation, called.value);
         if (!result.ok) return result;
         normalized = result.value.value;
         observationLimitations = result.value.limitations;
+        observationLocations = result.value.locations ?? [];
       } else {
         const result = parseGhidraInventoryResult(operation, called.value);
         if (!result.ok) return result;
@@ -637,7 +795,10 @@ export const createGhidraProviderClient = (input: {
         const address = input.value.address;
         if (typeof address === "string") {
           if (target.format === "pe" && nativeAotOwner !== undefined) {
-            const started = await client.start(options?.signal);
+            const started = await client.start(
+              options?.signal,
+              options?.progress,
+            );
             if (!started.ok)
               return err(
                 projectSessionError(
@@ -714,17 +875,31 @@ export const createGhidraProviderClient = (input: {
         normalized = attested.value;
       }
       return ok(
-        createAnalysisExecution(normalized, committedProfile.provider, {
-          rawResult: called.value,
-          analysisProfile: committedProfile,
-          limitations: [
-            ...limitationsFor(operation),
-            ...observationLimitations,
-            ...sessionLimitations(),
-          ],
-        }),
+        projectExecution(
+          operation,
+          normalized,
+          called.value,
+          observationLimitations,
+          observationLocations,
+        ),
       );
     },
+    executeIfReady: async (operation, parameters, options) => {
+      if (operation !== "list_documents" && operation !== "list_procedures")
+        return undefined;
+      if (extensionFailure !== undefined) return err(extensionFailure);
+      const input = parseGhidraInventoryInput(operation, parameters);
+      if (!input.ok) return input;
+      if (client.callToolIfReady === undefined) return undefined;
+      const called = await client.callToolIfReady(
+        operation,
+        input.value,
+        options?.signal === undefined ? {} : { signal: options.signal },
+      );
+      if (called === undefined) return undefined;
+      return inventoryExecution(operation, called);
+    },
+    operationHealthSnapshot: () => client.operationHealthSnapshot?.(),
     runtimeLineageSnapshots: () => {
       const observation = client.runtimeLineage?.() ?? null;
       return observation === null
@@ -814,37 +989,40 @@ const projectPrimarySessionError = (
   failure: GhidraSessionError,
   startupTimeoutMs: number,
 ): AnalysisError => {
+  const context = { cause: failure, diagnostics: failure.diagnostics };
   if (failure.cause instanceof AnalysisAccessDeniedError)
     return new AnalysisAccessDeniedError(
       operation,
       failure.cause.path,
       failure.cause.systemCode,
-      { cause: failure },
+      context,
     );
   if (failure.cause instanceof AnalysisArtifactChangedError)
     return new AnalysisArtifactChangedError(
       operation,
       failure.cause.path,
       failure.cause.reason,
-      { cause: failure },
+      context,
     );
   if (
     operation === "annotate_native_function" &&
     failure.kind === "remote" &&
     failure.remoteCode === "invalid_function_name"
   )
-    return new AnalysisInputError(operation, { cause: failure }, [
+    return new AnalysisInputError(operation, context, [
       { path: ["name"], reason: "invalid_value", message: failure.message },
     ]);
-  if (failure.kind === "cancelled")
-    return new AnalysisCancelledError(operation);
+  if (
+    failure.kind === "cancelled" ||
+    (failure.kind === "remote" && failure.remoteCode === "decompile_cancelled")
+  )
+    return new AnalysisCancelledError(operation, context);
   if (failure.kind === "timeout" || failure.kind === "analysis_timeout")
     return new AnalysisTimeoutError(
       operation,
       failure.timeoutMs ?? startupTimeoutMs,
+      context,
     );
-  if (failure.kind === "remote" && failure.remoteCode === "decompile_cancelled")
-    return new AnalysisCancelledError(operation);
   if (
     failure.kind === "remote" &&
     failure.remoteCode === "regex_stack_exhausted"
@@ -855,7 +1033,7 @@ const projectPrimarySessionError = (
       failure.message,
       null,
       {
-        cause: failure,
+        ...context,
         remediationAction:
           "Retry this search in literal mode or simplify the regex. The active analysis session and annotations remain available.",
       },
@@ -866,7 +1044,7 @@ const projectPrimarySessionError = (
       failure.remoteCode ?? "",
     )
   )
-    return new AnalysisInputError(operation, { cause: failure }, [
+    return new AnalysisInputError(operation, context, [
       { path: [], reason: "invalid_value", message: failure.message },
     ]);
   if (failure.kind === "remote" && failure.remoteCode === "method_unavailable")
@@ -874,9 +1052,7 @@ const projectPrimarySessionError = (
       "ghidra",
       operation,
       failure.message,
+      context,
     );
-  return new ProviderAdapterError("ghidra", operation, {
-    cause: failure,
-    diagnostics: failure.diagnostics,
-  });
+  return new ProviderAdapterError("ghidra", operation, context);
 };

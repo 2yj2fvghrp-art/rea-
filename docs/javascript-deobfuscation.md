@@ -15,14 +15,19 @@ than pretending those results have the same meaning.
 
 The adapter currently verifies js-redox `deobfuscate-safe` **0.1.0** on Linux
 x64. Set `REA_JS_REDOX_COMMAND` to an absolute path to that executable. The
-adapter uses util-linux `prlimit` (default `/usr/bin/prlimit`; override with
+private runtime filesystem must permit execution: set `TMPDIR` to a writable
+exec-capable filesystem when the host's default temporary directory is mounted
+`noexec`. REA checks executable access to its fingerprinted snapshot before
+launching it and reports this missing prerequisite as a capability error.
+
+The adapter uses util-linux `prlimit` (default `/usr/bin/prlimit`; override with
 absolute `REA_JAVASCRIPT_PRLIMIT_COMMAND`). REA installs neither tool and checks
 the configuration only when deobfuscation is requested.
 
 The audited source revision is
 `cfb9bc0788d326e6020568b298aa48135eb323d1` from
 `codeandsolder/js-redox`. The result separately records the caller-supplied
-executable's exact path and SHA-256. `executed_source_revision` remains `null`:
+executable's configured path, canonical resolved path and SHA-256. REA rechecks the configured selection before publication, including symlink retargeting. `executed_source_revision` remains `null`:
 the version string and executable hash identify the bytes REA ran but do not
 prove which source tree produced them.
 
@@ -73,6 +78,9 @@ Published contents:
 - `deobfuscated/source.js`: the proof-gated unformatted output.
 - `reports/js-redox.json`: exact `js-safe-deobfuscate/v1` producer report.
 - `manifest.json`: source, output, report, engine and option identities.
+- `diagnostics/`: retained version and transformation stdout/stderr. Evidence
+  includes file paths, hashes, retained and observed byte counts, exit status
+  and truncation state; diagnostic text stays in these files.
 
 The inline result summarizes transform counts, iteration count, arithmetic-state
 proof count, static alias-installer proof counts, and the report's safety flags.

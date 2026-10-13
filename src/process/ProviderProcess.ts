@@ -6,6 +6,7 @@ import { WindowsOwnedProcess } from "../windows/WindowsOwnedProcess.js";
 
 import type {
   OwnedProcessGroup,
+  ProcessCleanupFailure,
   ProcessCleanupResult,
 } from "./ProcessOwnership.js";
 import { prepareProcessOwnershipInspection } from "./ProcessOwnershipObservation.js";
@@ -77,6 +78,15 @@ export type ProviderProcessLaunch =
       readonly cleanup?: () => Promise<ProcessCleanupResult>;
     };
 
+/**
+ * Process exit recorded by the supervisor.
+ * Independent of retained stream diagnostics.
+ */
+export interface ProviderProcessExitObservation {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
 /** Detached diagnostics captured for one supervised provider process. */
 export interface ProviderProcessSnapshot {
   /** True only when a configured diagnostic budget excluded output bytes. */
@@ -143,7 +153,11 @@ export type ProviderProcessStopResult =
         | "terminated"
         | "killed";
     }
-  | { readonly status: "incomplete"; readonly reason: string };
+  | {
+      readonly status: "incomplete";
+      readonly reason: string;
+      readonly cleanupResult?: ProcessCleanupFailure;
+    };
 
 /**
  * Spawn a provider in an owned Windows job or dedicated POSIX process group.
@@ -228,10 +242,7 @@ export class ProviderProcessSupervisor {
   readonly #options: ProviderProcessSupervisorOptions;
   readonly #stdout = new ProcessOutputCapture();
   readonly #stderr = new ProcessOutputCapture();
-  readonly #exit = deferred<{
-    readonly code: number | null;
-    readonly signal: NodeJS.Signals | null;
-  }>();
+  readonly #exit = deferred<ProviderProcessExitObservation>();
   readonly #outputClose = deferred<void>();
   #outputClosed = false;
   #stdoutObservedBytes = 0;
@@ -266,9 +277,7 @@ export class ProviderProcessSupervisor {
   readonly #onError = (cause: Error): void => {
     this.#options.onDiagnostic?.({ type: "error", message: cause.message });
   };
-  #exitObservation:
-    | { readonly code: number | null; readonly signal: NodeJS.Signals | null }
-    | undefined;
+  #exitObservation: ProviderProcessExitObservation | undefined;
   #stopPromise: Promise<ProviderProcessStopResult> | undefined;
   #disposed = false;
 
@@ -285,6 +294,16 @@ export class ProviderProcessSupervisor {
     launch.process.on("error", this.#onError);
     if (launch.process.exitCode !== null || launch.process.signalCode !== null)
       this.#recordExit(launch.process.exitCode, launch.process.signalCode);
+  }
+
+  /**
+   * Recorded process exit without concatenating retained stream diagnostics.
+   * Undefined until exit or close is observed.
+   */
+  observedExit(): ProviderProcessExitObservation | undefined {
+    const exit = this.#exitObservation;
+    if (exit === undefined) return undefined;
+    return { code: exit.code, signal: exit.signal };
   }
 
   /** Latest retained output and exit observation, with explicit configured truncation. */
@@ -373,13 +392,21 @@ export class ProviderProcessSupervisor {
       if (this.launch.cleanup !== undefined) {
         const cleanup = await this.#ownedCleanup(options.cleanupResult);
         if (!cleanup.cleaned)
-          return { status: "incomplete", reason: cleanup.reason };
+          return {
+            status: "incomplete",
+            reason: cleanup.reason,
+            cleanupResult: cleanup,
+          };
         const graceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
         if (await this.waitForExit(graceMs))
           return { status: "verified-cleanup" };
         const retried = await this.launch.cleanup();
         if (!retried.cleaned)
-          return { status: "incomplete", reason: retried.reason };
+          return {
+            status: "incomplete",
+            reason: retried.reason,
+            cleanupResult: retried,
+          };
         if (await this.waitForExit(graceMs))
           return { status: "verified-cleanup" };
         return {

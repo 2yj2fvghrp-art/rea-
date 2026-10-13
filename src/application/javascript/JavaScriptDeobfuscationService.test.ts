@@ -49,6 +49,36 @@ const result = (): JavaScriptDeobfuscationResult => ({
 });
 
 describe("JavaScript deobfuscation workflow", () => {
+  it.each([
+    [64, 64],
+    [1, 2],
+  ])(
+    "rejects provider options=%s and proof iterations=%s for a requested bound of one",
+    async (maximum, iterations) => {
+      const returned = result();
+      returned.options.max_iterations = maximum;
+      returned.proof.iterations = iterations;
+      const service = new JavaScriptDeobfuscationService({
+        deobfuscate: async () =>
+          ok(
+            createAnalysisExecution(returned, provider, {
+              subject: {
+                path: file.path,
+                sha256: file.sha256,
+                format: "javascript",
+              },
+            }),
+          ),
+      });
+      const response = await service.deobfuscate({
+        path: file.path,
+        output_directory: "/tmp/out",
+        max_iterations: 1,
+      });
+      if (response.ok) throw new Error("expected iteration binding rejection");
+      expect(response.error._tag).toBe("AnalysisOutputError");
+    },
+  );
   it("preserves provider failures", async () => {
     const failure = new AnalysisCapabilityUnavailableError(
       "js-redox",

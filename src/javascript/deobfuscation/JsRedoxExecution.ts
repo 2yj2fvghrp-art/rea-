@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 
@@ -7,6 +8,7 @@ import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
 import {
   AnalysisCapabilityUnavailableError,
+  AnalysisCancelledError,
   AnalysisOutputError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
@@ -62,9 +64,11 @@ export const executeJsRedox = async (input: {
   const enginePath = await snapshotEngine(input);
   const outputPath = join(input.runtimePath, "deobfuscated.js");
   const reportPath = join(input.runtimePath, "report.json");
+  assertActive(input.signal);
   await writeFile(snapshotPath, input.source.bytes, {
     flag: "wx",
     mode: 0o600,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
   const deadlineAt = Date.now() + JS_REDOX_LIMITS.timeoutMs;
   const runWithinDeadline = (arguments_: readonly string[]) =>
@@ -154,10 +158,28 @@ const snapshotEngine = async (input: {
   readonly signal?: AbortSignal;
 }): Promise<string> => {
   const enginePath = join(input.runtimePath, "deobfuscate-safe");
+  assertActive(input.signal);
   await writeFile(enginePath, input.engine.executable, {
     flag: "wx",
     mode: 0o700,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
+  try {
+    // Linux access(X_OK) also checks the filesystem's noexec mount policy.
+    await access(enginePath, constants.X_OK);
+  } catch (cause: unknown) {
+    assertActive(input.signal);
+    throw new AnalysisCapabilityUnavailableError(
+      JS_REDOX_PROVIDER_IDENTITY.id,
+      OPERATION,
+      "The private js-redox snapshot is not executable. Select an exec-capable TMPDIR; noexec runtime mounts are unsupported.",
+      {
+        cause,
+        userMessage:
+          "Set TMPDIR to a writable exec-capable filesystem and retry.",
+      },
+    );
+  }
   const snapshot = await readStableArtifact(
     enginePath,
     JS_REDOX_LIMITS.executableBytes,
@@ -181,12 +203,21 @@ const remainingTimeoutMs = (deadlineAt: number): number => {
   return Math.max(1, remaining);
 };
 
+const assertActive = (signal?: AbortSignal): void => {
+  if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
+};
+
 const assertInputsUnchanged = async (
   sourcePath: string,
   sourceSha256: string,
   engine: JsRedoxEngine,
   signal?: AbortSignal,
 ): Promise<void> => {
+  if ((await realpath(engine.configuredCommand)) !== engine.command)
+    throw new AnalysisOutputError(
+      OPERATION,
+      "Configured js-redox executable selection changed during deobfuscation.",
+    );
   const currentSource = await readStableArtifact(
     sourcePath,
     JS_REDOX_LIMITS.inputBytes,

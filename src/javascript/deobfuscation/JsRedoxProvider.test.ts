@@ -1,4 +1,5 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 
 import {
@@ -8,6 +9,8 @@ import {
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
 import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
 import { JS_REDOX_LIMITS } from "./JsRedoxRelease.js";
+import { javascriptDeobfuscationResultSchema } from "../../domain/javascript/javascriptDeobfuscation.js";
+import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
   "publishes source, proof report and safe rewritten JavaScript through the owned-process boundary",
@@ -51,10 +54,21 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
   },
 );
 
-it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
-  "rejects a proof report whose output digest does not match published bytes",
-  async () => {
-    const fixture = await deobfuscationFixture("bad-digest");
+it
+  .skipIf(process.platform !== "linux" || process.arch !== "x64")
+  .each([
+    "bad-digest",
+    "bad-input-digest",
+    "bad-analysis-digest",
+    "bad-iterations",
+    "bad-changed",
+    "unsafe-static",
+    "formatted",
+    "unsafe-semantics",
+  ])(
+  "rejects a proof report with %s without retaining a publication",
+  async (mode) => {
+    const fixture = await deobfuscationFixture(mode);
     onTestFinished(async () => fixture.provider.close?.());
     const response = await fixture.service.deobfuscate({
       path: fixture.path,
@@ -65,6 +79,79 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     await expect(access(fixture.output)).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it
+  .skipIf(process.platform !== "linux" || process.arch !== "x64")
+  .each([false, true])(
+  "preserves configured engine symlinks and rejects retargeting=%s",
+  async (retarget) => {
+    const root = await createTestTempDirectory("rea-redox-selection-");
+    const canonical = join(root, "engine");
+    const replacement = join(root, "replacement");
+    const selected = join(root, "current");
+    await writeFile(canonical, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    await writeFile(replacement, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    await symlink(canonical, selected);
+    const fixture = await deobfuscationFixture(
+      retarget ? "engine-retarget" : "normal",
+      undefined,
+      {
+        REA_JS_REDOX_COMMAND: selected,
+        REA_DEOBFUSCATION_ENGINE_LINK: selected,
+        REA_DEOBFUSCATION_ENGINE_REPLACEMENT: replacement,
+      },
+    );
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (retarget) {
+      if (response.ok) throw new Error("expected engine selection mismatch");
+      expect(response.error._tag).toBe("AnalysisOutputError");
+      await expect(access(fixture.output)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } else {
+      if (!response.ok) throw response.error;
+      const result = javascriptDeobfuscationResultSchema.parse(
+        response.value.normalized_result,
+      );
+      expect(result.engine.executable).toMatchObject({
+        path: selected,
+        resolved_path: canonical,
+      });
+      expect(
+        JSON.parse(await readFile(result.manifest.path, "utf8")).engine,
+      ).toMatchObject({ path: selected, resolved_path: canonical });
+    }
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "publishes large diagnostics without expanding the inline result",
+  async () => {
+    const fixture = await deobfuscationFixture("large-diagnostics");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (!response.ok) throw response.error;
+    expect(Buffer.byteLength(JSON.stringify(response.value))).toBeLessThan(
+      20_000,
+    );
+    const result = javascriptDeobfuscationResultSchema.parse(
+      response.value.normalized_result,
+    );
+    expect(result.diagnostics?.execution.stdout.bytes).toBe(6 * 1024 * 1024);
+    expect(
+      await readFile(result.diagnostics!.execution.stdout.path, "utf8"),
+    ).toBe("x".repeat(6 * 1024 * 1024));
     await assertDeobfuscationCleanup(fixture.launches);
   },
 );
@@ -82,7 +169,9 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
         throw new Error("fixture directory-handle close failure");
       },
     );
-    onTestFinished(() => vi.restoreAllMocks());
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
     const response = await fixture.service.deobfuscate({
       path: fixture.path,
       output_directory: fixture.output,
@@ -106,7 +195,9 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
         return originalWrite.apply(this, args);
       },
     );
-    onTestFinished(() => vi.restoreAllMocks());
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
     const response = await fixture.service.deobfuscate(
       {
         path: fixture.path,
@@ -199,7 +290,9 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
         controller.abort();
       },
     );
-    onTestFinished(() => vi.restoreAllMocks());
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
     const response = await fixture.service.deobfuscate(
       {
         path: fixture.path,
@@ -248,5 +341,47 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
       code: "ENOENT",
     });
     await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "executes a harmless fingerprinted engine snapshot through the real util-linux limiter",
+  async (context) => {
+    try {
+      await access("/usr/bin/prlimit");
+    } catch {
+      context.skip();
+      return;
+    }
+    const root = await createTestTempDirectory("rea-redox-real-limiter-");
+    const command = join(root, "harmless-engine");
+    const source = join(root, "selected.js");
+    await writeFile(source, "const value = 1;\n");
+    await writeFile(
+      command,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then echo "jsvm-lift 0.1.0"; exit 0; fi',
+        'cp -- "$1" "$2"',
+        'digest=$(sha256sum "$1" | cut -d " " -f1)',
+        'printf \'{"schema":"js-safe-deobfuscate/v1","input":"%s","input_sha256":"%s","output_sha256":"%s","analysis_source_sha256":"%s","changed":false,"iterations":0,"transforms":{},"arithmetic_state_proofs":[],"static_alias_installer_calls":[],"safe_static_only":true,"presentation_formatted":false,"runtime_semantics_preserved_by_design":true}\\n\' "$1" "$digest" "$digest" "$digest" > "$4"',
+      ].join("\n") + "\n",
+      { mode: 0o700 },
+    );
+    const { JsRedoxProvider } = await import("./JsRedoxProvider.js");
+    const provider = new JsRedoxProvider({
+      ...process.env,
+      REA_JS_REDOX_COMMAND: command,
+    });
+    onTestFinished(() => provider.close());
+    const response = await provider.deobfuscate({
+      path: source,
+      output_directory: join(root, "output"),
+      max_iterations: 1,
+    });
+    if (!response.ok) throw response.error;
+    expect(
+      javascriptDeobfuscationResultSchema.parse(response.value.result),
+    ).toMatchObject({ status: "unchanged", proof: { iterations: 0 } });
   },
 );

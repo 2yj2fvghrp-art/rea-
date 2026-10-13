@@ -7,6 +7,7 @@ import { JavaScriptDeobfuscationService } from "../../../src/application/javascr
 import { createJavaScriptDeobfuscationProvider } from "../../../src/composition/javascriptDeobfuscation.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { createTestTempDirectory } from "../temporaryDirectory.js";
+import { JS_REDOX_LIMITS } from "../../../src/javascript/deobfuscation/JsRedoxRelease.js";
 
 /** Exercise the production provider boundary while replacing only the external producer bytes. */
 export const deobfuscationFixture = async (
@@ -28,6 +29,17 @@ export const deobfuscationFixture = async (
       const enginePath = options.arguments[separator + 1];
       if (enginePath === undefined)
         throw new Error("js-redox fixture launch omitted engine path");
+      expect(options.command).toBe(
+        environment.REA_JAVASCRIPT_PRLIMIT_COMMAND ?? "/usr/bin/prlimit",
+      );
+      expect(options.arguments.slice(0, separator + 1)).toEqual([
+        `--as=${JS_REDOX_LIMITS.addressSpaceBytes}`,
+        `--fsize=${JS_REDOX_LIMITS.outputBytes}`,
+        "--core=0",
+        `--cpu=${JS_REDOX_LIMITS.cpuSeconds}`,
+        "--",
+      ]);
+      expect(enginePath).toBe(join(options.cwd!, "deobfuscate-safe"));
       engineSnapshots.push({
         path: enginePath,
         bytes: await readFile(enginePath),
