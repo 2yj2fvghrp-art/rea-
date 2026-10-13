@@ -1,4 +1,4 @@
-import { chmod, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, open, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -97,9 +97,19 @@ it.runIf(isPRootHost())(
 
     const before = await stat(path);
     await chmod(path, 0o400);
-    const after = await stat(path);
+    const descriptor = await open(path, "r");
+    let opened: Awaited<ReturnType<typeof stat>>;
+    try {
+      opened = await descriptor.stat();
+    } finally {
+      await descriptor.close();
+    }
 
-    expect(sameRegularFileState(before, after)).toBe(true);
+    const currentPath = await stat(path);
+    expect(sameRegularFileState(before, opened)).toBe(false);
+    expect(
+      sameRegularFileStateAcrossPathAndDescriptor(currentPath, opened),
+    ).toBe(true);
   },
 );
 
