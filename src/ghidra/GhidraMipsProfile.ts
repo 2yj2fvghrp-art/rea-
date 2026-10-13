@@ -19,7 +19,8 @@ const isGhidraMips16SharedTarget = (target: BinaryTarget): boolean =>
 export const ghidraMipsLanguageOverride = (
   target: BinaryTarget,
 ): GhidraLanguageOverride | undefined =>
-  (isGhidraMips16SharedTarget(target) || isLegacyMipsAdmission(target)) &&
+  (isGhidraMips16SharedTarget(target) || hasLegacyMipsHeaderShape(target)) &&
+  ghidraMipsUnsupportedReason(target) === null &&
   target.architecture === "mips"
     ? {
         languageId: `MIPS:${target.mips.byteOrder === "little" ? "LE" : "BE"}:32:default`,
@@ -34,7 +35,7 @@ export const ghidraMipsLanguageOverride = (
  * auto-selection picks a 64-bit language for exactly these files, so the lane
  * pins the 32-bit language instead.
  */
-export const isLegacyMipsAdmission = (target: BinaryTarget): boolean => {
+const hasLegacyMipsHeaderShape = (target: BinaryTarget): boolean => {
   if (
     target.kind !== "executable" ||
     target.architecture !== "mips" ||
@@ -102,7 +103,7 @@ export const ghidraMipsUnsupportedReason = (
       return "EF_MIPS_FP64 requires separate verification of 64-bit floating-point register semantics in this Ghidra lane.";
     if ((metadata.flags & 0x00000400) !== 0)
       return "EF_MIPS_NAN2008 requires separate verification of NaN encoding semantics in this Ghidra lane.";
-    if (isLegacyMipsAdmission(target)) return null;
+    if (hasLegacyMipsHeaderShape(target)) return null;
     // A recordless relocatable object is not an incomplete inspection; the
     // lane is scoped to executable firmware images by design.
     if (metadata.type !== MIPS_ET_EXEC)
@@ -163,6 +164,11 @@ export const ghidraMipsUnsupportedReason = (
     return "MIPS ABI flags contain unsupported general flags.";
   return null;
 };
+
+/** A legacy lane is established only after every MIPS declaration is admitted. */
+export const isLegacyMipsAdmission = (target: BinaryTarget): boolean =>
+  hasLegacyMipsHeaderShape(target) &&
+  ghidraMipsUnsupportedReason(target) === null;
 
 /** Soft-float prototype policy applied by ReaGhidraMipsSoftFloat.java after analysis. */
 export const GHIDRA_MIPS_SOFT_FLOAT_STORAGE = "o32-soft-float-prototype-v1";

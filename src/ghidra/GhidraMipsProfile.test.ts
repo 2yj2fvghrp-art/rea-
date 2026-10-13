@@ -17,7 +17,10 @@ import {
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 import { GHIDRA_SESSION_CAPABILITIES } from "./GhidraSessionValues.js";
 import type { GhidraMipsSoftFloatReport } from "./GhidraMipsProfile.js";
-import { ghidraProfileLanguageOverride } from "./GhidraAnalysisProfile.js";
+import {
+  ghidraPinnedLanguage,
+  ghidraProfileLanguageOverride,
+} from "./GhidraAnalysisProfile.js";
 
 // Fake installation inspection tests admission/profile contracts, not Ghidra.
 const host: GhidraInstallationHost = {
@@ -342,7 +345,7 @@ const session = async (
   };
 };
 
-describe("MIPS16 shared-image profile", () => {
+describe("legacy profile bindings", () => {
   it("refuses a legacy endian pin committed for a different target", async () => {
     const { counts, client } = await session(
       target({ flags: 0x50000001, abiFlags: null, byteOrder: "big" }),
@@ -352,6 +355,47 @@ describe("MIPS16 shared-image profile", () => {
     expect((await client.execute("health", {})).ok).toBe(false);
     expect(counts.starts).toBe(0);
   });
+  it.each([0x50000201, 0x50000401, 0x54000001, 0x50910001])(
+    "refuses unsupported same-endian legacy flags %i before startup",
+    async (flags) => {
+      const value = target({ flags, abiFlags: null });
+      expect(ghidraPinnedLanguage(value)).toBeUndefined();
+      const { counts, client } = await session(
+        value,
+        undefined,
+        target({ flags: 0x50000001, abiFlags: null }),
+      );
+      expect((await client.execute("health", {})).ok).toBe(false);
+      expect(counts.starts).toBe(0);
+    },
+  );
+  const unpinnedTargets: BinaryTarget[] = [
+    target(),
+    {
+      path: "/fixture.elf",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "elf",
+      architecture: "x86_64",
+      availableArchitectures: ["x86_64"],
+    },
+  ];
+  it.each(unpinnedTargets)(
+    "refuses a pinned profile for an unpinned target $architecture",
+    async (value) => {
+      expect(ghidraPinnedLanguage(value)).toBeUndefined();
+      const { counts, client } = await session(
+        value,
+        undefined,
+        target({ flags: 0x50000001, abiFlags: null }),
+      );
+      expect((await client.execute("health", {})).ok).toBe(false);
+      expect(counts.starts).toBe(0);
+    },
+  );
+});
+
+describe("MIPS16 shared-image profile", () => {
   const shared = (change: Partial<MipsElfMetadata> = {}) =>
     target({
       type: 3,

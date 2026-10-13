@@ -454,6 +454,16 @@ export const createGhidraProviderClient = (input: {
     committedProfile.parameters,
   );
   const pinnedLanguage = ghidraPinnedMipsLanguage(committedProfile.parameters);
+  const targetLanguage = ghidraPinnedLanguage(target);
+  if (pinnedLanguage !== undefined && targetLanguage === undefined)
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed profile pins a MIPS language that the current target does not establish; reopen an admitted target to resolve a new profile.",
+        },
+      }),
+    );
   // Provider-pinned profiles declare their language through the same
   // parameter slot caller-configured profiles use, so only an environment
   // override conflicts with the legacy pin; the slot itself carries it.
@@ -472,9 +482,7 @@ export const createGhidraProviderClient = (input: {
   if (
     !sameGhidraLanguageOverride(
       parameterLanguage,
-      config.ghidraLanguageOverride ??
-        ghidraPinnedLanguage(target) ??
-        pinnedLanguage,
+      config.ghidraLanguageOverride ?? targetLanguage,
     )
   )
     return unavailableClient(
@@ -485,9 +493,9 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
-  // Import language: a caller-selected override wins; a provider-pinned legacy
-  // MIPS profile supplies its own because header auto-selection misselects.
-  const importLanguage = parameterLanguage ?? pinnedLanguage;
+  // Both caller-selected and provider-pinned languages use the validated
+  // committed slot; the profile cannot supply its own applicability proof.
+  const importLanguage = parameterLanguage;
   const disabledAnalyzers = ghidraProfileDisabledAnalyzers(
     committedProfile.parameters,
   );
