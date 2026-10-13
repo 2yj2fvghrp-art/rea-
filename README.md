@@ -90,6 +90,7 @@ Check the published SHA-256 and the full macOS/Linux installation, migration,
 and uninstall commands in `integrations/deepseek-harness/README.md`.
 Restart Harness after the bundle is installed. The old `rea setup --client dsh`
 home-level `rea-mcp` row overrides the bundle: migrate it before installing.
+
 ### Ask your agent
 
 ```text

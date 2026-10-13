@@ -266,6 +266,7 @@ To execute this fork's compiled REA instead of the pinned npm runtime,
 set `REA_DSH_ENTRYPOINT` to an absolute `scripts/rea.mjs` path in the
 Harness process environment. Desktop requires its own supported plugin
 installation path: `dsh --profile desktop` is not a valid CLI fallback.
+
 ## Other client settings
 
 For OpenCode, setup writes the V1 `mcp.rea` entry, which OpenCode V1 and V2

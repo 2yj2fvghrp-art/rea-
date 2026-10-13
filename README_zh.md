@@ -85,6 +85,7 @@ dsh --profile web --dump-config
 升级、旧版 MCP 配置迁移及卸载步骤，见 `integrations/deepseek-harness/README.zh-CN.md`。
 若原来使用 `rea setup --client dsh`，先备份并迁移旧的 `rea-mcp` 配置，
 避免全局配置覆盖新插件。
+
 ### 询问智能体
 
 ```text

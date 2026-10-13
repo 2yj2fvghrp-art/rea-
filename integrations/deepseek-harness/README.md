@@ -76,6 +76,7 @@ through the Desktop application's supported plugin installer when available.
 Do **not** run `dsh --profile desktop` (that name is reserved).
 Native Desktop installation, including Intel macOS builds, needs validation
 in the actual Desktop client and is not established by CLI CI.
+
 ### Run this fork's REA implementation
 
 To run the code checked out from **xxxxxwater/rea** rather than upstream npm:
