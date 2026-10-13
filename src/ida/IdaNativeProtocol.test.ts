@@ -90,6 +90,7 @@ const fixture = async () => {
     },
     serverInfo: () => producer.serverInfo(),
     close: () => producer.close(),
+    detach: () => producer.detach(),
   };
   const client = new IdaSessionClient(
     {
@@ -755,6 +756,38 @@ describe("native IDA malformed observations", () => {
     producer.overrideCall = (name) =>
       name === "find_regex" ? { matches: [], cursor: { next: 0 } } : undefined;
     expect((await client.execute("list_strings", {})).ok).toBe(false);
+    await client.close();
+  });
+});
+
+describe("native IDA attached operation admission", () => {
+  it("forwards the native producer's explicit reference cap flag", async () => {
+    const { client } = await fixture();
+    const result = await client.execute("xrefs", { address: "0x1000" });
+
+    if (!result.ok) throw result.error;
+    expect(result.value.referencesTruncated).toBe(false);
+    await client.close();
+  });
+
+  it("admits local document identity while refusing headless-only containment", async () => {
+    const { client, producer, target } = await fixture();
+    for (const [operation, parameters] of [
+      ["resolve_containing_procedure", { address: "0x1000" }],
+    ] as const) {
+      const result = await client.execute(operation, parameters);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    }
+    const listed = await client.execute("list_documents", {});
+    if (!listed.ok) throw listed.error;
+    expect(listed.value.result).toEqual([target.path]);
+    expect(
+      producer.calls.some(({ name }) => name === "lookup_funcs"),
+      "nothing is dispatched upstream",
+    ).toBe(false);
     await client.close();
   });
 });
