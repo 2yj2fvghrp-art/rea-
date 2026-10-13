@@ -244,17 +244,23 @@ export const collectElectronWrappedCallPaths = (
   ):
     | { readonly env: SymbolicEnvironment; readonly callee: SymbolicValue }
     | undefined => {
+    // Every call is probed, so a probe that selects no isolated exposure
+    // must not report its callee reads as unresolved substitution.
+    const unresolved = resolver.unresolved;
     const env = resolver.environmentAt(node);
     const callee = resolver.evaluate(node.callee, env);
-    return symbolicVariants(callee).some(
-      (callee) =>
-        callee.kind === "external" &&
-        identity.intactExport(callee.path) &&
-        callee.path.slice(1).join(".") ===
-          "contextBridge.exposeInIsolatedWorld",
+    if (
+      symbolicVariants(callee).some(
+        (callee) =>
+          callee.kind === "external" &&
+          identity.intactExport(callee.path) &&
+          callee.path.slice(1).join(".") ===
+            "contextBridge.exposeInIsolatedWorld",
+      )
     )
-      ? { env, callee }
-      : undefined;
+      return { env, callee };
+    resolver.unresolved = unresolved;
+    return undefined;
   };
   const electronStaticSymbolicValue = (
     value: SymbolicValue | undefined,
