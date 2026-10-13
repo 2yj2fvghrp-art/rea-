@@ -167,3 +167,34 @@ it("redacts full configured malformed headers without guessing their internal va
     '"[redacted transport credential]"',
   );
 });
+
+it("redacts protocol-decoded Basic credentials and password without treating ordinary names as secrets", () => {
+  const redactor = createIdaDiagnosticRedactor({
+    url: "http://127.0.0.1:12345/mcp",
+    mode: "attached",
+    timeoutMs: 1000,
+    headers: {
+      Authorization: `Basic ${Buffer.from("user:secret").toString("base64")}`,
+    },
+  });
+  expect(redactor.text("user:secret / secret / user")).toBe(
+    "[redacted transport credential] / [redacted transport credential] / user",
+  );
+  expect(redactor.json('"\\u0073ecret"')).toBe(
+    '"[redacted transport credential]"',
+  );
+});
+
+it.each(["text", "json"] as const)(
+  "bounds short-secret diagnostic expansion before %s redaction",
+  (format) => {
+    const redactor = createIdaDiagnosticRedactor({
+      url: "http://127.0.0.1:12345/mcp",
+      mode: "attached",
+      timeoutMs: 1000,
+      headers: { Cookie: "a=Q" },
+    });
+    const result = redactor[format]("Q".repeat(2 * 1024 * 1024));
+    expect(result).toBe("[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]");
+  },
+);

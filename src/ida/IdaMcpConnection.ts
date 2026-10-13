@@ -116,8 +116,9 @@ export const decodeIdaToolResult = (
 // add display quoting/truncation and cannot recover the original JSON tokens.
 class IdaHttpJsonError extends Error {
   readonly text: string;
-  constructor(text: string, cause: unknown) {
-    super("IDA MCP returned malformed HTTP JSON.", { cause });
+  constructor(text: string) {
+    // Native SyntaxError display can itself quote raw credential-bearing text.
+    super("IDA MCP returned malformed HTTP JSON.");
     this.text = text;
   }
 }
@@ -131,10 +132,9 @@ export const createIdaMcpConnection = (
   const redactor = createIdaDiagnosticRedactor(config);
   const transportFailure = (cause: unknown): never => {
     if (cause instanceof IdaHttpJsonError)
-      throw new Error(
-        `${cause.message} Response body: ${redactor.json(cause.text)}`,
-        { cause },
-      );
+      throw new Error(`${cause.message} Response body: ${cause.text}`, {
+        cause,
+      });
     const message =
       cause instanceof Error
         ? cause.message
@@ -146,7 +146,8 @@ export const createIdaMcpConnection = (
       typeof body === "string" && body.length > 0 && message.includes(body)
         ? message.split(body).map(redactor.text).join(body)
         : redactor.text(message);
-    throw new Error(safeMessage, { cause });
+    // The original SDK error may retain unredacted credential-bearing fields.
+    throw new Error(safeMessage);
   };
   const transport =
     "command" in config
@@ -179,9 +180,12 @@ export const createIdaMcpConnection = (
               const contentType = response.headers.get("content-type");
               if (contentType !== null) {
                 try {
-                  const { subtype } = new MIMEType(contentType);
+                  const { subtype, essence } = new MIMEType(contentType);
                   if (subtype === "json" || subtype.endsWith("+json"))
                     redactBody = redactor.json;
+                  else if (essence !== "text/plain")
+                    redactBody = () =>
+                      "[IDA HTTP error body omitted: unsupported diagnostic media type]";
                 } catch {
                   // An unknown format provides no JSON interpretation.
                 }
@@ -201,8 +205,8 @@ export const createIdaMcpConnection = (
                 try {
                   const value: unknown = JSON.parse(text);
                   return value;
-                } catch (cause: unknown) {
-                  throw new IdaHttpJsonError(text, cause);
+                } catch {
+                  throw new IdaHttpJsonError(redactor.json(text));
                 }
               },
             });

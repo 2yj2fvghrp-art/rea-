@@ -4,6 +4,11 @@ import {
 } from "./IdaJsonDiagnostic.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 
+// Error reporting retains bounded diagnostic text, never complete observations.
+// Bound before JSON decoding, match materialization, and replacement expansion.
+export const IDA_DIAGNOSTIC_SOURCE_BYTES = 64 * 1024;
+const omittedDiagnostic = "[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]";
+
 /** RFC 9110 credentials: any scheme, followed by opaque data or auth-params. */
 const authorizationPayloads = (header: string): readonly string[] => {
   const payload = header.match(
@@ -11,6 +16,19 @@ const authorizationPayloads = (header: string): readonly string[] => {
   )?.[1];
   if (payload === undefined) return [];
   const values = [payload];
+  if (/^basic[ \t]/iu.test(header) && /^[A-Za-z\d+/]+={0,2}$/u.test(payload)) {
+    const bytes = Buffer.from(payload, "base64");
+    if (
+      bytes.toString("base64").replace(/=+$/u, "") ===
+      payload.replace(/=+$/u, "")
+    ) {
+      for (const encoding of ["utf8", "latin1"] as const) {
+        const decoded = bytes.toString(encoding);
+        const colon = decoded.indexOf(":");
+        if (colon >= 0) values.push(decoded, decoded.slice(colon + 1));
+      }
+    }
+  }
   // A sticky parse cannot reinterpret commas inside an incomplete quoted value.
   // Keep complete parameters preceding malformed input; the opaque payload above
   // remains a known credential even when the parameter grammar is not satisfied.
@@ -75,7 +93,16 @@ export const createIdaDiagnosticRedactor = (
     (left, right) => right.length - left.length,
   );
   if (secrets.length === 0)
-    return { text: (message) => message, json: (message) => message };
+    return {
+      text: (message) =>
+        Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
+          ? omittedDiagnostic
+          : message,
+      json: (message) =>
+        Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
+          ? omittedDiagnostic
+          : message,
+    };
   const pattern = new RegExp(
     secrets
       .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
@@ -83,13 +110,18 @@ export const createIdaDiagnosticRedactor = (
     "gu",
   );
   return {
-    text: (message) => message.replace(pattern, IDA_REDACTION_MARKER),
+    text: (message) =>
+      Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
+        ? omittedDiagnostic
+        : message.replace(pattern, IDA_REDACTION_MARKER),
     json: (message) =>
-      redactIdaJsonDiagnostic(message, (value) =>
-        [...value.matchAll(pattern)].map((match) => ({
-          start: match.index,
-          end: match.index + match[0].length,
-        })),
-      ),
+      Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
+        ? omittedDiagnostic
+        : redactIdaJsonDiagnostic(message, (value) =>
+            [...value.matchAll(pattern)].map((match) => ({
+              start: match.index,
+              end: match.index + match[0].length,
+            })),
+          ),
   };
 };
