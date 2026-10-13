@@ -114,12 +114,47 @@ export const parseXmlPropertyList = (
   return withoutKey(parse(substituted), placeholder);
 };
 
+interface OpenStepContainer {
+  end: string;
+  next: "key" | "equals" | "value" | "separator" | "after-value";
+}
+
+/** Consume only the punctuation expected between the pinned decoder's values. */
+const consumeOpenStepSeparator = (
+  parent: OpenStepContainer | undefined,
+  character: string,
+): "consumed" | "invalid" | "none" => {
+  if (parent?.next === "after-value") {
+    parent.next = "key";
+    return character === ";" ? "consumed" : "none";
+  }
+  if (parent?.next !== "equals" && parent?.next !== "separator") return "none";
+  if (character !== (parent.next === "equals" ? "=" : ",")) return "invalid";
+  parent.next = "value";
+  return "consumed";
+};
+
+/** An array may close after a comma; a dictionary still needs its assigned value. */
+const admitsOpenStepCloser = (
+  parent: OpenStepContainer | undefined,
+  character: string,
+): boolean =>
+  parent?.end === character &&
+  parent.next !== "equals" &&
+  !(parent.end === "}" && parent.next === "value");
+
 /** Bound OpenStep value nesting before the pinned decoder recursively reads it. */
 const assertOpenStepDepthWithinLimit = (text: string): void => {
-  const containers: { end: string; key: boolean }[] = [];
+  const containers: OpenStepContainer[] = [];
   const completeValue = (): void => {
     const parent = containers.at(-1);
-    if (parent?.end === "}") parent.key = true;
+    if (parent !== undefined)
+      parent.next =
+        parent.next === "key"
+          ? "equals"
+          : parent.end === "}"
+            ? "after-value"
+            : "separator";
   };
   const assertDepth = (): void => {
     if (containers.length > MAX_PLIST_DEPTH)
@@ -135,19 +170,21 @@ const assertOpenStepDepthWithinLimit = (text: string): void => {
       continue;
     }
     const character = text[cursor] ?? "";
-    if ("=;,".includes(character)) {
-      const parent = containers.at(-1);
-      if (parent?.end === "}" && character !== ",")
-        parent.key = character !== "=";
+    const parent = containers.at(-1);
+    // Stop at the first impossible token: only the pinned decoder owns syntax
+    // diagnostics. A later deep suffix cannot change that failure into a limit.
+    if (character === "}" || character === ")") {
+      if (!admitsOpenStepCloser(parent, character)) return;
+      containers.pop();
+      // parseOpenStep returns the first root value without reading trailing text.
+      if (containers.length === 0) return;
+      completeValue();
       cursor += 1;
       continue;
     }
-    if (character === "}" || character === ")") {
-      const container = containers.pop();
-      // parseOpenStep returns the first root value without reading trailing
-      // text; preflight must stop at the same boundary.
-      if (containers.length === 0 && container?.end === character) return;
-      completeValue();
+    const separator = consumeOpenStepSeparator(parent, character);
+    if (separator === "invalid") return;
+    if (separator === "consumed") {
       cursor += 1;
       continue;
     }
@@ -155,15 +192,16 @@ const assertOpenStepDepthWithinLimit = (text: string): void => {
       assertDepth();
       containers.push({
         end: character === "{" ? "}" : ")",
-        key: character === "{",
+        next: character === "{" ? "key" : "value",
       });
       cursor += 1;
       continue;
     }
-    const key = containers.at(-1)?.key === true;
-    if (!key) assertDepth();
-    cursor = skipOpenStepScalar(text, cursor);
-    if (!key) completeValue();
+    const end = skipOpenStepScalar(text, cursor);
+    if (end === cursor) return;
+    if (parent?.next !== "key") assertDepth();
+    cursor = end;
+    completeValue();
   }
 };
 
@@ -194,7 +232,6 @@ const skipOpenStepScalar = (text: string, start: number): number => {
   } else {
     // Match the pinned OpenStep decoder's unquoted-string alphabet. Other
     // syntax remains for the decoder to reject; preflight only owns depth.
-    cursor += 1;
     while (
       cursor < text.length &&
       /[a-zA-Z0-9._/$:-]/u.test(text[cursor] ?? "")

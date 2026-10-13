@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parse } from "plist";
 
 import { omitPrototypeKeys, parseXmlPropertyList } from "./propertyListKeys.js";
 
@@ -261,6 +262,18 @@ describe("OpenStep plist nesting preflight", () => {
   it("accepts the deepest supported OpenStep value and empty container", () => {
     expect(() => parseXmlPropertyList(arrays(128))).not.toThrow();
     expect(() => parseXmlPropertyList(arrays(129, ""))).not.toThrow();
+  });
+
+  it.each([
+    "(x, y,)",
+    "{ key = x next = (y,); }",
+    "{ (compound, key) = x; { nested = key; } = y; }",
+    "{ key = (); next = {}; }",
+  ])("preserves pinned separator and compound-key semantics for %s", (text) => {
+    expect(parseXmlPropertyList(text)).toEqual({
+      value: parse(text),
+      omittedPrototypeKeys: 0,
+    });
   });
 
   it("ignores brackets in quoted strings, escaped quotes, comments, and data", () => {
