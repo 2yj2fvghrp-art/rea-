@@ -155,7 +155,7 @@ class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
         () => diagnostics,
       );
     } catch (cause) {
-      child.stdin.end();
+      if (!child.stdin.destroyed) child.stdin.end();
       try {
         await boundedWait(
           exit,
@@ -184,7 +184,7 @@ class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
   }
 
   async #finish(): Promise<void> {
-    this.#child.stdin.end();
+    if (!this.#child.stdin.destroyed) this.#child.stdin.end();
     let result: GuardianExit;
     try {
       result = await boundedWait(
