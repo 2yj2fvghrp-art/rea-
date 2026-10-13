@@ -485,6 +485,7 @@ cliTest(
   "reports each same-named slice's own embedded dyld environment",
   async ({ cli }) => {
     // arm64e and arm64e.x1 slices both report the architecture name arm64e.
+    // A plain x86_64 slice keeps the bundle openable on x64 hosts.
     for (const [settings, expected] of [
       [[null, "DYLD_PRINT_RPATHS=1"], ["DYLD_PRINT_RPATHS=1"]],
       [
@@ -495,12 +496,6 @@ cliTest(
       const app = await fixtureApp();
       await writeFiles(app, {
         "Contents/MacOS/App": fatImage([
-          // Generic slices admit the app on x64/arm64 hosts; the explicit
-          // architecture selector below still traces only the same-named pair.
-          ...[CPU.x86_64, CPU.arm64].map((cpu) => ({
-            cpu,
-            bytes: machoImage({ cpu }),
-          })),
           ...[CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
             const setting = settings[index];
             return {
@@ -514,6 +509,7 @@ cliTest(
               }),
             };
           }),
+          { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
         ]),
       });
       const result = await cli.run({
@@ -522,8 +518,6 @@ cliTest(
           app,
           "--root",
           "Contents/MacOS/App",
-          "--architecture",
-          "arm64e",
           "--json",
         ],
         environment: ENVIRONMENT,
@@ -532,7 +526,9 @@ cliTest(
       const trace = dylibResolutionResultSchema.parse(
         parseEvidence(result.json).normalized_result,
       );
-      expect(trace.roots).toHaveLength(2);
+      expect(
+        trace.roots.filter(({ architecture }) => architecture === "arm64e"),
+      ).toHaveLength(2);
       const environments = trace.findings
         .filter(({ kind }) => kind === "dyld-environment-present")
         .map(({ explanation }) =>
