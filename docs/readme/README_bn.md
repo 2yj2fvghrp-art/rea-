@@ -17,7 +17,7 @@
 
 <a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
 
-**[ওয়েবসাইট](https://rea.tools/) · [গাইড](https://rea.tools/guides/) · [শোকেস](https://rea.tools/showcase/)**
+**[ওয়েবসাইট](https://rea.tools/bn/) · [গাইড](https://rea.tools/bn/guides/) · [শোকেস](https://rea.tools/bn/showcase/)**
 
 [দ্রুত শুরু](#দ্রুত-শুরু) · [REA কীভাবে কাজ করে](#rea-কীভাবে-কাজ-করে) · [কী কী বিশ্লেষণ করা যায়](#কী-কী-বিশ্লেষণ-করা-যায়) · [শোকেস](#শোকেস) · [সাধারণ প্রশ্নোত্তর](#সাধারণ-প্রশ্নোত্তর-faq) · [ডকুমেন্টেশন](#ডকুমেন্টেশন)
 
@@ -53,7 +53,7 @@ REA আপনার agent-কে native বাইনারি, JavaScript ও El
 
 Setup আপনার agent-এ REA নিবন্ধন করে এবং মানানসই workflow নির্দেশনা ইনস্টল করে। Native বিশ্লেষণে আগে থেকে ইনস্টল করা Hopper, Ghidra বা IDA ব্যবহার করা যায়; চাইলে setup আপনার অনুমোদন নিয়ে Hopper ইনস্টল করে দিতে পারে। Static JavaScript বিশ্লেষণের জন্য কোনো native analysis engine লাগে না।
 
-> **[REA ওয়েবসাইট দেখুন](https://rea.tools/)** — সেখানে setup নির্দেশনা, ছবিসহ গাইড এবং বাস্তব case study পাবেন।
+> **[REA ওয়েবসাইট দেখুন](https://rea.tools/bn/)** — সেখানে setup নির্দেশনা, ছবিসহ গাইড এবং বাস্তব case study পাবেন।
 
 ## দ্রুত শুরু
 
@@ -150,15 +150,16 @@ REA-এর জন্য লাগবে Node.js 22.x (>=22.19), 24.x (>=24.11) �
 
 | টার্গেট                   | REA কী ফেরত দেয়                                                                 | প্রয়োজনীয়তা ও গাইড                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Native বাইনারি            | Pseudocode, assembly, string, symbol, call ও reference                          | Hopper, Ghidra বা IDA; [native বিশ্লেষণ](https://rea.tools/guides/native/)                                                   |
+| Native বাইনারি            | Pseudocode, assembly, string, symbol, call ও reference                          | Hopper, Ghidra বা IDA; [native বিশ্লেষণ](https://rea.tools/bn/guides/native/)                                                |
 | Offline ELF layout      | Section, segment, মূল symbol/relocation এবং static mitigation-এর সম্ভাব্য তালিকা      | Linux x64-এ caller-এর দেওয়া pwntools; [binary diagnostics](../binary-diagnostics.md)                                        |
 | Go বাইনারি                | Embedded compiler সংস্করণ, module, replacement ও build setting                   | বিল্ট-ইন static ELF/PE/thin Mach-O পরীক্ষা; Go ইনস্টল করার দরকার নেই                                                             |
+| Rust বাইনারি              | এমবেড করা cargo-auditable crate-এর নাম, সংস্করণ, উৎস ও dependency সম্পর্ক            | বিল্ট-ইন static ELF/PE/thin Mach-O পরীক্ষা; [Rust বাইনারি](../rust-binaries.md)                                                 |
 | WASM artifact           | Validation, section, হুবহু import/export WAT রূপ এবং decode করা WAT                 | Caller-এর দেওয়া WABT 1.0.42; `inspect_wasm_artifact`                                                                        |
 | EVM bytecode            | Dispatch selector, byte offset, অনুমিত argument ও mutability                     | Linux x64-এ local raw/hex carrier; [offline EVM গাইড](../evm-bytecode.md)                                                   |
 | SQLite ডেটাবেস           | Table, column, index, view, trigger এবং নির্বাচিত সাধারণ table-এর row               | Local database/WAL snapshot; native SQLite সীমাসহ Node.js 24.x >=24.15 বা 26+                                                |
 | রেকর্ড করা Linux crash    | Raw note, রেকর্ড করা প্রতিটি thread-এর register/signal এবং ঐচ্ছিক mapping candidate | Linux x64-এ caller-এর দেওয়া pwntools; ঐচ্ছিক GDB/pwndbg; [রেকর্ড করা crash](../recorded-crashes.md)                            |
-| JavaScript / Electron   | Module, import, source map, route, IPC এবং native add-on-এর সম্পর্ক               | Node.js ও npm; [অ্যাপ্লিকেশন বিশ্লেষণ](https://rea.tools/guides/javascript/)                                                   |
-| ওয়েবসাইট                 | পেজের গঠন, script, network পর্যবেক্ষণ এবং অনুরোধ করা screenshot                     | একটি Chrome-ঘরানার ব্রাউজার; [ব্রাউজার বিশ্লেষণ](https://rea.tools/guides/browser/)                                                 |
+| JavaScript / Electron   | Module, import, source map, route, IPC এবং native add-on-এর সম্পর্ক               | Node.js ও npm; [অ্যাপ্লিকেশন বিশ্লেষণ](https://rea.tools/bn/guides/javascript/)                                                |
+| ওয়েবসাইট                 | পেজের গঠন, script, network পর্যবেক্ষণ এবং অনুরোধ করা screenshot                     | একটি Chrome-ঘরানার ব্রাউজার; [ব্রাউজার বিশ্লেষণ](https://rea.tools/bn/guides/browser/)                                              |
 | সংরক্ষিত network capture | Request, response, উন্মুক্ত payload ও source location                              | HAR বা Fiddler Everywhere SAZ; native mitmproxy capture-এর জন্য Linux-এ mitmdump; [capture গাইড](../web-network-captures.md)  |
 | .NET assembly           | Metadata, CIL instruction, ঘোষিত native dependency এবং build তুলনা                | কিছু লাগে না (শুধু static); [managed-code গাইড](../managed-code-analysis.md)                                                     |
 | Android APK             | Manifest ঘোষণা, class, decompile করা method ও reference                           | Linux/macOS/Windows x64-এ headless JADX ও পূর্ণ JDK; [Android গাইড](../android-analysis.md)                                   |
@@ -192,7 +193,7 @@ Provider বাছাইয়ের জন্য [CLI গাইড](../cli.md#c
 
 ## শোকেস
 
-[![DX-Ball sound-pan, Notion clipboard-bridge এবং TH04 bullet-ring শোকেসের চিত্র](../assets/rea-showcases.png)](https://rea.tools/showcase/)
+[![DX-Ball sound-pan, Notion clipboard-bridge এবং TH04 bullet-ring শোকেসের চিত্র](../assets/rea-showcases.png)](https://rea.tools/bn/showcase/)
 
 ### DX-Ball: একটি sound-pan হিসাব পুনর্গঠন
 
@@ -200,7 +201,7 @@ Provider বাছাইয়ের জন্য [CLI গাইড](../cli.md#c
 এবং অসম্পূর্ণ pseudocode-কে C-তে রূপ দিন। পুনর্গঠিত কোডটি মূল x86-এর 3,205টি
 case পাস করে এবং compile করা function-এর 63টি byte হুবহু পুনরুৎপাদন করে।
 
-[Case study পড়ুন](https://rea.tools/showcase/dx-ball/) ·
+[Case study পড়ুন](https://rea.tools/bn/showcase/dx-ball/) ·
 [পুনর্গঠনের repository](https://github.com/N0zoM1z0/dx-ball)
 
 ### Notion: Electron clipboard bridge trace করা
@@ -208,7 +209,7 @@ case পাস করে এবং compile করা function-এর 63টি by
 Renderer-এর clipboard API খুঁজে বের করুন, preload ও IPC হয়ে main process পর্যন্ত
 সেটি অনুসরণ করুন এবং rich clipboard format পরীক্ষা করুন।
 
-[Case study পড়ুন](https://rea.tools/showcase/notion/)
+[Case study পড়ুন](https://rea.tools/bn/showcase/notion/)
 
 ### TH04: একটি DOS bullet-ring হিসাব উদ্ধার
 
@@ -216,7 +217,7 @@ Renderer-এর clipboard API খুঁজে বের করুন, preload �
 হিসাব উদ্ধার করুন এবং পুনর্গঠিত C++ কোডকে ঐতিহাসিক compiler output-এর
 সঙ্গে মিলিয়ে দেখুন।
 
-[Case study পড়ুন](https://rea.tools/showcase/th04/) ·
+[Case study পড়ুন](https://rea.tools/bn/showcase/th04/) ·
 [পুনর্গঠনের repository](https://github.com/N0zoM1z0/th04)
 
 আপনি যদি মজার কিছুতে REA ব্যবহার করে থাকেন, আমরা তা দেখতে চাই। একটি
@@ -306,7 +307,7 @@ Agent ব্যবহার করলে [setup রিফ্রেশ](#rea-আ�
 
 ## ডকুমেন্টেশন
 
-ওয়েবসাইটের [হাতে-কলমে গাইড](https://rea.tools/guides/) দিয়ে শুরু করুন।
+ওয়েবসাইটের [হাতে-কলমে গাইড](https://rea.tools/bn/guides/) দিয়ে শুরু করুন।
 সুনির্দিষ্ট option, পূর্বশর্ত ও result contract-এর জন্য:
 
 - [ইনস্টলেশন ও setup](../installation.md): agent নিবন্ধন, provider configuration, আপডেট ও uninstall।
