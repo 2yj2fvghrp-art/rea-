@@ -182,8 +182,9 @@ jobs:
           assert.equal(pkg.scripts?.prepare, undefined);
           assert(fs.existsSync('./node_modules/dsh-rea-bundle/launcher.mjs'));
           assert(fs.existsSync('./node_modules/dsh-rea-bundle/cordis.patch.yml'));
-          assert(fs.existsSync('./node_modules/dsh-rea-bundle/node_modules/rea-agents/scripts/rea.mjs')
-            || fs.existsSync('./node_modules/rea-agents/scripts/rea.mjs'));
+          const { createRequire } = require('node:module');
+          const requireFromBundle = createRequire(fs.realpathSync('./node_modules/dsh-rea-bundle/launcher.mjs'));
+          assert(fs.existsSync(requireFromBundle.resolve('rea-agents/scripts/rea.mjs')));
           console.log('Desktop input Git URL installs dsh-rea-bundle without an allowBuilds exception');
           NODE
       - name: Report scope
