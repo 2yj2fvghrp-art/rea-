@@ -176,6 +176,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private DecompInterface decompiler;
     private final ReaGhidraExtensions analysisExtensions = new ReaGhidraExtensions();
     private static AddressSpace sessionDefaultAddressSpace;
+    private Map<Address, ReaGhidraBorlandSeh.Observation> sehObservations = Map.of();
 
     @Override
     public void run() throws Exception {
@@ -224,6 +225,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             );
         }
         admittedTargetSha256 = descriptor.targetSha256;
+        sehObservations = ReaGhidraBorlandSeh.analyze(currentProgram, monitor, !isWindowsHost());
         // GhidraScript wraps run() in a transaction. End it before serving so
         // each edit owns a real outer transaction and can roll back immediately.
         end(true);
@@ -883,7 +885,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             String value = decompiledText(decompile(function));
             JsonObject result = functionObservation(
                 value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value),
-                noReturnCallLimitations(
+                functionFlowLimitations(function,
                     currentProgram.getListing().getInstructions(function.getBody(), true)
                 )
             );
@@ -975,7 +977,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         InstructionScan scan = scanInstructions(function, Integer.MAX_VALUE);
         return functionObservation(
             GSON.toJsonTree(renderAssembly(scan.instructions)),
-            noReturnCallLimitations(scan.instructions)
+            functionFlowLimitations(function, scan.instructions)
         );
     }
 
@@ -994,7 +996,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         limitations.add(
             "The fast path does not invoke the decompiler or scan whole-program names and strings."
         );
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        List<String> boundaryLimitations = functionFlowLimitations(function, scan.instructions);
         for (String limitation : boundaryLimitations) limitations.add(limitation);
         JsonObject result = new JsonObject();
         result.add("procedure", procedureIdentity(function));
@@ -1016,12 +1018,20 @@ public final class ReaGhidraBridge extends HeadlessScript {
         for (Function item : ordered) {
             result.add(canonicalAddress(item.getEntryPoint()));
         }
-        return functionObservation(
+        JsonObject observation = functionObservation(
             result,
-            noReturnCallLimitations(
+            functionFlowLimitations(function,
                 currentProgram.getListing().getInstructions(function.getBody(), true)
             )
         );
+        var seh = sehObservations.get(function.getEntryPoint());
+        if (!callers && seh != null && !seh.omissions().isEmpty()) {
+            JsonObject coverage = new JsonObject();
+            coverage.addProperty("status", "partial");
+            coverage.add("limitations", GSON.toJsonTree(seh.omissions()));
+            observation.add("relationship_coverage", coverage);
+        }
+        return observation;
     }
 
     private JsonObject procedureInfo(JsonObject params) throws Exception {
@@ -1040,7 +1050,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.add("classification", functionClassification(function));
         return functionObservation(
             result,
-            noReturnCallLimitations(
+            functionFlowLimitations(function,
                 currentProgram.getListing().getInstructions(function.getBody(), true)
             )
         );
@@ -1563,7 +1573,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 "Swift String literal decoding is implemented for AArch64 register pairs only; no Swift literals were decoded for this architecture."
             );
         }
-        List<String> boundaryLimitations = noReturnCallLimitations(scan.instructions);
+        List<String> boundaryLimitations = functionFlowLimitations(function, scan.instructions);
         for (String limitation : boundaryLimitations) {
             limitations.add(limitation);
         }
@@ -3276,9 +3286,14 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
-    private List<String> noReturnCallLimitations(Iterable<Instruction> instructions)
+    private List<String> functionFlowLimitations(Function function, Iterable<Instruction> instructions)
             throws Exception {
         List<String> limitations = new ArrayList<>();
+        var seh = sehObservations.get(function.getEntryPoint());
+        if (seh != null) {
+            limitations.addAll(seh.diagnostics());
+            limitations.addAll(seh.omissions());
+        }
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
             if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal()) {

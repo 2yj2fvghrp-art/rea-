@@ -1,5 +1,27 @@
 # Ghidra provider semantics
 
+## Borland Win32 exception handlers
+
+For PE32 x86 targets, REA recognizes the adjacent Borland-style SEH frame
+registration that saves EBP, pushes a handler address and installs the FS:[0]
+chain head. The register-offset form requires an adjacent XOR EAX,EAX; arbitrary
+FS offsets are not treated as the exception chain. Within an existing function's
+body span, REA can incorporate unowned handler instructions, including the catch
+body following the initial jump veneer to executable code outside that span.
+The RTL destination keeps its own ownership; this pattern does not establish
+the RTL function's name or the handler's runtime behavior.
+
+The corrected Ghidra body supplies function info, containing-procedure lookup,
+callees, referenced strings and function dossiers. Defined data and independent
+functions keep their ownership. This changes only the ephemeral analysis
+database, preserving executable bytes and function signatures. Handler
+registrations and unrecovered regions appear in Evidence limitations; omitted
+handlers make the owning function's callee coverage partial. Recovery outside
+the existing body span and unresolved jumps remain unsupported. Windows P0
+reports recognized omissions without performing database recovery.
+Ghidra's constant and operand-reference analyzers run only on the recovered
+instructions, with the caller's enabled/disabled settings and analyzer options.
+
 REA imports one target into an ephemeral Ghidra database. Linux/macOS support
 read-only analysis and atomic function-name/entry-comment edits; Windows P0 is
 read-only. GUI controls and persistent database mutation are unavailable.
