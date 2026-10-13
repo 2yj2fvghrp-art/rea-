@@ -307,18 +307,50 @@ const unpairedOf = <Item>(
 ): Keyed<Item>[] => items.filter((item) => !paired.has(item));
 
 /**
+ * Exact CIL/signature keys an unresolved owner competes for: a key held by an
+ * ownerless member on either side that another member on the same side also
+ * holds. Such an ownerless member's owner may be that other member, so the
+ * whole key group belongs to the remap rounds, which keep it ambiguous, rather
+ * than a declared round that would pair the resolved members and leave the
+ * ownerless one over. A lone ownerless member still pairs by declared identity.
+ */
+const ownerlessContested = <Item extends Declared>(
+  sides: readonly (readonly Keyed<Item>[])[],
+): ReadonlySet<string> => {
+  const contested = new Set<string>();
+  for (const side of sides) {
+    const seen = new Map<string, number>();
+    const ownerless = new Set<string>();
+    for (const { item, exactKey } of side) {
+      if (exactKey === null) continue;
+      seen.set(exactKey, (seen.get(exactKey) ?? 0) + 1);
+      if (item.declaring_type === null) ownerless.add(exactKey);
+    }
+    for (const key of ownerless)
+      if ((seen.get(key) ?? 0) > 1) contested.add(key);
+  }
+  return contested;
+};
+
+/**
  * Members a remap round may group: an unresolved owner, which keeps its group
- * ambiguous, or no member of the same declared identity left unpaired on the
- * other side, whether one-sided or in an ambiguous group. The sets are taken
- * before grouping, so no group order decides a remap.
+ * ambiguous; a member whose exact key an unresolved owner competes for, so the
+ * group that preserved the base matcher's ambiguity can form; or no member of
+ * the same declared identity left unpaired on the other side, whether
+ * one-sided or in an ambiguous group. The sets are taken before grouping, so
+ * no group order decides a remap.
  */
 const remappable = <Item extends Declared>(
   items: readonly Keyed<Item>[],
   others: readonly Keyed<Item>[],
 ): Keyed<Item>[] => {
   const kept = new Set(others.map(({ identity }) => identity));
+  const contested = ownerlessContested([items, others]);
   return items.filter(
-    ({ item, identity }) => item.declaring_type === null || !kept.has(identity),
+    ({ item, identity, exactKey }) =>
+      (exactKey !== null && contested.has(exactKey)) ||
+      item.declaring_type === null ||
+      !kept.has(identity),
   );
 };
 
@@ -326,7 +358,9 @@ const remappable = <Item extends Declared>(
  * Whether a member may pair in a declared-identity round. A member with an
  * unresolved owner may, only when no other member on either side shares its
  * exact CIL/signature key: its owner might be any of them, so a shared key
- * leaves it to the remap rounds, which keep such a group ambiguous.
+ * leaves it to the remap rounds, which keep such a group ambiguous. The
+ * resolved members that share such a key stay out too, so they cannot pair and
+ * consume the candidate the ownerless member might own.
  */
 const ownerlessDeclarable = <Item extends Declared>(
   left: readonly Keyed<Item>[],
@@ -340,10 +374,14 @@ const ownerlessDeclarable = <Item extends Declared>(
   };
   const leftSeen = count(left);
   const rightSeen = count(right);
+  const contested = ownerlessContested([left, right]);
   return ({ item, exactKey }) =>
-    item.declaring_type !== null ||
-    exactKey === null ||
-    ((leftSeen.get(exactKey) ?? 0) <= 1 && (rightSeen.get(exactKey) ?? 0) <= 1);
+    exactKey !== null && contested.has(exactKey)
+      ? false
+      : item.declaring_type !== null ||
+        exactKey === null ||
+        ((leftSeen.get(exactKey) ?? 0) <= 1 &&
+          (rightSeen.get(exactKey) ?? 0) <= 1);
 };
 
 const groupBy = <Item>(
