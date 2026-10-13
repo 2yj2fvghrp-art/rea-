@@ -85,13 +85,8 @@ export class ProviderStartupDeadline {
   /**
    * Wait for at most one polling interval under the shared deadline signal.
    *
-   * The wait targets the earlier of the requested polling interval and the
-   * absolute deadline. Node timers can fire up to ~1ms early, and both the
-   * deadline timer and the clamped polling timer may fire early at the same
-   * monotonic instant. If a polling timer reports elapsed before the target,
-   * the wait continues for the residual bounded time instead of resolving —
-   * the full-budget contract ("aborted" at deadline expiry) holds even when
-   * every timer in the chain is delivered early.
+   * Both timers may fire before their monotonic targets. Retain the earlier
+   * of the polling target and deadline, and wait again for any residual time.
    */
   wait(milliseconds: number): Promise<AbortableWaitResult> {
     const startedAt = performance.now();
@@ -112,8 +107,7 @@ export class ProviderStartupDeadline {
         if (now >= this.#deadlineAt) return "aborted";
         // The polling interval elapsed without expiring the deadline.
         if (now >= targetAt) return "elapsed";
-        // A timer fired before the absolute target; keep waiting for the
-        // residual time. The residual strictly decreases, so this converges.
+        // A timer fired before the absolute target; keep waiting.
         return poll();
       });
     };
@@ -140,11 +134,8 @@ export class ProviderStartupDeadline {
   /**
    * Arm (or re-arm) the timer that expires the absolute monotonic deadline.
    *
-   * Node timers can fire a fraction of a millisecond before the deadline.
-   * Aborting on such an early delivery would expire a future deadline, so the
-   * callback re-checks the monotonic clock: it only classifies "timeout" once
-   * the deadline has actually expired, otherwise it re-arms for the residual
-   * budget. The residual budget strictly decreases, so the re-arm converges.
+   * Re-check the clock before classifying expiry, and retain the residual
+   * budget when the timer arrives early.
    */
   #armDeadlineTimer(milliseconds: number): void {
     this.#timer = setTimeout(() => {
