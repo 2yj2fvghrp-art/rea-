@@ -68,7 +68,9 @@ From the source checkout, verify an extracted directory with:
 npm run verify:portable:windows -- --directory C:\relocated\rea-portable
 ```
 
-This checks the file inventory, the actual command launcher, isolated setup,
+This requires the exact file inventory and only its parent directories, rejecting
+stale files and empty package directories that can change Node resolution.
+It checks the actual command launcher, isolated setup,
 offline `doctor --client codex --skill`, repeated setup without additional writes,
 removal of the client registration and installed skill, and matching CLI/MCP static
 JavaScript analysis. Doctor must report the selected client and skill as healthy

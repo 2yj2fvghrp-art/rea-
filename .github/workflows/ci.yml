@@ -636,13 +636,15 @@ jobs:
           npm run package:portable:windows -- --node-directory "$runtime" --output-directory "$portable"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify portable runtime with Windows PowerShell 5.1
-        timeout-minutes: 5
+        # Hosted 5.1 verification reached MCP after almost five minutes; leave
+        # room for handshake, parity and uninstall while child calls stay bounded.
+        timeout-minutes: 10
         run: |
           $portable = Join-Path $env:RUNNER_TEMP 'rea %PATH% & !NAME! 便携包'
           node scripts/verify-portable-windows.mjs --directory "$portable"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify portable runtime with PowerShell 7
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: |
           $portable = Join-Path $env:RUNNER_TEMP 'rea %PATH% & !NAME! 便携包'
           node scripts/verify-portable-windows.mjs --directory "$portable" --powershell (Get-Command pwsh).Source

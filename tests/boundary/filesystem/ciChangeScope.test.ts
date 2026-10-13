@@ -1,5 +1,6 @@
 import {
   chmod,
+  copyFile,
   cp,
   mkdir,
   readFile,
@@ -8,7 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, matchesGlob } from "node:path";
+import { delimiter, dirname, join, matchesGlob } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -253,14 +254,35 @@ it.each(["", "not-a-commit"])(
   },
 );
 
+/** Substitute only the GitHub CLI response; ancestor checks still use real Git. */
+async function fakeGitHubCli(directory: string, fail = false) {
+  const bin = join(directory, "fake-bin");
+  await mkdir(bin);
+  if (process.platform === "win32") {
+    // execFile cannot launch a batch or POSIX shell fixture on Windows. A renamed
+    // Node executable handles `gh api ...` using the fixture's local `api` script.
+    await copyFile(process.execPath, join(bin, "gh.exe"));
+    await writeFile(
+      join(directory, "api"),
+      fail
+        ? "process.exitCode = 1;\n"
+        : 'process.stdout.write(require("node:fs").readFileSync(process.env.GH_FIXTURE_RESPONSE, "utf8"));\n',
+    );
+  } else {
+    const gh = join(bin, "gh");
+    await writeFile(
+      gh,
+      fail ? "#!/bin/sh\nexit 1\n" : '#!/bin/sh\ncat "$GH_FIXTURE_RESPONSE"\n',
+    );
+    await chmod(gh, 0o755);
+  }
+  return `${bin}${delimiter}${process.env.PATH}`;
+}
+
 it("selects only a trusted successful ancestor from recent CI push runs", async () => {
   const { directory, base } = await fixture();
   const head = await change(directory, ["src/evm/client.ts"]);
-  const bin = join(directory, "fake-bin");
-  await mkdir(bin);
-  const gh = join(bin, "gh");
-  await writeFile(gh, '#!/bin/sh\ncat "$GH_FIXTURE_RESPONSE"\n');
-  await chmod(gh, 0o755);
+  const path = await fakeGitHubCli(directory);
   const response = join(directory, "runs.json");
   await writeFile(
     response,
@@ -286,12 +308,16 @@ it("selects only a trusted successful ancestor from recent CI push runs", async 
   const output = join(directory, "baseline-output");
   const result = await execFileAsync(
     process.execPath,
-    [new URL("../../../scripts/ci/baseline.mjs", import.meta.url).pathname],
+    [
+      fileURLToPath(
+        new URL("../../../scripts/ci/baseline.mjs", import.meta.url),
+      ),
+    ],
     {
       cwd: directory,
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        PATH: path,
         GH_FIXTURE_RESPONSE: response,
         CI_REPOSITORY: "owner/repo",
         CI_DEFAULT_BRANCH: "main",
@@ -307,19 +333,19 @@ it("selects only a trusted successful ancestor from recent CI push runs", async 
 it("returns an empty baseline when GitHub lookup fails", async () => {
   const { directory, base } = await fixture();
   const head = await change(directory, ["src/evm/client.ts"]);
-  const bin = join(directory, "fake-bin");
-  await mkdir(bin);
-  const gh = join(bin, "gh");
-  await writeFile(gh, "#!/bin/sh\nexit 1\n");
-  await chmod(gh, 0o755);
+  const path = await fakeGitHubCli(directory, true);
   const result = await execFileAsync(
     process.execPath,
-    [new URL("../../../scripts/ci/baseline.mjs", import.meta.url).pathname],
+    [
+      fileURLToPath(
+        new URL("../../../scripts/ci/baseline.mjs", import.meta.url),
+      ),
+    ],
     {
       cwd: directory,
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        PATH: path,
         CI_REPOSITORY: "owner/repo",
         CI_DEFAULT_BRANCH: "main",
         HEAD_SHA: head,
