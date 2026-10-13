@@ -157,7 +157,7 @@ msgstr ""
 #: website/public/blog/index.html:236
 #: website/public/blog/reverse-engineering-models/index.html:875
 #: website/public/blog/touhou-reconstruction/index.html:1072
-#: website/public/demos/index.html:459 website/public/examples/dino-lab/index.html:467
+#: website/public/demos/index.html:470 website/public/examples/dino-lab/index.html:467
 #: website/public/faq/index.html:565 website/public/first-investigation/index.html:515
 #: website/public/get-started/index.html:874
 #: website/public/guides/browser/index.html:499 website/public/guides/index.html:286
@@ -175,7 +175,7 @@ msgstr ""
 #: website/public/blog/index.html:237
 #: website/public/blog/reverse-engineering-models/index.html:876
 #: website/public/blog/touhou-reconstruction/index.html:1073
-#: website/public/demos/index.html:460 website/public/examples/dino-lab/index.html:468
+#: website/public/demos/index.html:471 website/public/examples/dino-lab/index.html:468
 #: website/public/faq/index.html:566 website/public/first-investigation/index.html:516
 #: website/public/get-started/index.html:875
 #: website/public/guides/browser/index.html:500 website/public/guides/index.html:287
@@ -193,7 +193,7 @@ msgstr ""
 #: website/public/blog/index.html:238
 #: website/public/blog/reverse-engineering-models/index.html:877
 #: website/public/blog/touhou-reconstruction/index.html:1074
-#: website/public/demos/index.html:461 website/public/examples/dino-lab/index.html:469
+#: website/public/demos/index.html:472 website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567 website/public/first-investigation/index.html:517
 #: website/public/get-started/index.html:876
 #: website/public/guides/browser/index.html:501 website/public/guides/index.html:288
@@ -211,7 +211,7 @@ msgstr ""
 #: website/public/blog/index.html:239
 #: website/public/blog/reverse-engineering-models/index.html:878
 #: website/public/blog/touhou-reconstruction/index.html:1075
-#: website/public/demos/index.html:462 website/public/examples/dino-lab/index.html:470
+#: website/public/demos/index.html:473 website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568 website/public/first-investigation/index.html:518
 #: website/public/get-started/index.html:877
 #: website/public/guides/browser/index.html:502 website/public/guides/index.html:289
@@ -231,7 +231,7 @@ msgstr ""
 #: website/public/blog/index.html:244
 #: website/public/blog/reverse-engineering-models/index.html:883
 #: website/public/blog/touhou-reconstruction/index.html:1080
-#: website/public/demos/index.html:467 website/public/examples/dino-lab/index.html:475
+#: website/public/demos/index.html:478 website/public/examples/dino-lab/index.html:475
 #: website/public/faq/index.html:573 website/public/first-investigation/index.html:523
 #: website/public/get-started/index.html:882
 #: website/public/guides/browser/index.html:507 website/public/guides/index.html:294
@@ -2915,10 +2915,23 @@ msgid ""
 "Chrome executable before running the command:"
 msgstr ""
 
+#. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/testing.md#real-
+#. toolchain-verification-lanes" >
+#. {ph1}: </a >
+#: website/public/demos/index.html:399
+#, python-brace-format
+msgctxt "page:demos/index.html"
+msgid ""
+"A Windows source checkout also needs the package-matched native addon used by the "
+"verifier's JavaScript worker. Normal runtime builds do not produce that ignored "
+"artifact. Follow the {ph0}Windows native verification setup{ph1} before running the "
+"browser verifier; released packages include the matching artifact."
+msgstr ""
+
 #. {ph0}: <code>Exported 2 notes</code>
 #. {ph1}: <code>Exported 3 notes</code>
 #. {ph2}: <code>changed</code>
-#: website/public/demos/index.html:401
+#: website/public/demos/index.html:412
 #, python-brace-format
 msgctxt "page:demos/index.html"
 msgid ""
@@ -2934,7 +2947,7 @@ msgstr ""
 #. {ph2}: </a >
 #. {ph3}: <a href="../guides/browser/">
 #. {ph4}: </a>
-#: website/public/demos/index.html:408
+#: website/public/demos/index.html:419
 #, python-brace-format
 msgctxt "page:demos/index.html"
 msgid ""
@@ -2944,32 +2957,32 @@ msgid ""
 "browser guide explains the MCP capture contract and its {ph3}worked example{ph4}."
 msgstr ""
 
-#: website/public/demos/index.html:422
+#: website/public/demos/index.html:433
 msgctxt "page:demos/index.html"
 msgid "What remains"
 msgstr ""
 
-#: website/public/demos/index.html:424
+#: website/public/demos/index.html:435
 msgctxt "page:demos/index.html"
 msgid ""
 "Capture a real D01 agent transcript with a working local Codex login, and retain the "
 "full Evidence references used in its answer."
 msgstr ""
 
-#: website/public/demos/index.html:428
+#: website/public/demos/index.html:439
 msgctxt "page:demos/index.html"
 msgid ""
 "Run D02 on a declared host with a configured BYO provider; record the actual function "
 "result, source references and cleanup outcome."
 msgstr ""
 
-#: website/public/demos/index.html:432
+#: website/public/demos/index.html:443
 msgctxt "page:demos/index.html"
 msgid ""
 "Record the walkthroughs and test the published instructions from a clean user setup."
 msgstr ""
 
-#: website/public/demos/index.html:436
+#: website/public/demos/index.html:447
 msgctxt "page:demos/index.html"
 msgid ""
 "Measure time to first result, full scenario duration, process-tree CPU/RSS and "
@@ -2979,7 +2992,7 @@ msgstr ""
 
 #. {ph0}: <a href="https://github.com/morluto/rea/issues/778" >
 #. {ph1}: </a >
-#: website/public/demos/index.html:442
+#: website/public/demos/index.html:453
 #, python-brace-format
 msgctxt "page:demos/index.html"
 msgid ""
@@ -2994,7 +3007,7 @@ msgid ""
 "and browser behavior."
 msgstr ""
 
-#: website/public/demos/index.html:467
+#: website/public/demos/index.html:478
 msgctxt "page:demos/index.html"
 msgid "Back to top"
 msgstr ""
