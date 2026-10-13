@@ -1,3 +1,4 @@
+import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import { createHash } from "node:crypto";
 
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
@@ -202,7 +203,11 @@ export const readMetadataUserString = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   token: string,
-): { readonly offset: number; readonly value: string } => {
+): {
+  readonly offset: number;
+  readonly value: string;
+  readonly issue: ManagedParseIssue | null;
+} => {
   const heap = layout.userStrings;
   const scope = `metadata.#US:${token}`;
   if (heap === null)
@@ -237,14 +242,41 @@ export const readMetadataUserString = (
       start,
     );
   const units = (decoded.length - 1) / 2;
-  // The terminal flag byte is not validated. Toolchains disagree with
-  // ECMA-335 II.24.2.4 (Mono leaves it 0 for ' and -, Roslyn sets it for any
-  // unit >= 0x80) and the runtime never reads it.
-  // JSON spends at most six bytes per UTF-16 code unit, the same bound as UTF-8 bytes.
-  managedDecodeBudget(layout).reserveString(units, start);
+  // Check the serialized flag independently of literal decoding. A difference
+  // from ECMA-335 is observable metadata, not proof of runtime rejection.
+  let expectedFlag = 0;
+  for (let index = 0; index < units; index++) {
+    const unit = bytes.readUInt16LE(content + index * 2);
+    if (
+      unit > 0xff ||
+      (unit >= 0x01 && unit <= 0x08) ||
+      (unit >= 0x0e && unit <= 0x1f) ||
+      unit === 0x27 ||
+      unit === 0x2d ||
+      unit === 0x7f
+    ) {
+      expectedFlag = 1;
+      break;
+    }
+  }
+  const flagOffset = content + units * 2;
+  const actualFlag = bytes[flagOffset];
+  // JSON spends at most six bytes per UTF-16 code unit.
+  const budget = managedDecodeBudget(layout);
+  budget.reserveString(units, start);
+  if (actualFlag !== expectedFlag) budget.reserve(512, flagOffset);
   return {
     offset: start,
-    value: bytes.subarray(content, content + units * 2).toString("utf16le"),
+    value: bytes.subarray(content, flagOffset).toString("utf16le"),
+    issue:
+      actualFlag === expectedFlag
+        ? null
+        : {
+            code: "invalid-string",
+            scope,
+            offset: flagOffset,
+            detail: `User string terminal flag ${String(actualFlag)} differs from ECMA-335 II.24.2.4 value ${String(expectedFlag)}; readable UTF-16 is preserved and runtime acceptance is not assessed`,
+          },
   };
 };
 
