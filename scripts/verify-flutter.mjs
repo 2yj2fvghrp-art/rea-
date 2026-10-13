@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rmdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -189,16 +189,19 @@ try {
 } finally {
   // Server shutdown retries retained provider cleanup and must settle before success.
   try {
-    await client.close();
+    try {
+      await client.close();
+    } finally {
+      await transport.close();
+    }
+    assert.deepEqual(
+      await readdir(root),
+      [],
+      `Provider snapshots remain under ${root}`,
+    );
   } finally {
-    await transport.close();
+    await rm(root, { recursive: true, force: true });
   }
-  assert.deepEqual(
-    await readdir(root),
-    [],
-    `Provider snapshots remain under ${root}`,
-  );
-  await rmdir(root);
 }
 process.stdout.write(
   "all asserted Flutter CLI/MCP checks passed; unverified facets are reported above\n",
