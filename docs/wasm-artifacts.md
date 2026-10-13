@@ -63,6 +63,12 @@ budget, so a stream that starts after the other has filled it retains nothing.
 The captured output keeps up to the first 4,096 bytes that each stream retained,
 each stream's retained byte count, and the exit code and signal. Retained text
 can end in U+FFFD where the budget cut a multi-byte character.
+
+These excerpts bound the returned diagnostic text. Whole-task token usage,
+elapsed time, CPU time, and peak process-family memory have not been measured
+for cold or warm workflows. The underlying error cause still retains the full
+captured subprocess snapshot, so the excerpt does not establish lower retained
+memory or faster analysis.
 All commands use existing owned-process cancellation and cleanup. Workspace
 cleanup failures remain explicit errors with resource paths.
 
