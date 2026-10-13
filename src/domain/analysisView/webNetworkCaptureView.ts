@@ -118,8 +118,11 @@ const describesText = (descriptor: BinaryField, text: string): boolean => {
     descriptor.state !== "retained"
   )
     return false;
+  // An unpaired surrogate has no UTF-8 form; Buffer.from would invent
+  // replacement-character bytes that no producer value could have had.
   const utf8 = Buffer.from(text, "utf8");
   return (
+    utf8.toString("utf8") === text &&
     descriptor.bytes === utf8.length &&
     descriptor.content_base64 === utf8.toString("base64") &&
     descriptor.sha256 === createHash("sha256").update(utf8).digest("hex")
