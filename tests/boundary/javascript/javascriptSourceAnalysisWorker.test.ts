@@ -415,6 +415,7 @@ const expectNativeTypeSelections = async (
     [["-1"], false, false, true],
     [["0"], false, false, true],
     [["-1"], false, false, true],
+    [["NativeMode", "-1"], false, false, true],
   ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
@@ -430,6 +431,7 @@ const expectNativeTypeSelections = async (
     "-1",
     "0",
     "-1",
+    "(NativeMode | -1)",
   ]);
   for (const [text, count] of [
     [
@@ -444,19 +446,13 @@ const expectNativeTypeSelections = async (
       'type Native = import("native-mode/addon.node", {with: {"resolution-mode": "import", type: "json"}}).NativeMode;',
       1,
     ],
-    [
-      'import { X } from "native-mode/addon.node" with { "resolution-mode": "require" };',
-      1,
-    ],
-    [
-      'export { X } from "native-mode/addon.node" with { "resolution-mode": "require" };',
-      1,
-    ],
     [modeSourceFiles["cts/native-empty-attributes.cts"], 1],
     [modeSourceFiles["cts/native-empty-reexport.cts"], 1],
     [modeSourceFiles["cts/native-empty-namespace.cts"], 1],
     [modeSourceFiles["cts/native-empty-commented.cts"], 1],
     [modeSourceFiles["cts/native-nested-empty.d.cts"], 3],
+    [modeSourceFiles["cts/native-value-selector.mts"], 1],
+    [modeSourceFiles["cts/native-value-export-selector.mts"], 1],
   ] as const) {
     const result = await worker.analyze(source("invalid.cts", text), 100);
     if (!result.ok) throw result.error.error;
