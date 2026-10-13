@@ -466,6 +466,7 @@ export function* indexJavaScriptElectronIdentitySteps(
       if (path[0] === "electron") writes.retain(path);
       else interop.retainWrite(node, path, kind);
     },
+    interop.observeEvaluation,
   );
   collectedWrites = true;
   const intactExport = (path: readonly (string | null)[]): boolean =>

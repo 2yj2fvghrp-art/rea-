@@ -5,7 +5,10 @@ import {
   semanticWriteTargets,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
-import { traverseJavaScriptAstSteps } from "./javascriptSemanticTraversal.js";
+import {
+  javaScriptAstChildKeys,
+  traverseJavaScriptAstSteps,
+} from "./javascriptSemanticTraversal.js";
 
 /** Match Electron's supported module entry points. */
 export const ELECTRON_MODULE =
@@ -91,6 +94,7 @@ export function* collectJavaScriptIdentityWritesSteps(
     path: readonly (string | null)[],
     kind: JavaScriptIdentityWriteKind,
   ) => void,
+  observeEvaluation?: (node: t.Node) => void,
 ): Generator<void> {
   const objectMutators = new Set([
     "defineProperty",
@@ -163,8 +167,21 @@ export function* collectJavaScriptIdentityWritesSteps(
       }
     }
   };
-  const retainTargets = (node: t.Node): void => {
-    const target = t.isAssignmentExpression(node)
+  const retainTarget = (leaf: t.Node, effect: t.Node): void => {
+    if (t.isIdentifier(leaf)) {
+      for (const identity of origin(leaf, "binding"))
+        retain(effect, identity, "replace-value");
+      return;
+    }
+    const member = unwrapJavaScriptExpression(leaf).node;
+    if (!t.isMemberExpression(member) && !t.isOptionalMemberExpression(member))
+      return;
+    const key = semanticStaticPropertyKey(member.property, member.computed);
+    for (const identity of origin(member.object, "member"))
+      retain(effect, [...identity, key], "replace-value");
+  };
+  const targetOf = (node: t.Node): t.Node | undefined =>
+    t.isAssignmentExpression(node)
       ? node.left
       : t.isUpdateExpression(node)
         ? node.argument
@@ -173,36 +190,59 @@ export function* collectJavaScriptIdentityWritesSteps(
           : t.isForOfStatement(node) || t.isForInStatement(node)
             ? node.left
             : undefined;
-    if (target === undefined) return;
-    for (const leaf of semanticWriteTargets(target)) {
-      if (t.isIdentifier(leaf)) {
-        for (const identity of origin(leaf, "binding"))
-          retain(node, identity, "replace-value");
-        continue;
-      }
-      const member = unwrapJavaScriptExpression(leaf).node;
-      if (
-        !t.isMemberExpression(member) &&
-        !t.isOptionalMemberExpression(member)
-      )
-        continue;
-      const key = semanticStaticPropertyKey(member.property, member.computed);
-      for (const identity of origin(member.object, "member"))
-        retain(node, [...identity, key], "replace-value");
-    }
+  const isPattern = (node: t.Node | undefined): boolean =>
+    t.isArrayPattern(node) || t.isObjectPattern(node);
+  const retainTargets = (node: t.Node): void => {
+    const target = targetOf(node);
+    if (target !== undefined)
+      for (const leaf of semanticWriteTargets(target)) retainTarget(leaf, node);
   };
+  const patternLeaves = new WeakSet<t.Node>();
   const loopBodies = new WeakMap<t.Node, t.ForOfStatement | t.ForInStatement>();
   yield* traverseJavaScriptAstSteps(program, {
+    childKeys: (node) => {
+      // Assignment patterns are lexically before their RHS, but execute after it.
+      // A simple default target evaluates its reference before its initializer;
+      // a nested pattern starts destructuring only after that initializer.
+      if (t.isAssignmentExpression(node) && isPattern(node.left))
+        return ["right", "left"];
+      if (t.isForOfStatement(node) || t.isForInStatement(node))
+        return ["right", "left", "body"];
+      if (t.isAssignmentPattern(node) && isPattern(node.left))
+        return ["right", "left"];
+      if (t.isVariableDeclarator(node) && isPattern(node.id))
+        return ["init", "id"];
+      return javaScriptAstChildKeys(node);
+    },
     enter: (node) => {
+      const target = targetOf(node);
+      if (isPattern(target) && target !== undefined)
+        for (const leaf of semanticWriteTargets(target))
+          patternLeaves.add(leaf);
       if (t.isForOfStatement(node) || t.isForInStatement(node))
         loopBodies.set(node.body, node);
       const loop = loopBodies.get(node);
-      if (loop !== undefined) retainTargets(loop);
+      if (loop !== undefined && !isPattern(loop.left)) {
+        observeEvaluation?.(loop);
+        retainTargets(loop);
+      }
     },
-    exit: (node) => {
+    exit: (node, parent) => {
+      observeEvaluation?.(node);
+      if (patternLeaves.has(node)) {
+        // The default expression runs after the target reference is evaluated,
+        // but before its value is written. Later leaves see this completed write.
+        if (!t.isAssignmentPattern(parent) || parent.left !== node)
+          retainTarget(node, node);
+      } else if (t.isAssignmentPattern(node) && patternLeaves.has(node.left))
+        retainTarget(node.left, node);
       if (t.isCallExpression(node) || t.isOptionalCallExpression(node))
         retainCallEffects(node);
-      else if (!t.isForOfStatement(node) && !t.isForInStatement(node))
+      else if (
+        !t.isForOfStatement(node) &&
+        !t.isForInStatement(node) &&
+        !isPattern(targetOf(node))
+      )
         retainTargets(node);
     },
   });

@@ -43,6 +43,36 @@ const invocationKinds = (source: string) => {
 };
 
 describe("captured intrinsic invocation reads", () => {
+  it.each([
+    '[Object.defineProperty, ignored = Object.defineProperty(metadata,"x",{value:1})] = [replacement];',
+    '({first: Object.defineProperty, second: ignored = Object.defineProperty(metadata,"x",{value:1})} = values);',
+    '[change.call, ignored = change.call(null,metadata,"x",{value:1})] = [replacement];',
+    '({first: change.call, [change.call(null,metadata,"x",{value:1})]: ignored} = values);',
+    'for ([change.call, ignored = change.call(null,metadata,"x",{value:1})] of values) {}',
+  ])(
+    "retains destructuring writes before later defaults and keys: %s",
+    (mutation) => {
+      const result = analyzeJavaScriptStaticSource(`
+      const define = Object.defineProperty;
+      const change = define.bind(null);
+      const metadata = {}; let ignored;
+      ${mutation}
+      ${CAPTURED_INTEROP} ${WINDOW}
+    `);
+      expect(result.electron.browser_windows).toEqual([]);
+    },
+  );
+
+  it("evaluates a destructuring RHS before any target writes", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const define = Object.defineProperty;
+      const metadata = {};
+      [Object.defineProperty] = [Object.defineProperty(metadata,"x",{value:1}), replacement];
+      ${CAPTURED_INTEROP} ${WINDOW}
+    `);
+    expect(result.electron.browser_windows).toHaveLength(1);
+  });
+
   it("evaluates assignment operands before recording their writes", () => {
     const result = analyzeJavaScriptStaticSource(`
       const define = Object.defineProperty;
@@ -122,6 +152,18 @@ describe("captured intrinsic invocation reads", () => {
 });
 
 describe("identifier-aliased intrinsic invocation members", () => {
+  it.each(["call", "apply"])(
+    "keeps a detached bound %s member opaque",
+    (method) => {
+      const source = `const change = Object.defineProperty.bind(null,Object,"create");
+      (0, change.${method})(null, ${method === "apply" ? "[{value:customCreate}]" : "{value:customCreate}"});`;
+      expect(invocationKinds(source).invocations.at(-1)).toMatchObject({
+        kind: "opaque",
+        arguments: undefined,
+      });
+    },
+  );
+
   it.each([
     'const change = Object.defineProperty.call; change(null,Object,"create",{value:customCreate});',
     'const {apply:change} = Object.defineProperty; change(null,[Object,"create",{value:customCreate}]);',

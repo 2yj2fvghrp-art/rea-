@@ -93,6 +93,14 @@ export const createSemanticModuleInterop = (
     readonly intrinsicPath: (node: t.Node) => readonly string[] | undefined;
   },
 ) => {
+  // Evaluation order, unlike source offsets, preserves RHS-before-pattern and
+  // each destructuring write before subsequent defaults and computed keys.
+  const evaluationOrder = new WeakMap<t.Node, number>();
+  let evaluationClock = 0;
+  const evaluationOffset = (node: t.Node): number =>
+    evaluationClock === 0
+      ? (node.start ?? -1)
+      : (evaluationOrder.get(node) ?? Infinity);
   const helpers = new Map<string, InteropHelper | null>();
   const origins = new Map<string, InteropOrigin>();
   const calls = new WeakMap<t.Node, InteropOrigin>();
@@ -299,7 +307,7 @@ export const createSemanticModuleInterop = (
         // Reading an invocation member does not recapture the stored function.
         // Check member writes now, then check its base at the earlier capture.
         const scope = opaqueMutationPath(current).join(".");
-        const offset = current.property.start ?? -1;
+        const offset = evaluationOffset(current);
         if (
           writes.some(
             (write) =>
@@ -324,7 +332,7 @@ export const createSemanticModuleInterop = (
       return writes.some(
         (write) =>
           (write.scope === scope || write.scope === "intrinsic") &&
-          write.offset < (capture.start ?? -1) &&
+          write.offset < evaluationOffset(capture) &&
           (intrinsicWriteCovers(write.path, currentPath) ||
             (invocationMethod &&
               intrinsicWriteCovers(write.path, [
@@ -703,7 +711,7 @@ export const createSemanticModuleInterop = (
       return writes.some(
         (write) =>
           (write.scope === scope || write.scope === "intrinsic") &&
-          write.offset < (capturedAt.start ?? -1) &&
+          write.offset < evaluationOffset(capturedAt) &&
           intrinsicWriteCovers(write.path, path),
       );
     }) ?? false;
@@ -722,6 +730,9 @@ export const createSemanticModuleInterop = (
     staticString,
     isFreshObject,
     opaqueMutationPath,
+    observeEvaluation: (node: t.Node): void => {
+      evaluationOrder.set(node, ++evaluationClock);
+    },
     retainWrite: (
       node: t.Node,
       path: readonly (string | null)[],
@@ -729,7 +740,10 @@ export const createSemanticModuleInterop = (
     ) => {
       writes.push({
         scope: opaqueMutationPath(node).join("."),
-        offset: javaScriptIdentityWriteOffset(node),
+        offset:
+          evaluationClock === 0
+            ? javaScriptIdentityWriteOffset(node)
+            : evaluationOffset(node),
         path: path[0] === "opaque-intrinsic" ? ["intrinsic"] : path,
         kind,
       });
