@@ -3284,58 +3284,68 @@ public final class ReaGhidraBridge extends HeadlessScript {
         List<String> limitations = new ArrayList<>();
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
-            if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal()) {
-                continue;
-            }
-            Address[] destinations = instruction.getFlows();
-            StringBuilder limitation = new StringBuilder();
-            limitation.append("Ghidra Listing reports a terminal call at ")
-                .append(canonicalAddress(instruction.getAddress()));
-            if (destinations.length == 0) {
-                limitation.append(" with no resolved callee; its no-return basis is unknown.");
-            }
-            else {
-                limitation.append(" to ");
-                for (int index = 0; index < destinations.length; index++) {
-                    if (index > 0) limitation.append(", ");
-                    Address destination = destinations[index];
-                    limitation.append(canonicalAddress(destination));
-                    Function target = currentProgram.getFunctionManager().getFunctionAt(destination);
-                    if (target == null) {
-                        limitation.append(" (callee identity unknown)");
-                    }
-                    else {
-                        limitation.append(" ").append(procedureName(target));
-                        limitation.append(" (external=").append(target.isExternal());
-                        limitation.append(", thunk=").append(target.isThunk());
-                        limitation.append(", hasNoReturn=").append(target.hasNoReturn()).append(")");
-                    }
-                }
-                limitation.append("; fallthrough is excluded by Ghidra's flow model.");
-                Function target = destinations.length == 1
-                    ? currentProgram.getFunctionManager().getFunctionAt(destinations[0])
-                    : null;
-                if (target != null && target.hasNoReturn()) {
-                    limitation.append(" This records Ghidra's FunctionManager flag, not an independent verification that the callee cannot return.");
-                }
-                else {
-                    limitation.append(" The reason for the terminal flow is not established by this observation.");
-                }
-            }
-            limitations.add(limitation.toString());
+            noReturnCallLimitation(instruction, limitations);
         }
         return limitations;
     }
 
+    private void noReturnCallLimitation(Instruction instruction, List<String> limitations)
+            throws Exception {
+        if (!instruction.getFlowType().isCall() || !instruction.getFlowType().isTerminal()) {
+            return;
+        }
+        Address[] destinations = instruction.getFlows();
+        StringBuilder limitation = new StringBuilder();
+        limitation.append("Ghidra Listing reports a terminal call at ")
+            .append(canonicalAddress(instruction.getAddress()));
+        if (destinations.length == 0) {
+            limitation.append(" with no resolved callee; its no-return basis is unknown.");
+        }
+        else {
+            limitation.append(" to ");
+            for (int index = 0; index < destinations.length; index++) {
+                if (index > 0) limitation.append(", ");
+                Address destination = destinations[index];
+                limitation.append(canonicalAddress(destination));
+                Function target = currentProgram.getFunctionManager().getFunctionAt(destination);
+                if (target == null) {
+                    limitation.append(" (callee identity unknown)");
+                }
+                else {
+                    limitation.append(" ").append(procedureName(target));
+                    limitation.append(" (external=").append(target.isExternal());
+                    limitation.append(", thunk=").append(target.isThunk());
+                    limitation.append(", hasNoReturn=").append(target.hasNoReturn()).append(")");
+                }
+            }
+            limitation.append("; fallthrough is excluded by Ghidra's flow model.");
+            Function target = destinations.length == 1
+                ? currentProgram.getFunctionManager().getFunctionAt(destinations[0])
+                : null;
+            if (target != null && target.hasNoReturn()) {
+                limitation.append(" This records Ghidra's FunctionManager flag, not an independent verification that the callee cannot return.");
+            }
+            else {
+                limitation.append(" The reason for the terminal flow is not established by this observation.");
+            }
+        }
+        limitations.add(limitation.toString());
+    }
+
     private List<String> functionBoundaryLimitations(
             Iterable<Instruction> instructions, Function function) throws Exception {
-        List<Instruction> materialized = new ArrayList<>();
+        List<String> limitations = new ArrayList<>();
+        Instruction windowFirst = null;
+        Instruction windowSecond = null;
         for (Instruction instruction : instructions) {
             monitor.checkCancelled();
-            materialized.add(instruction);
+            noReturnCallLimitation(instruction, limitations);
+            if (windowFirst != null && windowSecond != null) {
+                sehHandlerLimitation(windowFirst, windowSecond, instruction, function, limitations);
+            }
+            windowFirst = windowSecond;
+            windowSecond = instruction;
         }
-        List<String> limitations = noReturnCallLimitations(materialized);
-        limitations.addAll(sehHandlerLimitations(materialized, function));
         return limitations;
     }
 
@@ -3345,39 +3355,46 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * handler through the SEH chain, so callees, strings, and references below
      * silently omit the handler region unless the reader is warned.
      */
-    private List<String> sehHandlerLimitations(
-            List<Instruction> instructions, Function function) throws Exception {
-        List<String> limitations = new ArrayList<>();
-        for (int index = 0; index + 2 < instructions.size(); index++) {
-            monitor.checkCancelled();
-            Address handler = sehHandlerAddress(
-                instructions.get(index), instructions.get(index + 1), instructions.get(index + 2));
-            if (handler == null || function.getBody().contains(handler)) {
-                continue;
-            }
-            limitations.add(
-                "Ghidra Listing shows a Borland/Delphi SEH frame registration at "
-                    + canonicalAddress(instructions.get(index).getAddress())
-                    + " (push "
-                    + canonicalAddress(handler)
-                    + " followed by fs-segment stack chaining); the handler "
-                    + canonicalAddress(handler)
-                    + " lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.");
+    private void sehHandlerLimitation(
+            Instruction pushImmediate,
+            Instruction pushSegment,
+            Instruction moveSegment,
+            Function function,
+            List<String> limitations) throws Exception {
+        Address handler = sehHandlerAddress(pushImmediate, pushSegment, moveSegment);
+        if (handler == null || function.getBody().contains(handler)) {
+            return;
         }
-        return limitations;
+        limitations.add(
+            "Ghidra Listing shows a Borland/Delphi SEH frame registration at "
+                + canonicalAddress(pushImmediate.getAddress())
+                + " (push "
+                + canonicalAddress(handler)
+                + " followed by fs-segment stack chaining); the handler "
+                + canonicalAddress(handler)
+                + " lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.");
     }
 
     /**
      * Matches the Borland/Delphi SEH prologue triple {@code push imm32;
-     * push fs:[reg]; mov fs:[reg], esp} and returns the registered handler
+     * push fs:[slot]; mov fs:[slot], esp} and returns the registered handler
      * address, or null when the three instructions do not form the pattern.
+     * The triple must be address-consecutive and chain the same FS slot;
+     * anything looser is reported as no registration rather than risk a
+     * misleading handler warning.
      */
     private Address sehHandlerAddress(
             Instruction pushImmediate, Instruction pushSegment, Instruction moveSegment) {
         if (!isPushMnemonic(pushImmediate)
                 || pushImmediate.getNumOperands() != 1
                 || !isFsSegmentPush(pushSegment)
-                || !isFsSegmentMove(moveSegment)) {
+                || !isFsSegmentMove(moveSegment)
+                || !consecutiveInstructions(pushImmediate, pushSegment)
+                || !consecutiveInstructions(pushSegment, moveSegment)) {
+            return null;
+        }
+        String pushSlot = fsSegmentSlot(pushSegment, 0);
+        if (pushSlot == null || !pushSlot.equals(fsSegmentSlot(moveSegment, 0))) {
             return null;
         }
         Object[] operands = pushImmediate.getOpObjects(0);
@@ -3388,6 +3405,26 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         return currentProgram.getAddressFactory().getDefaultAddressSpace()
             .getAddress(scalar.getUnsignedValue());
+    }
+
+    private static boolean consecutiveInstructions(Instruction first, Instruction second) {
+        return second.getAddress().getOffset()
+            == first.getAddress().getOffset() + first.getLength();
+    }
+
+    /**
+     * Extracts the normalized {@code fs:[slot]} text from an operand
+     * representation, or null when the operand does not address the FS segment.
+     */
+    private static String fsSegmentSlot(Instruction instruction, int operandIndex) {
+        String representation = instruction.getDefaultOperandRepresentation(operandIndex)
+            .toLowerCase(Locale.ROOT);
+        int start = representation.indexOf("fs:");
+        if (start < 0) {
+            return null;
+        }
+        int end = representation.indexOf(']', start);
+        return end < 0 ? representation.substring(start) : representation.substring(start, end + 1);
     }
 
     private boolean isPushMnemonic(Instruction instruction) {
@@ -3407,12 +3444,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     .toLowerCase(Locale.ROOT).contains("fs:")) {
             return false;
         }
-        for (Object object : instruction.getOpObjects(1)) {
-            if (object instanceof Register register && register.getName().equalsIgnoreCase("ESP")) {
-                return true;
-            }
-        }
-        return false;
+        Object[] source = instruction.getOpObjects(1);
+        return source.length == 1
+            && source[0] instanceof Register register
+            && register.getName().equalsIgnoreCase("ESP");
     }
 
     private static String renderAssembly(List<Instruction> instructions) {
