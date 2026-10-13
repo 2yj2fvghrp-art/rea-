@@ -279,6 +279,30 @@ export const projectJavaScriptApplicationView = (
       ),
     );
   const shared = parentFields(parent, analysis);
+  if (view.kind === "page" && view.collection === "semantic_files") {
+    const files = analysis.semantic_graph.coverage.files;
+    const items = files.slice(view.offset, view.offset + view.limit);
+    return ok({
+      kind: "page",
+      view,
+      items,
+      coverage: pageCoverage(view.offset, items.length, files.length),
+      ...shared,
+    });
+  }
+  if (view.kind === "page" && view.collection === "semantic_unknowns") {
+    const unknowns = analysis.semantic_graph.unknowns;
+    const items = semanticUnknownItems(
+      unknowns.slice(view.offset, view.offset + view.limit),
+    );
+    return ok({
+      kind: "page",
+      view,
+      items,
+      coverage: pageCoverage(view.offset, items.length, unknowns.length),
+      ...shared,
+    });
+  }
   const modules = moduleEntries(analysis.graph.nodes);
   if (view.kind === "summary")
     return ok({
@@ -323,30 +347,6 @@ export const projectJavaScriptApplicationView = (
       view,
       item: moduleItem(selected.value),
       coverage: completeCoverage(1, modules.length),
-      ...shared,
-    });
-  }
-  if (view.collection === "semantic_files") {
-    const files = analysis.semantic_graph.coverage.files;
-    const items = files.slice(view.offset, view.offset + view.limit);
-    return ok({
-      kind: "page",
-      view,
-      items,
-      coverage: pageCoverage(view.offset, items.length, files.length),
-      ...shared,
-    });
-  }
-  if (view.collection === "semantic_unknowns") {
-    const unknowns = analysis.semantic_graph.unknowns;
-    const items = semanticUnknownItems(
-      unknowns.slice(view.offset, view.offset + view.limit),
-    );
-    return ok({
-      kind: "page",
-      view,
-      items,
-      coverage: pageCoverage(view.offset, items.length, unknowns.length),
       ...shared,
     });
   }

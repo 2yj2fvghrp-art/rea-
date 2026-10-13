@@ -25,7 +25,10 @@ import {
   pageViewCoverage,
 } from "./analysisViewCoverage.js";
 import { sourceMapReference } from "../javascript/javascriptApplicationGraph.fixture.js";
-import { javascriptModulePath } from "./javascriptApplicationView.js";
+import {
+  javascriptModulePath,
+  projectJavaScriptApplicationView,
+} from "./javascriptApplicationView.js";
 import {
   inspectAnalysisViewInputSchema,
   projectAnalysisView,
@@ -1001,3 +1004,32 @@ it("preserves selected native facet unavailability instead of an exhausted empty
     });
   }
 });
+
+it.each(["semantic_files", "semantic_unknowns"] as const)(
+  "pages %s without deriving application module rows",
+  (collection) => {
+    const analysis = analysisViewJavaScriptAnalysis();
+    // Module rows derive each node's path from its identity.
+    const nodes = analysis.graph.nodes.map((node) =>
+      Object.defineProperty({ ...node }, "identity", {
+        get: () => {
+          throw new Error("application module rows were derived");
+        },
+      }),
+    );
+    expect(nodes.length).toBeGreaterThan(0);
+    const graph = { ...analysis.graph, nodes };
+    const result = projectJavaScriptApplicationView(
+      {
+        evidenceId: JAVASCRIPT_APPLICATION_EVIDENCE_EXAMPLE.evidence_id,
+        operation: "analyze_javascript_application",
+        normalizedResult: analysis,
+        limitations: [],
+      },
+      { ...analysis, graph },
+      { kind: "page", collection, offset: 0, limit: 1 },
+    );
+    if (!result.ok) throw result.error;
+    expect(result.value.kind).toBe("page");
+  },
+);
