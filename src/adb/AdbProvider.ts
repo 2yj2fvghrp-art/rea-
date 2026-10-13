@@ -1298,7 +1298,7 @@ export class AdbProvider {
     signal: AbortSignal | undefined,
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
     const { serial, package: packageName } = input;
-    const paths = await runAdb(
+    const paths = await runAdbCapture(
       operation,
       serial,
       selection.binary,
@@ -1310,10 +1310,33 @@ export class AdbProvider {
       signal,
     );
     if (!paths.ok) return paths;
-    const parsed = parsePmPathOutput(paths.value.stdout);
+    // pm path selects later pull operands. Decode strictly before interpreting
+    // it so replacement characters can never select a different device file.
+    let stdout: string;
+    try {
+      stdout = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true,
+      }).decode(paths.value.stdout);
+    } catch (cause: unknown) {
+      return err(
+        new AnalysisProtocolError(
+          "pm path output is not valid UTF-8; captured stdout preserves the original bytes as base64",
+          {
+            cause,
+            capturedOutput: {
+              stdout: `base64:${paths.value.stdout.toString("base64")}`,
+              stderr: paths.value.stderr.toString("utf8"),
+              truncated: false,
+            },
+          },
+        ),
+      );
+    }
+    const parsed = parsePmPathOutput(stdout);
     const capturedOutput = {
-      stdout: paths.value.stdout,
-      stderr: paths.value.stderr,
+      stdout,
+      stderr: paths.value.stderr.toString("utf8"),
       truncated: false,
     };
     const refusal: PmPathRefusalContext = {

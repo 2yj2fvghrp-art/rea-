@@ -445,6 +445,37 @@ exit 1`,
   },
 );
 
+it("refuses malformed UTF-8 pm paths and preserves their captured bytes", async () => {
+  const { binary, root } = await writeAdbStub(
+    (root) => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$1" = "-s" ] && [ "$4" = "-T" ] && [ "$5" = "pm" ]; then printf '%b' 'package:/data/\\377/base.apk\\n'; exit 0; fi
+if [ "$1" = "-s" ] && [ "$3" = "pull" ]; then : > '${join(root, "pull-ran")}'; exit 0; fi
+exit 1`,
+  );
+  const output = join(root, "pulls");
+  const result = await providerOver(binary).execute({
+    operation: "pull_adb_package",
+    input: {
+      serial: "emulator-5554",
+      package: "com.example",
+      output_directory: output,
+    },
+  });
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  const bytes = Buffer.concat([
+    Buffer.from("package:/data/"),
+    Buffer.from([0xff]),
+    Buffer.from("/base.apk\n"),
+  ]);
+  expect(result.error.message).toContain("not valid UTF-8");
+  expect(result.error.capturedOutput?.stdout).toBe(
+    `base64:${bytes.toString("base64")}`,
+  );
+  await expect(readFile(join(root, "pull-ran"))).rejects.toThrow();
+  await expect(lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
 it("refuses an overlong filename before creating output or pulling", async () => {
   const fileName = `${"a".repeat(300)}.apk`;
   const { binary, root } = await writeAdbStub(
@@ -469,7 +500,12 @@ exit 1`,
       reason: "unsafe_device_path",
       diagnostics: {
         package_name: "com.example",
-        rejected_paths: [{ device_path: `/data/app/x/${fileName}`, reason: "file_name_too_long" }],
+        rejected_paths: [
+          {
+            device_path: `/data/app/x/${fileName}`,
+            reason: "file_name_too_long",
+          },
+        ],
       },
     },
   });
@@ -501,7 +537,10 @@ exit 1`,
     diagnostics: {
       rejected_paths: [
         { device_path: devicePath, reason: "unsupported_character" },
-        { device_path: "/data/app/y/\u202egpj.apk", reason: "unsupported_character" },
+        {
+          device_path: "/data/app/y/\u202egpj.apk",
+          reason: "unsupported_character",
+        },
       ],
     },
   });
