@@ -17,6 +17,8 @@ import {
 } from "./javascriptSemanticTraversal.js";
 import {
   electronMemberPath,
+  javaScriptIdentityWriteOffset,
+  type JavaScriptIdentityWriteKind,
   type JavaScriptIntrinsicInvocation,
 } from "./javascriptElectronMemberWrites.js";
 import {
@@ -99,7 +101,17 @@ export const createSemanticModuleInterop = (
     readonly scope: string;
     readonly offset: number;
     readonly path: readonly (string | null)[];
+    readonly kind: JavaScriptIdentityWriteKind;
   }[] = [];
+  const invocationMemberWriteCovers = (
+    write: (typeof writes)[number],
+    read: readonly string[],
+  ): boolean =>
+    (write.kind === "opaque" ||
+      (write.kind === "mutate-object" &&
+        write.path.length === read.length - 1) ||
+      (write.kind === "replace-value" && write.path.length === read.length)) &&
+    intrinsicWriteCovers(write.path, read);
   const invalidatedBindings = new Map<string, boolean>();
   const invalidatedCalls = new WeakMap<t.Node, boolean>();
   const opaqueMutationPath = (node: t.Node): readonly string[] => {
@@ -293,9 +305,8 @@ export const createSemanticModuleInterop = (
             (write) =>
               (write.scope === scope || write.scope === "intrinsic") &&
               write.offset < offset &&
-              ((write.path.length >= currentPath.length &&
-                intrinsicWriteCovers(write.path, currentPath)) ||
-                intrinsicWriteCovers(write.path, [
+              (invocationMemberWriteCovers(write, currentPath) ||
+                invocationMemberWriteCovers(write, [
                   "intrinsic",
                   "Function",
                   "prototype",
@@ -711,15 +722,16 @@ export const createSemanticModuleInterop = (
     staticString,
     isFreshObject,
     opaqueMutationPath,
-    retainWrite: (node: t.Node, path: readonly (string | null)[]) => {
+    retainWrite: (
+      node: t.Node,
+      path: readonly (string | null)[],
+      kind: JavaScriptIdentityWriteKind = "replace-value",
+    ) => {
       writes.push({
         scope: opaqueMutationPath(node).join("."),
-        // Invocation effects happen after callee and argument evaluation.
-        offset:
-          (t.isCallExpression(node) || t.isOptionalCallExpression(node)
-            ? node.end
-            : node.start) ?? Infinity,
+        offset: javaScriptIdentityWriteOffset(node),
         path: path[0] === "opaque-intrinsic" ? ["intrinsic"] : path,
+        kind,
       });
     },
     invalidated: (binding: JavaScriptSemanticBindingState): boolean => {

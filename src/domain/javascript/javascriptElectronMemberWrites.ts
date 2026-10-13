@@ -52,6 +52,24 @@ export interface JavaScriptIntrinsicInvocation {
     | undefined;
 }
 
+/** Distinguish replacing a value from mutating members of the captured object. */
+export type JavaScriptIdentityWriteKind =
+  | "replace-value"
+  | "mutate-object"
+  | "opaque";
+
+/** The source boundary after the operands required for this effect are evaluated. */
+export const javaScriptIdentityWriteOffset = (node: t.Node): number =>
+  (t.isForOfStatement(node) || t.isForInStatement(node)
+    ? node.right.end
+    : t.isCallExpression(node) ||
+        t.isOptionalCallExpression(node) ||
+        t.isAssignmentExpression(node) ||
+        t.isUpdateExpression(node) ||
+        t.isUnaryExpression(node, { operator: "delete" })
+      ? node.end
+      : node.start) ?? Infinity;
+
 /**
  * Index writes through possible lexical object identities. Resolve the complete
  * object before appending the written key: self-reference properties can denote
@@ -68,7 +86,11 @@ export function* collectJavaScriptIdentityWritesSteps(
   ) => JavaScriptIntrinsicInvocation | undefined,
   staticString: (node: t.Node | undefined) => string | undefined,
   freshObject: (node: t.Node) => boolean,
-  retain: (node: t.Node, path: readonly (string | null)[]) => void,
+  retain: (
+    node: t.Node,
+    path: readonly (string | null)[],
+    kind: JavaScriptIdentityWriteKind,
+  ) => void,
 ): Generator<void> {
   const objectMutators = new Set([
     "defineProperty",
@@ -88,7 +110,8 @@ export function* collectJavaScriptIdentityWritesSteps(
   ): void => {
     const invocation = intrinsicInvocation(node);
     if (invocation?.kind === "opaque") {
-      for (const scope of origin(node, "opaque-call")) retain(node, scope);
+      for (const scope of origin(node, "opaque-call"))
+        retain(node, scope, "opaque");
       return;
     }
     const callee = invocation?.path;
@@ -115,7 +138,8 @@ export function* collectJavaScriptIdentityWritesSteps(
         // A known mutator with an opaque argument list can overwrite any
         // captured intrinsic. Do not turn an unexamined target into proof.
         if (target === undefined || t.isSpreadElement(target)) {
-          for (const scope of origin(node, "opaque-call")) retain(node, scope);
+          for (const scope of origin(node, "opaque-call"))
+            retain(node, scope, "opaque");
         }
         if (t.isNode(target) && !t.isSpreadElement(target)) {
           const identities = origin(target, "member");
@@ -124,47 +148,62 @@ export function* collectJavaScriptIdentityWritesSteps(
               ? [staticString(arguments_?.[1]) ?? null]
               : [];
             for (const identity of identities)
-              retain(node, [...identity, ...key]);
+              retain(
+                node,
+                [...identity, ...key],
+                keyedMutators.has(method ?? "")
+                  ? "replace-value"
+                  : "mutate-object",
+              );
           } else if (!freshObject(target)) {
             for (const scope of origin(node, "opaque-call"))
-              retain(node, scope);
+              retain(node, scope, "opaque");
           }
         }
       }
     }
   };
+  const retainTargets = (node: t.Node): void => {
+    const target = t.isAssignmentExpression(node)
+      ? node.left
+      : t.isUpdateExpression(node)
+        ? node.argument
+        : t.isUnaryExpression(node, { operator: "delete" })
+          ? node.argument
+          : t.isForOfStatement(node) || t.isForInStatement(node)
+            ? node.left
+            : undefined;
+    if (target === undefined) return;
+    for (const leaf of semanticWriteTargets(target)) {
+      if (t.isIdentifier(leaf)) {
+        for (const identity of origin(leaf, "binding"))
+          retain(node, identity, "replace-value");
+        continue;
+      }
+      const member = unwrapJavaScriptExpression(leaf).node;
+      if (
+        !t.isMemberExpression(member) &&
+        !t.isOptionalMemberExpression(member)
+      )
+        continue;
+      const key = semanticStaticPropertyKey(member.property, member.computed);
+      for (const identity of origin(member.object, "member"))
+        retain(node, [...identity, key], "replace-value");
+    }
+  };
+  const loopBodies = new WeakMap<t.Node, t.ForOfStatement | t.ForInStatement>();
   yield* traverseJavaScriptAstSteps(program, {
     enter: (node) => {
-      const target = t.isAssignmentExpression(node)
-        ? node.left
-        : t.isUpdateExpression(node)
-          ? node.argument
-          : t.isUnaryExpression(node, { operator: "delete" })
-            ? node.argument
-            : t.isForOfStatement(node) || t.isForInStatement(node)
-              ? node.left
-              : undefined;
-      if (target === undefined) return;
-      for (const leaf of semanticWriteTargets(target)) {
-        if (t.isIdentifier(leaf)) {
-          for (const identity of origin(leaf, "binding"))
-            retain(node, identity);
-          continue;
-        }
-        const member = unwrapJavaScriptExpression(leaf).node;
-        if (
-          !t.isMemberExpression(member) &&
-          !t.isOptionalMemberExpression(member)
-        )
-          continue;
-        const key = semanticStaticPropertyKey(member.property, member.computed);
-        for (const identity of origin(member.object, "member"))
-          retain(node, [...identity, key]);
-      }
+      if (t.isForOfStatement(node) || t.isForInStatement(node))
+        loopBodies.set(node.body, node);
+      const loop = loopBodies.get(node);
+      if (loop !== undefined) retainTargets(loop);
     },
     exit: (node) => {
       if (t.isCallExpression(node) || t.isOptionalCallExpression(node))
         retainCallEffects(node);
+      else if (!t.isForOfStatement(node) && !t.isForInStatement(node))
+        retainTargets(node);
     },
   });
 }

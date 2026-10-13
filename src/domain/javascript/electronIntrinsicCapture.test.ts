@@ -43,6 +43,26 @@ const invocationKinds = (source: string) => {
 };
 
 describe("captured intrinsic invocation reads", () => {
+  it("evaluates assignment operands before recording their writes", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const define = Object.defineProperty;
+      const metadata = {};
+      Object.defineProperty = (Object.defineProperty(metadata, "x", {value:1}), replacement);
+      ${CAPTURED_INTEROP} ${WINDOW}
+    `);
+    expect(result.electron.browser_windows).toHaveLength(1);
+  });
+
+  it("retains whole-object mutations at a captured function's later member read", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const define = Object.defineProperty;
+      Object.assign(define, {call: replacement});
+      const metadata = {}; define.call(null, metadata, "x", {value:1});
+      ${CAPTURED_INTEROP} ${WINDOW}
+    `);
+    expect(result.electron.browser_windows).toEqual([]);
+  });
+
   it("retains callee-prefix effects before classifying the invocation", () => {
     const result = analyzeJavaScriptStaticSource(`
       const define = Object.defineProperty;
