@@ -309,13 +309,16 @@ export const inspectRouteProperty = (
   context: FindingContext,
 ): void => {
   const key = semanticStaticPropertyName(node.key, node.computed);
-  if ((key === "path" || key === "route") && t.isStringLiteral(node.value))
-    addEndpoint(context, {
-      node,
-      kind: "route",
-      value: node.value.value,
-      mechanism: `property:${key}`,
-    });
+  if (key === "path" || key === "route") {
+    const value = stringValue(node.value);
+    if (value !== undefined)
+      addEndpoint(context, {
+        node,
+        kind: "route",
+        value,
+        mechanism: `property:${key}`,
+      });
+  }
 };
 
 export const inspectRoleProperty = (

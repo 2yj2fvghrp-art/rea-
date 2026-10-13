@@ -123,14 +123,17 @@ const inspectNode = (
       node,
       accumulator,
     });
-  else if (t.isImportExpression(node) && t.isStringLiteral(node.source))
-    addEdge({
-      script,
-      specifier: node.source.value,
-      kind: "dynamic_import",
-      node,
-      accumulator,
-    });
+  else if (t.isImportExpression(node)) {
+    const specifier = stringValue(node.source);
+    if (specifier !== undefined)
+      addEdge({
+        script,
+        specifier,
+        kind: "dynamic_import",
+        node,
+        accumulator,
+      });
+  }
   if (t.isObjectProperty(node)) inspectRouteProperty(script, node, accumulator);
   if (
     t.isCallExpression(node) ||
@@ -212,15 +215,18 @@ const inspectRouteProperty = (
   accumulator: AnalysisAccumulator,
 ): void => {
   const key = semanticStaticPropertyName(node.key, node.computed);
-  if ((key === "path" || key === "route") && t.isStringLiteral(node.value))
-    addFinding({
-      collection: accumulator.routes,
-      script,
-      rawValue: node.value.value,
-      mechanism: `property:${key}`,
-      node,
-      accumulator,
-    });
+  if (key === "path" || key === "route") {
+    const value = stringValue(node.value);
+    if (value !== undefined)
+      addFinding({
+        collection: accumulator.routes,
+        script,
+        rawValue: value,
+        mechanism: `property:${key}`,
+        node,
+        accumulator,
+      });
+  }
 };
 
 interface AddEdgeContext {

@@ -37,4 +37,27 @@ describe("JavaScript static analysis findings", () => {
       10_001,
     );
   });
+
+  it("recovers route properties declared with template literals", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const routes = [
+        { path: \`/score-board\` },
+        { route: \`administration\` },
+      ];
+    `);
+    expect(analysis.endpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "route",
+          value: "/score-board",
+          mechanism: "property:path",
+        }),
+        expect.objectContaining({
+          kind: "route",
+          value: "administration",
+          mechanism: "property:route",
+        }),
+      ]),
+    );
+  });
 });

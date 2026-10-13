@@ -1,6 +1,7 @@
 import * as t from "@babel/types";
 
 import {
+  readExactJavaScriptLiteral,
   unwrapJavaScriptExpression,
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
@@ -129,10 +130,12 @@ const objectStringProperty = (
   for (const property of node.properties)
     if (
       t.isObjectProperty(property) &&
-      semanticStaticPropertyKey(property.key, property.computed) === key &&
-      t.isStringLiteral(property.value)
-    )
-      return property.value.value;
+      semanticStaticPropertyKey(property.key, property.computed) === key
+    ) {
+      const literal = readExactJavaScriptLiteral(property.value);
+      if (literal.found && typeof literal.value === "string")
+        return literal.value;
+    }
   return undefined;
 };
 

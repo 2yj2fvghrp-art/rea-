@@ -231,6 +231,7 @@ describe("tRPC binding identity and bundled syntax", () => {
       const p = (t.createTRPCProxyClient as any)({});
       p.posts.query();
       (0, t.httpLink)({ url: "/api/other" });
+      (0, t.httpLink)({ url: \`/api/template\` });
     `),
     ).toEqual([
       {
@@ -241,6 +242,11 @@ describe("tRPC binding identity and bundled syntax", () => {
       { kind: "network", value: "users", mechanism: "trpc:procedure:query" },
       { kind: "network", value: "posts", mechanism: "trpc:procedure:query" },
       { kind: "network", value: "/api/other", mechanism: "trpc:link:httpLink" },
+      {
+        kind: "network",
+        value: "/api/template",
+        mechanism: "trpc:link:httpLink",
+      },
     ]);
   });
 
