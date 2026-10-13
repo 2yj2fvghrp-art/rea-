@@ -226,6 +226,7 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
           ],
         };
   }
+  if (input.exactUrlResource) return resolveExactUrlResource(input);
   if (input.runtimeEntrypoint && isRuntimePathDeclaration(input))
     return resolveRuntimeEntrypoint(input);
   // Package import keys are literal lookup identities, not artifact paths.
@@ -239,18 +240,6 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
   if (typeof confined !== "string") return confined;
-  if (input.exactUrlResource)
-    return (
-      resolveFileCandidates(input, [confined]) ??
-      {
-        resolvedPath: null,
-        status: "not-found",
-        candidatePath: confined,
-        limitations: [
-          `The exact URL resource ${confined} was not found among the selected application files.`,
-        ],
-      }
-    );
   if (input.context === "html-reference" || input.context === "url-reference")
     return (
       resolveFileCandidates(input, [confined]) ??
@@ -276,6 +265,31 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
       ) ?? notFoundCandidate()
     );
   return resolveCandidate(input, confined, new Set(), emittedSourceCandidates);
+};
+
+const resolveExactUrlResource = (
+  input: ResolveArtifactPathInput,
+): CandidateResolution => {
+  // loadURL values are URL references, even when they look like bare package
+  // specifiers or begin with a fragment. Resolve their URL path before module
+  // aliases and package lookup can reinterpret the declaration.
+  const urlInput = /^file:/iu.test(input.declaredPath)
+    ? input
+    : { ...input, context: "url-reference" as const };
+  const urlContextCandidate = contextualCandidate(urlInput);
+  if (typeof urlContextCandidate !== "string") return urlContextCandidate;
+  const confined = confineCandidate(urlContextCandidate);
+  if (typeof confined !== "string") return confined;
+  return (
+    resolveFileCandidates(input, [confined]) ?? {
+      resolvedPath: null,
+      status: "not-found",
+      candidatePath: confined,
+      limitations: [
+        `The exact URL resource ${confined} was not found among the selected application files.`,
+      ],
+    }
+  );
 };
 
 const isRuntimePathDeclaration = (
@@ -368,6 +382,8 @@ const contextualCandidate = (
     context === "url-reference"
       ? stripQueryAndFragment(input.declaredPath)
       : input.declaredPath;
+  if (context === "url-reference" && declared.length === 0)
+    return input.sourcePath;
   if (context === "module-specifier" && /^file:/iu.test(declared)) {
     const fileUrl = fileUrlPath(declared);
     if (fileUrl === null)

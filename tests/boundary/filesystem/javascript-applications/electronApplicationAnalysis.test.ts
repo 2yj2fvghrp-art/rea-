@@ -169,6 +169,8 @@ const { BrowserWindow, utilityProcess } = require("electron");
 const path = require("node:path");
 new BrowserWindow({ webPreferences: { preload: "./entry" } });
 new BrowserWindow().loadURL("file:///renderer/index.html");
+new BrowserWindow().loadURL("renderer/bare.html");
+new BrowserWindow().loadURL("#home");
 new BrowserWindow().loadURL("./renderer/other.html?theme=dark#home");
 new BrowserWindow().loadURL("./renderer/missing.html");
 new BrowserWindow().loadFile("./renderer/page");
@@ -180,8 +182,9 @@ utilityProcess.fork("./service.js");
     ),
     writeFile(join(root, "entry.html"), "<title>sibling</title>"),
     writeFile(join(root, "preload.html"), "<title>sibling</title>"),
-    writeFile(join(root, "worker.html"), "<title>sibling</title>"),
+    writeFile(join(root, "worker.js"), "module.exports = {};"),
     writeFile(join(root, "renderer/index.html"), "<title>renderer</title>"),
+    writeFile(join(root, "renderer/bare.html"), "<title>bare renderer URL</title>"),
     writeFile(join(root, "renderer/other.html"), "<title>other</title>"),
     writeFile(join(root, "renderer/missing.html.js"), "module.exports = {};"),
     writeFile(join(root, "renderer/page/index.html"), "<title>directory</title>"),
@@ -206,6 +209,16 @@ utilityProcess.fork("./service.js");
         resolved_path: "renderer/other.html",
         resolution_status: "resolved",
       }),
+      expect.objectContaining({
+        declared_path: "renderer/bare.html",
+        resolved_path: "renderer/bare.html",
+        resolution_status: "resolved",
+      }),
+      expect.objectContaining({
+        declared_path: "#home",
+        resolved_path: "main.cjs",
+        resolution_status: "resolved",
+      }),
     ]),
   );
   expectExactRendererPaths(graph);
@@ -217,7 +230,7 @@ utilityProcess.fork("./service.js");
     ]),
   );
 
-  expect(result.electron_summary.resolved_utility_entrypoints).toBe(1);
+  expect(result.electron_summary.resolved_utility_entrypoints).toBe(2);
   for (const [declaredPath, candidatePath] of [
     ["./entry", "entry"],
     ["preload", "preload"],
@@ -252,10 +265,10 @@ utilityProcess.fork("./service.js");
     (edge) =>
       edge.evidence.extractor.operation === "map-utility-process-launch",
   );
-  const unresolvedWorker = utilityLaunches.find(
+  const resolvedWorker = utilityLaunches.find(
     (edge) => edge.properties.declared_path === "./worker",
   );
-  expect(unresolvedWorker?.evidence).toMatchObject({
+  expect(resolvedWorker?.evidence).toMatchObject({
     authority: "static-relationship-inference",
     state: "inferred",
     limitations: expect.arrayContaining([
@@ -267,14 +280,8 @@ utilityProcess.fork("./service.js");
       expect.objectContaining({
         properties: expect.objectContaining({
           declared_path: "./worker",
-          resolved_path: null,
-          resolution_status: "not-found",
-          candidate_path: "worker",
-          limitations: [
-            expect.stringContaining(
-              "extension and directory fallback were not attempted",
-            ),
-          ],
+          resolved_path: "worker.js",
+          resolution_status: "resolved",
         }),
       }),
       expect.objectContaining({

@@ -266,7 +266,6 @@ const addUtilityProcess = (
           sourcePath: file.path,
           context: value.module_resolution_context,
           files: context.filesByPath,
-          runtimeEntrypoint: true,
         });
   addElectronInferenceEdge(context, {
     source: input.source,

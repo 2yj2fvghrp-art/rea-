@@ -160,7 +160,6 @@ export const summarizeElectronBoundaries = (
           specifier: finding.module_path,
           context: finding.module_resolution_context,
           files,
-          runtimeEntrypoint: true,
         }),
     ).length,
     native_addon_bindings: nativeBindings.length,
