@@ -46,7 +46,10 @@ const specifiersIn = (text) =>
   text
     .split(packagePrefix)
     .slice(1)
-    .map((rest) => `${packagePrefix}${/^[^\s`"')\]]*/u.exec(rest)?.[0] ?? ""}`);
+    .map(
+      (rest) =>
+        `${packagePrefix}${(/^[^\s`"')\]]*/u.exec(rest)?.[0] ?? "").replace(/[.,;:!?]+$/u, "")}`,
+    );
 // A bare package name is a reference only where a package runner or install
 // command takes a package operand: npm documents that a name without a
 // specifier matches whatever version the local project has, so `npx -y
@@ -58,42 +61,93 @@ const specifiersIn = (text) =>
 // the rea-agents package") is not a package operand and passes.
 const packageCommand =
   /(?:^|[\s`"'(;&|])(?:(npx|pnpx|bunx|bun\s+x)|(?:npm|pnpm|yarn|bun)(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+(?:(exec|x|dlx)|(install|i|add|global\s+add)))(?=\s)([^`\n;&|)]*)/gu;
-const packageOperands = (runs, operands) => {
-  const tokens = operands
-    .trim()
-    .split(/\s+/u)
-    .map((token) => token.replace(/^["']|["']$/gu, ""));
+// Parse quoted words once, before interpreting runner options and operands.
+const commandWords = (text) => {
+  const words = [];
+  let word = "";
+  let quote = "";
+  let started = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "\\" && quote !== "'" && index + 1 < text.length) {
+      word += text[++index];
+      started = true;
+    } else if (quote !== "") {
+      if (character === quote) quote = "";
+      else word += character;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+      started = true;
+    } else if (/\s/u.test(character)) {
+      if (started) words.push(word);
+      word = "";
+      started = false;
+    } else {
+      word += character;
+      started = true;
+    }
+  }
+  if (started) words.push(word);
+  return words;
+};
+const valueOptions = new Set([
+  "--cache",
+  "--prefix",
+  "--registry",
+  "--userconfig",
+  "--globalconfig",
+  "--workspace",
+  "-w",
+  "--call",
+  "-c",
+  "--loglevel",
+  "--shell",
+]);
+const packageOperands = (runs, operands, trailingOptions) => {
+  const tokens = commandWords(operands);
   const packages = [];
+  const positional = [];
   let explicitPackage = false;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (token === "") continue;
     if (token === "--") {
-      // After `--` a runner without --package resolves the command as a package.
-      if (runs && !explicitPackage && tokens[index + 1] !== undefined)
-        packages.push(tokens[index + 1]);
+      positional.push(
+        ...(runs
+          ? tokens.slice(index + 1, index + 2)
+          : tokens.slice(index + 1)),
+      );
       break;
     }
-    if (token.startsWith("--package=")) {
-      packages.push(token.slice("--package=".length));
+    if (token.startsWith("--package=") || token.startsWith("-p=")) {
+      packages.push(token.slice(token.indexOf("=") + 1));
       explicitPackage = true;
     } else if (token === "-p" || token === "--package") {
-      if (tokens[index + 1] !== undefined) packages.push(tokens[index + 1]);
+      if (tokens[index + 1] !== undefined) packages.push(tokens[++index]);
       explicitPackage = true;
-      index += 1;
-    } else if (token.startsWith("-")) continue;
-    else if (runs) {
-      // The first positional is the package, or the bin when --package named it.
-      if (!explicitPackage) packages.push(token);
-      break;
-    } else packages.push(token);
+    } else if (valueOptions.has(token)) index += 1;
+    else if (token.startsWith("-")) continue;
+    else {
+      positional.push(token);
+      // npm exec parses its options even after the first command word;
+      // npx and the other runners pass subsequent arguments to the command.
+      if (runs && !trailingOptions) break;
+    }
   }
-  return packages;
+  return runs
+    ? explicitPackage
+      ? packages
+      : positional.slice(0, 1)
+    : [...packages, ...positional];
 };
 const commandPackagesIn = (text) =>
   [...text.replaceAll(/\\\r?\n/gu, " ").matchAll(packageCommand)]
-    .flatMap(([, runner, execVerb, , operands]) =>
-      packageOperands(runner !== undefined || execVerb !== undefined, operands),
+    .flatMap(([command, runner, execVerb, , operands]) =>
+      packageOperands(
+        runner !== undefined || execVerb !== undefined,
+        operands,
+        runner === undefined && /(?:^|[\s`"'(;&|])npm\s/u.test(command),
+      ),
     )
     .filter(
       (operand) => operand === packageName || operand.startsWith(packagePrefix),

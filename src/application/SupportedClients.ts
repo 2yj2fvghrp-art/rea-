@@ -75,6 +75,10 @@ interface ClientDefinition {
   ) => NonNullable<SetupClient["geminiSettings"]>;
 }
 
+/** XDG treats an empty config-home value as unset. */
+const xdgConfigHome = ({ home, env }: ClientPathContext): string =>
+  env.XDG_CONFIG_HOME || join(home, ".config");
+
 const vscodeUserDirectory = ({
   home,
   platform,
@@ -88,7 +92,23 @@ const vscodeUserDirectory = ({
     );
   if (platform === "darwin")
     return join(home, "Library", "Application Support", "Code", "User");
-  return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "Code", "User");
+  return join(xdgConfigHome({ home, platform, env }), "Code", "User");
+};
+
+const traeUserDirectory = ({
+  home,
+  platform,
+  env,
+}: ClientPathContext): string => {
+  if (platform === "win32")
+    return join(
+      env.APPDATA ?? join(home, "AppData", "Roaming"),
+      "Trae",
+      "User",
+    );
+  if (platform === "darwin")
+    return join(home, "Library", "Application Support", "Trae", "User");
+  return join(xdgConfigHome({ home, platform, env }), "Trae", "User");
 };
 
 const claudeDesktopDirectory = ({
@@ -99,7 +119,7 @@ const claudeDesktopDirectory = ({
   if (platform === "win32")
     return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude");
   if (platform === "linux")
-    return join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "Claude");
+    return join(xdgConfigHome({ home, platform, env }), "Claude");
   return join(home, "Library", "Application Support", "Claude");
 };
 
@@ -111,6 +131,9 @@ const claudeCodeMarkerDirectory = ({ home, env }: ClientPathContext): string =>
 
 const codexDirectory = ({ home, env }: ClientPathContext): string =>
   env.CODEX_HOME || join(home, ".codex");
+
+const qoderDirectory = ({ home, env }: ClientPathContext): string =>
+  env.QODER_CONFIG_DIR || join(home, ".qoder");
 
 /** Match Qwen Code's home override, including tilde and cwd-relative paths. */
 const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
@@ -249,19 +272,13 @@ const openCodeOverrideDirectory = (
 
 const opencodeDirectory = (context: ClientPathContext): string =>
   openCodeOverrideDirectory(context.env) ??
-  join(
-    context.env.XDG_CONFIG_HOME ?? join(context.home, ".config"),
-    "opencode",
-  );
+  join(xdgConfigHome(context), "opencode");
 
 /** OpenCode loads global JSON before JSONC, then explicit file and directory overrides. */
 const openCodeConfigurationPaths = (
   context: ClientPathContext,
 ): readonly string[] => {
-  const directory = join(
-    context.env.XDG_CONFIG_HOME ?? join(context.home, ".config"),
-    "opencode",
-  );
+  const directory = join(xdgConfigHome(context), "opencode");
   const overrideDirectory = openCodeOverrideDirectory(context.env);
   const paths = [
     join(directory, "config.json"),
@@ -465,6 +482,15 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "vscode",
   },
   {
+    name: "trae",
+    displayName: "Trae",
+    skillPath: [".trae", "skills"],
+    configPath: (context: ClientPathContext) =>
+      join(traeUserDirectory(context), "mcp.json"),
+    markerPath: traeUserDirectory,
+    format: "json",
+  },
+  {
     name: "grok_build",
     displayName: "Grok Build",
     configPath: (context: ClientPathContext) =>
@@ -502,6 +528,16 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
       join(hermesDirectory(context), "config.yaml"),
     markerPath: hermesDirectory,
     format: "hermes",
+  },
+  {
+    name: "qoder",
+    displayName: "Qoder",
+    skillPath: (context: ClientPathContext) =>
+      join(qoderDirectory(context), "skills"),
+    configPath: (context: ClientPathContext) =>
+      join(qoderDirectory(context), "settings.json"),
+    markerPath: qoderDirectory,
+    format: "json",
   },
   {
     name: "zcode",

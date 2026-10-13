@@ -149,6 +149,17 @@ it.each([
   ["SKILL.md", "yarn dlx rea-agents doctor", "rea-agents"],
   ["SKILL.md", "bunx rea-agents doctor", "rea-agents"],
   ["SKILL.md", "npm install --global rea-agents", "rea-agents"],
+  ["SKILL.md", "npm install -- rea-agents", "rea-agents"],
+  ["SKILL.md", "npm add -- other-package rea-agents", "rea-agents"],
+  ["SKILL.md", "npm exec rea --package=rea-agents", "rea-agents"],
+  ["SKILL.md", "npx -p=rea-agents rea", "rea-agents"],
+  ["SKILL.md", "npx --cache ./cache rea-agents doctor", "rea-agents"],
+  [
+    "SKILL.md",
+    'npx --cache "./cache with spaces" rea-agents doctor',
+    "rea-agents",
+  ],
+  ["SKILL.md", "npx -p=rea-agents@6.2.0. rea", "rea-agents@6.2.0."],
 ])(
   "rejects an unpinned package reference in authored %s (%s)",
   async (relativePath, command, specifier) => {
@@ -168,6 +179,11 @@ it.each([
 
 it.each([
   "Run `npx -y rea-agents@6.2.0 doctor --json`.",
+  "Use rea-agents@6.2.0.",
+  "Use rea-agents@6.2.0, then inspect the target.",
+  "Run `npm exec rea --package=rea-agents@6.2.0`.",
+  'Run `npx --cache "./cache with spaces" -p=rea-agents@6.2.0 rea doctor`.',
+  "Install `npm install -- rea-agents@6.2.0`.",
   "Run `npm exec --package=rea-agents@6.2.0 -- rea doctor`.",
   "```bash\nbunx rea-agents@6.2.0 doctor\n```",
   "Install `npm install --global rea-agents@6.2.0` when allowed.",
