@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { MachOSliceArtifactReader } from "../../../../src/artifacts/MachOSliceArtifactReader.js";
+import { XcrunCommandRunner } from "../../../../src/native/CommandRunner.js";
+import { DarwinProcessOwnershipInspectionError } from "../../../../src/process/DarwinProcessRunTokenReader.js";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
 
 /**
@@ -22,6 +24,26 @@ const fatSlices = async (
 };
 
 describe("Mach-O slice reader with system lipo", () => {
+  it("names the process ownership helper prerequisite when lipo cannot be supervised", async () => {
+    const prerequisite =
+      "Direct Darwin helper compilation requires absolute REA_DARWIN_SWIFTC_PATH and SDKROOT paths.";
+    const reader = new MachOSliceArtifactReader(
+      process.execPath,
+      {},
+      new XcrunCommandRunner({}, undefined, () =>
+        Promise.reject(new DarwinProcessOwnershipInspectionError(prerequisite)),
+      ),
+    );
+    onTestFinished(() => reader.close());
+    const enumerate = async () => {
+      for await (const _entry of reader.entries()) continue;
+    };
+    await expect(enumerate()).rejects.toMatchObject({
+      reason: "unavailable",
+      message: `lipo could not enumerate universal Mach-O slices: ${prerequisite}`,
+    });
+  });
+
   it.skipIf(process.platform !== "darwin")(
     "keeps FAT slice records separate from the echoed source pathname",
     async () => {
