@@ -3,8 +3,14 @@
 Verified on 13 October 2026 with Linux x64, Node 24.18.0, npm 11.16.0,
 `solc 0.8.30+commit.73712a01.Emscripten.clang`,
 `solc 0.4.26+commit.4563c3fc.Emscripten.clang`, and bundled `evmole@0.9.3`.
-Integration base: `3cb9d61ec1a1bf29000a00cff712ed07ca472da6` (fetched main).
-The feature branch and local main include this revision.
+Current integration base: `4d98123279c5a6f5442c458307f5a3ec678fd49e`.
+The earlier full, installed-package and live-agent matrices below ran on base
+`3cb9d61ec1a1bf29000a00cff712ed07ca472da6`. EVM production code is identical
+after the rebase; current-base reruns passed the runtime build, 78 public
+compiler CLI/MCP cases and 288 focused tests, with two opposing-platform skips.
+Current lint passed. Current typecheck is blocked by the unchanged main test
+`tests/acceptance/providers/hopperStartupRecovery.test.ts:207` (`TS2339`,
+`workspace` on a string); the same check blocks the normal pre-push hook.
 
 ## Executed checks
 
