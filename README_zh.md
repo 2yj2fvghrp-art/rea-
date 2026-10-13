@@ -86,7 +86,6 @@ dsh --profile web --dump-config
 若原来使用 `rea setup --client dsh`，先备份并迁移旧的 `rea-mcp` 配置，
 避免全局配置覆盖新插件。
 
-
 **macOS DeepSeek Harness Desktop 安装修复：** 上面的命令针对 `web`
 Profile，不会安装到 Desktop 的 `desktop` Profile。请在 Desktop
 **「插件 → 添加插件」** 中粘贴下载后的**本地 `.tgz` 绝对路径**，

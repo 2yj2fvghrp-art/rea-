@@ -91,7 +91,6 @@ and uninstall commands in `integrations/deepseek-harness/README.md`.
 Restart Harness after the bundle is installed. The old `rea setup --client dsh`
 home-level `rea-mcp` row overrides the bundle: migrate it before installing.
 
-
 **DeepSeek Harness Desktop (macOS):** the `web` commands above do **not**
 install into the Desktop `desktop` profile. In Desktop's **Plugins → Add
 plugin**, enter the **absolute path to the downloaded `.tgz`**, not the
