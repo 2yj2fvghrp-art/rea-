@@ -255,7 +255,10 @@ class ConstantPool {
   #reportTextBytes = 0;
   #annotationNodes = 0;
   readonly #textCosts = new Map<number, number>();
-  constructor(readonly entries: readonly (PoolEntry | undefined)[]) {}
+  constructor(
+    readonly entries: readonly (PoolEntry | undefined)[],
+    readonly retainReportDetails = true,
+  ) {}
 
   #entry(index: number, what: string): PoolEntry {
     const entry = this.entries[index];
@@ -278,6 +281,7 @@ class ConstantPool {
   /** Charge only text actually retained by the report, not parser lookups. */
   reportUtf8(index: number, what: string): string {
     const text = this.utf8(index, what);
+    if (!this.retainReportDetails) return text;
     let cost = this.#textCosts.get(index);
     if (cost === undefined) {
       // JSON escaping can expand one code unit sixfold. Cache the exact encoded
@@ -414,6 +418,7 @@ const readAttributes = (
   cursor: ByteCursor,
   pool: ConstantPool,
   owner: string,
+  retainDetails: boolean,
 ): ParsedAttributes => {
   const parsed: ParsedAttributes = {
     annotations: [],
@@ -426,6 +431,7 @@ const readAttributes = (
   for (let index = 0; index < count; index += 1) {
     const name = pool.utf8(cursor.u2(), `${owner} attribute name`);
     const body = new ByteCursor(cursor.slice(cursor.u4()));
+    if (!retainDetails && name !== "SourceFile" && name !== "Code") continue;
     switch (name) {
       case "RuntimeVisibleAnnotations":
       case "RuntimeInvisibleAnnotations": {
@@ -480,7 +486,11 @@ const readAttributes = (
 };
 
 /** Parse one class file's declared structure; method bodies are measured, not decoded. */
-export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
+export const parseJavaClassFile = (
+  bytes: Uint8Array,
+  options: { readonly mode?: "full" | "archive-summary" } = {},
+): JavaClass => {
+  const retainDetails = options.mode !== "archive-summary";
   const cursor = new ByteCursor(bytes);
   if (cursor.u4() !== 0xcafebabe)
     throw new JavaClassFormatFailure("Missing 0xCAFEBABE class-file magic.");
@@ -490,7 +500,7 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
     throw new JavaClassFormatFailure(
       `Class-file major version ${String(major)} predates JVMS 45.`,
     );
-  const pool = new ConstantPool(readPool(cursor));
+  const pool = new ConstantPool(readPool(cursor), retainDetails);
   const access = cursor.u2();
   const name = pool.className(cursor.u2(), "this_class");
   const superIndex = cursor.u2();
@@ -504,7 +514,7 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
     const fieldAccess = cursor.u2();
     const fieldName = pool.reportUtf8(cursor.u2(), "Field name");
     const descriptor = pool.reportUtf8(cursor.u2(), "Field descriptor");
-    const attributes = readAttributes(cursor, pool, "Field");
+    const attributes = readAttributes(cursor, pool, "Field", retainDetails);
     fields.push({
       name: fieldName,
       descriptor,
@@ -519,7 +529,7 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
     const methodAccess = cursor.u2();
     const methodName = pool.reportUtf8(cursor.u2(), "Method name");
     const descriptor = pool.reportUtf8(cursor.u2(), "Method descriptor");
-    const attributes = readAttributes(cursor, pool, "Method");
+    const attributes = readAttributes(cursor, pool, "Method", retainDetails);
     methods.push({
       name: methodName,
       descriptor,
@@ -529,14 +539,14 @@ export const parseJavaClassFile = (bytes: Uint8Array): JavaClass => {
       annotations: attributes.annotations,
     });
   }
-  const attributes = readAttributes(cursor, pool, "Class");
+  const attributes = readAttributes(cursor, pool, "Class", retainDetails);
   if (cursor.offset !== bytes.length)
     throw new JavaClassFormatFailure(
       `Class file has ${String(bytes.length - cursor.offset)} trailing bytes.`,
     );
   const strings: string[] = [];
   const referenced = new Set<string>();
-  for (const entry of pool.entries) {
+  for (const entry of retainDetails ? pool.entries : []) {
     if (entry?.tag === 8) strings.push(pool.reportUtf8(entry.index, "String"));
     if (entry?.tag === 7) {
       const referencedName = pool.utf8(entry.index, "Class");

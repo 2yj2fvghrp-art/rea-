@@ -281,7 +281,7 @@ export class JavaClassFileProvider implements Pick<
             classes.push(
               archiveClassFacts(
                 entry.path,
-                parseJavaClassFile(bytes),
+                parseJavaClassFile(bytes, { mode: "archive-summary" }),
                 entry.adapterKey,
               ),
             );
