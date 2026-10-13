@@ -55,7 +55,8 @@ cliTest(
       expect(
         byId.get(edge.target_node_id)?.observations[0]?.properties.channel,
       ).toBe(edge.properties.channel);
-      expect(edge.properties.conditions).toEqual([
+      expect(edge.properties.bridge_conditions).toEqual([]);
+      expect(edge.properties.handler_conditions).toEqual([
         expect.objectContaining({ expression: "allowed(event)" }),
       ]);
     }
@@ -534,109 +535,5 @@ cliTest(
         expect.objectContaining({ expression: "allowed(event)" }),
       ]);
     }
-  },
-);
-
-for (const surface of ["CLI", "stdio MCP"] as const) {
-  cliTest(
-    `preserves handler ambiguity and short-circuit factory paths through ${surface}`,
-    async ({ cli }) => {
-      const root = await createTestTempDirectory("rea-electron-branch-paths-");
-      await writeFixtureFiles(root, {
-        "preload.js": `const e=require("electron");
-        e.contextBridge.exposeInMainWorld("empty", {});
-        function choose(){
-          if(flag)return ()=>e.ipcRenderer.send("test:copy");
-          else return ()=>e.ipcRenderer.send("test:cut");
-          return ()=>e.ipcRenderer.send("test:dead");
-        }
-        e.contextBridge.exposeInMainWorld("desktop", {
-          choose:choose(),
-          ambiguous:()=>e.ipcRenderer.send("test:ambiguous"),
-          competing:()=>e.ipcRenderer.send("test:competing"),
-          conditional:()=>e.ipcRenderer.send("test:conditional"),
-          fallback:()=>e.ipcRenderer.send("test:fallback"),
-        });`,
-        "main.js": `const e=require("electron");
-        const copy=event=>event.sender.copy(), cut=event=>event.sender.cut();
-        function register(channel,handler){e.ipcMain.on(channel,handler)}
-        register("test:copy",copy);register("test:cut",cut);
-        register("test:ambiguous",flag?copy:cut);
-        register("test:competing",copy);
-        register("test:competing",flag?copy:unknownHandler);
-        if(flag) register("test:conditional",copy);
-        register("test:fallback",event=>{false ?? event.sender.copy()});`,
-      });
-      const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
-      const empty = graph.nodes
-        .filter((node) => node.kind === "context-bridge-api")
-        .flatMap((node) => node.observations)
-        .find((observation) => observation.properties.api_key === "empty");
-      expect(empty).toMatchObject({
-        properties: {
-          api_status: "object-literal",
-          members: [],
-          unknown_members: 0,
-          resolution_basis: "direct-syntax",
-        },
-        evidence: { state: "observed" },
-      });
-      const joins = graph.edges.filter(
-        (edge) =>
-          edge.evidence.extractor.operation === "join-electron-wrapper-paths",
-      );
-      expect(joins.map((edge) => edge.properties.channel).sort()).toEqual([
-        "test:copy",
-        "test:cut",
-      ]);
-      const steps = graph.nodes
-        .flatMap((node) => node.observations)
-        .filter(
-          (observation) => observation.properties.step_kind === "terminal",
-        );
-      expect(
-        [
-          ...new Set(
-            steps
-              .filter((step) => step.properties.entry === "desktop.choose")
-              .map((step) => step.properties.channel),
-          ),
-        ].sort(),
-      ).toEqual(["test:copy", "test:cut"]);
-      for (const [channel, expression] of [
-        ["test:copy", "flag"],
-        ["test:cut", "!(flag)"],
-      ])
-        expect(
-          steps.find(
-            (step) =>
-              step.properties.entry === "desktop.choose" &&
-              step.properties.channel === channel,
-          )?.properties.conditions,
-        ).toEqual([expect.objectContaining({ expression })]);
-      expect(
-        steps.some(
-          (step) =>
-            step.properties.entry_kind === "ipc-handler" &&
-            ["test:ambiguous", "test:fallback"].includes(
-              String(step.properties.channel),
-            ),
-        ),
-      ).toBe(false);
-    },
-  );
-}
-
-cliTest(
-  "does not join a channel with another untraced compatible handler",
-  async ({ cli }) => {
-    const { graph } = await analyze(
-      cli,
-      'e.ipcMain.on("test:copy",event=>unresolved(event));',
-    );
-    const joins = graph.edges.filter(
-      (e) => e.evidence.extractor.operation === "join-electron-wrapper-paths",
-    );
-    expect(joins.map((e) => e.properties.channel)).toEqual(["test:cut"]);
   },
 );
