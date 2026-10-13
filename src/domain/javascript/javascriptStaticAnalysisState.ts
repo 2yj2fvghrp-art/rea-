@@ -87,6 +87,8 @@ export interface JavaScriptNativeLoaderCall {
 
 /** Electron facts recovered from lexical bindings before the finding scan. */
 export interface JavaScriptElectronSemanticFacts {
+  /** Parsed lexical owner of an identifier, shared by finding consumers. */
+  readonly bindingId: (node: t.Identifier) => string | undefined;
   readonly callees: ReadonlyMap<number, ElectronCalleeBinding>;
   /** Bound API objects by identifier offset. */
   readonly apiObjects: ReadonlyMap<number, ElectronApiObject>;

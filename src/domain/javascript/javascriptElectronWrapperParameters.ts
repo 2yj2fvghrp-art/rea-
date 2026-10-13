@@ -235,6 +235,7 @@ interface ArgumentOutcome {
 export const createElectronWrapperParameters = (
   state: JavaScriptSemanticAnalysisState,
   rootExport: (root: t.Node) => readonly string[] | undefined,
+  memberWritten: ReadonlySet<string>,
 ) => {
   const deferred: DeferredRoot[] = [];
   const parameters = new Map<string, WrapperParameter | null>();
@@ -267,6 +268,7 @@ export const createElectronWrapperParameters = (
       if (!t.isIdentifier(root)) return;
       if (!members.every((member): member is string => member !== null)) return;
       const binding = resolveSemanticBindingState(state, root, root.name);
+      if (binding !== undefined && memberWritten.has(binding.bindingId)) return;
       const local = semanticStableInitializer(binding, state);
       const alternatives =
         local?.projection.length === 0

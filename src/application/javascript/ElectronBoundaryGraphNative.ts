@@ -94,6 +94,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
           coverage,
           limitations: [
             "JavaScript syntax identifies requested member names; it does not prove that the native binary exports or implements them.",
+            ...(resolution.basis === "create-require-base-unavailable" ? ["createRequire's base filename was not retained, so the requested add-on path remains unresolved; the calling source directory is not substituted."] : []),
           ],
         }),
       },

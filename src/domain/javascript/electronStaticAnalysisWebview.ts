@@ -68,7 +68,7 @@ export const inspectElectronWebviewNode = (
 };
 
 // Writes through the listener's second (webPreferences) and third (params)
-// parameters. Nested functions that rebind either name are not followed.
+// parameters, resolved by their parsed lexical owners across nested scopes.
 const collectWrites = (
   handler: t.Function,
   context: JavaScriptFindingContext,
@@ -80,22 +80,29 @@ const collectWrites = (
 } => {
   const names = new Map<string, ElectronWebviewAttachWrite["target"]>();
   const [, preferences, params] = handler.params;
-  if (t.isIdentifier(preferences))
-    names.set(preferences.name, "web-preferences");
-  if (t.isIdentifier(params)) names.set(params.name, "params");
+  const bindingId = context.electron?.bindingId;
+  if (bindingId === undefined) return { writes: [], unknown: 1, preload: undefined };
+  if (t.isIdentifier(preferences)) {
+    const id = bindingId(preferences);
+    if (id !== undefined) names.set(id, "web-preferences");
+  }
+  if (t.isIdentifier(params)) {
+    const id = bindingId(params);
+    if (id !== undefined) names.set(id, "params");
+  }
   const writes: ElectronWebviewAttachWrite[] = [];
   let unknown = 0;
   let preload:
-    | { readonly start: number; readonly value: t.Expression }
+    | { readonly start: number; readonly value: t.Expression | undefined }
     | undefined;
   const pending: t.Node[] = [handler.body];
   while (pending.length > 0) {
     const node = pending.pop();
     if (node === undefined) break;
-    if (t.isFunction(node) && rebinds(node, names)) continue;
     const write = writeTarget(node);
     if (write !== undefined && t.isIdentifier(write.member.object)) {
-      const target = names.get(write.member.object.name);
+      const id = bindingId(write.member.object);
+      const target = id === undefined ? undefined : names.get(id);
       if (target !== undefined) {
         const name = semanticStaticPropertyKey(
           write.member.property,
@@ -104,7 +111,6 @@ const collectWrites = (
         if (
           target === "web-preferences" &&
           name === "preload" &&
-          write.value !== undefined &&
           (node.start ?? -1) >= (preload?.start ?? -1)
         )
           preload = { start: node.start ?? -1, value: write.value };
@@ -163,10 +169,3 @@ const writeTarget = (
   return undefined;
 };
 
-const rebinds = (
-  node: t.Function,
-  names: ReadonlyMap<string, unknown>,
-): boolean =>
-  node.params.some(
-    (parameter) => t.isIdentifier(parameter) && names.has(parameter.name),
-  );

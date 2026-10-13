@@ -1,3 +1,4 @@
+import { htmlArtifactReferences } from "./htmlArtifactReferences.js";
 import * as t from "@babel/types";
 
 import {
@@ -17,9 +18,6 @@ import {
 } from "./javascriptStaticConstants.js";
 
 const HEADER = /^content-security-policy(?:-report-only)?$/iu;
-const META =
-  /<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy["']?[^>]*>/giu;
-const CONTENT = /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/iu;
 // Cheap prefilter before splitting arbitrary literals into directives.
 const CANDIDATE = /(?:-src|base-uri|form-action|frame-ancestors)\b/u;
 
@@ -84,7 +82,7 @@ const inspectPolicyLiteral = (
   if (!CANDIDATE.test(spelled)) return;
   const policy = policyText(node, context.constants);
   if (policy === undefined || !CANDIDATE.test(policy.text)) return;
-  const metas = [...policy.text.matchAll(META)];
+  const metas = htmlArtifactReferences(policy.text).policies;
   if (metas.length === 0) {
     addPolicy(context, node, {
       mechanism: "string-literal",
@@ -95,17 +93,15 @@ const inspectPolicyLiteral = (
     });
     return;
   }
-  for (const [meta] of metas) {
-    const content = CONTENT.exec(meta);
-    const text = content?.[1] ?? content?.[2];
-    if (text !== undefined)
-      addPolicy(context, node, {
-        mechanism: "html-meta-string",
-        header: "content-security-policy",
-        policy: { text, dynamicParts: text.split(DYNAMIC_SOURCE).length - 1 },
-        expression: null,
-        requireMultiple: false,
-      });
+  for (const meta of metas) {
+    const text = meta.content;
+    addPolicy(context, node, {
+      mechanism: "html-meta-string",
+      header: meta.header,
+      policy: { text, dynamicParts: text.split(DYNAMIC_SOURCE).length - 1 },
+      expression: null,
+      requireMultiple: false,
+    });
   }
 };
 

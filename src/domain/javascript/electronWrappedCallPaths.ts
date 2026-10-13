@@ -18,9 +18,17 @@ import type {
   ElectronApiIdentity,
   ElectronCallPath,
   ElectronCallPathStep,
+  ElectronContextBridgeFinding,
   ElectronIpcDescriptor,
   ElectronIpcFinding,
+  ElectronStaticValue,
 } from "./electronStaticAnalysisTypes.js";
+import {
+  contextBridgeExposureArguments,
+  type JavaScriptContextBridgeExposureArguments,
+} from "./javascriptContextBridgeExposure.js";
+import { boundedExpression } from "./electronStaticAnalysisValues.js";
+import { sha256Text, argumentNode } from "./javascriptStaticAnalysisHelpers.js";
 import {
   childNodes,
   traverseJavaScriptAst,
@@ -30,6 +38,7 @@ import { semanticStaticPropertyKey } from "./javascriptAstValues.js";
 import { ipcDescriptor } from "./electronStaticAnalysisIpc.js";
 import {
   symbolicDefiniteExit,
+  symbolicLoopHasExit,
   symbolicLogicalRight,
 } from "./javascriptSymbolicControlFlow.js";
 
@@ -91,6 +100,7 @@ export const collectElectronWrappedCallPaths = (
     links,
   });
   const linked = [...new Set([...links.values()].map((link) => link.resolver))];
+  const linkedDigests = new Map(linked.flatMap((other) => other.linkedSource === null ? [] : [[other.linkedSource.path, sha256Text(other.linkedSource.text)] as const]));
   /** The linked source owning this syntax; null for this source. */
   const linkedSourceOf = (
     node: t.Node,
@@ -119,6 +129,7 @@ export const collectElectronWrappedCallPaths = (
         module_key: null,
         module_runtime: null,
         source_path: sourcePath,
+        source_sha256: linkedDigests.get(sourcePath)!,
       };
     const module = accumulator.moduleRangeIndex.find(node.start);
     return {
@@ -186,6 +197,41 @@ export const collectElectronWrappedCallPaths = (
   };
   const hasConditions = (value: SymbolicValue): boolean =>
     symbolicVariants(value).some((variant) => variant.conditions?.length);
+  const isolatedBridgeCall = (
+    node: t.CallExpression | t.OptionalCallExpression,
+  ):
+    | { readonly env: SymbolicEnvironment; readonly callee: SymbolicValue }
+    | undefined => {
+    const env = resolver.environmentAt(node);
+    const callee = resolver.evaluate(node.callee, env);
+    return symbolicVariants(callee).some(
+      (callee) =>
+        callee.kind === "external" &&
+        identity.intactExport(callee.path) &&
+        callee.path.slice(1).join(".") ===
+          "contextBridge.exposeInIsolatedWorld",
+    )
+      ? { env, callee }
+      : undefined;
+  };
+  const electronStaticSymbolicValue = (
+    value: SymbolicValue | undefined,
+    node: t.Node | undefined,
+  ): ElectronStaticValue => {
+    const variants = value === undefined ? [] : symbolicVariants(value);
+    const variant = variants.length === 1 ? variants[0] : undefined;
+    if (variant?.kind === "literal" && variant.value !== undefined)
+      return {
+        status: "literal",
+        value: variant.value,
+        expression: null,
+      };
+    return {
+      status: "dynamic",
+      value: null,
+      expression: boundedExpression(source, node),
+    };
+  };
   const emit = (
     context: PathContext,
     node: t.Node,
@@ -394,18 +440,35 @@ export const collectElectronWrappedCallPaths = (
   };
   const bridge = (
     node: t.CallExpression | t.OptionalCallExpression,
-    args: readonly SymbolicValue[],
+    exposure: JavaScriptContextBridgeExposureArguments<SymbolicValue>,
     context: PathContext,
     guardedDispatch: boolean,
     identity: ElectronApiIdentity,
   ): void => {
-    const key = args[0];
-    const object = args[1];
+    const key = exposure.apiKey;
+    const object = exposure.api;
+    const worldValue =
+      exposure.worldId === null
+        ? null
+        : (exposure.worldId ?? symbolicUnknown("missing world id"));
+    const worldContext =
+      worldValue === null ? context : metadataContext(context, worldValue);
+    if (!worldContext) return;
+    const worldId =
+      worldValue === null
+        ? null
+        : electronStaticSymbolicValue(
+            worldValue,
+            exposure.worldIdIndex === null
+              ? undefined
+              : argumentNode(node.arguments[exposure.worldIdIndex]),
+          );
+    if (worldId?.status === "dynamic") accumulator.unknownFindings += 1;
     if (key?.kind !== "literal" || typeof key.value !== "string" || !object) {
       accumulator.unknownFindings += 1;
       return;
     }
-    const keyContext = metadataContext(context, key);
+    const keyContext = metadataContext(worldContext, key);
     if (!keyContext || !metadataContext(keyContext, object)) return;
     const members = [...resolver.members(object)].sort();
     const location = range(node);
@@ -413,9 +476,9 @@ export const collectElectronWrappedCallPaths = (
       ({ value }) =>
         JSON.stringify(value.location) === JSON.stringify(location),
     );
-    const finding = {
-      world: "main" as const,
-      world_id: null,
+    const finding: ElectronContextBridgeFinding = {
+      world: exposure.world,
+      world_id: worldId,
       api_key: key.value,
       api_key_expression: null,
       api_status: "dynamic" as const,
@@ -429,10 +492,12 @@ export const collectElectronWrappedCallPaths = (
     };
     // This report shape has no predicate field, so a guarded world or object
     // cannot be recorded as an unconditional exposure fact.
+    const guardedWorld = worldValue !== null && hasConditions(worldValue);
     const guardedKey = hasConditions(key);
     const guardedObject = hasConditions(object);
     const guarded =
       context.conditions.length > 0 ||
+      guardedWorld ||
       guardedKey ||
       guardedObject ||
       guardedDispatch;
@@ -509,10 +574,11 @@ export const collectElectronWrappedCallPaths = (
     node: t.CallExpression | t.OptionalCallExpression,
     env: SymbolicEnvironment,
     outer: PathContext,
+    evaluatedCallee?: SymbolicValue,
   ): void => {
     const context =
       sourcePathOf(node) === null ? { ...outer, local: node } : outer;
-    const value = resolver.evaluate(node.callee, env);
+    const value = evaluatedCallee ?? resolver.evaluate(node.callee, env);
     // Read arguments only for callees that consume them; see the resolver.
     let args: readonly SymbolicValue[] | undefined;
     const callArguments = () => (args ??= resolver.arguments(node, env));
@@ -569,23 +635,19 @@ export const collectElectronWrappedCallPaths = (
         const calleeIdentity = callee.identity ?? { basis: "module-binding" };
         if (identity.intactExport(path)) {
           const descriptor = ipcDescriptor(path.slice(1));
-          if (descriptor)
+          const exposure =
+            path.length === 3 && path[1] === "contextBridge"
+              ? contextBridgeExposureArguments(path[2] ?? "", callArguments())
+              : undefined;
+          if (exposure)
+            bridge(node, exposure, branchContext, hasConditions(callee), calleeIdentity);
+          else if (descriptor)
             ipc(
               node,
               descriptor,
               callArguments(),
               branchContext,
               endpoint,
-              calleeIdentity,
-            );
-          else if (
-            path.slice(1).join(".") === "contextBridge.exposeInMainWorld"
-          )
-            bridge(
-              node,
-              callArguments(),
-              branchContext,
-              hasConditions(callee),
               calleeIdentity,
             );
           else if (path[1] === "clipboard") emit(branchContext, node, endpoint);
@@ -668,6 +730,11 @@ export const collectElectronWrappedCallPaths = (
       return;
     }
     if (t.isForOfStatement(node) && !node.await) {
+      if (symbolicLoopHasExit(node)) {
+        accumulator.unknownFindings += 1;
+        accumulator.electronCallPathLimitReached = true;
+        return;
+      }
       walk(node.right, env, context);
       const iterable = resolver.evaluate(node.right, env);
       // Each element of an exact array is substituted into the loop body.
@@ -698,9 +765,12 @@ export const collectElectronWrappedCallPaths = (
     enter: (node) => {
       if (!t.isCallExpression(node) && !t.isOptionalCallExpression(node))
         return;
-      if (!t.isStringLiteral(node.arguments[0]) && !wrapperEntries.has(node))
+      const isolatedSeed = t.isStringLiteral(node.arguments[0])
+        ? undefined
+        : isolatedBridgeCall(node);
+      if (!t.isStringLiteral(node.arguments[0]) && isolatedSeed === undefined && !wrapperEntries.has(node))
         return;
-      const env = resolver.environmentAt(node);
+      const env = isolatedSeed?.env ?? resolver.environmentAt(node);
       let context: PathContext = {
         entryNode: node,
         entry: "",
@@ -750,7 +820,7 @@ export const collectElectronWrappedCallPaths = (
             return;
         }
       }
-      call(node, env, context);
+      call(node, env, context, isolatedSeed?.callee);
     },
   });
   // Each handler body receives an equal share of the remaining visits, so

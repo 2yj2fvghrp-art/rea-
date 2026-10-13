@@ -1,3 +1,4 @@
+import { childNodes } from "./javascriptSemanticTraversal.js";
 import * as t from "@babel/types";
 import {
   isSymbolicObject,
@@ -42,4 +43,17 @@ export const symbolicDefiniteExit = (
     symbolicDefiniteExit(node.consequent, depth + 1) &&
     symbolicDefiniteExit(node.alternate, depth + 1)
   );
+};
+
+/** Unsupported loop exits prevent exact iteration substitution. */
+export const symbolicLoopHasExit = (loop: t.ForOfStatement): boolean => {
+  const pending: t.Node[] = [loop.body];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) break;
+    if (t.isFunction(node)) continue;
+    if (t.isBreakStatement(node) || t.isContinueStatement(node) || t.isReturnStatement(node) || t.isThrowStatement(node)) return true;
+    pending.push(...childNodes(node));
+  }
+  return false;
 };

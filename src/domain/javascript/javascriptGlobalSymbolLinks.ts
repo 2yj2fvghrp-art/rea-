@@ -1,7 +1,6 @@
 import * as t from "@babel/types";
 
 import {
-  globalSymbolRegistryCandidateKeys,
   globalSymbolRegistryKey,
   globalSymbolRegistryPublications,
 } from "./javascriptGlobalSymbolRegistry.js";
@@ -46,8 +45,6 @@ export function* linkJavaScriptGlobalSymbolRegistrySteps(
   });
   const publishers = new Map<string, (JavaScriptSymbolicLink | null)[]>();
   for (const companion of companions) {
-    const named = globalSymbolRegistryCandidateKeys(companion.text);
-    if (![...read].some((key) => named.has(key))) continue;
     const parsed = parseJavaScriptSource(companion.text, companion.path);
     yield;
     if (parsed === null) continue;

@@ -255,7 +255,7 @@ export interface ElectronNativeAddonResolution {
   readonly resolved_path: string | null;
   /** Inventoried `.node` files the loader could select. */
   readonly candidates: readonly string[];
-  readonly basis: "specifier" | "loader-package-root";
+  readonly basis: "specifier" | "loader-package-root" | "create-require-base-unavailable";
 }
 
 // node-gyp-build and bindings search their package's build and prebuild trees.
@@ -301,6 +301,10 @@ export const resolveElectronNativeAddon = (
       basis: "loader-package-root",
     };
   }
+  // The classifier does not yet retain createRequire's base filename. A
+  // caller-relative fallback could select a different add-on with the same name.
+  if (finding.loader === "create-require")
+    return { resolved_path: null, candidates: [], basis: "create-require-base-unavailable" };
   const resolved =
     finding.specifier_status === "literal"
       ? resolveArtifactPathByContext({

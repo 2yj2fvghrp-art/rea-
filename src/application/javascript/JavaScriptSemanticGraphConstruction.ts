@@ -95,7 +95,7 @@ export const bindSemanticGraphApplicationNodes = (
 
 /** Construct one canonical semantic node backed by an exact artifact file. */
 export const constructSemanticGraphNode = (
-  file: JavaScriptArtifactFile,
+  file: Pick<JavaScriptArtifactFile, "path" | "sha256">,
   input: SemanticNodeConstructionInput,
   state: SemanticGraphProjectionState,
 ): JavaScriptSemanticGraphNode =>
@@ -120,7 +120,7 @@ export const constructSemanticGraphNode = (
 /** Reuse retained identities and reject a closed budget before allocation. */
 export const retainSemanticGraphNode = (
   state: SemanticGraphProjectionState,
-  file: JavaScriptArtifactFile,
+  file: Pick<JavaScriptArtifactFile, "path" | "sha256">,
   input: SemanticNodeConstructionInput,
 ): JavaScriptSemanticGraphNode | null => {
   const identifier = javaScriptSemanticNodeId({

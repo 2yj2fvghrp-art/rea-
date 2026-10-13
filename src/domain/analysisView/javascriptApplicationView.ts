@@ -258,12 +258,14 @@ export const projectJavaScriptApplicationView = (
   analysis: JavaScriptApplicationAnalysisResult,
   view: Exclude<AnalysisViewRequest, { kind: "api-surface" }>,
 ): Result<UnsignedAnalysisView, AnalysisError> => {
+  if (view.kind !== "summary" && view.kind !== "item" && view.kind !== "page")
+    return err(
+      jsIncompatible(
+        "JavaScript application Evidence supports summary, module item or module page views.",
+      ),
+    );
   const shared = parentFields(parent, analysis);
   const modules = moduleEntries(analysis.graph.nodes);
-  if (view.kind === "native")
-    return err(
-      jsIncompatible("Native views require analyze_function Evidence."),
-    );
   if (view.kind === "summary")
     return ok({
       kind: "summary",
@@ -293,12 +295,6 @@ export const projectJavaScriptApplicationView = (
       coverage: completeCoverage(modules.length, analysis.graph.nodes.length),
       ...shared,
     });
-  if (view.kind === "facet")
-    return err(
-      jsIncompatible(
-        "facet views apply to inspect_binary_layout Evidence (mitigations or linkage).",
-      ),
-    );
   if (view.kind === "item") {
     if (view.collection !== "modules")
       return err(

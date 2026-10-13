@@ -9,6 +9,7 @@ import type {
   ElectronUtilityProcessFinding,
   ElectronWebPreference,
 } from "./electronStaticAnalysisTypes.js";
+import { contextBridgeExposureArguments } from "./javascriptContextBridgeExposure.js";
 import {
   boundedExpression,
   collectContextBridgeMembers,
@@ -175,23 +176,20 @@ const inspectContextBridge = (
   context: JavaScriptFindingContext,
 ): void => {
   const callee = electronCallee(node.callee, context);
-  const exposureMethod =
-    callee?.path.length === 2 && callee.path[0] === "contextBridge"
-      ? callee.path[1]
+  const path = callee?.path;
+  const exposure =
+    path?.length === 2 && path[0] === "contextBridge"
+      ? contextBridgeExposureArguments(path[1] ?? "", node.arguments)
       : undefined;
-  const main = exposureMethod === "exposeInMainWorld";
-  const isolated = exposureMethod === "exposeInIsolatedWorld";
-  if (callee === undefined || (!main && !isolated)) return;
-  const keyNode = argumentNode(node.arguments[isolated ? 1 : 0]);
-  const apiNode = argumentNode(node.arguments[isolated ? 2 : 1]);
+  if (callee === undefined || exposure === undefined) return;
+  const keyNode = argumentNode(exposure.apiKey);
+  const apiNode = argumentNode(exposure.api);
   const key = electronStaticValue(context, keyNode);
-  const api = collectContextBridgeMembers(
-    apiNode,
-    context.electron?.apiObjects,
-  );
-  const worldId = isolated
-    ? electronStaticValue(context, argumentNode(node.arguments[0]))
-    : null;
+  const api = collectContextBridgeMembers(apiNode, context.electron?.apiObjects);
+  const worldId =
+    exposure.worldId === null
+      ? null
+      : electronStaticValue(context, argumentNode(exposure.worldId));
   const unknown =
     (key.status === "dynamic" ? 1 : 0) +
     (worldId?.status === "dynamic" ? 1 : 0) +
@@ -207,7 +205,7 @@ const inspectContextBridge = (
           : { api_key: key.value, api_key_expression: null };
   const finding: ElectronContextBridgeFinding = {
     ...apiKey,
-    world: isolated ? "isolated" : "main",
+    world: exposure.world,
     world_id: worldId,
     api_status: api.status,
     members: api.members,
@@ -219,7 +217,7 @@ const inspectContextBridge = (
   };
   addLocatedFinding(context, {
     collection: context.accumulator.contextBridgeApis,
-    key: `context-bridge\0${isolated ? "isolated" : "main"}\0${finding.api_key ?? finding.api_key_expression ?? "[missing]"}`,
+    key: `context-bridge\0${exposure.world}\0${finding.api_key ?? finding.api_key_expression ?? "[missing]"}`,
     node,
     value: finding,
   });

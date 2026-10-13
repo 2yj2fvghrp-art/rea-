@@ -34,3 +34,22 @@ describe("Content-Security-Policy parsing", () => {
     ).toEqual([]);
   });
 });
+
+it("judges only the first occurrence of each CSP directive", () => {
+  expect(parseContentSecurityPolicy("default-src 'none'; script-src 'none'; script-src *", false)?.concerns).toEqual([]);
+});
+it.each(["attr", "elem"])("retains the uncovered script use with only script-src-%s", (use) => {
+  expect(parseContentSecurityPolicy(`script-src-${use} 'none'; object-src 'none'`, false)?.concerns).toEqual([
+    expect.objectContaining({ directive: use === "attr" ? "script-src-elem" : "script-src-attr", source: null }),
+  ]);
+});
+it("does not judge any source in a dynamic directive", () => {
+  expect(parseContentSecurityPolicy("script-src 'unsafe-inline' ${…}; object-src 'none'", false)?.concerns).toEqual([]);
+});
+it("preserves known concerns beside unknown declared directives", () => {
+  const policy = "script-src *; object-src 'none'; future-directive x";
+  expect(parseContentSecurityPolicy(policy, false)?.concerns).toEqual([
+    expect.objectContaining({ directive: "script-src", source: "*" }),
+  ]);
+  expect(parseContentSecurityPolicy(policy, true)).toBeUndefined();
+});

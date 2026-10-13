@@ -40,31 +40,31 @@ export const inspectDataEndpointNode = (
     });
     return;
   }
-  if (!isFoldableData(node, parent)) {
-    if (t.isTemplateLiteral(node))
-      for (const quasi of node.quasis) {
-        const text = quasi.value.cooked;
-        if (text !== null && text !== undefined)
-          addDataEndpoint(context, {
-            node: quasi,
-            value: text,
-            expression: null,
-            mechanism: "template-text",
-            readAncestors: () => [...readAncestors(), node],
-          });
-      }
-    return;
+  if (isFoldableData(node, parent)) {
+    const value = staticConstantString(context.constants(node));
+    if (value !== undefined && addDataEndpoint(context, {
+      node,
+      value,
+      expression: sourceSlice(context.source, node),
+      mechanism: "folded-expression",
+      readAncestors,
+    })) {
+      consumeValueNodes(context, node);
+      return;
+    }
   }
-  const value = staticConstantString(context.constants(node));
-  if (value === undefined) return;
-  consumeValueNodes(context, node);
-  addDataEndpoint(context, {
-    node,
-    value,
-    expression: sourceSlice(context.source, node),
-    mechanism: "folded-expression",
-    readAncestors,
-  });
+  if (t.isTemplateLiteral(node))
+    for (const quasi of node.quasis) {
+      const text = quasi.value.cooked;
+      if (text !== null && text !== undefined)
+        addDataEndpoint(context, {
+          node: quasi,
+          value: text,
+          expression: null,
+          mechanism: "template-text",
+          readAncestors: () => [...readAncestors(), node],
+        });
+    }
 };
 
 /** Exclude a reported value expression and its literals from data findings. */
@@ -100,8 +100,8 @@ interface DataEndpointInput {
 const addDataEndpoint = (
   context: JavaScriptFindingContext,
   input: DataEndpointInput,
-): void => {
-  if (classifyJavaScriptUrlValue(input.value) === undefined) return;
+): boolean => {
+  if (classifyJavaScriptUrlValue(input.value) === undefined) return false;
   addLocatedFinding(context, {
     collection: context.accumulator.endpoints,
     key: compositeKey(["endpoint", "data", input.value]),
@@ -116,6 +116,7 @@ const addDataEndpoint = (
       location: range(input.node),
     },
   });
+  return true;
 };
 
 // Only maximal expressions are folded; their operands are covered by the result.

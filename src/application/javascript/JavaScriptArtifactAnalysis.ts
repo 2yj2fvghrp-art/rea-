@@ -4,9 +4,11 @@ import {
   type ElectronCallPath,
 } from "../../domain/javascript/electronStaticAnalysisTypes.js";
 import { createHash } from "node:crypto";
+
+import { moduleResolutionModeForJavaScriptReference } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 import { setImmediate } from "node:timers/promises";
 
-import { resolveJavaScriptSourceMapReference } from "../../domain/javascript/javascriptSourceMapPaths.js";
+import { resolveJavaScriptSourceMapReferences } from "../../domain/javascript/javascriptSourceMapPaths.js";
 import { analyzeParsedJavaScriptStaticSourceSteps } from "../../domain/javascript/javascriptStaticAnalysis.js";
 import type { JavaScriptCompanionSource } from "../../domain/javascript/javascriptGlobalSymbolLinks.js";
 import { globalSymbolRegistryCompanions } from "../../domain/javascript/javascriptGlobalSymbolRegistry.js";
@@ -66,6 +68,7 @@ interface MutableArtifactAnalysis<
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
   readonly htmlPolicies: JavaScriptHtmlPolicyObservation[];
   readonly sourceMaps: JavaScriptSourceMapObservation[];
+  readonly companionLimitations: string[];
   visitedNodes: number;
   findings: number;
   modules: number;
@@ -90,13 +93,14 @@ interface ArtifactAnalysisContext<
 /** Sources that name a global symbol registry key another source names. */
 const javascriptCompanionSources = (
   fileSet: JavaScriptArtifactFileSet,
-): ReadonlyMap<string, readonly JavaScriptCompanionSource[]> =>
+) =>
   globalSymbolRegistryCompanions(
     fileSet.files.flatMap((file) =>
       file.kind === "javascript" && file.text.included
         ? [{ path: file.path, text: file.text.value }]
         : [],
     ),
+    fileSet.text_bytes_read,
   );
 
 /** Analyze every text source from the artifact without a result quota. */
@@ -138,10 +142,12 @@ export const analyzeAndProjectJavaScriptArtifactFiles = async (
     if (projection !== undefined) while (projection.next().done !== true) yield;
     return projectJavaScriptModuleSemantics(ir);
   };
+  const linking = javascriptCompanionSources(fileSet);
+  state.companionLimitations.push(...linking.limitations);
   const context = {
     state,
     projectSemantics: projectFileSemantics,
-    companions: javascriptCompanionSources(fileSet),
+    companions: linking.companions,
   };
   for (const [index, file] of fileSet.files.entries()) {
     // Let progress, cancellation and garbage collection run between files.
@@ -171,7 +177,9 @@ export const analyzeAndAdoptJavaScriptArtifactFiles = async (
   readonly interruption: AnalysisError | null;
 }> => {
   const state = emptyArtifactAnalysis<JavaScriptModuleSemanticIr>();
-  const companions = javascriptCompanionSources(fileSet);
+  const linking = javascriptCompanionSources(fileSet);
+  const companions = linking.companions;
+  state.companionLimitations.push(...linking.limitations);
   let interruption: AnalysisError | null = null;
   const selectedFileCount =
     fileSet.files.length - (fileSet.source_selection?.unselected_files ?? 0);
@@ -343,10 +351,12 @@ const analyzeArtifactFiles = <SemanticIr extends JavaScriptModuleSemanticIr>(
   projectSemantics: ArtifactAnalysisContext<SemanticIr>["projectSemantics"],
 ): JavaScriptArtifactAnalysis<SemanticIr> => {
   const state = emptyArtifactAnalysis<SemanticIr>();
+  const linking = javascriptCompanionSources(fileSet);
+  state.companionLimitations.push(...linking.limitations);
   const context = {
     state,
     projectSemantics,
-    companions: javascriptCompanionSources(fileSet),
+    companions: linking.companions,
   };
   for (const file of fileSet.files) {
     const steps = analyzeArtifactFileSteps(file, context);
@@ -373,6 +383,7 @@ const finalizeArtifactAnalysis = <
     modules: state.modules,
     parse_failures: state.parseFailures,
     limitations: [
+      ...state.companionLimitations,
       "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
       "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
       ...state.files.flatMap(
@@ -430,7 +441,13 @@ function* analyzeArtifactFileSteps<
   yield;
   const semantics =
     analysis.parse_status === "complete" || analysis.parse_status === "partial"
-      ? yield* analyzeParsedJavaScriptSemanticsSteps(parsed)
+      ? yield* analyzeParsedJavaScriptSemanticsSteps(
+          parsed,
+          moduleResolutionModeForJavaScriptReference(
+            file.path,
+            "static-import",
+          ),
+        )
       : null;
   const projected =
     semantics === null
@@ -491,6 +508,7 @@ const emptyArtifactAnalysis = <
   htmlScripts: [],
   htmlPolicies: [],
   sourceMaps: [],
+  companionLimitations: [],
   visitedNodes: 0,
   findings: 0,
   modules: 0,
@@ -633,21 +651,27 @@ const collectSourceMapOriginals = (
         "Source map sourceRoot must be a string or null.",
       );
     const root = typeof map.sourceRoot === "string" ? map.sourceRoot : null;
-    for (const [index, raw] of names.entries()) {
+    const sourceNames: (string | null)[] = [];
+    for (const raw of names) {
       if (raw !== null && typeof raw !== "string")
         return invalidSourceMap(
           file,
           "Source map contains a non-string source name.",
         );
+      sourceNames.push(raw);
+    }
+    const references = resolveJavaScriptSourceMapReferences(
+      sourceNames,
+      root,
+      file.path,
+    );
+    for (const [index, reference] of references.entries()) {
       const rawContent = Array.isArray(contents) ? contents[index] : undefined;
       const content = typeof rawContent === "string" ? rawContent : null;
       sources.push({
         source_index: index,
         declaration_index: declarationIndex++,
-        reference:
-          typeof raw === "string"
-            ? resolveJavaScriptSourceMapReference(raw, root, file.path)
-            : null,
+        reference,
         content,
         content_sha256: content === null ? null : sha256(content),
       });

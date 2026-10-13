@@ -373,8 +373,9 @@ export interface ElectronCallPathStep {
   readonly location: JavaScriptSourceRange;
   readonly module_key: string | null;
   readonly module_runtime: string | null;
-  /** Artifact path of a linked source holding this step; absent for this source. */
+  /** Exact linked source identity; both fields are absent for this source. */
   readonly source_path?: string;
+  readonly source_sha256?: string;
 }
 
 /** One unresolved branch predicate on a substituted path. */

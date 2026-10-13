@@ -24,7 +24,7 @@ import {
   indexJavaScriptElectronIdentitySteps,
   type JavaScriptElectronIdentity,
 } from "./javascriptSemanticAnalysis.js";
-import { symbolicLogicalRight } from "./javascriptSymbolicControlFlow.js";
+import { symbolicLoopHasExit, symbolicLogicalRight } from "./javascriptSymbolicControlFlow.js";
 import {
   moduleFactory,
   modulePropertyName,
@@ -170,7 +170,7 @@ export class JavaScriptSymbolicBindings {
     traverseJavaScriptAst(program, {
       enter: (node) => {
         if (t.isAssignmentExpression(node))
-          this.#indexWrite(node.left, node.right, node);
+          this.#indexWrite(node.left, node.operator === "=" ? node.right : node, node);
         if (t.isUpdateExpression(node))
           this.#indexWrite(node.argument, node, node);
         if (t.isUnaryExpression(node, { operator: "delete" }))
@@ -192,7 +192,7 @@ export class JavaScriptSymbolicBindings {
             node.callee.object,
             node.callee.object.name,
           );
-          if (binding) this.#mutated.add(binding.bindingId);
+          if (binding) for (const id of this.#aliasComponent(binding.bindingId)) this.#mutated.add(id);
         }
         if (
           t.isCallExpression(node) &&
@@ -468,7 +468,7 @@ export class JavaScriptSymbolicBindings {
         readonly environment: SymbolicEnvironment;
       }[]
     | undefined {
-    if (!("loop" in write)) return undefined;
+    if (!("loop" in write) || symbolicLoopHasExit(write.loop)) return undefined;
     const iterable = this.evaluate(write.loop.right, environment);
     if (
       iterable.kind !== "array" ||
@@ -821,7 +821,7 @@ export class JavaScriptSymbolicBindings {
     }
     if (t.isSequenceExpression(node))
       return this.evaluate(node.expressions.at(-1), env);
-    if (t.isAssignmentExpression(node)) return this.evaluate(node.right, env);
+    if (t.isAssignmentExpression(node)) return node.operator === "=" ? this.evaluate(node.right, env) : symbolicUnknown("compound assignment depends on its prior value");
     if (t.isAwaitExpression(node)) return this.evaluate(node.argument, env);
     // Negation reads truthiness, which objects and functions also have.
     if (t.isUnaryExpression(node, { operator: "!" })) {
@@ -1718,7 +1718,22 @@ export class JavaScriptSymbolicBindings {
       const aliases = this.#aliasesByBinding.get(source.bindingId) ?? [];
       aliases.push(binding.bindingId);
       this.#aliasesByBinding.set(source.bindingId, aliases);
+      const sources = this.#aliasesByBinding.get(binding.bindingId) ?? [];
+      sources.push(source.bindingId);
+      this.#aliasesByBinding.set(binding.bindingId, sources);
     }
+  }
+
+  #aliasComponent(bindingId: string): ReadonlySet<string> {
+    const found = new Set<string>();
+    const pending = [bindingId];
+    while (pending.length > 0) {
+      const id = pending.pop();
+      if (id === undefined || found.has(id)) continue;
+      found.add(id);
+      pending.push(...(this.#aliasesByBinding.get(id) ?? []));
+    }
+    return found;
   }
 
   #invalidateBootstrapTable(
@@ -1773,7 +1788,13 @@ export class JavaScriptSymbolicBindings {
         );
       return;
     }
-    if (t.isIdentifier(root)) this.#addWrite(root, path, value, site);
+    if (t.isIdentifier(root)) {
+      const binding = resolveSemanticBindingState(this.state, root, root.name);
+      const aliases = binding === undefined ? [] : [...this.#aliasComponent(binding.bindingId)];
+      if (path.length > 0 && aliases.some((id) => this.state.bindingsById.get(id)?.initializers.some((initializer) => t.isArrayExpression(initializer.node))))
+        for (const id of aliases) this.#mutated.add(id);
+      this.#addWrite(root, path, value, site);
+    }
   }
 
   /** The enclosing `for...of` in the same function whose declaration binds this key. */
@@ -1817,7 +1838,7 @@ export class JavaScriptSymbolicBindings {
     const writes: (SymbolicMemberWrite & { readonly site: t.Node })[] = [];
     for (const write of this.#writes.get(bindingId) ?? []) {
       const key = write.path.length === 1 ? write.path[0] : undefined;
-      if (key === undefined || !t.isAssignmentExpression(write.site))
+      if (key === undefined || !t.isAssignmentExpression(write.site, { operator: "=" }))
         return undefined;
       writes.push({ key, value: write.value, site: write.site });
     }

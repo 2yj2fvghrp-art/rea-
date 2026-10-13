@@ -1,11 +1,12 @@
 import * as t from "@babel/types";
 
-import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
+import { compositeKey, compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import type {
   ElectronApiIdentity,
   ElectronStaticValue,
 } from "./electronStaticAnalysisTypes.js";
 import {
+  semanticStaticPropertyKey,
   semanticStaticPropertyName,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
@@ -142,8 +143,8 @@ export const collectContextBridgeMembers = (
       unknown: 0,
     };
   const state: MemberState = {
-    members: [],
-    conditional: [],
+    members: new Map(),
+    expanded: new Set(),
     unknown: 0,
     objects: objects ?? new Map(),
   };
@@ -155,21 +156,19 @@ export const collectContextBridgeMembers = (
       conditional_members: [],
       unknown: 1,
     };
-  collectMembersAt(root, "", 0, false, state);
-  const members = new Set(state.members);
+  collectMembersAt(root, [], false, state);
+  const members = [...state.members.values()];
   return {
     status: t.isObjectExpression(node) ? "object-literal" : "object-binding",
-    members: [...members].sort(compareUnicodeCodePoints),
-    conditional_members: [...new Set(state.conditional)]
-      .filter((member) => !members.has(member))
-      .sort(compareUnicodeCodePoints),
+    members: [...new Set(members.filter((member) => !member.conditional).map((member) => member.segments.join(".")))].sort(compareUnicodeCodePoints),
+    conditional_members: [...new Set(members.filter((member) => member.conditional).map((member) => member.segments.join(".")))].sort(compareUnicodeCodePoints),
     unknown: state.unknown,
   };
 };
 
 interface MemberState {
-  readonly members: string[];
-  readonly conditional: string[];
+  readonly members: Map<string, { readonly segments: readonly string[]; readonly conditional: boolean }>;
+  readonly expanded: Set<t.ObjectExpression>;
   unknown: number;
   readonly objects: ReadonlyMap<number, ElectronApiObject>;
 }
@@ -188,40 +187,47 @@ const boundObject = (
 
 const collectMembersAt = (
   object: t.ObjectExpression,
-  prefix: string,
-  depth: number,
+  prefix: readonly string[],
   conditional: boolean,
   state: MemberState,
 ): void => {
-  if (depth >= 8) {
+  // Expand each source-owned object once per exposure. Cycles and repeated
+  // spreads stay explicitly unknown instead of amplifying a shared initializer.
+  if (prefix.length >= 8 || state.expanded.has(object)) {
     state.unknown += 1;
+    for (const [key, member] of state.members)
+      if (member.segments.length > prefix.length + 1 && prefix.every((segment, index) => member.segments[index] === segment))
+        state.members.delete(key);
     return;
   }
+  state.expanded.add(object);
   for (const property of object.properties) {
     if (t.isSpreadElement(property)) {
-      collectSpread(property.argument, prefix, depth, conditional, state);
+      collectSpread(property.argument, prefix, conditional, state);
       continue;
     }
-    const name = semanticStaticPropertyName(property.key, property.computed);
-    if (name === "" || property.computed) {
+    const name = semanticStaticPropertyKey(property.key, property.computed);
+    if (name === null) {
       state.unknown += 1;
       continue;
     }
-    const path = prefix === "" ? name : `${prefix}.${name}`;
-    (conditional ? state.conditional : state.members).push(path);
+    const segments = [...prefix, name];
+    for (const [key, member] of state.members)
+      if (segments.every((segment, index) => member.segments[index] === segment))
+        state.members.delete(key);
+    state.members.set(compositeKey(segments), { segments, conditional });
     const nested = t.isObjectProperty(property)
       ? boundObject(property.value, state)
       : undefined;
     if (nested !== undefined)
-      collectMembersAt(nested, path, depth + 1, conditional, state);
+      collectMembersAt(nested, segments, conditional, state);
   }
 };
 
 // A spread contributes exact keys only when every branch is a known object.
 const collectSpread = (
   argument: t.Node,
-  prefix: string,
-  depth: number,
+  prefix: readonly string[],
   conditional: boolean,
   state: MemberState,
 ): void => {
@@ -234,15 +240,31 @@ const collectSpread = (
   const objects = branches.map((branch) => boundObject(branch, state));
   if (objects.some((object) => object === undefined)) {
     state.unknown += 1;
+    // An unknown replacement can change nested shapes, while existing own
+    // top-level keys remain present after an object spread.
+    for (const [key, member] of state.members)
+      if (member.segments.length > prefix.length + 1 && prefix.every((segment, index) => member.segments[index] === segment))
+        state.members.delete(key);
     return;
   }
-  for (const object of objects)
-    if (object !== undefined)
-      collectMembersAt(
-        object,
-        prefix,
-        depth,
-        conditional || branches.length > 1,
-        state,
-      );
+  if (branches.length === 1) {
+    const object = objects[0];
+    if (object !== undefined) collectMembersAt(object, prefix, conditional, state);
+    return;
+  }
+  const alternatives: MemberState[] = [];
+  for (const object of objects) {
+    if (object === undefined) continue;
+    const branch: MemberState = { ...state, members: new Map(state.members), unknown: 0 };
+    collectMembersAt(object, prefix, conditional, branch);
+    alternatives.push(branch);
+    state.unknown += branch.unknown;
+  }
+  state.members.clear();
+  for (const branch of alternatives)
+    for (const [key, member] of branch.members)
+      state.members.set(key, {
+        segments: member.segments,
+        conditional: member.conditional || alternatives.some((alternative) => !alternative.members.has(key) || alternative.members.get(key)?.conditional === true),
+      });
 };

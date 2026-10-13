@@ -77,7 +77,8 @@ const SCRIPT_SCHEMES = new Set(["data:", "blob:"]);
 
 /**
  * Parse a serialized policy (CSP Level 3 `;`-separated directives). Returns
- * undefined unless every directive name is a known CSP directive. With
+ * undefined unless at least one directive name is known. Declared policies retain
+ * unknown directives; arbitrary text must use only known directives. With
  * `requireMultiple`, a single directive is not enough evidence that arbitrary
  * text is a policy.
  */
@@ -94,10 +95,10 @@ export const parseContentSecurityPolicy = (
     const [rawName, ...sources] = tokens;
     if (rawName === undefined) continue;
     const name = rawName.toLowerCase();
-    if (!DIRECTIVES.has(name)) return undefined;
+    if (!DIRECTIVES.has(name) && requireMultiple) return undefined;
     directives.push({ name, sources });
   }
-  if (directives.length === 0 || (requireMultiple && directives.length < 2))
+  if (!directives.some(({ name }) => DIRECTIVES.has(name)) || (requireMultiple && directives.length < 2))
     return undefined;
   return { directives, concerns: concerns(directives) };
 };
@@ -106,12 +107,16 @@ const concerns = (
   directives: readonly ContentSecurityPolicyDirective[],
 ): readonly ContentSecurityPolicyConcern[] => {
   const found: ContentSecurityPolicyConcern[] = [];
-  const names = new Set(directives.map(({ name }) => name));
-  const dynamic = directives.some(({ sources }) =>
+  const first = new Map<string, ContentSecurityPolicyDirective>();
+  for (const directive of directives)
+    if (!first.has(directive.name)) first.set(directive.name, directive);
+  const effective = [...first.values()];
+  const names = new Set(effective.map(({ name }) => name));
+  const dynamic = effective.some(({ sources }) =>
     sources.some((source) => source.includes(DYNAMIC_SOURCE)),
   );
-  for (const { name, sources } of directives) {
-    if (!SOURCE_LIST.test(name)) continue;
+  for (const { name, sources } of effective) {
+    if (!SOURCE_LIST.test(name) || sources.some((source) => source.includes(DYNAMIC_SOURCE))) continue;
     const lowered = sources.map((source) => source.toLowerCase());
     const nonceOrHash = lowered.some((source) =>
       /^'(?:nonce|sha256|sha384|sha512)-/u.test(source),
@@ -123,13 +128,18 @@ const concerns = (
   }
   // Omissions are judged only when every directive value is static.
   if (!dynamic && !names.has("default-src")) {
-    if (![...SCRIPT_DIRECTIVES].some((name) => names.has(name)))
-      found.push({
-        directive: "script-src",
-        source: null,
-        reason:
-          "Neither script-src nor default-src is present, so scripts are unrestricted.",
-      });
+    if (!names.has("script-src")) {
+      const missingElement = !names.has("script-src-elem");
+      const missingAttribute = !names.has("script-src-attr");
+      if (missingElement || missingAttribute)
+        found.push({
+          directive: missingElement && missingAttribute ? "script-src" : missingElement ? "script-src-elem" : "script-src-attr",
+          source: null,
+          reason: missingElement && missingAttribute
+            ? "Neither script-src nor default-src is present, so scripts are unrestricted."
+            : `No ${missingElement ? "script-src-elem" : "script-src-attr"}, script-src or default-src restricts ${missingElement ? "script elements" : "script attributes"}.`,
+        });
+    }
     if (!names.has("object-src"))
       found.push({
         directive: "object-src",
