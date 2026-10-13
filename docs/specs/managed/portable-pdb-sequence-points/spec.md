@@ -12,8 +12,9 @@ to the selected assembly.
 
 Accept an explicitly selected Portable PDB — either an external `.pdb` path or
 the embedded `MPDB` debug-directory entry — and bind it to the selected
-assembly. Establish the declared debug identity from the PE debug directory
-(CodeView `RSDS` GUID/age) against the `#Pdb` stream's 20-byte stamp, keep
+assembly. Establish the declared debug identity from the PE debug directory —
+for Portable PDBs the CodeView `RSDS` GUID plus the entry's `TimeDateStamp`
+(the RSDS age stays 1) — against the `#Pdb` stream's 20-byte PDB ID, keep
 mismatches explicit, and emit document names with checksums plus every
 visible/hidden sequence point keyed to build-local MethodDef tokens and IL
 offsets.
@@ -29,9 +30,9 @@ offsets.
 - A matching Portable PDB yields `debug_map` with identity `matched`, decoded
   document names, checksum algorithms/hashes, and sequence points (including
   hidden `0xFEEFEE` points and multi-document methods) keyed by method token.
-- A GUID/age mismatch, missing CodeView data, or non-Portable PDB bytes keep
-  identity status honest (`mismatched`, `undeclared`, `unverifiable`) without
-  failing the member inspection itself.
+- A GUID/stamp mismatch, missing or unreadable CodeView data, or non-Portable
+  PDB bytes keep identity status honest (`mismatched`, `undeclared`,
+  `unverifiable`) without failing the member inspection itself.
 - Truncated roots, truncated sequence-point blobs, bad row indexes and bad
   heap indexes surface as coverage issues, not crashes.
 - Cancellation during the external PDB read propagates and cleans up like the

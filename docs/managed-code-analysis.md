@@ -94,14 +94,15 @@ rea inspect-managed-members /absolute/path/Assembly.dll --pdb /absolute/path/Ass
 rea inspect-managed-members /absolute/path/Assembly.dll --pdb-embedded --json
 ```
 
-The PDB is verified against the assembly's own declarations before binding: the
-CodeView RSDS record declares the expected GUID and age, and an embedded entry
-declares it was produced with the binary. The reported `identity.status` is
-`matched`, `mismatched`, `undeclared` (the assembly carries no CodeView
-declaration), or `unverifiable` (the declaration or the selected PDB could
-not be read for comparison). The
-selected PDB's own content GUID and stamp are reported verbatim so a
-mismatch remains visible rather than blocking the evidence.
+The PDB is verified against the assembly's own declarations before binding: a
+portable CodeView RSDS record declares the expected GUID and its debug
+directory entry's `TimeDateStamp` completes the 20-byte PDB ID (the RSDS age
+stays 1), and an embedded entry declares it was produced with the binary. The
+reported `identity.status` is `matched`, `mismatched`, `undeclared` (the
+assembly carries no CodeView declaration), or `unverifiable` (the declaration
+or the selected PDB could not be read for comparison). The selected PDB's own
+content GUID and stamp are reported verbatim so a mismatch remains visible
+rather than blocking the evidence.
 
 A bound map decodes the PDB's Document and MethodDebugInformation tables.
 Documents keep their declared names, source-hash digests and hash algorithms,

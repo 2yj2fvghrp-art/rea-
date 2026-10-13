@@ -326,7 +326,10 @@ const bindDebugMapSafely = (
       pdb: null,
       identity: {
         status: "unverifiable",
-        declared: { codeview: null, embedded_portable_pdb: false },
+        declared: {
+          codeview: null,
+          embedded_portable_pdb: pdb.kind === "embedded",
+        },
         checks: [],
       },
       documents: [],

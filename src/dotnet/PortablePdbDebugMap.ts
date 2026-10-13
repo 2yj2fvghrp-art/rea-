@@ -216,26 +216,50 @@ const decodeDocuments = (
       language: null,
       language_guid: null,
     };
+    // Each column decodes independently so one malformed cell cannot
+    // suppress its readable siblings.
+    const column = <T>(decode: () => T): T | null => {
+      try {
+        return decode();
+      } catch (cause: unknown) {
+        if (cause instanceof ManagedReaderFailure) {
+          if (cause.issue.code === "resource-limit") throw cause;
+          // Preserve the typed issue code while anchoring it to this row.
+          pushIssue(issues, {
+            ...cause.issue,
+            detail: `Document ${entry.token}: ${cause.issue.detail}`,
+          });
+          return null;
+        }
+        throw cause;
+      }
+    };
     try {
       const nameIndex = cursor.readIndex(layout.blobIndexSize);
       const algorithmIndex = cursor.readIndex(layout.guidIndexSize);
       const hashIndex = cursor.readIndex(layout.blobIndexSize);
       const languageIndex = cursor.readIndex(layout.guidIndexSize);
-      const algorithmGuid = readMetadataGuid(bytes, layout, algorithmIndex);
-      const languageGuid = readMetadataGuid(bytes, layout, languageIndex);
-      entry.hash_algorithm_guid = algorithmGuid;
-      entry.language_guid = languageGuid;
+      entry.hash_algorithm_guid = column(() =>
+        readMetadataGuid(bytes, layout, algorithmIndex),
+      );
       entry.hash_algorithm =
-        algorithmGuid === null
+        entry.hash_algorithm_guid === null
           ? null
-          : (HASH_ALGORITHMS.get(algorithmGuid) ?? null);
+          : (HASH_ALGORITHMS.get(entry.hash_algorithm_guid) ?? null);
+      entry.language_guid = column(() =>
+        readMetadataGuid(bytes, layout, languageIndex),
+      );
       entry.language =
-        languageGuid === null
+        entry.language_guid === null
           ? null
-          : (DOCUMENT_LANGUAGES.get(languageGuid) ?? null);
-      const hashBlob = readMetadataBlob(bytes, layout, hashIndex, bytes.length);
-      managedDecodeBudget(layout).reserveString(hashBlob.length * 2, start);
-      entry.hash = hashBlob.length === 0 ? null : hashBlob.toString("hex");
+          : (DOCUMENT_LANGUAGES.get(entry.language_guid) ?? null);
+      const hashBlob = column(() =>
+        readMetadataBlob(bytes, layout, hashIndex, bytes.length),
+      );
+      if (hashBlob !== null) {
+        managedDecodeBudget(layout).reserveString(hashBlob.length * 2, start);
+        entry.hash = hashBlob.length === 0 ? null : hashBlob.toString("hex");
+      }
       try {
         entry.name = decodeDocumentName(
           bytes,
@@ -384,11 +408,13 @@ const validatePoint = (
   point: DecodedSequencePoint,
   previousIlOffset: number | null,
 ): string | null => {
-  if (point.hidden) return null;
+  // IL offsets must stay in range and ordered even for hidden points; only
+  // source-line and column constraints are non-hidden per the format spec.
   if (point.ilOffset >= 0x2000_0000)
     return `IL offset ${String(point.ilOffset)} exceeds 0x20000000`;
   if (previousIlOffset !== null && point.ilOffset <= previousIlOffset)
     return `IL offset ${String(point.ilOffset)} is not increasing`;
+  if (point.hidden) return null;
   for (const [label, value] of [
     ["start line", point.startLine],
     ["end line", point.endLine],
@@ -495,7 +521,7 @@ const decodeMethodDebugInformation = (
           throw new BlobFormatError(
             `sequence point at IL ${String(point.ilOffset)} is invalid: ${violation}`,
           );
-        if (!point.hidden) previousIl = point.ilOffset;
+        previousIl = point.ilOffset;
         if (
           point.documentRow !== 0 &&
           (point.documentRow < 1 || point.documentRow > documentRowCount)
@@ -561,6 +587,7 @@ const declaredIdentity = (
       : {
           guid: declaration.codeview.guid,
           age: declaration.codeview.age,
+          stamp: declaration.codeview.stamp,
           declared_path: declaration.codeview.declaredPath,
         },
   embedded_portable_pdb: declaration.embeddedPortablePdb !== null,
@@ -586,10 +613,13 @@ export const buildPortablePdbDebugMap = ({
   const issues = issueSink();
   const declaration = readManagedDebugDirectory(bytes, pe);
   for (const issue of declaration.issues) pushIssue(issues, issue);
+  issues.omitted += declaration.omitted;
   if (pe.debugIssue !== null) pushIssue(issues, pe.debugIssue);
   const declared = declaredIdentity(declaration);
-  // An unreadable debug directory means the declaration is unknown, not absent.
-  const identityUnknown = pe.debugIssue !== null;
+  // A degraded declaration — the directory slot or its enumeration — means
+  // the debug identity is unknown, not absent.
+  const identityUnknown =
+    pe.debugIssue !== null || declaration.issues.length > 0;
 
   let pdbBytes: Buffer;
   let source: PortablePdbDebugMap["source"];
@@ -613,7 +643,7 @@ export const buildPortablePdbDebugMap = ({
     const extracted = extractEmbeddedPortablePdb(
       bytes,
       declaration.embeddedPortablePdb,
-      issues.items,
+      (issue) => pushIssue(issues, issue),
     );
     if (extracted === null)
       return {
@@ -674,15 +704,17 @@ export const buildPortablePdbDebugMap = ({
   if (declared.codeview === null) {
     identityStatus = identityUnknown ? "unverifiable" : "undeclared";
   } else {
+    // Portable PDB identity is the 16-byte Guid plus the debug-directory
+    // entry's TimeDateStamp, not the RSDS age (which is 1 by spec).
     const matched =
-      declared.codeview.guid === guid && declared.codeview.age === stamp;
+      declared.codeview.guid === guid && declared.codeview.stamp === stamp;
     identityStatus = matched ? "matched" : "mismatched";
     checks.push({
       name: "rsds-stamp",
       result: matched ? "matched" : "mismatched",
       detail: matched
-        ? "CodeView RSDS GUID and age equal the #Pdb stream stamp."
-        : `CodeView declares ${declared.codeview.guid ?? "?"} age ${String(declared.codeview.age ?? -1)}; the PDB declares ${guid} stamp ${String(stamp)}.`,
+        ? "CodeView RSDS GUID and entry TimeDateStamp equal the #Pdb stream PDB ID."
+        : `CodeView declares GUID ${declared.codeview.guid ?? "?"} TimeDateStamp ${String(declared.codeview.stamp ?? -1)}; the PDB declares ${guid} stamp ${String(stamp)}.`,
     });
   }
   if (layout.entryPointToken !== 0 && pe.cli !== null) {
@@ -710,35 +742,53 @@ export const buildPortablePdbDebugMap = ({
     });
   }
 
-  const documents = decodeDocuments(pdbBytes, layout, issues);
-  const decoded = decodeMethodDebugInformation(
-    pdbBytes,
-    layout,
-    methodRows,
-    issues,
-  );
-  // Admit the map against the PDB's own budget so an oversized well-formed
-  // map degrades debug_map instead of discarding member evidence.
-  return admitManagedProjection(
-    {
-      status: "bound",
-      source,
-      pdb: {
-        stamp: layout.pdbId.toString("hex"),
-        guid,
-        stamp_age: stamp,
-        entry_point_token:
-          layout.entryPointToken === 0
-            ? null
-            : `0x${layout.entryPointToken.toString(16).padStart(8, "0")}`,
-        version: layout.version,
+  const pdbFacts = {
+    stamp: layout.pdbId.toString("hex"),
+    guid,
+    stamp_age: stamp,
+    entry_point_token:
+      layout.entryPointToken === 0
+        ? null
+        : `0x${layout.entryPointToken.toString(16).padStart(8, "0")}`,
+    version: layout.version,
+  };
+  try {
+    const documents = decodeDocuments(pdbBytes, layout, issues);
+    const decoded = decodeMethodDebugInformation(
+      pdbBytes,
+      layout,
+      methodRows,
+      issues,
+    );
+    // Admit the map against the PDB's own budget so an oversized well-formed
+    // map degrades debug_map instead of discarding member evidence.
+    return admitManagedProjection(
+      {
+        status: "bound",
+        source,
+        pdb: pdbFacts,
+        identity: { status: identityStatus, declared, checks },
+        documents,
+        methods: decoded.methods,
+        methods_without_debug_information: decoded.uncovered,
+        coverage: debugIssues(issues),
       },
+      managedDecodeBudget(layout),
+    );
+  } catch (cause: unknown) {
+    if (!(cause instanceof ManagedReaderFailure)) throw cause;
+    // Decode or admission failed after identity was resolved; keep the
+    // source and declaration facts instead of reporting them absent.
+    pushIssue(issues, cause.issue);
+    return {
+      status: "malformed",
+      source,
+      pdb: pdbFacts,
       identity: { status: identityStatus, declared, checks },
-      documents,
-      methods: decoded.methods,
-      methods_without_debug_information: decoded.uncovered,
+      documents: [],
+      methods: [],
+      methods_without_debug_information: null,
       coverage: debugIssues(issues),
-    },
-    managedDecodeBudget(layout),
-  );
+    };
+  }
 };

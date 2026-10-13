@@ -13,14 +13,15 @@ import { buildManagedPeFixture } from "../../../../src/dotnet/ManagedPe.fixture.
 import {
   buildPortablePdbFixture,
   portablePdbGuidBytes,
-  PORTABLE_PDB_FIXTURE_AGE,
+  PORTABLE_PDB_FIXTURE_STAMP,
   PORTABLE_PDB_FIXTURE_GUID,
 } from "../../../../src/dotnet/PortablePdb.fixture.js";
 import * as boundedFileBytes from "../../../../src/process/BoundedFileBytes.js";
 
 const codeview = {
   guid: portablePdbGuidBytes(PORTABLE_PDB_FIXTURE_GUID),
-  age: PORTABLE_PDB_FIXTURE_AGE,
+  age: 1,
+  stamp: PORTABLE_PDB_FIXTURE_STAMP,
 };
 
 const fixturePdb = () =>

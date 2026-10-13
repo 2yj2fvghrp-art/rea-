@@ -5,9 +5,11 @@ Add a bounded Portable PDB layer under `src/dotnet/`:
 - `ManagedPeReader.ts`: expose PE data directory 6 (debug) on
   `ManagedPeLayout` so debug evidence comes through the same checked RVA map.
 - `ManagedDebugDirectory.ts`: enumerate IMAGE_DEBUG_DIRECTORY entries; parse
-  CodeView `RSDS` (GUID + age + declared path) and extract `MPDB` embedded
-  Portable PDBs (`zlib.inflateRawSync` — .NET `DeflateStream` emits raw RFC
-  1951 deflate — bounded by declared size + snapshot cap).
+  CodeView `RSDS` (GUID + age + declared path) keeping the entry
+  `TimeDateStamp` separately — with the GUID it forms the portable PDB ID —
+  and extract `MPDB` embedded Portable PDBs (`zlib.inflateRawSync` — .NET
+  `DeflateStream` emits raw RFC 1951 deflate — bounded by declared size +
+  snapshot cap).
 - `PortablePdbLayout.ts`: parse the `BSJB` metadata root, `#Pdb` stream
   (20-byte stamp, entry-point MethodDef token, referenced type-system row
   counts) and the debug table layout (0x30–0x37) sized by those row counts.

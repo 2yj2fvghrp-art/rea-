@@ -377,6 +377,8 @@ const portablePdbDebugMapSchema = z.object({
         .object({
           guid: cliMetadataGuidSchema.nullable(),
           age: z.number().int().min(0).max(0xffff_ffff).nullable(),
+          /** The debug-directory entry TimeDateStamp; with the GUID it forms the Portable PDB ID (RSDS Age stays 1 by spec). */
+          stamp: z.number().int().min(0).max(0xffff_ffff).nullable(),
           declared_path: z.string().nullable(),
         })
         .nullable(),

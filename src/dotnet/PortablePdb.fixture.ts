@@ -41,10 +41,21 @@ const compressedUnsigned = (value: number): Buffer =>
 const compressedSigned = (value: number): Buffer => {
   const sign = value < 0 ? 1 : 0;
   if (value >= -0x40 && value <= 0x3f)
-    return compressedUnsigned(((value & 0x3f) << 1) | sign);
-  if (value >= -0x2000 && value <= 0x1fff)
-    return compressedUnsigned(((value & 0x1fff) << 1) | sign);
-  return compressedUnsigned(((value & 0x0fffffff) << 1) | sign);
+    return Buffer.from([((value & 0x3f) << 1) | sign]);
+  // The signed encoding keeps the branch's width: masking a negative value
+  // can shrink the payload, but the signed range still selects the wider
+  // form, so emit the width directly rather than re-selecting unsigned.
+  if (value >= -0x2000 && value <= 0x1fff) {
+    const raw = ((value & 0x1fff) << 1) | sign;
+    return Buffer.from([0x80 | (raw >> 8), raw & 0xff]);
+  }
+  const raw = ((value & 0x0fff_ffff) << 1) | sign;
+  return Buffer.from([
+    0xc0 | (raw >>> 24),
+    (raw >> 16) & 0xff,
+    (raw >> 8) & 0xff,
+    raw & 0xff,
+  ]);
 };
 
 /** On-disk #GUID heap byte order (little-endian leading fields). */
@@ -164,7 +175,7 @@ export interface PortablePdbFixtureOptions {
 
 const DEFAULT_PDB_ID = Buffer.concat([
   guidBytes("11111111-2222-3333-4444-555555555555"),
-  u32(1),
+  u32(0x6a9b_2c4d),
 ]);
 
 /** Compose the 20-byte #Pdb stamp from a dashed GUID + 32-bit age stamp. */
@@ -173,7 +184,8 @@ export const portablePdbStamp = (guid: string, stamp: number): Buffer =>
 
 /** The default fixture stamp GUID, for matching CodeView declarations. */
 export const PORTABLE_PDB_FIXTURE_GUID = "11111111-2222-3333-4444-555555555555";
-export const PORTABLE_PDB_FIXTURE_AGE = 1;
+/** Default #Pdb content stamp; deliberately distinct from the RSDS age (1). */
+export const PORTABLE_PDB_FIXTURE_STAMP = 0x6a9b_2c4d;
 
 /** Encode one sequence-points blob from declarative point records. */
 export const portablePdbSequencePointsBlob = (

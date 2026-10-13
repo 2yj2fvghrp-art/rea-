@@ -10,14 +10,17 @@ import {
 import {
   buildPortablePdbFixture,
   portablePdbGuidBytes,
-  PORTABLE_PDB_FIXTURE_AGE,
   PORTABLE_PDB_FIXTURE_GUID,
+  PORTABLE_PDB_FIXTURE_STAMP,
   portablePdbStamp,
 } from "./PortablePdb.fixture.js";
 
+// Mirrors a real producer pair: RSDS Age is always 1 for Portable PDBs;
+// identity is the GUID plus the debug-entry TimeDateStamp.
 const matchingCodeview = {
   guid: portablePdbGuidBytes(PORTABLE_PDB_FIXTURE_GUID),
-  age: PORTABLE_PDB_FIXTURE_AGE,
+  age: 1,
+  stamp: PORTABLE_PDB_FIXTURE_STAMP,
   path: "/src/fixture.pdb",
 };
 
@@ -30,7 +33,11 @@ const memberInspection = (
       },
 ) =>
   managedMemberInspectionSchema.parse(
-    inspectManagedMembersBytes(pe, managedPeFixtureTarget(pe), (pdb === undefined ? {} : { pdb })),
+    inspectManagedMembersBytes(
+      pe,
+      managedPeFixtureTarget(pe),
+      pdb === undefined ? {} : { pdb },
+    ),
   );
 
 const externalPdb = (bytes: Buffer, path = "/src/fixture.pdb") => ({
@@ -85,7 +92,8 @@ describe("Portable PDB debug map binding", () => {
         declared: {
           codeview: {
             guid: PORTABLE_PDB_FIXTURE_GUID,
-            age: PORTABLE_PDB_FIXTURE_AGE,
+            age: 1,
+            stamp: PORTABLE_PDB_FIXTURE_STAMP,
             declared_path: "/src/fixture.pdb",
           },
         },
@@ -210,6 +218,26 @@ describe("Portable PDB identity reporting", () => {
     expect(result.limitations.join("\n")).toContain(
       "does not share the assembly's declared CodeView identity",
     );
+  });
+
+  it("matches a producer-shaped pair where RSDS age stays 1", () => {
+    // Per PE-COFF, portable CodeView keeps Age=1 and the PDB ID's stamp
+    // lives in the debug entry's TimeDateStamp — matching must not use Age.
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 1, startColumn: 1 }] },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.identity.status).toBe("matched");
+    expect(result.debug_map?.identity.declared.codeview).toMatchObject({
+      age: 1,
+      stamp: PORTABLE_PDB_FIXTURE_STAMP,
+    });
   });
 
   it("reports identity as undeclared when the PE has no CodeView entry", () => {
@@ -415,7 +443,9 @@ describe("Portable PDB malformed and partial inputs", () => {
       expect.objectContaining({ scope: "pdb.MethodDebugInformation" }),
     );
   });
+});
 
+describe("Portable PDB declaration and boundary cases", () => {
   it("degrades debug_map to malformed at the representation budget while keeping member evidence", () => {
     // Each hidden point costs 3 encoded bytes but reserves 128 bytes of
     // projection, so ~530k points trip the 64 MiB PDB budget.
@@ -434,8 +464,173 @@ describe("Portable PDB malformed and partial inputs", () => {
     expect(result.debug_map?.coverage.issues).toContainEqual(
       expect.objectContaining({ code: "resource-limit" }),
     );
+    // Source and identity were resolved before admission failed; they stay
+    // attached to the malformed map instead of reporting absent.
+    expect(result.debug_map?.identity.status).toBe("matched");
+    expect(result.debug_map?.identity.declared.codeview).toMatchObject({
+      guid: PORTABLE_PDB_FIXTURE_GUID,
+      stamp: PORTABLE_PDB_FIXTURE_STAMP,
+    });
+    expect(result.debug_map?.source).toMatchObject({
+      kind: "external",
+      sha256: "0".repeat(64),
+    });
+    expect(result.debug_map?.pdb?.guid).toBe(PORTABLE_PDB_FIXTURE_GUID);
     expect(result.methods[0]?.token).toBe("0x06000001");
     expect(result.coverage.state).toBe("complete");
+  });
+
+  it("reports unverifiable identity when the declared CodeView entry cannot be read", () => {
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 1, startColumn: 1 }] },
+      ],
+    });
+    // An RSDS record truncated below GUID + age fails to parse: the
+    // declaration was attempted, so identity is unverifiable, not undeclared.
+    const result = memberInspection(
+      buildManagedPeFixture({
+        extraDebugEntries: [{ type: 2, data: Buffer.from("RSDS") }],
+      }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.identity.status).toBe("unverifiable");
+    expect(result.debug_map?.identity.declared.codeview).toBeNull();
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("shorter than GUID + age"),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports malformed rather than absent when an embedded declaration cannot be read", () => {
+    const result = memberInspection(
+      buildManagedPeFixture({
+        extraDebugEntries: [{ type: 17, data: null }],
+      }),
+      { kind: "embedded" },
+    );
+    expect(result.debug_map?.status).toBe("malformed");
+    expect(result.debug_map?.identity.status).toBe("unverifiable");
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("not file-backed"),
+      ),
+    ).toBe(true);
+  });
+
+  it("counts dropped debug-directory issues in the retained-issue summary", () => {
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 1, startColumn: 1 }] },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({
+        extraDebugEntries: Array.from({ length: 100 }, () => ({
+          type: 5,
+          data: null,
+        })),
+      }),
+      externalPdb(pdb),
+    );
+    // 100 unmappable entries against the 64-issue bound drop 36.
+    expect(result.debug_map?.coverage.issues).toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining("36 further"),
+      }),
+    );
+  });
+});
+
+describe("Portable PDB decode boundary cases", () => {
+  it("marks hidden sequence points with out-of-range IL offsets malformed", () => {
+    // localSig 0; hidden at 0x1fffffff; hidden at +1 -> 0x20000000.
+    const sequencePoints = Buffer.from([
+      0x00, 0xdf, 0xff, 0xff, 0xff, 0x00, 0x00, 0x01, 0x00, 0x00,
+    ]);
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [{ document: 1, sequencePoints }],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.methods[0]?.state).toBe("malformed");
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("exceeds 0x20000000"),
+      ),
+    ).toBe(true);
+  });
+
+  it("decodes signed line deltas at the two- and four-byte boundaries", () => {
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [
+        {
+          document: 1,
+          points: [
+            { il: 0, startLine: 9000, startColumn: 1, endColumn: 8 },
+            // startLine delta -8192: smallest two-byte signed encoding.
+            { il: 4, startLine: 808, startColumn: 1, endColumn: 8 },
+            // startLine delta +268401889: four-byte signed encoding.
+            { il: 8, startLine: 268_402_697, startColumn: 1, endColumn: 8 },
+            // startLine delta -268402689: four-byte signed encoding whose
+            // masked payload fits two bytes but must keep the wider form.
+            { il: 12, startLine: 8, startColumn: 1, endColumn: 8 },
+          ],
+        },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    const method = result.debug_map?.methods[0];
+    expect(method?.state).toBe("decoded");
+    expect(method?.sequence_points.map((point) => point.start_line)).toEqual([
+      9000, 808, 268_402_697, 8,
+    ]);
+  });
+
+  it("keeps a document's readable columns when its language GUID is invalid", () => {
+    const pdb = buildPortablePdbFixture({
+      documents: [
+        {
+          name: "/src/Program.cs",
+          hashAlgorithm: "sha-384",
+          language: "fsharp",
+        },
+      ],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 2, startColumn: 2 }] },
+      ],
+    });
+    const pe = buildManagedPeFixture({ codeview: matchingCodeview });
+    const baseline = memberInspection(pe, externalPdb(pdb));
+    const rowOffset = baseline.debug_map?.documents[0]?.row_offset;
+    expect(rowOffset).toBeTypeOf("number");
+    const corrupted = Buffer.from(pdb);
+    // Column order name/algorithm/hash/language: the language GUID index sits
+    // at +6 and 0x4000 selects a GUID row far beyond the heap.
+    corrupted.writeUInt16LE(0x4000, (rowOffset ?? 0) + 6);
+    const result = memberInspection(pe, externalPdb(corrupted));
+    const document = result.debug_map?.documents[0];
+    expect(document?.language_guid).toBeNull();
+    expect(document?.language).toBeNull();
+    expect(document?.hash_algorithm).toBe("sha-384");
+    expect(document?.name).toBe("/src/Program.cs");
+    expect(document?.hash).not.toBeNull();
+    expect(
+      result.debug_map?.coverage.issues.some(
+        (issue) =>
+          issue.code === "invalid-guid" && issue.detail.includes("0x30000001"),
+      ),
+    ).toBe(true);
   });
 });
 

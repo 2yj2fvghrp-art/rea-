@@ -8,6 +8,8 @@ interface ManagedPeFixtureOptions {
   readonly codeview?: {
     readonly guid: Buffer;
     readonly age: number;
+    /** Debug-directory entry TimeDateStamp; with the GUID it forms the 20-byte Portable PDB ID. */
+    readonly stamp?: number;
     readonly path?: string;
   };
   readonly customAttributeRowCount?: number;
@@ -15,6 +17,11 @@ interface ManagedPeFixtureOptions {
   readonly corruptMetadataSignature?: boolean;
   readonly customAttributeTypeRaw?: number;
   readonly embeddedPortablePdb?: Buffer;
+  /** Extra IMAGE_DEBUG_DIRECTORY entries; null data models a non-file-backed payload. */
+  readonly extraDebugEntries?: readonly {
+    readonly type: number;
+    readonly data: Buffer | null;
+  }[];
   readonly extendsRaw?: number;
   readonly exportedTypes?: readonly {
     readonly namespace: string;
@@ -906,12 +913,21 @@ const buildManagedFixtureMetadata = (
 
 const fixtureDebugSpecs = (
   options: ManagedPeFixtureOptions,
-): readonly { readonly type: number; readonly data: Buffer }[] => [
+): readonly {
+  readonly type: number;
+  readonly data: Buffer | null;
+  readonly stamp: number;
+  readonly minorVersion: number;
+}[] => [
   ...(options.codeview === undefined
     ? []
     : [
         {
           type: 2,
+          // Portable PDB CodeView entries carry Minor=0x504d and the entry
+          // TimeDateStamp completes the 20-byte PDB ID.
+          stamp: options.codeview.stamp ?? 0,
+          minorVersion: 0x504d,
           data: Buffer.concat([
             Buffer.from("RSDS", "ascii"),
             options.codeview.guid,
@@ -925,6 +941,8 @@ const fixtureDebugSpecs = (
     : [
         {
           type: 17,
+          stamp: 0,
+          minorVersion: 0,
           data: Buffer.concat([
             Buffer.from("MPDB", "ascii"),
             u32(options.embeddedPortablePdb.length),
@@ -932,6 +950,12 @@ const fixtureDebugSpecs = (
           ]),
         },
       ]),
+  ...(options.extraDebugEntries ?? []).map((entry) => ({
+    type: entry.type,
+    stamp: 0,
+    minorVersion: 0,
+    data: entry.data,
+  })),
 ];
 
 const buildManagedFixtureImage = (
@@ -983,7 +1007,7 @@ const buildManagedFixtureImage = (
   let debugDataCursor = debugDirectoryOffset + debugDirectorySize;
   const debugEntries = debugSpecs.map((spec) => {
     const dataOffset = debugDataCursor;
-    debugDataCursor += spec.data.length;
+    debugDataCursor += spec.data?.length ?? 0;
     return { spec, dataOffset };
   });
   const debugDataEnd = debugDataCursor;
@@ -1030,14 +1054,17 @@ const buildManagedFixtureImage = (
       const entryOffset = debugDirectoryOffset + index * 28;
       const dataRva = 0x2000 + dataOffset - 0x0200;
       image.writeUInt32LE(0, entryOffset);
-      image.writeUInt32LE(0, entryOffset + 4);
+      image.writeUInt32LE(spec.stamp, entryOffset + 4);
       image.writeUInt16LE(0, entryOffset + 8);
-      image.writeUInt16LE(0, entryOffset + 10);
+      image.writeUInt16LE(spec.minorVersion, entryOffset + 10);
       image.writeUInt32LE(spec.type, entryOffset + 12);
-      image.writeUInt32LE(spec.data.length, entryOffset + 16);
-      image.writeUInt32LE(dataRva, entryOffset + 20);
-      image.writeUInt32LE(dataOffset, entryOffset + 24);
-      spec.data.copy(image, dataOffset);
+      image.writeUInt32LE(spec.data?.length ?? 0, entryOffset + 16);
+      image.writeUInt32LE(spec.data === null ? 0 : dataRva, entryOffset + 20);
+      image.writeUInt32LE(
+        spec.data === null ? 0 : dataOffset,
+        entryOffset + 24,
+      );
+      spec.data?.copy(image, dataOffset);
     });
   }
   const section = optional + 0x00e0;
