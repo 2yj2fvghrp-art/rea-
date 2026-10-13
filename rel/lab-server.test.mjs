@@ -34,7 +34,7 @@ test("a beginner can reach the lab with one local URL", async () => {
   assert.match(page.headers.get("content-type"), /^text\/html/);
   const content = await page.text();
   assert.match(content, /You do <strong>not<\/strong> need to know programming/);
-  assert.match(content, /plain-English dictionary/);
+  assert.match(content, /60-second dictionary/);
   assert.match(content, /import \{ NOTES \} from "\.\.\/rel-first-lab\/notes\.mjs"/);
   assert.match(content, /import \{ searchNotes \} from "\.\.\/rel-first-lab\/search\.mjs"/);
   assert.match(content, /hypothetical tag-first ranking|matching a tag is more important/);
