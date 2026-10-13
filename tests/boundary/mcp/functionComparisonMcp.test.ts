@@ -110,9 +110,9 @@ describe("function comparison reconstruction MCP integration", () => {
           status: verificationStatus,
           summary: {
             total: 4,
-            passed: verificationStatus === "pass" ? 4 : 0,
+            passed: verificationStatus === "pass" ? 4 : 2,
             failed: verificationStatus === "fail" ? 2 : 0,
-            unknown: verificationStatus === "pass" ? 0 : 2,
+            unknown: 0,
           },
           claims: {
             items: expect.arrayContaining([
