@@ -278,7 +278,44 @@ describe("binary target I/O: package classification", () => {
       format: "javascript",
     });
   });
+});
 
+describe("binary target I/O: XML plist probe", () => {
+  it("continues probing through legal XML whitespace beyond the initial window", async () => {
+    const directory = await createTestTempDirectory("rea-xml-long-prolog-");
+    const path = join(directory, "Model.archive");
+    await writeFile(
+      path,
+      `<?xml version="1.0"?>${" ".repeat(8192)}<plist><dict/></plist>`,
+    );
+
+    const result = await parseBinaryTarget(path);
+    expect(result.ok && result.value).toMatchObject({
+      kind: "artifact",
+      format: "plist",
+    });
+  });
+
+  it("keeps an observed XML plist signature when later probe bytes are malformed", async () => {
+    const directory = await createTestTempDirectory("rea-xml-malformed-tail-");
+    const path = join(directory, "Model.archive");
+    await writeFile(
+      path,
+      Buffer.concat([
+        Buffer.from('<?xml version="1.0"?><plist><dict/>'),
+        Buffer.from([0xff]),
+      ]),
+    );
+
+    const result = await parseBinaryTarget(path);
+    expect(result.ok && result.value).toMatchObject({
+      kind: "artifact",
+      format: "plist",
+    });
+  });
+});
+
+describe("binary target I/O: package classification", () => {
   it("keeps a DMG classification when its data starts with an XML plist prolog", async () => {
     const directory = await createTestTempDirectory("rea-xml-dmg-target-");
     const path = join(directory, "image.dmg");

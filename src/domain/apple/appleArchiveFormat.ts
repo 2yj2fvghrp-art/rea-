@@ -11,20 +11,41 @@ export const hasBinaryPlistSignature = (bytes: Uint8Array): boolean =>
 export const hasXmlPlistSignature = (bytes: Uint8Array): boolean => {
   const utf16le = bytes[0] === 0xff && bytes[1] === 0xfe;
   const utf16be = bytes[0] === 0xfe && bytes[1] === 0xff;
-  const usable =
-    utf16le || utf16be ? bytes.subarray(0, bytes.length & ~1) : bytes;
-  let text: string;
+  const encoding = utf16le ? "utf-16le" : utf16be ? "utf-16be" : "utf-8";
+  const decoder = new TextDecoder(encoding, { fatal: true });
+  // Decode only through each markup terminator so malformed bytes after an
+  // already observed plist prolog cannot erase that earlier signature.
+  const chunkSize = utf16le || utf16be ? 2 : 1;
+  let text = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    let end = Math.min(offset + chunkSize, bytes.length);
+    if ((utf16le || utf16be) && end < bytes.length) end &= ~1;
+    try {
+      text += decoder.decode(bytes.subarray(offset, end), { stream: true });
+    } catch {
+      return false;
+    }
+    if (text.endsWith(">") && isXmlPlistProlog(text)) return true;
+  }
   try {
-    text = new TextDecoder(
-      utf16le ? "utf-16le" : utf16be ? "utf-16be" : "utf-8",
-      { fatal: true },
-    ).decode(usable, { stream: true });
+    text += decoder.decode();
   } catch {
     return false;
   }
-  return /^\uFEFF?\s*(?:<\?xml\s[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+plist\b|<plist\b)/u.test(
+  return isXmlPlistProlog(text);
+};
+
+const isXmlPlistProlog = (text: string): boolean =>
+  /^\uFEFF?\s*(?:<\?xml\s[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+plist\b|<plist\b)/u.test(
     text,
   );
+
+/** Whether a bounded probe still looks like it may be entering an XML prolog. */
+export const mayStartXmlPlistProlog = (bytes: Uint8Array): boolean => {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return true;
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return true;
+  const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  return /^\uFEFF?\s*(?:<\?xml\b|<!--|<!DOCTYPE\b|<plist\b|$)/u.test(prefix);
 };
 
 /** Recognize the serialized signature without claiming a valid NIB object table. */

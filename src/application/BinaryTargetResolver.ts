@@ -35,18 +35,21 @@ import { observeMzWindowsHeader } from "../domain/dosMz.js";
 import {
   hasBinaryPlistSignature,
   hasXmlPlistSignature,
+  mayStartXmlPlistProlog,
 } from "../domain/apple/appleArchiveFormat.js";
 import {
   hasZipSignature,
   isZipPackageFormat,
   zipPackageFormatForPath,
 } from "../domain/zipPackageFormat.js";
-
 import {
   parseExecutableHeader,
   parsePeRecord,
   type ExecutableMetadata,
 } from "../domain/binaryTarget.js";
+
+const MAX_XML_PLIST_PROBE_BYTES = 1024 * 1024;
+const XML_PLIST_PROBE_CHUNK_BYTES = 64 * 1024;
 
 /** Options for resolving a local binary target and its stable identity. */
 export interface BinaryTargetResolverOptions {
@@ -325,6 +328,36 @@ const detectArtifactFormat = async (
   // Keep this after container trailer checks so a DMG retains its authority.
   if (hasXmlPlistSignature(magic.subarray(0, observed.bytesRead)))
     return "plist";
+  if (mayStartXmlPlistProlog(magic.subarray(0, observed.bytesRead))) {
+    const prefix = Buffer.alloc(MAX_XML_PLIST_PROBE_BYTES);
+    magic.copy(prefix, 0, 0, observed.bytesRead);
+    let bytesRead = observed.bytesRead;
+    while (bytesRead < MAX_XML_PLIST_PROBE_BYTES) {
+      throwIfTargetResolutionCancelled(signal);
+      const read = await handle.read(
+        prefix,
+        bytesRead,
+        Math.min(
+          XML_PLIST_PROBE_CHUNK_BYTES,
+          MAX_XML_PLIST_PROBE_BYTES - bytesRead,
+        ),
+        bytesRead,
+      );
+      throwIfTargetResolutionCancelled(signal);
+      if (read.bytesRead === 0) break;
+      bytesRead += read.bytesRead;
+      if (hasXmlPlistSignature(prefix.subarray(0, bytesRead))) return "plist";
+    }
+    if (bytesRead === MAX_XML_PLIST_PROBE_BYTES) {
+      const size = (await handle.stat()).size;
+      if (size > MAX_XML_PLIST_PROBE_BYTES)
+        throw new BinaryTargetError(
+          path,
+          "XML plist prolog was not found within the 1 MiB format probe limit",
+          { constraint: "file_format_rejected" },
+        );
+    }
+  }
   return undefined;
 };
 
