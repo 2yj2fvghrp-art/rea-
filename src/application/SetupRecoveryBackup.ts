@@ -20,10 +20,11 @@ interface RecoveryBackupSelectionFailure {
 /** Preserve the first backup while selecting a verified snapshot of current bytes. */
 export const selectCurrentRecoveryBackup = async (
   firstBackupPath: string,
-  original: string,
+  original: string | Buffer,
   resources?: ArtifactResourceScope,
 ): Promise<Result<RecoveryBackupSelection, RecoveryBackupSelectionFailure>> => {
-  const expected = Buffer.from(original, "utf8");
+  const expected =
+    typeof original === "string" ? Buffer.from(original, "utf8") : original;
   const readBackup = (path: string): Promise<Buffer> =>
     readRegularFile(path, {
       symlinks: "reject",
@@ -49,7 +50,7 @@ export const selectCurrentRecoveryBackup = async (
   if (firstBackup.equals(expected))
     return ok({ backupPath: firstBackupPath, present: true });
 
-  const digest = createHash("sha256").update(original, "utf8").digest("hex");
+  const digest = createHash("sha256").update(expected).digest("hex");
   const recoveryPath = `${firstBackupPath}.${digest}.recovery`;
   let recovery: Buffer | undefined;
   try {

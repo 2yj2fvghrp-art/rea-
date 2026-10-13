@@ -37,10 +37,12 @@ export const readSkillFile = (
   path: string,
   resources?: ArtifactResourceScope,
 ): Promise<string> =>
-  readSkillFileState(path, resources).then(({ content }) => content);
+  readSkillFileState(path, resources).then(({ bytes }) =>
+    bytes.toString("utf8"),
+  );
 
 interface SkillFileState {
-  readonly content: string;
+  readonly bytes: Buffer;
   readonly mode: number;
 }
 
@@ -59,7 +61,7 @@ const readSkillFileState = async (
       );
       if (bytes === undefined || bytes.length !== stats.size)
         throw new RegularFileChangedError(path);
-      return { content: bytes.toString("utf8"), mode: stats.mode & 0o7777 };
+      return { bytes, mode: stats.mode & 0o7777 };
     },
     {
       symlinks: "reject",
@@ -87,7 +89,7 @@ export interface SkillInstallFileOperations {
   readonly backup: (source: string, destination: string) => Promise<void>;
   readonly write: (
     path: string,
-    content: string,
+    content: string | Buffer,
     mode: number,
   ) => Promise<void>;
   readonly remove: (path: string) => Promise<void>;
@@ -278,7 +280,8 @@ const canonicalSkillNeedsInstallByReading = async (
       const destination = join(root, relativePath);
       const content = await canonicalSkillContent(relativePath);
       const original = await readOptionalSkillState(destination, resources);
-      if (original?.content !== content) return true;
+      if (original?.bytes.equals(Buffer.from(content, "utf8")) !== true)
+        return true;
     }
   }
   return false;
@@ -328,7 +331,7 @@ const restoreSkillFiles = async (
   for (const { destination, original } of [...attempted].reverse()) {
     try {
       if (original === undefined) await operations.remove(destination);
-      else await operations.write(destination, original.content, original.mode);
+      else await operations.write(destination, original.bytes, original.mode);
     } catch (cause: unknown) {
       failures.push({ path: destination, reason: causeReason(cause) });
     }
@@ -358,7 +361,8 @@ export const installCanonicalSkill = async (
       resources,
     );
     const changed = canonical.filter(
-      ({ content, original }) => original?.content !== content,
+      ({ content, original }) =>
+        original?.bytes.equals(Buffer.from(content, "utf8")) !== true,
     );
     if (changed.length === 0) return ok("unchanged");
 
@@ -370,7 +374,7 @@ export const installCanonicalSkill = async (
         const firstBackupPath = `${destination}.rea.backup`;
         const selection = await selectCurrentRecoveryBackup(
           firstBackupPath,
-          original.content,
+          original.bytes,
           resources,
         );
         if (!selection.ok) throw new Error(selection.error.detail);
@@ -378,7 +382,7 @@ export const installCanonicalSkill = async (
           await operations.backup(destination, selection.value.backupPath);
         const verified = await selectCurrentRecoveryBackup(
           firstBackupPath,
-          original.content,
+          original.bytes,
           resources,
         );
         if (!verified.ok) throw new Error(verified.error.detail);
@@ -407,7 +411,11 @@ export const installCanonicalSkill = async (
     stage = "readback";
     for (const { destination, content } of changed) {
       failingPath = destination;
-      if ((await readSkillFile(destination, resources)) !== content)
+      if (
+        !(await readSkillFileState(destination, resources)).bytes.equals(
+          Buffer.from(content, "utf8"),
+        )
+      )
         throw new Error(`skill readback mismatch: ${destination}`);
     }
     return ok("installed");
