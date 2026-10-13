@@ -375,7 +375,7 @@ export const readArmElfCpuArch = async (
   }
   // The exact ELF32 entry size bounds the table allocation by the header
   // count alone; a padded stride could multiply a sparse file into one.
-  if (tableOffset < 52 || stride !== 40)
+  if (tableOffset < metadata.headerSize || stride !== 40)
     return err("invalid ARM section table offset or entry size");
   const examinable = Math.min(
     count,

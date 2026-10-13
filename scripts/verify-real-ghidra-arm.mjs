@@ -76,6 +76,7 @@ try {
     {
       elfClass: 32,
       byteOrder: "little",
+      headerSize: 52,
       type: 2,
       flags: independent.flags,
       cpuArch: 10,
