@@ -5,7 +5,10 @@ import { createPackageWithOptions } from "@electron/asar";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
-import { analysisErrorProjectionSchema } from "../../../src/contracts/errorSchemas.js";
+import {
+  analysisCliErrorEnvelopeSchema,
+  analysisErrorProjectionSchema,
+} from "../../../src/contracts/errorSchemas.js";
 
 import { workspaceCliTest } from "../../support/cli/workspaceCliFixture.js";
 
@@ -297,9 +300,15 @@ describe("compiled CLI failure envelopes", () => {
             message: expect.any(String),
             remediation: expect.any(Object),
           });
+          const {
+            error: _label,
+            input_path: _inputPath,
+            input_reason: _inputReason,
+            ...projection
+          } = analysisCliErrorEnvelopeSchema.parse(bareValue);
           expect(fullValue).toEqual({
             ok: false,
-            error: analysisErrorProjectionSchema.parse(bareValue),
+            error: analysisErrorProjectionSchema.parse(projection),
             meta: {
               command: arguments_[0],
               duration: expect.any(String),
