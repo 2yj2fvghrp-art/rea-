@@ -246,7 +246,10 @@ export class PwntoolsDecoder<
           selectedPath,
           undefined,
           undefined,
-          context,
+          {
+            ...context,
+            configurationKey: "REA_PWNTOOLS_MAX_INPUT_BYTES",
+          },
         );
       phase = "artifact-read";
       selectedPath = input.path;

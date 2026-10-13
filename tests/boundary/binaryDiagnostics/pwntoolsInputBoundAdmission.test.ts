@@ -78,6 +78,11 @@ it.runIf(!unsupportedHost)(
   async () => {
     const { projected, text } = await inspect("0");
     expect(projected.code).toBe("provider_unavailable");
+    expect(projected.details).toMatchObject({
+      rejections: [
+        { diagnostics: { configuration_key: "REA_PWNTOOLS_MAX_INPUT_BYTES" } },
+      ],
+    });
     expect(text).toContain("REA_PWNTOOLS_MAX_INPUT_BYTES must be a decimal");
     expect(text).not.toContain("Selected artifact exceeds");
   },
