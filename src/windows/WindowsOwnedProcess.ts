@@ -67,8 +67,10 @@ export class WindowsOwnedProcess extends EventEmitter {
   #closed = false;
   #failure: string | undefined;
   #timer: NodeJS.Timeout | undefined;
+  #blockedWake: NodeJS.Timeout | undefined;
   readonly #blockedOutput = new Set<PassThrough>();
   #unreferenced = false;
+  #discardOutput = false;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
   #memoryLimitReached = false;
@@ -228,12 +230,14 @@ export class WindowsOwnedProcess extends EventEmitter {
   unref(): void {
     this.#unreferenced = true;
     this.#timer?.unref();
+    this.#blockedWake?.unref();
   }
 
   /** Restore event-loop references when retrying process lifecycle observation. */
   ref(): void {
     this.#unreferenced = false;
     this.#timer?.ref();
+    this.#blockedWake?.ref();
   }
 
   async #stop(): Promise<ProcessCleanupResult> {
@@ -241,6 +245,8 @@ export class WindowsOwnedProcess extends EventEmitter {
     let timer: NodeJS.Timeout | undefined;
     try {
       const signaled = this.kill();
+      this.#discardOutput = true;
+      this.#discardBlockedOutput();
       this.#schedule();
       const settled = await Promise.race([
         this.#settled.then(() => true),
@@ -275,6 +281,37 @@ export class WindowsOwnedProcess extends EventEmitter {
       return;
     this.#timer = setTimeout(() => this.#poll(), delay);
     if (this.#unreferenced) this.#timer.unref();
+  }
+
+  #scheduleBlockedWake(): void {
+    if (
+      this.#closed ||
+      this.#blockedOutput.size === 0 ||
+      this.#blockedWake !== undefined
+    )
+      return;
+    this.#blockedWake = setTimeout(() => {
+      this.#blockedWake = undefined;
+      this.#scheduleBlockedWake();
+    }, 1_000);
+    if (this.#unreferenced) this.#blockedWake.unref();
+  }
+
+  #clearBlockedWake(): void {
+    if (this.#blockedWake !== undefined) clearTimeout(this.#blockedWake);
+    this.#blockedWake = undefined;
+  }
+
+  #unblockOutput(stream: PassThrough): void {
+    this.#blockedOutput.delete(stream);
+    if (this.#blockedOutput.size === 0) this.#clearBlockedWake();
+    this.#schedule(0);
+  }
+
+  #discardBlockedOutput(): void {
+    for (const stream of this.#blockedOutput) stream.destroy();
+    this.#blockedOutput.clear();
+    this.#clearBlockedWake();
   }
 
   #poll(): void {
@@ -323,22 +360,34 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #writeOutput(stream: PassThrough, bytes: Buffer): void {
-    if (bytes.length === 0 || stream.write(bytes)) return;
+    if (
+      this.#discardOutput ||
+      bytes.length === 0 ||
+      stream.destroyed ||
+      stream.writableEnded
+    )
+      return;
+    if (stream.write(bytes)) return;
     this.#blockedOutput.add(stream);
-    stream.once("drain", () => {
-      this.#blockedOutput.delete(stream);
-      this.#schedule(0);
-    });
+    const unblock = () => {
+      stream.off("drain", unblock);
+      stream.off("close", unblock);
+      this.#unblockOutput(stream);
+    };
+    stream.once("drain", unblock);
+    stream.once("close", unblock);
+    this.#scheduleBlockedWake();
   }
 
   #release(): void {
     if (this.#closed) return;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
+    this.#clearBlockedWake();
     this.#authority.call("process_close", [this.#handle]);
     this.#closed = true;
     this.stdin?.destroy();
-    this.stdout.end();
-    this.stderr.end();
+    if (!this.stdout.destroyed) this.stdout.end();
+    if (!this.stderr.destroyed) this.stderr.end();
     this.#settle?.();
     this.emit("close", this.exitCode, null);
   }

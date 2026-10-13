@@ -81,6 +81,7 @@ const authority = (
             : {}),
         };
       if (operation === "process_poll") return polls.shift();
+      if (operation === "process_terminate") return true;
       if (operation === "process_close") return null;
       throw new Error(`Unmodeled native operation ${operation}`);
     },
@@ -202,6 +203,7 @@ describe("Windows output capture drain", () => {
       polls.push({ ...settledPoll });
       const { native, calls } = authority({ polls });
       const child = launch(native);
+      child.stdout.resume();
       const closed = once(child, "close");
       // 100ms of simulated time: the fixed 25ms poll cadence can complete
       // at most ~4 polls, so all 10 data polls plus the settle poll must
@@ -321,6 +323,73 @@ describe("Windows output capture drain", () => {
       await vi.advanceTimersByTimeAsync(1);
       await closed;
       expect(pollCount()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("discards blocked output during cleanup so the owned job can settle", async () => {
+    vi.useFakeTimers();
+    try {
+      const chunk = Buffer.alloc(65536, 0x64);
+      const { native, calls } = authority({
+        polls: [
+          {
+            stdout: chunk,
+            stderr: Buffer.alloc(0),
+            stdoutEnded: false,
+            stderrEnded: false,
+            exitCode: null,
+            activeProcesses: 1,
+          },
+          { ...settledPoll, stderr: Buffer.alloc(0) },
+        ],
+      });
+      const child = launch(native);
+      child.stdout.pause();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(child.stdout.writableNeedDrain).toBe(true);
+      const closed = once(child, "close");
+      const cleanup = child.cleanup();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(await cleanup).toEqual({ cleaned: true, signaled: true });
+      await closed;
+      expect(
+        calls.filter((call) => call.operation === "process_poll"),
+      ).toHaveLength(2);
+      expect(child.stdout.destroyed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes polling when a blocked output stream is destroyed", async () => {
+    vi.useFakeTimers();
+    try {
+      const chunk = Buffer.alloc(65536, 0x65);
+      const { native, calls } = authority({
+        polls: [
+          {
+            stdout: chunk,
+            stderr: Buffer.alloc(0),
+            stdoutEnded: false,
+            stderrEnded: false,
+            exitCode: null,
+            activeProcesses: 1,
+          },
+          { ...settledPoll, stderr: Buffer.alloc(0) },
+        ],
+      });
+      const child = launch(native);
+      const closed = once(child, "close");
+      await vi.advanceTimersByTimeAsync(25);
+      expect(child.stdout.writableNeedDrain).toBe(true);
+      child.stdout.destroy();
+      await vi.advanceTimersByTimeAsync(0);
+      await closed;
+      expect(
+        calls.filter((call) => call.operation === "process_poll"),
+      ).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
