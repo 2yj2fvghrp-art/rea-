@@ -104,6 +104,19 @@ node scripts/rea.mjs capabilities --json
 
 These commands run the **local fork**. In contrast, `npx rea-agents` downloads/runs the _published upstream REA package_, which does **not** contain our REL changes.
 
+## Inspect real saved Evidence
+
+Once REA has analyzed our owned lab, you can inspect its actual static graph instead of relying only on a tutorial animation:
+
+```sh
+OUT="$(mktemp -d)"
+node rel.mjs demo --run --out "$OUT"
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --find search.mjs
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --dot > "$OUT/relationships.dot"
+```
+
+Build the local REA runtime first with `npm ci && npm run build:cached`. The viewer gives bounded, source-backed relationship details with missing evidence clearly marked; DOT can be rendered using a separate Graphviz installation. This is **saved JavaScript static Evidence**, not a claim of runtime reconstruction or universal provider support. See the [Evidence Explorer guide](rel/EVIDENCE_EXPLORER.md) and its regression tests.
+
 ## Use REL with Codex or another AI agent
 
 **Yes—Codex can use the underlying REA tools through MCP.** REL now includes [a repo-local Codex configuration](.codex/config.toml) and [the rel-investigator skill](.agents/skills/rel-investigator/SKILL.md), which Codex can load when you open a trusted REL checkout. It can also read the code and this repository's `AGENTS.md` when the local checkout is open as its workspace. Those are different things:
