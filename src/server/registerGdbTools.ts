@@ -1,3 +1,4 @@
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { Logger } from "pino";
 
@@ -82,9 +83,18 @@ export const registerGdbTools = (
               session.activeTarget()?.path,
               context.mcpReq.signal,
               execute,
-              (value, cause) =>
-                new AnalysisOutputError(
+              (value, cause) => {
+                if (!value.ok)
+                  return value.error.retainSecondaryFailure(cause, {
+                    rebind_error: projectAnalysisError(cause),
+                  });
+                return new AnalysisOutputError(
                   consoleContract.name,
+                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
+                  { cause, partialObservation: value.value.evidence },
+                );
+              },
+              consoleContract.name,
                   "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
                   {
                     cause,
