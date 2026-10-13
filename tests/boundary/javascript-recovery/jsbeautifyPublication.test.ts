@@ -3,9 +3,13 @@ import { dirname, join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-const scenario = vi.hoisted(() => ({ mutateSnapshot: false }));
+const scenario = vi.hoisted(() => ({
+  mutateSnapshot: false,
+  rejectArguments: false,
+}));
 beforeEach(() => {
   scenario.mutateSnapshot = false;
+  scenario.rejectArguments = false;
 });
 
 vi.mock(
@@ -22,6 +26,17 @@ vi.mock(
       ) => {
         const version = context.arguments[0] === "--version";
         let stderr = "";
+        if (!version && scenario.rejectArguments)
+          return {
+            exit_code: 2,
+            signal: null,
+            stdout: "",
+            stderr:
+              "invalid option --rename-vars\nUsage: jsbeautify [OPTIONS] <FILE>\n",
+            command: context.command,
+            arguments: [...context.arguments],
+            resource_limiter: context.limiter,
+          };
         if (!version) {
           expect(context.snapshots).toContain(context.arguments[0]);
           const source = await readFile(context.arguments[0]!, "utf8");
@@ -162,4 +177,18 @@ it("refuses output when the engine mutates its input snapshot", async () => {
       _tag: "AnalysisOutputError",
       message: expect.stringContaining("input snapshot changed"),
     });
+});
+
+it("retains the complete stderr of a rewrite that fails its gate", async () => {
+  scenario.rejectArguments = true;
+  const evidence = await recover(["a.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(result.status).toBe("partial");
+  const report = await readFile(result.report.path, "utf8");
+  expect(report).toContain("invalid option --rename-vars");
+  expect(report).toContain("Usage: jsbeautify [OPTIONS] <FILE>");
+  expect(result.warnings[0]?.message).toContain("reports/phases.log");
 });

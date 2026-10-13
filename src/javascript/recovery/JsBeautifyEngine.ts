@@ -147,8 +147,12 @@ const detections = (stderr: string): string[] => {
   return [...found];
 };
 
-/** Keep the phase summary and failures; drop jsbeautify's per-rewrite chatter. */
-const phaseLog = (stderr: string, budget: number): string => {
+/** Keep the phase summary and failures, or all of a failed run's stderr; drop per-rewrite chatter. */
+const phaseLog = (
+  stderr: string,
+  budget: number,
+  complete: boolean,
+): string => {
   // One bounded byte buffer avoids an array/string object per stderr line.
   let retained: Buffer | undefined;
   let written = 0;
@@ -158,6 +162,7 @@ const phaseLog = (stderr: string, budget: number): string => {
     const line = stderr.slice(start, end);
     start = end + 1;
     if (
+      !complete &&
       !line.startsWith("[DEOBFUSCATE] Phase") &&
       !line.startsWith("[AKAMAI]") &&
       !/\b(error|panicked|warning)\b/i.test(line)
@@ -292,7 +297,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
         OPERATION,
         "Combined phase reports exceed the retained diagnostic budget",
       );
-    const log = heading + phaseLog(run.stderr, remaining);
+    const log = heading + phaseLog(run.stderr, remaining, !verdict.passed);
     const logBytes = Buffer.byteLength(log) + 2;
     if (logBytes > JSBEAUTIFY_LIMITS.reportBytes - retainedLogBytes)
       throw new AnalysisOutputError(
@@ -312,7 +317,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
         filename: name,
         kind: "validity-gate",
         is_error: true,
-        message: `jsbeautify exit ${String(run.exit_code)}${run.signal === null ? "" : ` (signal ${run.signal})`}; re-parse ${REPARSE_PHASES.map((phase) => `${phase}=${String(verdict.reparse[phase])}`).join(", ")}; the output was not published`,
+        message: `jsbeautify exit ${String(run.exit_code)}${run.signal === null ? "" : ` (signal ${run.signal})`}; re-parse ${REPARSE_PHASES.map((phase) => `${phase}=${String(verdict.reparse[phase])}`).join(", ")}; the output was not published; its complete stderr is in reports/phases.log`,
       });
       continue;
     }

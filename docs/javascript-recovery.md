@@ -78,7 +78,8 @@ jsbeautify exits 0 and, when deobfuscating, its stderr reports both generated
 output re-parse checks (phases 19.6 and 21.5); otherwise the file is listed in
 `warnings` with kind `validity-gate` and the status is `partial`. Re-parsing
 proves syntax, not behaviour. `reports/phases.log` keeps the phase summary per
-file and `reports/provenance.json` the exact arguments and gate verdicts.
+file, or the complete stderr of a file that failed the gate, and
+`reports/provenance.json` the exact arguments and gate verdicts.
 
 Builds of jsbeautify before `9949993` reserve a worker stack of
 2 KiB per input byte regardless of address-space limits (a 2.4 MB esbuild
