@@ -121,8 +121,8 @@ const ENHANCED_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
   analyze_function: ["analyze_function"],
   inspect_native_api: ["analyze_function"],
   trace_feature: [
-    "list_strings",
-    "list_procedures",
+    "search_strings",
+    "search_procedures",
     "xrefs",
     "resolve_containing_procedure",
   ],
@@ -141,6 +141,7 @@ const FRIDA_OPERATION_NAMES: ReadonlySet<string> = new Set(
 
 /** Native contracts defined only for an active Mach-O executable. */
 const MACHO_TARGET_OPERATIONS: ReadonlySet<string> = new Set([
+  "inspect_signature",
   "inspect_macho",
   "list_architectures",
   "observe_native_calls",
@@ -342,7 +343,7 @@ const workflowAvailabilityFor = ({
   kind,
   policy,
 }: AvailabilityContext): Availability | null => {
-  if (name === "inspect_go_binary")
+  if (name === "inspect_go_binary" || name === "inspect_rust_binary")
     return { reason: "available", remediation: null };
   if (name === "inspect_sqlite_database") {
     const capability = sqliteDatabaseCapability(process.versions.node);
