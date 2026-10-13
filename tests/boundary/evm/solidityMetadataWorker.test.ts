@@ -14,6 +14,8 @@ it.each([
   ["nested value", "00a1617881000005", "partial"],
   ["unavailable trailer", "00", "unavailable"],
   ["unsupported tag", "00a16178c0000005", "not-decoded"],
+  ["floating point", "00a16178fa3f8000000008", "not-decoded"],
+  ["invalid UTF-8", "00a1617861ff0005", "not-decoded"],
 ])(
   "retains independent %s metadata through the actual worker",
   async (kind, hex, status) => {

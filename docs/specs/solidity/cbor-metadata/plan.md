@@ -17,6 +17,9 @@
 6. Add producer, worker, historical contract and public MCP boundary coverage.
    Compile an owned Solidity fixture with a pinned caller-supplied solc module,
    and verify its CBOR compiler version. Run relevant static/architecture checks.
+7. Extend the existing real Linux CLI/MCP verifier with independent metadata
+   assertions. Run the compiler-setting matrix in its CI lane and classify its
+   verifier as EVM-owned, with a production CI-planner regression.
 
 No new execution provider or target authority is introduced: a format parser is
 added inside the existing EVM worker. Linux x64 provider admission, target-free
