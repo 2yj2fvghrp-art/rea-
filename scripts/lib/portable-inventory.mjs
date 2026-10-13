@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { open, readdir } from "node:fs/promises";
+import { open, opendir } from "node:fs/promises";
 import { join } from "node:path";
 
 const MAX_PORTABLE_MANIFEST_BYTES = 8 * 1024 * 1024;
@@ -86,34 +86,77 @@ export async function hashPortableFile(path, expectedSize) {
 
 /** Require exact files and their parent directories before running the artifact. */
 export async function verifyPortableInventory(directory, files) {
-  const actual = [];
-  const parents = new Set();
-  for (const { path } of files) {
-    const parts = path.split("/");
-    for (let length = 1; length < parts.length; length++)
-      parents.add(parts.slice(0, length).join("/"));
-  }
+  const expected = files.map(({ path }) => {
+    if (
+      typeof path !== "string" ||
+      path.length === 0 ||
+      path.startsWith("/") ||
+      path.includes("\\") ||
+      path.includes("//") ||
+      path.endsWith("/") ||
+      path === "." ||
+      path === ".." ||
+      path.startsWith("./") ||
+      path.startsWith("../") ||
+      path.includes("/./") ||
+      path.includes("/../") ||
+      path.endsWith("/.") ||
+      path.endsWith("/..") ||
+      (process.platform === "win32" && path.includes(":"))
+    )
+      throw new Error("Portable inventory contains an invalid relative path.");
+    const fullPath = join(directory, path);
+    const pathLength =
+      process.platform === "win32"
+        ? fullPath.length
+        : Buffer.byteLength(fullPath);
+    const pathLimit = process.platform === "win32" ? 32_767 : 4_096;
+    if (pathLength >= pathLimit)
+      throw new Error(
+        `Portable inventory path exceeds the host path limit: ${path}`,
+      );
+    return path;
+  });
+  const expectedSet = new Set(expected);
+  if (expectedSet.size !== expected.length)
+    throw new Error("Portable inventory contains duplicate file paths.");
+  const sortedExpected = [...expectedSet].sort();
+  const missing = new Set(expectedSet);
+  const hasExpectedDescendant = (prefix) => {
+    let lower = 0;
+    let upper = sortedExpected.length;
+    while (lower < upper) {
+      const middle = (lower + upper) >>> 1;
+      if ((sortedExpected[middle] ?? "") < prefix) lower = middle + 1;
+      else upper = middle;
+    }
+    return sortedExpected[lower]?.startsWith(prefix) === true;
+  };
   async function visit(current, prefix = "") {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const path = prefix + entry.name;
+    const directoryEntries = await opendir(current);
+    for await (const entry of directoryEntries) {
+      const path = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
       if (entry.isDirectory()) {
         // Even an empty package directory can shadow a hoisted Node dependency.
-        if (!parents.has(path))
+        if (!hasExpectedDescendant(`${path}/`))
           throw new Error(
             `Portable inventory contains an unlisted directory: ${path}`,
           );
-        await visit(join(current, entry.name), `${path}/`);
+        await visit(join(current, entry.name), path);
       } else if (!entry.isFile())
         throw new Error(
           `Portable inventory contains a non-regular entry: ${path}`,
         );
-      else if (path !== "portable.json") actual.push(path);
+      else if (path !== "portable.json" && !missing.delete(path))
+        throw new Error(
+          `Portable inventory contains an unlisted file: ${path}`,
+        );
     }
   }
   await visit(directory);
-  assert.deepEqual(
-    files.map((file) => file.path).sort(),
-    actual.sort(),
-    "Portable inventory must match the exact regular-file set",
+  assert.equal(
+    missing.size,
+    0,
+    `Portable inventory is missing ${missing.size} expected file(s).`,
   );
 }

@@ -73,7 +73,7 @@ it("rejects an unlisted file inside a listed directory", async () => {
   const { root, files } = await fixture();
   await writeFile(join(root, "runtime/stale.dll"), "stale native dependency");
   await expect(verifyPortableInventory(root, files)).rejects.toThrow(
-    "exact regular-file set",
+    "unlisted file: runtime/stale.dll",
   );
 });
 
@@ -104,7 +104,15 @@ it("rejects an omitted runtime and duplicate inventory entries", async () => {
   );
   await expect(
     verifyPortableInventory(root, [...files, ...files]),
-  ).rejects.toThrow("exact regular-file set");
+  ).rejects.toThrow("duplicate file paths");
+});
+
+it("rejects a manifest path beyond the host file-system path limit before traversal", async () => {
+  const { root } = await fixture();
+  const path = `${"segment/".repeat(1_000)}file.js`;
+  await expect(verifyPortableInventory(root, [{ path }])).rejects.toThrow(
+    "exceeds the host path limit",
+  );
 });
 
 it("rejects directory links instead of following unlisted contents", async () => {
