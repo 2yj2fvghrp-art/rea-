@@ -109,6 +109,16 @@ it.each([
     bitness: 'bitness unknown (sun.arch.data.model = "9007199254740993")',
     code: "version_unresolved",
   },
+  {
+    dataModel: " 64 ",
+    bitness: 'bitness unknown (sun.arch.data.model = " 64 ")',
+    code: "version_unresolved",
+  },
+  {
+    dataModel: "   ",
+    bitness: 'bitness unknown (sun.arch.data.model = "   ")',
+    code: "version_unresolved",
+  },
   { dataModel: "32", bitness: "32-bit", code: "unsupported_version" },
 ])(
   "reports a probe with data model $dataModel as $bitness",

@@ -836,11 +836,12 @@ const javaDataModelBits = (dataModel: string | null): number | null => {
   return Number.isSafeInteger(bits) ? bits : null;
 };
 
-// Horizontal whitespace only: an empty value must not absorb the next line.
-// Absent properties are null; explicitly empty values are "".
+// -XshowSettings prints `<indent>key = value`: consume the delimiter and its
+// single space, then keep the value verbatim so malformed or padded values
+// are not normalized. Absent properties are null; empty values are "".
 const javaProperty = (output: string, name: string): string | null =>
   new RegExp(
-    `^[ \\t]*${name.replaceAll(".", "\\.")}[ \\t]*=[ \\t]*([^\\r\\n]*?)[ \\t]*$`,
+    `^[ \\t]*${name.replaceAll(".", "\\.")}[ \\t]*= ?([^\\r\\n]*)$`,
     "mu",
   ).exec(output)?.[1] ?? null;
 
