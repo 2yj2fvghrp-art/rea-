@@ -20,6 +20,7 @@ import { webSourceMapsSchema } from "../domain/webBundleAnalysis.js";
 import { createWebTextArtifact } from "../domain/webContentArtifact.js";
 import { safeParseJson } from "../domain/safeJson.js";
 import { sourceMapJsonText } from "../domain/sourceMapEnvelope.js";
+import { stringValue } from "../domain/javascript/javascriptStaticAnalysisHelpers.js";
 import { resolveJavaScriptSourceMapUrl } from "../domain/javascript/javascriptSourceMapPaths.js";
 import { jsonParts } from "../domain/jsonSerialization.js";
 import {
@@ -1048,14 +1049,17 @@ const originalDependency = (
     return node.source === null || node.source === undefined
       ? null
       : { kind: "static_import", specifier: node.source.value };
-  if (t.isImportExpression(node) && t.isStringLiteral(node.source))
-    return { kind: "dynamic_import", specifier: node.source.value };
+  if (t.isImportExpression(node)) {
+    const specifier = stringValue(node.source);
+    if (specifier !== undefined) return { kind: "dynamic_import", specifier };
+  }
   if (
     t.isCallExpression(node) &&
-    t.isIdentifier(node.callee, { name: "require" }) &&
-    t.isStringLiteral(node.arguments[0])
-  )
-    return { kind: "require", specifier: node.arguments[0].value };
+    t.isIdentifier(node.callee, { name: "require" })
+  ) {
+    const specifier = stringValue(node.arguments[0]);
+    if (specifier !== undefined) return { kind: "require", specifier };
+  }
   // `import x = require("m")` is only legal at module top level and always
   // refers to the host loader, so it needs no unbound-`require` check. The
   // `moduleReference` is an entity name for a local alias instead, which

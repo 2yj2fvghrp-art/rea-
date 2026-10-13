@@ -460,8 +460,8 @@ const domMetadata = (
   }
   const rel = (pairs.get("rel") ?? "")
     .toLowerCase()
-    .split(/\s+/u)
-    .filter((value) => agentRelValues.includes(value));
+    .split(/[\t\n\f\r ]+/u)
+    .filter((value) => value.length > 0 && agentRelValues.includes(value));
   const href = urls.find(({ attribute }) => attribute === "href")?.url ?? null;
   const agentHints =
     nodeName.toLowerCase() === "link" && rel.length > 0
