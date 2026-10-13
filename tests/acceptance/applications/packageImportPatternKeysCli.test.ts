@@ -18,9 +18,13 @@ const resolvedPatterns = [
   ["#literal/x*", "safe.js"],
   ["fixture/literal/x*", "node_modules/fixture/safe.js"],
   ["fixture/trailing/x/", "node_modules/fixture/safe.js"],
-  ["fixture/space/ ", "node_modules/fixture/ "],
+  ["fixture/encoded/foo%2ebar", "node_modules/fixture/safe.js"],
   ["fixture/assembled/modules", "node_modules/fixture/node_modules/safe.js"],
 ] as const;
+const nodeOnlyResolvedPatterns = [
+  ["fixture/space/ ", "node_modules/fixture/ "],
+] as const;
+const runtimePatterns = [...resolvedPatterns, ...nodeOnlyResolvedPatterns];
 
 const conditionalPatterns = ["#mode/x", "fixture/mode/x"] as const;
 
@@ -30,7 +34,7 @@ const requireSource = [
   'const other = require("fixture/other");',
   'const feature = require("fixture/feature");',
   'const escape = require("#internal/../escape");',
-  ...resolvedPatterns
+  ...runtimePatterns
     .slice(4)
     .map(([specifier]) => `require(${JSON.stringify(specifier)});`),
   ...conditionalPatterns.map(
@@ -44,7 +48,7 @@ const importSource = [
   'import other from "fixture/other";',
   'import feature from "fixture/feature";',
   'import escape from "#internal/../escape";',
-  ...resolvedPatterns
+  ...runtimePatterns
     .slice(4)
     .map(([specifier]) => `import ${JSON.stringify(specifier)};`),
   ...conditionalPatterns.map(
@@ -79,6 +83,7 @@ const createPatternFixture = async () => {
         "./*": "./dist/*.js",
         "./literal/*": "./safe.js",
         "./trailing/*": "./safe.js",
+        "./encoded/*": "./safe.js",
         "./space/*": "./ *",
         "./assembled/*": "./node_*/safe.js",
         "./mode/*": { import: "./esm/*.mjs", require: "./cjs/*.cjs" },
@@ -112,13 +117,13 @@ cliTest.skipIf(process.platform === "win32").for(["CLI", "stdio MCP"] as const)(
   async (surface, { cli, processes }) => {
     const root = await createPatternFixture();
     const nativeRequire = createRequire(join(root, "main.cjs"));
-    for (const [specifier, resolved] of resolvedPatterns)
+    for (const [specifier, resolved] of runtimePatterns)
       expect(
         relative(root, nativeRequire.resolve(specifier)).replaceAll("\\", "/"),
       ).toBe(resolved);
     expect(() => nativeRequire.resolve("#internal/../escape")).toThrow();
     const specifiers = [
-      ...resolvedPatterns.map(([specifier]) => specifier),
+      ...runtimePatterns.map(([specifier]) => specifier),
       ...conditionalPatterns,
     ];
     const imported = await processes.run(
@@ -132,7 +137,7 @@ cliTest.skipIf(process.platform === "win32").for(["CLI", "stdio MCP"] as const)(
     );
     expect(imported.exitCode, imported.stderr).toBe(0);
     const importedPaths = JSON.parse(imported.stdout) as string[];
-    for (const [index, [specifier, resolved]] of resolvedPatterns.entries()) {
+    for (const [index, [specifier, resolved]] of runtimePatterns.entries()) {
       expect(
         relative(root, fileURLToPath(importedPaths[index] ?? "")).replaceAll(
           "\\",
@@ -173,7 +178,7 @@ cliTest.skipIf(process.platform === "win32").for(["CLI", "stdio MCP"] as const)(
           moduleKind === "require"
             ? nativeRequire.resolve(specifier)
             : fileURLToPath(
-                importedPaths[resolvedPatterns.length + index] ?? "",
+                importedPaths[runtimePatterns.length + index] ?? "",
               );
         expect(relative(root, observed).replaceAll("\\", "/")).toBe(expected);
         expect(graph.edges).toContainEqual(

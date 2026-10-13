@@ -335,6 +335,16 @@ const contextualCandidate = (
       "File URL authorities or invalid file URL forms cannot be mapped to artifact-local paths.",
     ]);
   }
+  // Bare package specifiers have loader-specific capture rules. Their encoded
+  // segments must reach the package resolver before canonical filesystem-path
+  // syntax is applied to actual artifact paths.
+  if (
+    context === "module-specifier" &&
+    !hasScheme(declared) &&
+    !isRelativeJavaScriptModuleSpecifier(declared) &&
+    !declared.startsWith("/")
+  )
+    return bareModuleCandidate(input);
   const rejected = rejectDeclaration(declared);
   if (rejected !== null) return rejected;
   if (context === "html-reference") return htmlCandidate(input);
