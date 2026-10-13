@@ -26,6 +26,8 @@ import {
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 import {
   propertyName,
+  semanticWriteSiteReadsFirst,
+  semanticWriteSiteTarget,
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 import {
@@ -596,10 +598,8 @@ export const semanticReadsBeforeWrite = (
   node: t.Node,
   parent: t.Node,
 ): boolean =>
-  (t.isAssignmentExpression(parent) &&
-    parent.left === node &&
-    parent.operator !== "=") ||
-  (t.isUpdateExpression(parent) && parent.argument === node);
+  semanticWriteSiteTarget(parent) === node &&
+  semanticWriteSiteReadsFirst(parent);
 
 /**
  * Role of one identifier occurrence, given the node's ancestry.
