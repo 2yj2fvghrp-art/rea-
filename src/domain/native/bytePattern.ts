@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { addressCoordinate } from "./addressCoordinate.js";
 import { AnalysisInputError } from "../analysisErrorCore.js";
 import { err, ok, type Result } from "../result.js";
 
@@ -58,12 +59,28 @@ export const validateBytePattern = (
       });
 };
 
-const coverageBlock = z.strictObject({
-  segment: z.string(),
-  start: z.string(),
-  end: z.string(),
-  bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-});
+const coverageBlock = z
+  .strictObject({
+    segment: z.string(),
+    start: z.string(),
+    end: z.string(),
+    bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })
+  .superRefine((value, context) => {
+    const start = addressCoordinate(value.start);
+    const end = addressCoordinate(value.end);
+    if (
+      start === null ||
+      end === null ||
+      start.space !== end.space ||
+      start.offset > end.offset ||
+      end.offset - start.offset + 1n !== BigInt(value.bytes)
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Byte coverage must equal its inclusive address range in one space",
+      });
+  });
 
 /** Inclusive page coverage; matches never span memory blocks. */
 export const byteSearchResultSchema = z

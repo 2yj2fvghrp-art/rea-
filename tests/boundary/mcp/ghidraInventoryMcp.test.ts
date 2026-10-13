@@ -3,7 +3,11 @@ import { expect, it } from "vitest";
 import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 import { err, ok } from "../../../src/domain/result.js";
 import { ghidraFunctionIdentity } from "../../../src/domain/ghidraValues.fixture.js";
-import { connectGhidraMcp, sessionEvidence } from "./ghidraMcpHarness.js";
+import {
+  connectGhidraMcp,
+  ghidraInstallationHost,
+  sessionEvidence,
+} from "./ghidraMcpHarness.js";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -81,6 +85,25 @@ it("retains byte-search coverage and rejects malformed pages before creating Evi
     expect(parseMcpToolError(malformed)).toMatchObject({
       error: { code: "unreadable_output" },
     });
+    for (const block of [
+      { segment: ".text", start: "0x1000", end: "0x1009", bytes: 1 },
+      { segment: ".text", start: "0x1009", end: "0x1000", bytes: 1 },
+      { segment: ".text", start: "overlay:0x1000", end: "0x1000", bytes: 1 },
+      { segment: ".text", start: "invalid", end: "0x1000", bytes: 1 },
+    ]) {
+      output = jsonValueSchema.parse({
+        ...page,
+        searched: { ...page.searched, blocks: [block], bytes: block.bytes },
+      });
+      const invalidCoverage = await harness.mcp.callTool({
+        name: "search_bytes",
+        arguments: { pattern: "48 ??" },
+      });
+      expect(parseMcpToolError(invalidCoverage)).toMatchObject({
+        error: { code: "unreadable_output" },
+      });
+      expect(invalidCoverage.structuredContent).toBeUndefined();
+    }
     const calls = harness.calls.length;
     for (const args of [{ pattern: "??" }, { pattern: "48", mask: "ffff" }]) {
       const invalid = await harness.mcp.callTool({
@@ -126,19 +149,7 @@ it("searches bytes through MCP and the socket bridge with pagination and skipped
     config.value,
     silentLogger,
     {},
-    {
-      platform: "linux",
-      architecture: "x64",
-      readText: () => "application.version=12.1.4\n",
-      executable: () => true,
-      probeJava: () => ({
-        version: "21.0.11",
-        major: 21,
-        home: "/fixture/java",
-        bits: 64,
-        runtime: "jdk",
-      }),
-    },
+    ghidraInstallationHost(),
     (options) =>
       new GhidraClient({
         ...options,
