@@ -25,14 +25,13 @@ for await (const _ of process.stdin) {
   // No commands are accepted; only EOF grants cleanup authority.
 }
 
-let failure;
-for (let attempt = 0; attempt < 100; attempt++) {
+// A failed native walk retains the directory identity lease for a later retry.
+// Keep this process alive so a transient sharing violation cannot orphan it.
+for (;;) {
   try {
     await runtime.close();
     process.exit(0);
-  } catch (cause) {
-    failure = cause;
-    await delay(Math.min(100 + attempt * 50, 1000));
+  } catch {
+    await delay(1000);
   }
 }
-throw failure;
