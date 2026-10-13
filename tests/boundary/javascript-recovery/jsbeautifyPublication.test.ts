@@ -12,7 +12,10 @@ vi.mock(
       >();
     return {
       ...actual,
-      JSBEAUTIFY_LIMITS: { ...actual.JSBEAUTIFY_LIMITS, outputBytes: 80 },
+      JSBEAUTIFY_LIMITS: {
+        ...actual.JSBEAUTIFY_LIMITS,
+        outputBytes: 16 * 1024,
+      },
     };
   },
 );
@@ -36,7 +39,7 @@ vi.mock(
           const output =
             context.arguments[context.arguments.indexOf("--output") + 1]!;
           await mkdir(dirname(output), { recursive: true });
-          await writeFile(output, "const value = 42;".padEnd(40, " "));
+          await writeFile(output, "const value = 42;".padEnd(4 * 1024, " "));
           stderr =
             "[DEOBFUSCATE] Phase 19.6: Generated output re-parse succeeded\n" +
             (source.includes("FAIL")
@@ -67,7 +70,7 @@ const recover = async (names: string[], failing = false) => {
   const root = await createTestTempDirectory("rea-jsbeautify-publication-");
   const command = join(root, "engine");
   await writeFile(command, "fixture engine");
-  const fingerprint = await fingerprintRecoveryFile(command, 80);
+  const fingerprint = await fingerprintRecoveryFile(command, 16 * 1024);
   const sources = names.map((name) => join(root, name));
   for (const path of sources)
     await writeFile(path, failing ? "FAIL" : "const value = 42;");
@@ -129,7 +132,7 @@ it.skipIf(process.platform === "win32")(
 );
 
 it("rejects combined staging output beyond one operation's budget", async () => {
-  const evidence = await recover(["a.js", "b.js", "c.js"]);
+  const evidence = await recover(["a.js", "b.js", "c.js", "d.js", "e.js"]);
   expect(evidence.ok).toBe(false);
   if (!evidence.ok)
     expect(evidence.error).toMatchObject({ _tag: "AnalysisOutputError" });

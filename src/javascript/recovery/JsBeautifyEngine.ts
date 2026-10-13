@@ -145,13 +145,20 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       { userMessage: `${reason}.` },
     );
   }
+  let publishedBytes = 0;
   const write = async (path: string, bytes: Buffer) => {
+    if (bytes.byteLength > JSBEAUTIFY_LIMITS.outputBytes - publishedBytes)
+      throw new AnalysisOutputError(
+        OPERATION,
+        "Published recovery artifacts exceed the operation-wide output budget",
+      );
     const file = await tree.write(
       path,
       Readable.from([bytes]),
       { sha256: recoveryDigest(bytes), bytes: bytes.byteLength },
       signal,
     );
+    publishedBytes += file.bytesWritten;
     return {
       path: join(tree.outputRoot, file.relativePath),
       sha256: file.sha256,
@@ -165,6 +172,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const warnings: JavaScriptRecoveryResult["warnings"] = [];
   const runs: Record<string, unknown>[] = [];
   const logs: string[] = [];
+  let retainedLogBytes = 0;
   const formats = new Set<string>();
   for (const source of sources) {
     const snapshot = await readRecoveryFile(
@@ -205,7 +213,15 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
-    logs.push(`# ${name}\n${phaseLog(run.stderr)}`);
+    const log = `# ${name}\n${phaseLog(run.stderr)}`;
+    const logBytes = Buffer.byteLength(log) + 2;
+    if (logBytes > JSBEAUTIFY_LIMITS.reportBytes - retainedLogBytes)
+      throw new AnalysisOutputError(
+        OPERATION,
+        "Combined phase reports exceed the retained diagnostic budget",
+      );
+    retainedLogBytes += logBytes;
+    logs.push(log);
     runs.push({
       module: name,
       input: source.snapshot_path,
@@ -226,7 +242,11 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
       reported_status: deobfuscated ? "deobfuscated" : "formatted",
       artifact: await write(
         `modules/${name}`,
-        await readRecoveryFile(output, JSBEAUTIFY_LIMITS.outputBytes, signal),
+        await readRecoveryFile(
+          output,
+          JSBEAUTIFY_LIMITS.outputBytes - publishedBytes,
+          signal,
+        ),
       ),
       source_map: null,
       provenance: {
