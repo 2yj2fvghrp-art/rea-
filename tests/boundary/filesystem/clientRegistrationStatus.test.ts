@@ -280,12 +280,20 @@ it.each([
 );
 
 it.each([
-  [null, "invalid"],
-  [{ command: "rea", args: null }, "invalid"],
-  [{ command: "/old/rea", args: ["mcp"], disabled: true }, "stale"],
+  [null, "invalid", "rea setup --client claude_code --scope local --project"],
+  [
+    { command: "rea", args: null },
+    "invalid",
+    "rea setup --client claude_code --scope local --project",
+  ],
+  [
+    { command: "/old/rea", args: ["mcp"], disabled: true },
+    "stale",
+    "Re-enable it in /mcp",
+  ],
 ] as const)(
   "does not fall back from a rejected local entry %j",
-  async (local, state) => {
+  async (local, state, remediation) => {
     const home = await createTestTempDirectory("rea-claude-rejected-local-");
     const workspaceDirectory = join(home, "project");
     await mkdir(workspaceDirectory, { recursive: true });
@@ -311,9 +319,7 @@ it.each([
         state,
         registration_scope: "local",
         project_directory: projectKey,
-        remediation: expect.stringContaining(
-          "rea setup --client claude_code --scope local --project",
-        ),
+        remediation: expect.stringContaining(remediation),
       }),
     ]);
   },
