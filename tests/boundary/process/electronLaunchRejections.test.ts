@@ -15,7 +15,7 @@ import { electronActiveObservationInputSchema } from "./dist/domain/javascript/e
 
 const [scenario, executable, root] = JSON.parse(process.argv[1]);
 let observedRejections = 0;
-if (scenario === "oneFailureWithManySuccesses")
+if (scenario === "oneFailureWithManySuccesses" || scenario === "externalListenerSeesUnrelatedOnce")
   process.on("unhandledRejection", () => { observedRejections += 1; });
 const orphanStack = (message, file) =>
   message + "\\n    at waitForLine (/app/node_modules/playwright-core/lib/server/" + file + ":247:21)";
@@ -54,6 +54,10 @@ const launches = {
   failureWithUnrelatedPlaywrightRejection: async () => {
     orphans("Process failed to launch!");
     void Promise.reject(playwrightError("Target page, context or browser has been closed", "page.js"));
+    await after(10, () => { throw launchFailure("Process failed to launch!"); });
+  },
+  externalListenerSeesUnrelatedOnce: async () => {
+    void Promise.reject(playwrightError("unrelated playwright failure", "page.js"));
     await after(10, () => { throw launchFailure("Process failed to launch!"); });
   },
   pendingWithUnrelatedRejection: () => {
@@ -213,6 +217,19 @@ processTest.skipIf(process.platform === "win32")(
 );
 
 processTest(
+  "does not replay an unrelated orphan to a listener that already received it",
+  async ({ processes }) => {
+    const result = await run(processes, "externalListenerSeesUnrelatedOnce");
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(outcome(result)).toMatchObject({
+      observedRejections: 1,
+      ok: [false],
+      causes: ["electron.launch: Process failed to launch!"],
+    });
+  },
+);
+
+processTest(
   "still fails on an unrelated Playwright rejection beside a failing launch's own orphans",
   async ({ processes }) => {
     const result = await run(
@@ -295,7 +312,7 @@ processTest(
       ...Array.from({ length: 4 }, () => "process_ownership_unavailable"),
     ]);
     expect(observed.cleanupResources).toEqual([
-      null,
+      [],
       ...Array.from({ length: 4 }, () => ["owned_process_group"]),
     ]);
   },

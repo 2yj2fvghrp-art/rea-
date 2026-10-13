@@ -387,7 +387,11 @@ interface LaunchRejectionScope {
 const activeLaunches = new Set<LaunchRejectionScope>();
 const heldLaunchRejections = new Map<
   Promise<unknown>,
-  { readonly reason: Error; readonly candidates: Set<LaunchRejectionScope> }
+  {
+    readonly reason: Error;
+    readonly candidates: Set<LaunchRejectionScope>;
+    readonly hadExternalListener: boolean;
+  }
 >();
 
 const holdLaunchRejection = (
@@ -403,24 +407,22 @@ const holdLaunchRejection = (
     heldLaunchRejections.set(promise, {
       reason,
       candidates: new Set(activeLaunches),
+      hadExternalListener: process
+        .listeners("unhandledRejection")
+        .some((listener) => listener !== holdLaunchRejection),
     });
 };
 
 const forwardLaunchRejection = (
   reason: Error,
-  promise: Promise<unknown>,
+  hadExternalListener: boolean,
 ): void => {
-  // Replaying to external listeners must never re-enter our own holding map.
-  process.off("unhandledRejection", holdLaunchRejection);
-  try {
-    if (!process.emit("unhandledRejection", reason, promise))
-      process.nextTick(() => {
-        throw reason;
-      });
-  } finally {
-    if (activeLaunches.size > 0)
-      process.on("unhandledRejection", holdLaunchRejection);
-  }
+  // Listeners present at the original event already observed it. When the
+  // holding listener was the only listener, restore Node's fatal behavior.
+  if (!hadExternalListener)
+    process.nextTick(() => {
+      throw reason;
+    });
 };
 
 /** Playwright leaves rejected launch promises unhandled; absorb only those that repeat this launch's failure. */
@@ -441,7 +443,10 @@ const containLaunchRejections = async <T>(
     activeLaunches.delete(scope);
     if (activeLaunches.size === 0)
       process.off("unhandledRejection", holdLaunchRejection);
-    for (const [promise, { reason, candidates }] of heldLaunchRejections) {
+    for (const [
+      promise,
+      { reason, candidates, hadExternalListener },
+    ] of heldLaunchRejections) {
       if (!candidates.delete(scope)) continue;
       if (
         scope.failure instanceof Error &&
@@ -451,7 +456,7 @@ const containLaunchRejections = async <T>(
         heldLaunchRejections.delete(promise);
       else if (candidates.size === 0) {
         heldLaunchRejections.delete(promise);
-        forwardLaunchRejection(reason, promise);
+        forwardLaunchRejection(reason, hadExternalListener);
       }
     }
   }
