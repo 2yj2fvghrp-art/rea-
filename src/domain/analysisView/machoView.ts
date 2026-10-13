@@ -37,16 +37,24 @@ export const machoViewRequestSchema = z.strictObject({
 });
 
 const { shape } = inspectMachoSchema;
+/**
+ * Union members are tried in order and plain objects drop unknown keys, so a
+ * segment or architecture row would otherwise match the entrypoint row and
+ * lose every field but file_offset. Exact key sets keep each page's rows whole.
+ */
+const exactRows = <Shape extends z.ZodRawShape>(
+  rows: z.ZodArray<z.ZodObject<Shape>>,
+) => z.array(z.strictObject(rows.element.shape));
 export const machoViewItemSchema = z.union([
-  shape.entrypoints.shape.items,
-  shape.architectures.shape.items,
-  shape.build_metadata.shape.items,
-  shape.load_commands.shape.items,
-  shape.dependencies.shape.items,
-  shape.imports.shape.items,
-  shape.exports.shape.items,
-  shape.segments.shape.items,
-  shape.provenance,
+  exactRows(shape.entrypoints.shape.items),
+  exactRows(shape.architectures.shape.items),
+  exactRows(shape.build_metadata.shape.items),
+  exactRows(shape.load_commands.shape.items),
+  exactRows(shape.dependencies.shape.items),
+  // Imports and exports share one row shape.
+  exactRows(shape.imports.shape.items),
+  exactRows(shape.segments.shape.items),
+  exactRows(shape.provenance),
 ]);
 
 /** The producer's own coverage of the paged collection, not of this page. */

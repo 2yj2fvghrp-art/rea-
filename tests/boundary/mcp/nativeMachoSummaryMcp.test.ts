@@ -111,27 +111,49 @@ describe.skipIf(process.platform !== "darwin")(
           report.imports.items[0]?.name ?? "_",
         );
 
-        const imports: unknown[] = [];
-        let offset: number | null = 0;
-        while (offset !== null) {
-          const paged = await client.callTool({
-            name: "inspect_analysis_view",
-            arguments: {
-              source: {
-                kind: "retained-evidence",
-                evidence_id: summary.parent_evidence_id,
+        // Every facet must reassemble the unparsed complete rows exactly.
+        const raw = z
+          .object({ normalized_result: z.record(z.string(), z.unknown()) })
+          .parse(complete.structuredContent).normalized_result;
+        const facets = [
+          "entrypoints",
+          "architectures",
+          "build_metadata",
+          "load_commands",
+          "dependencies",
+          "imports",
+          "exports",
+          "segments",
+          "provenance",
+        ] as const;
+        for (const facet of facets) {
+          const rows: unknown[] = [];
+          let offset: number | null = 0;
+          while (offset !== null) {
+            const paged = await client.callTool({
+              name: "inspect_analysis_view",
+              arguments: {
+                source: {
+                  kind: "retained-evidence",
+                  evidence_id: summary.parent_evidence_id,
+                },
+                view: { kind: "macho", facet, offset, limit: 16 },
               },
-              view: { kind: "macho", facet: "imports", offset, limit: 16 },
-            },
-          });
-          expect(paged.isError, JSON.stringify(paged.content)).not.toBe(true);
-          const page = evidenceOf(pageSchema).parse(
-            paged.structuredContent,
-          ).normalized_result;
-          imports.push(...page.item);
-          offset = page.coverage.next_offset;
+            });
+            expect(paged.isError, JSON.stringify(paged.content)).not.toBe(true);
+            const page = evidenceOf(pageSchema).parse(
+              paged.structuredContent,
+            ).normalized_result;
+            rows.push(...page.item);
+            offset = page.coverage.next_offset;
+          }
+          expect(rows, facet).toEqual(
+            facet === "provenance"
+              ? raw.provenance
+              : z.object({ items: z.array(z.unknown()) }).parse(raw[facet])
+                  .items,
+          );
         }
-        expect(imports).toEqual(report.imports.items);
 
         const wrongKind = await client.callTool({
           name: "inspect_analysis_view",

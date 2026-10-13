@@ -54,7 +54,28 @@ const report = {
     false,
   ),
   exports: coverage([symbol("__mh_execute_header")]),
-  segments: coverage([]),
+  segments: coverage([
+    {
+      name: "__TEXT",
+      vm_address: "0x100000000",
+      vm_size: 16384,
+      file_offset: 0,
+      file_size: 16384,
+      maximum_permissions: {
+        read: true,
+        write: false,
+        execute: true,
+        raw: "5",
+      },
+      initial_permissions: {
+        read: true,
+        write: false,
+        execute: true,
+        raw: "5",
+      },
+      sections: coverage([]),
+    },
+  ]),
   provenance: [
     {
       tool: "nm",
@@ -100,12 +121,12 @@ describe("Mach-O analysis views", () => {
         collections: {
           imports: { returned: 3, total: null, exhaustive: false },
           exports: { returned: 1, total: 1, exhaustive: true },
-          segments: { returned: 0, total: 0, exhaustive: true },
+          segments: { returned: 1, total: 1, exhaustive: true },
         },
         provenance_count: 1,
         limitation_count: 3,
       },
-      coverage: { status: "complete-within-view", examined: 9, total: 9 },
+      coverage: { status: "complete-within-view", examined: 10, total: 10 },
       limitations: [
         "Imports and exports combine dyld_info and nm.",
         "Parent limitation.",
@@ -134,6 +155,19 @@ describe("Mach-O analysis views", () => {
     expect(first.value.limitations).toContain(
       "nm output may omit stripped symbols.",
     );
+    // Rows whose keys include an earlier row shape's keys stay whole.
+    for (const facet of ["architectures", "segments"] as const) {
+      const page = projectAnalysisView(parent(), {
+        kind: "macho",
+        facet,
+        offset: 0,
+        limit: 64,
+      });
+      if (!page.ok) throw page.error;
+      expect(page.value.kind === "macho" && page.value.item).toEqual(
+        report[facet].items,
+      );
+    }
     const provenance = projectAnalysisView(parent(), {
       kind: "macho",
       facet: "provenance",
