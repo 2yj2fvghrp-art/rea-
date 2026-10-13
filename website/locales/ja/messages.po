@@ -68,7 +68,7 @@ msgstr "によってN0zoM1z0•10 10月2026"
 #: website/public/blog/touhou-reconstruction/index.html:1080
 #: website/public/examples/dino-lab/index.html:475
 #: website/public/faq/index.html:573
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 #: website/public/get-started/index.html:884
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
@@ -2753,43 +2753,43 @@ msgstr "1. エージェントをREAに接続します"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:229
-#: website/public/first-investigation/index.html:279
-#: website/public/first-investigation/index.html:401
+#: website/public/first-investigation/index.html:230
+#: website/public/first-investigation/index.html:280
+#: website/public/first-investigation/index.html:402
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}あなたのコーディングエージェント"
 
-#: website/public/first-investigation/index.html:234
-#: website/public/first-investigation/index.html:256
-#: website/public/first-investigation/index.html:284
-#: website/public/first-investigation/index.html:406
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:235
+#: website/public/first-investigation/index.html:257
+#: website/public/first-investigation/index.html:285
+#: website/public/first-investigation/index.html:407
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy"
 msgstr "コピー"
 
-#: website/public/first-investigation/index.html:253
+#: website/public/first-investigation/index.html:254
 msgctxt "page:first-investigation/index.html"
 msgid "Or run this command in your terminal:"
 msgstr "または、ターミナルでこのコマンドを実行します:"
 
-#: website/public/first-investigation/index.html:265
+#: website/public/first-investigation/index.html:266
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Review the plan, approve the setup, then restart your agent. Already "
 "connected? Continue below."
 msgstr "計画を確認し、設定を承認してから、エージェントを再起動します。 すでに接続されていますか？ 以下に進みます。"
 
-#: website/public/first-investigation/index.html:271
+#: website/public/first-investigation/index.html:272
 msgctxt "page:first-investigation/index.html"
 msgid "2. Ask where the CSV is written"
 msgstr "2. CSVがどこに書かれているかを尋ねる"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/first-investigation/index.html:272
+#: website/public/first-investigation/index.html:273
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2800,7 +2800,7 @@ msgstr ""
 "この例では、6つのファイルElectronアプリを使用しています。 {ph0}ノートのエクスポート{ph1} ボタン。 "
 "エージェントは、Electronをインストールまたは起動せずにコードを検査できます。"
 
-#: website/public/first-investigation/index.html:307
+#: website/public/first-investigation/index.html:308
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Your agent downloads the files and gives the unpacked folder to REA for "
@@ -2810,14 +2810,14 @@ msgstr "エージェントはファイルをダウンロードし、検査のた
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:311
+#: website/public/first-investigation/index.html:312
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Download example ZIP{ph1}"
 msgstr "{ph0}ダウンロード例ZIP{ph1}"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:319
+#: website/public/first-investigation/index.html:320
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2827,12 +2827,12 @@ msgstr ""
 "エージェントがファイルをダウンロードできない場合は、このアーカイブを自分で解凍します。 それへの道を与えてください {ph0} "
 "フォルダと同じエクスポートの質問。"
 
-#: website/public/first-investigation/index.html:326
+#: website/public/first-investigation/index.html:327
 msgctxt "page:first-investigation/index.html"
 msgid "3. Follow the answer back to the code"
 msgstr "3. コードに戻って答えに従ってください"
 
-#: website/public/first-investigation/index.html:327
+#: website/public/first-investigation/index.html:328
 msgctxt "page:first-investigation/index.html"
 msgid "Look for a short explanation with file and line references:"
 msgstr "ファイルと行の参照に関する簡単な説明を探してください:"
@@ -2841,7 +2841,7 @@ msgstr "ファイルと行の参照に関する簡単な説明を探してくだ
 #. {ph1}: <code>notes.csv</code>
 #. {ph2}: <code>id</code>
 #. {ph3}: <code>title</code>
-#: website/public/first-investigation/index.html:329
+#: website/public/first-investigation/index.html:330
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2852,19 +2852,19 @@ msgstr ""
 "ボタンはaを送ります {ph0} メッセージ。 メインプロセスは、CSVとしてノートをフォーマットし、書き込みます {ph1} "
 "ユーザーのダウンロードフォルダにあります。 列は次のとおりです {ph2} と {ph3}."
 
-#: website/public/first-investigation/index.html:337
+#: website/public/first-investigation/index.html:338
 msgctxt "page:first-investigation/index.html"
 msgid "From the button to the file writer"
 msgstr "ボタンからファイルライターへ"
 
-#: website/public/first-investigation/index.html:366
+#: website/public/first-investigation/index.html:367
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "REA’s static analysis pairs the message with its handler. The destination is"
 " read from code."
 msgstr "REAの静的解析は、メッセージとそのハンドラーをペアリングします。 宛先はコードから読み取られます。"
 
-#: website/public/first-investigation/index.html:382
+#: website/public/first-investigation/index.html:383
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "The file path, formatter and write call are together in this handler. Ask "
@@ -2875,37 +2875,37 @@ msgstr ""
 
 #. {ph0}: <a href="../guides/javascript/#follow" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:387
+#: website/public/first-investigation/index.html:388
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}See the full code trace and recorded REA result{ph1}."
 msgstr "{ph0}完全なコードトレースと記録されたREA結果を参照してください{ph1}."
 
-#: website/public/first-investigation/index.html:394
+#: website/public/first-investigation/index.html:395
 msgctxt "page:first-investigation/index.html"
 msgid "4. Check a prediction"
 msgstr "4. 予測を確認する"
 
-#: website/public/first-investigation/index.html:395
+#: website/public/first-investigation/index.html:396
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "A comma separates CSV columns. What happens when a note title itself "
 "contains a comma or quotation marks?"
 msgstr "コンマはCSV列を区切っています。 ノートタイトル自体にコンマまたは引用符が含まれている場合はどうなりますか？"
 
-#: website/public/first-investigation/index.html:439
+#: website/public/first-investigation/index.html:440
 msgctxt "page:first-investigation/index.html"
 msgid "Run the check yourself"
 msgstr "自分でチェックを実行します"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:440
+#: website/public/first-investigation/index.html:441
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "Open a terminal in the unpacked {ph0} folder:"
 msgstr "開梱された端末で端末を開く {ph0} フォルダ:"
 
-#: website/public/first-investigation/index.html:462
+#: website/public/first-investigation/index.html:463
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "This command uses a shell with here-document support, such as Bash or Zsh. "
@@ -2914,24 +2914,24 @@ msgstr ""
 "このコマンドは、bashやZshなどのhere-documentをサポートするシェルを使用します。 "
 "エージェントは、プラットフォームのシェルで同じJavaScriptを実行できます。"
 
-#: website/public/first-investigation/index.html:470
+#: website/public/first-investigation/index.html:471
 msgctxt "page:first-investigation/index.html"
 msgid "5. Ask another question"
 msgstr "5. 別の質問をする"
 
-#: website/public/first-investigation/index.html:471
+#: website/public/first-investigation/index.html:472
 msgctxt "page:first-investigation/index.html"
 msgid "Try a follow-up in the same conversation:"
 msgstr "同じ会話でフォローアップを試してみてください:"
 
-#: website/public/first-investigation/index.html:473
+#: website/public/first-investigation/index.html:474
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "What happens if the file can’t be written? Follow the error back to the "
 "page."
 msgstr "ファイルを書き込めない場合はどうなりますか？ エラーに従ってページに戻ります。"
 
-#: website/public/first-investigation/index.html:478
+#: website/public/first-investigation/index.html:479
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Or give your agent an app of your own and ask about one button, file or "
@@ -2942,7 +2942,7 @@ msgstr "または、エージェントに独自のアプリを提供し、一つ
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:483
+#: website/public/first-investigation/index.html:484
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2955,7 +2955,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:489
+#: website/public/first-investigation/index.html:490
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2968,7 +2968,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:497
+#: website/public/first-investigation/index.html:498
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -3001,32 +3001,32 @@ msgctxt "page:first-investigation/index.html"
 msgid "Your first REA investigation"
 msgstr "あなたの最初のREA調査"
 
-#: website/public/first-investigation/index.html:234
+#: website/public/first-investigation/index.html:235
 msgctxt "page:first-investigation/index.html"
 msgid "Copy REA installation prompt"
 msgstr "コピー REAインストールプロンプト"
 
-#: website/public/first-investigation/index.html:256
+#: website/public/first-investigation/index.html:257
 msgctxt "page:first-investigation/index.html"
 msgid "Copy setup command"
 msgstr "Copy setupコマンド"
 
-#: website/public/first-investigation/index.html:284
+#: website/public/first-investigation/index.html:285
 msgctxt "page:first-investigation/index.html"
 msgid "Copy Notes investigation prompt"
 msgstr "コピーノート調査プロンプト"
 
-#: website/public/first-investigation/index.html:406
+#: website/public/first-investigation/index.html:407
 msgctxt "page:first-investigation/index.html"
 msgid "Copy CSV check prompt"
 msgstr "コピー CSVチェックプロンプト"
 
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy formatter check command"
 msgstr "コピーフォーマッタチェックコマンド"
 
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 msgctxt "page:first-investigation/index.html"
 msgid "Back to top"
 msgstr "ページ上部へ"
@@ -10982,7 +10982,7 @@ msgstr "ガイド"
 #: website/public/blog/touhou-reconstruction/index.html:1072
 #: website/public/examples/dino-lab/index.html:467
 #: website/public/faq/index.html:565
-#: website/public/first-investigation/index.html:515
+#: website/public/first-investigation/index.html:516
 #: website/public/get-started/index.html:876
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
@@ -11003,7 +11003,7 @@ msgstr "ソースコード"
 #: website/public/blog/touhou-reconstruction/index.html:1073
 #: website/public/examples/dino-lab/index.html:468
 #: website/public/faq/index.html:566
-#: website/public/first-investigation/index.html:516
+#: website/public/first-investigation/index.html:517
 #: website/public/get-started/index.html:877
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
@@ -11024,7 +11024,7 @@ msgstr "MIT ライセンス"
 #: website/public/blog/touhou-reconstruction/index.html:1074
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
-#: website/public/first-investigation/index.html:517
+#: website/public/first-investigation/index.html:518
 #: website/public/get-started/index.html:878
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
@@ -11045,7 +11045,7 @@ msgstr "コミュニティに参加"
 #: website/public/blog/touhou-reconstruction/index.html:1075
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
-#: website/public/first-investigation/index.html:518
+#: website/public/first-investigation/index.html:519
 #: website/public/get-started/index.html:879
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
@@ -11066,12 +11066,12 @@ msgctxt "page:examples/dino-lab/index.html"
 msgid "REA · selected script source"
 msgstr "REA*選択したスクリプトソース"
 
-#: website/public/first-investigation/index.html:374
+#: website/public/first-investigation/index.html:375
 msgctxt "page:first-investigation/index.html"
 msgid "Source"
 msgstr "ソースコード"
 
-#: website/public/first-investigation/index.html:428
+#: website/public/first-investigation/index.html:429
 msgctxt "page:first-investigation/index.html"
 msgid "Expected formatter output"
 msgstr "期待されるフォーマッタ出力"
@@ -11534,7 +11534,7 @@ msgstr ""
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/first-investigation/index.html:243
+#: website/public/first-investigation/index.html:244
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11554,7 +11554,7 @@ msgstr ""
 #. {ph5}: </span >
 #. {ph6}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph7}: </span>
-#: website/public/first-investigation/index.html:293
+#: website/public/first-investigation/index.html:294
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11635,26 +11635,6 @@ msgid ""
 " the proposed changes."
 msgstr "と {ph0} と npm 利用可能で、セットアップを実行し、コーディングエージェントを選択し、提案された変更を確認します。"
 
-#. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:202
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · Your coding agent"
-msgstr "提供された例*{ph0}とnpm*コーディングエージェント"
-
-#. {ph0}: <span translate="no">Node.js</span>
-#. {ph1}: <a href="../get-started/">
-#. {ph2}: </a >
-#: website/public/first-investigation/index.html:221
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid ""
-"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
-"and npm; the {ph1}setup guide lists supported versions{ph2}."
-msgstr ""
-"次のようなコーディングエージェントを使用します Claude Code, Codex または Cursor. あなたが必要になります {ph0} と "
-"npm;ザ- {ph1}セットアップガイドサポートされているバージョンの一覧{ph2}."
-
 #. {ph0}: <span class="flow-label" >
 #. {ph1}: <span translate="no">renderer.js</span>
 #. {ph2}: </span >
@@ -11663,7 +11643,7 @@ msgstr ""
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>notes.exportCsv()</code>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:339
+#: website/public/first-investigation/index.html:340
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Page · {ph1}{ph2}{ph3}Export notes{ph4}{ph5}Calls {ph6}.{ph7}"
@@ -11677,7 +11657,7 @@ msgstr "{ph0}ページ · {ph1}{ph2}{ph3}ノートのエクスポート{ph4}{ph5
 #. {ph5}: </span >
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:347
+#: website/public/first-investigation/index.html:348
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11694,7 +11674,7 @@ msgstr "{ph0}橋 · {ph1}{ph2}{ph3}{ph4}{ph5}{ph6}名前付きメッセージを
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: <code>csv.js</code>
 #. {ph8}: </span >
-#: website/public/first-investigation/index.html:355
+#: website/public/first-investigation/index.html:356
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11705,7 +11685,7 @@ msgstr ""
 "そして、ファイルを書き込みます。{ph8}"
 
 #. {ph0}: <span translate="no">main.js</span>
-#: website/public/first-investigation/index.html:373
+#: website/public/first-investigation/index.html:374
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · lines 8–12"
@@ -11720,7 +11700,7 @@ msgstr "{ph0} *8-12行目"
 #. {ph6}: </span >
 #. {ph7}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph8}: </span>
-#: website/public/first-investigation/index.html:415
+#: website/public/first-investigation/index.html:416
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11732,7 +11712,7 @@ msgstr ""
 "{ph5} それを確認する。 予測と実際の出力を表示します。{ph6}{ph7}{ph8}"
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:433
+#: website/public/first-investigation/index.html:434
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11741,7 +11721,7 @@ msgid ""
 msgstr "タイトルは引用符で囲まれた1つのフィールドにとどまり、各引用符は2倍になります。 これはフォーマッタを直接チェックします {ph0}."
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:446
+#: website/public/first-investigation/index.html:447
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · CSV formatter"
@@ -13146,6 +13126,52 @@ msgid ""
 msgstr ""
 "例をダウンロードして解凍します。 アーカイブには完全なものが含まれています {ph0} フォルダ。 それを分析する {ph1} と npm; "
 "Electron この例では必要ありません。 Linux での JavaScript 解析には、{ph2} 互換の {ph3} も必要です。"
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <a href="../get-started/">
+#. {ph2}: </a >
+#. {ph3}: <code>procps</code>
+#. {ph4}: <code>ps</code>
+#: website/public/first-investigation/index.html:221
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid ""
+"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+"and npm; the {ph1}setup guide lists supported versions{ph2}. On Linux, "
+"JavaScript analysis also requires {ph3}-compatible {ph4}."
+msgstr ""
+"次のようなコーディングエージェントを使用します Claude Code, Codex または Cursor. あなたが必要になります {ph0} と "
+"npm;ザ- {ph1}セットアップガイドサポートされているバージョンの一覧{ph2}. Linux での JavaScript 解析には、{ph3} "
+"互換の {ph4} も必要です。"
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <code>procps</code>
+#: website/public/first-investigation/index.html:202
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+msgstr "提供された例*{ph0}とnpm*コーディングエージェント · {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "A supplied example · {ph0} and npm · {ph1}-compatible {ph2} on Linux · Your "
+#~ "coding agent"
+#~ msgstr ""
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · Your coding agent"
+#~ msgstr "提供された例*{ph0}とnpm*コーディングエージェント"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+#~ "and npm; the {ph1}setup guide lists supported versions{ph2}."
+#~ msgstr ""
+#~ "次のようなコーディングエージェントを使用します Claude Code, Codex または Cursor. あなたが必要になります {ph0} と "
+#~ "npm;ザ- {ph1}セットアップガイドサポートされているバージョンの一覧{ph2}."
 
 #, python-brace-format
 #~ msgctxt "page:get-started/index.html"

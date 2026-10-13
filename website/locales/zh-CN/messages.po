@@ -67,7 +67,7 @@ msgstr "通过N0zoM1z0*10十月2026"
 #: website/public/blog/touhou-reconstruction/index.html:1080
 #: website/public/examples/dino-lab/index.html:475
 #: website/public/faq/index.html:573
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 #: website/public/get-started/index.html:884
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
@@ -2603,43 +2603,43 @@ msgstr "1. 把助手连接到 REA"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:229
-#: website/public/first-investigation/index.html:279
-#: website/public/first-investigation/index.html:401
+#: website/public/first-investigation/index.html:230
+#: website/public/first-investigation/index.html:280
+#: website/public/first-investigation/index.html:402
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}你的编程助手"
 
-#: website/public/first-investigation/index.html:234
-#: website/public/first-investigation/index.html:256
-#: website/public/first-investigation/index.html:284
-#: website/public/first-investigation/index.html:406
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:235
+#: website/public/first-investigation/index.html:257
+#: website/public/first-investigation/index.html:285
+#: website/public/first-investigation/index.html:407
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy"
 msgstr "复制"
 
-#: website/public/first-investigation/index.html:253
+#: website/public/first-investigation/index.html:254
 msgctxt "page:first-investigation/index.html"
 msgid "Or run this command in your terminal:"
 msgstr "或者在终端中运行此命令:"
 
-#: website/public/first-investigation/index.html:265
+#: website/public/first-investigation/index.html:266
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Review the plan, approve the setup, then restart your agent. Already "
 "connected? Continue below."
 msgstr "查看计划，确认配置后重启助手。如果已经连接，直接继续。"
 
-#: website/public/first-investigation/index.html:271
+#: website/public/first-investigation/index.html:272
 msgctxt "page:first-investigation/index.html"
 msgid "2. Ask where the CSV is written"
 msgstr "2. 问清 CSV 写到哪里"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/first-investigation/index.html:272
+#: website/public/first-investigation/index.html:273
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2650,7 +2650,7 @@ msgstr ""
 "示例是一个包含六个文件的 Electron 应用，带有{ph0}Export notes（导出笔记）{ph1}按钮。助手无需安装或启动 Electron"
 " 就能检查代码。"
 
-#: website/public/first-investigation/index.html:307
+#: website/public/first-investigation/index.html:308
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Your agent downloads the files and gives the unpacked folder to REA for "
@@ -2660,14 +2660,14 @@ msgstr "助手会下载并解压文件，再把目录交给 REA 检查。"
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:311
+#: website/public/first-investigation/index.html:312
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Download example ZIP{ph1}"
 msgstr "{ph0}下载示例ZIP{ph1}"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:319
+#: website/public/first-investigation/index.html:320
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2675,12 +2675,12 @@ msgid ""
 " path to the {ph0} folder and the same export question."
 msgstr "如果助手不能下载文件，你也可以手动解压。把 {ph0} 文件夹的路径交给它，再问同一个导出问题。"
 
-#: website/public/first-investigation/index.html:326
+#: website/public/first-investigation/index.html:327
 msgctxt "page:first-investigation/index.html"
 msgid "3. Follow the answer back to the code"
 msgstr "3. 从回答追踪到代码"
 
-#: website/public/first-investigation/index.html:327
+#: website/public/first-investigation/index.html:328
 msgctxt "page:first-investigation/index.html"
 msgid "Look for a short explanation with file and line references:"
 msgstr "寻找带文件和行号的简短解释："
@@ -2689,7 +2689,7 @@ msgstr "寻找带文件和行号的简短解释："
 #. {ph1}: <code>notes.csv</code>
 #. {ph2}: <code>id</code>
 #. {ph3}: <code>title</code>
-#: website/public/first-investigation/index.html:329
+#: website/public/first-investigation/index.html:330
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2698,19 +2698,19 @@ msgid ""
 "{ph3}."
 msgstr "按钮发送 {ph0} 消息。主进程把笔记转换为 CSV，并将 {ph1} 写到用户的下载文件夹。列名为 {ph2} 和 {ph3}。"
 
-#: website/public/first-investigation/index.html:337
+#: website/public/first-investigation/index.html:338
 msgctxt "page:first-investigation/index.html"
 msgid "From the button to the file writer"
 msgstr "从按钮到文件写入"
 
-#: website/public/first-investigation/index.html:366
+#: website/public/first-investigation/index.html:367
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "REA’s static analysis pairs the message with its handler. The destination is"
 " read from code."
 msgstr "REA 的静态分析把消息和处理函数关联起来。导出位置是从代码中读到的。"
 
-#: website/public/first-investigation/index.html:382
+#: website/public/first-investigation/index.html:383
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "The file path, formatter and write call are together in this handler. Ask "
@@ -2719,37 +2719,37 @@ msgstr "文件路径、格式化函数和写入调用都在这个处理函数中
 
 #. {ph0}: <a href="../guides/javascript/#follow" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:387
+#: website/public/first-investigation/index.html:388
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}See the full code trace and recorded REA result{ph1}."
 msgstr "{ph0}查看完整的代码追踪和记录的 REA 结果{ph1}。"
 
-#: website/public/first-investigation/index.html:394
+#: website/public/first-investigation/index.html:395
 msgctxt "page:first-investigation/index.html"
 msgid "4. Check a prediction"
 msgstr "4. 检查预测"
 
-#: website/public/first-investigation/index.html:395
+#: website/public/first-investigation/index.html:396
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "A comma separates CSV columns. What happens when a note title itself "
 "contains a comma or quotation marks?"
 msgstr "CSV 用逗号分隔各列。如果笔记标题本身包含逗号或引号，会发生什么？"
 
-#: website/public/first-investigation/index.html:439
+#: website/public/first-investigation/index.html:440
 msgctxt "page:first-investigation/index.html"
 msgid "Run the check yourself"
 msgstr "自己检查一下"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:440
+#: website/public/first-investigation/index.html:441
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "Open a terminal in the unpacked {ph0} folder:"
 msgstr "在解压后的 {ph0} 文件夹里打开终端："
 
-#: website/public/first-investigation/index.html:462
+#: website/public/first-investigation/index.html:463
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "This command uses a shell with here-document support, such as Bash or Zsh. "
@@ -2758,24 +2758,24 @@ msgstr ""
 "这条命令需要 Bash、Zsh 等支持 here-document 的 shell。助手也可以在你的系统 shell 中运行同样的 "
 "JavaScript。"
 
-#: website/public/first-investigation/index.html:470
+#: website/public/first-investigation/index.html:471
 msgctxt "page:first-investigation/index.html"
 msgid "5. Ask another question"
 msgstr "5. 再问一个问题"
 
-#: website/public/first-investigation/index.html:471
+#: website/public/first-investigation/index.html:472
 msgctxt "page:first-investigation/index.html"
 msgid "Try a follow-up in the same conversation:"
 msgstr "在同一段对话中继续提问："
 
-#: website/public/first-investigation/index.html:473
+#: website/public/first-investigation/index.html:474
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "What happens if the file can’t be written? Follow the error back to the "
 "page."
 msgstr "如果文件无法写入，会发生什么？沿着错误处理追踪回页面。"
 
-#: website/public/first-investigation/index.html:478
+#: website/public/first-investigation/index.html:479
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Or give your agent an app of your own and ask about one button, file or "
@@ -2786,7 +2786,7 @@ msgstr "也可以提供自己的应用，询问其中一个按钮、文件或行
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:483
+#: website/public/first-investigation/index.html:484
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2798,7 +2798,7 @@ msgstr "{ph0}Notion 如何复制文本和 HTML{ph1}{ph2}追踪打包 Electron �
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:489
+#: website/public/first-investigation/index.html:490
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2810,7 +2810,7 @@ msgstr "{ph0}DX-Ball 如何计算声音左右位置{ph1}{ph2}查看原始指令�
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:497
+#: website/public/first-investigation/index.html:498
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2840,32 +2840,32 @@ msgctxt "page:first-investigation/index.html"
 msgid "Your first REA investigation"
 msgstr "你的第一次REA调查"
 
-#: website/public/first-investigation/index.html:234
+#: website/public/first-investigation/index.html:235
 msgctxt "page:first-investigation/index.html"
 msgid "Copy REA installation prompt"
 msgstr "复制REA安装提示"
 
-#: website/public/first-investigation/index.html:256
+#: website/public/first-investigation/index.html:257
 msgctxt "page:first-investigation/index.html"
 msgid "Copy setup command"
 msgstr "复制安装命令"
 
-#: website/public/first-investigation/index.html:284
+#: website/public/first-investigation/index.html:285
 msgctxt "page:first-investigation/index.html"
 msgid "Copy Notes investigation prompt"
 msgstr "复制笔记调查提示"
 
-#: website/public/first-investigation/index.html:406
+#: website/public/first-investigation/index.html:407
 msgctxt "page:first-investigation/index.html"
 msgid "Copy CSV check prompt"
 msgstr "复制CSV检查提示"
 
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy formatter check command"
 msgstr "复制格式化程序检查命令"
 
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 msgctxt "page:first-investigation/index.html"
 msgid "Back to top"
 msgstr "回到顶部"
@@ -10711,7 +10711,7 @@ msgstr "指南"
 #: website/public/blog/touhou-reconstruction/index.html:1072
 #: website/public/examples/dino-lab/index.html:467
 #: website/public/faq/index.html:565
-#: website/public/first-investigation/index.html:515
+#: website/public/first-investigation/index.html:516
 #: website/public/get-started/index.html:876
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
@@ -10732,7 +10732,7 @@ msgstr "源代码"
 #: website/public/blog/touhou-reconstruction/index.html:1073
 #: website/public/examples/dino-lab/index.html:468
 #: website/public/faq/index.html:566
-#: website/public/first-investigation/index.html:516
+#: website/public/first-investigation/index.html:517
 #: website/public/get-started/index.html:877
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
@@ -10753,7 +10753,7 @@ msgstr "MIT 许可证"
 #: website/public/blog/touhou-reconstruction/index.html:1074
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
-#: website/public/first-investigation/index.html:517
+#: website/public/first-investigation/index.html:518
 #: website/public/get-started/index.html:878
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
@@ -10774,7 +10774,7 @@ msgstr "加入社区"
 #: website/public/blog/touhou-reconstruction/index.html:1075
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
-#: website/public/first-investigation/index.html:518
+#: website/public/first-investigation/index.html:519
 #: website/public/get-started/index.html:879
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
@@ -10795,12 +10795,12 @@ msgctxt "page:examples/dino-lab/index.html"
 msgid "REA · selected script source"
 msgstr "REA · 选定脚本源"
 
-#: website/public/first-investigation/index.html:374
+#: website/public/first-investigation/index.html:375
 msgctxt "page:first-investigation/index.html"
 msgid "Source"
 msgstr "源代码"
 
-#: website/public/first-investigation/index.html:428
+#: website/public/first-investigation/index.html:429
 msgctxt "page:first-investigation/index.html"
 msgid "Expected formatter output"
 msgstr "预期格式化程序输出"
@@ -11262,7 +11262,7 @@ msgstr "{ph0}›{ph1}{ph2}用 REA 分析 {ph3}，解释它如何导出数据。�
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/first-investigation/index.html:243
+#: website/public/first-investigation/index.html:244
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11282,7 +11282,7 @@ msgstr ""
 #. {ph5}: </span >
 #. {ph6}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph7}: </span>
-#: website/public/first-investigation/index.html:293
+#: website/public/first-investigation/index.html:294
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11361,25 +11361,6 @@ msgid ""
 " the proposed changes."
 msgstr "准备好 {ph0} 和 npm 后，运行 setup，选择编程助手，再确认拟进行的更改。"
 
-#. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:202
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · Your coding agent"
-msgstr "提供的示例 · {ph0} 和 npm · 编程助手"
-
-#. {ph0}: <span translate="no">Node.js</span>
-#. {ph1}: <a href="../get-started/">
-#. {ph2}: </a >
-#: website/public/first-investigation/index.html:221
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid ""
-"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
-"and npm; the {ph1}setup guide lists supported versions{ph2}."
-msgstr ""
-"使用 Claude Code、Codex、Cursor 等编程助手。需要 {ph0} 和 npm；{ph1}安装指南列出了支持的版本{ph2}。"
-
 #. {ph0}: <span class="flow-label" >
 #. {ph1}: <span translate="no">renderer.js</span>
 #. {ph2}: </span >
@@ -11388,7 +11369,7 @@ msgstr ""
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>notes.exportCsv()</code>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:339
+#: website/public/first-investigation/index.html:340
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Page · {ph1}{ph2}{ph3}Export notes{ph4}{ph5}Calls {ph6}.{ph7}"
@@ -11402,7 +11383,7 @@ msgstr "{ph0}页面 · {ph1}{ph2}{ph3}Export notes（导出笔记）{ph4}{ph5}�
 #. {ph5}: </span >
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:347
+#: website/public/first-investigation/index.html:348
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11419,7 +11400,7 @@ msgstr "{ph0}桥接 · {ph1}{ph2}{ph3}{ph4}{ph5}{ph6}向主进程发送命名消
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: <code>csv.js</code>
 #. {ph8}: </span >
-#: website/public/first-investigation/index.html:355
+#: website/public/first-investigation/index.html:356
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11429,7 +11410,7 @@ msgstr ""
 "{ph0}处理函数 · {ph1}{ph2}{ph3}写入 {ph4}{ph5}{ph6}调用 {ph7} 中的格式化函数，再写入文件。{ph8}"
 
 #. {ph0}: <span translate="no">main.js</span>
-#: website/public/first-investigation/index.html:373
+#: website/public/first-investigation/index.html:374
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · lines 8–12"
@@ -11444,7 +11425,7 @@ msgstr "{ph0} · 第 8–12 行"
 #. {ph6}: </span >
 #. {ph7}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph8}: </span>
-#: website/public/first-investigation/index.html:415
+#: website/public/first-investigation/index.html:416
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11456,7 +11437,7 @@ msgstr ""
 "格式化函数验证。展示预测和实际输出。{ph6}{ph7}{ph8}"
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:433
+#: website/public/first-investigation/index.html:434
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -11465,7 +11446,7 @@ msgid ""
 msgstr "标题保留在一个带引号的字段里，每个引号都写成两个。这里用 {ph0} 直接检查格式化函数。"
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:446
+#: website/public/first-investigation/index.html:447
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · CSV formatter"
@@ -12841,6 +12822,50 @@ msgid ""
 msgstr ""
 "下载示例并解压缩。 存档包含完整的 {ph0} 文件夹。 分析它与 {ph1} 和 npm; Electron 本例不需要。 在 Linux "
 "上，JavaScript 分析还需要兼容 {ph2} 的 {ph3}。"
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <a href="../get-started/">
+#. {ph2}: </a >
+#. {ph3}: <code>procps</code>
+#. {ph4}: <code>ps</code>
+#: website/public/first-investigation/index.html:221
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid ""
+"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+"and npm; the {ph1}setup guide lists supported versions{ph2}. On Linux, "
+"JavaScript analysis also requires {ph3}-compatible {ph4}."
+msgstr ""
+"使用 Claude Code、Codex、Cursor 等编程助手。需要 {ph0} 和 npm；{ph1}安装指南列出了支持的版本{ph2}。 在 "
+"Linux 上，JavaScript 分析还需要兼容 {ph3} 的 {ph4}。"
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <code>procps</code>
+#: website/public/first-investigation/index.html:202
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+msgstr "提供的示例 · {ph0} 和 npm · 编程助手 · {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "A supplied example · {ph0} and npm · {ph1}-compatible {ph2} on Linux · Your "
+#~ "coding agent"
+#~ msgstr ""
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · Your coding agent"
+#~ msgstr "提供的示例 · {ph0} 和 npm · 编程助手"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+#~ "and npm; the {ph1}setup guide lists supported versions{ph2}."
+#~ msgstr ""
+#~ "使用 Claude Code、Codex、Cursor 等编程助手。需要 {ph0} 和 npm；{ph1}安装指南列出了支持的版本{ph2}。"
 
 #, python-brace-format
 #~ msgctxt "page:get-started/index.html"

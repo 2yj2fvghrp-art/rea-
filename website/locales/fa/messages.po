@@ -69,7 +69,7 @@ msgstr "توسط N0zoM1z0 * 10 اکتبر 2026"
 #: website/public/blog/touhou-reconstruction/index.html:1080
 #: website/public/examples/dino-lab/index.html:475
 #: website/public/faq/index.html:573
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 #: website/public/get-started/index.html:884
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
@@ -2914,29 +2914,29 @@ msgstr "1. نماینده خود را به REA متصل کنید"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:229
-#: website/public/first-investigation/index.html:279
-#: website/public/first-investigation/index.html:401
+#: website/public/first-investigation/index.html:230
+#: website/public/first-investigation/index.html:280
+#: website/public/first-investigation/index.html:402
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}عامل برنامه نویسی شما"
 
-#: website/public/first-investigation/index.html:234
-#: website/public/first-investigation/index.html:256
-#: website/public/first-investigation/index.html:284
-#: website/public/first-investigation/index.html:406
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:235
+#: website/public/first-investigation/index.html:257
+#: website/public/first-investigation/index.html:285
+#: website/public/first-investigation/index.html:407
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy"
 msgstr "کپی"
 
-#: website/public/first-investigation/index.html:253
+#: website/public/first-investigation/index.html:254
 msgctxt "page:first-investigation/index.html"
 msgid "Or run this command in your terminal:"
 msgstr "یا این دستور را در ترمینال خود اجرا کنید:"
 
-#: website/public/first-investigation/index.html:265
+#: website/public/first-investigation/index.html:266
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Review the plan, approve the setup, then restart your agent. Already "
@@ -2945,14 +2945,14 @@ msgstr ""
 "نقشه رو بررسي کن ، راه اندازي رو تاييد کن ، بعد ماموريت رو دوباره راه بنداز."
 " در حال حاضر متصل? ادامه در زیر."
 
-#: website/public/first-investigation/index.html:271
+#: website/public/first-investigation/index.html:272
 msgctxt "page:first-investigation/index.html"
 msgid "2. Ask where the CSV is written"
 msgstr "2. بپرسید CSV کجا نوشته شده است"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/first-investigation/index.html:272
+#: website/public/first-investigation/index.html:273
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2963,7 +2963,7 @@ msgstr ""
 "مثال یک برنامه شش فایل Electron با یک {ph0}یادداشت های صادراتی{ph1} دکمه. "
 "نماینده شما می تواند کد خود را بدون نصب یا راه اندازی Electron بازرسی کند ."
 
-#: website/public/first-investigation/index.html:307
+#: website/public/first-investigation/index.html:308
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Your agent downloads the files and gives the unpacked folder to REA for "
@@ -2975,14 +2975,14 @@ msgstr ""
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:311
+#: website/public/first-investigation/index.html:312
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Download example ZIP{ph1}"
 msgstr "{ph0}دانلود نمونه زیپ{ph1}"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:319
+#: website/public/first-investigation/index.html:320
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -2992,12 +2992,12 @@ msgstr ""
 "اگر نماینده شما نمی تواند فایل ها را دانلود کند ، خودتان این آرشیو را باز "
 "کنید. راه رو به سمت {ph0} پوشه و همان سوال صادرات."
 
-#: website/public/first-investigation/index.html:326
+#: website/public/first-investigation/index.html:327
 msgctxt "page:first-investigation/index.html"
 msgid "3. Follow the answer back to the code"
 msgstr "3. پاسخ را به کد دنبال کنید"
 
-#: website/public/first-investigation/index.html:327
+#: website/public/first-investigation/index.html:328
 msgctxt "page:first-investigation/index.html"
 msgid "Look for a short explanation with file and line references:"
 msgstr "به دنبال یک توضیح کوتاه با مرجع فایل و خط باشید:"
@@ -3006,7 +3006,7 @@ msgstr "به دنبال یک توضیح کوتاه با مرجع فایل و خ�
 #. {ph1}: <code>notes.csv</code>
 #. {ph2}: <code>id</code>
 #. {ph3}: <code>title</code>
-#: website/public/first-investigation/index.html:329
+#: website/public/first-investigation/index.html:330
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -3017,12 +3017,12 @@ msgstr ""
 "دکمه یک {ph0} پیام. فرآیند اصلی یادداشت ها را به عنوان CSV فرمت می کند و می "
 "نویسد {ph1} در پوشه Downloads کاربر. ستون ها عبارتند از {ph2} و {ph3}."
 
-#: website/public/first-investigation/index.html:337
+#: website/public/first-investigation/index.html:338
 msgctxt "page:first-investigation/index.html"
 msgid "From the button to the file writer"
 msgstr "از دکمه به نویسنده فایل"
 
-#: website/public/first-investigation/index.html:366
+#: website/public/first-investigation/index.html:367
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "REA’s static analysis pairs the message with its handler. The destination is"
@@ -3031,7 +3031,7 @@ msgstr ""
 "تجزیه و تحلیل استاتیک REA پیام را با کنترل کننده آن جفت می کند. مقصد از کد "
 "خوانده می شود."
 
-#: website/public/first-investigation/index.html:382
+#: website/public/first-investigation/index.html:383
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "The file path, formatter and write call are together in this handler. Ask "
@@ -3042,18 +3042,18 @@ msgstr ""
 
 #. {ph0}: <a href="../guides/javascript/#follow" >
 #. {ph1}: </a >
-#: website/public/first-investigation/index.html:387
+#: website/public/first-investigation/index.html:388
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}See the full code trace and recorded REA result{ph1}."
 msgstr "{ph0}مشاهده کد کامل ردیابی و ثبت REA نتیجه{ph1}."
 
-#: website/public/first-investigation/index.html:394
+#: website/public/first-investigation/index.html:395
 msgctxt "page:first-investigation/index.html"
 msgid "4. Check a prediction"
 msgstr "4. پیش بینی را بررسی کنید"
 
-#: website/public/first-investigation/index.html:395
+#: website/public/first-investigation/index.html:396
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "A comma separates CSV columns. What happens when a note title itself "
@@ -3062,19 +3062,19 @@ msgstr ""
 "یک کاما ستون های CSV را جدا می کند. چه اتفاقی می افتد وقتی یک عنوان یادداشت "
 "خود شامل یک علامت یا علامت نقل قول است ؟"
 
-#: website/public/first-investigation/index.html:439
+#: website/public/first-investigation/index.html:440
 msgctxt "page:first-investigation/index.html"
 msgid "Run the check yourself"
 msgstr "خودتان چک را اجرا کنید"
 
 #. {ph0}: <code>notes-example</code>
-#: website/public/first-investigation/index.html:440
+#: website/public/first-investigation/index.html:441
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "Open a terminal in the unpacked {ph0} folder:"
 msgstr "باز کردن یک ترمینال در بسته بندی نشده {ph0} پوشه:"
 
-#: website/public/first-investigation/index.html:462
+#: website/public/first-investigation/index.html:463
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "This command uses a shell with here-document support, such as Bash or Zsh. "
@@ -3084,17 +3084,17 @@ msgstr ""
 " می کند. نماینده شما می تواند همان JavaScript را در پوسته پلتفرم شما اجرا "
 "کند."
 
-#: website/public/first-investigation/index.html:470
+#: website/public/first-investigation/index.html:471
 msgctxt "page:first-investigation/index.html"
 msgid "5. Ask another question"
 msgstr "5. سوال دیگری بپرسید"
 
-#: website/public/first-investigation/index.html:471
+#: website/public/first-investigation/index.html:472
 msgctxt "page:first-investigation/index.html"
 msgid "Try a follow-up in the same conversation:"
 msgstr "در همان مکالمه پیگیری کنید:"
 
-#: website/public/first-investigation/index.html:473
+#: website/public/first-investigation/index.html:474
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "What happens if the file can’t be written? Follow the error back to the "
@@ -3102,7 +3102,7 @@ msgid ""
 msgstr ""
 "اگه فایل نتونه نوشته بشه چی میشه ؟  خطای بازگشت به صفحه را دنبال کنید."
 
-#: website/public/first-investigation/index.html:478
+#: website/public/first-investigation/index.html:479
 msgctxt "page:first-investigation/index.html"
 msgid ""
 "Or give your agent an app of your own and ask about one button, file or "
@@ -3115,7 +3115,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:483
+#: website/public/first-investigation/index.html:484
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -3129,7 +3129,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:489
+#: website/public/first-investigation/index.html:490
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -3143,7 +3143,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/first-investigation/index.html:497
+#: website/public/first-investigation/index.html:498
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -3178,32 +3178,32 @@ msgctxt "page:first-investigation/index.html"
 msgid "Your first REA investigation"
 msgstr "اولین تحقیق REA شما"
 
-#: website/public/first-investigation/index.html:234
+#: website/public/first-investigation/index.html:235
 msgctxt "page:first-investigation/index.html"
 msgid "Copy REA installation prompt"
 msgstr "کپی REA نصب و راه اندازی prompt"
 
-#: website/public/first-investigation/index.html:256
+#: website/public/first-investigation/index.html:257
 msgctxt "page:first-investigation/index.html"
 msgid "Copy setup command"
 msgstr "دستور Copy setup"
 
-#: website/public/first-investigation/index.html:284
+#: website/public/first-investigation/index.html:285
 msgctxt "page:first-investigation/index.html"
 msgid "Copy Notes investigation prompt"
 msgstr "یادداشت های کپی تحقیقات فوری"
 
-#: website/public/first-investigation/index.html:406
+#: website/public/first-investigation/index.html:407
 msgctxt "page:first-investigation/index.html"
 msgid "Copy CSV check prompt"
 msgstr "کپی CSV چک prompt"
 
-#: website/public/first-investigation/index.html:448
+#: website/public/first-investigation/index.html:449
 msgctxt "page:first-investigation/index.html"
 msgid "Copy formatter check command"
 msgstr "دستور copy formatter check"
 
-#: website/public/first-investigation/index.html:523
+#: website/public/first-investigation/index.html:524
 msgctxt "page:first-investigation/index.html"
 msgid "Back to top"
 msgstr "بازگشت به بالا"
@@ -11575,7 +11575,7 @@ msgstr "راهنماها"
 #: website/public/blog/touhou-reconstruction/index.html:1072
 #: website/public/examples/dino-lab/index.html:467
 #: website/public/faq/index.html:565
-#: website/public/first-investigation/index.html:515
+#: website/public/first-investigation/index.html:516
 #: website/public/get-started/index.html:876
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
@@ -11596,7 +11596,7 @@ msgstr "کد منبع"
 #: website/public/blog/touhou-reconstruction/index.html:1073
 #: website/public/examples/dino-lab/index.html:468
 #: website/public/faq/index.html:566
-#: website/public/first-investigation/index.html:516
+#: website/public/first-investigation/index.html:517
 #: website/public/get-started/index.html:877
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
@@ -11617,7 +11617,7 @@ msgstr "مجوز MIT"
 #: website/public/blog/touhou-reconstruction/index.html:1074
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
-#: website/public/first-investigation/index.html:517
+#: website/public/first-investigation/index.html:518
 #: website/public/get-started/index.html:878
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
@@ -11638,7 +11638,7 @@ msgstr "به جامعه بپیوندید"
 #: website/public/blog/touhou-reconstruction/index.html:1075
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
-#: website/public/first-investigation/index.html:518
+#: website/public/first-investigation/index.html:519
 #: website/public/get-started/index.html:879
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
@@ -11659,12 +11659,12 @@ msgctxt "page:examples/dino-lab/index.html"
 msgid "REA · selected script source"
 msgstr "REA * منبع اسکریپت انتخاب شده"
 
-#: website/public/first-investigation/index.html:374
+#: website/public/first-investigation/index.html:375
 msgctxt "page:first-investigation/index.html"
 msgid "Source"
 msgstr "کد منبع"
 
-#: website/public/first-investigation/index.html:428
+#: website/public/first-investigation/index.html:429
 msgctxt "page:first-investigation/index.html"
 msgid "Expected formatter output"
 msgstr "خروجی قالب مورد انتظار"
@@ -12129,7 +12129,7 @@ msgstr ""
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/first-investigation/index.html:243
+#: website/public/first-investigation/index.html:244
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12150,7 +12150,7 @@ msgstr ""
 #. {ph5}: </span >
 #. {ph6}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph7}: </span>
-#: website/public/first-investigation/index.html:293
+#: website/public/first-investigation/index.html:294
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12237,26 +12237,6 @@ msgstr ""
 "با {ph0} و npm در دسترس ، راه اندازی را اجرا کنید ، عامل کدگذاری خود را "
 "انتخاب کنید و تغییرات پیشنهادی را بررسی کنید."
 
-#. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:202
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid "A supplied example · {ph0} and npm · Your coding agent"
-msgstr "یک مثال ارائه شده · {ph0} و npm * عامل کدگذاری شما"
-
-#. {ph0}: <span translate="no">Node.js</span>
-#. {ph1}: <a href="../get-started/">
-#. {ph2}: </a >
-#: website/public/first-investigation/index.html:221
-#, python-brace-format
-msgctxt "page:first-investigation/index.html"
-msgid ""
-"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
-"and npm; the {ph1}setup guide lists supported versions{ph2}."
-msgstr ""
-"از یک عامل کدگذاری مانند Claude Code, Codex یا Cursor. شما نیاز دارید {ph0} "
-"و npm; {ph1}راهنمای راه اندازی لیست نسخه های پشتیبانی شده{ph2}."
-
 #. {ph0}: <span class="flow-label" >
 #. {ph1}: <span translate="no">renderer.js</span>
 #. {ph2}: </span >
@@ -12265,7 +12245,7 @@ msgstr ""
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>notes.exportCsv()</code>
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:339
+#: website/public/first-investigation/index.html:340
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0}Page · {ph1}{ph2}{ph3}Export notes{ph4}{ph5}Calls {ph6}.{ph7}"
@@ -12280,7 +12260,7 @@ msgstr ""
 #. {ph5}: </span >
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: </span >
-#: website/public/first-investigation/index.html:347
+#: website/public/first-investigation/index.html:348
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12299,7 +12279,7 @@ msgstr ""
 #. {ph6}: <span class="flow-note" >
 #. {ph7}: <code>csv.js</code>
 #. {ph8}: </span >
-#: website/public/first-investigation/index.html:355
+#: website/public/first-investigation/index.html:356
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12310,7 +12290,7 @@ msgstr ""
 " {ph7} و فایل را می نویسد.{ph8}"
 
 #. {ph0}: <span translate="no">main.js</span>
-#: website/public/first-investigation/index.html:373
+#: website/public/first-investigation/index.html:374
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · lines 8–12"
@@ -12325,7 +12305,7 @@ msgstr "{ph0} * خطوط 8-12"
 #. {ph6}: </span >
 #. {ph7}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph8}: </span>
-#: website/public/first-investigation/index.html:415
+#: website/public/first-investigation/index.html:416
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12338,7 +12318,7 @@ msgstr ""
 "نشان دهید.{ph6}{ph7}{ph8}"
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:433
+#: website/public/first-investigation/index.html:434
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid ""
@@ -12349,7 +12329,7 @@ msgstr ""
 "شود. این قالب را مستقیما با {ph0}."
 
 #. {ph0}: <span translate="no">Node.js</span>
-#: website/public/first-investigation/index.html:446
+#: website/public/first-investigation/index.html:447
 #, python-brace-format
 msgctxt "page:first-investigation/index.html"
 msgid "{ph0} · CSV formatter"
@@ -13924,6 +13904,52 @@ msgstr ""
 "مثال را دانلود کنید و آن را باز کنید. آرشیو شامل کامل {ph0} پوشه. تجزیه و "
 "تحلیل آن با {ph1} و npm; Electron برای این مثال لازم نیست. در Linux، تحلیل "
 "JavaScript به {ph3} سازگار با {ph2} نیز نیاز دارد."
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <a href="../get-started/">
+#. {ph2}: </a >
+#. {ph3}: <code>procps</code>
+#. {ph4}: <code>ps</code>
+#: website/public/first-investigation/index.html:221
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid ""
+"Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+"and npm; the {ph1}setup guide lists supported versions{ph2}. On Linux, "
+"JavaScript analysis also requires {ph3}-compatible {ph4}."
+msgstr ""
+"از یک عامل کدگذاری مانند Claude Code, Codex یا Cursor. شما نیاز دارید {ph0} "
+"و npm; {ph1}راهنمای راه اندازی لیست نسخه های پشتیبانی شده{ph2}. در Linux، "
+"تحلیل JavaScript به {ph4} سازگار با {ph3} نیز نیاز دارد."
+
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <code>procps</code>
+#: website/public/first-investigation/index.html:202
+#, python-brace-format
+msgctxt "page:first-investigation/index.html"
+msgid "A supplied example · {ph0} and npm · {ph1} · Your coding agent"
+msgstr "یک مثال ارائه شده · {ph0} و npm * عامل کدگذاری شما · {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "A supplied example · {ph0} and npm · {ph1}-compatible {ph2} on Linux · Your "
+#~ "coding agent"
+#~ msgstr ""
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid "A supplied example · {ph0} and npm · Your coding agent"
+#~ msgstr "یک مثال ارائه شده · {ph0} و npm * عامل کدگذاری شما"
+
+#, python-brace-format
+#~ msgctxt "page:first-investigation/index.html"
+#~ msgid ""
+#~ "Use a coding agent such as Claude Code, Codex or Cursor. You’ll need {ph0} "
+#~ "and npm; the {ph1}setup guide lists supported versions{ph2}."
+#~ msgstr ""
+#~ "از یک عامل کدگذاری مانند Claude Code, Codex یا Cursor. شما نیاز دارید {ph0} "
+#~ "و npm; {ph1}راهنمای راه اندازی لیست نسخه های پشتیبانی شده{ph2}."
 
 #, python-brace-format
 #~ msgctxt "page:get-started/index.html"
