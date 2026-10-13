@@ -5,11 +5,14 @@ import { TextDecoder } from "node:util";
 
 import type { AnalysisExecution } from "../../application/AnalysisProvider.js";
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
+import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
+import type { ArtifactResourceScope } from "../../artifacts/ArtifactResourceScope.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
 import {
   AnalysisCapabilityUnavailableError,
   AnalysisCancelledError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 import type { JavaScriptDeobfuscationInput } from "../../domain/javascript/javascriptDeobfuscation.js";
@@ -33,6 +36,8 @@ const OPERATION = "deobfuscate_javascript_source";
 
 export interface JsRedoxEngine extends JsRedoxEngineIdentity {
   readonly limiter: string;
+  readonly limiterExecutable: Buffer;
+  readonly limiterSha256: string;
   readonly executable: Buffer;
 }
 
@@ -56,6 +61,7 @@ export const executeJsRedox = async (input: {
   readonly source: StableSource;
   readonly runtimePath: string;
   readonly tree: SafeOutputTree;
+  readonly resourceScope?: ArtifactResourceScope;
   readonly run: (
     request: JsRedoxRunRequest,
   ) => Promise<ProviderProcessSnapshot>;
@@ -127,13 +133,30 @@ export const executeJsRedox = async (input: {
     outputPath,
     JS_REDOX_LIMITS.outputBytes,
     input.signal,
+    undefined,
+    input.resourceScope,
   );
   assertUtf8JavaScript(output.bytes);
-  const reportFile = await readStableArtifact(
-    reportPath,
-    JS_REDOX_LIMITS.reportBytes,
-    input.signal,
-  );
+  let reportFile: StableSource;
+  try {
+    reportFile = await readStableArtifact(
+      reportPath,
+      JS_REDOX_LIMITS.reportBytes,
+      input.signal,
+      undefined,
+      input.resourceScope,
+    );
+  } catch (cause: unknown) {
+    if (cause instanceof ArtifactReaderFailure && cause.reason === "limit")
+      throw new AnalysisResourceConstraintError(
+        OPERATION,
+        "capacity",
+        "js-redox proof report exceeded its configured size ceiling.",
+        { report_bytes_ceiling: JS_REDOX_LIMITS.reportBytes },
+        { cause },
+      );
+    throw cause;
+  }
   const report = parseJsRedoxReport(reportFile.bytes);
   validateJsRedoxReport(report, {
     inputSha256: input.source.sha256,
@@ -146,6 +169,7 @@ export const executeJsRedox = async (input: {
     input.source.sha256,
     input.engine,
     input.signal,
+    input.resourceScope,
   );
   return publishJsRedox({
     sourcePath: input.request.path,
@@ -180,6 +204,7 @@ const snapshotEngine = async (
     readonly runtimePath: string;
     readonly engine: JsRedoxEngine;
     readonly signal?: AbortSignal;
+    readonly resourceScope?: ArtifactResourceScope;
   },
   phase: "version" | "transform",
 ): Promise<string> => {
@@ -210,6 +235,8 @@ const snapshotEngine = async (
     enginePath,
     JS_REDOX_LIMITS.executableBytes,
     input.signal,
+    undefined,
+    input.resourceScope,
   );
   if (
     snapshot.sha256 !== input.engine.sha256 ||
@@ -238,6 +265,7 @@ const assertInputsUnchanged = async (
   sourceSha256: string,
   engine: JsRedoxEngine,
   signal?: AbortSignal,
+  resourceScope?: ArtifactResourceScope,
 ): Promise<void> => {
   if ((await realpath(engine.configuredCommand)) !== engine.command)
     throw new AnalysisOutputError(
@@ -248,11 +276,15 @@ const assertInputsUnchanged = async (
     sourcePath,
     JS_REDOX_LIMITS.inputBytes,
     signal,
+    undefined,
+    resourceScope,
   );
   const currentEngine = await readStableArtifact(
     engine.command,
     JS_REDOX_LIMITS.executableBytes,
     signal,
+    undefined,
+    resourceScope,
   );
   if (currentSource.sha256 !== sourceSha256)
     throw new AnalysisOutputError(

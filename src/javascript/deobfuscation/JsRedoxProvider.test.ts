@@ -11,6 +11,7 @@ import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
 import { JS_REDOX_LIMITS } from "./JsRedoxRelease.js";
 import { javascriptDeobfuscationResultSchema } from "../../domain/javascript/javascriptDeobfuscation.js";
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
+import { AnalysisResourceConstraintError } from "../../domain/analysisErrorCore.js";
 
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
   "publishes source, proof report and safe rewritten JavaScript through the owned-process boundary",
@@ -177,7 +178,74 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
       output_directory: fixture.output,
     });
     if (!response.ok) throw response.error;
-    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(rollback).not.toHaveBeenCalled();
+    expect(response.value.limitations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "Output was published, but provider cleanup remains incomplete",
+        ),
+      ]),
+    );
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "snapshots the admitted resource limiter before launching it",
+  async () => {
+    const root = await createTestTempDirectory("rea-redox-limiter-");
+    const limiter = join(root, "prlimit");
+    await writeFile(limiter, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const fixture = await deobfuscationFixture(
+      "replace-limiter-before-launch",
+      undefined,
+      { REA_JAVASCRIPT_PRLIMIT_COMMAND: limiter },
+    );
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (!response.ok) throw response.error;
+    expect(await readFile(limiter, "utf8")).toBe("replacement executable");
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "creates its private runtime beneath the selected TMPDIR",
+  async () => {
+    const selectedTemp = await createTestTempDirectory(
+      "rea-redox-selected-tmp-",
+    );
+    const fixture = await deobfuscationFixture("normal", undefined, {
+      TMPDIR: selectedTemp,
+    });
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (!response.ok) throw response.error;
+    expect(fixture.launches[0]?.cwd).toContain(selectedTemp);
+    await assertDeobfuscationCleanup(fixture.launches);
+  },
+);
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "classifies the proof report byte ceiling as a capacity constraint",
+  async () => {
+    const fixture = await deobfuscationFixture("report-overflow");
+    onTestFinished(async () => fixture.provider.close?.());
+    const response = await fixture.service.deobfuscate({
+      path: fixture.path,
+      output_directory: fixture.output,
+    });
+    if (response.ok) throw new Error("expected report capacity failure");
+    expect(response.error).toBeInstanceOf(AnalysisResourceConstraintError);
+    expect(response.error.reportedLimits).toMatchObject({
+      report_bytes_ceiling: JS_REDOX_LIMITS.reportBytes,
+    });
     await assertDeobfuscationCleanup(fixture.launches);
   },
 );

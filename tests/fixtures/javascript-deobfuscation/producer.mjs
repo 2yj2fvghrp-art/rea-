@@ -66,6 +66,7 @@ if (args.includes("--version")) {
       "unsafe-semantics": { runtime_semantics_preserved_by_design: false },
     }[mode] ?? {},
   );
+  if (mode === "report-overflow") report.padding = "x".repeat(9 * 1024 * 1024);
   if (mode === "large-diagnostics")
     process.stdout.write("x".repeat(6 * 1024 * 1024));
   if (mode === "engine-retarget") {

@@ -21,6 +21,9 @@ export const deobfuscationFixture = async (
   await writeFile(path, source);
   const command = join(root, "fixture-js-redox");
   await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const configuredLimiter =
+    environment.REA_JAVASCRIPT_PRLIMIT_COMMAND ?? "/usr/bin/prlimit";
+  const limiterBytes = await readFile(configuredLimiter);
   const launches: { cwd: string | undefined; pid: number | undefined }[] = [];
   const engineSnapshots: { path: string; bytes: Buffer }[] = [];
   const provider = createJavaScriptDeobfuscationProvider(
@@ -30,9 +33,10 @@ export const deobfuscationFixture = async (
       const enginePath = options.arguments[separator + 1];
       if (enginePath === undefined)
         throw new Error("js-redox fixture launch omitted engine path");
-      expect(options.command).toBe(
-        environment.REA_JAVASCRIPT_PRLIMIT_COMMAND ?? "/usr/bin/prlimit",
-      );
+      if (mode === "replace-limiter-before-launch")
+        await writeFile(configuredLimiter, "replacement executable");
+      expect(options.command).toBe(join(options.cwd!, "prlimit"));
+      expect(await readFile(options.command)).toEqual(limiterBytes);
       const limits = await readLinuxResourceLimits({
         address_space_bytes: JS_REDOX_LIMITS.addressSpaceBytes,
         file_bytes: JS_REDOX_LIMITS.outputBytes,

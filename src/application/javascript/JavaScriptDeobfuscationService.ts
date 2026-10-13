@@ -77,7 +77,8 @@ export class JavaScriptDeobfuscationService {
       (result.data.status === "unchanged") !==
         (result.data.source.sha256 === result.data.output.sha256) ||
       execution.value.provider.id !== result.data.engine.id ||
-      execution.value.provider.version !== result.data.engine.version
+      execution.value.provider.version !== result.data.engine.version ||
+      execution.value.subject.format !== "javascript"
     )
       return err(
         new AnalysisOutputError(

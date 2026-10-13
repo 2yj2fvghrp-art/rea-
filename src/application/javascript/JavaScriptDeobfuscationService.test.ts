@@ -15,7 +15,8 @@ const provider = {
 const result = (): JavaScriptDeobfuscationResult => ({
   source: { ...file, published_copy: file },
   engine: {
-    ...provider,
+    id: provider.id,
+    version: provider.version,
     executable: file,
     audited_source_revision: "revision",
     executed_source_revision: null,
@@ -125,10 +126,32 @@ describe("JavaScript deobfuscation workflow", () => {
     ).toEqual(err(failure));
   });
 
+  it("accepts a schema-valid result bound to JavaScript Evidence", async () => {
+    const service = new JavaScriptDeobfuscationService({
+      deobfuscate: async () =>
+        ok(
+          createAnalysisExecution(result(), provider, {
+            subject: {
+              path: file.path,
+              sha256: file.sha256,
+              format: "javascript",
+            },
+          }),
+        ),
+    });
+    const response = await service.deobfuscate({
+      path: file.path,
+      output_directory: "/tmp/out",
+    });
+    if (!response.ok) throw new Error("expected valid deobfuscation Evidence");
+    expect(response.value.subject.format).toBe("javascript");
+  });
+
   it.each([
     "invalid-result",
     "missing-subject",
     "subject-mismatch",
+    "subject-format-mismatch",
     "engine-mismatch",
     "proof-output-mismatch",
   ])("rejects %s returned across the provider boundary", async (mode) => {
@@ -156,7 +179,10 @@ describe("JavaScript deobfuscation workflow", () => {
                   subject: {
                     path: mode === "subject-mismatch" ? "/wrong.js" : file.path,
                     sha256: file.sha256,
-                    format: "javascript" as const,
+                    format:
+                      mode === "subject-format-mismatch"
+                        ? ("pe" as const)
+                        : ("javascript" as const),
                   },
                 },
           ),
