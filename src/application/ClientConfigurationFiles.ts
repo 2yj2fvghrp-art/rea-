@@ -132,7 +132,13 @@ export const readClientConfigurationFiles = async (
         platform: options.platform ?? process.platform,
       },
     );
-    if (!document.ok) return document;
+    if (!document.ok)
+      return err({
+        ...document.error,
+        ...(projectDirectory === undefined
+          ? {}
+          : { project_directory: projectDirectory }),
+      });
     if (document.value !== undefined) {
       const selected = document.value;
       const environment = clientRegistrationEnvironment(selected);

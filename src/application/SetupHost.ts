@@ -34,9 +34,11 @@ import {
 } from "./SetupSkill.js";
 import {
   clientConfigurationAligned,
+  ClientConfigurationCleanupRollbackFailure,
   configureClientConfiguration,
   inspectClientConfiguration,
 } from "./SetupClientConfiguration.js";
+import { failedConfigurationMessage } from "./SetupClients.js";
 import { setupInstallFailure } from "./SetupInstallFailure.js";
 import {
   RegularFileCleanupFailure,
@@ -299,8 +301,12 @@ const runClientConfigurationOperation = async <Value>(
           cleanup.outcome.kind === "failed"
             ? cleanup.outcome.cause
             : cause.cleanupCause;
+        const rollbackMessage =
+          cause instanceof ClientConfigurationCleanupRollbackFailure
+            ? ` ${failedConfigurationMessage(cause.configurationFailure)}`
+            : "";
         throw configurationCleanupError(
-          `Could not safely access client configuration at ${cause.path}: ${errorMessage(primary)}`,
+          `Could not safely access client configuration at ${cause.path}: ${errorMessage(primary)}.${rollbackMessage}`,
           cause,
           cleanup.cleanup,
         );

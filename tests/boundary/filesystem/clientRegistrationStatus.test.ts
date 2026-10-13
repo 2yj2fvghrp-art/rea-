@@ -481,7 +481,13 @@ it.each([null, [], "invalid"])(
         environment: {},
         workspaceDirectory,
       }),
-    ).toEqual([expect.objectContaining({ state: "invalid", command: [] })]);
+    ).toEqual([
+      expect.objectContaining({
+        state: "invalid",
+        command: [],
+        project_directory: workspaceDirectory,
+      }),
+    ]);
   },
 );
 
@@ -851,4 +857,30 @@ describe("Node-wrapped registration policy", () => {
       ]);
     },
   );
+});
+
+it("retains the resolved project on malformed project policy without guessing registration scope", async () => {
+  const home = await createTestTempDirectory(
+    "rea-claude-invalid-policy-project-",
+  );
+  const workspaceDirectory = join(home, "project");
+  await mkdir(workspaceDirectory, { recursive: true });
+  await writeFile(
+    join(home, ".claude.json"),
+    JSON.stringify({
+      projects: { [workspaceDirectory]: { disabledMcpServers: null } },
+    }),
+  );
+  const statuses = await readClientRegistrationStatuses(home, "/current/rea", {
+    platform: "linux",
+    environment: {},
+    workspaceDirectory,
+  });
+  expect(statuses).toEqual([
+    expect.objectContaining({
+      state: "invalid",
+      project_directory: workspaceDirectory,
+    }),
+  ]);
+  expect(statuses[0]).not.toHaveProperty("registration_scope");
 });
