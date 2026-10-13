@@ -186,6 +186,23 @@ describe("curl installer scenarios", { timeout: 20_000 }, () => {
   });
 });
 
+describe("installer installed version identity", { timeout: 20_000 }, () => {
+  it.each(["", "   "])(
+    "reports an installed command without a version as unreadable: %j",
+    async (reported) => {
+      const fixture = await createFixture();
+      await expect(
+        runInstaller(fixture, ["--version", "0.3.0"], {
+          FAKE_REA_VERSION: reported,
+        }),
+      ).rejects.toMatchObject({
+        stderr:
+          "REA installation failed: the installed REA version could not be read. Reinstall the requested version, then retry.\n",
+      });
+    },
+  );
+});
+
 describe("installer TTY fallback", { timeout: 20_000 }, () => {
   it("skips automatic setup when stderr is redirected", async () => {
     const fixture = await createFixture();
@@ -393,6 +410,7 @@ describe("native macOS installer", { timeout: 20_000 }, () => {
 
 describe("installer semantic version parsing", { timeout: 20_000 }, () => {
   it.each([
+    "",
     "1.2.3-01",
     "1.2.3-$(printf unexpected)",
     '1.2.3-"; printf unexpected; #',
@@ -434,6 +452,14 @@ describe("installer semantic version parsing", { timeout: 20_000 }, () => {
     await expect(readFile(fixture.npmLog, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("resolves the latest release when REA_VERSION is empty", async () => {
+    const fixture = await createFixture();
+    const result = await runInstaller(fixture, ["--dry-run"], {
+      REA_VERSION: "",
+    });
+    expect(result.stdout).toContain("Version: 0.3.0");
   });
 
   it("accepts a valid prerelease version without build metadata", async () => {
@@ -559,7 +585,7 @@ if [ -n "\${FAKE_CURL_BODY:-}" ]; then printf '%s' "$FAKE_CURL_BODY"; else print
       `#!/bin/sh
 printf '%s\n' "$*" >> "$FAKE_REA_LOG"
 [ "\${FAKE_REA_VERSION_FAIL:-}" = "1" ] && exit 1
-[ "$1" = "--version" ] && printf '%s\n' "\${FAKE_REA_VERSION:-0.3.0}"
+[ "$1" = "--version" ] && printf '%s\n' "\${FAKE_REA_VERSION-0.3.0}"
 exit 0
 `,
     ),
