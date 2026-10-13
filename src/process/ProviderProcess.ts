@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
+import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.js";
 import { WindowsOwnedProcess } from "../windows/WindowsOwnedProcess.js";
 
 import type {
@@ -189,7 +190,11 @@ export const spawnOwnedProviderProcess = async (
   if (sweepTokenOwnedProcesses) {
     const capture = systemProcessOwnershipHost.captureBaseline;
     if (capture === undefined)
-      throw new Error("Process ownership baseline is unavailable on this host");
+      throw new AnalysisCapabilityUnavailableError(
+        "process",
+        "spawn_owned_provider",
+        `Exact run-token process inspection is unavailable on ${platform}. Run this inspection on Linux with procps-compatible ps, macOS, or Windows; this host cannot safely supervise these provider commands.`,
+      );
     captureBaseline = await capture(options.signal);
     options.signal?.throwIfAborted();
   }

@@ -47,7 +47,6 @@ export const registerReverseEngineeringCommands = (
   logger: Logger,
   environment: Readonly<NodeJS.ProcessEnv>,
 ): void => {
-  const service = createReverseEngineeringService(environment);
   cli.command(CLI_COMMANDS.inspectWithObjdump, {
     description:
       "Inspect a local artifact with GNU objdump and retain its raw output as Evidence",
@@ -80,6 +79,7 @@ export const registerReverseEngineeringCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.inspectWithObjdump, async () => {
+          const service = createReverseEngineeringService(environment);
           const result = await executeWithCleanup(service, () =>
             service.inspectWithObjdump(
               {
@@ -105,6 +105,7 @@ export const registerReverseEngineeringCommands = (
     run: ({ args }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.executeRizinCommand, async () => {
+          const service = createReverseEngineeringService(environment);
           const result = await executeWithCleanup(service, () =>
             service.executeRizinCommand(args, { signal }),
           );

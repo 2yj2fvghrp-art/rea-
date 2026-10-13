@@ -12,8 +12,8 @@ import {
   AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
-import type {
-  AnalysisCleanupObservation,
+import {
+  type AnalysisCleanupObservation,
   AnalysisError,
 } from "../../domain/analysisErrorBase.js";
 import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
@@ -315,6 +315,7 @@ export class ReverseEngineeringService {
       stdoutInvalidUtf8 = output.stdoutInvalidUtf8 === true;
       stderrInvalidUtf8 = output.stderrInvalidUtf8 === true;
     } catch (cause) {
+      if (cause instanceof AnalysisError) return err(cause);
       cleanupOwner =
         cause instanceof OwnedOutputFailure ? cause.cleanupOwner : undefined;
       if (

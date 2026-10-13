@@ -123,7 +123,7 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
   expect(events).toEqual(["admit", "invalidate", "dispatch", "rebind"]);
 });
 
-it.each(["success", "timeout"])(
+it.skipIf(process.platform === "win32").each(["success", "timeout"])(
   "retains %s output and leaves the session unbound when a symlink rebind fails",
   async (outcome) => {
     const [target] = await createBinarySessionTargets();
