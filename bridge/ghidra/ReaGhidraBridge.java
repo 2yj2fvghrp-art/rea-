@@ -5,9 +5,11 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.Channels;
@@ -297,7 +299,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     Files.move(pendingPath, endpointPath);
                 }
             }
-            acceptClient(server, descriptor);
+            acceptAuthenticatedLoopbackClient(server, descriptor);
         }
         finally {
             Files.deleteIfExists(pendingPath);
@@ -307,6 +309,64 @@ public final class ReaGhidraBridge extends HeadlessScript {
 
     private static boolean isWindowsHost() {
         return System.getProperty("os.name", "").startsWith("Windows");
+    }
+
+    // Startup sends a small ping. Bound unauthenticated input independently of
+    // the larger, authenticated analysis requests supported by serveClient.
+    private static String readLoopbackHandshake(
+            SocketChannel client, int maxBytes, long timeoutMillis) throws IOException {
+        long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
+        InputStream input = client.socket().getInputStream();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                throw new SocketTimeoutException("Bridge authentication timed out");
+            }
+            client.socket().setSoTimeout((int) Math.max(1,
+                Math.min(Integer.MAX_VALUE, (remaining + 999_999L) / 1_000_000L)));
+            int value = input.read();
+            if (value == -1) {
+                return null;
+            }
+            if (value == '\n') {
+                return bytes.toString(StandardCharsets.UTF_8);
+            }
+            if (bytes.size() == maxBytes) {
+                throw new IOException("Bridge authentication frame is too large");
+            }
+            bytes.write(value);
+        }
+    }
+
+    private void acceptAuthenticatedLoopbackClient(
+            ServerSocketChannel server, SessionDescriptor descriptor) throws Exception {
+        while (true) {
+            try (SocketChannel client = server.accept()) {
+                Request first;
+                try {
+                    String line = readLoopbackHandshake(client, 64 * 1024, 1_000);
+                    if (line == null) {
+                        continue;
+                    }
+                    first = parseRequest(line, descriptor.token);
+                }
+                catch (IOException | RuntimeException rejected) {
+                    // An unauthenticated peer must not consume the one legitimate
+                    // bridge session. The parent's startup deadline still owns
+                    // overall lifetime and process cleanup.
+                    continue;
+                }
+                client.socket().setSoTimeout(0);
+                try (BufferedReader reader = new BufferedReader(
+                         Channels.newReader(client, StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(
+                         Channels.newWriter(client, StandardCharsets.UTF_8))) {
+                    serveClient(descriptor, reader, writer, first);
+                }
+                return;
+            }
+        }
     }
 
     private void acceptClient(
@@ -319,26 +379,30 @@ public final class ReaGhidraBridge extends HeadlessScript {
              BufferedWriter writer = new BufferedWriter(
                  Channels.newWriter(client, StandardCharsets.UTF_8)
              )) {
-            serveClient(descriptor, reader, writer);
+            serveClient(descriptor, reader, writer, null);
         }
     }
 
     private void serveClient(
             SessionDescriptor descriptor,
             BufferedReader reader,
-            BufferedWriter writer) throws Exception {
+            BufferedWriter writer,
+            Request first) throws Exception {
         while (true) {
-            String line = reader.readLine();
-            if (line == null) {
-                return;
-            }
-            Request request;
-            try {
-                request = parseRequest(line, descriptor.token);
-            }
-            catch (RuntimeException exception) {
-                writeFailure(writer, 1, "invalid_request", "Bridge request is invalid");
-                return;
+            Request request = first;
+            first = null;
+            if (request == null) {
+                String line = reader.readLine();
+                if (line == null) {
+                    return;
+                }
+                try {
+                    request = parseRequest(line, descriptor.token);
+                }
+                catch (RuntimeException exception) {
+                    writeFailure(writer, 1, "invalid_request", "Bridge request is invalid");
+                    return;
+                }
             }
             try {
                 if (request.method.equals("shutdown")) {

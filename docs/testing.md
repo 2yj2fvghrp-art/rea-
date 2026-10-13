@@ -1274,3 +1274,13 @@ It requires WABT configuration and makes no host tool installation.
 Source-owned provider tests separately exercise cancellation, deadline propagation,
 malformed producer output and cleanup uncertainty; shared owned-command tests
 exercise actual subprocess timeout and cancellation.
+
+### Ghidra loopback admission regression
+
+With a JDK 21 or later, run
+`python3 tests/fixtures/ghidraHandshakeProbe.py /path/to/java`.
+This isolated TCP fixture compiles the production preauthentication read and
+accept methods, with request parsing and dispatch stubbed. It checks rejected
+clients, EOF, the byte ceiling, idle and slow-trickle deadlines, acceptance of a
+later legitimate client, and pipelined authenticated requests larger than the
+handshake ceiling. It does not replace the real Windows Ghidra provider lane.

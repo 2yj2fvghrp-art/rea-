@@ -127,7 +127,7 @@ const harness = (
       return sequence;
     },
   });
-  return { collector, events };
+  return { collector, events, secrets };
 };
 
 const bodyText = (event: BrowserScenarioEvent) => {
@@ -532,4 +532,86 @@ it("redacts declared encodings in body media metadata", async () => {
       }),
     }),
   );
+});
+
+it("bounds admitted transactions before invoking content producers", async () => {
+  const { collector, events } = harness();
+  const admitted: RequestFixture[] = [];
+  for (let index = 0; index < 1024; index += 1) {
+    const request = new RequestFixture(`body-${index}`);
+    admitted.push(request);
+    collector.request(request);
+    collector.request(request); // repeated producer delivery cannot add jobs
+  }
+  const rejected = new RequestFixture("rejected");
+  const response = new ResponseFixture(rejected, "rejected");
+  collector.request(rejected);
+  collector.response(response);
+  collector.finished(rejected);
+  await collector.finish();
+  expect(admitted[0]?.bodyReads).toBe(1);
+  expect(
+    admitted
+      .slice(16)
+      .every((request) => request.bodyReads === 0 && request.headerReads === 0),
+  ).toBe(true);
+  expect(rejected.bodyReads).toBe(0);
+  expect(rejected.headerReads).toBe(0);
+  expect(response.bodyReads).toBe(0);
+  expect(response.headerReads).toBe(0);
+  expect(
+    events.filter((event) => event.kind === "network-content"),
+  ).toHaveLength(1024);
+  expect(collector.limitations().join(" ")).toContain("resource budget");
+});
+
+it("omits oversized body copies and retains ordinary content", async () => {
+  const { collector, events } = harness();
+  collector.request(new RequestFixture("x".repeat(64 * 1024 + 1)));
+  collector.request(new RequestFixture("ordinary"));
+  await collector.finish();
+  const content = events.filter((event) => event.kind === "network-content");
+  expect(content[0]?.body).toMatchObject({
+    state: "unavailable",
+    message: expect.stringContaining("budget"),
+  });
+  expect(bodyText(content[1]!)).toBe("ordinary");
+});
+
+it("reserves redaction expansion before creating replacement copies", async () => {
+  const { collector, events, secrets } = harness(selection, undefined, "a");
+  const redact = vi.spyOn(secrets, "redactBytes");
+  collector.request(new RequestFixture("a".repeat(64 * 1024)));
+  await collector.finish();
+  expect(
+    events.find((event) => event.kind === "network-content")?.body,
+  ).toMatchObject({
+    state: "unavailable",
+    message: expect.stringContaining("redaction"),
+  });
+  // Ordinary header values can still pass through the byte redactor.
+  expect(redact.mock.calls.every(([value]) => value.length < 64 * 1024)).toBe(
+    true,
+  );
+});
+
+it("does not read content when phase metadata was omitted", async () => {
+  const { secrets } = harness();
+  const collector = new PlaywrightScenarioNetwork({
+    selection,
+    secrets,
+    emit: () => 0,
+  });
+  const request = new RequestFixture("ordinary");
+  const response = new ResponseFixture(request, "ordinary");
+  collector.request(request);
+  collector.response(response);
+  collector.finished(request);
+  await collector.finish();
+  expect(
+    request.bodyReads +
+      request.headerReads +
+      response.bodyReads +
+      response.headerReads,
+  ).toBe(0);
 });

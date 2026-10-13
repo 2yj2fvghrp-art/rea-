@@ -289,6 +289,28 @@ its source event's step and excludes the sequence reference from normalization.
 Playwright scenario capture does not supply initiator stacks; passive CDP
 observation retains its own initiator evidence.
 
+Scenario event retention uses a 16 MiB conservative allocation budget, at most
+10,000 events, and at most 4 MiB per event. Accounting includes UTF-16 storage
+and worst-case JSON escaping before schema cloning. Events that exceed these
+limits are omitted whole; `events.dropped` and capture limitations report the
+missing coverage. Descendant listener ownership is limited to 2,048 live owners.
+Network collection admits at most 1,024 distinct transactions before scheduling
+content reads; further transactions are omitted with a capture limitation.
+Content is scheduled at most once per transaction phase, with at most 16
+concurrent bounded content jobs; excess jobs report unavailable content. A
+read timeout settles the capture job but does not cancel the underlying
+Playwright producer operation. Raw string
+admission also reserves secret-replacement expansion and per-match allocation
+before redaction. Body buffers larger
+than 64 KiB are reported unavailable before redaction and base64 copies.
+
+These are retention and scheduling limits. Playwright still materializes body
+buffers and incoming event payloads before the adapter can measure them. The
+body size check does not bound producer acquisition, decoded response size, or
+browser/Playwright process memory. Captures of untrusted pages still need a
+separately enforced process memory boundary for protection against a single
+oversized producer payload.
+
 ## Scenario comparison
 
 `compare_web_captures` and `compare-web-captures` also accept two complete
