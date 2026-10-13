@@ -41,14 +41,20 @@ const codexRegistrationSchema = registrationSchema.extend({
   disabled_tools: z.array(z.string()).optional(),
 });
 
-/** Parsed registrations can use Codex's per-tool object map instead of arrays. */
-export type ParsedClientRegistration =
-  | z.output<typeof registrationSchema>
-  | z.output<typeof codexRegistrationSchema>;
-
 const zcodeRegistrationSchema = registrationSchema.extend({
   enable: z.boolean().optional(),
 });
+const kimiRegistrationSchema = registrationSchema.extend({
+  startupTimeoutMs: z.number().positive().optional(),
+  toolTimeoutMs: z.number().positive().optional(),
+  enabledTools: z.array(z.string()).optional(),
+});
+
+/** Parsed registrations can use client-specific settings and tool shapes. */
+export type ParsedClientRegistration =
+  | z.output<typeof registrationSchema>
+  | z.output<typeof codexRegistrationSchema>
+  | z.output<typeof kimiRegistrationSchema>;
 
 /** Client-specific parsing is shared by retention and registration diagnostics. */
 export const registrationSchemaFor = (dialect: ClientRegistrationDialect) =>
@@ -56,7 +62,9 @@ export const registrationSchemaFor = (dialect: ClientRegistrationDialect) =>
     ? codexRegistrationSchema
     : dialect === "zcode"
       ? zcodeRegistrationSchema
-      : registrationSchema;
+      : dialect === "kimi"
+        ? kimiRegistrationSchema
+        : registrationSchema;
 
 /** Whether a retained field satisfies the selected client's known contract. */
 export const registrationFieldAccepted = (

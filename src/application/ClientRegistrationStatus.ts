@@ -222,7 +222,7 @@ export const readClientRegistrationInspections = async (
 };
 
 const registrationActivation = (
-  registration: z.output<typeof registrationSchema>,
+  registration: ParsedClientRegistration,
   client: SetupClient,
   parsed: ClientConfigurationDocument,
 ): "enabled" | "disabled" =>
@@ -235,7 +235,7 @@ const registrationActivation = (
     : "enabled";
 
 const registrationAligned = (
-  registration: z.output<typeof registrationSchema>,
+  registration: ParsedClientRegistration,
   client: SetupClient,
   currentCommandPath: string,
   platform: NodeJS.Platform,
@@ -249,19 +249,27 @@ const registrationAligned = (
       MCP_STARTUP_POLICY.codexStartupTimeoutSeconds
   )
     return false;
+  if (
+    client.name === "kimi" &&
+    (registration.startupTimeoutMs !==
+      MCP_STARTUP_POLICY.kimiStartupTimeoutMs ||
+      registration.toolTimeoutMs !== MCP_STARTUP_POLICY.kimiToolTimeoutMs)
+  )
+    return false;
+  if (
+    (client.format === "kimi" ||
+      client.format === "omp" ||
+      client.format === "pi") &&
+    registration.type !== undefined &&
+    registration.type !== "stdio"
+  )
+    return false;
   if (client.format === "vscode" && registration.type !== "stdio") return false;
   // A Harness registration only connects as the rea stdio server; another
   // server name or transport leaves the session without REA tools.
   if (
     client.format === "dsh" &&
     (registration.serverName !== "rea" || registration.transport !== "stdio")
-  )
-    return false;
-  // OMP and Pi infer stdio for a command entry without an explicit type.
-  if (
-    (client.format === "omp" || client.format === "pi") &&
-    registration.type !== undefined &&
-    registration.type !== "stdio"
   )
     return false;
   if (
@@ -325,6 +333,12 @@ const parseRegistration = (
     value,
   );
   if (
+    client.format === "kimi" &&
+    registration.transport !== undefined &&
+    registration.transport !== "stdio"
+  )
+    throw new TypeError("Expected an stdio registration");
+  if (
     (client.format === "vscode" || client.format === "copilot_cli") &&
     registration.type !== "stdio"
   )
@@ -332,7 +346,9 @@ const parseRegistration = (
   if (client.format === "commandcode" && registration.transport !== "stdio")
     throw new TypeError("Expected an stdio registration");
   if (
-    (client.format === "omp" || client.format === "pi") &&
+    (client.format === "kimi" ||
+      client.format === "omp" ||
+      client.format === "pi") &&
     registration.type !== undefined &&
     registration.type !== "stdio"
   )

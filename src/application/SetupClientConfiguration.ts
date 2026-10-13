@@ -717,9 +717,31 @@ const clientConfigurationDesired = (
   // legacy OpenCode V1 entry migrating into a V2 table keeps only its
   // environment, because its other fields belong to the V1 shape. The approval
   // plan states that exception through describeClientRegistrationRetention.
-  return retainClientRegistrationFields(
+  const previous = parsed?.servers[PRODUCT_IDENTITY.mcpServerKey];
+  if (
+    client.name === "kimi" &&
+    typeof previous === "object" &&
+    previous !== null &&
+    "enabledTools" in previous
+  )
+    registration.enabledTools = previous.enabledTools;
+  const retained = retainClientRegistrationFields(
     format,
-    parsed?.servers[PRODUCT_IDENTITY.mcpServerKey],
+    previous,
     registration,
   );
+  return {
+    ...retained,
+    ...(client.name === "codex" || client.name === "grok_build"
+      ? {
+          startup_timeout_sec: MCP_STARTUP_POLICY.codexStartupTimeoutSeconds,
+        }
+      : {}),
+    ...(client.name === "kimi"
+      ? {
+          startupTimeoutMs: MCP_STARTUP_POLICY.kimiStartupTimeoutMs,
+          toolTimeoutMs: MCP_STARTUP_POLICY.kimiToolTimeoutMs,
+        }
+      : {}),
+  };
 };
