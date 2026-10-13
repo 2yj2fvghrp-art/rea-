@@ -415,7 +415,7 @@ const expectNativeTypeSelections = async (
     [["-1"], false, false, true],
     [["0"], false, false, true],
     [["-1"], false, false, true],
-    [["NativeMode", "-1"], false, false, true],
+    [["-1", "NativeMode"], false, false, true],
   ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
@@ -456,6 +456,13 @@ const expectNativeTypeSelections = async (
   ] as const) {
     const result = await worker.analyze(source("invalid.cts", text), 100);
     if (!result.ok) throw result.error.error;
+    if (
+      text === modeSourceFiles["cts/native-value-selector.mts"] ||
+      text === modeSourceFiles["cts/native-value-export-selector.mts"]
+    )
+      expect(result.value.javascript.references).toMatchObject([
+        { resolutionMode: "compiler-dependent" },
+      ]);
     expect(
       result.value.javascript.electron.native_addon_bindings.map(
         ({ module_kind }) => module_kind,

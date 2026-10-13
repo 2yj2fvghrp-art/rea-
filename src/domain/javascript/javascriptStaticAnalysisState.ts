@@ -85,6 +85,7 @@ export interface JavaScriptReferenceInput {
   readonly node: t.Node;
   readonly kind: JavaScriptStaticReference["kind"];
   readonly specifier: string | undefined;
+  readonly resolutionMode?: JavaScriptModuleResolutionMode;
 }
 
 /** Candidate route or network endpoint literal. */

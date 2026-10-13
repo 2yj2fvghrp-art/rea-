@@ -280,6 +280,7 @@ const inspectNode = (
       node,
       kind: "static-import",
       specifier: node.source.value,
+      ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
   } else if (
     t.isExportNamedDeclaration(node) &&
@@ -290,6 +291,7 @@ const inspectNode = (
       node,
       kind: "static-import",
       specifier: node.source.value,
+      ...(resolutionMode === undefined ? {} : { resolutionMode }),
     });
   } else if (t.isImportExpression(node))
     addReference(findings, {

@@ -248,6 +248,7 @@ export const expectReviewModeEvidence = (
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
+  expectInvalidValueSelectorReferences(graph);
   expect(
     graph.nodes.flatMap(({ observations }) => observations),
   ).toContainEqual(
@@ -385,6 +386,41 @@ const expectInlineTypeEvidence = (
       .toEqual([]);
 };
 
+const expectInvalidValueSelectorReferences = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const source of [
+    "cts/native-value-selector.mts",
+    "cts/native-value-export-selector.mts",
+  ]) {
+    const references = graph.edges.filter(
+      ({ relation, evidence, properties }) =>
+        (relation === "imports" || relation === "loads") &&
+        properties.kind === "static-import" &&
+        evidence.location.available &&
+        evidence.location.value.kind === "source-range" &&
+        evidence.location.value.source === source,
+    );
+    expect.soft(references).toHaveLength(1);
+    for (const reference of references)
+      expect.soft(reference.properties).toMatchObject({
+        resolution_mode: "compiler-dependent",
+        resolved_path: null,
+        resolution_status: "unavailable",
+        conditional_resolutions: expect.arrayContaining([
+          expect.objectContaining({
+            mode: "import",
+            resolved_path: "node_modules/native-mode/import.node",
+          }),
+          expect.objectContaining({
+            mode: "require",
+            resolved_path: "node_modules/native-mode/require.node",
+          }),
+        ]),
+      });
+  }
+};
+
 const expectRecoveredTypeEvidence = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
@@ -481,7 +517,7 @@ const expectNativeTypeSelections = (
     [9, ["-1"]],
     [10, ["0"]],
     [11, ["-1"]],
-    [12, ["NativeMode", "-1"]],
+    [12, ["-1", "NativeMode"]],
   ] as const)
     expect
       .soft(graph.nodes.flatMap(({ observations }) => observations))
