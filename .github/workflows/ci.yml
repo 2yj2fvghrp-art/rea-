@@ -552,15 +552,23 @@ jobs:
           UV_THREADPOOL_SIZE: "2"
         run: npm run verify:inspector
       - run: npm run verify:package:windows
-      - name: Verify portable runtime without ambient Node or npm
+      - name: Prepare portable runtime
         timeout-minutes: 5
         run: |
           $runtime = Split-Path -Parent (Get-Command node).Source
           $portable = Join-Path $env:RUNNER_TEMP 'rea %PATH% & !NAME! 便携包'
           npm run package:portable:windows -- --node-directory "$runtime" --output-directory "$portable"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify portable runtime with Windows PowerShell 5.1
+        timeout-minutes: 5
+        run: |
+          $portable = Join-Path $env:RUNNER_TEMP 'rea %PATH% & !NAME! 便携包'
           node scripts/verify-portable-windows.mjs --directory "$portable"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify portable runtime with PowerShell 7
+        timeout-minutes: 5
+        run: |
+          $portable = Join-Path $env:RUNNER_TEMP 'rea %PATH% & !NAME! 便携包'
           node scripts/verify-portable-windows.mjs --directory "$portable" --powershell (Get-Command pwsh).Source
       - name: Verify native directory identity on Node 24
         run: >-

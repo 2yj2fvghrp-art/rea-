@@ -25,6 +25,9 @@ const { values } = parseArgs({
 if (process.platform !== "win32" || !values.directory)
   throw new Error("Use --directory <extracted portable directory> on Windows.");
 const directory = resolve(values.directory);
+const reportStage = (stage) =>
+  console.error(`[portable verification] ${stage}`);
+reportStage("inventory and SHA-256");
 const manifest = JSON.parse(
   await readFile(join(directory, "portable.json"), "utf8"),
 );
@@ -161,6 +164,7 @@ try {
     "line\nbreak",
     "tab\tvalue",
   ];
+  reportStage("PowerShell literal arguments and exit status");
   await assert.rejects(powershell(capture, capturedArgs), (cause) => {
     assert.equal(cause.code, 17);
     assert.deepEqual(JSON.parse(cause.stdout), {
@@ -170,6 +174,7 @@ try {
     assert.equal(cause.stderr, "");
     return true;
   });
+  reportStage("CLI help and offline setup/doctor");
   assert.match(
     (await batchLauncher(["--help"])).stdout,
     /analyze-javascript-application/u,
@@ -290,6 +295,7 @@ if ($LASTEXITCODE -ne 0 -or -not $piped.healthy) { throw 'Piped doctor failed' }
       { args: capturedArgs, npm: null },
     );
   }
+  reportStage("PowerShell session working directory and output capture");
   const relative = JSON.parse((await sessionPowerShell("relative")).stdout);
   assert.deepEqual(relative.normalized_result, cli.normalized_result);
   assert.deepEqual(JSON.parse((await sessionPowerShell("capture")).stdout), {
@@ -315,6 +321,7 @@ if ($LASTEXITCODE -ne 0 -or -not $piped.healthy) { throw 'Piped doctor failed' }
       name: "rea-portable-verifier",
       version: "1.0.0",
     });
+    reportStage(`MCP ${invocation.command} ${invocation.args.at(-1)}`);
     const transport = new StdioClientTransport({
       ...invocation,
       env: environment,
@@ -344,6 +351,7 @@ if ($LASTEXITCODE -ne 0 -or -not $piped.healthy) { throw 'Piped doctor failed' }
     }
   }
   assert.equal(await readFile(join(sample, "app.js"), "utf8"), source);
+  reportStage("offline uninstall and cleanup");
   const uninstalled = JSON.parse(
     (await launcher(["uninstall", "--json"])).stdout,
   );
