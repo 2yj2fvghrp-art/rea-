@@ -37,7 +37,10 @@ describe("CLI analysis selector boundaries", () => {
       });
       expect(conflicting.json).toMatchObject({
         code: "invalid_request",
-        details: { operation: "procedure_pseudo_code" },
+        details: {
+          operation: "procedure_pseudo_code",
+          issues: [{ path: ["file-offset"], reason: "invalid_value" }],
+        },
       });
     },
   );

@@ -167,7 +167,9 @@ const registerDecompileCommand = (
                     "file-offset",
                     "procedure_pseudo_code",
                   ),
-              "procedure",
+              options["file-offset"] === undefined
+                ? "procedure"
+                : "file-offset",
               "procedure_pseudo_code",
             ),
           },
