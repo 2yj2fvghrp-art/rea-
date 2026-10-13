@@ -39,10 +39,12 @@ const nativeFixture = () => {
   const loaded: string[] = [];
   const unloaded: string[] = [];
   const scripts: Script[] = [];
+  const scriptsAtResume: string[][] = [];
   const controls = {
     attach: async () => {},
     create: async () => {},
     load: async () => {},
+    afterLoad: () => {},
     discover: async () => {},
     unloadFailures: 0,
     detachFailures: 0,
@@ -87,6 +89,7 @@ const nativeFixture = () => {
           await controls.load();
           loaded.push(source);
           listener?.({ type: "send", payload: source }, null);
+          controls.afterLoad();
         },
         async unload() {
           unloaded.push(source);
@@ -116,6 +119,9 @@ const nativeFixture = () => {
       return 512;
     },
     async resume() {
+      scriptsAtResume.push(
+        created.filter((_, index) => scripts[index]?.isDestroyed === false),
+      );
       controls.resumes += 1;
     },
     async attach() {
@@ -141,7 +147,15 @@ const nativeFixture = () => {
       }
     },
   };
-  return { controls, created, loaded, unloaded, scripts, deviceManager };
+  return {
+    controls,
+    created,
+    loaded,
+    unloaded,
+    scripts,
+    scriptsAtResume,
+    deviceManager,
+  };
 };
 
 const connectedFixture = async () => {
@@ -414,3 +428,131 @@ it("retains a cancelled script whose unload fails for an explicit MCP retry", as
   expect(fixture.manager.status(id)?.scripts).toHaveLength(2);
   expect(fixture.controls.detachCalls).toBe(0);
 });
+
+it.each([0, 1])(
+  "settles cancelled native-load cleanup before a queued resume (unload failures: %i)",
+  async (unloadFailures) => {
+    const fixture = await connectedFixture();
+    const id = await fixture.start();
+    await fixture.load(id, "original");
+    const held = gate();
+    onTestFinished(held.release);
+    fixture.controls.load = held.wait;
+    fixture.controls.unloadFailures = unloadFailures;
+    const controller = new AbortController();
+    const loading = fixture.load(id, "cancelled-native", controller.signal);
+    const rejected = expect(loading).rejects.toThrow(
+      "cancel before queued resume",
+    );
+    await held.entered;
+    const resume = () =>
+      fixture.client.callTool({
+        name: "resume_frida_session",
+        arguments: { session_id: id },
+      });
+    const resuming = resume();
+    await fixture.client.ping();
+    controller.abort(new Error("cancel before queued resume"));
+    await fixture.client.ping();
+    await rejected;
+    held.release();
+    const resumed = await resuming;
+    await fixture.client.ping();
+    expect(fixture.unloaded).toEqual(["cancelled-native"]);
+    expect(fixture.scriptsAtResume).toEqual(
+      unloadFailures === 0 ? [["original"]] : [],
+    );
+    expect(fixture.controls.detachCalls).toBe(0);
+    expect(fixture.session.exportEvidenceBundle().records).toContainEqual(
+      expect.objectContaining({
+        operation: "load_frida_script",
+        normalized_result: expect.objectContaining({
+          messages: [expect.objectContaining({ payload: "cancelled-native" })],
+          script_cleanup:
+            unloadFailures === 0 ? "released" : "incomplete_or_unknown",
+        }),
+      }),
+    );
+    if (unloadFailures === 0) {
+      expect(resumed.isError).not.toBe(true);
+      expect(fixture.manager.status(id)?.scripts).toHaveLength(1);
+      return;
+    }
+    expect(resumed.isError).toBe(true);
+    expect(fixture.manager.status(id)?.state).toBe("paused");
+    expect((await resume()).isError).toBe(true);
+    const scriptId = fixture.manager.status(id)?.scripts[1]?.scriptId;
+    if (scriptId === undefined)
+      throw new Error("Cancelled script was not retained");
+    const retry = await fixture.client.callTool({
+      name: "unload_frida_script",
+      arguments: {
+        session_id: id,
+        script_id: scriptId,
+      },
+    });
+    expect(retry.isError).not.toBe(true);
+    expect((await resume()).isError).not.toBe(true);
+    expect(fixture.scriptsAtResume).toEqual([["original"]]);
+  },
+);
+
+it.each([0, 1, 2, 3, 4, 8])(
+  "keeps MCP load Evidence consistent with queued resume across settlement timing %i",
+  async (microtasks) => {
+    const fixture = await connectedFixture();
+    const id = await fixture.start();
+    await fixture.load(id, "original");
+    const held = gate();
+    onTestFinished(held.release);
+    fixture.controls.load = held.wait;
+    const controller = new AbortController();
+    fixture.controls.afterLoad = () => {
+      let remaining = microtasks;
+      const abort = () => {
+        if (remaining-- > 0) queueMicrotask(abort);
+        else controller.abort(new Error("cancel around load completion"));
+      };
+      abort();
+    };
+    const loading = fixture.load(id, "settling-native", controller.signal);
+    const observed = loading.catch(() => undefined);
+    await held.entered;
+    const resuming = fixture.client.callTool({
+      name: "resume_frida_session",
+      arguments: { session_id: id },
+    });
+    await fixture.client.ping();
+    held.release();
+    await observed;
+    expect((await resuming).isError).not.toBe(true);
+    fixture.controls.afterLoad = () => {};
+    await fixture.load(id, "barrier");
+    await fixture.client.ping();
+    const records = fixture.session
+      .exportEvidenceBundle()
+      .records.filter(
+        (record) =>
+          record.operation === "load_frida_script" &&
+          JSON.stringify(record.normalized_result).includes("settling-native"),
+      );
+    expect(records).toHaveLength(1);
+    const recorded = records[0]?.normalized_result;
+    if (
+      recorded === null ||
+      typeof recorded !== "object" ||
+      Array.isArray(recorded)
+    )
+      throw new Error("Missing script load Evidence");
+    if (recorded.script_cleanup === "released") {
+      expect(fixture.scriptsAtResume).toEqual([["original"]]);
+      expect(fixture.unloaded).toEqual(["settling-native"]);
+    } else {
+      expect(recorded.script_cleanup).toBeUndefined();
+      expect(fixture.scriptsAtResume).toEqual([
+        ["original", "settling-native"],
+      ]);
+      expect(fixture.unloaded).toEqual([]);
+    }
+  },
+);

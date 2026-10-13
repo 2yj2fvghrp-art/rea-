@@ -22,6 +22,7 @@ import type {
   FridaSessionStatus,
   StartFridaSessionInput,
 } from "../application/frida/FridaInstrumentationPort.js";
+import { FridaScriptLoadCancelledError } from "../application/frida/FridaInstrumentationPort.js";
 import type { OptionalProviderLoadFailure } from "../application/OptionalObservationProviders.js";
 import {
   AnalysisAccessDeniedError,
@@ -59,7 +60,7 @@ interface ManagedScript {
   readonly name: string;
   readonly script: Script;
   readonly onMessage: (message: FridaMessage, data: Buffer | null) => void;
-  released: boolean;
+  state: "active" | "cleanup-pending" | "released";
 }
 
 interface ManagedRemoteConnection {
@@ -420,21 +421,38 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
         name: scriptName,
         script: nativeScript,
         onMessage,
-        released: false,
+        state: "active",
       };
       managed.scripts.set(scriptId, entry);
       nativeScript.message.connect(onMessage);
       if (signal?.aborted)
         throw cancelledOperation("load_frida_script", signal);
       await nativeScript.load();
-      return ok({
+      const observation: FridaScriptObservation = {
         scriptId,
         sourceKind: source.sourceKind,
         sourcePath: source.sourceKind === "file" ? source.path : null,
         sourceSha256,
         messages: [...(managed.messagesByScript.get(scriptId) ?? [])],
         messagesTruncated: managed.messagesTruncated,
-      });
+      };
+      if (signal?.aborted) {
+        const cleanupReason = await this.#releaseScript(managed, entry);
+        return err(
+          new FridaScriptLoadCancelledError(observation, {
+            cause: signal.reason,
+            ...(cleanupReason === undefined
+              ? {}
+              : {
+                  cleanup: {
+                    reason: cleanupReason,
+                    resources: [sessionId, scriptId],
+                  },
+                }),
+          }),
+        );
+      }
+      return ok(observation);
     } catch (cause: unknown) {
       const entry = managed.scripts.get(scriptId);
       const cleanupReason =
@@ -485,6 +503,26 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
           "Only a paused process spawned by this session can be resumed.",
         ),
       );
+    const pendingScripts = [...managed.scripts.values()].filter(
+      (entry) => entry.state === "cleanup-pending" && !entry.script.isDestroyed,
+    );
+    if (pendingScripts.length > 0) {
+      const reason =
+        "Frida script cleanup is incomplete; unload the retained scripts or close the session before resuming.";
+      return err(
+        new AnalysisCapabilityUnavailableError(
+          "frida",
+          "resume_frida_session",
+          reason,
+          {
+            cleanup: {
+              reason,
+              resources: pendingScripts.map((entry) => entry.id),
+            },
+          },
+        ),
+      );
+    }
     try {
       await managed.device.resume(managed.pid);
       managed.state = "running";
@@ -544,13 +582,14 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
     parentSessionReleased = false,
   ): Promise<string | undefined> {
     if (parentSessionReleased || entry.script.isDestroyed)
-      entry.released = true;
-    if (!entry.released) {
+      entry.state = "released";
+    if (entry.state !== "released") {
+      entry.state = "cleanup-pending";
       try {
         await entry.script.unload();
-        entry.released = true;
+        entry.state = "released";
       } catch (cause: unknown) {
-        if (entry.script.isDestroyed) entry.released = true;
+        if (entry.script.isDestroyed) entry.state = "released";
         else return sanitizeError(cause, managed.remote);
       }
     }
