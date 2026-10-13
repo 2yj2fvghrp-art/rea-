@@ -112,6 +112,10 @@ try {
   assert.ok(mapping);
   const offset =
     mapping.file_offset + Number(BigInt(entry.address) - BigInt(mapping.start));
+  const reverseMapping = parseEvidence(
+    await call("address_to_file_offset", { address: entry.address }),
+  );
+  assert.equal(reverseMapping.normalized_result.file_offset, offset);
   const memory = parseEvidence(
     await call("read_bytes", { address: entry.address, length: 8 }),
   );
@@ -238,6 +242,7 @@ try {
     cli_recovery_commands: true,
     loaded_decompilation: true,
     file_offset_decompilation: true,
+    address_file_offset_round_trip: true,
     source_unchanged: true,
     runtime_cleanup: "complete",
   };
