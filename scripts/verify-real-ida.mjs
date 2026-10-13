@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertFeatureTrace } from "./lib/ida-feature-trace.mjs";
 import { requireMcpToolError } from "./lib/mcp-verifier-results.mjs";
 
 import assert from "node:assert/strict";
@@ -311,17 +312,7 @@ const mcp = async (cliDossier) => {
       });
       assert.notEqual(traced.isError, true);
       const trace = traced.structuredContent.normalized_result;
-      assert.ok(
-        trace.matches.some(
-          ({ type, address }) =>
-            type === "procedure" && address === dossier.procedure.address,
-        ),
-      );
-      assert.equal(typeof trace.truncated, "boolean");
-      for (const reference of trace.references) {
-        assert.equal(reference.target_address, dossier.procedure.address);
-        assert.equal(reference.containing_procedure.found, true);
-      }
+      assertFeatureTrace(trace, dossier.procedure);
       report.checks.push(
         "headless containing procedures, the admitted program as the document, address context, and the procedure match and references of feature tracing",
       );
