@@ -64,6 +64,9 @@ it("aborts when the re-armed timer reaches the absolute deadline", async () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(deadline.signal.aborted).toBe(true);
     expect(deadline.interruption).toBe("timeout");
+    // A terminal timeout stays terminal even if the monotonic source is
+    // observed below its deadline after the abort timer has fired.
+    now.mockReturnValue(1_039);
     expect(deadline.remainingMs()).toBe(0);
   } finally {
     deadline.dispose();
@@ -195,6 +198,9 @@ it("reports no remaining time after terminal expiry near the monotonic boundary"
     vi.advanceTimersByTime(1);
     expect(deadline.signal.aborted).toBe(true);
     expect(deadline.interruption).toBe("timeout");
+    // A terminal timeout stays terminal even if the monotonic source is
+    // observed below its deadline after the abort timer has fired.
+    now.mockReturnValue(1_039);
     expect(deadline.remainingMs()).toBe(0);
   } finally {
     deadline.dispose();
