@@ -1,4 +1,5 @@
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { ConfigurationError } from "../domain/configurationErrors.js";
@@ -9,16 +10,31 @@ import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
 import {
   REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  linuxSharedLibrariesAvailable,
   systemLinuxHopperLauncherCandidates,
 } from "../application/LinuxHopper.js";
 
 const DEFAULT_HOPPER_LAUNCHER_PATH =
   "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
 
-const executableAvailable = (path: string): boolean => {
+/**
+ * Mirror doctor discovery's launcher readiness decision so runtime
+ * configuration and `rea doctor` select the same launcher: execute access
+ * alone is not readiness. The path must be a regular file, and on Linux its
+ * shared libraries must resolve under `ldd`. Fail closed: any probe error
+ * means the candidate is not selected. Exported for tests.
+ */
+export const executableAvailable = (path: string): boolean => {
   try {
     accessSync(path, constants.X_OK);
-    return true;
+    // A directory can pass X_OK; the launcher must be a regular file.
+    if (!statSync(path).isFile()) return false;
+    if (process.platform !== "linux") return true;
+    const linked = execFileSync("ldd", [path], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return linuxSharedLibrariesAvailable(linked);
   } catch {
     return false;
   }

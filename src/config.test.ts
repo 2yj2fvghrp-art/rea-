@@ -1,7 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   defaultHopperLauncherPath,
+  executableAvailable,
   parseConfig,
 } from "./config/parseConfig.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
@@ -365,3 +376,40 @@ describe("default Hopper launcher path (#2270)", () => {
     );
   });
 });
+
+describe.runIf(process.platform === "linux")(
+  "Hopper launcher readiness probe (#2995)",
+  () => {
+    // Fixtures for the default readiness probe: execute access alone is not
+    // readiness. A directory passes X_OK but is not a launcher, and a script
+    // fails the ldd leg that doctor discovery also requires.
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "rea-hopper-probe-"));
+    afterAll(() => {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    });
+
+    const asDirectory = join(fixtureRoot, "hopper-dir");
+    mkdirSync(asDirectory, { recursive: true });
+    chmodSync(asDirectory, 0o755);
+
+    const brokenScript = join(fixtureRoot, "broken.sh");
+    writeFileSync(brokenScript, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    const healthyBinary = join(fixtureRoot, "hopper-ok");
+    copyFileSync("/bin/true", healthyBinary);
+    chmodSync(healthyBinary, 0o755);
+
+    it("rejects directories and launchers with unresolvable libraries", () => {
+      expect(executableAvailable(asDirectory)).toBe(false);
+      expect(executableAvailable(brokenScript)).toBe(false);
+    });
+
+    it("accepts a healthy executable binary", () => {
+      expect(executableAvailable(healthyBinary)).toBe(true);
+    });
+
+    it("rejects missing paths", () => {
+      expect(executableAvailable(join(fixtureRoot, "missing"))).toBe(false);
+    });
+  },
+);
