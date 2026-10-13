@@ -166,6 +166,50 @@ describe("web bundle analyzer", () => {
   });
 });
 
+describe("web bundle template literal observations", () => {
+  it("recovers route properties and dynamic imports declared with template literals", () => {
+    const source = `
+      const routes = [
+        { path: \`/score-board\` },
+        { route: \`administration\` },
+        { path: "/ordinary" },
+      ];
+      const lazy = import(\`./lazy-module.js\`);
+      document.modelContext.registerTool({
+        name: \`dynamic-tool\`,
+        description: \`Tool description\`,
+      });
+    `;
+    const result = analyzeCapturedWebBundle(inspection(source));
+    expect(result.observations.routes).toEqual([
+      expect.objectContaining({
+        value: "/score-board",
+        mechanism: "property:path",
+      }),
+      expect.objectContaining({
+        value: "administration",
+        mechanism: "property:route",
+      }),
+      expect.objectContaining({
+        value: "/ordinary",
+        mechanism: "property:path",
+      }),
+    ]);
+    expect(result.observations.chunks.edges).toContainEqual(
+      expect.objectContaining({
+        kind: "dynamic_import",
+        specifier: "./lazy-module.js",
+      }),
+    );
+    expect(result.observations.webmcp_declarations).toContainEqual(
+      expect.objectContaining({
+        name: "dynamic-tool",
+        description: "Tool description",
+      }),
+    );
+  });
+});
+
 describe("web bundle static-analysis parity", () => {
   it("recognizes endpoints through nested dynamic receivers like static analysis", () => {
     const result = analyzeCapturedWebBundle(
