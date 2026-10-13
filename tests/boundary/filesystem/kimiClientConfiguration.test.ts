@@ -210,3 +210,46 @@ describe("Kimi Code client lifecycle", () => {
     );
   });
 });
+
+describe("Kimi Code registration status", () => {
+  it("marks a profile-less hand-written registration stale and keeps an explicit profile", async () => {
+    const home = await createTestTempDirectory("rea-kimi-");
+    const client = kimiPath(home, process.platform, {});
+    if (client?.markerPath === undefined)
+      throw new Error("missing Kimi Code client");
+    await mkdir(client.markerPath, { recursive: true });
+    const statusOf = async () =>
+      (
+        await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
+          environment: {},
+        })
+      ).find(({ client: name }) => name === "kimi_code");
+    await writeFile(
+      client.configPath,
+      `{
+  "mcpServers": {
+    "rea": {
+      "command": "npx",
+      "args": ${JSON.stringify(command.slice(1))}
+    }
+  }
+}
+`,
+    );
+    expect(await statusOf()).toMatchObject({ state: "stale" });
+    await writeFile(
+      client.configPath,
+      `{
+  "mcpServers": {
+    "rea": {
+      "command": "npx",
+      "args": ${JSON.stringify(command.slice(1))},
+      "env": { "REA_MCP_INPUT_SCHEMA_PROFILE": "full" }
+    }
+  }
+}
+`,
+    );
+    expect(await statusOf()).toMatchObject({ state: "aligned" });
+  });
+});

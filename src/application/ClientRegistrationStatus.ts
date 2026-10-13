@@ -72,6 +72,7 @@ const registrationSchema = z
     tools: z.array(z.string()).optional(),
     disabled: z.boolean().optional(),
     enabled: z.boolean().optional(),
+    env: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
@@ -261,6 +262,15 @@ const registrationAligned = (
     (client.name === "codex" || client.name === "grok_build") &&
     registration.startup_timeout_sec !==
       MCP_STARTUP_POLICY.codexStartupTimeoutSeconds
+  )
+    return false;
+  // Kimi Code starts REA with the full schema profile when none is set, and
+  // Moonshot rejects an entire request while any advertised schema exceeds
+  // its per-schema size cap (#1484). A profile-less entry is stale; an
+  // explicit value keeps the user's choice.
+  if (
+    client.name === "kimi_code" &&
+    registration.env?.REA_MCP_INPUT_SCHEMA_PROFILE === undefined
   )
     return false;
   if (client.format === "vscode" && registration.type !== "stdio") return false;
