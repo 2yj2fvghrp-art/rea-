@@ -179,6 +179,12 @@ prefix on `claude mcp remove --scope user rea` and any `rea uninstall` command;
 keep the broader client scope of uninstall in mind. Restart the selected
 profile after changing its pinned registration.
 
+`claude mcp remove` removes only the registration. To remove REA from this
+profile without running the broader uninstall flow, first back up the profile's
+REA-managed skill directory, then remove
+`$CLAUDE_CONFIG_DIR/skills/reverse-engineer-anything` as well. Keep other skills
+in the profile intact.
+
 The commands above use POSIX shell assignment syntax. In native Windows
 PowerShell, select the profile for the whole setup/launch/check session and
 restore the previous selection afterward:
