@@ -20,11 +20,11 @@ const boundedDiagnostic =
 const basicPayloads = (payload: string): readonly string[] => {
   if (!/^[A-Za-z\d+/]+={0,2}$/u.test(payload)) return [];
   const octets = Buffer.from(payload, "base64");
+  const canonical = octets.toString("base64");
   // Match the supported padded/unpadded policy without accepting Buffer's
   // permissive alphabet or discarding nonzero pad bits.
   if (
-    octets.toString("base64").replace(/=+$/u, "") !==
-      payload.replace(/=+$/u, "") ||
+    canonical.replace(/=+$/u, "") !== payload.replace(/=+$/u, "") ||
     octets.indexOf(0x3a) < 0
   )
     return [];
@@ -41,13 +41,17 @@ const basicPayloads = (payload: string): readonly string[] => {
   }
   // The default charset is unknown. Retain both supported interpretations
   // rather than selecting one or normalizing their configured source bytes.
-  return candidates.flatMap((pair) => {
-    const separator = pair.indexOf(":");
-    // The complete pair and password are credentials; a bare user-id is not.
-    return [pair, pair.slice(separator + 1)].filter(
-      (value) => value.length > 0,
-    );
-  });
+  return [
+    canonical,
+    canonical.replace(/=+$/u, ""),
+    ...candidates.flatMap((pair) => {
+      const separator = pair.indexOf(":");
+      // The complete pair and password are credentials; a bare user-id is not.
+      return [pair, pair.slice(separator + 1)].filter(
+        (value) => value.length > 0,
+      );
+    }),
+  ];
 };
 
 /** RFC 9110 credentials: any scheme, followed by opaque data or auth-params. */

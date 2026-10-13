@@ -415,3 +415,21 @@ it.each(["text", "json"] as const)(
     }
   },
 );
+
+it.each(["dXNlcjpzZWNyZXQ=", "dXNlcjpzZWNyZXQ", "dXNlcjpzZWNyZXQ=="])(
+  "redacts accepted canonical Basic spellings for %s",
+  (payload) => {
+    const redactor = createIdaDiagnosticRedactor({
+      url: "http://127.0.0.1:12345/mcp",
+      mode: "attached",
+      timeoutMs: 1000,
+      headers: { Authorization: `Basic ${payload}` },
+    });
+    const marker = "[redacted transport credential]";
+    expect(
+      redactor.text(
+        "dXNlcjpzZWNyZXQ= / dXNlcjpzZWNyZXQ / user:secret / secret",
+      ),
+    ).toBe(`${marker} / ${marker} / ${marker} / ${marker}`);
+  },
+);
