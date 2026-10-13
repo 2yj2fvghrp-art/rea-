@@ -114,6 +114,7 @@ export const renderTerminalSetupSummary = (
     case "needs_human":
       // No progress events on this path, so name changes that already landed.
       renderRetainedSetupOutcomes(result);
+      renderPendingSetupActions(result);
       renderInteractiveSetupResult(result, environment);
       return;
     case "ready":
@@ -126,6 +127,23 @@ export const renderTerminalSetupSummary = (
         `Unhandled setup result status: ${String(exhaustive)}`,
       );
     }
+  }
+};
+
+/** Keep planned changes visible when setup stops before reporting outcomes. */
+const renderPendingSetupActions = (result: SetupResult): void => {
+  const applied = new Set(result.appliedActions);
+  const reportedClients = new Set(Object.keys(result.clients));
+  const pending = result.plannedActions.filter((action) => {
+    if (applied.has(appliedActionKey(action))) return false;
+    const clientName = configuredClientName(action);
+    return clientName === undefined || !reportedClients.has(clientName);
+  });
+  if (pending.length === 0) return;
+  writeLine("◇  Planned changes not completed");
+  for (const action of pending) {
+    writeLine(`│  ${action.operation.toUpperCase()}  ${action.label}`);
+    writeLine(`│          ${action.target}`);
   }
 };
 

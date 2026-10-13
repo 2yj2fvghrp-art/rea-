@@ -765,3 +765,33 @@ it("identifies a failed planned client and its target in terminal remediation", 
   expect(stderr).toContain("/isolated/.codex/config.toml");
   expect(stderr).toContain("Repair the configuration");
 });
+
+it("shows planned actions when setup stops before reporting any outcomes", async () => {
+  const result = {
+    status: "needs_human",
+    plannedActions: [actions[0]],
+    appliedActions: [],
+    clients: {},
+    doctor: {},
+    clientStates: [],
+    remediation: "Setup host cleanup failed",
+  };
+  const { stderr } = await execute(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        'import {renderTerminalSetupSummary} from "./dist/cli/interactiveSetup.js";',
+        `renderTerminalSetupSummary(${JSON.stringify(result)}, true, "apply");`,
+      ].join("\n"),
+    ],
+    { cwd: process.cwd(), env: { ...process.env, NO_COLOR: "1" } },
+  );
+  expect(stderr).toContain("Planned changes not completed");
+  expect(stderr).toContain("CREATE  Codex");
+  expect(stderr).toContain("/isolated/.codex/config.toml");
+  expect(stderr.indexOf("Planned changes not completed")).toBeLessThan(
+    stderr.indexOf("Setup host cleanup failed"),
+  );
+});
