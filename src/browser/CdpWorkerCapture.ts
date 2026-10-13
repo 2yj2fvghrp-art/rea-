@@ -537,21 +537,23 @@ export class CdpWorkerCapture {
     )
       return;
     worker.enabled = true;
-    if (worker.item.observation.ownership !== "unknown") {
-      const attached = await this.#command(
-        "Target.setAutoAttach",
-        workerAutoAttachParameters,
-        worker.sessionId,
-        worker.item.observation.limitations,
-      );
-      worker.autoAttach = attached !== undefined;
-      if (!worker.autoAttach) worker.events.completeness.unavailable("workers");
-    }
-    for (const domain of ["Runtime", "Debugger", "Network"]) {
-      if (worker.detached) return;
-      try {
+    let stage = "Target.setAutoAttach";
+    try {
+      if (worker.item.observation.ownership !== "unknown") {
+        const attached = await this.#command(
+          stage,
+          workerAutoAttachParameters,
+          worker.sessionId,
+          worker.item.observation.limitations,
+        );
+        worker.autoAttach = attached !== undefined;
+        if (!worker.autoAttach) worker.events.completeness.unavailable("workers");
+      }
+      for (const domain of ["Runtime", "Debugger", "Network"]) {
+        if (worker.detached) return;
+        stage = `${domain}.enable`;
         const result = await this.#command(
-          `${domain}.enable`,
+          stage,
           {},
           worker.sessionId,
           worker.item.observation.limitations,
@@ -560,21 +562,22 @@ export class CdpWorkerCapture {
           worker.events.completeness.unavailable(
             domain === "Debugger" ? "scripts" : "network_requests",
           );
-      } catch (cause) {
-        if (
-          !this.signal.aborted &&
-          cause instanceof CdpCommandRejection &&
-          cause.code === -32_000
-        ) {
-          worker.item.observation.limitations.push(
-            `${domain} became unavailable during worker attachment.`,
-          );
-          worker.events.completeness.unavailable("scripts");
-          worker.events.completeness.unavailable("network_requests");
-          return;
-        }
-        throw cause;
       }
+    } catch (cause) {
+      if (
+        !this.signal.aborted &&
+        cause instanceof CdpCommandRejection &&
+        cause.code === -32_000
+      ) {
+        worker.item.observation.limitations.push(
+          `${stage} became unavailable during worker attachment.`,
+        );
+        worker.events.completeness.unavailable("workers");
+        worker.events.completeness.unavailable("scripts");
+        worker.events.completeness.unavailable("network_requests");
+        return;
+      }
+      throw cause;
     }
   }
 
