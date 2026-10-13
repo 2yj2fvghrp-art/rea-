@@ -216,7 +216,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/desktop-like-profile"
           cd "$RUNNER_TEMP/desktop-like-profile"
           printf '%s\n' '{"name":"test-desktop-install","private":true}' > package.json
-          pnpm add "https://github.com/${REPO}#${COMMIT}:integrations/deepseek-harness"
+          pnpm add "https://github.com/${REPO}#${COMMIT}&path:integrations/deepseek-harness"
           node - <<'NODE'
           const assert = require('node:assert/strict');
           const fs = require('node:fs');
