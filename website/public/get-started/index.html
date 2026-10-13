@@ -329,57 +329,28 @@ npm -v</code></pre>
               <details class="evidence-details" id="node-macos-help">
                 <summary translate="no">macOS</summary>
                 <p>
-                  For a first installation, download the Node.js 24 LTS macOS
-                  installer (.pkg), open it and follow the installer. Then
-                  reopen Terminal.
+                  For a first installation, download the
+                  <a href="https://nodejs.org/en/download"
+                    >Node.js 24 LTS macOS installer (.pkg)</a
+                  >, open it and follow the installer. Then reopen Terminal.
                 </p>
-                <p>If you use Homebrew:</p>
-                <div class="code-block">
-                  <div class="code-header">
-                    <span>macOS · Homebrew</span
-                    ><button
-                      class="copy-button"
-                      type="button"
-                      data-copy="node-macos-brew"
-                      aria-label="Copy Homebrew Node.js installation command"
-                    >
-                      Copy
-                    </button>
+                <details class="evidence-details">
+                  <summary>Already use Homebrew?</summary>
+                  <div class="code-block">
+                    <div class="code-header">
+                      <span>macOS · Homebrew</span
+                      ><button
+                        class="copy-button"
+                        type="button"
+                        data-copy="node-macos-brew"
+                        aria-label="Copy Homebrew Node.js installation command"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre><code id="node-macos-brew">brew install node</code></pre>
                   </div>
-                  <pre><code id="node-macos-brew">brew install node</code></pre>
-                </div>
-                <p>Otherwise:</p>
-                <div class="code-block">
-                  <div class="code-header">
-                    <span>macOS</span
-                    ><button
-                      class="copy-button"
-                      type="button"
-                      data-copy="node-macos-fnm"
-                      aria-label="Copy fnm installation command for macOS"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <pre><code id="node-macos-fnm">curl -fsSL https://fnm.vercel.app/install | bash</code></pre>
-                </div>
-                <p>Close Terminal, open it again, then:</p>
-                <div class="code-block">
-                  <div class="code-header">
-                    <span>macOS</span
-                    ><button
-                      class="copy-button"
-                      type="button"
-                      data-copy="node-macos-install"
-                      aria-label="Copy Node.js 24 commands for macOS"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <pre><code id="node-macos-install">fnm install 24
-fnm use 24
-fnm default 24</code></pre>
-                </div>
+                </details>
               </details>
               <details class="evidence-details" id="node-linux-help">
                 <summary translate="no">Linux</summary>
@@ -595,9 +566,26 @@ cd rea-work</code></pre>
               <summary>Claude Desktop · use a desktop chat</summary>
               <p>
                 Install Claude Desktop on Windows or macOS and sign in. Quit it
-                completely before running REA setup in your terminal. Choose
-                <code>claude_desktop</code>, approve the plan, then reopen
-                Claude and start a chat.
+                completely, then run this command in a terminal you opened
+                outside Claude:
+              </p>
+              <div class="code-block">
+                <div class="code-header">
+                  <span translate="no">Terminal</span>
+                  <button
+                    class="copy-button"
+                    type="button"
+                    data-copy="setup-claude-desktop"
+                    aria-label="Copy command"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre><code id="setup-claude-desktop">npx rea-agents@latest setup --client claude_desktop</code></pre>
+              </div>
+              <p>
+                Review and approve the plan, reopen Claude, then
+                <a href="#check-connection">check the connection in step 3</a>.
               </p>
               <p>
                 <a href="https://claude.ai/download">Download Claude Desktop</a>
@@ -863,7 +851,7 @@ cd rea-work</code></pre>
               </p>
             </details>
 
-            <div class="code-block">
+            <div class="code-block" id="check-connection">
               <div class="code-header">
                 <span translate="no">Terminal</span
                 ><button
@@ -1170,16 +1158,56 @@ npx rea-agents@latest setup</code></pre>
                       </button>
                     </div>
                     <pre><code id="ghidra-connect">export GHIDRA_INSTALL_DIR="/absolute/path/to/ghidra_12.1.4_PUBLIC"
-export JAVA_HOME="/absolute/path/to/jdk-21"
-npx -y rea-agents@latest doctor --provider ghidra --json
-npx rea-agents@latest setup</code></pre>
+export JAVA_HOME="/absolute/path/to/jdk-21"</code></pre>
                   </div>
                   <p>
-                    Replace both paths with your existing installations. Setup
-                    checks them and records valid settings for your selected
-                    client. On Linux arm64, you may need to build Ghidra's
-                    native decompiler separately.
+                    Replace both paths with your existing installations. For a
+                    fresh macOS or Linux arm64 installation, build the native
+                    decompiler for your computer before continuing.
                   </p>
+                  <details class="evidence-details" id="ghidra-native-build">
+                    <summary>Build Ghidra's native decompiler</summary>
+                    <p>
+                      On macOS, the build needs Xcode Command Line Tools, make
+                      and bison. Use the guide for your computer:
+                    </p>
+                    <ul>
+                      <li>
+                        <a
+                          href="https://github.com/morluto/rea/blob/main/docs/installation.md#missing-macos-native-decompiler"
+                          >macOS · Intel</a
+                        >
+                      </li>
+                      <li>
+                        <a
+                          href="https://github.com/morluto/rea/blob/main/docs/installation.md#macos-arm64-native-decompiler"
+                          >macOS · Apple Silicon</a
+                        >
+                      </li>
+                      <li>
+                        <a
+                          href="https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/GhidraDocs/GettingStarted.md#building-native-components"
+                          >Linux arm64 · native build instructions</a
+                        >
+                      </li>
+                    </ul>
+                  </details>
+                  <p>Then check Ghidra and save its paths for your client:</p>
+                  <div class="code-block">
+                    <div class="code-header">
+                      <span translate="no">macOS / Linux</span>
+                      <button
+                        class="copy-button"
+                        type="button"
+                        data-copy="ghidra-unix-setup"
+                        aria-label="Copy command"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre><code id="ghidra-unix-setup">npx -y rea-agents@latest doctor --provider ghidra --json
+npx rea-agents@latest setup</code></pre>
+                  </div>
                 </details>
                 <p>
                   Keep these commands in the same terminal session. Rerun setup
