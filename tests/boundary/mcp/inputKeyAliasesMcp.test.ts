@@ -1,3 +1,4 @@
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
@@ -105,7 +106,9 @@ describe("MCP input key aliases", () => {
         arguments: { address: "0x401000", procedure: "main" },
       });
       expect(both.isError).toBe(true);
-      expect(errorText(both)).toMatch(/Unrecognized key.*address/u);
+      expect(errorText(both)).toMatch(
+        /Supply either procedure or address, not both/u,
+      );
       const reverse = await client.callTool({
         name: "resolve_containing_procedure",
         arguments: { procedure: "0x401000" },
@@ -117,23 +120,30 @@ describe("MCP input key aliases", () => {
     }
   });
 
-  it("advertises only the canonical keys", async () => {
-    const { client, close } = await connectCatalog(false);
-    try {
-      const { tools } = await client.listTools();
-      const properties = (name: string) =>
-        Object.keys(
-          (tools.find((tool) => tool.name === name)?.inputSchema.properties ??
-            {}) as Record<string, unknown>,
-        );
-      expect(properties("procedure_pseudo_code")).toContain("procedure");
-      expect(properties("procedure_pseudo_code")).not.toContain("address");
-      expect(properties("search_strings")).toContain("pattern");
-      expect(properties("search_strings")).not.toContain("query");
-    } finally {
-      await close();
-    }
-  });
+  for (const compact of [false, true])
+    it(`advertises accepted aliases through SDK conversion with compact=${compact}`, async () => {
+      const { client, close } = await connectCatalog(compact);
+      try {
+        const { tools } = await client.listTools();
+        const ajv = new Ajv2020({ strict: false, validateFormats: false });
+        for (const [tool, canonical, alias] of [
+          ["procedure_pseudo_code", { procedure: "main" }, { address: "main" }],
+          ["search_strings", { pattern: "ACCESS" }, { query: "ACCESS" }],
+        ] as const) {
+          const definition = tools.find(({ name }) => name === tool);
+          expect(definition).toBeDefined();
+          if (definition === undefined)
+            throw new Error("Missing named contract");
+          expect(definition.inputSchema.type).toBe("object");
+          expect(ajv.validate(definition.inputSchema, canonical)).toBe(true);
+          expect(ajv.validate(definition.inputSchema, alias)).toBe(true);
+          const reply = await client.callTool({ name: tool, arguments: alias });
+          expect(reply.isError, errorText(reply)).toBeFalsy();
+        }
+      } finally {
+        await close();
+      }
+    });
 
   it("records canonical parameters in Evidence after an alias call", async () => {
     const providerCalls: { operation: string; input: unknown }[] = [];

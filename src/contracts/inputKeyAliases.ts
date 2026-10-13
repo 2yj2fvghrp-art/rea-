@@ -1,84 +1,88 @@
-/**
- * Argument names agents commonly send in place of a canonical input key. An
- * agent that just received an address sends `address` to a procedure-scoped
- * tool, and `query` to a search tool. Each pair applies only to an input that
- * declares the canonical key and does not declare the alias itself.
- */
-const INPUT_KEY_ALIASES: readonly (readonly [
-  alias: string,
-  canonical: string,
-])[] = [
+import { z } from "zod";
+import { withAdvertisedJsonSchema } from "./toolSchemaMetadata.js";
+
+/** Compatibility spellings accepted by named tool contracts. */
+const INPUT_KEY_ALIASES = [
   ["address", "procedure"],
   ["query", "pattern"],
-];
+] as const;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-/** The aliases an object input schema accepts, as alias to canonical key. */
+/** Compatibility keys apply only when they do not collide with named inputs. */
 export const inputKeyAliasesFor = (
-  schema: unknown,
-): Readonly<Record<string, string>> => {
-  const shape = isRecord(schema) ? Reflect.get(schema, "shape") : undefined;
-  if (!isRecord(shape)) return {};
-  return Object.fromEntries(
+  schema: z.ZodObject,
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
     INPUT_KEY_ALIASES.filter(
       ([alias, canonical]) =>
-        Object.hasOwn(shape, canonical) && !Object.hasOwn(shape, alias),
+        Object.hasOwn(schema.shape, canonical) &&
+        !Object.hasOwn(schema.shape, alias),
     ),
   );
-};
 
-/**
- * Renames each alias to its canonical key when only the alias is present. An
- * input that carries both keys is left as sent, so strict validation rejects
- * the alias instead of choosing one value.
- */
-export const renameInputKeyAliases = (
-  value: unknown,
+/** Normalize a parsed compatibility request without mutating caller values. */
+export const canonicalInputKeys = (
+  value: Readonly<Record<string, unknown>>,
   aliases: Readonly<Record<string, string>>,
-): unknown => {
-  if (!isRecord(value)) return value;
-  let renamed: Record<string, unknown> | undefined;
+): Readonly<Record<string, unknown>> => {
+  const normalized = { ...value };
   for (const [alias, canonical] of Object.entries(aliases)) {
     if (!Object.hasOwn(value, alias) || Object.hasOwn(value, canonical))
       continue;
-    renamed ??= { ...value };
-    renamed[canonical] = renamed[alias];
-    delete renamed[alias];
+    normalized[canonical] = value[alias];
+    delete normalized[alias];
   }
-  return renamed ?? value;
+  return normalized;
 };
 
 /**
- * Accept the input key aliases of a standard schema during validation. The
- * schema keeps its prototype, parser and JSON Schema projection, so clients
- * are still offered only the canonical keys, and the validated value carries
- * the canonical keys that Evidence parameters record.
+ * One contract owns both accepted input spellings and canonical parsed output.
+ * Strict alternatives reject a request containing both spellings. JSON Schema
+ * input projection advertises those same alternatives to validating MCP hosts.
  */
-export const acceptInputKeyAliases = <Schema>(schema: Schema): Schema => {
+export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
+  schema: Schema,
+): z.ZodType<z.output<Schema>> => {
   const aliases = inputKeyAliasesFor(schema);
-  if (Object.keys(aliases).length === 0 || !isRecord(schema)) return schema;
-  const standard = Reflect.get(schema, "~standard");
-  if (!isRecord(standard)) return schema;
-  const validate = Reflect.get(standard, "validate");
-  if (typeof validate !== "function") return schema;
-  // Registration metadata may define `~standard` as non-configurable, so the
-  // wrapper copies every other own property and defines its own interface.
-  const { "~standard": _replaced, ...descriptors } =
-    Object.getOwnPropertyDescriptors(schema);
-  const accepting = Object.create(
-    Object.getPrototypeOf(schema),
-    descriptors,
-  ) as Record<string, unknown>;
-  Object.defineProperty(accepting, "~standard", {
-    value: {
-      ...standard,
-      validate: (value: unknown) =>
-        Reflect.apply(validate, standard, [
-          renameInputKeyAliases(value, aliases),
-        ]) as unknown,
-    },
+  if (Object.keys(aliases).length === 0) return schema;
+  let shapes: z.ZodRawShape[] = [schema.shape];
+  for (const [alias, canonical] of Object.entries(aliases))
+    shapes = shapes.flatMap((shape) => {
+      const alternative = { ...shape };
+      alternative[alias] = alternative[canonical]!;
+      delete alternative[canonical];
+      return [shape, alternative];
+    });
+  const accepted = z.union(shapes.map((shape) => z.strictObject(shape)));
+  const canonical = z.preprocess((value, context) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return value;
+    const input = Object.fromEntries(Object.entries(value));
+    for (const [alias, key] of Object.entries(aliases)) {
+      if (Object.hasOwn(input, alias) && Object.hasOwn(input, key)) {
+        context.addIssue({
+          code: "custom",
+          message: `Supply either ${key} or ${alias}, not both`,
+        });
+        return z.NEVER;
+      }
+    }
+    return canonicalInputKeys(input, aliases);
+  }, schema);
+  return withAdvertisedJsonSchema(canonical, "input", () => (options) => {
+    const projected = accepted["~standard"].jsonSchema.input(options);
+    // Existing input presentation owns flattening for hosts that prohibit root
+    // unions; keep the exact accepted alternatives here for schema consumers.
+    return {
+      ...projected,
+      type: "object",
+      description: [
+        schema.description,
+        `Supply one spelling for each input: ${Object.entries(aliases)
+          .map(([alias, key]) => `${key} or ${alias}`)
+          .join("; ")}. Supplying both spellings is invalid.`,
+      ]
+        .filter((text) => text !== undefined)
+        .join(" "),
+    };
   });
-  return accepting as Schema;
 };
