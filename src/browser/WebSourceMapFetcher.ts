@@ -744,8 +744,8 @@ const originalModuleEdges = (
         check();
         const dependency = originalDependency(node);
         if (dependency === null) return;
-        const { kind, specifier } = dependency;
-        if (kind === "require" && t.isCallExpression(node)) {
+        const { kind, specifier, requireCallee } = dependency;
+        if (requireCallee !== undefined) {
           unboundRequires ??= new Set(
             analyzeParsedJavaScriptReferences(parsed, "require")
               .filter(
@@ -757,7 +757,7 @@ const originalModuleEdges = (
                   `${String(location.start.line)}:${String(location.start.column)}`,
               ),
           );
-          const location = node.callee.loc?.start;
+          const location = requireCallee.loc?.start;
           if (
             location === undefined ||
             !unboundRequires.has(
@@ -1040,6 +1040,7 @@ const originalDependency = (
 ): {
   readonly kind: ParsedSourceMapItem["original_module_edges"][number]["kind"];
   readonly specifier: string;
+  readonly requireCallee?: t.Identifier;
 } | null => {
   if (
     t.isImportDeclaration(node) ||
@@ -1056,11 +1057,13 @@ const originalDependency = (
       : { kind: "dynamic_import", specifier };
   }
   if (
-    t.isCallExpression(node) &&
+    (t.isCallExpression(node) || t.isOptionalCallExpression(node)) &&
     t.isIdentifier(node.callee, { name: "require" })
   ) {
     const specifier = stringValue(node.arguments[0]);
-    return specifier === undefined ? null : { kind: "require", specifier };
+    return specifier === undefined
+      ? null
+      : { kind: "require", specifier, requireCallee: node.callee };
   }
   // `import x = require("m")` is only legal at module top level and always
   // refers to the host loader, so it needs no unbound-`require` check. The
