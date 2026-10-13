@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -570,12 +571,7 @@ class ProcessOutputCapture {
   snapshot(observedBytes: number): ProviderProcessSnapshot["stdout"] {
     const buffer = Buffer.concat(this.#chunks, this.#bytes);
     const text = buffer.toString("utf8");
-    let invalidUtf8 = false;
-    try {
-      new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    } catch {
-      invalidUtf8 = true;
-    }
+    const invalidUtf8 = !isUtf8(buffer);
     return {
       text,
       bytes: this.#bytes,

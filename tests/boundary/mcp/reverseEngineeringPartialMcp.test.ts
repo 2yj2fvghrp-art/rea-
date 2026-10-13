@@ -123,7 +123,7 @@ it("admits Rizin mutation and rebinds after dispatch while invalidating first", 
   expect(events).toEqual(["admit", "invalidate", "dispatch", "rebind"]);
 });
 
-it("retains partial Evidence and leaves the session unbound when a symlink rebind fails", async () => {
+it.each(["success", "timeout"])("retains %s output and leaves the session unbound when a symlink rebind fails", async (outcome) => {
   const [target] = await createBinarySessionTargets();
   const alias = join(dirname(target), "active-target-alias.hop");
   await symlink(target, alias);
@@ -154,6 +154,9 @@ it("retains partial Evidence and leaves the session unbound when a symlink rebin
   const service = new ReverseEngineeringService({
     run: async () => {
       await writeFile(alias, "changed by Rizin");
+      if (outcome === "timeout") throw Object.assign(new Error("timed out"), {
+        stdout: "partial analysis output", stderr: "timeout diagnostics", code: "ETIMEDOUT", signal: null, killed: true,
+      });
       return { stdout: "partial analysis output", stderr: "" };
     },
   });
@@ -193,7 +196,11 @@ it("retains partial Evidence and leaves the session unbound when a symlink rebin
 
   expect(profileResolutions).toBeGreaterThan(1);
   expect(response.isError).toBe(true);
-  expect(response.structuredContent?.error?.code).toBe("unreadable_output");
+  expect(response.structuredContent?.error?.code).toBe(outcome === "timeout" ? "provider_timeout" : "unreadable_output");
+  if (outcome === "timeout") expect(response.structuredContent?.error?.details).toMatchObject({
+    captured_output: { stdout: "partial analysis output", stderr: "timeout diagnostics" },
+    diagnostics: { rebind_error: { code: expect.any(String) } },
+  });
   expect(response.structuredContent?.error?.details).toMatchObject({
     partial_observation: {
       kind: "retained-evidence",

@@ -22,7 +22,7 @@ const writeRizin = async (directory: string, output: string): Promise<void> => {
   await chmod(executable, 0o755);
 };
 
-it("uses the server-selected environment unless a provider environment overrides it", async () => {
+it.skipIf(process.platform === "win32")("uses the server-selected environment unless a provider environment overrides it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rea-reverse-env-"));
   const selectedPath = join(directory, "selected");
   const overridePath = join(directory, "override");
