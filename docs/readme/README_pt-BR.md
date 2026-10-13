@@ -154,7 +154,7 @@ O REA requer Node.js 22.x (>=22.19), 24.x (>=24.11) ou 26+, além do npm. As fer
 
 A inspeção estática de JavaScript e .NET lê os arquivos fornecidos sem executar o aplicativo. A captura em execução inicia o alvo selecionado ou interage com ele usando as permissões do seu usuário; cada guia descreve seus efeitos.
 
-For jailbroken iOS runtime analysis, see [the iOS device guide](docs/ios-device-analysis.md).
+For jailbroken iOS runtime analysis, see [the iOS device guide](../ios-device-analysis.md).
 
 <a id="choosing-a-deep-analysis-provider"></a>
 

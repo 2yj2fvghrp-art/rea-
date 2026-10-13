@@ -154,7 +154,7 @@ REA потребує Node.js 22.x (>=22.19), 24.x (>=24.11) або 26+, а та�
 
 Статична перевірка JavaScript і .NET читає надані файли, не запускаючи застосунок. Захоплення під час виконання запускає вибрану ціль або взаємодіє з нею з правами вашого користувача; відповідні посібники описують його вплив.
 
-For jailbroken iOS runtime analysis, see [the iOS device guide](docs/ios-device-analysis.md).
+For jailbroken iOS runtime analysis, see [the iOS device guide](../ios-device-analysis.md).
 
 <a id="choosing-a-deep-analysis-provider"></a>
 

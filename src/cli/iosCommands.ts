@@ -24,14 +24,23 @@ export const registerIosCommands = (
   const execute = (name: string, operation: IosOperation, input: unknown) =>
     withCommandCancellation((signal) =>
       logCliCommand(logger, name, async () => {
-        const result = await service.execute(operation, input, { signal });
+        let result: Awaited<ReturnType<typeof service.execute>> | undefined;
+        let failure: unknown;
+        try {
+          result = await service.execute(operation, input, { signal });
+        } catch (cause) {
+          failure = cause;
+        }
         try {
           await provider.close();
         } catch (cause) {
-          if (cause instanceof AnalysisError)
-            return projectAnalysisError(cause);
-          throw cause;
+          failure ??= cause;
         }
+        if (failure instanceof AnalysisError)
+          return projectAnalysisError(failure);
+        if (failure !== undefined) throw failure;
+        if (result === undefined)
+          throw new Error("iOS operation completed without a result.");
         return result.ok ? result.value : projectAnalysisError(result.error);
       }),
     );
@@ -100,7 +109,7 @@ export const registerIosCommands = (
       execute(CLI_COMMANDS.inspectIosProcess, "inspect_ios_process", {
         device_id: args.deviceId,
         pid: args.pid,
-        user: args.user,
+        ...(args.user === undefined ? {} : { user: args.user }),
       }),
   });
   cli.command(CLI_COMMANDS.readIosLog, {
@@ -155,7 +164,7 @@ export const registerIosCommands = (
         device_id: args.deviceId,
         remote_path: args.remotePath,
         output_directory: args.outputDirectory,
-        user: args.user,
+        ...(args.user === undefined ? {} : { user: args.user }),
       }),
   });
   cli.command(CLI_COMMANDS.runIosCommand, {
@@ -181,7 +190,7 @@ export const registerIosCommands = (
       execute(CLI_COMMANDS.runIosCommand, "run_ios_command", {
         device_id: args.deviceId,
         command: args.command,
-        user: args.user,
+        ...(args.user === undefined ? {} : { user: args.user }),
         timeout_ms: options.timeout,
       }),
   });
@@ -228,7 +237,7 @@ export const registerIosCommands = (
         pid: args.pid,
         commands: args.commands.split(/\r?\n/u).filter(Boolean),
         remote_port: options["remote-port"],
-        user: args.user,
+        ...(args.user === undefined ? {} : { user: args.user }),
         timeout_ms: options.timeout,
       }),
   });
@@ -273,7 +282,7 @@ export const registerIosCommands = (
         ...(options.pid === undefined ? {} : { pid: options.pid }),
         ...(options.process === undefined ? {} : { process: options.process }),
         remote_port: options["remote-port"],
-        user: options.user,
+        ...(options.user === undefined ? {} : { user: options.user }),
         timeout_ms: options.timeout,
       }),
   });
@@ -322,7 +331,7 @@ export const registerIosCommands = (
         address: args.address,
         size: options.size,
         remote_port: options["remote-port"],
-        user: args.user,
+        ...(args.user === undefined ? {} : { user: args.user }),
         timeout_ms: options.timeout,
       }),
   });

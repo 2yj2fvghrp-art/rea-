@@ -154,7 +154,7 @@ REA에는 Node.js 22.x(>=22.19), 24.x(>=24.11) 또는 26+와 npm이 필요합니
 
 정적 JavaScript 및 .NET 검사는 제공된 파일을 읽으며 애플리케이션을 실행하지 않습니다. 런타임 캡처는 사용자의 권한으로 선택한 대상을 실행하거나 대상과 상호작용합니다. 각 런타임 가이드에서 그 영향을 설명합니다.
 
-For jailbroken iOS runtime analysis, see [the iOS device guide](docs/ios-device-analysis.md).
+For jailbroken iOS runtime analysis, see [the iOS device guide](../ios-device-analysis.md).
 
 <a id="choosing-a-deep-analysis-provider"></a>
 

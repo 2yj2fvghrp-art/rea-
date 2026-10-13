@@ -154,7 +154,7 @@ REA benötigt Node.js 22.x (>=22.19), 24.x (>=24.11) oder 26+ sowie npm. Zusätz
 
 Statische JavaScript- und .NET-Untersuchungen lesen die bereitgestellten Dateien, ohne die Anwendung auszuführen. Laufzeitaufzeichnungen führen das gewählte Ziel mit deinen Benutzerrechten aus oder interagieren damit; die jeweiligen Anleitungen beschreiben die Auswirkungen.
 
-For jailbroken iOS runtime analysis, see [the iOS device guide](docs/ios-device-analysis.md).
+For jailbroken iOS runtime analysis, see [the iOS device guide](../ios-device-analysis.md).
 
 <a id="choosing-a-deep-analysis-provider"></a>
 

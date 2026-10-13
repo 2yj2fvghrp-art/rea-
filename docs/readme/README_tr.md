@@ -154,7 +154,7 @@ REA; Node.js 22.x (>=22.19), 24.x (>=24.11) veya 26+ ve npm gerektirir. Ek araç
 
 Statik JavaScript ve .NET incelemesi, uygulamayı çalıştırmadan sağlanan dosyaları okur. Çalışma zamanı yakalaması, seçilen hedefi kullanıcı izinlerinizle çalıştırır veya onunla etkileşime girer; her çalışma zamanı rehberi etkilerini açıklar.
 
-For jailbroken iOS runtime analysis, see [the iOS device guide](docs/ios-device-analysis.md).
+For jailbroken iOS runtime analysis, see [the iOS device guide](../ios-device-analysis.md).
 
 <a id="choosing-a-deep-analysis-provider"></a>
 

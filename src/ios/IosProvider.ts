@@ -281,6 +281,15 @@ export class IosProvider {
     string,
     Promise<Result<DebugSession, AnalysisError>>
   >();
+  readonly #fridaStarts = new Map<
+    string,
+    Promise<
+      Result<
+        { path: string | null; pid: number | null; owned: boolean },
+        AnalysisError
+      >
+    >
+  >();
   readonly #activeOperations = new Set<Promise<void>>();
   #closing = false;
   #closePromise: Promise<void> | undefined;
@@ -1531,6 +1540,46 @@ export class IosProvider {
     deviceId: string,
     remotePort: number,
     user: "root" | "mobile",
+    signal?: AbortSignal,
+  ): Promise<
+    Result<
+      { path: string | null; pid: number | null; owned: boolean },
+      AnalysisError
+    >
+  > {
+    const key = `${deviceId}:${user}:${String(remotePort)}`;
+    const existing = this.#fridaStarts.get(key);
+    if (existing !== undefined) {
+      try {
+        return await waitForSharedStartup(existing, signal);
+      } catch (cause) {
+        return err(asFailure("run_ios_frida_script", cause, SSH_TIMEOUT_MS));
+      }
+    }
+    const started = this.#startFridaServer(
+      deviceId,
+      remotePort,
+      user,
+      key,
+      this.#startupLifetime.signal,
+    );
+    this.#fridaStarts.set(key, started);
+    const release = () => {
+      if (this.#fridaStarts.get(key) === started) this.#fridaStarts.delete(key);
+    };
+    void started.then(release, release);
+    try {
+      return await waitForSharedStartup(started, signal);
+    } catch (cause) {
+      return err(asFailure("run_ios_frida_script", cause, SSH_TIMEOUT_MS));
+    }
+  }
+
+  async #startFridaServer(
+    deviceId: string,
+    remotePort: number,
+    user: "root" | "mobile",
+    key: string,
     signal?: AbortSignal,
   ): Promise<
     Result<
