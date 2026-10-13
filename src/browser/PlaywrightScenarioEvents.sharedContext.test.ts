@@ -61,7 +61,8 @@ it("detaches root and popup listeners when a scenario finishes", async () => {
   (page as unknown as EventEmitter).emit("popup", popup);
   expect((page as unknown as EventEmitter).listenerCount("console")).toBe(1);
   expect(popup.listenerCount("console")).toBe(1);
-  expect(popup.listenerCount("close")).toBe(1);
+  // Popup closure is recorded, then its page-owned listeners are released.
+  expect(popup.listenerCount("close")).toBe(2);
   await events.finish();
   expect((page as unknown as EventEmitter).listenerCount("console")).toBe(0);
   expect((page as unknown as EventEmitter).listenerCount("popup")).toBe(0);
