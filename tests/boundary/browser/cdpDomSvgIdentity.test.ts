@@ -13,6 +13,8 @@ const startBrowser = async (options: FakeOptions = {}) => {
   const browser = await startFakeCdpBrowser({
     ...options,
     commandResult(command, origin, frameReads) {
+      const override = options.commandResult?.(command, origin, frameReads);
+      if (override !== undefined) return override;
       if (command.method === "DOMSnapshot.captureSnapshot") {
         const nodes = {
           nodeType: [9, 1, 1, 1, 1],
@@ -45,8 +47,6 @@ const startBrowser = async (options: FakeOptions = {}) => {
           ],
         };
       }
-      const override = options.commandResult?.(command, origin, frameReads);
-      if (override !== undefined) return override;
       if (command.method === "DOM.describeNode")
         return {
           node: {
@@ -134,23 +134,21 @@ describe("CDP SVG identity at the snapshot boundary", () => {
     },
   );
 
-  it("records all unknown candidates after one unsupported-method reply", async () => {
+  it("stops querying after the first batch reports an unsupported method", async () => {
     const browser = await startBrowser({
+      commandResult: manyCandidates,
       unsupportedMethods: ["DOM.describeNode"],
     });
     const result = await inspect(browser);
     if (!result.ok) throw result.error;
-    expect(result.value.metadata.dom_urls.map(({ url }) => url)).toEqual([
-      `${browser.allowedOrigin}/ordinary`,
-    ]);
+    expect(result.value.metadata.dom_urls).toEqual([]);
     expect(result.value.completeness.excluded).toContainEqual({
       section: "metadata",
       reason: "provider_unavailable",
-      count: 2,
+      count: 25,
     });
-    expect(
-      browser.commands.filter(({ method }) => method === "DOM.describeNode"),
-    ).toHaveLength(1);
+    expect(descriptions(browser).length).toBeGreaterThan(0);
+    expect(descriptions(browser).length).toBeLessThanOrEqual(8);
   });
 
   it.each([
@@ -179,11 +177,7 @@ describe("CDP SVG identity at the snapshot boundary", () => {
     const browser = await startBrowser({ hangOnMethod: "DOM.describeNode" });
     const controller = new AbortController();
     const pending = inspect(browser, controller.signal);
-    await expect
-      .poll(() =>
-        browser.commands.some(({ method }) => method === "DOM.describeNode"),
-      )
-      .toBe(true);
+    await expect.poll(() => descriptions(browser).length).toBeGreaterThan(1);
     controller.abort();
     expect(await pending).toMatchObject({
       ok: false,
@@ -193,5 +187,129 @@ describe("CDP SVG identity at the snapshot boundary", () => {
     expect(methods).toContain("Target.detachFromTarget");
     expect(methods).not.toContain("Target.closeTarget");
     expect(methods).not.toContain("Browser.close");
+  });
+});
+
+const manyCandidates: NonNullable<FakeOptions["commandResult"]> = (
+  command,
+  origin,
+) => {
+  if (command.method !== "DOMSnapshot.captureSnapshot") return undefined;
+  const count = 25;
+  return {
+    strings: [
+      origin,
+      "#document",
+      "HTML",
+      "a",
+      "",
+      "xlink:href",
+      ...Array.from({ length: count }, (_, index) => `/link-${String(index)}`),
+    ],
+    documents: [
+      {
+        documentURL: 0,
+        nodes: {
+          nodeType: [9, 1, ...Array<number>(count).fill(1)],
+          nodeName: [1, 2, ...Array<number>(count).fill(3)],
+          nodeValue: Array<number>(count + 2).fill(4),
+          parentIndex: [-1, 0, ...Array<number>(count).fill(1)],
+          backendNodeId: Array.from(
+            { length: count + 2 },
+            (_, index) => index + 1,
+          ),
+          attributes: [
+            [],
+            [],
+            ...Array.from({ length: count }, (_, index) => [5, index + 6]),
+          ],
+        },
+      },
+    ],
+  };
+};
+
+const descriptions = (browser: FakeCdpBrowser) =>
+  browser.commands.filter(({ method }) => method === "DOM.describeNode");
+
+describe("CDP SVG query concurrency", () => {
+  it("bounds in-flight reads and preserves metadata order across reversed replies", async () => {
+    const browser = await startBrowser({
+      commandResult: manyCandidates,
+      hangOnMethod: "DOM.describeNode",
+    });
+    const controller = new AbortController();
+    const pending = inspect(browser, controller.signal);
+    try {
+      await expect.poll(() => descriptions(browser).length).toBeGreaterThan(1);
+      let replied = 0;
+      while (replied < 25) {
+        await expect
+          .poll(() => descriptions(browser).length)
+          .toBeGreaterThan(replied);
+        const batch = descriptions(browser).slice(replied);
+        expect(batch.length).toBeLessThanOrEqual(8);
+        for (const command of [...batch].reverse()) {
+          const id = Number(command.params.backendNodeId);
+          browser.emitRawMessage(
+            JSON.stringify({
+              id: command.id,
+              result: {
+                node: {
+                  backendNodeId: id,
+                  nodeType: 1,
+                  nodeName: "a",
+                  isSVG: id % 2 === 1,
+                },
+              },
+            }),
+          );
+        }
+        replied += batch.length;
+      }
+      const result = await pending;
+      if (!result.ok) throw result.error;
+      expect(result.value.metadata.dom_urls.map(({ url }) => url)).toEqual(
+        Array.from(
+          { length: 13 },
+          (_, index) => `${browser.allowedOrigin}/link-${String(index * 2)}`,
+        ),
+      );
+      expect(descriptions(browser)).toHaveLength(25);
+    } finally {
+      controller.abort();
+      await pending;
+    }
+  });
+
+  it("cancels sibling reads on a fatal reply without waiting for hung nodes", async () => {
+    const browser = await startBrowser({
+      commandResult: manyCandidates,
+      hangOnMethod: "DOM.describeNode",
+    });
+    const controller = new AbortController();
+    const pending = inspect(browser, controller.signal);
+    try {
+      await expect.poll(() => descriptions(browser).length).toBeGreaterThan(1);
+      const batch = descriptions(browser);
+      browser.emitRawMessage(
+        JSON.stringify({
+          id: batch.at(-1)?.id,
+          error: { code: -32_602, message: "Invalid parameters" },
+        }),
+      );
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        error: { _tag: "BrowserObservationError", reason: "protocol_error" },
+      });
+      expect(descriptions(browser)).toHaveLength(batch.length);
+      const methods = browser.commands.map(({ method }) => method);
+      expect(methods).toContain("Target.detachFromTarget");
+      expect(methods).not.toContain("Target.closeTarget");
+      expect(methods).not.toContain("Browser.close");
+    } finally {
+      controller.abort();
+      await pending;
+    }
   });
 });

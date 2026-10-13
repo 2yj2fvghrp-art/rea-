@@ -139,22 +139,39 @@ export const walkFrameTrees = function* (
   }
 };
 
-export interface DomCapture {
-  readonly total: number;
-  readonly nodes: WebPageInspection["dom"]["nodes"];
+interface DomMetadataCapture {
   readonly urls: WebPageInspection["metadata"]["dom_urls"];
   readonly agentHints: WebPageInspection["metadata"]["agent_hints"];
   readonly excludedUrls: number;
   readonly unresolvedSvgNodes: number;
 }
 
-/** Project one snapshot, requesting SVG identity only for HTML XLink candidates. */
+export interface DomCapture extends DomMetadataCapture {
+  readonly total: number;
+  readonly nodes: WebPageInspection["dom"]["nodes"];
+}
+
+// Bound retained projections and outstanding CDP reads independently of page size.
+// Eight leaves room for the session's other cancellation listeners.
+const DOM_METADATA_BATCH_SIZE = 8;
+
+interface PendingDomMetadata {
+  readonly options: DomMetadataOptions;
+  // Undefined means no query is needed; null means the candidate has no valid ID.
+  readonly svgQuery: DomSvgNodeQuery | null | undefined;
+}
+
+/** Project one snapshot, requesting bounded batches of SVG identity facts. */
 export function* captureDom(
   result: unknown,
   allowedOrigins: ReadonlySet<string>,
   input: InspectWebPageInput,
   completeness?: CdpCaptureCompleteness,
-): Generator<DomSvgNodeQuery, DomCapture, boolean | undefined> {
+): Generator<
+  readonly DomSvgNodeQuery[],
+  DomCapture,
+  readonly (boolean | undefined)[]
+> {
   const root = requiredRecord(result);
   const strings = Array.isArray(root.strings)
     ? root.strings.map((value) => cdpStringValue(value) ?? "")
@@ -193,13 +210,15 @@ export function* captureDom(
       attributes,
     });
     total += nodeTypes.length;
+    const pendingMetadata: PendingDomMetadata[] = [];
     for (let index = 0; index < nodeTypes.length; index += 1) {
       const attributeIndexes = numberArray(attributes[index]);
       const parent = Math.trunc(parents[index] ?? -1);
       const nodeIndex = nodes.length;
       const nodeName = indexedString(strings, nodeNames[index]);
       const attributeNames = uniqueAttributeNames(attributeIndexes, strings);
-      let svgLink = domSvgLink(ancestry, index);
+      const svgLink = domSvgLink(ancestry, index);
+      let svgQuery: DomSvgNodeQuery | null | undefined;
       if (
         !svgLink.xmlDocument &&
         nodeTypes[index] === 1 &&
@@ -207,17 +226,12 @@ export function* captureDom(
         !attributeNames.includes("href")
       ) {
         const backendNodeId = numberValue(backendNodeIds[index]);
-        const svgElement =
+        svgQuery =
           backendNodeId !== undefined &&
           Number.isSafeInteger(backendNodeId) &&
           backendNodeId > 0
-            ? yield { backendNodeId, nodeName }
-            : undefined;
-        if (svgElement === undefined) {
-          unresolvedSvgNodes += 1;
-          completeness?.exclude("metadata", "provider_unavailable");
-        }
-        svgLink = { ...svgLink, svgElement: svgElement === true };
+            ? { backendNodeId, nodeName }
+            : null;
       }
       nodes.push({
         index: nodeIndex,
@@ -227,30 +241,34 @@ export function* captureDom(
         node_value_length: indexedString(strings, nodeValues[index]).length,
         attribute_names: attributeNames,
       });
-      const metadata = domMetadata({
-        strings,
-        attributes: attributeIndexes,
-        // The BASE element itself resolves against the document fallback URL.
-        baseUrl: nodeName.toLowerCase() === "base" ? documentUrl : baseUrl,
-        documentUrl,
-        nodeIndex,
-        nodeName,
-        allowedOrigins,
-        ...svgLink,
+      pendingMetadata.push({
+        svgQuery,
+        options: {
+          strings,
+          attributes: attributeIndexes,
+          // The BASE element itself resolves against the document fallback URL.
+          baseUrl: nodeName.toLowerCase() === "base" ? documentUrl : baseUrl,
+          documentUrl,
+          nodeIndex,
+          nodeName,
+          allowedOrigins,
+          ...svgLink,
+        },
       });
-      for (const url of metadata.urls) {
-        urls.push(url);
-        if (url.destination_scope !== "approved") {
-          excludedUrls += 1;
-          completeness?.exclude(
-            "metadata",
-            url.destination_scope === "outside_policy"
-              ? "disallowed_origin"
-              : "unsupported_url",
-          );
-        }
+      if (
+        pendingMetadata.length === DOM_METADATA_BATCH_SIZE ||
+        index === nodeTypes.length - 1
+      ) {
+        const metadata = yield* captureDomMetadata(
+          pendingMetadata,
+          completeness,
+        );
+        urls.push(...metadata.urls);
+        agentHints.push(...metadata.agentHints);
+        excludedUrls += metadata.excludedUrls;
+        unresolvedSvgNodes += metadata.unresolvedSvgNodes;
+        pendingMetadata.length = 0;
       }
-      agentHints.push(...metadata.agentHints);
     }
   }
   return {
@@ -261,6 +279,51 @@ export function* captureDom(
     excludedUrls,
     unresolvedSvgNodes,
   };
+}
+
+function* captureDomMetadata(
+  pending: readonly PendingDomMetadata[],
+  completeness: CdpCaptureCompleteness | undefined,
+): Generator<
+  readonly DomSvgNodeQuery[],
+  DomMetadataCapture,
+  readonly (boolean | undefined)[]
+> {
+  const queries = pending.flatMap(({ svgQuery }) =>
+    svgQuery == null ? [] : [svgQuery],
+  );
+  const kinds = queries.length > 0 ? yield queries : [];
+  const urls: DomMetadataCapture["urls"] = [];
+  const agentHints: DomMetadataCapture["agentHints"] = [];
+  let queryIndex = 0;
+  let unresolvedSvgNodes = 0;
+  let excludedUrls = 0;
+  for (const { options, svgQuery } of pending) {
+    let svgElement = options.svgElement;
+    if (svgQuery !== undefined) {
+      const kind = svgQuery === null ? undefined : kinds[queryIndex++];
+      svgElement = kind === true;
+      if (kind === undefined) {
+        unresolvedSvgNodes += 1;
+        completeness?.exclude("metadata", "provider_unavailable");
+      }
+    }
+    const metadata = domMetadata({ ...options, svgElement });
+    for (const url of metadata.urls) {
+      urls.push(url);
+      if (url.destination_scope !== "approved") {
+        excludedUrls += 1;
+        completeness?.exclude(
+          "metadata",
+          url.destination_scope === "outside_policy"
+            ? "disallowed_origin"
+            : "unsupported_url",
+        );
+      }
+    }
+    agentHints.push(...metadata.agentHints);
+  }
+  return { urls, agentHints, unresolvedSvgNodes, excludedUrls };
 }
 
 export const captureAccessibility = (

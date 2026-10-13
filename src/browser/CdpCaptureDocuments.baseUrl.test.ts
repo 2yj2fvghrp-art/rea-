@@ -350,7 +350,9 @@ const captureSvg = (value: ReturnType<typeof svgDocument>) => {
   let step = capture.next();
   while (!step.done) {
     step = capture.next(
-      kinds.get(`${String(step.value.backendNodeId)}:${step.value.nodeName}`),
+      step.value.map((query) =>
+        kinds.get(`${String(query.backendNodeId)}:${query.nodeName}`),
+      ),
     );
   }
   return step.value;
@@ -429,9 +431,9 @@ describe("browser SVG identity", () => {
     const capture = captureDom(value, new Set([origin]), input, completeness);
     expect(capture.next()).toEqual({
       done: false,
-      value: { backendNodeId: 2, nodeName: "a" },
+      value: [{ backendNodeId: 2, nodeName: "a" }],
     });
-    const step = capture.next(undefined);
+    const step = capture.next([undefined]);
     expect(step.done).toBe(true);
     if (!step.done) throw new Error("Unexpected second query");
     expect(step.value.unresolvedSvgNodes).toBe(1);
@@ -446,6 +448,49 @@ describe("browser SVG identity", () => {
         }),
       ]),
     );
+  });
+});
+
+it("keeps batched SVG identities aligned around missing IDs and ordinary links", () => {
+  const value = svgDocument([
+    { name: "a", parent: 0, attributes: [["xlink:href", "/svg"]] },
+    { name: "A", parent: 0, attributes: [["href", "/ordinary"]] },
+    { name: "a", parent: 0, attributes: [["xlink:href", "/missing-id"]] },
+    { name: "a", parent: 0, attributes: [["xlink:href", "/non-svg"]] },
+  ]);
+  const completeness = new CdpCaptureCompleteness();
+  const capture = captureDom(
+    {
+      ...value,
+      documents: value.documents.map((document) => ({
+        ...document,
+        nodes: { ...document.nodes, backendNodeId: [1, 2, 3, null, 5] },
+      })),
+    },
+    new Set([origin]),
+    input,
+    completeness,
+  );
+  expect(capture.next()).toEqual({
+    done: false,
+    value: [
+      { backendNodeId: 2, nodeName: "a" },
+      { backendNodeId: 5, nodeName: "a" },
+    ],
+  });
+  const step = capture.next([true, false]);
+  if (!step.done) throw new Error("Unexpected second batch");
+  expect(
+    step.value.urls.map(({ node_index, url }) => [node_index, url]),
+  ).toEqual([
+    [1, `${origin}/svg`],
+    [2, `${origin}/ordinary`],
+  ]);
+  expect(step.value.unresolvedSvgNodes).toBe(1);
+  expect(completeness.snapshot().excluded).toContainEqual({
+    section: "metadata",
+    reason: "provider_unavailable",
+    count: 1,
   });
 });
 

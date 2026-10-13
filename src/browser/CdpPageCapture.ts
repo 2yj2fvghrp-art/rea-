@@ -282,18 +282,22 @@ const capturePageDom = async (state: CaptureState): Promise<DomCapture> => {
   );
   let step = capture.next();
   let descriptionUnavailable = false;
+  const pendingController = new AbortController();
+  const signal =
+    context.signal === undefined
+      ? pendingController.signal
+      : AbortSignal.any([context.signal, pendingController.signal]);
   while (!step.done) {
-    const query = step.value;
-    let svgElement: boolean | undefined;
-    if (!descriptionUnavailable) {
+    const pending = step.value.map(async (query) => {
+      if (descriptionUnavailable) return undefined;
       try {
-        svgElement = capturedSvgNodeKind(
+        return capturedSvgNodeKind(
           query,
           await context.connection.send(
             "DOM.describeNode",
             { backendNodeId: query.backendNodeId, depth: 0 },
             context.sessionId,
-            context.signal,
+            signal,
           ),
         );
       } catch (cause: unknown) {
@@ -302,9 +306,18 @@ const capturePageDom = async (state: CaptureState): Promise<DomCapture> => {
         if (!(cause instanceof CdpCommandRejection)) throw cause;
         if (cause.code === -32_601) descriptionUnavailable = true;
         else if (cause.code !== -32_000) throw cause;
+        return undefined;
       }
+    });
+    try {
+      // Promise.all preserves snapshot order even when CDP replies out of order.
+      step = capture.next(await Promise.all(pending));
+    } catch (cause: unknown) {
+      // Stop and settle this bounded batch before the session can be detached.
+      pendingController.abort();
+      await Promise.allSettled(pending);
+      throw cause;
     }
-    step = capture.next(svgElement);
   }
   if (step.value.unresolvedSvgNodes > 0)
     state.limitations.push(
