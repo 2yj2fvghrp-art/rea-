@@ -197,7 +197,7 @@ export const collectElectronWrappedCallPaths = (
     const path: ElectronCallPath = {
       entry_kind: context.entryKind,
       entry: context.entry,
-      ...(context.entryPath === undefined
+      ...(context.entryKind !== "bridge-member" || context.entryPath === undefined
         ? {}
         : { entry_path: context.entryPath }),
       channel,

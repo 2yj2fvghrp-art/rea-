@@ -186,7 +186,7 @@ cliTest(
           ["__proto__"]: { own: write },
         });`,
       "main.js": `const { ipcMain } = require("electron");
-        ipcMain.on("write", () => {});`,
+        ipcMain.on("write", (event) => event.sender.copy());`,
     });
     const output = await cli.run({
       arguments: ["analyze-javascript-application", root, "--json"],
@@ -202,6 +202,12 @@ cliTest(
           observation.properties.step_kind === "exposure",
       ),
     );
+    const bridge = application.graph.nodes
+      .filter((node) => node.kind === "context-bridge-api")
+      .flatMap((node) => node.observations)
+      .find((observation) => observation.properties.api_key === "desktop");
+    expect(bridge?.properties.members).not.toContain("__proto__.inherited");
+    expect(bridge?.properties.members).toContain("__proto__.own");
     const paths = observations.map((observation) => observation.properties.entry_path);
     expect(paths).toEqual(
       expect.arrayContaining([
@@ -211,6 +217,11 @@ cliTest(
       ]),
     );
     expect(paths).not.toContainEqual(["desktop", "__proto__", "inherited"]);
+    const handlerPaths = application.graph.nodes
+      .flatMap((node) => node.observations)
+      .filter((observation) => observation.properties.entry_kind === "ipc-handler");
+    expect(handlerPaths.length).toBeGreaterThan(0);
+    expect(handlerPaths.every((observation) => !("entry_path" in observation.properties))).toBe(true);
   },
 );
 
