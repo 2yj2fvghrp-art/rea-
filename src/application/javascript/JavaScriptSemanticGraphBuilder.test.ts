@@ -1033,3 +1033,64 @@ it("retains an atomic callable/fingerprint prefix when source indexing reaches n
     omitted_fingerprints: null,
   });
 });
+
+it("retains an execution limit row only with its admitted unavailable file", () => {
+  let budget = Number.MAX_SAFE_INTEGER;
+  let charged = 0;
+  const admission = {
+    remainingBytes: () => budget - charged,
+    reserveBytes: (bytes: number) => {
+      if (bytes > budget - charged) return false;
+      charged += bytes;
+      return true;
+    },
+    releaseBytes: (bytes: number) => {
+      charged -= bytes;
+    },
+  };
+  const file = (index: number): JavaScriptArtifactFile => ({
+    ...budgetFile(""),
+    path: `failed-${String(index)}.js`,
+  });
+  const record = (
+    projection: ReturnType<typeof createJavaScriptSemanticGraphProjection>,
+    index: number,
+  ) =>
+    projection.recordUnavailableFile(
+      file(index),
+      "Module transfer exceeded the parent result budget.",
+      { parent_available_result_budget_bytes: 1000 + index },
+      "resource-limit",
+    );
+  const measured = createJavaScriptSemanticGraphProjection(
+    {},
+    admission,
+    SHA256,
+  );
+  const before = charged;
+  record(measured, 0);
+  const perFile = charged - before;
+  charged = 0;
+  budget = Number.MAX_SAFE_INTEGER;
+  const projection = createJavaScriptSemanticGraphProjection(
+    {},
+    admission,
+    SHA256,
+  );
+  budget = charged + perFile * 3 + Math.floor(perFile / 2);
+  for (let index = 0; index < 10; index++) record(projection, index);
+  const graph = projection.finish(
+    SHA256,
+    { graph_id: `jag_${"b".repeat(64)}`, nodes: [] },
+    [],
+  );
+  const retained = graph.coverage.files.length;
+  expect(retained).toBe(3);
+  expect(graph.coverage.omitted_files).toBe(7);
+  expect(
+    graph.coverage.limits.filter(
+      ({ name }) =>
+        name === "javascript_analysis_parent_available_result_budget_bytes",
+    ),
+  ).toHaveLength(retained);
+});

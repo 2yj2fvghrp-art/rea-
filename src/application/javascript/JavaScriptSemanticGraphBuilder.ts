@@ -551,12 +551,8 @@ export const createJavaScriptSemanticGraphProjection = (
     },
     recordUnavailableFile: (file, reason, limits, unknownReason) => {
       const retainedLimits = javaScriptAnalysisCoverageLimits(limits);
-      for (const limit of retainedLimits) {
-        executionLimits.set(
-          JSON.stringify([limit.name, limit.value, limit.unit]),
-          limit,
-        );
-      }
+      // A new limit row is retained only with this file's admitted facts.
+      const newLimits = unseenLimitRows(executionLimits, retainedLimits);
       const local = emptyState();
       const budget = new SemanticFileGraphBudget(
         evidenceBudget?.remainingBytes() ?? null,
@@ -610,8 +606,13 @@ export const createJavaScriptSemanticGraphProjection = (
         unknowns,
       };
       const bytes =
-        budget.used + Buffer.byteLength(JSON.stringify(coverage)) + 1;
+        budget.used +
+        Buffer.byteLength(JSON.stringify(coverage)) +
+        1 +
+        newLimits.bytes;
       if (evidenceBudget === undefined || evidenceBudget.reserveBytes(bytes)) {
+        for (const [key, limit] of newLimits.rows)
+          executionLimits.set(key, limit);
         for (const context of local.evidenceContexts.contexts)
           if (budget.references(context.context_id))
             state.evidenceContexts.adopt(context);
@@ -653,6 +654,22 @@ export const createJavaScriptSemanticGraphProjection = (
         budgetLimits,
       ),
   };
+};
+
+/** Coverage limit rows not yet listed by the graph, and their serialized bytes. */
+const unseenLimitRows = (
+  listed: ReadonlyMap<string, ApplicationCoverage["limits"][number]>,
+  limits: ApplicationCoverage["limits"],
+) => {
+  const rows = new Map<string, ApplicationCoverage["limits"][number]>();
+  let bytes = 0;
+  for (const limit of limits) {
+    const key = JSON.stringify([limit.name, limit.value, limit.unit]);
+    if (listed.has(key) || rows.has(key)) continue;
+    rows.set(key, limit);
+    bytes += Buffer.byteLength(JSON.stringify(limit)) + 1;
+  }
+  return { rows, bytes };
 };
 
 /** Admit the module root that every projected or unavailable source starts with. */
