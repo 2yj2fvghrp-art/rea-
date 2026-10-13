@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { BinaryArchitecture } from "../binaryTargetTypes.js";
 import { localPathStringSchema } from "../localPath.js";
 import { CANONICAL_BASE64_PATTERN } from "../stringPatterns.js";
 import { recordedNoteCoverageIssues } from "./recordedCrashNoteCoverage.js";
@@ -97,12 +98,14 @@ export type RecordedCrashArchitecture =
  * ABI facts for one recorded-core architecture, measured from unchanged pwntools
  * 4.15.0 `elf_prstatus_*` and `user_regs_struct_*` structures and mirrored by
  * `bridge/pwntools/recorded_crash_impl.py`. Both profiles place `pr_cursig` at
- * 12, `pr_pid` at 32 and the register window at 112; only the window differs.
+ * 12, `pr_pid` at 32 and the register window at 112; the ELF machine, the window
+ * contents and the Evidence CPU family differ per profile.
  */
 export const RECORDED_LINUX_CORE_PROFILES: Record<
   RecordedCrashArchitecture,
   {
     readonly machine: number;
+    readonly evidenceArchitecture: BinaryArchitecture;
     readonly registers: readonly string[];
     readonly registerBytes: number;
     readonly registerOffset: number;
@@ -111,6 +114,7 @@ export const RECORDED_LINUX_CORE_PROFILES: Record<
 > = {
   "x86_64-little-endian": {
     machine: 62,
+    evidenceArchitecture: "x86_64",
     registers: RECORDED_LINUX_AMD64_REGISTERS,
     registerBytes: 8,
     registerOffset: 112,
@@ -118,6 +122,7 @@ export const RECORDED_LINUX_CORE_PROFILES: Record<
   },
   "aarch64-little-endian": {
     machine: 183,
+    evidenceArchitecture: "arm64",
     registers: RECORDED_LINUX_AARCH64_REGISTERS,
     registerBytes: 8,
     registerOffset: 112,

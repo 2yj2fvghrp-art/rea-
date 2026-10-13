@@ -1,5 +1,8 @@
 import type { AnalysisError } from "../../../src/domain/analysisErrorBase.js";
-import type { RecordedCrash } from "../../../src/domain/native/recordedCrash.js";
+import type {
+  RecordedCrash,
+  RecordedCrashArchitecture,
+} from "../../../src/domain/native/recordedCrash.js";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -135,6 +138,60 @@ it
           capturedOutput: { stdout: "recorded warning" },
         },
       });
+    expect(await readFile(path)).toEqual(bytes);
+    await expect(access(owned)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+
+it.runIf(host)(
+  "admits a recorded AArch64 core through the full provider pipeline",
+  async () => {
+    const { path, value, bytes } = await fixture(
+      false,
+      false,
+      "aarch64-little-endian",
+    );
+    let owned = "";
+    const provider = new PwntoolsRecordedCrashProvider(
+      { REA_PWNTOOLS_PYTHON: process.execPath },
+      async (spawn) => {
+        owned = spawn.cwd ?? "";
+        const request = requestSchema.parse(
+          JSON.parse(await readFile(spawn.arguments.at(-1) ?? "", "utf8")),
+        );
+        expect(await readFile(request.snapshot_path)).toEqual(bytes);
+        const {
+          artifact: _artifact,
+          diagnostics: _diagnostics,
+          debugger: _debugger,
+          decoder_diagnostics: _decoderDiagnostics,
+          ...raw
+        } = structuredClone(value);
+        await writeFile(
+          request.reply_path,
+          JSON.stringify({
+            ok: true,
+            profile: PWNTOOLS_PROVIDER_IDENTITY.version,
+            value: raw,
+          }),
+        );
+        return spawnOwnedProviderProcess({
+          ...spawn,
+          command: process.execPath,
+          arguments: ["-e", "process.stdout.write('aarch64 core')"],
+        });
+      },
+    );
+    const result = await provider.inspect({
+      path,
+      include_debugger_context: false,
+    });
+    if (!result.ok) throw result.error;
+    expect(result.value.architecture).toBe("aarch64-little-endian");
+    const names = result.value.threads[0]?.registers.map((r) => r.name) ?? [];
+    expect(names).toHaveLength(34);
+    expect(names[0]).toBe("x0");
+    expect(names.slice(-3)).toEqual(["sp", "pc", "pstate"]);
     expect(await readFile(path)).toEqual(bytes);
     await expect(access(owned)).rejects.toMatchObject({ code: "ENOENT" });
   },
@@ -340,13 +397,17 @@ const expectOptionalContextFailure = (
     });
 };
 
-const fixture = async (includeSignal = false, opaqueOwner = false) => {
+const fixture = async (
+  includeSignal = false,
+  opaqueOwner = false,
+  architecture: RecordedCrashArchitecture = "x86_64-little-endian",
+) => {
   const workspace = await createTestWorkspace("rea-recorded-core-seam-");
   onTestFinished(() => removeTestWorkspace(workspace.root));
   const path = join(workspace.root, "recorded.core");
   const value = includeSignal
-    ? recordedCrashSignalFixture(path)
-    : recordedCrashFixture(path);
+    ? recordedCrashSignalFixture(path, architecture)
+    : recordedCrashFixture(path, architecture);
   if (opaqueOwner) {
     value.notes = value.notes.map((note) =>
       note.index === 0
