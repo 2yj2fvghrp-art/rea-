@@ -134,8 +134,9 @@ existing analysis families directly, for example
   adb client (`binary_path`, `path_source`, `version`, `installed_path`).
 - **Window focus comes from the complete window-manager report.** Recent Android
   versions put these declarations in display state rather than the `windows`
-  subsection. Conflicting, absent or explicitly null declarations stay unknown;
-  `observed_lines` preserves the matching source lines.
+  subsection. Only live display/window sections contribute; saved ANR state is
+  excluded. Conflicting, absent or explicitly null declarations stay unknown;
+  `observed_lines` preserves the matching live source lines.
 
 ## Resource and lifecycle limits
 

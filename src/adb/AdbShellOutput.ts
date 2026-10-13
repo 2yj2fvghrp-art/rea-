@@ -172,7 +172,7 @@ export const parseWmDensityOutput = (
   return { physical, override };
 };
 
-/** Retain focus declarations from the complete window-manager report. */
+/** Resolve only live display/window declarations in the complete WM report. */
 export const parseWindowFocusOutput = (
   stdout: string,
 ): {
@@ -183,7 +183,23 @@ export const parseWindowFocusOutput = (
   const windows = new Set<string>();
   const apps = new Set<string>();
   const observedLines: string[] = [];
+  let live = false;
+  let lastAnr = false;
   for (const line of stdout.split(/\r?\n/u)) {
+    // Saved ANRs on older Android releases embed display/window dumps with
+    // their own headings. The following POLICY section, not those nested
+    // headings, ends the historical snapshot in an unqualified WM dump.
+    if (line.startsWith("WINDOW MANAGER ")) {
+      if (/^WINDOW MANAGER LAST ANR(?: STATE)?(?: \(|$)/u.test(line))
+        lastAnr = true;
+      else if (/^WINDOW MANAGER POLICY STATE(?: \(|$)/u.test(line))
+        lastAnr = false;
+      live =
+        !lastAnr &&
+        /^WINDOW MANAGER (?:DISPLAY CONTENTS|WINDOWS)(?: \(|$)/u.test(line);
+      continue;
+    }
+    if (!live) continue;
     const trimmed = line.trim();
     const match = /^(mCurrentFocus|mFocusedApp)=(.*)$/u.exec(trimmed);
     if (match === null) continue;

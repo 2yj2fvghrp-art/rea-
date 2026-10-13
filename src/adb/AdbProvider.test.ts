@@ -996,7 +996,7 @@ it("inspects the display and window focus", async () => {
     "wm:size": "Physical size: 1080x2340\n",
     "wm:density": "Physical density: 420\n",
     "dumpsys:window":
-      "WINDOW MANAGER DISPLAY CONTENTS\n  mCurrentFocus=Window{abcdef u0 com.example.app/com.example.app.MainActivity}\n",
+      "WINDOW MANAGER LAST ANR (dumpsys window lastanr)\nWINDOW MANAGER DISPLAY CONTENTS\n  mCurrentFocus=Window{old u0 old.app/.Main}\nWINDOW MANAGER POLICY STATE\nWINDOW MANAGER DISPLAY CONTENTS\n  mCurrentFocus=Window{abcdef u0 com.example.app/com.example.app.MainActivity}\n",
   });
   const { binary } = await writeAdbStub(
     (root) =>

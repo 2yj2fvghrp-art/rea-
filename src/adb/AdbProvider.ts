@@ -1115,7 +1115,7 @@ export class AdbProvider {
             {
               limitations: [
                 "Focus values are the window manager's declarations at read time; no interaction occurred",
-                "Missing, null or conflicting focus declarations remain unknown; observed_lines retains the source declarations",
+                "Only live display/window sections contribute focus; saved ANR state is excluded. Missing, null or conflicting declarations remain unknown; observed_lines retains the live source declarations",
               ],
             },
           ),

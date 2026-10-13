@@ -30,14 +30,20 @@ describe("window focus ownership", () => {
       "mCurrentFocus=Window{a u0 first/.Main}",
       "mCurrentFocus=Window{b u0 second/.Main}",
     ];
-    expect(parseWindowFocusOutput(lines.join("\n"))).toEqual({
+    expect(
+      parseWindowFocusOutput(
+        `WINDOW MANAGER DISPLAY CONTENTS\n${lines.join("\n")}`,
+      ),
+    ).toEqual({
       focusedWindow: null,
       focusedApp: null,
       observedLines: lines,
     });
   });
   it("distinguishes declared null from missing observations and accepts repeated agreement", () => {
-    expect(parseWindowFocusOutput("mCurrentFocus=null\n")).toEqual({
+    expect(
+      parseWindowFocusOutput("WINDOW MANAGER WINDOWS\nmCurrentFocus=null\n"),
+    ).toEqual({
       focusedWindow: null,
       focusedApp: null,
       observedLines: ["mCurrentFocus=null"],
@@ -45,9 +51,46 @@ describe("window focus ownership", () => {
     expect(parseWindowFocusOutput("").observedLines).toEqual([]);
     expect(
       parseWindowFocusOutput(
-        "mFocusedApp=ActivityRecord{a}\nmFocusedApp=ActivityRecord{a}",
+        "WINDOW MANAGER DISPLAY CONTENTS\nmFocusedApp=ActivityRecord{a}\nmFocusedApp=ActivityRecord{a}",
       ).focusedApp,
     ).toBe("ActivityRecord{a}");
+  });
+  it("does not promote historical, unscoped or unknown-section focus to live state", () => {
+    const live = [
+      "  mCurrentFocus=Window{live u0 current/.Main}",
+      "  mFocusedApp=ActivityRecord{live u0 current/.Main}",
+    ];
+    const historical = [
+      "WINDOW MANAGER LAST ANR STATE (dumpsys window lastanr)",
+      "  ANR time: recorded earlier",
+      "WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)",
+      "  mCurrentFocus=Window{old u0 previous/.Main}",
+      "WINDOW MANAGER WINDOWS (dumpsys window windows)",
+      "  mFocusedApp=ActivityRecord{old u0 previous/.Main}",
+    ];
+    expect(parseWindowFocusOutput(historical.join("\n"))).toEqual({
+      focusedWindow: null,
+      focusedApp: null,
+      observedLines: [],
+    });
+    expect(
+      parseWindowFocusOutput(
+        [
+          "mCurrentFocus=Window{unscoped}",
+          ...historical,
+          "WINDOW MANAGER POLICY STATE (dumpsys window policy)",
+          "mCurrentFocus=Window{policy}",
+          "WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)",
+          ...live,
+          "WINDOW MANAGER FUTURE SECTION",
+          "mCurrentFocus=Window{unknown}",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      focusedWindow: "Window{live u0 current/.Main}",
+      focusedApp: "ActivityRecord{live u0 current/.Main}",
+      observedLines: live,
+    });
   });
 });
 
