@@ -1,6 +1,9 @@
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 import { digestCanonicalValue } from "../../domain/canonicalDigest.js";
-import { hasBinaryPlistSignature } from "../../domain/apple/appleArchiveFormat.js";
+import {
+  hasBinaryPlistSignature,
+  hasXmlPlistSignature,
+} from "../../domain/apple/appleArchiveFormat.js";
 import {
   artifactEdgeId,
   artifactIdForContent,
@@ -390,6 +393,12 @@ export const classifyArtifactContent = (
   readonly format: ArtifactOccurrence["artifact_format"];
 } => {
   const format = classifyArtifactBytes(prefix, fileSize);
+  if (format === "plist" && !hasBinaryPlistSignature(prefix)) {
+    const role = classifyArtifactPath(path);
+    if (["javascript", "source-map", "entitlements"].includes(role.kind))
+      return role;
+  }
+
   if (
     format === "file" &&
     path.toLowerCase().endsWith(".asar") &&
@@ -441,7 +450,8 @@ export const classifyArtifactBytes = (
   fileSize = prefix.length,
 ): ArtifactNode["format"] => {
   if (hasZipSignature(prefix)) return "zip";
-  if (hasBinaryPlistSignature(prefix)) return "plist";
+  if (hasBinaryPlistSignature(prefix) || hasXmlPlistSignature(prefix))
+    return "plist";
   const fatFormat = classifyFatArtifact(prefix, fileSize);
   if (fatFormat !== null) return fatFormat;
   if (prefix.length >= 4) {
