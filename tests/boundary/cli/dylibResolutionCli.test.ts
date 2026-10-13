@@ -486,8 +486,8 @@ cliTest(
     ] as const) {
       const app = await fixtureApp();
       await writeFiles(app, {
-        "Contents/MacOS/App": fatImage(
-          [CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
+        "Contents/MacOS/App": fatImage([
+          ...[CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
             const setting = settings[index];
             return {
               cpu,
@@ -500,7 +500,9 @@ cliTest(
               }),
             };
           }),
-        ),
+          // Binary admission also needs a compatible slice on x64 hosts.
+          { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+        ]),
       });
       const result = await cli.run({
         arguments: [
@@ -516,7 +518,7 @@ cliTest(
       const trace = dylibResolutionResultSchema.parse(
         parseEvidence(result.json).normalized_result,
       );
-      expect(trace.roots).toHaveLength(2);
+      expect(trace.roots).toHaveLength(3);
       const environments = trace.findings
         .filter(({ kind }) => kind === "dyld-environment-present")
         .map(({ explanation }) =>
