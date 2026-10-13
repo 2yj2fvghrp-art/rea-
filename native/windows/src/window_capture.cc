@@ -424,13 +424,70 @@ void checkCaptureCancellation(const CaptureControl& control) {
   require(!control.cancelled.load(), "Selected-window capture was cancelled", L"", ERROR_OPERATION_ABORTED);
 }
 
+Handle openCaptureExecutable(const std::wstring& path) {
+  Handle file(CreateFileW(path.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+                          nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+  require(file.valid(), "Open executable for window admission failed", path);
+  require(GetFileType(file.get()) == FILE_TYPE_DISK, "Executable is not a disk file", path,
+          ERROR_NOT_SUPPORTED);
+  return file;
+}
+
+void authorizeCaptureExecutable(HANDLE target, HANDLE processImage, const std::wstring& path,
+                                const std::wstring& expectedSha256, const std::wstring& expectedFileIdentity,
+                                const CaptureControl& control) {
+  FILE_ID_INFO expected{}, observed{};
+  require(GetFileInformationByHandleEx(target, FileIdInfo, &expected, sizeof(expected)) &&
+          GetFileInformationByHandleEx(processImage, FileIdInfo, &observed, sizeof(observed)),
+          "Read capture executable identity failed", path);
+  require(expected.VolumeSerialNumber == observed.VolumeSerialNumber &&
+          std::memcmp(expected.FileId.Identifier, observed.FileId.Identifier, sizeof(expected.FileId.Identifier)) == 0,
+          "Selected process does not execute the active target file", path, ERROR_ACCESS_DENIED);
+  BY_HANDLE_FILE_INFORMATION nodeIdentity{};
+  require(GetFileInformationByHandle(target, &nodeIdentity), "Read executable stat identity failed", path);
+  const uint64_t index = (static_cast<uint64_t>(nodeIdentity.nFileIndexHigh) << 32) | nodeIdentity.nFileIndexLow;
+  require(std::to_wstring(nodeIdentity.dwVolumeSerialNumber) + L":" + std::to_wstring(index) == expectedFileIdentity,
+          "Active executable identity changed before capture", path, ERROR_INVALID_HANDLE);
+  LARGE_INTEGER size{};
+  require(GetFileSizeEx(target, &size), "Read executable size failed", path);
+  require(size.QuadPart >= 0 && size.QuadPart <= 256LL * 1024LL * 1024LL,
+          "Executable exceeds the capture admission budget", path, ERROR_NOT_ENOUGH_MEMORY);
+  Sha256Hash hash(path);
+  std::array<unsigned char, 65536> buffer;
+  LONGLONG remaining = size.QuadPart;
+  while (remaining > 0) {
+    checkCaptureCancellation(control);
+    DWORD count = 0;
+    require(ReadFile(target, buffer.data(), static_cast<DWORD>(std::min<LONGLONG>(remaining, buffer.size())),
+                     &count, nullptr), "Read capture executable bytes failed", path);
+    require(count > 0, "Executable ended before its declared size", path, ERROR_READ_FAULT);
+    hash.update(buffer.data(), count);
+    remaining -= count;
+  }
+  const auto digest = hash.finish();
+  constexpr wchar_t digits[] = L"0123456789abcdef";
+  std::wstring sha256;
+  for (const auto byte : digest) {
+    sha256.push_back(digits[byte >> 4]);
+    sha256.push_back(digits[byte & 15]);
+  }
+  require(sha256 == expectedSha256, "Active executable bytes changed before capture", path, ERROR_INVALID_DATA);
+}
+
 WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
-                          const CaptureControl& control) {
+                          const std::wstring& targetPath, const std::wstring& targetSha256,
+                          const std::wstring& targetFileIdentity, const CaptureControl& control) {
   const HWND window = reinterpret_cast<HWND>(handle);
   checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
   auto process = openProcessForCapture(pid);
   const std::wstring imagePath = processImagePath(process.get());
+  // Read-only, non-write/delete-sharing handles pin the authorized file bytes
+  // and identity through the paint request. No target handler runs first.
+  auto targetFile = openCaptureExecutable(targetPath);
+  auto processFile = openCaptureExecutable(imagePath);
+  authorizeCaptureExecutable(targetFile.get(), processFile.get(), targetPath,
+                             targetSha256, targetFileIdentity, control);
   const double startTimeMs = processStartTimeMs(process.get());
   const std::wstring title = windowTitle(window);
   RECT bounds{};
@@ -445,6 +502,8 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   SelectedObject selected(dc.get(), bitmap.get());
   DWORD_PTR ignored = 0;
   const UINT flags = PRF_CLIENT | PRF_ERASEBKGND;
+  checkCaptureCancellation(control);
+  validateWindowOwner(window, pid);
   const LRESULT delivered = SendMessageTimeoutW(window, WM_PRINT,
                                                  reinterpret_cast<WPARAM>(dc.get()), flags,
                                                  SMTO_ABORTIFHUNG | SMTO_BLOCK, CAPTURE_TIMEOUT_MS, &ignored);
@@ -477,6 +536,9 @@ struct CaptureWork {
   DWORD pid = 0;
   ULONG_PTR windowHandle = 0;
   int maximumDimension = 0;
+  std::wstring targetPath;
+  std::wstring targetSha256;
+  std::wstring targetFileIdentity;
   WindowImage image;
   std::unique_ptr<Failure> failure;
 };
@@ -486,7 +548,8 @@ void executeCapture(napi_env, void* pointer) {
   try {
     // All Win32, GDI and COM resources live and unwind on this worker thread.
     // No N-API values or JavaScript handles are accessed here.
-    work.image = captureWindow(work.pid, work.windowHandle, work.maximumDimension, *work.control);
+    work.image = captureWindow(work.pid, work.windowHandle, work.maximumDimension,
+                               work.targetPath, work.targetSha256, work.targetFileIdentity, *work.control);
   } catch (const Failure& failure) {
     work.failure = std::make_unique<Failure>(failure);
   } catch (const std::exception& failure) {
@@ -551,12 +614,18 @@ void releaseCaptureControl(napi_env, void* data, void*) {
 }  // namespace
 
 napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) {
-  require(args.size() == 3, "Selected-window capture requires pid, handle and maximum dimension", L"",
+  require(args.size() == 6, "Selected-window capture requires window inputs and active executable identity", L"",
           ERROR_INVALID_PARAMETER);
   auto work = std::make_unique<CaptureWork>();
   work->pid = positiveDword(env, args[0], "Selected process ID is invalid");
   work->windowHandle = parseWindowHandle(wide(env, args[1]));
   work->maximumDimension = positiveDimension(env, args[2]);
+  work->targetPath = wide(env, args[3]);
+  work->targetSha256 = wide(env, args[4]);
+  work->targetFileIdentity = wide(env, args[5]);
+  require(work->targetSha256.size() == 64 &&
+          work->targetSha256.find_first_not_of(L"0123456789abcdef") == std::wstring::npos,
+          "Active target SHA-256 is invalid", L"", ERROR_INVALID_PARAMETER);
   napi_value completion;
   check(napi_create_promise(env, &work->deferred, &completion));
   auto retained = std::make_unique<std::shared_ptr<CaptureControl>>(work->control);

@@ -86,8 +86,9 @@ without this lane reports Windows native controls as unavailable.
   ordinal comparison, preserving their native Unicode semantics and
   caller-selected values.
 - The selected-window PNG operation admits one caller-supplied canonical HWND
-  only after its owner PID, process start time and executable path agree with
-  the active PE application target. It renders the client area through a
+  only after its owner PID, process start time, stable executable file identity
+  and SHA-256 agree with the active PE application target. Read-only file
+  handles pin target/process-image identity and bytes before the paint request. It renders the client area through a
   five-second `WM_PRINT` request into an in-memory DIB and WIC PNG encoder.
   Rendering and encoding run as native async work. Cancellation cancels queued
   work or waits for an in-flight paint request to reach its deadline before

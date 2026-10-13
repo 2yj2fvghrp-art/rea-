@@ -122,6 +122,42 @@ std::vector<napi_value> array(napi_env env, napi_value value, uint32_t maximumLe
 napi_value wrap(napi_env env, std::unique_ptr<Resource> resource);
 Resource& resource(napi_env env, napi_value value, Kind kind);
 
+/** One owner for BCrypt SHA-256 state used by retained snapshots and capture admission. */
+class Sha256Hash {
+ public:
+  explicit Sha256Hash(std::wstring path) : path_(std::move(path)) {
+    require(BCryptOpenAlgorithmProvider(&algorithm_, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0,
+            "Initialize SHA-256 failed", path_, ERROR_GEN_FAILURE);
+    try {
+      require(BCryptCreateHash(algorithm_, &hash_, nullptr, 0, nullptr, 0, 0) == 0,
+              "Create SHA-256 state failed", path_, ERROR_GEN_FAILURE);
+    } catch (...) {
+      BCryptCloseAlgorithmProvider(algorithm_, 0);
+      throw;
+    }
+  }
+  ~Sha256Hash() {
+    BCryptDestroyHash(hash_);
+    BCryptCloseAlgorithmProvider(algorithm_, 0);
+  }
+  Sha256Hash(const Sha256Hash&) = delete;
+  Sha256Hash& operator=(const Sha256Hash&) = delete;
+  void update(const unsigned char* bytes, ULONG count) {
+    require(BCryptHashData(hash_, const_cast<PUCHAR>(bytes), count, 0) == 0,
+            "Hash source bytes failed", path_, ERROR_GEN_FAILURE);
+  }
+  std::array<unsigned char, 32> finish() {
+    std::array<unsigned char, 32> digest;
+    require(BCryptFinishHash(hash_, digest.data(), digest.size(), 0) == 0,
+            "Finish SHA-256 failed", path_, ERROR_GEN_FAILURE);
+    return digest;
+  }
+ private:
+  std::wstring path_;
+  BCRYPT_ALG_HANDLE algorithm_ = nullptr;
+  BCRYPT_HASH_HANDLE hash_ = nullptr;
+};
+
 std::unique_ptr<File> openFile(const std::wstring& path, DWORD access = GENERIC_READ,
                              bool directory = false);
 napi_value identity(napi_env env, HANDLE handle, const std::wstring& path);

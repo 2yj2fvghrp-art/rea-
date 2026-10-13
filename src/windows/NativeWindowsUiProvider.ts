@@ -24,6 +24,7 @@ import {
 } from "../domain/analysisErrorCore.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
 import {
+  MAX_WINDOWS_WINDOW_PNG_BYTES,
   windowsWindowPngSchema,
   windowsWindowHandleSchema,
   windowsWindowScreenshotInputSchema,
@@ -77,6 +78,11 @@ export interface WindowsWindowCaptureHost {
     pid: number,
     windowHandle: string,
     maximumDimension: number,
+    targetIdentity: {
+      readonly path: string;
+      readonly sha256: string;
+      readonly fileIdentity: string;
+    },
     signal?: AbortSignal,
   ): unknown;
   identifyExecutable(
@@ -86,7 +92,7 @@ export interface WindowsWindowCaptureHost {
 }
 
 const systemCaptureHost = (): WindowsWindowCaptureHost => ({
-  capture: async (pid, windowHandle, maximumDimension, signal) => {
+  capture: async (pid, windowHandle, maximumDimension, targetIdentity, signal) => {
     let authority: ReturnType<typeof requireWindowsNativeAuthority>;
     try {
       authority = requireWindowsNativeAuthority();
@@ -99,7 +105,14 @@ const systemCaptureHost = (): WindowsWindowCaptureHost => ({
       );
     }
     const work = captureWorkSchema.parse(
-      authority.call("capture_window_png", [pid, windowHandle, maximumDimension]),
+      authority.call("capture_window_png", [
+        pid,
+        windowHandle,
+        maximumDimension,
+        targetIdentity.path,
+        targetIdentity.sha256,
+        targetIdentity.fileIdentity,
+      ]),
     );
     const cancel = () => work.cancel();
     if (signal?.aborted) cancel();
@@ -222,6 +235,11 @@ export const captureWindowsWindowScreenshot = async (
       input.data.pid,
       input.data.window_handle,
       input.data.max_dimension,
+      {
+        path: target.path,
+        sha256: target.sha256,
+        fileIdentity: before.fileIdentity,
+      },
       options.signal,
     );
   } catch (cause) {
@@ -390,11 +408,17 @@ const identityError = (path: string, cause: unknown): AnalysisError => {
   if (filesystem.success) {
     if (filesystem.data.code === "EACCES" || filesystem.data.code === "EPERM")
       return new AnalysisAccessDeniedError(
-        OPERATION, path, filesystem.data.code, { cause },
+        OPERATION,
+      path,
+      filesystem.data.code,
+      { cause },
       );
     if (filesystem.data.code === "ENOENT")
       return new AnalysisArtifactChangedError(
-        OPERATION, path, "Selected executable is no longer available.", { cause },
+        OPERATION,
+        path,
+        "Selected executable is no longer available.",
+        { cause },
       );
   }
   return new AnalysisOutputError(
@@ -427,18 +451,22 @@ const captureFailure = (
     return new AnalysisAccessDeniedError(OPERATION, path, "EACCES", { cause });
   if (code === 1460 || code === 258)
     return new AnalysisTimeoutError(OPERATION, 5000, { cause });
-  if (code === 8 || code === 14 || code === 1455)
+  if ([8, 14, 1455, 0x80030070, 0x8007000e, 0x80070008].includes(code))
     return new AnalysisResourceConstraintError(
       OPERATION,
       "memory",
       nativeFailureReason(cause),
-      null,
-      { cause },
+      { maximum_png_bytes: MAX_WINDOWS_WINDOW_PNG_BYTES },
+      { cause, remediationAction: "Retry with a smaller max_dimension." },
     );
   if (code === 1400 || code === 6 || code === 87)
     return analysisInputErrorFromIssues(
       OPERATION,
-      [{ path: ["window_handle"], code: "custom", message: nativeFailureReason(cause) }],
+      [{
+        path: ["window_handle"],
+        code: "custom",
+        message: nativeFailureReason(cause),
+      }],
       { window_handle: windowHandle },
       { cause },
     );
