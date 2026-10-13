@@ -240,9 +240,15 @@ export const createElectronWrapperParameters = (
 ) => {
   const aliases = javascriptBindingAliasComponents(state);
   const writtenBindings = new Set<string>();
-  for (const bindingId of memberWritten)
-    for (const alias of aliases.get(bindingId) ?? [bindingId])
-      writtenBindings.add(alias);
+  const writtenComponents = new Set<ReadonlySet<string>>();
+  for (const bindingId of memberWritten) {
+    const component = aliases.get(bindingId);
+    if (component === undefined) writtenBindings.add(bindingId);
+    else if (!writtenComponents.has(component)) {
+      writtenComponents.add(component);
+      for (const alias of component) writtenBindings.add(alias);
+    }
+  }
   const deferred: DeferredRoot[] = [];
   const parameters = new Map<string, WrapperParameter | null>();
   const callSites = new Map<string, t.CallExpression["arguments"][]>();
