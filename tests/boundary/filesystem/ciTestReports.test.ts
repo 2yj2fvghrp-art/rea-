@@ -381,6 +381,7 @@ it("exports portable timing history and removes it on a failed, partial, or inva
 });
 
 it("recovers complete module costs from real blob reports without executing tests again", async () => {
+  const reportEnvironment = { ...process.env, GITHUB_STEP_SUMMARY: "" };
   const root = await createTestTempDirectory("rea-ci-module-timing-");
   const config = join(root, "vitest.config.mjs");
   await writeFile(
@@ -405,7 +406,7 @@ it("recovers complete module costs from real blob reports without executing test
   const run = (args: string[]) =>
     execute(process.execPath, [vitest, ...args, "--config", config], {
       cwd: root,
-      env: process.env,
+      env: reportEnvironment,
       timeout: 20_000,
     });
   await run(["run", "--reporter=blob"]);
@@ -461,7 +462,7 @@ it("recovers complete module costs from real blob reports without executing test
   const partial = await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
     env: {
-      ...process.env,
+      ...reportEnvironment,
       SHARD_RESULT: "skipped",
       SOURCE_REQUIRED: "true",
       SOURCE_RESULT: "success",
@@ -475,7 +476,11 @@ it("recovers complete module costs from real blob reports without executing test
   ).rejects.toMatchObject({ code: "ENOENT" });
   await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
-    env: { ...process.env, SHARD_RESULT: "success", MERGE_RESULT: "success" },
+    env: {
+      ...reportEnvironment,
+      SHARD_RESULT: "success",
+      MERGE_RESULT: "success",
+    },
   });
   expect(
     parseTestDurations(
@@ -510,7 +515,11 @@ it("recovers complete module costs from real blob reports without executing test
   // Even a caller accidentally marking the merge successful cannot publish this report.
   await execute(process.execPath, [fileURLToPath(script)], {
     cwd: root,
-    env: { ...process.env, SHARD_RESULT: "success", MERGE_RESULT: "success" },
+    env: {
+      ...reportEnvironment,
+      SHARD_RESULT: "success",
+      MERGE_RESULT: "success",
+    },
   });
   await expect(
     readFile(join(root, ".cache/ci-test-history/test-results.json")),
