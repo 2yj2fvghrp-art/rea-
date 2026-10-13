@@ -79,6 +79,24 @@ describe("MCP input key aliases", () => {
       }
     });
 
+  for (const compact of [false, true])
+    it(`validates alias values before dispatch ${compact ? "with" : "without"} the compact profile`, async () => {
+      const { client, received, close } = await connectCatalog(compact);
+      try {
+        for (const [tool, args] of [
+          ["procedure_pseudo_code", { address: 42 }],
+          ["search_strings", { query: "" }],
+          ["annotate_native_function", { address: "0x401000" }],
+        ] as const) {
+          const result = await client.callTool({ name: tool, arguments: args });
+          expect(result.isError, errorText(result)).toBe(true);
+          expect(received).toEqual([]);
+        }
+      } finally {
+        await close();
+      }
+    });
+
   it("still rejects an alias sent beside its canonical key and keeps other inputs unchanged", async () => {
     const { client, received, close } = await connectCatalog(false);
     try {
