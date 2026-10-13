@@ -87,8 +87,7 @@ export const resolveApktoolCommand = async (
     deadline.interruption === "cancelled"
       ? new AnalysisCancelledError("inspect_apktool_client")
       : new AnalysisTimeoutError("inspect_apktool_client", VERSION_TIMEOUT_MS, {
-          userMessage:
-            "Timed out while inspecting the Windows PATH for apktool.",
+          diagnostics: { phase: "windows_path_lookup" },
         });
   try {
     for (const entry of directories) {
