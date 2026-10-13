@@ -179,6 +179,15 @@ class GdbProtocolFailureError extends Error {
   }
 }
 
+type GdbProtocolFailure =
+  | { readonly kind: "failed"; readonly message: string }
+  | {
+      readonly kind: "interrupted-command";
+      readonly message: string;
+      readonly token: number;
+      terminalObserved: boolean;
+    };
+
 interface GdbSession {
   readonly id: string;
   readonly miVersion: "mi3" | "mi2";
@@ -207,7 +216,7 @@ interface GdbSession {
   startupReject: ((error: Error) => void) | undefined;
   commandTail: Promise<void>;
   pendingCommandCount: number;
-  protocolError: string | undefined;
+  protocolFailure: GdbProtocolFailure | undefined;
   recentRecordsTruncated: boolean;
 }
 
@@ -441,20 +450,26 @@ export class GdbSessionManager {
       startupReject: undefined,
       commandTail: Promise.resolve(),
       pendingCommandCount: 0,
-      protocolError: undefined,
+      protocolFailure: undefined,
       recentRecordsTruncated: false,
     };
     launched.process.stdout?.setEncoding("utf8");
     launched.process.stdout?.on("data", (chunk: string | Buffer) =>
       this.#receive(session, String(chunk)),
     );
+    launched.process.stdout?.on("error", (cause: Error) =>
+      this.#failProtocol(session, `GDB stdout stream failed: ${cause.message}`),
+    );
     if (launched.process.stdout === null) settleStdout();
-    else launched.process.stdout.once("end", settleStdout);
+    else {
+      launched.process.stdout.once("end", settleStdout);
+      launched.process.stdout.once("close", settleStdout);
+    }
     launched.process.stdin?.on("error", (cause: Error) =>
       this.#failProtocol(session, `GDB stdin stream failed: ${cause.message}`),
     );
     launched.process.stdin?.once("close", () => {
-      if (!session.exited && session.protocolError === undefined)
+      if (!session.exited && session.protocolFailure === undefined)
         this.#failProtocol(session, "GDB stdin stream closed unexpectedly.");
     });
     launched.process.once("exit", (code, signalCode) => {
@@ -692,11 +707,11 @@ export class GdbSessionManager {
                   cause.message,
                   errorDetails,
                 )
-              : session.protocolError !== undefined
+              : session.protocolFailure !== undefined
                 ? new AnalysisCapabilityUnavailableError(
                     "gdb",
                     "start_gdb_session",
-                    session.protocolError,
+                    session.protocolFailure.message,
                     errorDetails,
                   )
                 : startupExited
@@ -734,7 +749,7 @@ export class GdbSessionManager {
       session === undefined ||
       !session.ready ||
       session.exited ||
-      session.protocolError !== undefined
+      session.protocolFailure !== undefined
     )
       return err(
         new AnalysisInputError("gdb_console", undefined, [
@@ -750,7 +765,7 @@ export class GdbSessionManager {
       const completed = await this.#serialize(
         session,
         async () => {
-          if (session.exited || session.protocolError !== undefined)
+          if (session.exited || session.protocolFailure !== undefined)
             return err(new AnalysisInputError("gdb_console"));
           session.noInferiorVerified = false;
           if (commandMayChangeInferiorOutput(command))
@@ -818,7 +833,7 @@ export class GdbSessionManager {
               const result = cause.partial;
               return ok({ result, evidence: cause.evidence });
             }
-            if (session.protocolError !== undefined)
+            if (session.protocolFailure !== undefined)
               return err(await this.#stopAfterProtocolFailure(session, cause));
             if (cause instanceof GdbCommandProcessExitError) {
               const processExit = cause as GdbCommandProcessExitError;
@@ -895,7 +910,9 @@ export class GdbSessionManager {
       session_id: session.id,
       mi_version: session.miVersion,
       state:
-        session.exited || session.protocolError !== undefined || !session.ready
+        session.exited ||
+        session.protocolFailure !== undefined ||
+        !session.ready
           ? "closed"
           : "ready",
       recent_mi_records: [...session.lines],
@@ -1148,6 +1165,9 @@ export class GdbSessionManager {
       );
       if (match === null) continue;
       const token = Number(match[1]);
+      const failure = session.protocolFailure;
+      if (failure?.kind === "interrupted-command" && failure.token === token)
+        failure.terminalObserved = true;
       const pending = session.pending.get(token);
       if (pending === undefined) continue;
       clearTimeout(pending.timer);
@@ -1168,8 +1188,8 @@ export class GdbSessionManager {
   }
 
   #failProtocol(session: GdbSession, message: string): void {
-    if (session.protocolError !== undefined) return;
-    session.protocolError = message;
+    if (session.protocolFailure?.kind === "failed") return;
+    session.protocolFailure = { kind: "failed", message };
     for (const pending of session.pending.values()) {
       clearTimeout(pending.timer);
       pending.cleanup();
@@ -1225,8 +1245,8 @@ export class GdbSessionManager {
       "gdb",
       "gdb_console",
       stopped.status === "incomplete"
-        ? `${session.protocolError} The owned process could not be confirmed stopped: ${stopped.reason}`
-        : session.protocolError!,
+        ? `${session.protocolFailure?.message} The owned process could not be confirmed stopped: ${stopped.reason}`
+        : session.protocolFailure!.message,
       {
         cause,
         ...(stopped.status === "incomplete"
@@ -1268,11 +1288,7 @@ export class GdbSessionManager {
     if (session.noInferiorVerified) return { status: "no-inferior" };
     if (session.exited)
       throw new Error("GDB exited before inferior state could be verified.");
-    if (
-      session.protocolError !== undefined ||
-      session.pending.size > 0 ||
-      session.pendingCommandCount > 1
-    )
+    if (session.pending.size > 0 || session.pendingCommandCount > 1)
       throw new Error(
         "GDB MI state is not synchronized; inferior state is unknown.",
       );
@@ -1376,6 +1392,14 @@ export class GdbSessionManager {
     operation: "gdb_console" | "start_gdb_session" = "gdb_console",
     evidenceCommand: string = command,
   ): Promise<GdbCommandResult> {
+    // Public commands remain refused after interruption. Only cleanup may use
+    // MI again once the exact interrupted token has reached its terminal record.
+    const failure = session.protocolFailure;
+    if (
+      failure?.kind === "failed" ||
+      (failure?.kind === "interrupted-command" && !failure.terminalObserved)
+    )
+      return Promise.reject(new Error(failure.message));
     const stdin = session.launched.process.stdin;
     if (session.exited)
       return Promise.reject(new Error("GDB MI process has exited"));
@@ -1392,14 +1416,20 @@ export class GdbSessionManager {
     const token = session.nextToken++;
     return new Promise<GdbCommandResult>((resolve, reject) => {
       let abortListener!: () => void;
+      let dispatched = false;
       const cleanup = (): void => {
         signal?.removeEventListener("abort", abortListener);
       };
       let pending!: PendingCommand;
       const timer = setTimeout(() => {
         session.pending.delete(token);
-        session.protocolError =
-          "A GDB MI command timed out; untagged stream output can no longer be safely correlated with later commands.";
+        session.protocolFailure = {
+          kind: "interrupted-command",
+          token,
+          terminalObserved: !dispatched,
+          message:
+            "A GDB MI command timed out; cleanup is waiting for its terminal MI record.",
+        };
         pending.cleanup();
         const partial = this.#partialResult(pending);
         const timeout = new AnalysisTimeoutError(
@@ -1506,6 +1536,7 @@ export class GdbSessionManager {
       };
       session.pending.set(token, pending);
       abortListener = (): void => {
+        if (!session.pending.has(token)) return;
         clearTimeout(pending.timer);
         const partial = this.#partialResult(pending);
         const evidence = createEvidence(undefined, GDB_PROVIDER_IDENTITY, {
@@ -1526,8 +1557,13 @@ export class GdbSessionManager {
           ],
         });
         session.pending.delete(token);
-        session.protocolError =
-          "A GDB MI command was cancelled; owned-session shutdown was requested because output correlation can no longer be guaranteed.";
+        session.protocolFailure = {
+          kind: "interrupted-command",
+          token,
+          terminalObserved: !dispatched,
+          message:
+            "A GDB MI command was cancelled; cleanup is waiting for its terminal MI record.",
+        };
         void this.#stopDebuggerOnly(session).then(
           (stopped) => {
             pending.reject(
@@ -1560,17 +1596,14 @@ export class GdbSessionManager {
         return;
       }
       try {
-        session.launched.process.stdin?.write(
-          `${token}${command}\n`,
-          "utf8",
-          (cause?: Error | null) => {
-            if (cause)
-              this.#failProtocol(
-                session,
-                `GDB stdin write failed: ${cause.message}`,
-              );
-          },
-        );
+        dispatched = true;
+        stdin.write(`${token}${command}\n`, "utf8", (cause?: Error | null) => {
+          if (cause)
+            this.#failProtocol(
+              session,
+              `GDB stdin write failed: ${cause.message}`,
+            );
+        });
       } catch (cause) {
         this.#failProtocol(
           session,

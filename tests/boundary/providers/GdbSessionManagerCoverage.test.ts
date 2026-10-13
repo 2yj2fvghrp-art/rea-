@@ -1732,3 +1732,117 @@ it("reports command timeout when an incomplete stop cannot confirm process exit"
     );
   }
 });
+
+it.each(["cancel", "timeout"] as const)(
+  "retries safe cleanup only after the interrupted token settles (%s)",
+  async (interruption) => {
+    const tty = "/dev/pts/42";
+    const commands: string[] = [];
+    let heldToken = "";
+    let detached = false;
+    let dispatched!: () => void;
+    const commandDispatched = new Promise<void>((resolve) => {
+      dispatched = resolve;
+    });
+    const fake = createFakeSpawner((child, token, command) => {
+      commands.push(command);
+      if (command.includes("held command")) {
+        heldToken = token;
+        dispatched();
+        return;
+      }
+      if (command.includes("target-detach")) detached = true;
+      const response = command.includes("inferior-tty-show")
+        ? `^done,inferior_tty_terminal=${JSON.stringify(tty)}`
+        : command.includes("list-thread-groups")
+          ? detached
+            ? "^done,groups=[]"
+            : '^done,groups=[{id="i1",pid="123"}]'
+          : "^done";
+      child.stdout.write(`${token}${response}\n`);
+    });
+    const manager = managerWithFakeSpawner(fake.spawnProcess, {
+      commandTimeoutMs: 200,
+    });
+    const started = await manager.start(undefined, { inferiorTty: tty });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const controller = new AbortController();
+    const executing = manager.execute(
+      started.value.session_id,
+      "held command",
+      controller.signal,
+    );
+    await commandDispatched;
+    if (interruption === "cancel") controller.abort();
+    const failed = await executing;
+    expect(failed).toMatchObject({
+      ok: false,
+      error: { cleanupIncomplete: true },
+    });
+    const beforeCleanup = commands.length;
+    expect((await manager.close(started.value.session_id)).ok).toBe(false);
+    expect(commands).toHaveLength(beforeCleanup);
+    expect(fake.children[0]?.killSignals).toEqual([]);
+    fake.children[0]?.stdout.write("999999^done\n");
+    expect((await manager.close(started.value.session_id)).ok).toBe(false);
+    expect(commands).toHaveLength(beforeCleanup);
+    fake.children[0]?.stdout.write(`${heldToken}^done\n`);
+    expect(
+      (await manager.execute(started.value.session_id, "must not run")).ok,
+    ).toBe(false);
+    const closed = await manager.close(started.value.session_id);
+    expect(closed.ok).toBe(true);
+    expect(
+      commands.filter((command) => command.includes("target-detach")),
+    ).toHaveLength(1);
+    expect(fake.children[0]?.killSignals).toEqual(["SIGTERM"]);
+    expect(manager.status(started.value.session_id)).toBeUndefined();
+    if (!failed.ok) expect(failed.error.cleanupIncomplete).toBe(false);
+  },
+);
+
+it("contains stdout errors as owned protocol failures with partial evidence", async () => {
+  let dispatched!: () => void;
+  const commandDispatched = new Promise<void>((resolve) => {
+    dispatched = resolve;
+  });
+  const fake = createFakeSpawner((child, token, command) => {
+    if (command.includes("held command")) {
+      child.stdout.write('~"retained before read failure"\n');
+      dispatched();
+    } else
+      child.stdout.write(
+        command.includes("list-thread-groups")
+          ? `${token}^done,groups=[]\n`
+          : `${token}^done\n`,
+      );
+  });
+  const manager = managerWithFakeSpawner(fake.spawnProcess);
+  const started = await expectGdbSessionStarted(manager);
+  const executing = manager.execute(started.value.session_id, "held command");
+  await commandDispatched;
+  const child = fake.children[0];
+  if (child === undefined) throw new Error("Missing fake GDB process");
+  expect(() =>
+    child.stdout.emit("error", new Error("simulated read failure")),
+  ).not.toThrow();
+  const failed = await executing;
+  expect(failed).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisCapabilityUnavailableError",
+      cleanupIncomplete: true,
+      partialObservation: {
+        raw_result: { records: ['~"retained before read failure"'] },
+      },
+    },
+  });
+  if (!failed.ok)
+    expect(failed.error.message).toContain(
+      "GDB stdout stream failed: simulated read failure",
+    );
+  expect(manager.status(started.value.session_id)?.state).toBe("closed");
+  child.exit(0, null);
+  expect((await manager.close(started.value.session_id)).ok).toBe(true);
+});
