@@ -2723,7 +2723,7 @@ describe("package import alias pattern captures", () => {
     expect(outcome.resolved_path).not.toBe("safe.js");
   });
 
-  it("does not match an imports pattern key without the hash prefix", () => {
+  it("matches a hashless pattern key but reaches no file when the capture truncates the URL", () => {
     const files = aliasFiles({
       "package.json": JSON.stringify({
         imports: { "*": "./src/*.js" },
@@ -2739,10 +2739,31 @@ describe("package import alias pattern captures", () => {
       files,
     });
     expect(outcome).toMatchObject({
-      resolution_status: "external",
+      resolution_status: "not-found",
       resolved_path: null,
     });
     expect(outcome.resolved_path).not.toBe("src/#foo.js");
+  });
+
+  it("follows a hashless pattern key to a file when the target ignores the capture", () => {
+    const files = aliasFiles({
+      "package.json": JSON.stringify({
+        imports: { "*": "./safe.js" },
+      }),
+      "main.js": "",
+      "safe.js": "",
+    });
+    const outcome = resolve({
+      declaredPath: "#foo",
+      sourcePath: "main.js",
+      context: "module-specifier",
+      moduleKind: "import",
+      files,
+    });
+    expect(outcome).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "safe.js",
+    });
   });
 });
 

@@ -68,11 +68,12 @@ export const isPackageImportPatternKey = (key: string): boolean =>
  * Look up one `#` key in a package `imports` value. An exact key hit wins
  * over pattern keys. Without an exact hit, single-`*` pattern keys are tried
  * in Node's pattern-key order and a match returns the pattern target with its
- * captured substring. Only keys with the required `#` prefix participate —
- * Node rejects an `imports` map whose keys lack it, so a malformed key can
- * never produce an edge. A miss is reported as missing when every declared key
- * is also exact; if the map contains pattern keys, the miss stays
- * pattern-unresolved rather than claiming the specifier is undefined.
+ * captured substring. Keys without a `#` prefix participate too: real Node
+ * 22, 24, and 26 follow `imports: {"*": "./safe.js"}` for `#foo`, so the
+ * prefix is not a precondition for matching. A miss is reported as missing
+ * when every declared key is also exact; if the map contains pattern keys,
+ * the miss stays pattern-unresolved rather than claiming the specifier is
+ * undefined.
  */
 export const lookupExactPackageImport = (
   imports: unknown,
@@ -88,10 +89,7 @@ export const lookupExactPackageImport = (
       declared,
     };
   const pattern = matchPackagePatternKey(
-    declared.filter(
-      (candidate) =>
-        isPackageImportPatternKey(candidate) && candidate.startsWith("#"),
-    ),
+    declared.filter(isPackageImportPatternKey),
     key,
   );
   if (pattern !== null)
