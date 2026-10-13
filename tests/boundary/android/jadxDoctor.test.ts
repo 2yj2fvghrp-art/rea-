@@ -330,3 +330,30 @@ const createFakeJdk = async (root: string, major = "21"): Promise<string> => {
   await chmod(java, 0o700);
   return javaHome;
 };
+
+it("classifies Windows native ownership failures as unsupported host", async () => {
+  const originalPlatform = process.platform;
+  const originalArch = process.arch;
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  });
+  Object.defineProperty(process, "arch", { value: "x64", configurable: true });
+  try {
+    const inspection = await inspectJadxProvider({
+      REA_JADX_MCP_JAR: "/opt/jadx-headless-mcp.jar",
+    });
+
+    expect(inspection.checks[0]?.code).toBe("runtime_missing");
+    expect(inspection.checks[0]?.classification).toBe("unsupported_host");
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: originalArch,
+      configurable: true,
+    });
+  }
+});

@@ -4,15 +4,12 @@ import type {
 } from "../application/Doctor.js";
 import type { ProviderAvailability } from "../application/AnalysisProvider.js";
 import type { JsonValue } from "../domain/jsonValue.js";
-import { inspectJadxAvailability } from "./JadxConfiguration.js";
 import {
-  JADX_JAR_CONFIGURATION_REMEDIATION,
-  JADX_JAVA_PROBE_REMEDIATION,
-  JADX_JAVA_RUNTIME_REMEDIATION,
-  JADX_JVM_OPTIONS_REMEDIATION,
-  JADX_UNSUPPORTED_HOST_REMEDIATION,
-  JADX_WINDOWS_NATIVE_REMEDIATION,
-} from "./JadxRelease.js";
+  inspectJadxAvailability,
+  JADX_FAILURE_KINDS,
+  projectJadxFailureOutcome,
+  type JadxFailureKind,
+} from "./JadxConfiguration.js";
 
 /** Project the validated JADX configuration into the doctor contract. */
 export const inspectJadxProvider = async (
@@ -82,6 +79,15 @@ const configurationCheck = (
       classification: "config_drift",
     };
   }
+  // The failure kind is tagged at the configuration boundary; project its
+  // remediation and classification here instead of reinterpreting the
+  // phase/setting evidence. Every failed check keeps a remediation.
+  const outcome = projectJadxFailureOutcome(
+    availability.status === "unavailable"
+      ? asFailureKind(availability.diagnostics["failure_kind"])
+      : null,
+    configured,
+  );
   return {
     name: "configuration",
     ok: false,
@@ -90,53 +96,14 @@ const configurationCheck = (
       availability.status === "available"
         ? "Validated JADX configuration reported no JAR path."
         : availability.reason,
-    // Point at the failed requirement, selected from the failing phase: the
-    // failure codes cover multiple phases (JVM options vs Java selection,
-    // JAR inspection vs module inspection), and the diagnostics name the
-    // failed setting or phase. Every failed check keeps a remediation.
-    remediation: selectRemediation(
-      code,
-      availability.status === "unavailable" ? availability.diagnostics : {},
-    ),
-    classification:
-      code === "unsupported_host"
-        ? "unsupported_host"
-        : code === "runtime_missing"
-          ? "missing_dependency"
-          : configured
-            ? "config_drift"
-            : "missing_analysis_engine",
+    remediation: outcome.remediation,
+    classification: outcome.classification,
   };
 };
 
-/**
- * Select remediation from the failing phase, not just the failure code:
- * `open_options_invalid` covers both malformed JVM resource overrides and a
- * non-absolute JAVA_HOME; `unsupported_version` covers both a stale JDK and a
- * JAR missing bridge classes; `runtime_missing` covers both Java selection
- * and Windows process ownership; `version_unresolved` covers both unreadable
- * JAR archives and failed Java probes.
- */
-const selectRemediation = (
-  code: string | null,
-  diagnostics: Readonly<Record<string, JsonValue>>,
-): string | null => {
-  if (code === "unsupported_host") return JADX_UNSUPPORTED_HOST_REMEDIATION;
-  if (code === "runtime_missing")
-    return diagnostics["phase"] === "process-ownership"
-      ? JADX_WINDOWS_NATIVE_REMEDIATION
-      : JADX_JAVA_RUNTIME_REMEDIATION;
-  if (code === "open_options_invalid")
-    return typeof diagnostics["setting"] === "string"
-      ? JADX_JVM_OPTIONS_REMEDIATION
-      : JADX_JAVA_RUNTIME_REMEDIATION;
-  if (code === "unsupported_version")
-    return diagnostics["phase"] === "jar-inspection"
-      ? JADX_JAR_CONFIGURATION_REMEDIATION
-      : JADX_JAVA_RUNTIME_REMEDIATION;
-  if (code === "version_unresolved")
-    return diagnostics["phase"] === "module-inspection"
-      ? JADX_JAVA_PROBE_REMEDIATION
-      : JADX_JAR_CONFIGURATION_REMEDIATION;
-  return JADX_JAR_CONFIGURATION_REMEDIATION;
-};
+/** Validate the loose diagnostics tag against the boundary's failure kinds. */
+const asFailureKind = (value: JsonValue | undefined): JadxFailureKind | null =>
+  typeof value === "string" &&
+  (JADX_FAILURE_KINDS as readonly string[]).includes(value)
+    ? (value as JadxFailureKind)
+    : null;
