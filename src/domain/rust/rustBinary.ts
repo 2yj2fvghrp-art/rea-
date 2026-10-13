@@ -118,11 +118,18 @@ const checkPackages = (
   context: z.RefinementCtx,
 ): void => {
   const roots: number[] = [];
+  const edgesByPackage = new Map<
+    number,
+    z.infer<typeof dependencyEdgeSchema>[]
+  >();
+  for (const edge of metadata.dependency_edges) {
+    const grouped = edgesByPackage.get(edge.from_index);
+    if (grouped === undefined) edgesByPackage.set(edge.from_index, [edge]);
+    else grouped.push(edge);
+  }
   for (const [packageIndex, pkg] of metadata.packages.entries()) {
     if (pkg.root) roots.push(packageIndex);
-    const edges = metadata.dependency_edges.filter(
-      (edge) => edge.from_index === packageIndex,
-    );
+    const edges = edgesByPackage.get(packageIndex) ?? [];
     if (
       edges.length !== pkg.dependencies.length ||
       edges.some((edge, index) => edge.to_index !== pkg.dependencies[index])

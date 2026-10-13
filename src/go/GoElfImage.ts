@@ -259,11 +259,14 @@ const elfImageSection = ({
 }): GoImageSection => {
   const type = reader.u32(header + 4);
   const flags = reader.word(header + 8, bits);
-  const range = declaredFileRange(
+  const declared = declaredFileRange(
     reader.bytes.length,
     reader.word(header + (wide ? 24 : 16), bits),
     reader.word(header + (wide ? 32 : 20), bits),
   );
+  // SHT_NOBITS offsets and sizes do not describe stored bytes.
+  const range =
+    type === SHT_NOBITS ? { ...declared, file_backed: false } : declared;
   const compressed = (flags & 0x800n) !== 0n;
   const readOnly =
     type === 1 &&
@@ -274,6 +277,8 @@ const elfImageSection = ({
     (flags & 2n) !== 0n;
   return { name, ...range, read_only: readOnly, compressed };
 };
+
+const SHT_NOBITS = 8;
 
 const elfArchitecture = (machine: number): string => {
   const names = new Map([

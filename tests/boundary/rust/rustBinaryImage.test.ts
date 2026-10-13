@@ -96,3 +96,17 @@ it("refuses a universal Mach-O container", () => {
   );
   expect(() => readRustBinaryImage(fat([0x0100000c]))).toThrow(/thin slice/);
 });
+
+it("does not read SHT_NOBITS dependency sections as stored bytes", () => {
+  const bytes = createRustImage({ format: "elf" });
+  // The fixture writes the .dep-v0 section header at byte 384.
+  bytes.writeUInt32LE(8, 384 + 4);
+  let metadata: unknown;
+  try {
+    metadata = readRustBinaryImage(bytes).auditable_metadata;
+  } catch (cause: unknown) {
+    expect(cause).toBeInstanceOf(RustAuditableFormatFailure);
+    return;
+  }
+  expect(metadata).toBeNull();
+});
