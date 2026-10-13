@@ -96,12 +96,15 @@ export class SemanticFileGraphBudget {
     this.#incomplete = true;
   }
 
-  /** Reserve temporary full facts before retaining them in projection indexes. */
+  /**
+   * Reserve temporary full facts before retaining them in projection indexes.
+   * Scratch shares the byte limit; the node limit counts admitted nodes only,
+   * so pending nodes are offered in order until it refuses one.
+   */
   reservePending(
     id: string,
     fact: SemanticFact,
     contexts: JavaScriptSemanticEvidenceContextRegistry,
-    node: boolean,
   ): boolean {
     if (this.#closed) return false;
     const contextId = fact.evidence.context_id;
@@ -112,14 +115,8 @@ export class SemanticFileGraphBudget {
         : serializedSemanticFactBytes(contexts.context(contextId));
     const bytes = serializedSemanticFactBytes(fact);
     if (
-      (this.limit !== null &&
-        this.#used + this.#pendingBytes + bytes + contextBytes > this.limit) ||
-      (node &&
-        this.nodeLimit !== null &&
-        this.#nodes + this.pendingNodes.size >= this.nodeLimit) ||
-      (!node &&
-        this.nodeLimit !== null &&
-        this.deferredUnknowns.size >= this.nodeLimit)
+      this.limit !== null &&
+      this.#used + this.#pendingBytes + bytes + contextBytes > this.limit
     ) {
       this.#closed = true;
       this.markIncomplete();

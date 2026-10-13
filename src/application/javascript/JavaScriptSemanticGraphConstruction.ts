@@ -256,9 +256,7 @@ export const addSemanticGraphNode = (
     return node;
   }
   if (node.kind !== "module") {
-    if (
-      !budget.reservePending(node.node_id, node, state.evidenceContexts, true)
-    )
+    if (!budget.reservePending(node.node_id, node, state.evidenceContexts))
       return null;
     budget.pendingNodes.set(node.node_id, node);
     return node;
@@ -400,12 +398,7 @@ export const addSemanticGraphUnknown = (
   }
   budget.countUnknown(unknown);
   if (
-    budget.reservePending(
-      unknown.unknown_id,
-      unknown,
-      state.evidenceContexts,
-      false,
-    )
+    budget.reservePending(unknown.unknown_id, unknown, state.evidenceContexts)
   )
     budget.deferredUnknowns.set(unknown.unknown_id, unknown);
 };
