@@ -106,6 +106,40 @@ const target = (mips: MipsElfMetadata) => ({
 });
 
 for (const little of [true, false]) {
+  it(`refuses typed GNU attributes before inferring an ABI (${little ? "LE" : "BE"})`, async () => {
+    const bytes = fixture(little);
+    const u32 = (value: number, offset: number) =>
+      little
+        ? bytes.writeUInt32LE(value, offset)
+        : bytes.writeUInt32BE(value, offset);
+    // Keep the independently declared FPXX program record; add a conflicting
+    // legacy GNU soft-float attribute. Type, not section name, owns discovery.
+    u32(0x6ffffff5, 172);
+    u32(abiOffset + 24, 184);
+    u32(16, 188);
+    bytes[abiOffset + 24] = 0x41;
+    u32(15, abiOffset + 25);
+    bytes.write("gnu\0", abiOffset + 29, "ascii");
+    bytes[abiOffset + 33] = 1;
+    u32(7, abiOffset + 34);
+    bytes[abiOffset + 38] = 4;
+    bytes[abiOffset + 39] = 3;
+    const result = await inspect(bytes, little);
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error("Expected uninspected attribute refusal");
+    assert.match(
+      result.error,
+      /SHT_GNU_ATTRIBUTES.*cannot be treated as absent/u,
+    );
+    // Refusal does not allocate from an untrusted attribute-section size.
+    u32(0xffffffff, 188);
+    const oversized = await inspect(bytes, little);
+    assert.equal(oversized.ok, false);
+    const path = await writeFixture(bytes);
+    const resolved = await parseBinaryTarget(path);
+    assert.equal(resolved.ok, false);
+    assert.deepEqual(await readFile(path), bytes);
+  });
   it(`reads a remote ABI record through both ELF tables (${little ? "LE" : "BE"})`, async () => {
     const bytes = fixture(little);
     const result = await inspect(bytes, little);

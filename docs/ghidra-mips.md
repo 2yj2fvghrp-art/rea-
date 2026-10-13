@@ -8,6 +8,23 @@ PSP/Allegrex has a [separate static-ELF profile](ghidra-psp.md) tracked in
 
 ## Admission boundary
 
+MIPS I remains unsupported. The generic Ghidra MIPS processor's immediate load
+assignment does not establish MIPS I load-delay behavior; correctly decoding a
+small integer fixture does not verify its decompiler/dataflow semantics.
+
+The ELF metadata reader refuses typed `SHT_GNU_ATTRIBUTES` sections before
+provider selection. GNU MIPS ABI attributes can declare floating-point storage
+that differs from MIPS ABI-flags records. Until this declaration source is parsed
+and reconciled, its presence must not be treated as recordless absence. Section
+names and attacker-controlled section sizes do not bypass that refusal.
+
+After building, `node scripts/verify-real-ghidra-mips-boundaries.mjs` checks both
+byte orders through production CLI/MCP. GNU readelf independently decodes the
+soft-float attribute fixture; MIPS I and uninspected GNU attributes are refused,
+while a recordless MIPS32 control still produces a real Ghidra dossier and exact
+loaded bytes. Supply existing Ghidra/Java and GNU readelf (`REA_READELF`). Source
+hashes are checked after inspection, and no target is executed.
+
 ELF `EM_MIPS` is retained as the provider-neutral `mips` family. The target also
 retains class, byte order, `e_type`, raw `e_flags`, and inspected ABI declarations.
 Recognition does not mean every provider or MIPS variant is supported. Existing
