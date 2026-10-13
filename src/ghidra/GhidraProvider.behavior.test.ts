@@ -466,7 +466,9 @@ describe("Ghidra Windows PE fixture admission", () => {
         }
         // ARM and ARM64 PE are admitted on Windows P0 (bounded; see
         // docs/windows-ghidra-p0.md). Real-provider verification uses
-        // source-built ARM64 PE fixtures via `npm run verify:ghidra`.
+        // handcrafted ARM64 PE fixtures via
+        // `npm run verify:ghidra:windows -- --arm64`.
+        // Compiler-produced coverage remains pending.
         for (const arch of ["arm", "arm64"] as const) {
           expect(
             ghidra.inspectTargetSupport({ ...target, architecture: arch })

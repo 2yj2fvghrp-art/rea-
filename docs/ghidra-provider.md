@@ -175,7 +175,8 @@ and project, endpoint, process, and runtime cleanup. The independent native
 lane checks DACLs, handle admission, cancellation, and Job Object lifecycle.
 `npm run verify:ghidra:windows:package` packs and installs REA into an isolated
 prefix, then checks ordinary-user CLI/MCP operations against canonical contracts.
-It accepts the same architecture and DLL flags and verifies the selected PE role
+It accepts `--x86` and `--dll` (including their combination); `--arm64` is
+not implemented in the packaged lane. It verifies the selected PE role
 in the analysis profile.
 All lanes require matching native controls; package startup alone establishes
 only package compatibility.
