@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 
+/** Match the native owner's ordinary spelling only for extended local drive paths. */
+const localDrivePath = (path: string): string =>
+  path.replace(/^\\\\\?\\(?=[A-Za-z]:\\)/u, "");
+
 const guardianSource = fileURLToPath(
   new URL("../../scripts/rea-android-workspace-guardian.mjs", import.meta.url),
 );
@@ -140,8 +144,8 @@ class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
       );
       const observation = readySchema.parse(JSON.parse(line));
       if (
-        win32.dirname(observation.path).toLowerCase() !==
-          win32.resolve(parent).toLowerCase() ||
+        win32.dirname(localDrivePath(observation.path)).toLowerCase() !==
+          localDrivePath(win32.resolve(parent)).toLowerCase() ||
         !/^rea-android-[a-f0-9]{32}$/u.test(win32.basename(observation.path))
       )
         throw new Error(
