@@ -17,7 +17,7 @@
 
 <a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
 
-**[网站](https://rea.tools/zh-CN/) · [指南](https://rea.tools/zh-CN/guides/) · [案例](https://rea.tools/zh-CN/showcase/)**
+**[网站](https://rea.tools/zh-CN/) · [指南](https://rea.tools/zh-CN/guides/) · [可复现演示](https://rea.tools/zh-CN/demos/) · [案例](https://rea.tools/zh-CN/showcase/)**
 
 [快速开始](#快速开始) · [REA 的工作原理](#rea-的工作原理) · [可以分析什么](#可以分析什么) · [案例](#案例) · [常见问题](#常见问题) · [文档](#文档)
 
@@ -139,12 +139,16 @@ REA 需要 Node.js 22.x（>=22.19）、24.x（>=24.11）或 26+，以及 npm。�
 | JavaScript / Electron | 模块、导入、source map、路由、IPC 和原生扩展关系              | Node.js 和 npm；[应用分析](https://rea.tools/zh-CN/guides/javascript/)                                                 |
 | 网站                  | 页面结构、脚本、网络观察结果和按请求获取的截图                | Chrome 系浏览器；[浏览器分析](https://rea.tools/zh-CN/guides/browser/)                                                 |
 | 已保存的网络捕获      | 请求、响应、可访问的载荷和来源位置                            | HAR；原生 mitmproxy 捕获需要 Linux 上的 mitmdump；[捕获指南](docs/web-network-captures.md)                             |
+| 数据包捕获            | 端点、DNS、TLS SNI、协议分布和 HTTP 请求                      | 调用方提供的 tshark 和 capinfos；[pcap 指南](docs/pcap-analysis.md)                                                    |
 | .NET 程序集           | 元数据、CIL 指令、声明的原生依赖和构建对比                    | 静态检查；[托管代码指南](docs/managed-code-analysis.md)                                                                |
 | Android APK           | 清单声明、类、反编译的方法和引用                              | Linux/macOS/Windows x64 上的无界面 JADX 和完整 JDK；[Android 指南](docs/android-analysis.md)                           |
 | Android 设备          | 设备、软件包、进程、日志、转储、屏幕截图以及 APK/文件传输     | 调用方提供的 adb（模拟器或实体设备）；[ADB 指南](docs/adb-device-analysis.md)                                          |
 | JEB 项目              | 引擎支持的项目单元、工件摘要和类型/方法的伪代码               | 由调用方启动、提供 MCP 的 JEB 客户端，通过 REA_JEB_MCP_URL 选择；[JEB 指南](docs/jeb-analysis.md)                      |
 | Android 资源          | 解码后的清单、字符串表、语言区域和版本信息                    | 调用方提供的 Apktool 启动器；[资源指南](docs/apktool-resource-analysis.md)                                             |
+| Flutter 应用          | Dart 快照哈希、按 ABI 的库摘要及引擎构建溯源                  | 无（静态 APK 解析）；[Flutter 指南](docs/flutter-analysis.md)                                                          |
 | 固件                  | 区域、提取结果和转交原生分析的内容                            | Linux 上的 Binwalk / Unblob；[固件指南](docs/firmware-analysis.md)                                                     |
+| 抓包文件              | 指定字段、重复值、过滤条件与解码规则                          | Linux: TShark 4.x + prlimit; [抓包分析指南](docs/packet-captures.md)                                                   |
+| 录制的逻辑信号        | 解码注释、样本范围和诊断信息                                  | Linux: sigrok-cli 0.7.2 + prlimit; [信号记录指南](docs/signal-recordings.md)                                           |
 | 软件包与资源          | 文件清单、摘要、plist、Apple bundle 结构和提取的资源          | [制品与 JavaScript 指南](docs/javascript-artifact-reconstruction.md)、[Apple 应用](docs/apple-application-analysis.md) |
 | 进程行为              | 终端输出、交互、退出和文件系统观察结果，以及运行对比          | 支持原生 PTY 的 Linux/macOS；[进程捕获](docs/process-capture.md)                                                       |
 
@@ -249,6 +253,8 @@ npx rea-agents@latest setup
 
 可以先阅读网站上的[实操指南](https://rea.tools/zh-CN/guides/)。具体选项、前提条件和结果契约见：
 
+[可复现演示](https://rea.tools/zh-CN/demos/)
+
 - [安装与设置](docs/installation.md)：智能体注册、提供方配置、更新和卸载。
 - [就绪检查与故障排查](docs/installation.md#check-readiness-for-your-task)：诊断特定智能体或分析引擎。
 - [CLI 与 Evidence](docs/cli.md)：命令、提供方选择、快照、导入/导出和退出状态。
@@ -260,7 +266,7 @@ npx rea-agents@latest setup
 
 ## Star 历史
 
-🎉 **GitHub Star 达到 90,000 个，感谢大家！**
+🎉 **GitHub Star 达到 170,000 个，感谢大家！**
 
 感谢每一位使用 REA、报告错误、提出功能需求、测试构建和贡献修复的朋友。
 
@@ -274,7 +280,12 @@ npx rea-agents@latest setup
 
 ## 免责声明
 
-REA 为合法的逆向工程研究、分析和重建提供工具。你有责任取得所需授权并遵守适用法律。项目不支持非法或未经授权的使用。
+负责任使用的相关指引请见 [DISCLAIMER.md](DISCLAIMER.md)。
+
+REA 用于合法的研究、教育、互操作性、软件保存，以及分析你拥有或获准检查的软件。
+
+本项目对非法或未经授权使用的立场涵盖所有 REA 版本、分发渠道和运行平台；
+每份副本仍适用其随附的许可。
 
 ## 参与贡献
 
@@ -285,3 +296,11 @@ REA 为合法的逆向工程研究、分析和重建提供工具。你有责任�
 ## 许可证
 
 [MIT](LICENSE)
+
+REA 自行编写的代码采用 MIT 许可；第三方内容保留各自的许可和著作权声明。
+依赖清单、许可原文及外部工具条款见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+**用户须自行合法取得商用工具及所需使用权**，包括 IDA Pro / Hex-Rays 反编译器、
+Hopper 和 JEB，并遵守各自许可。REA 不提供工具许可、密钥或激活权利；试用版和
+演示版也须遵守厂商对用户、功能、自动化及输出分享的限制。不得使用破解副本、
+窃取或违规共用密钥，也不得绕过许可限制。本指引不变更 MIT 或第三方许可。

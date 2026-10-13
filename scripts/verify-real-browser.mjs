@@ -292,6 +292,7 @@ try {
   });
   process.stderr.write("Browser verifier: demo portfolio comparison\n");
   const demoCaptures = [];
+  const demoResults = {};
   for (const variant of ["baseline", "changed"]) {
     demoCaptures.push(
       await runScenarioCli({
@@ -316,6 +317,21 @@ try {
         capture: { at_end: ["dom", "accessibility", "url"] },
       }),
     );
+    const final = demoCaptures.at(-1).normalized_result.steps.at(-1);
+    const dom = final?.artifacts.dom;
+    const observedResult =
+      dom?.state === "captured"
+        ? dom.value.text.match(
+            /<output\b[^>]*\bid=["']result["'][^>]*>([^<]*)<\/output>/iu,
+          )?.[1]
+        : undefined;
+    const expectedResult =
+      variant === "changed" ? "Exported 3 notes" : "Exported 2 notes";
+    if (observedResult !== expectedResult)
+      throw new Error(
+        `Demo ${variant} captured output was ${JSON.stringify(observedResult)}, expected ${JSON.stringify(expectedResult)}`,
+      );
+    demoResults[variant] = observedResult;
   }
   const demoComparison = await runScenarioComparisonCli(...demoCaptures);
   const demoComparisonResult = demoComparison.normalized_result;
@@ -434,8 +450,8 @@ try {
     scenarioStorage,
     demoPortfolioComparison: {
       mocked: false,
-      baseline: "Exported 2 notes",
-      changed: "Exported 3 notes",
+      baseline: demoResults.baseline,
+      changed: demoResults.changed,
       alignment: demoComparisonResult.alignment.status,
       overall_status: demoComparisonResult.overall_status,
       changed_dom_artifacts: demoComparisonResult.steps.reduce(
