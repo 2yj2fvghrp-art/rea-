@@ -37,6 +37,13 @@ const EVENT_REMOVE_METHODS = [
   "removeListener",
   "removeAllListeners",
 ] as const;
+/**
+ * Methods whose argument position 1 names a listener. `removeAllListeners`
+ * takes only an optional event name, and `emit` passes its remaining
+ * arguments as data to listeners that already exist.
+ */
+const EVENT_LISTENER_METHODS: readonly JavaScriptSemanticEventOperation["method"][] =
+  [...EVENT_REGISTER_METHODS, "off", "removeListener"];
 const EVENT_METHODS = [
   ...EVENT_REGISTER_METHODS,
   ...EVENT_REMOVE_METHODS,
@@ -137,10 +144,9 @@ const collectEvent = (
   if (method === undefined) return;
   const kind = eventKind(method);
   const eventArgument = node.arguments[0];
-  // Registration and removal name the listener in argument position 1. An
-  // emit passes its remaining arguments as data to listeners that already
-  // exist, so a dispatch has no listener of its own.
-  const listenerArgument = kind === "dispatch" ? undefined : node.arguments[1];
+  const listenerArgument = EVENT_LISTENER_METHODS.includes(method)
+    ? node.arguments[1]
+    : undefined;
   const emitter = emitterIdentity(member.object, state);
   const eventName = dataEffectLiteralString(eventArgument);
   output.push({

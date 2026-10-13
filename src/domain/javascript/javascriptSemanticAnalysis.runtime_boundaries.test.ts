@@ -142,6 +142,7 @@ describe("JavaScript semantic analysis: event dispatch data", () => {
       bus.emit("ready", data);
       bus.emit("ready");
       bus.off("ready", handler);
+      bus.removeAllListeners("ready", data);
     `);
     const handler = ir.bindings.find(({ name }) => name === "handler");
     expect(handler).toBeDefined();
@@ -179,6 +180,12 @@ describe("JavaScript semantic analysis: event dispatch data", () => {
         listenerBindingId: handler?.bindingId,
         hasListenerLocation: true,
       },
+      {
+        kind: "remove",
+        method: "removeAllListeners",
+        listenerBindingId: null,
+        hasListenerLocation: false,
+      },
     ]);
     expect(
       ir.eventOperations.map(({ eventName, resolution }) => [
@@ -186,6 +193,7 @@ describe("JavaScript semantic analysis: event dispatch data", () => {
         resolution,
       ]),
     ).toEqual([
+      ["ready", "complete"],
       ["ready", "complete"],
       ["ready", "complete"],
       ["ready", "complete"],
