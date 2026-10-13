@@ -172,23 +172,50 @@ export const parseWmDensityOutput = (
   return { physical, override };
 };
 
-/** Parse the focus declarations from `dumpsys window windows`. */
+/** Resolve only live display/window declarations in the complete WM report. */
 export const parseWindowFocusOutput = (
   stdout: string,
 ): {
   focusedWindow: string | null;
   focusedApp: string | null;
+  observedLines: readonly string[];
 } => {
-  let focusedWindow = null;
-  let focusedApp = null;
+  const windows = new Set<string>();
+  const apps = new Set<string>();
+  const observedLines: string[] = [];
+  let live = false;
+  let lastAnr = false;
   for (const line of stdout.split(/\r?\n/u)) {
+    // Saved ANRs on older Android releases embed display/window dumps with
+    // their own headings. The following POLICY section, not those nested
+    // headings, ends the historical snapshot in an unqualified WM dump.
+    if (line.startsWith("WINDOW MANAGER ")) {
+      if (/^WINDOW MANAGER LAST ANR(?: STATE)?(?: \(|$)/u.test(line))
+        lastAnr = true;
+      else if (/^WINDOW MANAGER POLICY STATE(?: \(|$)/u.test(line))
+        lastAnr = false;
+      live =
+        !lastAnr &&
+        /^WINDOW MANAGER (?:DISPLAY CONTENTS|WINDOWS)(?: \(|$)/u.test(line);
+      continue;
+    }
+    if (!live) continue;
     const trimmed = line.trim();
-    if (focusedWindow === null && trimmed.startsWith("mCurrentFocus="))
-      focusedWindow = trimmed.slice("mCurrentFocus=".length).trim();
-    if (focusedApp === null && trimmed.startsWith("mFocusedApp="))
-      focusedApp = trimmed.slice("mFocusedApp=".length).trim();
+    const match = /^(mCurrentFocus|mFocusedApp)=(.*)$/u.exec(trimmed);
+    if (match === null) continue;
+    observedLines.push(line);
+    (match[1] === "mCurrentFocus" ? windows : apps).add(match[2]!.trim());
   }
-  return { focusedWindow, focusedApp };
+  const unique = (values: ReadonlySet<string>): string | null => {
+    if (values.size !== 1) return null;
+    const value = values.values().next().value!;
+    return value === "" || value === "null" ? null : value;
+  };
+  return {
+    focusedWindow: unique(windows),
+    focusedApp: unique(apps),
+    observedLines,
+  };
 };
 
 export interface AdbPackageDetails {
