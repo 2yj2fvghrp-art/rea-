@@ -5,6 +5,7 @@ import {
   semanticRequireOrigin,
   semanticRequireExportsIdentity,
   semanticGlobalProcessOrigin,
+  semanticMutableBuiltinOrigin,
 } from "./javascriptSemanticRequireOrigin.js";
 import type { JavaScriptModuleOrigin } from "./javascriptSemanticIr.js";
 import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
@@ -19,6 +20,8 @@ import {
   resolveSemanticBindingState,
   type JavaScriptSemanticAnalysisState,
   type JavaScriptSemanticBindingState,
+  type JavaScriptSemanticMemberEffect,
+  type JavaScriptSemanticRequiredModuleEffect,
 } from "./javascriptSemanticState.js";
 import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 import {
@@ -200,6 +203,8 @@ export const builtinDataEffectMethod = (
     : null;
 };
 
+type BuiltinBindingMemo = Map<t.Node, Map<string, readonly string[] | null>>;
+
 const builtinBindingPath = (
   binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
@@ -208,6 +213,40 @@ const builtinBindingPath = (
   selectedPath: readonly string[] = [],
   callableValue = false,
   visited: ReadonlySet<string> = new Set(),
+  memo: BuiltinBindingMemo = new Map(),
+): readonly string[] | null => {
+  if (binding === undefined) return null;
+  const key = JSON.stringify([binding.bindingId, selectedPath, callableValue]);
+  let captured = memo.get(capture);
+  if (captured?.has(key)) return captured.get(key) ?? null;
+  if (visited.has(binding.bindingId)) return null;
+  if (captured === undefined) {
+    captured = new Map();
+    memo.set(capture, captured);
+  }
+  const result = computeBuiltinBindingPath(
+    binding,
+    state,
+    specifiers,
+    capture,
+    selectedPath,
+    callableValue,
+    visited,
+    memo,
+  );
+  captured.set(key, result);
+  return result;
+};
+
+const computeBuiltinBindingPath = (
+  binding: JavaScriptSemanticBindingState | undefined,
+  state: JavaScriptSemanticAnalysisState,
+  specifiers: readonly string[],
+  capture: t.Node,
+  selectedPath: readonly string[] = [],
+  callableValue = false,
+  visited: ReadonlySet<string>,
+  memo: BuiltinBindingMemo,
 ): readonly string[] | null => {
   if (binding === undefined || visited.has(binding.bindingId)) return null;
   // Provenance identifies the module, independently of whether a selected slot
@@ -222,7 +261,7 @@ const builtinBindingPath = (
           state.parentsByNode,
         ),
     ) ||
-    binding.escapedPaths.some(
+    builtinEscapes(binding, state, specifiers).some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
         // A function-value escape cannot replace its native [[Call]]. An
@@ -232,8 +271,7 @@ const builtinBindingPath = (
           capture,
           node,
           state.parentsByNode,
-        ) &&
-        !originalBuiltinReceiver(node, binding, state, specifiers),
+        ),
     )
   )
     return null;
@@ -248,13 +286,13 @@ const builtinBindingPath = (
   )
     return null;
   let resolvedPath: readonly string[] = importedPath;
-  for (const origin of binding.directOrigins)
+  for (const origin of binding.directOrigins) {
+    const shared = semanticMutableBuiltinOrigin(origin);
     if (
-      origin.resolutionMode === "require" &&
-      origin.importedPath.length === 0 &&
+      shared !== undefined &&
       requiredModuleChanged(
-        origin.specifier,
-        selectedPath,
+        shared.specifier,
+        [...shared.importedPath, ...selectedPath],
         capture,
         binding,
         state,
@@ -263,6 +301,7 @@ const builtinBindingPath = (
       )
     )
       return null;
+  }
   const ancestors = new Set([...visited, binding.bindingId]);
   for (const initializer of binding.initializers) {
     const pending = [
@@ -285,6 +324,7 @@ const builtinBindingPath = (
           current.path,
           callableValue,
           ancestors,
+          memo,
         );
         if (sourcePath === null) return null;
         // Normalize ESM default namespaces at their owner before projecting an alias.
@@ -375,6 +415,117 @@ const affectsBuiltinPath = (
     semanticPropertyPathKeyMatches(key, selected[index]!),
   );
 
+const BUILTIN_RECEIVER_METHODS: Readonly<Record<string, ReadonlySet<string>>> =
+  {
+    fs: new Set([
+      "readFile",
+      "readFileSync",
+      "writeFile",
+      "writeFileSync",
+      "open",
+      "openSync",
+      "close",
+      "closeSync",
+      "createReadStream",
+      "createWriteStream",
+    ]),
+    "fs/promises": new Set(["readFile", "writeFile", "open"]),
+    net: new Set(["connect", "createConnection"]),
+    http: new Set(["request", "get"]),
+    https: new Set(["request", "get"]),
+    child_process: new Set(["spawn", "exec", "execFile", "fork"]),
+    process: new Set(["cwd", "uptime", "hrtime", "nextTick"]),
+    timers: new Set([
+      "setTimeout",
+      "setInterval",
+      "setImmediate",
+      "clearTimeout",
+      "clearInterval",
+      "clearImmediate",
+    ]),
+  };
+
+interface BuiltinEffectIndex {
+  readonly writesByModule: Map<
+    string,
+    readonly JavaScriptSemanticRequiredModuleEffect[]
+  >;
+  readonly moduleEffects: Map<
+    string,
+    readonly JavaScriptSemanticRequiredModuleEffect[]
+  >;
+  readonly bindingEscapes: Map<
+    string,
+    readonly JavaScriptSemanticMemberEffect[]
+  >;
+  readonly receivers: WeakMap<t.Node, Map<string, boolean>>;
+}
+
+// Derived passes run after mutation collection. These indexes share that state's
+// lifetime and never cache facts while its mutation owner is still producing them.
+const builtinEffectIndexes = new WeakMap<
+  JavaScriptSemanticAnalysisState,
+  BuiltinEffectIndex
+>();
+
+const builtinEffectIndex = (
+  state: JavaScriptSemanticAnalysisState,
+): BuiltinEffectIndex => {
+  let index = builtinEffectIndexes.get(state);
+  if (index === undefined) {
+    index = {
+      writesByModule: new Map(
+        [...state.requiredModuleEffects].map(([name, effects]) => [
+          name,
+          effects.filter(({ kind }) => kind === "write"),
+        ]),
+      ),
+      moduleEffects: new Map(),
+      bindingEscapes: new Map(),
+      receivers: new WeakMap(),
+    };
+    builtinEffectIndexes.set(state, index);
+  }
+  return index;
+};
+
+const builtinEscapes = (
+  binding: JavaScriptSemanticBindingState,
+  state: JavaScriptSemanticAnalysisState,
+  specifiers: readonly string[],
+): readonly JavaScriptSemanticMemberEffect[] => {
+  const cache = builtinEffectIndex(state).bindingEscapes;
+  const key = JSON.stringify([binding.bindingId, specifiers]);
+  let effects = cache.get(key);
+  if (effects === undefined) {
+    effects = binding.escapedPaths.filter(
+      ({ node }) => !originalBuiltinReceiver(node, binding, state, specifiers),
+    );
+    cache.set(key, effects);
+  }
+  return effects;
+};
+
+const builtinModuleEffects = (
+  specifier: string,
+  binding: JavaScriptSemanticBindingState | undefined,
+  state: JavaScriptSemanticAnalysisState,
+  specifiers: readonly string[],
+): readonly JavaScriptSemanticRequiredModuleEffect[] => {
+  const cache = builtinEffectIndex(state).moduleEffects;
+  const key = JSON.stringify([specifier, binding?.bindingId, specifiers]);
+  let effects = cache.get(key);
+  if (effects === undefined) {
+    effects = (state.requiredModuleEffects.get(specifier) ?? []).filter(
+      ({ kind, node }) =>
+        kind === "write" ||
+        !originalBuiltinReceiver(node, binding, state, specifiers),
+    );
+    cache.set(key, effects);
+  }
+  return effects;
+};
+
 /** Check shared exports at the use or method-capture point, not at every later call. */
 const requiredModuleChanged = (
   specifier: string,
@@ -386,7 +537,12 @@ const requiredModuleChanged = (
   callableValue = false,
 ): boolean => {
   const identity = semanticRequireExportsIdentity(specifier, selected);
-  return (state.requiredModuleEffects.get(identity.specifier) ?? []).some(
+  return builtinModuleEffects(
+    identity.specifier,
+    binding,
+    state,
+    specifiers,
+  ).some(
     ({ path, node, kind }) =>
       affectsBuiltinPath(path, identity.path) &&
       !semanticTopLevelEffectFollowsCapture(
@@ -395,13 +551,39 @@ const requiredModuleChanged = (
         state.parentsByNode,
       ) &&
       (kind === "write" ||
-        ((!callableValue || path.length < identity.path.length) &&
-          !originalBuiltinReceiver(node, binding, state, specifiers))),
+        !callableValue ||
+        path.length < identity.path.length),
   );
 };
 
 /** Calling an unchanged built-in as a member is not an escape to unknown code. */
 const originalBuiltinReceiver = (
+  node: t.Node | undefined,
+  binding: JavaScriptSemanticBindingState | undefined,
+  state: JavaScriptSemanticAnalysisState,
+  specifiers: readonly string[],
+): boolean => {
+  if (node === undefined) return false;
+  const receivers = builtinEffectIndex(state).receivers;
+  let cached = receivers.get(node);
+  if (cached === undefined) {
+    cached = new Map();
+    receivers.set(node, cached);
+  }
+  const key = JSON.stringify([binding?.bindingId, specifiers]);
+  const previous = cached.get(key);
+  if (previous !== undefined) return previous;
+  const result = computeOriginalBuiltinReceiver(
+    node,
+    binding,
+    state,
+    specifiers,
+  );
+  cached.set(key, result);
+  return result;
+};
+
+const computeOriginalBuiltinReceiver = (
   node: t.Node | undefined,
   binding: JavaScriptSemanticBindingState | undefined,
   state: JavaScriptSemanticAnalysisState,
@@ -440,14 +622,16 @@ const originalBuiltinReceiver = (
   ]);
   if (
     method === null ||
+    !BUILTIN_RECEIVER_METHODS[origin.specifier]?.has(method) ||
     receiver?.memberWrites.some(
       ({ path, node: write }) =>
         affectsBuiltinPath(path, [method]) &&
         !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
     ) ||
-    (state.requiredModuleEffects.get(identity.specifier) ?? []).some(
-      ({ path, node: write, kind }) =>
-        kind === "write" &&
+    (
+      builtinEffectIndex(state).writesByModule.get(identity.specifier) ?? []
+    ).some(
+      ({ path, node: write }) =>
         affectsBuiltinPath(path, identity.path) &&
         !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
     )

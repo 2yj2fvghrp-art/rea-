@@ -37,6 +37,10 @@ export interface JavaScriptSemanticMemberEffect {
   readonly node: t.Node | undefined;
 }
 
+export interface JavaScriptSemanticRequiredModuleEffect extends JavaScriptSemanticMemberEffect {
+  readonly kind: "write" | "escape";
+}
+
 export interface JavaScriptSemanticBindingState {
   readonly bindingId: string;
   readonly scopeId: string;
@@ -76,9 +80,7 @@ export interface JavaScriptSemanticAnalysisState {
   /** Effects on a cached require exports object, independent of local projections. */
   readonly requiredModuleEffects: Map<
     string,
-    (JavaScriptSemanticMemberEffect & {
-      readonly kind: "write" | "escape";
-    })[]
+    JavaScriptSemanticRequiredModuleEffect[]
   >;
   readonly callables: JavaScriptSemanticCallable[];
   readonly callableNodesById: Map<string, t.Node>;
@@ -94,6 +96,8 @@ export interface JavaScriptSemanticAnalysisState {
   readonly ambientBindingWrites: Map<string, t.Node[]>;
   /** Source-local writes, tagged by global object or import.meta identity. */
   readonly ambientWrites: SemanticPropertyPathCoverage;
+  /** Source sites distinguish replacement before an ambient identity capture from later writes. */
+  readonly ambientWriteEffects: JavaScriptSemanticMemberEffect[];
 }
 
 /**

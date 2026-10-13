@@ -3,6 +3,7 @@ import {
   semanticRequireOrigin,
   semanticRequireExportsIdentity,
   semanticGlobalProcessOrigin,
+  semanticMutableBuiltinOrigin,
 } from "./javascriptSemanticRequireOrigin.js";
 
 import {
@@ -300,14 +301,16 @@ export function* collectSemanticMemberMutationsSteps(
             ? binding
             : semanticMutationInitializers(binding, current.originAt, parents);
         if (!primitiveWrite) {
-          for (const origin of origins.directOrigins)
-            if (origin.resolutionMode === "require")
+          for (const origin of origins.directOrigins) {
+            const shared = semanticMutableBuiltinOrigin(origin);
+            if (shared !== undefined)
               recordRequiredEffect(
-                origin.specifier,
-                [...origin.importedPath, ...path],
+                shared.specifier,
+                [...shared.importedPath, ...path],
                 effect,
                 mutation,
               );
+          }
           if (effect === "escape")
             binding.escapedPaths.push({ path, node: mutation });
           else binding.memberWrites.push({ path, node: mutation });

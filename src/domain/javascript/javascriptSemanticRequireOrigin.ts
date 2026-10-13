@@ -10,6 +10,7 @@ import {
   semanticStaticPropertyKey,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
+import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
 
@@ -26,6 +27,14 @@ export const semanticGlobalProcessOrigin = (
   t.isIdentifier(node, { name: "process" }) &&
   resolveSemanticBindingState(state, node, "process") === undefined &&
   !semanticResolutionBlocked(state, node, "process") &&
+  !state.ambientWriteEffects.some(
+    ({ path, node: write }) =>
+      path.length <= 2 &&
+      path.every((key, index) =>
+        semanticPropertyPathKeyMatches(key, ["global", "process"][index]!),
+      ) &&
+      !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
+  ) &&
   !(state.ambientBindingWrites.get("process") ?? []).some(
     (write) =>
       !semanticTopLevelEffectFollowsCapture(node, write, state.parentsByNode),
@@ -96,4 +105,29 @@ export const semanticRequireExportsIdentity = <Key>(
   return name === "fs/promises"
     ? { specifier: "fs", path: ["promises", ...path] }
     : { specifier: name, path };
+};
+
+const MUTABLE_BUILTIN_DEFAULTS = new Set([
+  "fs",
+  "fs/promises",
+  "net",
+  "http",
+  "https",
+  "child_process",
+  "timers",
+  "process",
+]);
+
+/** Mutable default objects share CommonJS identity; namespace/function imports do not. */
+export const semanticMutableBuiltinOrigin = (
+  origin: JavaScriptModuleOrigin,
+): JavaScriptModuleOrigin | undefined => {
+  if (origin.resolutionMode === "require") return origin;
+  const specifier = origin.specifier.replace(/^node:/u, "");
+  if (!MUTABLE_BUILTIN_DEFAULTS.has(specifier)) return undefined;
+  if (origin.importedPath[0] === "default")
+    return { ...origin, importedPath: origin.importedPath.slice(1) };
+  return specifier === "fs" && origin.importedPath[0] === "promises"
+    ? origin
+    : undefined;
 };

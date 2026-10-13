@@ -50,11 +50,23 @@ export const semanticTopLevelEffectFollowsCapture = (
 ): boolean => {
   const position = (node: t.Node | undefined): StatementPosition | null => {
     let selected: StatementPosition | null = null;
+    let declarator: t.VariableDeclarator | undefined;
+    let child: t.Node | undefined;
     while (node !== undefined) {
       if (t.isFunction(node) || t.isLoop(node)) return null;
+      if (
+        (t.isClassProperty(node) ||
+          t.isClassPrivateProperty(node) ||
+          t.isClassAccessorProperty(node)) &&
+        !node.static &&
+        node.value === child
+      )
+        return null;
+      if (t.isVariableDeclarator(node)) declarator = node;
       if (selected === null && t.isStatement(node))
-        selected = statementPosition(node, parents);
+        selected = statementPosition(node, parents, declarator);
       if (t.isProgram(node)) return selected;
+      child = node;
       node = parents.get(node);
     }
     return null;

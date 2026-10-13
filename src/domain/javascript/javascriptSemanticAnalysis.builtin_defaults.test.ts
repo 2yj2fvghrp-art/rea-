@@ -435,3 +435,42 @@ it("does not assign built-in APIs to unrelated or shadowed bindings", () => {
 
   expect(ir.resourceOperations).toEqual([]);
 });
+
+it.each([
+  `const fs = require('fs'); class Reader { text = fs.readFileSync('wrong'); } fs.readFileSync = custom; new Reader();`,
+  `const fs = require('fs'); class Reader { #text = fs.readFileSync('wrong'); } fs.readFileSync = custom; new Reader();`,
+  `const fs = require('fs'); fs.__defineGetter__('readFileSync', () => custom); fs.readFileSync('wrong');`,
+  `import proc from 'node:process'; proc.env = {}; const value = process.env.MODE;`,
+  `import fs from 'node:fs'; fs.readFileSync = custom; const other = require('fs'); other.readFileSync('wrong');`,
+])("keeps delayed or replaced built-in identities unknown: %s", (source) => {
+  expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
+    [],
+  );
+});
+
+it.each([
+  `const fs = require('fs'); const before = fs.readFileSync('kept'), patch = (fs.readFileSync = custom);`,
+  `globalThis.process = {env: {}}; process.env = {}; const proc = require('process'); const value = proc.env.kept;`,
+  `import fs from 'node:fs'; fs.writeFileSync = custom; const other = require('fs'); other.readFileSync('kept');`,
+])("keeps earlier and independent built-in observations: %s", (source) => {
+  expect(
+    analyzeJavaScriptSemantics(source).configurationOperations.map(
+      ({ key }) => key,
+    ),
+  ).toEqual(["kept"]);
+});
+
+it("shares equivalent alias subproblems and repeated intact receiver facts", () => {
+  const aliases = Array.from({ length: 30 }, (_, index) => {
+    const previous = index === 0 ? "fs" : `a${index - 1}`;
+    return `const a${index} = flag ? ${previous} : ${previous};`;
+  });
+  const calls = Array.from(
+    { length: 128 },
+    (_, index) => `a29.readFileSync('file-${index}');`,
+  );
+  const ir = analyzeJavaScriptSemantics(
+    ["const fs = require('fs');", ...aliases, ...calls].join("\n"),
+  );
+  expect(ir.configurationOperations).toHaveLength(128);
+});
