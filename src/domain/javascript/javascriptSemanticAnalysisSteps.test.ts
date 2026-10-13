@@ -229,9 +229,11 @@ it("shares export-import aliases across reopened namespace blocks", () => {
 namespace N { electron.ipcMain.handle("ping", () => "pong"); }`;
   const parsed = parseJavaScriptSource(source, "export-import.ts");
   if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  // The call root is the shared Electron module alias itself, so the proven
+  // root path is empty, matching require("electron").ipcMain.handle.
   expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
     source.indexOf('electron.ipcMain.handle("ping"'),
-    ["ipcMain"],
+    [],
   ]);
 });
 
@@ -264,7 +266,16 @@ namespace A.A { renderer.send("repeated"); }`;
   const parsed = parseJavaScriptSource(source, "outer-namespace.ts");
   if (parsed === null) throw new Error("Expected parsed TypeScript source");
   const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
-  expect(calls).toContainEqual([source.indexOf('ipc.handle("outer"'), ["ipcMain"]]);
-  expect(calls).not.toContainEqual([source.indexOf('privateIpc.handle("hidden"'), ["ipcMain"]]);
-  expect(calls).toContainEqual([source.indexOf('renderer.send("repeated"'), ["ipcRenderer"]]);
+  expect(calls).toContainEqual([
+    source.indexOf('ipc.handle("outer"'),
+    ["ipcMain"],
+  ]);
+  expect(calls).not.toContainEqual([
+    source.indexOf('privateIpc.handle("hidden"'),
+    ["ipcMain"],
+  ]);
+  expect(calls).toContainEqual([
+    source.indexOf('renderer.send("repeated"'),
+    ["ipcRenderer"],
+  ]);
 });
