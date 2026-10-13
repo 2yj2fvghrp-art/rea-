@@ -111,6 +111,24 @@ try {
   ).mcp_servers.rea;
   assert.equal(registration.command, node);
   assert.deepEqual(registration.args, [entry, "mcp"]);
+  const doctor = JSON.parse(
+    (await launcher(["doctor", "--client", "codex", "--skill", "--json"]))
+      .stdout,
+  );
+  assert.equal(doctor.healthy, true);
+  assert.equal(doctor.scope.mode, "explicit");
+  assert.deepEqual(doctor.scope.clients, ["codex"]);
+  assert.equal(doctor.scope.skill, true);
+  assert.equal(doctor.identity.skill.state, "aligned");
+  assert.equal(
+    `v${doctor.checks.find(({ name }) => name === "node")?.details?.version}`,
+    manifest.runtime.version,
+  );
+  assert.equal(
+    doctor.identity.registrations.find(({ client }) => client === "codex")
+      ?.state,
+    "aligned",
+  );
   const cli = JSON.parse(
     (await run(["analyze-javascript-application", sample, "--json"])).stdout,
   );
@@ -162,6 +180,7 @@ console.log(
     files: manifest.files.length,
     cli: true,
     mcp: true,
+    offlineDoctor: true,
     nodeSocketConnections: "denied",
     externalProviders: "not exercised",
   }),

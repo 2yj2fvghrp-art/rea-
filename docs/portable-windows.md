@@ -14,6 +14,8 @@ Run from PowerShell:
 
 Review the setup plan before applying it with `setup --client codex --yes`.
 Setup changes the selected client's configuration and installs REA's skill.
+After setup, run `.\rea.cmd doctor --client codex --skill --json` to check
+the bundled runtime, client registration, and installed skill offline.
 Registrations use the absolute paths of this directory's Node and REA entry
 point. If you move the directory later, rerun setup from the new location and
 restart the client. Moving a running server is not supported.
@@ -57,9 +59,12 @@ From the source checkout, verify an extracted directory with:
 npm run verify:portable:windows -- --directory C:\relocated\rea-portable
 ```
 
-This checks the file inventory, the actual command launcher, isolated setup and
-uninstall, and matching CLI/MCP static JavaScript analysis. The registered MCP
-command must point to the included Node and REA entry point. Children use an
+This checks the file inventory, the actual command launcher, isolated setup,
+offline `doctor --client codex --skill`, uninstall, and matching CLI/MCP static
+JavaScript analysis. Doctor must report the selected client and skill as healthy
+and identify the bundled Node version; external provider readiness is outside
+this selected scope. The registered MCP command must point to the included Node
+and REA entry point. Children use an
 isolated user directory, with no npm or system Node on PATH. A Node preload
 rejects socket connections; this is not an OS-level network sandbox. Optional
 external providers and a live agent connection remain separate checks.
