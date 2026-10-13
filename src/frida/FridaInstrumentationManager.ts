@@ -841,14 +841,28 @@ export class FridaInstrumentationManager implements FridaInstrumentationPort {
           ),
         ),
       );
-    const pending = Promise.resolve().then(() =>
-      signal?.aborted ? err(cancelledOperation(name, signal)) : operation(),
+    let start = () => {};
+    const pending = new Promise<Result<Value, AnalysisError>>(
+      (resolve, reject) => {
+        start = () => {
+          try {
+            resolve(
+              signal?.aborted
+                ? err(cancelledOperation(name, signal))
+                : operation(),
+            );
+          } catch (cause: unknown) {
+            reject(cause);
+          }
+        };
+      },
     );
     this.#operations.add(pending);
     const release = () => {
       this.#operations.delete(pending);
     };
     void pending.then(release, release);
+    start();
     return pending;
   }
 

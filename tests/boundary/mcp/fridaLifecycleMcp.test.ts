@@ -251,6 +251,45 @@ const retryCancelledScriptUnload = async (
 };
 
 it.each(["load", "resume", "unload"] as const)(
+  "finishes an earlier MCP %s request before closing its Frida session",
+  async (operation) => {
+    const fixture = await connectedFixture();
+    const id = await fixture.start();
+    const original = await fixture.load(id, "original");
+    const scriptId = toolContract("load_frida_script").outputSchema.parse(
+      original.structuredContent,
+    ).normalized_result.script_id;
+    const pending = fixture.client.callTool({
+      name: {
+        load: "load_frida_script",
+        resume: "resume_frida_session",
+        unload: "unload_frida_script",
+      }[operation],
+      arguments: {
+        session_id: id,
+        ...(operation === "load"
+          ? { source_kind: "inline", source: "last-script" }
+          : {}),
+        ...(operation === "unload" ? { script_id: scriptId } : {}),
+      },
+    });
+    const closing = fixture.client.callTool({
+      name: "close_frida_session",
+      arguments: { session_id: id },
+    });
+    expect((await pending).isError).not.toBe(true);
+    expect((await closing).isError).not.toBe(true);
+    expect(fixture.loaded).toEqual(
+      operation === "load" ? ["original", "last-script"] : ["original"],
+    );
+    expect(fixture.unloaded).toEqual(fixture.loaded);
+    expect(fixture.controls.detachCalls).toBe(1);
+    expect(fixture.controls.resumes).toBe(1);
+    expect(fixture.manager.status(id)).toBeUndefined();
+  },
+);
+
+it.each(["load", "resume", "unload"] as const)(
   "does not dispatch a cancelled queued Frida %s through MCP",
   async (operation) => {
     const { fixture, id, original, held } = await scriptLoadFixture();
