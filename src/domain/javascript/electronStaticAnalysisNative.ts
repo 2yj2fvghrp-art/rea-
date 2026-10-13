@@ -19,7 +19,10 @@ import {
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
-import { typescriptImportTypeName } from "./typescriptImportResolutionMode.js";
+import {
+  typescriptImportTypeRequest,
+  typescriptImportEqualsRequest,
+} from "./typescriptImportResolutionMode.js";
 import {
   isTypeOnlyImportDeclaration,
   isTypeOnlyImportSpecifier,
@@ -51,7 +54,24 @@ export const inspectElectronNativeNode = (
     inspectExportAll(node, context, resolutionMode);
   else if (t.isTSImportType(node))
     inspectTypeImport(node, context, resolutionMode);
-  else if (t.isVariableDeclarator(node)) inspectRequireBinding(node, context);
+  else if (t.isTSImportEqualsDeclaration(node)) {
+    const request = typescriptImportEqualsRequest(node);
+    if (
+      request !== null &&
+      isNativeSpecifier(request.specifier, request.resolutionMode)
+    )
+      addBinding({
+        context,
+        node,
+        specifier: request.specifier,
+        kind: "require",
+        moduleKind: request.resolutionMode,
+        typeOnly: request.typeOnly,
+        members: [],
+        namespaceAccess: true,
+        dynamicMemberAccess: false,
+      });
+  } else if (t.isVariableDeclarator(node)) inspectRequireBinding(node, context);
   else if (t.isAssignmentExpression(node)) inspectReExport(node, context);
 };
 
@@ -60,22 +80,20 @@ const inspectTypeImport = (
   context: JavaScriptFindingContext,
   moduleKind: JavaScriptModuleResolutionMode,
 ): void => {
-  if (
-    !t.isStringLiteral(node.source) ||
-    !isNativeSpecifier(node.source.value, moduleKind)
-  )
+  const request = typescriptImportTypeRequest(node, context.parentsByNode);
+  if (request === null || !isNativeSpecifier(request.specifier, moduleKind))
     return;
-  const member = typescriptImportTypeName(node)?.split(".", 1)[0];
+  const member = request.path[0];
   addBinding({
     context,
-    node,
-    specifier: node.source.value,
+    node: request.locationNode,
+    specifier: request.specifier,
     kind: "import",
     moduleKind,
     typeOnly: true,
     members: member === undefined ? [] : [member],
-    namespaceAccess: member === undefined,
-    dynamicMemberAccess: false,
+    namespaceAccess: member === undefined && !request.dynamicMemberAccess,
+    dynamicMemberAccess: request.dynamicMemberAccess,
   });
 };
 

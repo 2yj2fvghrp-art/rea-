@@ -111,6 +111,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
       source,
       accumulator,
       staticImportResolutionMode,
+      parentsByNode: bindings.parentsByNode,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
       electronBindings: electronIdentity.bindings,
       rpcScan: createJavaScriptRpcScan(source, clientRoots),

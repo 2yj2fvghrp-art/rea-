@@ -58,6 +58,20 @@ const nativeInlineOnlySource = [
   'import { type NativeMode } from "native-mixed/addon.node";',
   'export { type NativeMode as NativeTypeExport } from "native-mixed/addon.node";',
 ].join("\n");
+const nativeImportEqualsSource = [
+  'import type Native = require("native-mode/addon.node");',
+  'const value: Native.NativeMode = { source: "require" };',
+  "console.log(JSON.stringify(value.source));",
+].join("\n");
+const nativeIndexedSource = [
+  'type Plain = (typeof import("native-mixed/addon.node"))["NativeMode"];',
+  'type Punctuated = (typeof import("native-mixed/addon.node"))["Native.Mode"];',
+  'type Empty = (typeof import("native-mixed/addon.node"))[""];',
+  'const first: Plain = { source: "import" };',
+  'const second: Punctuated = { source: "import" };',
+  'const third: Empty = { source: "import" };',
+  "console.log(JSON.stringify([first.source, second.source, third.source]));",
+].join("\n");
 
 export const modeSourceFiles = {
   "cts/inline.cts": inlineSource,
@@ -71,6 +85,9 @@ export const modeSourceFiles = {
   "cts/native-default.ts": nativeDefaultSource("require"),
   "cts/native-mixed.mts": nativeMixedSource,
   "cts/native-inline-only.mts": nativeInlineOnlySource,
+  "cts/native-import-equals.cts": nativeImportEqualsSource,
+  "cts/native-import-equals.mts": nativeImportEqualsSource,
+  "cts/native-indexed.mts": nativeIndexedSource,
 };
 
 export const modePackageFiles = {
@@ -82,7 +99,7 @@ export const modePackageFiles = {
     },
   }),
   "node_modules/native-mixed/addon.d.mts":
-    'export interface NativeMode { source: "import"; } export const NativeMode: NativeMode;',
+    'export interface NativeMode { source: "import"; } export const NativeMode: NativeMode; export { NativeMode as "Native.Mode", NativeMode as "" };',
   "node_modules/native-mixed/addon.node": "source-owned native placeholder",
   "node_modules/same-mode/package.json": JSON.stringify({
     exports: { import: "./both.js", require: "./both.js" },
@@ -147,6 +164,9 @@ export const expectReviewModeEvidence = (
     "cts/native-default.cts",
     "cts/native-default.mts",
     "cts/native-default.ts",
+    "cts/native-import-equals.cts",
+    "cts/native-import-equals.mts",
+    "cts/native-indexed.mts",
   ])
     expect
       .soft(
@@ -162,6 +182,7 @@ export const expectReviewModeEvidence = (
       )
       .toEqual([]);
   expectNativeMixedEvidence(graph);
+  expectNativeTypeSelections(graph);
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
@@ -174,6 +195,18 @@ export const expectReviewModeEvidence = (
         module_kind: "compiler-dependent",
         type_only: true,
         resolved_path: null,
+        conditional_resolutions: expect.arrayContaining([
+          expect.objectContaining({
+            mode: "import",
+            resolution_status: "resolved",
+            resolved_path: "node_modules/native-mode/import.node",
+          }),
+          expect.objectContaining({
+            mode: "require",
+            resolution_status: "resolved",
+            resolved_path: "node_modules/native-mode/require.node",
+          }),
+        ]),
         requested_members: ["NativeMode"],
       }),
       evidence: expect.objectContaining({
@@ -370,4 +403,51 @@ const expectNativeMixedEvidence = (
         evidence.location.value.source === "cts/native-inline-only.mts",
     ),
   ).toHaveLength(2);
+};
+
+const expectNativeTypeSelections = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const member of ["NativeMode", "Native.Mode", ""])
+    expect(
+      graph.nodes.flatMap(({ observations }) => observations),
+    ).toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          specifier: "native-mixed/addon.node",
+          requested_members: [member],
+          namespace_access: false,
+          dynamic_member_access: false,
+          type_only: true,
+        }),
+        evidence: expect.objectContaining({
+          location: expect.objectContaining({
+            value: expect.objectContaining({
+              source: "cts/native-indexed.mts",
+            }),
+          }),
+        }),
+      }),
+    );
+  expect(
+    graph.nodes.flatMap(({ observations }) => observations),
+  ).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        specifier: "native-mode/addon.node",
+        module_kind: "require",
+        type_only: true,
+        requested_members: [],
+        namespace_access: true,
+        resolved_path: "node_modules/native-mode/require.node",
+      }),
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({
+            source: "cts/native-import-equals.cts",
+          }),
+        }),
+      }),
+    }),
+  );
 };

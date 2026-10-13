@@ -1,7 +1,8 @@
 import * as t from "@babel/types";
 import {
   typescriptImportResolutionMode,
-  typescriptImportTypeName,
+  typescriptImportTypeRequest,
+  typescriptImportEqualsRequest,
 } from "./typescriptImportResolutionMode.js";
 
 import type {
@@ -81,18 +82,20 @@ export const collectSemanticModuleLink = (
 ): void => {
   if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
   else if (t.isImportDeclaration(node)) collectImports(node, state);
-  else if (t.isTSImportType(node) && t.isStringLiteral(node.source)) {
+  else if (t.isTSImportType(node)) {
+    const request = typescriptImportTypeRequest(node, state.parentsByNode);
+    if (request === null) return;
     const resolutionMode = typescriptImportResolutionMode(node);
     addModuleLink(
       state,
       {
         kind: "type-import",
-        specifier: node.source.value,
-        importedName: typescriptImportTypeName(node),
+        specifier: request.specifier,
+        importedName: request.path.length === 0 ? null : request.path.join("."),
         localName: null,
         exportedName: null,
         ...(resolutionMode === undefined ? {} : { resolutionMode }),
-        location: range(node),
+        location: range(request.locationNode),
       },
       node,
     );
@@ -135,20 +138,14 @@ const collectImportEquals = (
   node: t.TSImportEqualsDeclaration,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  const moduleReference = node.moduleReference;
-  const specifier =
-    semanticImportEqualsSpecifier(node) ??
-    (node.importKind === "type" &&
-    t.isTSExternalModuleReference(moduleReference) &&
-    t.isStringLiteral(moduleReference.expression)
-      ? moduleReference.expression.value
-      : null);
-  if (specifier === null) return;
+  const request = typescriptImportEqualsRequest(node);
+  if (request === null) return;
   addModuleLink(
     state,
     {
-      kind: node.importKind === "type" ? "type-import" : "require",
-      specifier,
+      kind: request.typeOnly ? "type-import" : "require",
+      specifier: request.specifier,
+      resolutionMode: request.resolutionMode,
       importedName: null,
       localName: node.id.name,
       exportedName: null,
@@ -161,12 +158,10 @@ const collectImportEquals = (
 /** Runtime external-module target for a value import-equals declaration. */
 export const semanticImportEqualsSpecifier = (
   node: t.TSImportEqualsDeclaration,
-): string | null =>
-  node.importKind !== "type" &&
-  t.isTSExternalModuleReference(node.moduleReference) &&
-  t.isStringLiteral(node.moduleReference.expression)
-    ? node.moduleReference.expression.value
-    : null;
+): string | null => {
+  const request = typescriptImportEqualsRequest(node);
+  return request === null || request.typeOnly ? null : request.specifier;
+};
 
 /** Collect lexical references after definitions exist, optionally for one name. */
 export const collectSemanticReferences = (

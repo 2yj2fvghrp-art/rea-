@@ -220,6 +220,9 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/native-default.ts"),
       join(root, "cts/native-mixed.mts"),
       join(root, "cts/native-inline-only.mts"),
+      join(root, "cts/native-import-equals.cts"),
+      join(root, "cts/native-import-equals.mts"),
+      join(root, "cts/native-indexed.mts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
@@ -271,6 +274,9 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     ["native-default.cjs", "require"],
     ["native-default.mjs", "import"],
     ["native-default.js", "require"],
+    ["native-import-equals.cjs", "require"],
+    ["native-import-equals.mjs", "require"],
+    ["native-indexed.mjs", ["import", "import", "import"]],
   ] as const) {
     const result = await execute(process.execPath, [file], {
       cwd: emitted,

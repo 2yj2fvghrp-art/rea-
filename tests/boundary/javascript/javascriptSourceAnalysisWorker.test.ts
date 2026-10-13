@@ -149,6 +149,7 @@ it("reuses one real owned analyzer while retaining distinct source identities an
     expect(uncertain.value.module?.moduleLinks).toMatchObject([
       { resolutionMode: "compiler-dependent" },
     ]);
+    await expectNativeTypeSelections(worker);
     expect(launches).toHaveLength(1);
   } finally {
     await worker.close();
@@ -360,3 +361,51 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
     }
   },
 );
+
+const expectNativeTypeSelections = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
+  const importEquals = await worker.analyze(
+    source(
+      "cts/native-import-equals.cts",
+      modeSourceFiles["cts/native-import-equals.cts"],
+    ),
+    100,
+  );
+  if (!importEquals.ok) throw importEquals.error.error;
+  expect(
+    importEquals.value.javascript.electron.native_addon_bindings,
+  ).toMatchObject([
+    { module_kind: "require", type_only: true, namespace_access: true },
+  ]);
+  const esmEquals = await worker.analyze(
+    source(
+      "cts/native-import-equals.mts",
+      modeSourceFiles["cts/native-import-equals.mts"],
+    ),
+    100,
+  );
+  if (!esmEquals.ok) throw esmEquals.error.error;
+  expect(esmEquals.value.module?.moduleLinks).toMatchObject([
+    { resolutionMode: "require", kind: "type-import" },
+  ]);
+  const indexed = await worker.analyze(
+    source("cts/native-indexed.mts", modeSourceFiles["cts/native-indexed.mts"]),
+    100,
+  );
+  if (!indexed.ok) throw indexed.error.error;
+  expect(
+    indexed.value.javascript.electron.native_addon_bindings.map(
+      ({ members }) => members,
+    ),
+  ).toEqual([["NativeMode"], ["Native.Mode"], [""]]);
+  expect(
+    indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
+  ).toEqual(["NativeMode", "Native.Mode", ""]);
+  expect(
+    indexed.value.javascript.electron.native_addon_bindings.every(
+      ({ namespace_access, dynamic_member_access }) =>
+        namespace_access === false && dynamic_member_access === false,
+    ),
+  ).toBe(true);
+};
