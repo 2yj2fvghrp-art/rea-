@@ -229,7 +229,9 @@ EOF fail rather than silently clipping. The final block may be shorter.
 `block_size` must be a power of two from 256 through 65536, default 4096.
 SHA-256 and `file_entropy` always cover the entire file, including when a window
 is selected. Empty files and empty windows are accepted; empty entropy is zero
-by convention. File identity, size and timestamps are checked across the read;
+by convention. The tool reads the size the file reports. A file that reports size
+0, such as a Linux `/proc` entry, returns no blocks with a limitation that the
+result does not show the file is empty. File identity, size and timestamps are checked across the read;
 detected changes produce an error rather than Evidence.
 
 Shannon entropy is reported in bits per byte from 0 to 8, rounded to four decimal

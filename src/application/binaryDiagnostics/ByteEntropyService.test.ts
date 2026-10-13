@@ -60,6 +60,37 @@ it("rejects missing files, non-files and windows beyond EOF, but accepts empty w
     file_entropy: 0,
     window: { offset: 0, length: 0 },
   });
+  expect(
+    byteEntropySchema.parse(result.value.normalized_result).limitations,
+  ).toContainEqual(expect.stringContaining("reports a size of 0"));
+});
+
+it.skipIf(process.platform !== "linux")(
+  "marks a generated /proc file that reports size 0 as not shown empty",
+  async () => {
+    const result = await new ByteEntropyService().inspect({
+      path: "/proc/version",
+    });
+    if (!result.ok) throw result.error;
+    const report = byteEntropySchema.parse(result.value.normalized_result);
+    expect(report.artifact.bytes).toBe(0);
+    expect(report.limitations).toContainEqual(
+      expect.stringContaining("Linux /proc entries"),
+    );
+  },
+);
+
+it("adds no zero-size limitation to a file with content", async () => {
+  const root = await createTestTempDirectory("rea-entropy-nonempty-");
+  const path = join(root, "one");
+  await writeFile(path, "x");
+  const result = await new ByteEntropyService().inspect({ path });
+  if (!result.ok) throw result.error;
+  expect(
+    byteEntropySchema
+      .parse(result.value.normalized_result)
+      .limitations.join(" "),
+  ).not.toContain("reports a size of 0");
 });
 
 it("honors cancellation before and during streaming", async () => {

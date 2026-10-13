@@ -22,6 +22,10 @@ import {
 } from "../../domain/native/byteEntropy.js";
 import { err, ok, type Result } from "../../domain/result.js";
 
+/** Generated files such as Linux /proc entries report size 0 but still hold bytes. */
+const ZERO_SIZE_LIMITATION =
+  "The file reports a size of 0, so no bytes were read. Generated files such as Linux /proc entries can report 0 while holding content; this result does not show that the file is empty.";
+
 const OPERATION = "inspect_byte_entropy";
 const invalid = (field: string, message: string) =>
   new AnalysisInputError(OPERATION, undefined, [
@@ -142,6 +146,7 @@ export class ByteEntropyService {
             "Entropy does not prove encryption; compressed and encrypted bytes cannot be distinguished by this measure.",
             "Entropy is rounded to four decimal places; thresholds classify those reported values. Small blocks can underestimate entropy.",
             "The file-wide hash and entropy cover the entire file; blocks and runs cover only the selected window. Empty input has entropy 0 by convention.",
+            ...(size === 0 ? [ZERO_SIZE_LIMITATION] : []),
           ],
         };
       } finally {
