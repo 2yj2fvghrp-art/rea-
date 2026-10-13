@@ -146,6 +146,8 @@ const ghidraLaunchCommandOutput = (
 export interface GhidraHeadlessLauncherOptions {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly analyzeHeadlessPath: string;
+  /** Parsed Ghidra release identity that owns its private configuration directory. */
+  readonly configurationDirectoryName?: string;
   readonly javaHome?: string;
   readonly javaVmName?: string;
   readonly bridgeScriptPath: string;
@@ -222,7 +224,7 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       await createGhidraRuntimeDirectories(
         paths,
         platform,
-        this.options.analyzeHeadlessPath,
+        this.options.configurationDirectoryName,
       );
       const seedPath =
         this.options.analysisSeeds === undefined
@@ -728,14 +730,8 @@ const ghidraRuntimePaths = (runtimeRoot: string) => ({
 const createGhidraRuntimeDirectories = async (
   paths: ReturnType<typeof ghidraRuntimePaths>,
   platform: NodeJS.Platform,
-  analyzeHeadlessPath: string,
+  configurationDirectoryName: string | undefined,
 ): Promise<void> => {
-  const installRoot =
-    platform === "win32"
-      ? win32.dirname(win32.dirname(analyzeHeadlessPath))
-      : dirname(dirname(analyzeHeadlessPath));
-  const releaseDirectory =
-    platform === "win32" ? win32.basename(installRoot) : basename(installRoot);
   if (platform === "win32") {
     const runtime = windowsPrivateRuntime(dirname(paths.projectRoot));
     for (const path of [
@@ -748,7 +744,8 @@ const createGhidraRuntimeDirectories = async (
     ])
       runtime.mkdir(basename(path));
     runtime.mkdir(win32.join("config", "ghidra"));
-    runtime.mkdir(win32.join("config", "ghidra", releaseDirectory));
+    if (configurationDirectoryName !== undefined)
+      runtime.mkdir(win32.join("config", "ghidra", configurationDirectoryName));
     return;
   }
   await Promise.all(
@@ -761,10 +758,11 @@ const createGhidraRuntimeDirectories = async (
       paths.dataRoot,
     ].map((path) => mkdir(path, { recursive: true, mode: 0o700 })),
   );
-  await mkdir(join(paths.configRoot, "ghidra", releaseDirectory), {
-    recursive: true,
-    mode: 0o700,
-  });
+  if (configurationDirectoryName !== undefined)
+    await mkdir(join(paths.configRoot, "ghidra", configurationDirectoryName), {
+      recursive: true,
+      mode: 0o700,
+    });
 };
 
 const writeGhidraRuntimeFile = async (
