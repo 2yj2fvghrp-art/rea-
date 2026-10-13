@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { readFileSync } from "node:fs";
+import { constants, readFileSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import type { BigIntStats, Stats } from "node:fs";
 import { lstat, open, stat, type FileHandle } from "node:fs/promises";
@@ -142,27 +141,31 @@ const isUnopenableFileTypeError = (cause: unknown): boolean =>
   typeof cause.errno === "number" &&
   UNOPENABLE_FILE_TYPE_ERRNOS.has(cause.errno);
 
+// S_IFMT isolates the file type from a POSIX mode value (regular file,
+// directory, socket, ...). The remaining bits are the permission bits.
+const FILE_TYPE_MASK = 0o170000;
+
 /**
- * Detect PRoot environments where stat() and fstat() report different
- * ctimeNs/ctimeMs for the same file because PRoot's syscall interception
- * updates inode timestamps asynchronously. On PRoot, ctime is not a reliable
- * stability indicator and must be excluded from the comparison.
+ * Detect PRoot environments (e.g. Termux on Android) where stat() and fstat()
+ * report different mode permission bits and ctime for the very same file,
+ * because PRoot's syscall interception resolves inode metadata per call. On
+ * those hosts the permission bits of mode and ctime are not reliable stability
+ * indicators, so sameRegularFileState excludes them from its comparison.
  */
 const isPRootEnvironment = (): boolean => {
-  // PRoot does not set a specific env var, but /proc/version contains "PRoot"
-  // and /proc/self/mountinfo contains "proot" entries.
+  // PRoot sets no dedicated environment variable. /proc/version reports
+  // "PRoot-Distro" inside every PRoot-Distro container and
+  // /proc/self/mountinfo lists proot-managed mounts.
   try {
-    const version = readFileSync("/proc/version", "utf8");
-    if (version.includes("PRoot") || version.includes("proot")) return true;
+    if (readFileSync("/proc/version", "utf8").includes("PRoot")) return true;
   } catch {
-    // /proc not available — fall through to mountinfo check
+    // /proc/version unreadable — fall through to the mountinfo probe.
   }
   try {
-    const mountinfo = readFileSync("/proc/self/mountinfo", "utf8");
-    if (mountinfo.includes("/proot") || mountinfo.includes("proot-"))
+    if (readFileSync("/proc/self/mountinfo", "utf8").includes("/proot"))
       return true;
   } catch {
-    // /proc/self/mountinfo not available
+    // /proc/self/mountinfo unreadable — treat the host as non-PRoot.
   }
   return false;
 };
@@ -176,30 +179,25 @@ export const sameRegularFileState = (
   if (expected.dev !== observed.dev) return false;
   if (expected.ino !== observed.ino) return false;
   if (expected.size !== observed.size) return false;
-  // Under PRoot, the permission bits of mode are unstable between stat() and
-  // fstat() on the same file (chmod is reflected differently). Compare only the
-  // file-type bits (S_IFMT) so a genuine type change is still detected.
   if (isPRootEnvironment()) {
-    if ((expected.mode & 0o170000) !== (observed.mode & 0o170000)) return false;
+    // Permission bits differ between stat() and fstat() under PRoot; only a
+    // genuine change of the file type itself still counts as a change.
+    if ((expected.mode & FILE_TYPE_MASK) !== (observed.mode & FILE_TYPE_MASK))
+      return false;
+    // ctime is updated asynchronously by PRoot, so it is never compared here.
+    if ("mtimeNs" in expected && "mtimeNs" in observed) {
+      if (expected.mtimeNs !== observed.mtimeNs) return false;
+    } else {
+      if (expected.mtimeMs !== observed.mtimeMs) return false;
+    }
   } else {
     if (expected.mode !== observed.mode) return false;
-  }
-  // Under PRoot, ctime is unstable between stat() and fstat() calls on the
-  // same file. Exclude it from the comparison to avoid false positives.
-  if (!isPRootEnvironment()) {
     if ("mtimeNs" in expected && "mtimeNs" in observed) {
       if (expected.mtimeNs !== observed.mtimeNs) return false;
       if (expected.ctimeNs !== observed.ctimeNs) return false;
     } else {
       if (expected.mtimeMs !== observed.mtimeMs) return false;
       if (expected.ctimeMs !== observed.ctimeMs) return false;
-    }
-  } else {
-    // PRoot: only check mtime (ctime is unreliable)
-    if ("mtimeNs" in expected && "mtimeNs" in observed) {
-      if (expected.mtimeNs !== observed.mtimeNs) return false;
-    } else {
-      if (expected.mtimeMs !== observed.mtimeMs) return false;
     }
   }
   return true;
