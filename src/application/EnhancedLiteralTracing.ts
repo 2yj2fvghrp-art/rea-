@@ -143,6 +143,8 @@ const traceReferences = async (
 > => {
   const references: TraceReference[] = [];
   const residual: string[] = [];
+  // A source address is resolved once however many matches reference it.
+  const containing = new Map<string, JsonValue>();
   for (const match of request.matches) {
     const observed = await observe(
       "xrefs",
@@ -174,16 +176,21 @@ const traceReferences = async (
             "provider returned a non-address value",
           ),
         );
-      const resolved = await call(
-        "resolve_containing_procedure",
-        { address: source },
-        request.signal,
-      );
-      if (!resolved.ok) return resolved;
+      let containingProcedure = containing.get(source);
+      if (containingProcedure === undefined) {
+        const resolved = await call(
+          "resolve_containing_procedure",
+          { address: source },
+          request.signal,
+        );
+        if (!resolved.ok) return resolved;
+        containingProcedure = resolved.value;
+        containing.set(source, containingProcedure);
+      }
       references.push({
         target_address: match.address,
         source_address: source,
-        containing_procedure: resolved.value,
+        containing_procedure: containingProcedure,
       });
     }
   }

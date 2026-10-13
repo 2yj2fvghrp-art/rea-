@@ -167,6 +167,28 @@ describe("trace_feature reference coverage", () => {
     );
   });
 
+  it("resolves the containing procedure of a repeated reference source once", async () => {
+    const calls: string[] = [];
+    const output = await trace(provider({ duplicateProcedure: true, calls }));
+
+    expect(
+      calls.filter((call) => call.startsWith("resolve_containing_procedure:")),
+      "the source 0x20 is referenced by two matches of the same address and resolved once",
+    ).toEqual([
+      "resolve_containing_procedure:0x20",
+      "resolve_containing_procedure:0x21",
+    ]);
+    expect(
+      output.normalized_result,
+      "every reference is still reported with its containing procedure",
+    ).toEqual(
+      expectedTrace(
+        [],
+        [{ type: "procedure", address: "0x10", value: "hello" }],
+      ),
+    );
+  });
+
   it("keeps the trace complete when the provider explicitly reports no cap", async () => {
     const output = await trace(
       provider({ coverage: { "0x10": false, "0x11": false } }),
