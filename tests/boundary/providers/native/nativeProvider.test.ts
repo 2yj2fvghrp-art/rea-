@@ -1044,7 +1044,9 @@ describe("native macOS provider failures and parsing", () => {
     expect(!result.ok && result.error._tag).toBe("AnalysisCancelledError");
     expect(runner.calls).toBe(0);
   });
+});
 
+describe("native output parsing", () => {
   it("parses thin and universal lipo fixtures", async () => {
     expect(parseLipoOutput(await fixture("lipo-thin.txt"))).toMatchObject({
       format: "thin",
