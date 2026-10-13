@@ -178,17 +178,29 @@ it("rejects invalid ordinal coverage in a borrowed parent", () => {
 const nativePreview = (
   format: "mitmproxy" | "har",
   request: Readonly<Record<string, unknown>>,
-  response: Readonly<Record<string, unknown>> = {
-    http_version: "HTTP/1.1",
-    status_code: 404,
-    reason: "Not Found",
-    content: "omitted body",
-  },
-  producerType: "integer" | "float" = "integer",
+  {
+    response = {
+      http_version: "HTTP/1.1",
+      status_code: 404,
+      reason: "Not Found",
+      content: "omitted body",
+    },
+    producerType = "integer",
+    sidecars,
+  }: {
+    readonly response?: Readonly<Record<string, unknown>>;
+    readonly producerType?: "integer" | "float";
+    readonly sidecars?: readonly {
+      pointer: string;
+      producer_type: string;
+      literal: string;
+    }[];
+  } = {},
 ) => {
   // The bridge records a numeric sidecar for every native number.
-  const literals = Object.entries({ request, response }).flatMap(
-    ([side, fields]) =>
+  const literals =
+    sidecars ??
+    Object.entries({ request, response }).flatMap(([side, fields]) =>
       Object.entries(fields)
         .filter(([, value]) => typeof value === "number")
         .map(([field, value]) => ({
@@ -196,7 +208,7 @@ const nativePreview = (
           producer_type: producerType,
           literal: String(value),
         })),
-  );
+    );
   const artifact = {
     path: "/recordings/flows.mitm",
     sha256: "c".repeat(64),
@@ -367,8 +379,14 @@ it("keeps producer floats out of integer mitmproxy headline slots", () => {
   const reported = nativePreview(
     "mitmproxy",
     { method: "GET", port: 443, path: "/a" },
-    { http_version: "HTTP/1.1", status_code: 404, reason: "Not Found" },
-    "float",
+    {
+      response: {
+        http_version: "HTTP/1.1",
+        status_code: 404,
+        reason: "Not Found",
+      },
+      producerType: "float",
+    },
   ).items[0]?.reported;
   expect(reported).toMatchObject({
     request: { method: "GET", path: "/a" },
@@ -378,11 +396,52 @@ it("keeps producer floats out of integer mitmproxy headline slots", () => {
   expect(reported).not.toMatchObject({ response: { status_code: 404 } });
 });
 
+it.each([
+  [
+    "an oversized literal",
+    [
+      {
+        pointer: "/request/port",
+        producer_type: "integer",
+        literal: "4".repeat(100_000),
+      },
+    ],
+  ],
+  [
+    "a literal that does not represent the value",
+    [{ pointer: "/request/port", producer_type: "integer", literal: "444" }],
+  ],
+  [
+    "duplicate sidecars",
+    [
+      { pointer: "/request/port", producer_type: "integer", literal: "443" },
+      { pointer: "/request/port", producer_type: "integer", literal: "443" },
+    ],
+  ],
+])(
+  "keeps a port whose sidecar has %s out of the preview",
+  (_label, sidecars) => {
+    const [item] = nativePreview(
+      "mitmproxy",
+      { method: "GET", port: 443, path: "/a" },
+      { response: { http_version: "HTTP/1.1", reason: "OK" }, sidecars },
+    ).items;
+    expect(item?.reported).toEqual({
+      type: "http",
+      request: { method: "GET", path: "/a" },
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+    });
+    expect(item?.numeric_literals).toEqual([]);
+  },
+);
+
 it("selects mitmproxy target fields from the request and the status from the response only", () => {
   const reported = nativePreview(
     "mitmproxy",
     { method: "GET", path: "/a", status_code: 200 },
-    { http_version: "HTTP/1.1", reason: "OK", path: "/extension" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK", path: "/extension" },
+    },
   ).items[0]?.reported;
   expect(reported).toEqual({
     type: "http",

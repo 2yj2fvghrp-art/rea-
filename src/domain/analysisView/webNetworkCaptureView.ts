@@ -110,7 +110,7 @@ const hostLike = (value: JsonValue, maxLength: number): boolean =>
 const mitmproxyHeadline = (
   field: string,
   value: JsonValue,
-  producerType: string | undefined,
+  canonicalInteger: boolean,
 ): boolean => {
   switch (field) {
     case "scheme":
@@ -123,9 +123,9 @@ const mitmproxyHeadline = (
     case "authority":
       return hostLike(value, 262);
     case "port":
-      return producerType === "integer" && integerIn(value, 0, 65_535);
+      return canonicalInteger && integerIn(value, 0, 65_535);
     case "status_code":
-      return producerType === "integer" && integerIn(value, 100, 999);
+      return canonicalInteger && integerIn(value, 100, 999);
     case "path":
       return (
         typeof value === "string" &&
@@ -144,12 +144,18 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
   const reported: Record<string, JsonValue> = {};
   const selectedPointers = new Set<string>();
-  const producerTypes = new Map(
-    record.numeric_literals.map(({ pointer, producer_type }) => [
-      pointer,
-      producer_type,
-    ]),
-  );
+  // An integer slot needs exactly one integer sidecar whose literal is the
+  // value's canonical decimal, which also bounds the copied literal.
+  const canonicalInteger = (pointer: string, value: JsonValue): boolean => {
+    const sidecars = record.numeric_literals.filter(
+      (literal) => literal.pointer === pointer,
+    );
+    return (
+      sidecars.length === 1 &&
+      sidecars[0]?.producer_type === "integer" &&
+      sidecars[0].literal === String(value)
+    );
+  };
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
@@ -182,7 +188,7 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
             !mitmproxyHeadline(
               field,
               fieldValue,
-              producerTypes.get(`/${key}/${field}`),
+              canonicalInteger(`/${key}/${field}`, fieldValue),
             ))
         )
           continue;
