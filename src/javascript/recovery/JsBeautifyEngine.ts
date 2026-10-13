@@ -323,7 +323,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
   const provenance = await write(
     "reports/provenance.json",
     Buffer.from(
-      `${JSON.stringify({ engine: "jsbeautify", version, runs }, null, 2)}\n`,
+      `${JSON.stringify({ engine: "jsbeautify", version, resource_limiter: tool.limiter, runs }, null, 2)}\n`,
     ),
   );
   const details = {
@@ -426,7 +426,11 @@ const prepareJsBeautifyExecution = async (context: RecoveryWorkspace) => {
     result,
     { ...JSBEAUTIFY_PROVIDER_IDENTITY, version },
     {
-      rawResult: jsonValueSchema.parse({ version: banner, runs }),
+      rawResult: jsonValueSchema.parse({
+        version: banner,
+        resource_limiter: tool.limiter,
+        runs,
+      }),
       subject: {
         path: source.path,
         sha256: source.sha256,

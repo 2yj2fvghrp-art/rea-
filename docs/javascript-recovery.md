@@ -81,8 +81,8 @@ output re-parse checks (phases 19.6 and 21.5); otherwise the file is listed in
 `warnings` with kind `validity-gate` and the status is `partial`. Re-parsing
 proves syntax, not behaviour. `reports/phases.log` keeps any stderr of
 `jsbeautify --version`, the phase summary per file, or the complete stderr and
-stdout of a file that failed the gate; `reports/provenance.json` keeps the exact arguments
-and gate verdicts. Inline Evidence keeps only the parsed version.
+stdout of a file that failed the gate; `reports/provenance.json` keeps the selected resource
+limiter, the exact arguments and gate verdicts. Inline Evidence keeps only the parsed version.
 
 Builds of jsbeautify before `9949993` reserve a worker stack of
 2 KiB per input byte regardless of address-space limits (a 2.4 MB esbuild

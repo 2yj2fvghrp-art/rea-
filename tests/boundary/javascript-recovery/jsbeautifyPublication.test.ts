@@ -287,3 +287,17 @@ it("retains the stdout of a rewrite that fails its gate", async () => {
     "usage: wrapper <file>",
   );
 });
+
+it("records the selected resource limiter in recovery provenance", async () => {
+  const evidence = await recover(["a.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(
+    JSON.parse(await readFile(result.provenance.path, "utf8")),
+  ).toMatchObject({ resource_limiter: "/fixture/prlimit" });
+  expect(evidence.value.raw_result).toMatchObject({
+    resource_limiter: "/fixture/prlimit",
+  });
+});
