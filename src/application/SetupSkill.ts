@@ -17,6 +17,7 @@ import {
   withRegularFile,
 } from "./RegularFileRead.js";
 import { clientSkillDirectories } from "./SupportedClients.js";
+import { selectCurrentRecoveryBackup } from "./SetupRecoveryBackup.js";
 
 export const MANAGED_SKILL_FILES = [
   "SKILL.md",
@@ -345,6 +346,7 @@ export const installCanonicalSkill = async (
   resources?: ArtifactResourceScope,
 ): Promise<SkillInstallResult> => {
   let attempted: CanonicalSkillFile[] = [];
+  const recoveryBackups = new Map<string, string>();
   let stage: "prepare" | "backup" | "write" | "readback" = "prepare";
   let failingPath = "skill bundle";
   try {
@@ -364,8 +366,31 @@ export const installCanonicalSkill = async (
     for (const { destination, original } of changed) {
       failingPath = destination;
       await operations.mkdir(dirname(destination));
-      if (original !== undefined)
-        await operations.backup(destination, `${destination}.rea.backup`);
+      if (original !== undefined) {
+        const firstBackupPath = `${destination}.rea.backup`;
+        const selection = await selectCurrentRecoveryBackup(
+          firstBackupPath,
+          original.content,
+          resources,
+        );
+        if (!selection.ok) throw new Error(selection.error.detail);
+        if (!selection.value.present)
+          await operations.backup(destination, selection.value.backupPath);
+        const verified = await selectCurrentRecoveryBackup(
+          firstBackupPath,
+          original.content,
+          resources,
+        );
+        if (!verified.ok) throw new Error(verified.error.detail);
+        if (
+          !verified.value.present ||
+          verified.value.backupPath !== selection.value.backupPath
+        )
+          throw new Error(
+            `Current skill recovery backup could not be verified: ${selection.value.backupPath}`,
+          );
+        recoveryBackups.set(destination, verified.value.backupPath);
+      }
     }
     stage = "write";
     for (const file of changed) {
@@ -395,9 +420,10 @@ export const installCanonicalSkill = async (
         stage,
         reason: causeReason(cause),
         rollbackFailures,
-        recoveryBackupPaths: attempted.flatMap(({ destination, original }) =>
-          original === undefined ? [] : [`${destination}.rea.backup`],
-        ),
+        recoveryBackupPaths: attempted.flatMap(({ destination }) => {
+          const backup = recoveryBackups.get(destination);
+          return backup === undefined ? [] : [backup];
+        }),
         cause,
       }),
     );
