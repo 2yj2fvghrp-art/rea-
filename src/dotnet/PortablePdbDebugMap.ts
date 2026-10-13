@@ -616,10 +616,10 @@ export const buildPortablePdbDebugMap = ({
   issues.omitted += declaration.omitted;
   if (pe.debugIssue !== null) pushIssue(issues, pe.debugIssue);
   const declared = declaredIdentity(declaration);
-  // A degraded declaration — the directory slot or its enumeration — means
-  // the debug identity is unknown, not absent.
-  const identityUnknown =
-    pe.debugIssue !== null || declaration.issues.length > 0;
+  // A degraded declaration — the directory slot, its enumeration, or an
+  // unreadable PDB-declaring entry — means the debug identity is unknown,
+  // not absent. Failures on unrelated entry types leave it intact.
+  const identityUnknown = pe.debugIssue !== null || declaration.degraded;
 
   let pdbBytes: Buffer;
   let source: PortablePdbDebugMap["source"];

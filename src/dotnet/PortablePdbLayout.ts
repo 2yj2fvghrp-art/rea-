@@ -121,6 +121,15 @@ const readStreams = (
   const versionBytes = bytes.subarray(16, 16 + versionLength);
   const zero = versionBytes.indexOf(0);
   const decodedLength = zero < 0 ? versionBytes.length : zero;
+  // Real roots carry "PDB v1.0"; a far longer string is retained verbatim in
+  // debug_map, so bound it rather than echoing megabytes of padding.
+  if (decodedLength > 1024)
+    throw managedFailure(
+      "invalid-metadata-root",
+      "pdb.version",
+      "Portable PDB version string exceeds the admitted bound",
+      16,
+    );
   budget.reserveString(decodedLength, 16);
   const version = versionBytes.subarray(0, decodedLength).toString("utf8");
   let cursor = align4(16 + versionLength);

@@ -542,6 +542,47 @@ describe("Portable PDB declaration and boundary cases", () => {
         detail: expect.stringContaining("36 further"),
       }),
     );
+    // Unrelated entry types stay readable, so PDB presence is not unknown.
+    expect(result.debug_map?.identity.status).toBe("undeclared");
+  });
+
+  it("keeps embedded selection absent when only unrelated entries fail", () => {
+    const result = memberInspection(
+      buildManagedPeFixture({
+        extraDebugEntries: [{ type: 5, data: null }],
+      }),
+      { kind: "embedded" },
+    );
+    expect(result.debug_map?.status).toBe("absent");
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("not file-backed"),
+      ),
+    ).toBe(true);
+  });
+
+  it("truncates an oversized RSDS path while keeping identity evidence", () => {
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 1, startColumn: 1 }] },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({
+        codeview: { ...matchingCodeview, path: "x".repeat(70 * 1024) },
+      }),
+      externalPdb(pdb),
+    );
+    const declaredPath =
+      result.debug_map?.identity.declared.codeview?.declared_path;
+    expect(declaredPath?.length).toBe(64 * 1024);
+    expect(result.debug_map?.identity.status).toBe("matched");
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("retaining the first 65536"),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -13,6 +13,9 @@ const DEBUG_TYPE_EMBEDDED_PORTABLE_PDB = 17;
 const MAX_EMBEDDED_PDB_BYTES = 128 * 1024 * 1024;
 /** Retained issue cap; overflow is counted and summarized, not retained. */
 const MAX_DEBUG_DIRECTORY_ISSUES = 64;
+/** Retained CodeView path cap; real paths are far smaller, and the value is
+ *  echoed into bounded debug evidence. */
+const MAX_CODEVIEW_PATH_BYTES = 64 * 1024;
 /** Enumerated entry cap; real images carry a handful of debug entries. */
 const MAX_DEBUG_DIRECTORY_ENTRIES = 4096;
 
@@ -39,6 +42,12 @@ export interface ManagedDebugDeclaration {
   readonly issues: readonly ManagedParseIssue[];
   /** Issues dropped at the retained bound; consumers summarize the count. */
   readonly omitted: number;
+  /**
+   * True when directory evidence relevant to PDB declarations was lost:
+   * a structural failure, or a CodeView/embedded-PDB entry that could not be
+   * read or parsed. Unrelated entry failures stay in `issues` only.
+   */
+  readonly degraded: boolean;
 }
 
 const scope = "pe.debug-directory";
@@ -110,7 +119,14 @@ const readCodeView = (
       report("RSDS entry is shorter than GUID + age", dataOffset);
       return null;
     }
-    const pathBytes = bytes.subarray(dataOffset + 24, dataOffset + dataSize);
+    let pathBytes = bytes.subarray(dataOffset + 24, dataOffset + dataSize);
+    if (pathBytes.length > MAX_CODEVIEW_PATH_BYTES) {
+      report(
+        `CodeView RSDS path is ${String(pathBytes.length)} bytes; retaining the first ${String(MAX_CODEVIEW_PATH_BYTES)}`,
+        dataOffset,
+      );
+      pathBytes = pathBytes.subarray(0, MAX_CODEVIEW_PATH_BYTES);
+    }
     const terminator = pathBytes.indexOf(0);
     const declaredPath =
       pathBytes
@@ -144,19 +160,26 @@ export const readManagedDebugDirectory = (
   let codeview: CodeViewIdentity | null = null;
   let embedded: { offset: number; size: number } | null = null;
   let omitted = 0;
+  let degraded = false;
   const report: IssueReporter = (detail, offset) => {
     if (!pushIssue(issues, detail, offset)) omitted += 1;
+  };
+  /** A failure that hides whether a PDB declaration exists. */
+  const degrade: IssueReporter = (detail, offset) => {
+    report(detail, offset);
+    degraded = true;
   };
   const done = () => ({
     codeview,
     embeddedPortablePdb: embedded,
     issues,
     omitted,
+    degraded,
   });
   const { rva, size } = pe.debugDirectory;
   if (rva === 0 || size === 0) return done();
   if (size % DEBUG_DIRECTORY_ENTRY_SIZE !== 0) {
-    report(
+    degrade(
       `Debug directory size ${String(size)} is not a multiple of the 28-byte entry`,
       null,
     );
@@ -165,7 +188,7 @@ export const readManagedDebugDirectory = (
   const declaredCount = size / DEBUG_DIRECTORY_ENTRY_SIZE;
   const count = Math.min(declaredCount, MAX_DEBUG_DIRECTORY_ENTRIES);
   if (declaredCount > MAX_DEBUG_DIRECTORY_ENTRIES)
-    report(
+    degrade(
       `Debug directory declares ${String(declaredCount)} entries; enumeration stops at ${String(MAX_DEBUG_DIRECTORY_ENTRIES)}`,
       null,
     );
@@ -173,7 +196,7 @@ export const readManagedDebugDirectory = (
   try {
     tableOffset = pe.rvaToOffset(rva, size, scope);
   } catch {
-    report("Debug directory RVA is not file-backed", null);
+    degrade("Debug directory RVA is not file-backed", null);
     return done();
   }
   for (let index = 0; index < count; index += 1) {
@@ -190,10 +213,21 @@ export const readManagedDebugDirectory = (
       dataSize,
     );
     if (dataOffset === null) {
-      report(
-        `Debug entry ${String(index)} data is not file-backed`,
-        entryOffset,
-      );
+      // The entry type itself is readable; only a failure on a
+      // PDB-declaring entry type makes PDB presence unknown.
+      if (
+        type === DEBUG_TYPE_CODEVIEW ||
+        type === DEBUG_TYPE_EMBEDDED_PORTABLE_PDB
+      )
+        degrade(
+          `Debug entry ${String(index)} data is not file-backed`,
+          entryOffset,
+        );
+      else
+        report(
+          `Debug entry ${String(index)} data is not file-backed`,
+          entryOffset,
+        );
       continue;
     }
     if (type === DEBUG_TYPE_CODEVIEW && codeview === null) {
@@ -205,11 +239,15 @@ export const readManagedDebugDirectory = (
         report,
       );
       if (parsed?.kind === "rsds") codeview = parsed;
-      else if (parsed !== null)
-        report(
-          `CodeView entry ${String(index)} uses a non-RSDS signature 0x${parsed.signature.toString(16).padStart(8, "0")}`,
-          dataOffset,
-        );
+      else {
+        // A CodeView record exists but yields no portable identity.
+        degraded = true;
+        if (parsed !== null)
+          report(
+            `CodeView entry ${String(index)} uses a non-RSDS signature 0x${parsed.signature.toString(16).padStart(8, "0")}`,
+            dataOffset,
+          );
+      }
     }
     if (type === DEBUG_TYPE_EMBEDDED_PORTABLE_PDB && embedded === null)
       embedded = { offset: dataOffset, size: dataSize };
