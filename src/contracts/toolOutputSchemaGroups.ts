@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { artifactInventorySummaryViewResultSchema } from "../domain/analysisView/analysisView.js";
+import {
+  artifactInventorySummaryViewResultSchema,
+  managedArtifactSummaryViewResultSchema,
+} from "../domain/analysisView/analysisView.js";
 import { evidenceBundleSummarySchema } from "../domain/evidenceRecordSummary.js";
 import { BINARY_ARCHITECTURES } from "../domain/binaryTargetTypes.js";
 import {
@@ -353,7 +356,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   binary_overview: evidenceResultOf(
     z.object({
       document: z.string(),
-      image_base: z.string().nullable().exactOptional(),
+      image_base: z.string().min(1).optional(),
       segments: z.array(
         z.object({
           name: z.string(),
@@ -404,7 +407,12 @@ export const artifactOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
 
 /** Exact Evidence schema for execution-free managed static analysis. */
 export const managedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
-  inspect_managed_artifact: evidenceResultOf(managedArtifactInspectionSchema),
+  inspect_managed_artifact: evidenceResultOf(
+    z.union([
+      managedArtifactInspectionSchema,
+      managedArtifactSummaryViewResultSchema,
+    ]),
+  ),
   inspect_managed_members: evidenceResultOf(managedMemberInspectionSchema),
   inspect_managed_native_boundaries: evidenceResultOf(
     managedNativeBoundaryInspectionSchema,
@@ -549,6 +557,8 @@ export const sessionOutputSchemas = {
     z.object({
       items: z.array(residualUnknownSchema),
       total: z.number().int().min(0),
+      offset: z.number().int().min(0),
+      next_offset: z.number().int().min(0).nullable(),
     }),
   ),
   record_unknown: lifecycleResultOf(residualUnknownSchema),

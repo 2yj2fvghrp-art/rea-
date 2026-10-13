@@ -11,6 +11,21 @@ unparsed module-text line. A missing record is an unknown, not proof of a
 non-Go binary; observed metadata does not authenticate its claims. Function,
 source and type recovery remain a separate native-analysis question.
 
+## SQLite snapshots
+
+Use `inspect_sqlite_database` with an explicit local database snapshot for its
+schema and optional rows from one exact ordinary table. It requires Node.js
+24.x >=24.15 or 26+ with the native `DatabaseSync.limits` API. It also consumes the
+existing sibling `-wal`; retain both original digests when citing its result.
+Default output is a compact inventory; a selected table expands only its own
+schema and samples 20 rows. Select `columns` to avoid irrelevant or large cells,
+and request `schema_scope: "database"` only for complete schema details.
+Choose `row_limit` when a finite sample is useful and keep truncation and
+unspecified row order explicit. Virtual tables, shadow tables and views are
+schema facts, not row-read targets. REA inspects private copies and leaves
+the source files untouched; obtain a coherent quiescent database/WAL snapshot
+before inspection. See [SQLite snapshots](https://github.com/morluto/rea/blob/main/docs/sqlite-databases.md).
+
 ## Recorded Linux crashes
 
 Use `inspect_recorded_crash` with an explicit Linux x86-64 ELF core path to
@@ -39,6 +54,10 @@ read a single object.
 ## Offline WASM
 
 Use `inspect_wasm_artifact` with caller-supplied WABT for selected local bytes.
+For counts, validation and WAT identity, select `detail: "summary"` on the first
+MCP call. The complete original Evidence stays retained; use
+`normalized_result.parent_evidence_id` for exact exports or text pages. Omitted
+or complete detail keeps the existing complete result.
 For a completed result, use `inspect_analysis_view` with its reported retained
 reference for a summary or `view: {kind: "wasm", facet: "exports", offset: 0, limit: 32}`.
 Facets also include sections, imports, candidates, glue, WAT, headers, details
@@ -92,6 +111,8 @@ loaded bytes, file mappings, relocations and the entry against the immutable
 snapshot. Keep `mismatch` and `unsupported` explicit. Verified import covers the
 reported static image, not runtime DOS or PC-98 hardware behavior.
 
+For Ghidra decompilation, `procedure_pseudo_code` also accepts `procedure: "file-offset:0x..."`; CLI `rea decompile <path> --file-offset=0x... --provider ghidra` resolves the source byte offset internally. An unresolved 0x-prefixed numeric procedure selector also falls back to a unique file mapping. Existing symbols and analysis addresses win; multiple mappings fail as ambiguous. Preserve the returned file-offset and address locations and raw selection observations. ELF virtual addresses are distinct from file offsets; never assume an arbitrary offset plus image base is an analysis address.
+
 Use `read_bytes` for initialized analysis memory and `address_to_file_offset` to
 anchor one observed address to original file bytes. Loader fixups can change a
 word; a source offset does not imply byte equality. Complete function body ranges
@@ -116,6 +137,18 @@ assembly. Keep managed/native boundaries and unavailable reconstruction facts
 explicit. A bring-your-own reconstruction oracle is separate from the canonical
 parser and must not become an implicit setup dependency.
 
+For identity/classification questions, `inspect_managed_artifact` can explicitly
+select `detail: "summary"` on the first MCP call. It retains complete metadata
+and returns a linked overview with full classification/evidence, nullable
+module/MVID, frameworks, metadata coverage/issues/limitations and returned-row
+counts. Default complete requests remain unchanged. Read original rows with
+`inspect_analysis_view`, source `normalized_result.parent_evidence_id`, and
+`view: {kind: "managed", collection: "attributes", offset: 0, limit: 16}`.
+Collections are `references`, `resources` and `attributes`. Paging does not
+repeat parsing. Returned-row exhaustion
+does not prove complete metadata or absence under partial/unavailable coverage;
+preserve build-local tokens and their artifact/MVID scope.
+
 ### .NET NativeAOT
 
 NativeAOT binaries contain native machine code, so ordinary CIL decompilers
@@ -131,15 +164,15 @@ them. For packaged apps, inventory/extract with REA's artifact tools and retain
 the exact contained image identity. PDB, ELF debug, or dSYM sidecars are
 additional evidence only when the provider accepts and matches them.
 
-For deeper type recovery, the optional third-party
-[Ghidra NativeAOT analyzer](https://github.com/Washi1337/ghidra-nativeaot)
-rehydrates ReadyToRun metadata and can recover method tables, type relationships,
-frozen objects, and strings. This is a Ghidra extension with its own install and
-interactive workflow; it is not currently part of REA's managed parser or
-headless Ghidra bridge. Treat its annotations as analysis evidence, retain the
-binary identity, and do not present recovered types as original source. Header
-discovery may require a symbol or analyst identification of the ReadyToRun
-header, depending on the binary and analyzer version.
+REA has a built-in read-only snapshot parser for x64 PE targets with .NET 8 RTR
+9.1 metadata. An optional headless Ghidra adapter adds database annotations and
+broader metadata recovery on Linux; it requires an explicitly configured
+NativeAOT JAR. These are separate routes. See the
+[NativeAOT guide](https://github.com/morluto/rea/blob/main/docs/ghidra-nativeaot.md)
+for setup, supported layouts, and host restrictions. Preserve binary identity
+and distinguish derived metadata from Ghidra database observations. Recovered
+types and native pseudocode are not original C# source. Windows Ghidra P0 has
+no database mutation authority.
 
 ## Packages and extraction
 

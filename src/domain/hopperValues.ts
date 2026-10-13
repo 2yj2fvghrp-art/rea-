@@ -24,23 +24,6 @@ export interface SegmentSummary {
   readonly address_space?: string;
 }
 
-/** Bounded provider observations retained when no single loaded base is consistent. */
-export interface ImageBaseConflictPartialObservation {
-  readonly kind: "image-base-conflict";
-  readonly reported_segment_count: number;
-  readonly reported_image_base_count: number;
-  /** One original segment per retained base; this is not a complete inventory. */
-  readonly representative_segments: readonly {
-    readonly name: string;
-    readonly start: string;
-    readonly end: string;
-    readonly image_base: string;
-    readonly address_space: string | null;
-  }[];
-  readonly omitted_segment_count: number;
-  readonly omitted_image_base_count: number;
-}
-
 /** Return a bounded byte distance between canonical addresses in one space. */
 export const addressDistance = (start: string, end: string): number => {
   const left = addressCoordinate(start);
@@ -443,6 +426,17 @@ export const parseSegments = (
   return parsed.success
     ? ok(parsed.data)
     : invalid("segment list", parsed.error);
+};
+
+/** Retain main's optional overview base only when every parsed segment agrees. */
+export const parseSegmentImageBase = (
+  segments: readonly SegmentSummary[],
+): string | undefined => {
+  const base = segments[0]?.image_base;
+  return base !== undefined &&
+    segments.every((segment) => segment.image_base === base)
+    ? base
+    : undefined;
 };
 
 /** Parse direct or wrapped Hopper document names. */

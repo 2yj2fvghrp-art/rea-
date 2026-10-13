@@ -7,6 +7,36 @@ JSON measurements belong outside the checkout. This document keeps the measured
 findings, verification scope and revision references; the scripts and `corpus.json`
 keep the reproduction inputs. Generated `results/` is ignored.
 
+Follow-up: [native PE/DOS entry views and real model verification](native-entry-views.md)
+records the post-merge native continuation, including a small-function case where
+four selected replies cost more bytes than the complete dossier.
+
+Follow-up: [EVM descriptor and real-template controls](evm-descriptor.md) extends
+the offline corpus with digest-pinned Uniswap runtime templates and an independent
+published ABI selector oracle, preserving unknown deployment/immutable metadata.
+
+Follow-up: [EVM interface summary delivery](evm-interface-summary.md) records
+the opt-in retained view, old-client/Evidence migration checks and repeated SDK
+and real-model pairs, including mixed token/time results and strict-answer limits.
+
+Follow-up: [task-scoped preset lifecycle verification](preset-lifecycle.md) checks
+real Ghidra profile/snapshot boundaries, startup cancellation and retained cleanup
+retry while preserving defaults and distinguishing verification from performance.
+
+Follow-up: [EVM descriptor lifecycle acceptance](evm-lifecycle.md) verifies actual
+worker replies, late SDK cancellation, permission-induced cleanup failures,
+healthy WASM peers and old CLI parity with explicit runtime and platform scope.
+
+Follow-up: [managed artifact delivery and retained views](managed-artifact-summary.md)
+records two shipped assembly checks, previous-runtime portable Evidence, and four
+actual Codex trials. Selected replies shrink substantially; observed model input
+tokens increase and latency is mixed, so model-token savings are not claimed.
+
+Follow-up: [model tool context and per-response usage](model-context.md) separates
+raw MCP replies from observed client execution/discovery and usage. Optional
+trial capture retains tool/usage items while excluding account and ambient state;
+existing ephemeral trials keep their default behavior.
+
 The 12 detailed checkpoint receipts were archived byte-for-byte before removal
 from the final PR tree. The archive `review-receipts-00d51e0fc-20261012` is in the
 private experiment lab outside the checkout; its `archive-index.json` records
@@ -36,8 +66,9 @@ acceptance conditions for every optimization.
   experiment control; it does not itself establish reduced CPU consumption.
 
 Migrate domain by domain with focused real-artifact checks and relevant shared
-contract checks. The domain matrix is a growing roadmap; native PE and DOS, for
-example, remain unverified in this study. A passed lane does not imply all
+contract checks. The native follow-up verifies selected PE and DOS MZ entry facts;
+DOS COM and complete native application behavior remain unverified. The domain
+matrix is a growing roadmap. A passed lane does not imply all
 advertised platforms/providers have passed. Newly discovered REA bugs remain
 in the separate local handoff document for later team repair.
 
@@ -137,8 +168,11 @@ inventory. It must be supported by the selected server's advertised schema.
 The default `complete` runs the existing calls unchanged. Compare the same
 analyst facts and complete source Evidence before crediting a smaller response.
 Projection can reduce delivery bytes without reducing upstream analysis time.
-For SQLite WASM, summary delivery reads the completed retained result through
-the summary and exports views after preserving the original transport error.
+For WASM, the runner validates a summary request against the actual advertised
+2020-12 input schema, including SDK-generated references. Supporting servers
+return the first-call summary; older servers retain their complete path and use
+summary/export views after an observed transport constraint. Original errors
+remain in the receipts, and the complete source Evidence ID is a compared fact.
 `--javascript-question selected` analyzes only the exact Obsidian sources
 `package.json` and `main.js`, keeps inventory identity, and reads each observed
 `main.js` module by its exact node ID. Package metadata is not a module selector.
@@ -538,3 +572,5 @@ observations, not verified final counters. Their bytes, facts and token reports
 remain original observations; resource-qualified performance conclusions need
 this additional closeout evidence. No analyzer/build/schema/package behavior is
 changed, so unrelated verification is not repeated for this research-driver fix.
+
+The next bounded WASM delivery cohort is documented in [first-call summary measurements](wasm-first-call.md).

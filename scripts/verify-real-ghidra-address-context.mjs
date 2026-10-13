@@ -119,8 +119,30 @@ try {
     memory.normalized_result.bytes_hex,
     bytes.subarray(offset, offset + 8).toString("hex"),
   );
+  const fromOffset = parseEvidence(
+    await call("procedure_pseudo_code", {
+      procedure: `file-offset:0x${offset.toString(16)}`,
+    }),
+  );
+  assert.ok(
+    fromOffset.locations.some(
+      (location) =>
+        location.kind === "file-offset" && location.offset === offset,
+    ),
+  );
+  assert.equal(fromOffset.raw_result.selection.mapped_address, entry.address);
+  const fromNumericOffset = parseEvidence(
+    await call("procedure_pseudo_code", {
+      procedure: `0x${offset.toString(16)}`,
+    }),
+  );
+  assert.equal(
+    fromNumericOffset.normalized_result,
+    fromOffset.normalized_result,
+  );
+  const missingAddress = "ram:0xffffffff";
   const rejected = await client.callTool(
-    { name: "procedure_pseudo_code", arguments: { procedure: declaredEntry } },
+    { name: "procedure_pseudo_code", arguments: { procedure: missingAddress } },
     { timeout: 240000 },
   );
   assert.equal(rejected.isError, true);
@@ -150,7 +172,7 @@ try {
   assert.deepEqual(cliOverview.normalized_result, overview.normalized_result);
   let cliFailure;
   try {
-    await cli(["decompile", path, declaredEntry]);
+    await cli(["decompile", path, missingAddress]);
   } catch (cause) {
     cliFailure = cause;
   }
@@ -191,6 +213,14 @@ try {
   const cliPseudo = parseEvidence(
     JSON.parse((await cli(["decompile", path, cliEntry.address])).stdout),
   );
+  const cliOffset = parseEvidence(
+    JSON.parse(
+      (await cli(["decompile", path, `--file-offset=0x${offset.toString(16)}`]))
+        .stdout,
+    ),
+  );
+  assert.equal(cliOffset.normalized_result, fromOffset.normalized_result);
+  assert.deepEqual(cliOffset.locations, fromOffset.locations);
   assert.match(cliPseudo.normalized_result, /rea_pie_add/u);
   assert.deepEqual(await readFile(path), bytes);
   assert.deepEqual(await readdir(runtime), []);
@@ -207,6 +237,7 @@ try {
     failed_lookup_guidance: true,
     cli_recovery_commands: true,
     loaded_decompilation: true,
+    file_offset_decompilation: true,
     source_unchanged: true,
     runtime_cleanup: "complete",
   };

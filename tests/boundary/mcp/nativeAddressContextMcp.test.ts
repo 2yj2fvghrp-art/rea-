@@ -1,4 +1,6 @@
 import { afterEach, expect, it } from "vitest";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import type { AnySchemaObject } from "ajv";
 import {
   closeEnhancedToolResources,
   connect,
@@ -6,7 +8,6 @@ import {
 } from "./enhancedToolsHarness.js";
 import { observed as ok } from "../../fixtures/analysisExecution.js";
 import type { SegmentSummary } from "../../../src/domain/hopperValues.js";
-import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 
 afterEach(closeEnhancedToolResources);
 
@@ -20,7 +21,6 @@ const segment = {
   image_base: "0x100000",
   address_space: "ram",
 };
-
 const overviewClient = (segments: SegmentSummary[]) =>
   connect({
     execute: (name) => {
@@ -41,42 +41,66 @@ const overviewClient = (segments: SegmentSummary[]) =>
     },
   });
 
-it("preserves the observed image base rather than guessing it from the first segment", async () => {
+it("preserves observed coordinates and main's optional-string output contract after SDK conversion", async () => {
   const client = await overviewClient([segment]);
-  expect(
-    jsonResult(
-      await client.callTool({ name: "binary_overview", arguments: {} }),
-    ),
-  ).toMatchObject({
+  const schema = (await client.listTools()).tools.find(
+    ({ name }) => name === "binary_overview",
+  )?.outputSchema;
+  if (schema === undefined) throw new Error("Missing overview output schema");
+  const validate = new Ajv2020({ strict: false }).compile(
+    schema as AnySchemaObject,
+  );
+  const response = await client.callTool({
+    name: "binary_overview",
+    arguments: {},
+  });
+  expect(validate(response.structuredContent)).toBe(true);
+  expect(jsonResult(response)).toMatchObject({
     image_base: "0x100000",
     segments: [
       { start: "0x101000", image_base: "0x100000", address_space: "ram" },
     ],
   });
+  const absent = JSON.parse(JSON.stringify(response.structuredContent));
+  delete absent.normalized_result.image_base;
+  expect(validate(absent)).toBe(true);
+  absent.normalized_result.image_base = null;
+  expect(validate(absent)).toBe(false);
 });
 
-it("keeps an unreported image base unknown instead of inventing zero or a segment start", async () => {
-  const { image_base: _base, address_space: _space, ...unreported } = segment;
+it("omits unreported bases without inventing zero and preserves explicit zero", async () => {
+  const { image_base: _base, ...unreported } = segment;
   const client = await overviewClient([unreported]);
   expect(
     jsonResult(
       await client.callTool({ name: "binary_overview", arguments: {} }),
     ),
-  ).toMatchObject({ image_base: null });
-});
-
-it("preserves an explicitly observed zero image base", async () => {
-  const client = await overviewClient([{ ...segment, image_base: "0x0" }]);
+  ).not.toHaveProperty("image_base");
+  const zero = await overviewClient([{ ...segment, image_base: "0x0" }]);
   expect(
-    jsonResult(
-      await client.callTool({ name: "binary_overview", arguments: {} }),
-    ),
+    jsonResult(await zero.callTool({ name: "binary_overview", arguments: {} })),
   ).toMatchObject({ image_base: "0x0" });
 });
 
-it("rejects conflicting provider image bases instead of choosing the first", async () => {
+it("keeps a partially reported base unknown while retaining the reported segment observation", async () => {
+  const { image_base: _base, ...unreported } = segment;
   const client = await overviewClient([
     segment,
+    { ...unreported, name: ".data" },
+  ]);
+  const result = jsonResult(
+    await client.callTool({ name: "binary_overview", arguments: {} }),
+  );
+  expect(result).not.toHaveProperty("image_base");
+  expect(result).toMatchObject({
+    segments: [{ image_base: "0x100000" }, { name: ".data" }],
+  });
+});
+
+it("retains all conflicting observations after repeated early bases without selecting one", async () => {
+  const { address_space: _space, ...unreported } = segment;
+  const client = await overviewClient([
+    ...Array.from({ length: 40 }, () => unreported),
     {
       ...segment,
       name: ".data",
@@ -86,108 +110,12 @@ it("rejects conflicting provider image bases instead of choosing the first", asy
       address_space: "other space",
     },
   ]);
-  const result = await client.callTool({
-    name: "binary_overview",
-    arguments: {},
-  });
-  expect(result.isError).toBe(true);
-  expect(parseMcpToolError(result).error).toMatchObject({
-    code: "unreadable_output",
-    details: {
-      partial_observation: {
-        kind: "image-base-conflict",
-        reported_segment_count: 2,
-        reported_image_base_count: 2,
-        omitted_segment_count: 0,
-        omitted_image_base_count: 0,
-        representative_segments: [
-          {
-            name: ".text",
-            start: "0x101000",
-            end: "0x101100",
-            image_base: "0x100000",
-            address_space: "ram",
-          },
-          {
-            name: ".data",
-            start: "other%20space:0x201000",
-            end: "other%20space:0x201100",
-            image_base: "0x200000",
-            address_space: "other space",
-          },
-        ],
-      },
-    },
-  });
-});
-
-it("retains the conflicting base even when many earlier segments share one base", async () => {
-  const client = await overviewClient([
-    ...Array.from({ length: 40 }, () => segment),
-    { ...segment, name: ".data", image_base: "0x200000" },
-  ]);
-  const result = await client.callTool({
-    name: "binary_overview",
-    arguments: {},
-  });
-  expect(parseMcpToolError(result).error).toMatchObject({
-    details: {
-      partial_observation: {
-        reported_segment_count: 41,
-        reported_image_base_count: 2,
-        omitted_segment_count: 39,
-        omitted_image_base_count: 0,
-        representative_segments: [
-          { image_base: "0x100000" },
-          { image_base: "0x200000" },
-        ],
-      },
-    },
-  });
-});
-
-it("bounds the conflict sample and reports omitted bases", async () => {
-  const client = await overviewClient(
-    Array.from({ length: 40 }, (_, index) => ({
-      ...segment,
-      image_base: `0x${(index + 1).toString(16)}`,
-    })),
+  const result = jsonResult(
+    await client.callTool({ name: "binary_overview", arguments: {} }),
   );
-  const result = await client.callTool({
-    name: "binary_overview",
-    arguments: {},
-  });
-  const error = parseMcpToolError(result).error;
-  if (error.code !== "unreadable_output")
-    throw new Error("Expected an unreadable-output conflict failure");
-  const observation = error.details?.partial_observation;
-  expect(observation).toMatchObject({
-    reported_segment_count: 40,
-    reported_image_base_count: 40,
-    omitted_segment_count: 8,
-    omitted_image_base_count: 8,
-  });
-  expect(observation).toHaveProperty("representative_segments.length", 32);
-});
-
-it("keeps an unreported address space unknown in conflict observations", async () => {
-  const { address_space: _space, ...unreported } = segment;
-  const client = await overviewClient([
-    unreported,
-    { ...segment, image_base: "0x200000" },
-  ]);
-  const result = await client.callTool({
-    name: "binary_overview",
-    arguments: {},
-  });
-  expect(parseMcpToolError(result).error).toMatchObject({
-    details: {
-      partial_observation: {
-        representative_segments: [
-          { image_base: "0x100000", address_space: null },
-          { image_base: "0x200000", address_space: "ram" },
-        ],
-      },
-    },
-  });
+  expect(result).not.toHaveProperty("image_base");
+  expect(result).toHaveProperty("segments.length", 41);
+  expect(result).toHaveProperty("segments.40.image_base", "0x200000");
+  expect(result).toHaveProperty("segments.40.address_space", "other space");
+  expect(result).not.toHaveProperty("segments.0.address_space");
 });

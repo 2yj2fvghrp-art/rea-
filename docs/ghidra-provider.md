@@ -46,13 +46,22 @@ bytes and references.
 `rea analyze <path> --provider ghidra --json` and MCP `binary_overview` report
 the observed loaded `image_base` in `normalized_result`. They retain each
 segment's reported `image_base` and `address_space`. A provider that does not
-report a base produces `image_base: null`; REA does not substitute zero or the
-first segment's address. Conflicting reported bases fail explicitly and retain
-a bounded sample of the reported bases with their segment and address-space
-associations in `error.details.partial_observation`; omitted counts stay explicit.
+report a base, or whose segments disagree, omits the overview field, following
+the existing contract on main. REA does not substitute zero or the first
+segment's address. All reported bases and address spaces remain visible in the
+complete segment inventory, including conflicting observations.
 
-`decompile`, `function`, and MCP procedure selectors use procedure names or
-provider analysis addresses. ELF virtual addresses and file offsets are
+`function` and most MCP procedure selectors use procedure names or
+provider analysis addresses. Ghidra `decompile` / MCP `procedure_pseudo_code`
+also accept source-file byte offsets. Existing symbols and analysis addresses
+take precedence; a `0x`-prefixed number that resolves to no procedure falls back
+to its observed source mapping. Use `--file-offset=0x...` on the CLI or
+`procedure: "file-offset:0x..."` through MCP to select file coordinates explicitly.
+Multiple mapping candidates fail as ambiguous rather than selecting a bank or
+address space. A successful conversion retains the file offset, mapped address
+and procedure entry in raw Evidence and `locations`.
+
+ELF virtual addresses and file offsets are
 different coordinates. Ghidra can rebase a PIE ELF during import: in the
 source-owned verification fixture, ELF entry `0x1013` becomes Ghidra procedure
 `0x101013` with image base `0x100000`. That example is not a general conversion
@@ -65,6 +74,8 @@ bytes to loaded memory, call MCP `inspect_native_load_image` or:
 rea search <path> . --kind procedures --mode regex --provider ghidra --json
 rea inspect-native-load-image <path> --provider ghidra --json
 rea decompile <path> <observed-procedure-address> --provider ghidra --json
+rea decompile <path> --file-offset=0x1013 --provider ghidra --json
+rea address-to-file-offset <path> <observed-procedure-address> --provider ghidra --json
 ```
 
 The load-image result preserves source-file indexes, file offsets, address
@@ -82,8 +93,8 @@ status and limitations state.
 An unsuccessful numeric procedure lookup reports the current Ghidra image base
 and gives the CLI commands above alongside the corresponding MCP operations.
 Repeat any target-format, architecture, and entry-point options used to open the
-target. It never retries by
-reinterpreting the selector as a file offset.
+target. Other procedure operations keep their analysis-address semantics;
+file-offset fallback applies only to decompilation.
 
 Overview workflow revision 3 binds this output to snapshot identity. Older
 serialized overview Evidence remains readable; it is not replayed as a current

@@ -1,10 +1,15 @@
+import { registerCaptureCommands } from "./cli/captureCommands.js";
+import { registerSignalCommands } from "./cli/signalCommands.js";
 import { registerWasmCommands } from "./cli/wasmCommands.js";
 import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
 import { createDirectAnalysis } from "./composition/directAnalysis.js";
 import { registerEvmCommands } from "./cli/evmCommands.js";
 import { registerGoCommands } from "./cli/goCommands.js";
+import { registerSqliteCommands } from "./cli/sqliteCommands.js";
 import { registerAnalysisViewCommands } from "./cli/analysisViewCommands.js";
 import { registerBinaryDiagnosticsCommands } from "./cli/binaryDiagnosticsCommands.js";
+import { registerFridaCommands } from "./cli/fridaCommands.js";
+import type { FridaInstrumentationPort } from "./application/frida/FridaInstrumentationPort.js";
 import { Cli } from "incur";
 
 import { createLogger, parseLogLevel } from "./logger.js";
@@ -19,6 +24,7 @@ import { registerManagedCommands } from "./cli/managedCommands.js";
 import { registerFirmwareCommands } from "./cli/firmwareCommands.js";
 import { registerAndroidCommands } from "./cli/androidCommands.js";
 import { registerApktoolCommands } from "./cli/apktoolCommands.js";
+import { registerFlutterCommands } from "./cli/flutterCommands.js";
 import { registerJebCommands } from "./cli/jebCommands.js";
 import { registerAdbCommands } from "./cli/adbCommands.js";
 import { registerEvidenceCommands } from "./cliEvidenceCommands.js";
@@ -40,7 +46,7 @@ import type { CliInstance } from "./cli/types.js";
 import {
   streamCliCommandResults,
   type CliResultOutput,
-} from "./cli/streamedJsonOutput.js";
+} from "./cli/cliResultOutput.js";
 
 /** Describe CLI settings that are invalid before any command runs, as MCP does. */
 export const cliConfigurationError = (
@@ -62,6 +68,7 @@ export const createCli = (
     Record<string, string | undefined>
   > = process.env,
   resultOutput?: CliResultOutput,
+  fridaInstrumentation?: FridaInstrumentationPort,
 ): CliInstance => {
   const environment = snapshotEnvironment(selectedEnvironment);
   const analysis = createDirectAnalysis(environment);
@@ -89,17 +96,22 @@ export const createCli = (
   registerCoreAnalysisCommands(cli, logger, analysis.runDirectAnalysis);
   registerUtilityCommands(cli, logger, environment, analysis);
   registerWasmCommands(cli, logger, environment);
+  registerCaptureCommands(cli, logger, environment);
+  registerSignalCommands(cli, logger, environment);
   registerEvmCommands(cli, logger, environment);
   registerGoCommands(cli, logger);
+  registerSqliteCommands(cli, logger, environment);
   registerArtifactCommands(cli, logger, analysis.runProviderAnalysis);
   registerManagedCommands(cli, logger, analysis.runProviderAnalysis);
   registerAndroidCommands(cli, logger, environment);
   registerApktoolCommands(cli, logger, environment);
+  registerFlutterCommands(cli, logger);
   registerJebCommands(cli, logger, environment);
   registerAdbCommands(cli, logger, environment);
   registerFirmwareCommands(cli, logger, environment);
   registerBinaryDiagnosticsCommands(cli, logger, environment);
   registerAnalysisViewCommands(cli, logger);
+  registerFridaCommands(cli, logger, fridaInstrumentation);
   registerEvidenceCommands(cli, logger);
   registerProcessCommands(cli, logger, environment);
   registerBrowserCommands(cli, logger);
