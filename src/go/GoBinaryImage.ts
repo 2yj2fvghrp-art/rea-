@@ -193,6 +193,8 @@ const readContainer = (bytes: Buffer): GoBinaryContainer => {
     const magic = bytes.readUInt32BE();
     if ([0xcafebabe, 0xcafebabf, 0xbebafeca, 0xbfbafeca].includes(magic)) {
       const fatHeader = readFatContainerHeader(bytes, bytes.length);
+      if (fatHeader.state === "malformed")
+        throw new GoBinaryFormatFailure("malformed", fatHeader.reason);
       const identity =
         fatHeader.state === "parsed"
           ? classifyFatContainerIdentity(fatHeader, (offset) => {
