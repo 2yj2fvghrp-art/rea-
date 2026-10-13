@@ -337,7 +337,7 @@ void validateWindowOwner(HWND window, DWORD expectedPid) {
           ERROR_ACCESS_DENIED);
 }
 
-napi_value pngFromDib(napi_env env, int sourceWidth, int sourceHeight, void* pixels,
+std::vector<BYTE> pngFromDib(int sourceWidth, int sourceHeight, void* pixels,
                       int maximumDimension) {
   const uint64_t sourceBytes = static_cast<uint64_t>(sourceWidth) * static_cast<uint64_t>(sourceHeight) * 4ULL;
   require(sourceBytes <= static_cast<uint64_t>(std::numeric_limits<UINT>::max()),
@@ -370,46 +370,64 @@ napi_value pngFromDib(napi_env env, int sourceWidth, int sourceHeight, void* pix
   }
 
   std::vector<BYTE> encoded(MAX_PNG_BYTES);
-  auto* fixedStream = new FixedMemoryStream(encoded);
-  ComPointer<IStream> stream;
-  stream.reset(fixedStream);
-  ComPointer<IWICBitmapEncoder> encoder;
-  checkHr(factory.get()->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.out()),
-          "Create selected-window PNG encoder failed");
-  checkHr(encoder.get()->Initialize(stream.get(), WICBitmapEncoderNoCache),
-          "Initialize selected-window PNG encoder failed");
-  ComPointer<IWICBitmapFrameEncode> frame;
-  ComPointer<IPropertyBag2> options;
-  checkHr(encoder.get()->CreateNewFrame(frame.out(), options.out()), "Create selected-window PNG frame failed");
-  checkHr(frame.get()->Initialize(options.get()), "Initialize selected-window PNG frame failed");
-  checkHr(frame.get()->SetSize(static_cast<UINT>(width), static_cast<UINT>(height)),
-          "Set selected-window PNG dimensions failed");
-  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-  checkHr(frame.get()->SetPixelFormat(&format), "Set selected-window PNG format failed");
-  checkHr(frame.get()->WriteSource(source, nullptr), "Write selected-window PNG pixels failed");
-  checkHr(frame.get()->Commit(), "Commit selected-window PNG frame failed");
-  checkHr(encoder.get()->Commit(), "Commit selected-window PNG failed");
+  size_t byteCount = 0;
+  {
+    auto* fixedStream = new FixedMemoryStream(encoded);
+    ComPointer<IStream> stream;
+    stream.reset(fixedStream);
+    ComPointer<IWICBitmapEncoder> encoder;
+    checkHr(factory.get()->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.out()),
+            "Create selected-window PNG encoder failed");
+    checkHr(encoder.get()->Initialize(stream.get(), WICBitmapEncoderNoCache),
+            "Initialize selected-window PNG encoder failed");
+    ComPointer<IWICBitmapFrameEncode> frame;
+    ComPointer<IPropertyBag2> options;
+    checkHr(encoder.get()->CreateNewFrame(frame.out(), options.out()), "Create selected-window PNG frame failed");
+    checkHr(frame.get()->Initialize(options.get()), "Initialize selected-window PNG frame failed");
+    checkHr(frame.get()->SetSize(static_cast<UINT>(width), static_cast<UINT>(height)),
+            "Set selected-window PNG dimensions failed");
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    checkHr(frame.get()->SetPixelFormat(&format), "Set selected-window PNG format failed");
+    checkHr(frame.get()->WriteSource(source, nullptr), "Write selected-window PNG pixels failed");
+    checkHr(frame.get()->Commit(), "Commit selected-window PNG frame failed");
+    checkHr(encoder.get()->Commit(), "Commit selected-window PNG failed");
 
-  const size_t byteCount = fixedStream->size();
-  require(byteCount > 0 && byteCount <= MAX_PNG_BYTES,
-          "Selected-window PNG exceeds the retained byte limit", L"", ERROR_NOT_ENOUGH_MEMORY);
-  napi_value result;
-  const auto status = napi_create_buffer_copy(env, byteCount, encoded.data(), nullptr, &result);
-  check(status);
-  return result;
+    byteCount = fixedStream->size();
+    require(byteCount > 0 && byteCount <= MAX_PNG_BYTES,
+            "Selected-window PNG exceeds the retained byte limit", L"", ERROR_NOT_ENOUGH_MEMORY);
+  }  // Release the encoder and stream before moving their backing bytes.
+  encoded.resize(byteCount);
+  return encoded;
 }
 
-}  // namespace
+struct CaptureControl {
+  std::atomic<bool> cancelled{false};
+  // This handle is accessed only on the JavaScript thread. The worker reads
+  // only the atomic flag, so completion can invalidate the handle safely.
+  napi_async_work work = nullptr;
+};
 
-napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) {
-  require(args.size() == 3, "Selected-window capture requires pid, handle and maximum dimension", L"",
-          ERROR_INVALID_PARAMETER);
-  const DWORD pid = positiveDword(env, args[0], "Selected process ID is invalid");
-  const std::wstring requestedHandle = wide(env, args[1]);
-  const ULONG_PTR handle = parseWindowHandle(requestedHandle);
-  const int maximumDimension = positiveDimension(env, args[2]);
+struct WindowImage {
+  DWORD pid = 0;
+  ULONG_PTR windowHandle = 0;
+  std::wstring imagePath;
+  double startTimeMs = 0;
+  std::wstring title;
+  int sourceWidth = 0;
+  int sourceHeight = 0;
+  int width = 0;
+  int height = 0;
+  std::vector<BYTE> png;
+};
+
+void checkCaptureCancellation(const CaptureControl& control) {
+  require(!control.cancelled.load(), "Selected-window capture was cancelled", L"", ERROR_OPERATION_ABORTED);
+}
+
+WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
+                          const CaptureControl& control) {
   const HWND window = reinterpret_cast<HWND>(handle);
-
+  checkCaptureCancellation(control);
   validateWindowOwner(window, pid);
   auto process = openProcessForCapture(pid);
   const std::wstring imagePath = processImagePath(process.get());
@@ -430,6 +448,7 @@ napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) 
   const LRESULT delivered = SendMessageTimeoutW(window, WM_PRINT,
                                                  reinterpret_cast<WPARAM>(dc.get()), flags,
                                                  SMTO_ABORTIFHUNG | SMTO_BLOCK, CAPTURE_TIMEOUT_MS, &ignored);
+  checkCaptureCancellation(control);
   require(delivered != 0, "Selected window did not render within the capture deadline", L"",
           GetLastError() == ERROR_SUCCESS ? ERROR_TIMEOUT : GetLastError());
   require(GdiFlush() != FALSE, "Flush selected-window drawing commands failed");
@@ -445,17 +464,119 @@ napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) 
   const int renderedWidth = std::max(1, static_cast<int>(std::floor(width * scale)));
   const int renderedHeight = std::max(1, static_cast<int>(std::floor(height * scale)));
 
+  checkCaptureCancellation(control);
+  auto png = pngFromDib(width, height, bitmap.pixels(), maximumDimension);
+  checkCaptureCancellation(control);
+  return {pid, handle, imagePath, startTimeMs, title, width, height,
+          renderedWidth, renderedHeight, std::move(png)};
+}
+
+struct CaptureWork {
+  std::shared_ptr<CaptureControl> control = std::make_shared<CaptureControl>();
+  napi_deferred deferred = nullptr;
+  DWORD pid = 0;
+  ULONG_PTR windowHandle = 0;
+  int maximumDimension = 0;
+  WindowImage image;
+  std::unique_ptr<Failure> failure;
+};
+
+void executeCapture(napi_env, void* pointer) {
+  auto& work = *static_cast<CaptureWork*>(pointer);
+  try {
+    // All Win32, GDI and COM resources live and unwind on this worker thread.
+    // No N-API values or JavaScript handles are accessed here.
+    work.image = captureWindow(work.pid, work.windowHandle, work.maximumDimension, *work.control);
+  } catch (const Failure& failure) {
+    work.failure = std::make_unique<Failure>(failure);
+  } catch (const std::exception& failure) {
+    work.failure = std::make_unique<Failure>(failure.what(), L"", ERROR_GEN_FAILURE);
+  }
+}
+
+napi_value serializeCapture(napi_env env, const WindowImage& image) {
   auto result = object(env);
-  set(env, result, "pid", number(env, static_cast<double>(pid)));
-  set(env, result, "window_handle", string(env, hexHandle(handle)));
-  set(env, result, "process_image_path", string(env, imagePath));
-  set(env, result, "process_start_time_unix_ms", number(env, startTimeMs));
-  set(env, result, "title", string(env, title));
-  set(env, result, "source_width", number(env, width));
-  set(env, result, "source_height", number(env, height));
-  set(env, result, "width", number(env, renderedWidth));
-  set(env, result, "height", number(env, renderedHeight));
-  set(env, result, "png", pngFromDib(env, width, height, bitmap.pixels(), maximumDimension));
+  set(env, result, "pid", number(env, image.pid));
+  set(env, result, "window_handle", string(env, hexHandle(image.windowHandle)));
+  set(env, result, "process_image_path", string(env, image.imagePath));
+  set(env, result, "process_start_time_unix_ms", number(env, image.startTimeMs));
+  set(env, result, "title", string(env, image.title));
+  set(env, result, "source_width", number(env, image.sourceWidth));
+  set(env, result, "source_height", number(env, image.sourceHeight));
+  set(env, result, "width", number(env, image.width));
+  set(env, result, "height", number(env, image.height));
+  napi_value png;
+  check(napi_create_buffer_copy(env, image.png.size(), image.png.data(), nullptr, &png));
+  set(env, result, "png", png);
+  return result;
+}
+
+void completeCapture(napi_env env, napi_status status, void* pointer) {
+  std::unique_ptr<CaptureWork> work(static_cast<CaptureWork*>(pointer));
+  const auto handle = work->control->work;
+  work->control->work = nullptr;
+  try {
+    if (status != napi_ok || work->control->cancelled.load())
+      napi_reject_deferred(env, work->deferred, failureValue(env,
+          Failure("Selected-window capture was cancelled", L"", ERROR_OPERATION_ABORTED)));
+    else if (work->failure)
+      napi_reject_deferred(env, work->deferred, failureValue(env, *work->failure));
+    else
+      napi_resolve_deferred(env, work->deferred, serializeCapture(env, work->image));
+  } catch (const Failure& failure) {
+    napi_reject_deferred(env, work->deferred, failureValue(env, failure));
+  } catch (const std::exception& failure) {
+    napi_reject_deferred(env, work->deferred, failureValue(env,
+        Failure(failure.what(), L"", ERROR_GEN_FAILURE)));
+  }
+  napi_delete_async_work(env, handle);
+}
+
+napi_value cancelCapture(napi_env env, napi_callback_info info) {
+  void* data = nullptr;
+  size_t count = 0;
+  if (napi_get_cb_info(env, info, &count, nullptr, nullptr, &data) != napi_ok) return nullptr;
+  auto& control = **static_cast<std::shared_ptr<CaptureControl>*>(data);
+  control.cancelled.store(true);
+  // A queued work item can be cancelled. Running WM_PRINT is non-interruptible
+  // but bounded by CAPTURE_TIMEOUT_MS; it retains its surface until it returns.
+  if (control.work != nullptr) napi_cancel_async_work(env, control.work);
+  return null(env);
+}
+
+void releaseCaptureControl(napi_env, void* data, void*) {
+  delete static_cast<std::shared_ptr<CaptureControl>*>(data);
+}
+
+}  // namespace
+
+napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) {
+  require(args.size() == 3, "Selected-window capture requires pid, handle and maximum dimension", L"",
+          ERROR_INVALID_PARAMETER);
+  auto work = std::make_unique<CaptureWork>();
+  work->pid = positiveDword(env, args[0], "Selected process ID is invalid");
+  work->windowHandle = parseWindowHandle(wide(env, args[1]));
+  work->maximumDimension = positiveDimension(env, args[2]);
+  napi_value completion;
+  check(napi_create_promise(env, &work->deferred, &completion));
+  auto retained = std::make_unique<std::shared_ptr<CaptureControl>>(work->control);
+  napi_value cancel;
+  check(napi_create_function(env, "cancel", NAPI_AUTO_LENGTH, cancelCapture, retained.get(), &cancel));
+  check(napi_add_finalizer(env, cancel, retained.get(), releaseCaptureControl, nullptr, nullptr));
+  retained.release();
+  auto result = object(env);
+  set(env, result, "completion", completion);
+  set(env, result, "cancel", cancel);
+  try {
+    check(napi_create_async_work(env, nullptr, string(env, std::string("REA selected-window capture")),
+                                 executeCapture, completeCapture, work.get(), &work->control->work));
+    check(napi_queue_async_work(env, work->control->work));
+  } catch (...) {
+    if (work->control->work != nullptr) napi_delete_async_work(env, work->control->work);
+    work->control->work = nullptr;
+    throw;
+  }
+  work.release();
   return result;
 }
 

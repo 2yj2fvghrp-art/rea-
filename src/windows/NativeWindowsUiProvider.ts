@@ -61,6 +61,11 @@ const rawCaptureSchema = z.strictObject({
   png: z.custom<Buffer>(Buffer.isBuffer, "Expected a native PNG buffer"),
 });
 
+const captureWorkSchema = z.strictObject({
+  completion: z.custom<Promise<unknown>>((value) => value instanceof Promise),
+  cancel: z.custom<() => void>((value) => typeof value === "function"),
+});
+
 interface ExecutableIdentity {
   readonly fileIdentity: string;
   readonly sha256: string;
@@ -68,7 +73,12 @@ interface ExecutableIdentity {
 
 /** Narrow test seam: no test needs a Windows desktop or a packaged addon. */
 export interface WindowsWindowCaptureHost {
-  capture(pid: number, windowHandle: string, maximumDimension: number): unknown;
+  capture(
+    pid: number,
+    windowHandle: string,
+    maximumDimension: number,
+    signal?: AbortSignal,
+  ): unknown;
   identifyExecutable(
     path: string,
     signal?: AbortSignal,
@@ -76,7 +86,7 @@ export interface WindowsWindowCaptureHost {
 }
 
 const systemCaptureHost = (): WindowsWindowCaptureHost => ({
-  capture: (pid, windowHandle, maximumDimension) => {
+  capture: async (pid, windowHandle, maximumDimension, signal) => {
     let authority: ReturnType<typeof requireWindowsNativeAuthority>;
     try {
       authority = requireWindowsNativeAuthority();
@@ -88,11 +98,19 @@ const systemCaptureHost = (): WindowsWindowCaptureHost => ({
         { cause },
       );
     }
-    return authority.call("capture_window_png", [
-      pid,
-      windowHandle,
-      maximumDimension,
-    ]);
+    const work = captureWorkSchema.parse(
+      authority.call("capture_window_png", [pid, windowHandle, maximumDimension]),
+    );
+    const cancel = () => work.cancel();
+    if (signal?.aborted) cancel();
+    else signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      // Await settlement so cancellation cannot abandon native surfaces or COM
+      // resources while the bounded paint request still uses them.
+      return await work.completion;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+    }
   },
   identifyExecutable: hashExecutable,
 });
@@ -200,10 +218,11 @@ export const captureWindowsWindowScreenshot = async (
 
   let reply: unknown;
   try {
-    reply = host.capture(
+    reply = await host.capture(
       input.data.pid,
       input.data.window_handle,
       input.data.max_dimension,
+      options.signal,
     );
   } catch (cause) {
     return err(captureFailure(target.path, input.data.window_handle, cause));
@@ -403,6 +422,7 @@ const captureFailure = (
   if (!native.success)
     return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), { cause });
   const code = native.data.win32Code;
+  if (code === 995) return new AnalysisCancelledError(OPERATION, { cause });
   if (code === 5)
     return new AnalysisAccessDeniedError(OPERATION, path, "EACCES", { cause });
   if (code === 1460 || code === 258)
