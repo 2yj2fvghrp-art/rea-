@@ -44,6 +44,14 @@ describe("lexically shadowed require calls", () => {
       "initialized top-level var",
       `var require = () => "local";\nconsole.log(require("./throwing.cjs"));`,
     ],
+    [
+      "top-level let binding",
+      `export {}; let require; require?.("./ghost.cjs");`,
+    ],
+    [
+      "nested shadow inside a require-named bundle factory",
+      `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { function inner(require) { return require("./nested.cjs"); } } }]);`,
+    ],
   ])("emits no require reference for a %s shadow", (_label, source) => {
     expect(requireSpecifiers(source)).toEqual([]);
   });
@@ -84,6 +92,31 @@ describe("lexically shadowed require calls", () => {
       `const routes = { [require?.("./dep")]() {} };\nrequire = localLoader;`,
       ["./dep"],
     ],
+    [
+      "bundle factory whose loader parameter is named require",
+      `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require("dep"); } }]);`,
+      ["dep"],
+    ],
+    [
+      "bundle factory loader call next to a nested shadow",
+      `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require("dep"); function inner(require) { return require("./nested.cjs"); } } }]);`,
+      ["dep"],
+    ],
+    [
+      "namespace createRequire binding",
+      `import * as module from "node:module";\nconst require = module.createRequire(import.meta.url);\nrequire("./dep.cjs");`,
+      ["./dep.cjs"],
+    ],
+    [
+      "call inside the right-hand side of its own reassignment",
+      `var require; require = require("./dep.cjs");`,
+      ["./dep.cjs"],
+    ],
+    [
+      "top-level call before a deferred write",
+      `var require;\nfunction f() { require = localLoader; }\nrequire("./dep.cjs");`,
+      ["./dep.cjs"],
+    ],
   ])("keeps the require reference for %s", (_label, source, expected) => {
     expect(requireSpecifiers(source)).toEqual(expected);
   });
@@ -102,5 +135,13 @@ describe("lexically shadowed require calls", () => {
         `var require;\nrequire("./before.cjs");\nrequire = localLoader;\nrequire("./after.cjs");`,
       ),
     ).toEqual(["./before.cjs"]);
+  });
+
+  it("drops the call after a write in the same function body", () => {
+    expect(
+      requireSpecifiers(
+        `var require;\nfunction f() { require = localLoader; return require("./x.cjs"); }\nf();`,
+      ),
+    ).toEqual([]);
   });
 });

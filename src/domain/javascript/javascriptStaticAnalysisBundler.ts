@@ -2,6 +2,7 @@ import * as t from "@babel/types";
 import { javascriptBootstrapAt } from "./javascriptBootstrap.js";
 import {
   resolveSemanticBindingState,
+  semanticScopeId,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 
@@ -259,6 +260,11 @@ const recoverBundlerModule = (
       key,
       runtime,
       requireName,
+      // The factory's own scope always exists: the semantic pass creates one
+      // function scope per visited function node, and the factory is part of
+      // the analyzed source.
+      loaderScopeId:
+        requireName === "require" ? semanticScopeId("function", factory) : null,
     };
     accumulator.moduleRangeIndex.add(moduleRange);
   }
