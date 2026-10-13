@@ -13556,3 +13556,11 @@ msgstr "提供的示例 · {ph0} 和 npm · 程式設計助手 · Linux 上的 {
 #~ msgctxt "page:showcase/th04/index.html"
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
+
+#. {ph0}: <code>procps</code>
+#. {ph1}: <code>ps</code>
+#: website/public/get-started/index.html:202
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
+msgstr "在 Linux 上，REA 使用相容於 {ph0} 的 {ph1} 命令來監督 JavaScript 與原生提供者的啟動。"

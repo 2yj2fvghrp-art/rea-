@@ -13865,3 +13865,11 @@ msgstr "제공된 예·{ph0}및npm·코딩의 에이전트 · Linux의 {ph1}"
 #~ msgctxt "page:showcase/th04/index.html"
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
+
+#. {ph0}: <code>procps</code>
+#. {ph1}: <code>ps</code>
+#: website/public/get-started/index.html:202
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
+msgstr "Linux에서 REA는 JavaScript 및 네이티브 공급자 실행을 감독하기 위해 {ph0} 호환 {ph1} 명령을 사용합니다."

@@ -14810,3 +14810,11 @@ msgstr ""
 #~ msgctxt "page:showcase/th04/index.html"
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
+
+#. {ph0}: <code>procps</code>
+#. {ph1}: <code>ps</code>
+#: website/public/get-started/index.html:202
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
+msgstr "Trên Linux, REA dùng lệnh {ph1} tương thích với {ph0} để giám sát việc khởi chạy các nhà cung cấp JavaScript và gốc."

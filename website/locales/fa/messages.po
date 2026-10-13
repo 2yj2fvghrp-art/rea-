@@ -14654,3 +14654,11 @@ msgstr "یک مثال ارائه شده · {ph0} و npm * عامل کدگذار�
 #~ msgctxt "page:showcase/th04/index.html"
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
+
+#. {ph0}: <code>procps</code>
+#. {ph1}: <code>ps</code>
+#: website/public/get-started/index.html:202
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
+msgstr "در Linux، REA از فرمان {ph1} سازگار با {ph0} برای نظارت بر اجرای ارائه‌دهنده‌های JavaScript و بومی استفاده می‌کند."
