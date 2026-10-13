@@ -62,6 +62,14 @@ unpack .NET single-file hosts or decode IL2CPP metadata. NativeAOT method bodies
 require native analysis. See the [managed-code guide](managed-code-analysis.md)
 for supported deployment forms, selection semantics, and coverage limits.
 
+## SQLite snapshots
+
+For a local database snapshot, use `rea inspect-sqlite-database PATH --json`.
+Add `--table NAME --row-limit 20` to read a bounded sample from an ordinary
+table. This command does not require a native analysis provider. See
+[SQLite database snapshots](sqlite-databases.md) for database/WAL identity,
+source-file handling and row-value semantics.
+
 ## Native analysis
 
 Inspect embedded Go build metadata without installing Go or configuring a
@@ -207,7 +215,9 @@ rea import-reference-source /absolute/path/to/source
 ```
 
 The import records hashes and metadata for the supplied files, separately
-from observations of the current app. It honors the source tree's `.gitignore`
+from observations of the current app. For a directory inside a Git checkout,
+it records the HEAD of the nearest enclosing repository; whether the working
+tree matches that commit remains unknown. It honors the source tree's `.gitignore`
 and applies default exclusions for common generated and dependency paths such
 as `node_modules/`, `dist/`, and `*.log`. Pattern-based exclusions record the
 matched pattern and whether it came from project, default, caller, or sensitive
@@ -254,8 +264,8 @@ With `--full-output`, a successful operation returns
 `{ "ok": false, "error": ..., "meta": ... }` and exits `1`. The error payload
 preserves the command's diagnostics and recovery details. Earlier versions put
 these failures under `data` with `ok: true`; consumers of full output should read
-`error` when `ok` is false. Output filters select fields within the payload and
-do not change `ok`. Without `--full-output`, the existing bare payload is retained.
+`error` when `ok` is false. Output filters select fields within successful payloads; full failure envelopes
+retain their canonical diagnostics and do not change `ok`. Without `--full-output`, the existing bare payload is retained.
 
 | Status    | Meaning                                                                                                                                              |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -10,7 +10,7 @@ import { finished } from "node:stream/promises";
 
 import { Cli } from "incur";
 
-import { createCliResultOutput } from "../../../dist/cli/streamedJsonOutput.js";
+import { createCliResultOutput } from "../../../dist/cli/cliResultOutput.js";
 import { createEvidence } from "../../../dist/domain/evidence.js";
 
 // This opt-in format-boundary check writes one temporary file larger than the
@@ -87,11 +87,7 @@ try {
     .command(metadata.command, {
       run: async ({ format: selectedFormat }) => {
         assert.equal(
-          await output.write(evidence, {
-            ...metadata,
-            format: selectedFormat,
-            operationFailed: false,
-          }),
+          await output.write(evidence, { ...metadata, format: selectedFormat }),
           true,
         );
       },

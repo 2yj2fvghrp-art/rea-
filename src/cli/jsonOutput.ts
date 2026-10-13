@@ -19,14 +19,13 @@ export const writeJsonOutput = async (
   for (const part of bufferedJsonParts(
     jsonOutputParts(value, format, isTerminal(destination)),
   ))
-    await writeCliOutputPart(destination, part);
+    await writeOutputText(destination, part);
 };
 
 const isTerminal = (destination: Writable): boolean =>
   "isTTY" in destination && destination.isTTY === true;
 
-/** Await one output write without closing the caller's stream. */
-export const writeCliOutputPart = (
+export const writeOutputText = (
   destination: Writable,
   part: string,
 ): Promise<void> =>

@@ -7,7 +7,6 @@ import type { BrowserScenarioSessionPort } from "../../src/browser/BrowserScenar
 import { PlaywrightBrowserScenarioProvider } from "../../src/browser/PlaywrightBrowserScenarioProvider.js";
 import { PlaywrightScenarioBrowserCleanupOwner } from "../../src/browser/PlaywrightScenarioBrowser.js";
 import { registerBrowserScenarioCommands } from "../../src/cliBrowserScenarioCommands.js";
-import { projectCliCommandResults } from "../../src/cli/streamedJsonOutput.js";
 import { sanitizeBrowserUrl } from "../../src/domain/browserObservation.js";
 import {
   browserScenarioSchema,
@@ -115,7 +114,6 @@ class RetrySession implements BrowserScenarioSessionPort {
 const serveScenario = async () => {
   const cli = Cli.create("browser-cleanup-test", { sync: false });
   registerBrowserScenarioCommands(cli, silentLogger, {});
-  projectCliCommandResults(cli);
   let stdout = "";
   let exitCode = 0;
   await cli.serve(

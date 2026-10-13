@@ -16,6 +16,12 @@ const isMcpMode =
 const isMcpDoctorMode = args[0] === "mcp" && args[1] === "doctor";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+// Windows home lookup throws for an empty USERPROFILE. Dependencies resolve
+// home during import, before REA's own resolver can apply its account fallback.
+if (process.platform === "win32" && process.env.USERPROFILE === "") {
+  delete process.env.USERPROFILE;
+}
+
 // Playwright's registry assumes one of its three desktop host platforms when
 // it chooses the browser cache directory. Termux reports `android`, although
 // its Node runtime and filesystem are POSIX-compatible. Keep the cache path
@@ -37,7 +43,7 @@ const runtimeFiles = isMcpMode
     : [
         "dist/cli-runtime/cli.js",
         "dist/cli-runtime/cliOutput.js",
-        "dist/cli-runtime/streamedJsonOutput.js",
+        "dist/cli-runtime/cliResultOutput.js",
       ];
 
 if (!(await compiledRuntimeExists(runtimeFiles))) {
@@ -61,7 +67,7 @@ if (!(await compiledRuntimeExists(runtimeFiles))) {
   const { cliConfigurationError, createCli } =
     await import("../dist/cli-runtime/cli.js");
   const { createCliResultOutput } =
-    await import("../dist/cli-runtime/streamedJsonOutput.js");
+    await import("../dist/cli-runtime/cliResultOutput.js");
   const {
     renderCliOutputArgumentError,
     renderEmptyFilteredCliOutput,

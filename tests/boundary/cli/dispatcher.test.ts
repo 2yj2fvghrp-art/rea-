@@ -32,7 +32,7 @@ describe("executable dispatcher", () => {
           "export const validateCliOutputArguments = () => ({ ok: true }); export const renderCliOutputArgumentError = () => ''; export const renderEmptyFilteredCliOutput = () => undefined;\n",
         ),
         workspace.write(
-          "dist/cli-runtime/streamedJsonOutput.js",
+          "dist/cli-runtime/cliResultOutput.js",
           "export const createCliResultOutput = () => undefined;\n",
         ),
         workspace.write(

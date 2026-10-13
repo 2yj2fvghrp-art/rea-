@@ -47,8 +47,8 @@ describe("compiled Windows reference-source import", () => {
         expect(result.json).toEqual(
           scenario.fullOutput
             ? expect.objectContaining({
-                ok: true,
-                data: unsupportedHostOutput,
+                ok: false,
+                error: unsupportedHostOutput,
               })
             : unsupportedHostOutput,
         );

@@ -1,12 +1,8 @@
-import type { Formatter } from "incur";
-
 const UNSUPPORTED_OUTPUT_COMBINATION_MESSAGE =
   "Token windows cannot preserve structured output. Remove --token-limit/--token-offset and use --filter-output or command pagination.";
 
 type StructuredOutputFormat = "json" | "jsonl" | "yaml";
 const INCUR_OUTPUT_FORMATS = new Set(["toon", "json", "yaml", "md", "jsonl"]);
-const isOutputFormat = (value: string): value is Formatter.Format =>
-  INCUR_OUTPUT_FORMATS.has(value);
 
 export type CliOutputArgumentValidation =
   | { readonly ok: true }
@@ -19,35 +15,35 @@ export type CliOutputArgumentValidation =
 
 interface ParsedCliOutputArguments {
   readonly filterOutput: string | undefined;
-  readonly format: Formatter.Format;
+  readonly format: string;
   readonly fullOutput: boolean;
   readonly parseError: boolean;
   readonly tokenCount: boolean;
+  readonly tokenWindow: boolean;
   readonly tokenLimit: number | undefined;
   readonly tokenOffset: number | undefined;
-  readonly tokenWindow: boolean;
 }
 
 /** Read effective Incur output controls at the executable boundary. */
 export const parseCliOutputArguments = (
   arguments_: readonly string[],
 ): ParsedCliOutputArguments => {
-  let format: Formatter.Format = "toon";
+  let format: string = "toon";
   let filterOutput: string | undefined;
   let fullOutput = false;
   let tokenCount = false;
   let tokenLimit: number | undefined;
   let tokenOffset: number | undefined;
-  let tokenWindow = false;
   const parsed = (parseError: boolean): ParsedCliOutputArguments => ({
     filterOutput,
     format,
     fullOutput,
     parseError,
     tokenCount,
-    tokenLimit,
-    tokenOffset,
-    tokenWindow: parseError ? false : tokenWindow,
+    tokenWindow:
+      !parseError && (tokenLimit !== undefined || tokenOffset !== undefined),
+    tokenLimit: parseError ? undefined : tokenLimit,
+    tokenOffset: parseError ? undefined : tokenOffset,
   });
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -62,7 +58,7 @@ export const parseCliOutputArguments = (
       if (value) {
         // Incur stops parsing at an invalid format before applying any later
         // output controls. Let it report that malformed flag itself.
-        if (!isOutputFormat(value)) return parsed(true);
+        if (!INCUR_OUTPUT_FORMATS.has(value)) return parsed(true);
         format = value;
         index += 1;
       }
@@ -83,7 +79,6 @@ export const parseCliOutputArguments = (
           return parsed(true);
         if (argument === "--token-limit") tokenLimit = numericValue;
         else tokenOffset = numericValue;
-        tokenWindow = true;
         index += 1;
       }
       continue;

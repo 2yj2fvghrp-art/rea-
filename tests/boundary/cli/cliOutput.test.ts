@@ -5,6 +5,8 @@ import { createPackageWithOptions } from "@electron/asar";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
+import { analysisErrorProjectionSchema } from "../../../src/contracts/errorSchemas.js";
+
 import { workspaceCliTest } from "../../support/cli/workspaceCliFixture.js";
 
 import {
@@ -214,7 +216,7 @@ describe("compiled CLI failure envelopes", () => {
   );
 
   workspaceCliTest(
-    "keeps failures in the error envelope when output filters hide their diagnostics",
+    "preserves canonical failures when output filters select success payload fields",
     async ({ cli, workspace }) => {
       for (const field of ["code", "missing"]) {
         const result = await cli.run({
@@ -228,9 +230,9 @@ describe("compiled CLI failure envelopes", () => {
           ],
         });
         expect(result.exitCode).toBe(1);
-        expect(result.json).toEqual({
+        expect(result.json).toMatchObject({
           ok: false,
-          error: field === "code" ? "target_unavailable" : {},
+          error: { code: "target_unavailable", category: "unavailable" },
           meta: {
             command: "inspect-managed-artifact",
             duration: expect.any(String),
@@ -297,7 +299,7 @@ describe("compiled CLI failure envelopes", () => {
           });
           expect(fullValue).toEqual({
             ok: false,
-            error: bareValue,
+            error: analysisErrorProjectionSchema.parse(bareValue),
             meta: {
               command: arguments_[0],
               duration: expect.any(String),
