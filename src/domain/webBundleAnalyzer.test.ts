@@ -420,6 +420,47 @@ describe("web bundle configuration and navigation parity", () => {
     ).toEqual(expected);
   });
 
+  it("keeps VS Code extension state reads out of endpoints in both analyzers", () => {
+    const reads = `
+      context.globalState.get("lastVersion");
+      this.workspaceState.get("closedRepositories", []);
+      context?.globalState.get("onboarded");
+      context.globalState.get("/v1/state");
+      context.secrets.get("token");
+      api.get("users");
+    `;
+    const endpoints = (source: string) => [
+      analyzeCapturedWebBundle(inspection(source))
+        .observations.endpoints.map(({ value }) => value)
+        .sort(),
+      analyzeJavaScriptStaticSource(source)
+        .endpoints.map(({ value }) => value)
+        .sort(),
+    ];
+    const kept = ["/v1/state", "token", "users"];
+    expect(endpoints(`const vscode = require("vscode");${reads}`)).toEqual([
+      kept,
+      kept,
+    ]);
+    expect(endpoints(`import * as vscode from "vscode";${reads}`)).toEqual([
+      kept,
+      kept,
+    ]);
+    // Without a vscode import the receiver spelling alone proves nothing.
+    const all = [
+      "/v1/state",
+      "closedRepositories",
+      "lastVersion",
+      "onboarded",
+      "token",
+      "users",
+    ];
+    expect(endpoints(`const vscode = require("./vscode");${reads}`)).toEqual([
+      all,
+      all,
+    ]);
+  });
+
   it("recognizes loadURL endpoints like static analysis", () => {
     const result = analyzeCapturedWebBundle(
       inspection('window.win.loadURL("https://embedded.test/app");'),

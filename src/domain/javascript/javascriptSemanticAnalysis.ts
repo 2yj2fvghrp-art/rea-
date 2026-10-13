@@ -248,7 +248,8 @@ export function* classifyParsedJavaScriptRpcClientRootsSteps(
 
 /**
  * Receiver identity facts for the overloaded `.open` syntax, plus
- * `configuration` for `.get` reads of a `getConfiguration(...)` result.
+ * `configuration` for `.get` reads of a `getConfiguration(...)` result and
+ * `extension-state` for `.get` reads of VS Code extension state storage.
  */
 export type JavaScriptOpenReceiverFact =
   | "window"
@@ -257,13 +258,14 @@ export type JavaScriptOpenReceiverFact =
   | "local"
   | "local-indexed-db"
   | "local-cache-storage"
-  | "configuration";
+  | "configuration"
+  | "extension-state";
 
 /**
  * Resolve only the lexical receiver identity needed to distinguish browser
  * `window.open` from XHR and global storage `.open` calls, and configuration
- * `.get` reads from HTTP client calls. This deliberately builds definitions
- * without running semantic value or provenance analysis.
+ * or extension state `.get` reads from HTTP client calls. This deliberately
+ * builds definitions without running semantic value or provenance analysis.
  */
 export const classifyParsedJavaScriptOpenReceivers = (
   file: ParsedJavaScriptSource,
@@ -277,6 +279,7 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
   const state = createState(file.program);
   yield* collectDefinitionsSteps(file.program, state);
   const facts = new Map<number, JavaScriptOpenReceiverFact>();
+  const extensionStateReads: number[] = [];
   yield* traverseJavaScriptAstSteps(file.program, {
     enter: (node) => {
       if (
@@ -292,6 +295,8 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
       if (method === "get") {
         if (isConfigurationReceiver(state, node.callee.object))
           facts.set(node.start ?? -1, "configuration");
+        else if (isExtensionStateMember(node.callee.object))
+          extensionStateReads.push(node.start ?? -1);
         return;
       }
       if (method !== "open" || !t.isIdentifier(node.callee.object)) return;
@@ -357,8 +362,40 @@ export function* classifyParsedJavaScriptOpenReceiversSteps(
       if (aliasFact !== undefined) facts.set(node.start ?? -1, aliasFact);
     },
   });
+  if (extensionStateReads.length > 0 && importsVsCodeModule(state))
+    for (const start of extensionStateReads)
+      facts.set(start, "extension-state");
   return facts;
 }
+
+/**
+ * Whether a `.get` receiver spells an `ExtensionContext` state member. VS Code
+ * passes the context to `activate`, so the member carries no import origin;
+ * callers must also prove that the module imports `vscode`.
+ */
+const isExtensionStateMember = (receiver: t.Node): boolean => {
+  if (
+    !t.isMemberExpression(receiver) &&
+    !t.isOptionalMemberExpression(receiver)
+  )
+    return false;
+  const member = semanticStaticPropertyKey(
+    receiver.property,
+    receiver.computed,
+  );
+  return member === "globalState" || member === "workspaceState";
+};
+
+/** Whether any binding in the module originates from the `vscode` module. */
+const importsVsCodeModule = (state: JavaScriptSemanticAnalysisState): boolean =>
+  [...state.bindingsById.values()].some(
+    (binding) =>
+      binding.directOrigins.some(({ specifier }) => specifier === "vscode") ||
+      semanticRequireOrigin(
+        semanticStableInitializer(binding, state)?.node,
+        state,
+      )?.origin.specifier === "vscode",
+  );
 
 /**
  * Whether a call spells VS Code's `workspace.getConfiguration(section)`, whose
