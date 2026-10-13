@@ -342,11 +342,21 @@ describe("web bundle API classification parity", () => {
       const client = getConfiguration("/api/v1");
       client.get("accounts");
       http.getConfiguration(baseUrl).get("orders");
+      {
+        const workspace = { getConfiguration: () => api };
+        workspace.getConfiguration("/api").get("local-users");
+      }
+      {
+        const vscode = { workspace: { getConfiguration: () => api } };
+        vscode.workspace.getConfiguration("/api").get("local-orders");
+      }
     `;
     const expected = [
       "/v1/settings",
       "accounts",
       "conditional",
+      "local-orders",
+      "local-users",
       "orders",
       "reassigned",
       "shadowed",
