@@ -61,7 +61,7 @@ const inspectPrivateWorkspace = (): DoctorProviderCheck => {
       !privacy.available && privacy.code === "runtime_missing"
         ? "missing_dependency"
         : !privacy.available && privacy.code === "runtime_unavailable"
-          ? "config_drift"
+          ? "runtime_failure"
           : "unsupported_host",
   };
 };

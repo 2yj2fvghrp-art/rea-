@@ -209,27 +209,28 @@ const requireSupportedHost = (): void => {
   if (process.platform === "linux" || process.platform === "darwin") return;
   if (process.platform === "win32" && process.arch === "x64") {
     const loaded = systemWindowsNativeAuthority();
+    if (loaded.available) {
+      if (loaded.authority.inspection.protocolStdin === true) return;
+      throw configurationFailure(
+        "runtime_missing",
+        "The bundled Windows native artifact lacks owned protocol stdin; use a matching current Windows x64 REA package.",
+        {
+          platform: process.platform,
+          architecture: process.arch,
+          phase: "process-ownership",
+          owned_protocol_stdin: false,
+        },
+      );
+    }
     const readiness = inspectWindowsNativeReadiness(process.platform, loaded);
-    if (loaded.available && loaded.authority.inspection.protocolStdin === true)
-      return;
-    throw configurationFailure(
-      readiness.available ? "runtime_unavailable" : readiness.code,
-      readiness.available
-        ? "The bundled Windows native artifact lacks owned protocol stdin; use a matching current Windows x64 REA package."
-        : readiness.reason,
-      {
-        platform: process.platform,
-        architecture: process.arch,
-        phase: "process-ownership",
-        owned_protocol_stdin: false,
-        ...(readiness.available
-          ? {}
-          : {
-              failure_stage: readiness.failureStage,
-              remediation: readiness.remediation,
-            }),
-      },
-    );
+    throw configurationFailure(readiness.code, readiness.reason, {
+      platform: process.platform,
+      architecture: process.arch,
+      phase: "process-ownership",
+      owned_protocol_stdin: false,
+      failure_stage: readiness.failureStage,
+      remediation: readiness.remediation,
+    });
   }
   throw configurationFailure(
     "unsupported_host",
