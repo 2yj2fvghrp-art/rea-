@@ -50,12 +50,16 @@ export class GhidraSessionError extends Error {
     this.timeoutMs = options.timeoutMs;
     this.remoteCode = options.remoteCode;
     this.cleanupFailure = options.cleanupFailure;
-    const source = options.cause instanceof GhidraLaunchError
-      ? options.cause.cause
-      : options.cause;
-    this.capabilityFailure = source instanceof AnalysisCapabilityUnavailableError
-      ? source
-      : source instanceof GhidraSessionError ? source.capabilityFailure : undefined;
+    const source =
+      options.cause instanceof GhidraLaunchError
+        ? options.cause.cause
+        : options.cause;
+    this.capabilityFailure =
+      source instanceof AnalysisCapabilityUnavailableError
+        ? source
+        : source instanceof GhidraSessionError
+          ? source.capabilityFailure
+          : undefined;
   }
 }
 

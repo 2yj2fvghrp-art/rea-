@@ -2190,9 +2190,28 @@ describe("Ghidra disabled analyzer options", () => {
 });
 
 it("preserves an owned-process prerequisite refusal through Ghidra startup wrappers", async () => {
-  const prerequisite = new AnalysisCapabilityUnavailableError("process", "inspect_process_ownership", "procps-compatible ps is unavailable", { diagnostics: { command: "ps" } });
+  const prerequisite = new AnalysisCapabilityUnavailableError(
+    "process",
+    "inspect_process_ownership",
+    "procps-compatible ps is unavailable",
+    { diagnostics: { command: "ps" } },
+  );
   const ghidra = provider(installationHost(), () => ({
-    start: () => Promise.resolve(err(new GhidraSessionError("start", "launch failed", {}, { cause: new GhidraLaunchError("headless launch failed", { cause: prerequisite }) }))),
+    start: () =>
+      Promise.resolve(
+        err(
+          new GhidraSessionError(
+            "start",
+            "launch failed",
+            {},
+            {
+              cause: new GhidraLaunchError("headless launch failed", {
+                cause: prerequisite,
+              }),
+            },
+          ),
+        ),
+      ),
     callTool: () => Promise.resolve(ok(null)),
     close: () => Promise.resolve(ok(null)),
   }));
@@ -2200,6 +2219,9 @@ it("preserves an owned-process prerequisite refusal through Ghidra startup wrapp
   const opened = await client.execute("health", {});
   expect(opened.ok).toBe(false);
   if (opened.ok) throw new Error("Expected a prerequisite refusal");
-  expect(projectAnalysisError(opened.error)).toMatchObject({ code: "capability_unavailable", details: { diagnostics: { command: "ps" } } });
+  expect(projectAnalysisError(opened.error)).toMatchObject({
+    code: "capability_unavailable",
+    details: { diagnostics: { command: "ps" } },
+  });
   await client.close();
 });

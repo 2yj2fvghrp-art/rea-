@@ -153,7 +153,11 @@ ownership before launch. This applies across providers, including Ghidra,
 JADX, firmware tools, and JavaScript/Electron analysis. If `ps` is missing or
 cannot perform that ownership check, install `procps` or put another
 procps-compatible `ps` earlier on `PATH`; otherwise the workflow fails with a
-`capability_unavailable` error before launching the child process.
+typed prerequisite or launch failure before starting the provider child. The
+public error code depends on the caller: some workflows preserve that refusal
+as `capability_unavailable`, while provider adapters can project it as
+`provider_unavailable` or `execution_failure`. Inspect the returned details for
+the prerequisite and recovery guidance.
 
 A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `healthy` and the exit status. Other checks appear in `informational_checks`;
