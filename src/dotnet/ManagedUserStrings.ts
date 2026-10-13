@@ -72,12 +72,12 @@ export const parseUserStrings = (
     for (const token of references) {
       const failures: ManagedParseIssue[] = [];
       readManagedValue(() => {
-        const { offset, value, issue } = readMetadataUserString(
-          bytes,
-          layout,
-          token,
-        );
-        if (issue !== null) failures.push(issue);
+        const {
+          offset,
+          value,
+          issues: observed,
+        } = readMetadataUserString(bytes, layout, token);
+        for (const issue of observed) failures.push(issue);
         userStrings.push(
           admitManagedProjection({ token, offset, value }, budget),
         );

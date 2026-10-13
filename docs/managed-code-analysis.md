@@ -152,16 +152,17 @@ assembly. Older member Evidence without `selection` remains readable.
 `ldstr` anchors keep their build-local `0x70` tokens. `user_strings` lists each
 distinct token loaded by an inspected method body once, in token order, with
 its `#US` file offset and decoded value. Values keep their stored UTF-16 code
-units, including unpaired surrogates. Token `0x70000000` names the heap's
-empty entry at offset 0 and reads as `""`; any other item there is malformed. The terminal flag is checked against
-ECMA-335 II.24.2.4. A differing flag is reported with its byte offset as partial
-metadata coverage while preserving the readable literal. Toolchain conventions
-can differ; this conformance observation does not establish runtime rejection.
-A missing `#US` stream is one stream-level issue; a malformed item is reported
-against its token. Either makes coverage partial, and readable literals remain.
-Normalized CIL digests do not include decoded values, and
-`compare_managed_members` does not compare literals: an unchanged method does
-not establish unchanged strings, and the comparison says so in its
+units, including unpaired surrogates. Token `0x70000000` names the heap's empty
+entry at offset 0 and reads as `""`; any other item there is malformed. The
+terminal flag is checked against ECMA-335 II.24.2.4, and the length prefix
+against the width II.23.2 assigns. A difference is reported with its byte
+offset as partial metadata coverage while preserving the readable literal.
+Toolchain conventions can differ; this conformance observation does not
+establish runtime rejection. A missing `#US` stream is one stream-level issue;
+a malformed item is reported against its token. Either makes coverage partial,
+and readable literals remain. Normalized CIL digests do not include decoded
+values, and `compare_managed_members` does not compare literals: an unchanged
+method does not establish unchanged strings, and the comparison says so in its
 limitations. Older member Evidence without `user_strings` reads as `null`: not
 examined.
 

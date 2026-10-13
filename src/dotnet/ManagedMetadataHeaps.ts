@@ -66,7 +66,12 @@ const compressedLength = (
   offset: number,
   scope: string,
   item: keyof typeof PREFIXED_ITEMS,
-): { readonly length: number; readonly prefix: number } => {
+): {
+  readonly length: number;
+  readonly prefix: number;
+  /** Whether ECMA-335 II.23.2 assigns this width to the value. */
+  readonly minimal: boolean;
+} => {
   const { code, label } = PREFIXED_ITEMS[item];
   const requirePrefix = (size: number): void => {
     if (offset < 0 || offset > bytes.length - size)
@@ -79,24 +84,20 @@ const compressedLength = (
   };
   requirePrefix(1);
   const first = bytes[offset] ?? 0;
-  if ((first & 0x80) === 0) return { length: first, prefix: 1 };
+  if ((first & 0x80) === 0) return { length: first, prefix: 1, minimal: true };
   if ((first & 0xc0) === 0x80) {
     requirePrefix(2);
-    return {
-      length: ((first & 0x3f) << 8) | (bytes[offset + 1] ?? 0),
-      prefix: 2,
-    };
+    const length = ((first & 0x3f) << 8) | (bytes[offset + 1] ?? 0);
+    return { length, prefix: 2, minimal: length >= 0x80 };
   }
   if ((first & 0xe0) === 0xc0) {
     requirePrefix(4);
-    return {
-      length:
-        (first & 0x1f) * 0x01_00_00_00 +
-        (bytes[offset + 1] ?? 0) * 0x01_00_00 +
-        (bytes[offset + 2] ?? 0) * 0x0100 +
-        (bytes[offset + 3] ?? 0),
-      prefix: 4,
-    };
+    const length =
+      (first & 0x1f) * 0x01_00_00_00 +
+      (bytes[offset + 1] ?? 0) * 0x01_00_00 +
+      (bytes[offset + 2] ?? 0) * 0x0100 +
+      (bytes[offset + 3] ?? 0);
+    return { length, prefix: 4, minimal: length >= 0x4000 };
   }
   throw managedFailure(
     code,
@@ -207,7 +208,8 @@ export const readMetadataUserString = (
 ): {
   readonly offset: number;
   readonly value: string;
-  readonly issue: ManagedParseIssue | null;
+  /** Conformance differences observed beside the readable literal. */
+  readonly issues: readonly ManagedParseIssue[];
 } => {
   const heap = layout.userStrings;
   const scope = `metadata.#US:${token}`;
@@ -238,7 +240,7 @@ export const readMetadataUserString = (
   // ECMA-335 II.24.2.4: offset 0 is the heap's empty entry, a zero length
   // with no terminal flag byte; every other item carries the flag.
   if (index === 0) {
-    if (decoded.length === 0) return { offset: start, value: "", issue: null };
+    if (decoded.length === 0) return { offset: start, value: "", issues: [] };
     throw managedFailure(
       "invalid-string",
       scope,
@@ -277,19 +279,31 @@ export const readMetadataUserString = (
   }
   const flagOffset = content + units * 2;
   const actualFlag = bytes[flagOffset];
-  if (actualFlag !== expectedFlag) budget.reserve(512, flagOffset);
+  const issues: ManagedParseIssue[] = [];
+  // A wider length prefix than the value needs still reads unambiguously, so
+  // it is reported like the flag rather than discarding the literal.
+  if (!decoded.minimal) {
+    budget.reserve(512, start);
+    issues.push({
+      code: "invalid-string",
+      scope,
+      offset: start,
+      detail: `User string length ${String(decoded.length)} uses a ${String(decoded.prefix)}-byte prefix wider than ECMA-335 II.23.2 assigns; readable UTF-16 is preserved and runtime acceptance is not assessed`,
+    });
+  }
+  if (actualFlag !== expectedFlag) {
+    budget.reserve(512, flagOffset);
+    issues.push({
+      code: "invalid-string",
+      scope,
+      offset: flagOffset,
+      detail: `User string terminal flag ${String(actualFlag)} differs from ECMA-335 II.24.2.4 value ${String(expectedFlag)}; readable UTF-16 is preserved and runtime acceptance is not assessed`,
+    });
+  }
   return {
     offset: start,
     value: bytes.subarray(content, flagOffset).toString("utf16le"),
-    issue:
-      actualFlag === expectedFlag
-        ? null
-        : {
-            code: "invalid-string",
-            scope,
-            offset: flagOffset,
-            detail: `User string terminal flag ${String(actualFlag)} differs from ECMA-335 II.24.2.4 value ${String(expectedFlag)}; readable UTF-16 is preserved and runtime acceptance is not assessed`,
-          },
+    issues,
   };
 };
 
