@@ -23,7 +23,6 @@ describe("runtime configuration", () => {
       expect(empty.value.hopperTargetPath).toBeUndefined();
       expect(empty.value.analysisProvider).toBe("auto");
       expect(empty.value.hopperStartupTimeoutMs).toBe(120_000);
-      expect(empty.value.swiftcCompileTimeoutMs).toBe(120_000);
     }
     const result = parseConfig({ HOPPER_TARGET_PATH: "/usr/bin/true" });
     expect(result.ok).toBe(true);
@@ -258,7 +257,6 @@ describe("configuration failure diagnostics", () => {
       ).toMatchObject({
         ok: true,
         value: {
-          swiftcCompileTimeoutMs: Number(value),
           hopperStartupTimeoutMs: 120_000,
         },
       });
