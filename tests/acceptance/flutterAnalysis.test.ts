@@ -217,9 +217,9 @@ cliTest(
           conflict ? "partial" : "complete",
         );
         if (name === "inspect_dart_aot") {
-          const facts = toolContract(name).outputSchema.parse(
-            result.json,
-          ).normalized_result;
+          const facts = flutterResultSchemas[name].parse(
+            evidence.normalized_result,
+          );
           expect(facts.libapp.sections).toHaveLength(conflict ? 3 : 4);
           expect(facts.string_pool.coverage).toBe(
             conflict ? "partial" : "complete",
@@ -231,9 +231,9 @@ cliTest(
             );
           }
         } else {
-          const facts = toolContract(name).outputSchema.parse(
-            result.json,
-          ).normalized_result;
+          const facts = flutterResultSchemas[name].parse(
+            evidence.normalized_result,
+          );
           expect(facts.abis[0]?.libflutter).toMatchObject({
             build_id: conflict ? null : "0123456789abcdef",
             build_id_candidates: ["0123456789abcdef"],
