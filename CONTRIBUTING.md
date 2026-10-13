@@ -181,10 +181,10 @@ The separate GitHub Pages host uses only the manual
 
 ## Development feedback and PR verification
 
-Merge only after the required checks pass for the current PR revision against
-the current `main`. Branch protection requires up-to-date branches and applies
-to repository administrators as well as contributors. If `main` is broken,
-land a focused repair through the same checks before updating affected PRs.
+For routine merges, wait for the required checks to pass for the current PR
+revision against the current `main`. Branch protection requires up-to-date
+branches; administrators retain an override for deliberate maintainer recovery.
+If `main` is broken, prioritize a focused repair before updating affected PRs.
 
 Select checks for the behavior changed. For a source edit:
 
