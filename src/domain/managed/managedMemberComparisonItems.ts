@@ -8,6 +8,7 @@ import {
   identityOf,
   sha256,
 } from "./managedMemberComparisonMatch.js";
+import { signatureIdentity } from "./managedMemberSignatureIdentity.js";
 
 type Method = ManagedMemberInspection["methods"][number];
 type Field = ManagedMemberInspection["fields"][number];
@@ -58,7 +59,7 @@ const methodDimensions = (
   const dimensions: MethodItem["dimensions"] = [];
   if (left.flags !== right.flags || left.impl_flags !== right.impl_flags)
     dimensions.push("metadata");
-  if (left.signature.raw_sha256 !== right.signature.raw_sha256)
+  if (signatureIdentity(left.signature) !== signatureIdentity(right.signature))
     dimensions.push("signature");
   const leftBodyComplete =
     left.body.status === "present" && left.body.truncated_instructions === 0;
@@ -209,7 +210,7 @@ const absenceLimitations = (
   ...(member.signature.parse_status === "decoded"
     ? []
     : [
-        `signature-not-decoded: The member's ${member.signature.parse_status} signature was compared only by exact declared type, name, and raw bytes, so a changed or renamed counterpart could not be sought.`,
+        `signature-not-decoded: The member's ${member.signature.parse_status} signature was compared only by exact declared type, name, and signature bytes, so a changed or renamed counterpart could not be sought.`,
       ]),
   ...(member.signature.parse_status === "decoded" &&
   opposite.oppositeUndecodedNames.size > 0 &&
@@ -305,14 +306,14 @@ const fieldOnlyItem = (
 
 /**
  * Name only evidence shared by the whole group. Exact-signature ambiguities
- * include both declared-identity collisions and unresolved raw-signature choices.
+ * include both declared-identity collisions and unresolved signature choices.
  */
 const ambiguityLimitation = (
   members: "methods" | "fields",
   basis: MethodItem["match"]["basis"],
 ): string =>
   basis === "exact-signature"
-    ? `Multiple managed ${members} share the same raw signature; REA did not guess declared ownership or a token remap.`
+    ? `Multiple managed ${members} share the same signature; REA did not guess declared ownership or a token remap.`
     : basis === "exact-il-signature"
       ? "Multiple managed methods share the same CIL and signature; REA did not guess a token remap."
       : members === "methods"
@@ -399,8 +400,8 @@ export const buildFieldItems = (
   const items: FieldItem[] = [];
   for (const pair of matches.pairs) {
     const changed =
-      pair.left.item.signature.raw_sha256 !==
-        pair.right.item.signature.raw_sha256 ||
+      signatureIdentity(pair.left.item.signature) !==
+        signatureIdentity(pair.right.item.signature) ||
       pair.left.item.flags !== pair.right.item.flags;
     items.push({
       item_id: `mmc_field_${sha256({
