@@ -1,5 +1,9 @@
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import {
+  advertisedMcpToolSchemas,
+  assertRecordedMcpEvidence,
+} from "../../fixtures/advertisedMcpTool.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,20 +24,6 @@ import {
   wasmArtifactExecution,
 } from "../../fixtures/wasm/artifact.js";
 
-const wasmToolSchemas = async (client: Client) => {
-  const advertised = (await client.listTools()).tools.find(
-    (tool) => tool.name === "inspect_wasm_artifact",
-  );
-  if (advertised?.outputSchema === undefined)
-    throw new Error("WASM recovery must name an advertised static tool");
-  const ajv = new Ajv2020({ strict: false, validateFormats: false });
-  const inputSchema: Record<string, unknown> = advertised.inputSchema;
-  const outputSchema: Record<string, unknown> = advertised.outputSchema;
-  expect(ajv.validateSchema(inputSchema)).toBe(true);
-  expect(ajv.validateSchema(outputSchema)).toBe(true);
-  return { name: advertised.name, ajv, inputSchema, outputSchema };
-};
-
 const assertFirstSummaryDelivery = async (
   harness: Awaited<ReturnType<typeof createApplicationMcpHarness>>,
   value: ReturnType<typeof wasmArtifactFixture>,
@@ -43,7 +33,7 @@ const assertFirstSummaryDelivery = async (
     ajv: wasmAjv,
     inputSchema,
     outputSchema,
-  } = await wasmToolSchemas(harness.client);
+  } = await advertisedMcpToolSchemas(harness.client, "inspect_wasm_artifact");
   const summaryInput = { path: value.artifact.path, detail: "summary" };
   expect(wasmAjv.validate(inputSchema, summaryInput)).toBe(true);
   expect(
@@ -112,7 +102,10 @@ it.each(["bin", "hop"])(
     });
     onTestFinished(harness.close);
     const { client } = harness;
-    const { name, ajv, inputSchema } = await wasmToolSchemas(client);
+    const { name, ajv, inputSchema } = await advertisedMcpToolSchemas(
+      client,
+      "inspect_wasm_artifact",
+    );
     const input = { path };
     const opening = await client.callTool({
       name: "open_binary",
@@ -185,7 +178,11 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
   });
   onTestFinished(harness.close);
   const { client } = harness;
-  const { ajv, inputSchema, outputSchema } = await wasmToolSchemas(client);
+  const schemas = await advertisedMcpToolSchemas(
+    client,
+    "inspect_wasm_artifact",
+  );
+  const { ajv, inputSchema } = schemas;
   expect(ajv.validate(inputSchema, { path: value.artifact.path })).toBe(true);
   expect(
     ajv.validate(inputSchema, {
@@ -198,19 +195,14 @@ it("advertises exact valid schemas and records inline WASM interface evidence wi
     name: "inspect_wasm_artifact",
     arguments: { path: value.artifact.path },
   });
-  expect(response.isError).not.toBe(true);
-  expect(
-    ajv.validate(outputSchema, response.structuredContent),
-    JSON.stringify(ajv.errors),
-  ).toBe(true);
-  const parsed = toolContract("inspect_wasm_artifact").outputSchema.parse(
-    response.structuredContent,
+  assertRecordedMcpEvidence(
+    response,
+    "inspect_wasm_artifact",
+    schemas,
+    session,
+    value,
+    "observed",
   );
-  const evidence = parseEvidence(parsed);
-  expect(evidence.confidence).toBe("observed");
-  expect(evidence.subject?.digest.sha256).toBe(value.artifact.sha256);
-  expect(parsed.normalized_result).toEqual(value);
-  expect(session.evidenceById(evidence.evidence_id)).toEqual(evidence);
   expect(
     (
       await client.callTool({
