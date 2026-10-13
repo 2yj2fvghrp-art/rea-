@@ -383,7 +383,7 @@ it("routes a nested unknown chunk through its published child", async () => {
         range: { offset: 0, length: 14 },
         root_file_range: null,
         continuation: expect.stringContaining(
-          `inspect_firmware_regions with path ${JSON.stringify(`${fixture.output}/rootfs/config`)}`,
+          "published child named by this gap's input_path",
         ),
       }),
     ]),
@@ -393,6 +393,29 @@ it("routes a nested unknown chunk through its published child", async () => {
   );
   expect(gapsWithContinuations(normalized)[0]?.continuation).toContain(
     "unavailable without configured Binwalk",
+  );
+});
+
+it("retains every eligible child in a maximum-depth continuation", async () => {
+  const fixture = await firmwareFixture("depth-reentry");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+    max_depth: 10,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  const gap = gapsWithContinuations(normalized).find(
+    ({ kind, input_path }) =>
+      kind === "depth-limited" && input_path === "$output/rootfs/config",
+  );
+  expect(gap?.continuation).toContain(
+    JSON.stringify(`${fixture.output}/rootfs/config/inner.gz`),
+  );
+  expect(gap?.continuation).toContain(
+    JSON.stringify(`${fixture.output}/rootfs/config/second.gz`),
   );
 });
 

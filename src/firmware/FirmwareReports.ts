@@ -238,23 +238,38 @@ export const normalizeUnblobReport = (
   }[] = [];
   const seen = new Set<string>();
   const taskFailures = new Set<string>();
-  const missingDependencies = new Map<string, Set<string>>();
+  type DependencyFacts = { readonly names: Set<string>; unnamed: boolean };
+  const missingDependencies = new Map<string, DependencyFacts>();
   /** Dependencies reported by one chunk's extraction, keyed with its chunk id. */
-  const chunkMissingDependencies = new Map<string, Set<string>>();
+  const chunkMissingDependencies = new Map<string, DependencyFacts>();
   const dependencyNames = (
     reports: readonly unknown[],
-  ): readonly string[] | null => {
+  ): DependencyFacts | null => {
     const names = new Set<string>();
+    let unnamed = false;
     let reported = false;
     for (const item of reports) {
       const parsed = missingDependency.safeParse(item);
       if (!parsed.success) continue;
       reported = true;
+      if (
+        parsed.data.dependencies.length === 0 ||
+        parsed.data.dependencies.includes("")
+      )
+        unnamed = true;
       for (const name of parsed.data.dependencies)
         if (name !== "") names.add(name);
     }
-    return reported ? [...names] : null;
+    return reported ? { names, unnamed } : null;
   };
+  const dependencyRows = (
+    facts: DependencyFacts,
+  ): readonly { dependencies: readonly string[] }[] => [
+    ...(facts.names.size > 0
+      ? [{ dependencies: uniqueSorted([...facts.names]) }]
+      : []),
+    ...(facts.unnamed ? [{ dependencies: [] }] : []),
+  ];
   const noteMissingDependencies = (
     path: string,
     reports: readonly unknown[],
@@ -263,8 +278,12 @@ export const normalizeUnblobReport = (
     // null means no accepted failure; [] means a definite dependency failure
     // whose executable identity the producer left unavailable.
     if (names === null) return;
-    const known = missingDependencies.get(path) ?? new Set<string>();
-    for (const name of names) known.add(name);
+    const known = missingDependencies.get(path) ?? {
+      names: new Set<string>(),
+      unnamed: false,
+    };
+    for (const name of names.names) known.names.add(name);
+    known.unnamed ||= names.unnamed;
     missingDependencies.set(path, known);
   };
   const noteChunkMissingDependencies = (
@@ -275,8 +294,12 @@ export const normalizeUnblobReport = (
     const names = dependencyNames(reports);
     if (names === null) return;
     const key = JSON.stringify([path, chunkId]);
-    const known = chunkMissingDependencies.get(key) ?? new Set<string>();
-    for (const name of names) known.add(name);
+    const known = chunkMissingDependencies.get(key) ?? {
+      names: new Set<string>(),
+      unnamed: false,
+    };
+    for (const name of names.names) known.names.add(name);
+    known.unnamed ||= names.unnamed;
     chunkMissingDependencies.set(key, known);
   };
   for (const record of records) {
@@ -423,16 +446,24 @@ export const normalizeUnblobReport = (
           // The report owns its failure and dependencies. A produced subtask
           // is a derivation, not a new owner for the parent's report.
           const dependencies = dependencyNames(parsed.extraction_reports);
-          failedExtractionStages.push({
-            input_path: path,
-            provider_id: parsed.id,
-            handler: parsed.handler_name,
-            dependencies: uniqueSorted(dependencies ?? []),
-            kind:
-              dependencies === null
-                ? "extractor-failure"
-                : "missing-extractor-dependency",
-          });
+          const rows =
+            dependencies === null
+              ? [{ dependencies: [] as readonly string[] }]
+              : dependencyRows(dependencies);
+          for (const row of rows)
+            failedExtractionStages.push({
+              input_path: path,
+              provider_id: parsed.id,
+              handler: parsed.handler_name,
+              dependencies:
+                dependencies === null
+                  ? []
+                  : uniqueSorted([...row.dependencies]),
+              kind:
+                dependencies === null
+                  ? "extractor-failure"
+                  : "missing-extractor-dependency",
+            });
         }
       }
     }
@@ -509,10 +540,12 @@ export const normalizeUnblobReport = (
     ),
     diagnostics,
     missing_dependencies: [...missingDependencies.entries()]
-      .map(([input_path, names]) => ({
-        input_path,
-        dependencies: uniqueSorted([...names]),
-      }))
+      .flatMap(([input_path, facts]) =>
+        dependencyRows(facts).map(({ dependencies }) => ({
+          input_path,
+          dependencies,
+        })),
+      )
       .sort((left, right) =>
         left.input_path < right.input_path
           ? -1
@@ -521,13 +554,13 @@ export const normalizeUnblobReport = (
             : 0,
       ),
     chunk_missing_dependencies: [...chunkMissingDependencies.entries()]
-      .map(([key, names]) => {
+      .flatMap(([key, facts]) => {
         const [input_path, provider_id] = JSON.parse(key) as [string, string];
-        return {
+        return dependencyRows(facts).map(({ dependencies }) => ({
           input_path,
           provider_id,
-          dependencies: uniqueSorted([...names]),
-        };
+          dependencies,
+        }));
       })
       .sort((left, right) =>
         `${left.input_path}\u0000${left.provider_id}` <

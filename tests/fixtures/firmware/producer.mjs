@@ -214,13 +214,16 @@ if (args.includes("--version")) {
       await writeFile(reportPath, JSON.stringify(orphanRecords));
     }
     if (mode === "depth-reentry") {
-      // A depth-limited directory whose published child can re-root a fresh
-      // run, beside a leaf that cannot: one run exercises both continuations.
+      // A depth-limited directory with two published children that can each
+      // re-root a fresh run, proving neither target is lost during indexing.
       const mid = join(output, "rootfs", "config");
       const innerPath = join(mid, "inner.gz");
+      const secondPath = join(mid, "second.gz");
       await mkdir(mid, { recursive: true });
       await writeFile(innerPath, content);
+      await writeFile(secondPath, content);
       const innerTask = task(innerPath, depth + 1, "inner-id");
+      const secondTask = task(secondPath, depth + 1, "second-id");
       const midTask = {
         ...task(mid, depth, "gzip-id"),
         is_multi_file: true,
@@ -232,6 +235,11 @@ if (args.includes("--version")) {
           subtasks: [],
         },
         {
+          task: secondTask,
+          reports: [stat(secondPath, content.length), hash(childHash)],
+          subtasks: [],
+        },
+        {
           task: midTask,
           reports: [
             stat(mid, 0, true),
@@ -240,11 +248,11 @@ if (args.includes("--version")) {
               id: "gzip-id",
               handler_name: "gzip",
               name: "config",
-              paths: [innerPath],
+              paths: [innerPath, secondPath],
               extraction_reports: [],
             },
           ],
-          subtasks: [innerTask],
+          subtasks: [innerTask, secondTask],
         },
         {
           task: task(input, 0, ""),

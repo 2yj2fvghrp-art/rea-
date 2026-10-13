@@ -40,25 +40,25 @@ const MAX_EXTRACTION_DEPTH = 10;
 
 const depthContinuation = (
   maxDepth: number,
-  publishedChildPath: string | undefined,
+  publishedChildPaths: readonly string[],
 ): string =>
   maxDepth < MAX_EXTRACTION_DEPTH
     ? GAP_CONTINUATIONS["depth-limited"]
-    : publishedChildPath !== undefined
-      ? `This extraction already ran at the lane's maximum depth. To continue, rerun extract_firmware with path set to the published child ${JSON.stringify(publishedChildPath)} and a fresh output directory; a fresh run on that child restarts the depth budget.`
+    : publishedChildPaths.length > 0
+      ? `This extraction already ran at the lane's maximum depth. To continue, rerun extract_firmware with path set to any eligible published child below this path and a fresh output directory; each child listed here restarts the depth budget: ${publishedChildPaths.map((path) => JSON.stringify(path)).join(", ")}.`
       : `This extraction already ran at the lane's maximum depth, and no published child under this path is both nonempty and within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
 
 // Use a different analyzer on the actual published child; repeating the same
 // whole-child extraction with unchanged handlers would reproduce this gap.
 const nestedUnknownContinuation = (
-  inputPath: string,
   publishedFile: { readonly path: string; readonly size: number } | undefined,
 ): string => {
-  const base = `This unknown chunk was carved from a nested extraction, so its range is relative to the published child at ${inputPath.slice("$output/".length)} under the output directory, not to the original input.`;
+  const base =
+    "This unknown chunk was carved from a nested extraction, so its range is relative to the published child named by this gap's input_path, not to the original input.";
   return publishedFile !== undefined &&
     publishedFile.size > 0 &&
     publishedFile.size <= FIRMWARE_LIMITS.inputBytes
-    ? `${base} Run inspect_firmware_regions with path ${JSON.stringify(publishedFile.path)} for signature hypotheses on that child only if Binwalk is configured with REA_BINWALK_COMMAND. This inspection step is unavailable without configured Binwalk; retain the region as unexamined. Repeating the same whole-child extraction with unchanged handlers would not advance analysis.`
+    ? `${base} Run inspect_firmware_regions with path set to that published child for signature hypotheses only if Binwalk is configured with REA_BINWALK_COMMAND. This inspection step is unavailable without configured Binwalk; retain the region as unexamined. Repeating the same whole-child extraction with unchanged handlers would not advance analysis.`
     : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so inspect_firmware_regions cannot accept it as a fresh input; treat the region as unexamined.`;
 };
 
@@ -320,15 +320,10 @@ const extractionGaps = (
   const publishedFiles = new Map(
     files.map((file) => [`$output/${file.relative_path}`, file]),
   );
-  const nestedContinuations = new Map<string, string>();
   const nestedContinuationId = (inputPath: string): string => {
-    const existing = nestedContinuations.get(inputPath);
-    if (existing !== undefined) return existing;
-    const id = continuation(
-      nestedUnknownContinuation(inputPath, publishedFiles.get(inputPath)),
+    return continuation(
+      nestedUnknownContinuation(publishedFiles.get(inputPath)),
     );
-    nestedContinuations.set(inputPath, id);
-    return id;
   };
   const chunkGaps = (
     kind: ExtractionGap["kind"],
@@ -362,9 +357,11 @@ const extractionGaps = (
   const ceilingReached =
     maxDepth >= MAX_EXTRACTION_DEPTH &&
     normalized.depth_limited_paths.length > 0;
-  const reRootablePaths = new Map<string, string>();
+  const reRootablePaths = new Map<string, Set<string>>();
   if (ceilingReached)
-    for (const [filePath, file] of publishedFiles) {
+    for (const [filePath, file] of [...publishedFiles].sort(
+      ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
+    )) {
       const size = file.size;
       if (size <= 0 || size > FIRMWARE_LIMITS.inputBytes) continue;
       // The published file itself can re-root a fresh run; so can every
@@ -372,11 +369,25 @@ const extractionGaps = (
       const segments = filePath.split("/");
       while (segments.length > 1) {
         const ancestor = segments.join("/");
-        if (reRootablePaths.has(ancestor)) break;
-        reRootablePaths.set(ancestor, file.path);
+        const childPaths = reRootablePaths.get(ancestor) ?? new Set<string>();
+        childPaths.add(file.path);
+        reRootablePaths.set(ancestor, childPaths);
         segments.pop();
       }
     }
+  const depthContinuationIds = new Map<string, string>();
+  const depthContinuationId = (inputPath: string): string => {
+    const existing = depthContinuationIds.get(inputPath);
+    if (existing !== undefined) return existing;
+    const id = continuation(
+      depthContinuation(
+        maxDepth,
+        [...(reRootablePaths.get(inputPath) ?? [])].sort(),
+      ),
+    );
+    depthContinuationIds.set(inputPath, id);
+    return id;
+  };
   const gaps: ExtractionGap[] = [
     ...dependencyGaps,
     ...normalized.failed_extraction_stages
@@ -411,9 +422,7 @@ const extractionGaps = (
       input_path,
       ...emptyGap,
       dependencies: [],
-      continuation_id: continuation(
-        depthContinuation(maxDepth, reRootablePaths.get(input_path)),
-      ),
+      continuation_id: depthContinuationId(input_path),
     })),
     ...unpublished.map((entry): ExtractionGap => ({
       kind: "unpublished-entry",
