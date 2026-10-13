@@ -97,7 +97,6 @@ export const CLI_COMMANDS = Object.freeze({
   pullIosFile: "pull-ios-file",
   runIosCommand: "run-ios-command",
   inspectIosRuntime: "inspect-ios-runtime",
-  attachIosDebugserver: "attach-ios-debugserver",
   runIosLldbCommand: "run-ios-lldb-command",
   runIosFridaScript: "run-ios-frida-script",
   dumpIosProcessMemory: "dump-ios-process-memory",

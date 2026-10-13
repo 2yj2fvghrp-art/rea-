@@ -468,6 +468,9 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     idempotent: false,
   }),
   dump_ios_process_memory: effects({
+    mutatesTarget: true,
+    mutatesDevice: true,
+    idempotent: false,
     mutatesSession: true,
     launchesProcess: true,
     accessesNetwork: true,

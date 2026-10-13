@@ -163,7 +163,7 @@ export const IOS_TOOL_CONTRACTS = [
     name: "attach_ios_debugserver",
     ...toolContractMetadata("attach_ios_debugserver"),
     description:
-      "Start debugserver (or lldb-server's gdbserver mode) on a selected jailbroken iOS process and expose it through an owned iproxy forward for LLDB.",
+      "Start debugserver (or lldb-server's gdbserver mode) on a selected jailbroken iOS process and expose it through an owned iproxy forward for LLDB. The standalone attach operation requires a persistent MCP session; closing its provider stops the owned resources.",
     kind: "ios-provider",
     inputSchema: iosInputSchemas.attach_ios_debugserver,
     outputSchema: evidenceResultOf(iosResultSchemas.attach_ios_debugserver),
@@ -216,7 +216,7 @@ export const IOS_TOOL_CONTRACTS = [
     name: "dump_ios_process_memory",
     ...toolContractMetadata("dump_ios_process_memory"),
     description:
-      "Read a bounded byte range from a jailbroken process through LLDB/debugserver and return the textual hexdump as Evidence.",
+      "Attach a remote debugger, which can temporarily stop or change the selected process and device state, then read a bounded byte range through LLDB and return the hexdump, stderr, and exit status as Evidence.",
     kind: "ios-provider",
     inputSchema: iosInputSchemas.dump_ios_process_memory,
     outputSchema: evidenceResultOf(iosResultSchemas.dump_ios_process_memory),

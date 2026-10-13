@@ -20,8 +20,8 @@ const remotePathSchema = z
 
 const sshUserSchema = z
   .enum(["root", "mobile"])
-  .default("root")
-  .describe("SSH account on the jailbroken device");
+  .optional()
+  .describe("SSH account; omitted uses REA_IOS_SSH_USER, then root");
 
 /** Caller intent for a libimobiledevice plus jailbreak SSH observation. */
 export const iosInputSchemas = {
@@ -299,6 +299,12 @@ export const iosResultSchemas = {
   inspect_ios_process: z.strictObject({
     device_id: deviceIdSchema,
     pid: z.number().int().positive(),
+    probes: z.array(
+      z.strictObject({
+        name: z.enum(["ps", "lsof"]),
+        exit_code: z.number().int().nullable(),
+      }),
+    ),
     user: z.enum(["root", "mobile"]),
     stdout: z.string(),
     stderr: z.string(),
@@ -381,6 +387,7 @@ export const iosResultSchemas = {
     stderr: z.string(),
     exit_code: z.number().int().nullable(),
     timed_out: z.boolean(),
+    stop_reason: z.enum(["duration", "exited", "output_limit"]).optional(),
     coverage: z.enum(["complete", "partial"]),
   }),
   dump_ios_process_memory: z.strictObject({
@@ -390,6 +397,8 @@ export const iosResultSchemas = {
     size: z.number().int().positive(),
     local_port: z.number().int().positive(),
     hexdump: z.string(),
+    stderr: z.string(),
+    exit_code: z.number().int().nullable(),
     stop_reason: z.string().nullable(),
     coverage: z.enum(["complete", "partial"]),
   }),

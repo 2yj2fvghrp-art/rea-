@@ -67,7 +67,8 @@ export class IosConfigurationFailure extends Error {
       | "not_absolute"
       | "binary_missing"
       | "version_unresolved"
-      | "password_missing",
+      | "password_missing"
+      | "invalid_user",
     message: string,
     readonly diagnostics: Readonly<Record<string, JsonValue>> = {},
     options?: ErrorOptions,
@@ -161,7 +162,7 @@ export const iosConfigurationAvailability = (
   code:
     cause.code === "binary_missing"
       ? "executable_missing"
-      : cause.code === "not_absolute"
+      : cause.code === "not_absolute" || cause.code === "invalid_user"
         ? "not_configured"
         : "version_unresolved",
   reason: cause.message,

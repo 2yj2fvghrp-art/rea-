@@ -41,7 +41,7 @@ export const registerIosCommands = (
     .describe("UDID exactly as idevice_id reports it");
   const user = z
     .enum(["root", "mobile"])
-    .default("root")
+    .optional()
     .describe("SSH account on the jailbroken device");
   cli.command(CLI_COMMANDS.inspectIosToolchain, {
     description: "Inspect libimobiledevice, iproxy, and SSH tools",
@@ -147,25 +147,6 @@ export const registerIosCommands = (
     run: ({ args }) =>
       execute(CLI_COMMANDS.inspectIosRuntime, "inspect_ios_runtime", {
         device_id: args.deviceId,
-      }),
-  });
-  cli.command(CLI_COMMANDS.attachIosDebugserver, {
-    description: "Attach debugserver to a jailbroken process",
-    args: z.object({ deviceId, pid: z.coerce.number().int().positive(), user }),
-    options: z.object({
-      "remote-port": z.coerce
-        .number()
-        .int()
-        .min(1024)
-        .max(65535)
-        .default(12345),
-    }),
-    run: ({ args, options }) =>
-      execute(CLI_COMMANDS.attachIosDebugserver, "attach_ios_debugserver", {
-        device_id: args.deviceId,
-        pid: args.pid,
-        remote_port: options["remote-port"],
-        user: args.user,
       }),
   });
   cli.command(CLI_COMMANDS.runIosLldbCommand, {

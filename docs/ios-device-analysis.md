@@ -20,8 +20,26 @@ rea inspect-ios-device device-udid
 When an operation needs the jailbreak filesystem, REA allocates a loopback
 port, starts `iproxy <port>:22 -u <UDID>`, and runs a bounded SSH command. The
 tunnel is owned by the provider and is terminated when the provider closes.
-The selected SSH account is `root` by default; use `mobile` when a rootless
+The selected SSH account is `root` by default. `REA_IOS_SSH_USER` changes the
+default; an explicit operation account overrides it. Use `mobile` when a rootless
 operation should retain the mobile account's permissions.
+
+SSH requires an already-trusted device host key in the user's OpenSSH known-hosts
+store, under the stable alias `rea-ios-<UDID>`. Pin that device's verified key
+before connecting. A temporary forwarding port never grants trust, and REA does
+not accept unknown keys or write the trust store.
+
+`attach_ios_debugserver` is exposed through the persistent MCP provider. A
+one-shot CLI command cannot return a usable port after closing its owner. CLI
+LLDB and memory-read operations own the complete attach/use/cleanup lifetime.
+New remote helpers are registered before SSH starts and receive a unique run
+token. Devices must support observing that token through `ps eww`; otherwise
+helper launch is refused. Cleanup signals only token-identified children and
+retains unresolved ownership for a later retry. If SSH startup was interrupted,
+remote launch completion remains unknown even when a current token scan is empty;
+REA reports incomplete cleanup rather than treating that scan as proof of absence.
+This lane still requires a
+maintainer scope decision and real-device verification before integration.
 
 The dynamic lane is deliberately explicit. `list_ios_processes` uses
 `idevicesyslog pidlist`, `inspect_ios_process` uses whatever `ps` and `lsof`
@@ -37,7 +55,6 @@ The debugger and instrumentation lane has structured operations:
 
 ```bash
 rea inspect-ios-runtime UDID
-rea attach-ios-debugserver UDID PID root
 rea run-ios-lldb-command UDID PID $'register read\nimage list\nbreakpoint set -n objc_msgSend' root
 rea dump-ios-process-memory UDID PID 0x100000000 root --size 256
 rea run-ios-frida-script UDID 'console.log(Process.enumerateModules()[0].name)' PID root

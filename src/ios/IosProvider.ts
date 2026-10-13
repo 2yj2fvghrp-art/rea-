@@ -1,9 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { connect, createServer } from "node:net";
-import { spawn, type ChildProcess } from "node:child_process";
+import {
+  ProviderProcessSupervisor,
+  spawnOwnedProviderProcess,
+} from "../process/ProviderProcess.js";
+import { cleanupOwnedProcessGroup } from "../process/ProcessOwnership.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 
 import type {
   ExecutionOptions,
@@ -76,38 +81,62 @@ interface Tunnel {
   readonly key: string;
   readonly remotePort: number;
   readonly port: number;
-  readonly process: ChildProcess;
+  readonly supervisor: ProviderProcessSupervisor;
+  readonly startupFailure: () => string | undefined;
+  ready: boolean;
 }
 
 interface CapturedRemote {
   readonly stdout: Buffer;
   readonly stderr: Buffer;
   readonly exitCode: number | null;
+  readonly stopReason?: "duration" | "exited" | "output_limit";
+  readonly outputTruncated?: boolean;
 }
 
-interface DebugSession {
+interface RemoteHelperOwner {
   readonly deviceId: string;
+  readonly user: "root" | "mobile";
+  readonly runToken: string;
+  launchAcknowledged: boolean;
+}
+
+/** Prove that the device can observe an explicitly selected child token before launching helpers. */
+const remoteTokenPrefix = (token: string): string => {
+  const split = Math.floor(token.length / 2);
+  return `${IOS_JAILBREAK_PATH_SCRIPT}; rea_token='${token.slice(0, split)}''${token.slice(split)}'; rea_probe=$(REA_PROCESS_RUN_ID="$rea_token" sh -c 'ps eww -p $$ -o command=') || exit 70; case " $rea_probe " in *" REA_PROCESS_RUN_ID=$rea_token "*) ;; *) echo 'Remote process-token observation is unavailable' >&2; exit 70 ;; esac`;
+};
+
+/** Match a private environment token, never a reusable PID or executable name alone. */
+const remoteTokenPids = `rea_rows=$(ps eww -axo pid=,command=) || exit 70; rea_pids=$(printf '%s\\n' "$rea_rows" | awk -v token="$rea_token" '{ if (index($0 " ", " REA_PROCESS_RUN_ID=" token " ") > 0) print $1 }')`;
+
+interface DebugSession {
+  readonly owner: RemoteHelperOwner;
   readonly pid: number;
   readonly remotePort: number;
   readonly localPort: number;
   readonly remotePid: number | null;
   readonly debugserverPath: string | null;
-  readonly user: "root" | "mobile";
 }
 
-interface FridaServerSession {
-  readonly deviceId: string;
-  readonly remotePort: number;
-  readonly remotePid: number;
-  readonly user: "root" | "mobile";
-}
-
-const parseVersion = (result: IosToolIdentity): IosToolIdentity => result;
+const parseHelperMarkers = (stdout: Buffer): Map<string, string> => {
+  const markers = new Map<string, string>();
+  for (const line of stdout.toString("utf8").split(/\r?\n/u)) {
+    const separator = line.indexOf("\t");
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator);
+    if (markers.has(key))
+      throw new AnalysisProtocolError(`Duplicate iOS helper marker: ${key}`);
+    markers.set(key, line.slice(separator + 1));
+  }
+  return markers;
+};
 
 const asFailure = (
   operation: string,
   cause: unknown,
   timeoutMs: number,
+  outputBudget = SSH_MAX_OUTPUT_BYTES,
 ): AnalysisError => {
   if (cause instanceof AnalysisError) return cause;
   const failure = execFileOutputFailure(cause);
@@ -117,8 +146,8 @@ const asFailure = (
     return new AnalysisResourceConstraintError(
       operation,
       "memory",
-      `Captured output exceeded the ${String(SSH_MAX_OUTPUT_BYTES)}-byte budget`,
-      { max_output_bytes: SSH_MAX_OUTPUT_BYTES },
+      `Captured output exceeded the ${String(outputBudget)}-byte budget`,
+      { max_output_bytes: outputBudget },
       { cause },
     );
   if (failure?.killed)
@@ -166,8 +195,13 @@ const mergeAppPaths = (
 export class IosProvider {
   readonly #environment: Readonly<Record<string, string | undefined>>;
   readonly #tunnels = new Map<string, Tunnel>();
+  readonly #tunnelStarts = new Map<string, Promise<Tunnel>>();
   readonly #debugSessions = new Map<string, DebugSession>();
-  readonly #fridaServers = new Map<string, FridaServerSession>();
+  readonly #remoteHelpers = new Map<string, RemoteHelperOwner>();
+  readonly #debugStarts = new Map<
+    string,
+    Promise<Result<DebugSession, AnalysisError>>
+  >();
   readonly #activeOperations = new Set<Promise<void>>();
   #closing = false;
   #closePromise: Promise<void> | undefined;
@@ -178,6 +212,16 @@ export class IosProvider {
 
   #selection(name: IosToolName): IosToolSelection {
     return resolveIosTool(name, this.#environment);
+  }
+
+  #resolveUser(selected?: "root" | "mobile"): "root" | "mobile" {
+    if (selected !== undefined) return selected;
+    const value = this.#environment[IOS_SSH_USER_ENV] ?? "root";
+    if (value === "root" || value === "mobile") return value;
+    throw new IosConfigurationFailure(
+      "invalid_user",
+      "REA_IOS_SSH_USER must be root or mobile",
+    );
   }
 
   async inspectAvailability(
@@ -208,7 +252,7 @@ export class IosProvider {
           tool_versions: Object.fromEntries(
             identities.map((identity) => [identity.name, identity.version]),
           ) as Record<string, string | null>,
-          ssh_user: this.#environment[IOS_SSH_USER_ENV] ?? "root",
+          ssh_user: this.#resolveUser(),
           ssh_password_source:
             this.#environment[IOS_SSH_PASSWORD_ENV] === undefined
               ? "none"
@@ -227,38 +271,28 @@ export class IosProvider {
     if (this.#closePromise !== undefined) return this.#closePromise;
     const closing = (async () => {
       await Promise.all(this.#activeOperations);
-      await Promise.allSettled([
-        ...[...this.#debugSessions.values()].flatMap((session) =>
-          session.remotePid === null
-            ? []
-            : [
-                this.#runRemote(
-                  "close_ios_debugserver",
-                  session.deviceId,
-                  session.user,
-                  `kill ${String(session.remotePid)} 2>/dev/null || true`,
-                  undefined,
-                  5_000,
-                ),
-              ],
-        ),
-        ...[...this.#fridaServers.values()].map((session) =>
-          this.#runRemote(
-            "close_ios_frida_server",
-            session.deviceId,
-            session.user,
-            `kill ${String(session.remotePid)} 2>/dev/null || true`,
-            undefined,
-            5_000,
-          ),
-        ),
-      ]);
-      for (const [deviceId, tunnel] of this.#tunnels) {
-        tunnel.process.kill("SIGTERM");
-        this.#tunnels.delete(deviceId);
+      const failures: unknown[] = [];
+      for (const owner of this.#remoteHelpers.values()) {
+        const retired = await this.#retireRemoteHelper(owner);
+        if (!retired.ok) failures.push(retired.error);
       }
-      this.#debugSessions.clear();
-      this.#fridaServers.clear();
+      for (const tunnel of this.#tunnels.values()) {
+        try {
+          await this.#stopTunnel(tunnel);
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+      if (failures.length > 0)
+        throw new ProviderCleanupError(
+          IOS_PROVIDER_IDENTITY.id,
+          [...this.#tunnels.keys(), ...this.#remoteHelpers.keys()],
+          { reason: "iOS helper cleanup is incomplete; ownership is retained" },
+          {
+            operation: "close_ios_provider",
+            cause: new AggregateError(failures),
+          },
+        );
     })().finally(() => {
       if (this.#closePromise === closing) this.#closePromise = undefined;
     });
@@ -294,17 +328,38 @@ export class IosProvider {
       return err(new AnalysisCancelledError(request.operation));
     let toolchain: IosToolIdentity[];
     try {
-      const names: IosToolName[] = [
-        "idevice_id",
-        "ideviceinfo",
-        "idevicesyslog",
-        "ideviceinstaller",
-        "iproxy",
-        "ssh",
-      ];
+      const required: Record<IosOperation, readonly IosToolName[]> = {
+        inspect_ios_toolchain: [
+          "idevice_id",
+          "ideviceinfo",
+          "idevicesyslog",
+          "ideviceinstaller",
+          "iproxy",
+          "ssh",
+        ],
+        list_ios_devices: ["idevice_id"],
+        inspect_ios_device: ["ideviceinfo"],
+        list_ios_apps: ["ideviceinstaller"],
+        list_ios_processes: ["idevicesyslog"],
+        read_ios_log: ["idevicesyslog"],
+        inspect_ios_process: ["iproxy", "ssh"],
+        pull_ios_file: ["iproxy", "ssh"],
+        run_ios_command: ["iproxy", "ssh"],
+        inspect_ios_runtime: ["iproxy", "ssh"],
+        attach_ios_debugserver: ["iproxy", "ssh"],
+        run_ios_lldb_command: ["iproxy", "ssh", "lldb"],
+        dump_ios_process_memory: ["iproxy", "ssh", "lldb"],
+        run_ios_frida_script: ["iproxy", "ssh", "frida"],
+      };
+      const names = [...required[request.operation]];
+      if (
+        names.includes("ssh") &&
+        this.#environment[IOS_SSH_PASSWORD_ENV] !== undefined
+      )
+        names.push("sshpass");
       toolchain = await Promise.all(
         names.map((name) => inspectIosTool(this.#selection(name), signal)),
-      ).then((values) => values.map(parseVersion));
+      );
     } catch (cause) {
       if (cause instanceof AnalysisCancelledError) return err(cause);
       if (cause instanceof IosConfigurationFailure)
@@ -407,7 +462,7 @@ export class IosProvider {
           const ssh = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            "root",
+            this.#resolveUser(),
             `${IOS_JAILBREAK_PATH_SCRIPT}; id; uname -a; printf '\\n--ROOTLESS--\\n'; for root in /var/jb /var/containers/Bundle/Application/.jbroot-*; do [ -d "$root" ] && printf '%s\\n' "$root"; done`,
             signal,
             SSH_TIMEOUT_MS,
@@ -424,9 +479,7 @@ export class IosProvider {
                 architecture: facts.get("CPUArchitecture") ?? null,
                 jailbroken_ssh: {
                   connected: ssh.ok,
-                  user: ssh.ok
-                    ? (this.#environment[IOS_SSH_USER_ENV] ?? "root")
-                    : null,
+                  user: ssh.ok ? this.#resolveUser() : null,
                   uname: ssh.ok
                     ? (sshValue
                         .split(/\r?\n/u)
@@ -451,7 +504,7 @@ export class IosProvider {
               {
                 rawResult: null,
                 limitations: [
-                  "SSH connectivity is probed with root and depends on caller-provided REA_IOS_SSH_PASSWORD or existing SSH credentials",
+                  "SSH connectivity uses the configured account and depends on caller-provided REA_IOS_SSH_PASSWORD or existing SSH credentials",
                   "Dopamine rootless/roothide jailbreak status is inferred from successful SSH access and /var/jb or .jbroot-* visibility",
                 ],
               },
@@ -482,7 +535,7 @@ export class IosProvider {
           const paths = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            "root",
+            this.#resolveUser(),
             `${IOS_JAILBREAK_PATH_SCRIPT}; find /var/containers/Bundle/Application /Applications -maxdepth 2 -type d -name '*.app' -print 2>/dev/null | while IFS= read -r app; do bid=$(plutil -extract CFBundleIdentifier raw "$app/Info.plist" 2>/dev/null || true); exe=$(plutil -extract CFBundleExecutable raw "$app/Info.plist" 2>/dev/null || true); printf '%s\\t%s\\t%s\\n' "$app" "$bid" "$exe"; done`,
             signal,
             SSH_TIMEOUT_MS,
@@ -554,27 +607,45 @@ export class IosProvider {
           );
         }
         case "inspect_ios_process": {
-          const command = `${IOS_JAILBREAK_PATH_SCRIPT}; if command -v ps >/dev/null 2>&1; then ps -p ${String(request.input.pid)} -ww -o pid,ppid,user,state,command; else found=0; for rea_root in /var/jb /var/containers/Bundle/Application/.jbroot-*; do if [ -x "$rea_root/usr/bin/ps" ]; then "$rea_root/usr/bin/ps" -p ${String(request.input.pid)} -ww -o pid,ppid,user,state,command; found=1; break; fi; done; [ "$found" -eq 1 ] || echo 'ps unavailable' >&2; fi; if command -v lsof >/dev/null 2>&1; then lsof -p ${String(request.input.pid)}; else found=0; for rea_root in /var/jb /var/containers/Bundle/Application/.jbroot-*; do if [ -x "$rea_root/usr/bin/lsof" ]; then "$rea_root/usr/bin/lsof" -p ${String(request.input.pid)}; found=1; break; fi; done; [ "$found" -eq 1 ] || echo 'lsof unavailable' >&2; fi`;
+          const command = `${IOS_JAILBREAK_PATH_SCRIPT}; for rea_tool in ps lsof; do rea_path=$(command -v "$rea_tool" 2>/dev/null || true); if [ -z "$rea_path" ]; then for rea_root in /var/jb /var/containers/Bundle/Application/.jbroot-*; do if [ -x "$rea_root/usr/bin/$rea_tool" ]; then rea_path="$rea_root/usr/bin/$rea_tool"; break; fi; done; fi; if [ -z "$rea_path" ]; then printf '%s unavailable\\n' "$rea_tool" >&2; rea_status=127; elif [ "$rea_tool" = ps ]; then "$rea_path" -p ${String(request.input.pid)} -ww -o pid,ppid,user,state,command; rea_status=$?; else "$rea_path" -p ${String(request.input.pid)}; rea_status=$?; fi; printf '\\nREA_PROBE_%s_EXIT=%s\\n' "$rea_tool" "$rea_status" >&2; done; exit 0`;
           const ran = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             command,
             signal,
             SSH_TIMEOUT_MS,
           );
           if (!ran.ok) return ran;
+          const probeStatuses = new Map<string, number>();
+          const stderr = ran.value.stderr
+            .toString("utf8")
+            .split(/\r?\n/u)
+            .filter((line) => {
+              const marker = /^REA_PROBE_(ps|lsof)_EXIT=(\d+)$/u.exec(line);
+              if (marker === null) return true;
+              probeStatuses.set(marker[1]!, Number(marker[2]));
+              return false;
+            })
+            .join("\n")
+            .trim();
+          const probes = (["ps", "lsof"] as const).map((name) => ({
+            name,
+            exit_code: probeStatuses.get(name) ?? null,
+          }));
           return ok(
             createAnalysisExecution(
               {
                 device_id: request.input.device_id,
                 pid: request.input.pid,
-                user: request.input.user,
+                probes,
+                user: this.#resolveUser(request.input.user),
                 stdout: ran.value.stdout.toString("utf8"),
-                stderr: ran.value.stderr.toString("utf8"),
+                stderr,
                 exit_code: ran.value.exitCode,
                 coverage:
-                  ran.value.stderr.length === 0
+                  stderr.length === 0 &&
+                  probes.every((probe) => probe.exit_code === 0)
                     ? ("complete" as const)
                     : ("partial" as const),
               },
@@ -622,9 +693,10 @@ export class IosProvider {
                 count: request.input.count,
                 lines: allLines.slice(-request.input.count),
                 duration_ms: request.input.duration_ms,
-                stop_reason: "duration" as const,
+                stop_reason: ran.value.stopReason ?? "exited",
                 source: "idevicesyslog" as const,
                 coverage:
+                  ran.value.outputTruncated === true ||
                   allLines.length > request.input.count
                     ? ("partial" as const)
                     : ("complete" as const),
@@ -678,7 +750,7 @@ export class IosProvider {
           const remote = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             `${IOS_JAILBREAK_PATH_SCRIPT}; cat -- ${quoteIosShell(request.input.remote_path)}`,
             signal,
             600_000,
@@ -710,7 +782,7 @@ export class IosProvider {
                 local_path: localPath,
                 bytes: remote.value.stdout.length,
                 sha256,
-                user: request.input.user,
+                user: this.#resolveUser(request.input.user),
               },
               provider,
               {
@@ -730,7 +802,7 @@ export class IosProvider {
           const ran = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             `${IOS_JAILBREAK_PATH_SCRIPT}; ${request.input.command}`,
             signal,
             request.input.timeout_ms,
@@ -742,7 +814,7 @@ export class IosProvider {
             createAnalysisExecution(
               {
                 device_id: request.input.device_id,
-                user: request.input.user,
+                user: this.#resolveUser(request.input.user),
                 stdout: ran.value.stdout.toString("utf8"),
                 stderr: ran.value.stderr.toString("utf8"),
                 exit_code: ran.value.exitCode,
@@ -768,7 +840,7 @@ export class IosProvider {
           const remote = await this.#runRemote(
             request.operation,
             request.input.device_id,
-            "root",
+            this.#resolveUser(),
             `${IOS_JAILBREAK_PATH_SCRIPT}; for tool in debugserver lldb-server frida-server; do path=$(command -v "$tool" 2>/dev/null || true); printf '%s\\t%s\\n' "$tool" "$path"; done`,
             signal,
             SSH_TIMEOUT_MS,
@@ -811,7 +883,7 @@ export class IosProvider {
             request.input.device_id,
             request.input.pid,
             request.input.remote_port,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             signal,
           );
           if (!attached.ok) return attached;
@@ -843,7 +915,7 @@ export class IosProvider {
             request.input.device_id,
             request.input.pid,
             request.input.remote_port,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             signal,
           );
           if (!attached.ok) return attached;
@@ -888,7 +960,7 @@ export class IosProvider {
           const server = await this.#ensureFridaServer(
             request.input.device_id,
             request.input.remote_port,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             signal,
           );
           if (!server.ok) return server;
@@ -914,9 +986,10 @@ export class IosProvider {
                 stdout: ran.value.stdout.toString("utf8"),
                 stderr: ran.value.stderr.toString("utf8"),
                 exit_code: ran.value.exitCode,
-                timed_out: ran.value.exitCode === null,
+                timed_out: ran.value.stopReason === "duration",
+                stop_reason: ran.value.stopReason ?? "exited",
                 coverage:
-                  ran.value.exitCode === 0 || ran.value.exitCode === null
+                  ran.value.exitCode === 0 && ran.value.outputTruncated !== true
                     ? ("complete" as const)
                     : ("partial" as const),
               },
@@ -937,7 +1010,7 @@ export class IosProvider {
             request.input.device_id,
             request.input.pid,
             request.input.remote_port,
-            request.input.user,
+            this.#resolveUser(request.input.user),
             signal,
           );
           if (!attached.ok) return attached;
@@ -959,6 +1032,8 @@ export class IosProvider {
                 size: request.input.size,
                 local_port: attached.value.localPort,
                 hexdump: stdout,
+                stderr: ran.value.stderr.toString("utf8"),
+                exit_code: ran.value.exitCode,
                 stop_reason: parseIosStopReason(stdout),
                 coverage:
                   ran.value.exitCode === 0
@@ -1011,14 +1086,16 @@ export class IosProvider {
     } catch (cause) {
       if (acceptTimeout) {
         const failure = execFileOutputFailure(cause);
-        if (failure?.killed === true)
+        if (failure?.outputTruncated || failure?.killed === true)
           return ok({
             stdout: Buffer.from(failure.stdout),
             stderr: Buffer.from(failure.stderr),
             exitCode: null,
+            stopReason: failure.outputTruncated ? "output_limit" : "duration",
+            outputTruncated: failure.outputTruncated,
           });
       }
-      return err(asFailure(operation, cause, timeoutMs));
+      return err(asFailure(operation, cause, timeoutMs, maxBuffer));
     }
   }
 
@@ -1038,9 +1115,9 @@ export class IosProvider {
       const ssh = this.#selection("ssh");
       const args = [
         "-o",
-        "StrictHostKeyChecking=no",
+        "StrictHostKeyChecking=yes",
         "-o",
-        "UserKnownHostsFile=/dev/null",
+        `HostKeyAlias=rea-ios-${deviceId}`,
         "-o",
         "LogLevel=ERROR",
         "-o",
@@ -1078,7 +1155,7 @@ export class IosProvider {
           stderr: Buffer.from(failure.stderr),
           exitCode: failure.code,
         });
-      return err(asFailure(operation, cause, timeoutMs));
+      return err(asFailure(operation, cause, timeoutMs, maxBuffer));
     }
   }
 
@@ -1103,6 +1180,9 @@ export class IosProvider {
         reason: null,
       };
     } catch (cause) {
+      if (cause instanceof AnalysisCancelledError) throw cause;
+      if (signal?.aborted)
+        throw new AnalysisCancelledError("inspect_ios_runtime", { cause });
       return {
         name,
         path: selection.binary,
@@ -1113,6 +1193,68 @@ export class IosProvider {
     }
   }
 
+  async #retireRemoteHelper(
+    owner: RemoteHelperOwner,
+  ): Promise<Result<void, AnalysisError>> {
+    const stopped = await this.#runRemote(
+      "close_ios_remote_helper",
+      owner.deviceId,
+      owner.user,
+      `${remoteTokenPrefix(owner.runToken)}; ${remoteTokenPids}; for rea_pid in $rea_pids; do rea_identity=$(ps eww -p "$rea_pid" -o command=) || exit 70; case " $rea_identity " in *" REA_PROCESS_RUN_ID=$rea_token "*) kill -TERM "$rea_pid" || exit 71 ;; esac; done; sleep 0.1; ${remoteTokenPids}; [ -z "$rea_pids" ]`,
+      undefined,
+      5_000,
+    );
+    if (!stopped.ok)
+      return err(
+        new ProviderCleanupError(
+          IOS_PROVIDER_IDENTITY.id,
+          [owner.runToken],
+          {
+            reason: "Remote token-owned helper shutdown could not be verified",
+          },
+          { operation: "close_ios_remote_helper", cause: stopped.error },
+        ),
+      );
+    if (!owner.launchAcknowledged)
+      return err(
+        new ProviderCleanupError(
+          IOS_PROVIDER_IDENTITY.id,
+          [owner.runToken],
+          {
+            reason:
+              "Remote launch completion remains unknown after interruption; token ownership is retained",
+          },
+          { operation: "close_ios_remote_helper" },
+        ),
+      );
+    this.#remoteHelpers.delete(owner.runToken);
+    for (const [key, session] of this.#debugSessions)
+      if (session.owner.runToken === owner.runToken)
+        this.#debugSessions.delete(key);
+    return ok(undefined);
+  }
+
+  async #remoteStartFailure(
+    owner: RemoteHelperOwner,
+    previous: AnalysisError,
+    operation: string,
+  ): Promise<Result<never, AnalysisError>> {
+    const retired = await this.#retireRemoteHelper(owner);
+    if (retired.ok) return err(previous);
+    return err(
+      new ProviderCleanupError(
+        IOS_PROVIDER_IDENTITY.id,
+        [owner.runToken],
+        {
+          reason: retired.error.message,
+          previous_failure: previous.message,
+          previous_failure_tag: previous._tag,
+        },
+        { operation, cause: new AggregateError([previous, retired.error]) },
+      ),
+    );
+  }
+
   async #attachDebugserver(
     deviceId: string,
     pid: number,
@@ -1120,15 +1262,66 @@ export class IosProvider {
     user: "root" | "mobile",
     signal?: AbortSignal,
   ): Promise<Result<DebugSession, AnalysisError>> {
-    const key = `${deviceId}:${String(pid)}:${String(remotePort)}`;
+    const key = `${deviceId}:${user}:${String(pid)}:${String(remotePort)}`;
+    const existing = this.#debugStarts.get(key);
+    if (existing !== undefined) {
+      const result = await existing;
+      if (signal?.aborted)
+        return err(new AnalysisCancelledError("attach_ios_debugserver"));
+      return result;
+    }
+    const started = this.#startDebugserver(
+      deviceId,
+      pid,
+      remotePort,
+      user,
+      key,
+      signal,
+    );
+    this.#debugStarts.set(key, started);
+    try {
+      return await started;
+    } finally {
+      if (this.#debugStarts.get(key) === started) this.#debugStarts.delete(key);
+    }
+  }
+
+  async #startDebugserver(
+    deviceId: string,
+    pid: number,
+    remotePort: number,
+    user: "root" | "mobile",
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<Result<DebugSession, AnalysisError>> {
     const current = this.#debugSessions.get(key);
-    if (
-      current !== undefined &&
-      this.#tunnels.get(`${deviceId}:${String(remotePort)}`)?.process
-        .exitCode === null
-    )
-      return ok(current);
-    const command = `${IOS_JAILBREAK_PATH_SCRIPT}; dbg=$(command -v debugserver 2>/dev/null || true); mode=debugserver; if [ -z "$dbg" ]; then dbg=$(command -v lldb-server 2>/dev/null || true); mode=lldb-server; fi; if [ -z "$dbg" ]; then printf 'status\\tmissing\\n'; printf 'reason\\tdebugserver/lldb-server not found\\n'; exit 0; fi; log=/tmp/rea-debugserver-${String(pid)}-${String(remotePort)}.log; if [ "$mode" = lldb-server ]; then nohup "$dbg" gdbserver 127.0.0.1:${String(remotePort)} --attach ${String(pid)} >"$log" 2>&1 </dev/null & else nohup "$dbg" 127.0.0.1:${String(remotePort)} -a ${String(pid)} >"$log" 2>&1 </dev/null & fi; dspid=$!; sleep 1; if kill -0 "$dspid" 2>/dev/null; then printf 'status\\tattached\\n'; printf 'path\\t%s\\n' "$dbg"; printf 'pid\\t%s\\n' "$dspid"; else printf 'status\\tfailed\\n'; cat "$log" 2>/dev/null || true; fi; exit 0`;
+    if (current !== undefined) {
+      const live = await this.#runRemote(
+        "inspect_ios_debugserver",
+        deviceId,
+        user,
+        `${remoteTokenPrefix(current.owner.runToken)}; ${remoteTokenPids}; printf '%s\\n' "$rea_pids" | grep -Fx '${String(current.remotePid)}' >/dev/null && kill -0 ${String(pid)} && command -v lsof >/dev/null && lsof -nP -a -p ${String(current.remotePid)} -iTCP:${String(remotePort)} -sTCP:LISTEN >/dev/null`,
+        signal,
+        SSH_TIMEOUT_MS,
+      );
+      const tunnel = this.#tunnels.get(`${deviceId}:${String(remotePort)}`);
+      if (
+        live.ok &&
+        tunnel !== undefined &&
+        tunnel.supervisor.observedExit() === undefined
+      )
+        return ok(current);
+      const retired = await this.#retireRemoteHelper(current.owner);
+      if (!retired.ok) return retired;
+    }
+    const owner: RemoteHelperOwner = {
+      deviceId,
+      user,
+      runToken: randomUUID(),
+      launchAcknowledged: false,
+    };
+    this.#remoteHelpers.set(owner.runToken, owner);
+    const command = `${remoteTokenPrefix(owner.runToken)}; dbg=$(command -v debugserver 2>/dev/null || true); mode=debugserver; if [ -z "$dbg" ]; then dbg=$(command -v lldb-server 2>/dev/null || true); mode=lldb-server; fi; if [ -z "$dbg" ]; then printf 'status\\tmissing\\n'; printf 'reason\\tdebugserver/lldb-server not found\\n'; exit 0; fi; log=/tmp/rea-debugserver-${String(pid)}-${String(remotePort)}.log; if [ "$mode" = lldb-server ]; then REA_PROCESS_RUN_ID="$rea_token" nohup "$dbg" gdbserver 127.0.0.1:${String(remotePort)} --attach ${String(pid)} >"$log" 2>&1 </dev/null & else REA_PROCESS_RUN_ID="$rea_token" nohup "$dbg" 127.0.0.1:${String(remotePort)} -a ${String(pid)} >"$log" 2>&1 </dev/null & fi; dspid=$!; sleep 1; rea_identity=$(ps eww -p "$dspid" -o command=) || exit 70; case " $rea_identity " in *" REA_PROCESS_RUN_ID=$rea_token "*) rea_owned=1 ;; *) rea_owned=0 ;; esac; if [ "$rea_owned" -eq 1 ] && kill -0 "$dspid" 2>/dev/null; then printf 'status\\tattached\\n'; printf 'path\\t%s\\n' "$dbg"; printf 'pid\\t%s\\n' "$dspid"; else printf 'status\\tfailed\\n'; cat "$log" 2>/dev/null || true; fi; exit 0`;
     const started = await this.#runRemote(
       "attach_ios_debugserver",
       deviceId,
@@ -1136,15 +1329,36 @@ export class IosProvider {
       command,
       signal,
       SSH_TIMEOUT_MS,
+      SSH_MAX_OUTPUT_BYTES,
+      true,
     );
-    if (!started.ok) return started;
-    const markers = new Map<string, string>();
-    for (const line of started.value.stdout.toString("utf8").split(/\r?\n/u)) {
-      const separator = line.indexOf("\t");
-      if (separator > 0)
-        markers.set(line.slice(0, separator), line.slice(separator + 1));
+    if (!started.ok)
+      return this.#remoteStartFailure(
+        owner,
+        started.error,
+        "start_ios_remote_helper",
+      );
+    owner.launchAcknowledged = started.value.exitCode !== 255;
+    if (started.value.exitCode !== 0)
+      return this.#remoteStartFailure(
+        owner,
+        new AnalysisProtocolError(
+          `Remote helper command exited ${String(started.value.exitCode)}: ${started.value.stderr.toString("utf8").slice(0, STDERR_EXCERPT_BYTES)}`,
+        ),
+        "start_ios_remote_helper",
+      );
+    let markers: Map<string, string>;
+    try {
+      markers = parseHelperMarkers(started.value.stdout);
+    } catch (cause) {
+      const retired = await this.#retireRemoteHelper(owner);
+      return retired.ok
+        ? err(asFailure("start_ios_remote_helper", cause, SSH_TIMEOUT_MS))
+        : retired;
     }
-    if (markers.get("status") !== "attached")
+    if (markers.get("status") !== "attached") {
+      const retired = await this.#retireRemoteHelper(owner);
+      if (!retired.ok) return retired;
       return err(
         new AnalysisUnsupportedTargetError(
           "attach_ios_debugserver",
@@ -1156,17 +1370,35 @@ export class IosProvider {
               "debugserver could not attach"),
         ),
       );
-    const forwarded = await this.#ensureForward(deviceId, remotePort, signal);
+    }
     const remotePid = Number(markers.get("pid"));
+    if (!Number.isSafeInteger(remotePid) || remotePid <= 0) {
+      const retired = await this.#retireRemoteHelper(owner);
+      return retired.ok
+        ? err(
+            new AnalysisProtocolError(
+              "debugserver did not report a valid remote PID",
+            ),
+          )
+        : retired;
+    }
+    let forwarded: Tunnel;
+    try {
+      forwarded = await this.#ensureForward(deviceId, remotePort, signal);
+    } catch (cause) {
+      return this.#remoteStartFailure(
+        owner,
+        asFailure("attach_ios_debugserver", cause, SSH_TIMEOUT_MS),
+        "attach_ios_debugserver",
+      );
+    }
     const session: DebugSession = {
-      deviceId,
+      owner,
       pid,
       remotePort,
       localPort: forwarded.port,
-      remotePid:
-        Number.isSafeInteger(remotePid) && remotePid > 0 ? remotePid : null,
+      remotePid,
       debugserverPath: markers.get("path") ?? null,
-      user,
     };
     this.#debugSessions.set(key, session);
     return ok(session);
@@ -1183,7 +1415,14 @@ export class IosProvider {
       AnalysisError
     >
   > {
-    const command = `${IOS_JAILBREAK_PATH_SCRIPT}; frida=$(command -v frida-server 2>/dev/null || true); [ -n "$frida" ] || { echo 'frida-server not found' >&2; exit 127; }; existing=''; owned=0; if command -v pgrep >/dev/null 2>&1; then existing=$(pgrep -x frida-server | head -1 || true); fi; if [ -z "$existing" ]; then nohup "$frida" -l 127.0.0.1:${String(remotePort)} >/tmp/rea-frida-server-${String(remotePort)}.log 2>&1 </dev/null & existing=$!; owned=1; sleep 1; fi; if kill -0 "$existing" 2>/dev/null; then printf 'path\\t%s\\n' "$frida"; printf 'pid\\t%s\\n' "$existing"; printf 'owned\\t%s\\n' "$owned"; exit 0; fi; cat /tmp/rea-frida-server-${String(remotePort)}.log 2>/dev/null || true; exit 1`;
+    const owner: RemoteHelperOwner = {
+      deviceId,
+      user,
+      runToken: randomUUID(),
+      launchAcknowledged: false,
+    };
+    this.#remoteHelpers.set(owner.runToken, owner);
+    const command = `${remoteTokenPrefix(owner.runToken)}; frida=$(command -v frida-server 2>/dev/null || true); [ -n "$frida" ] || { echo 'frida-server not found' >&2; exit 127; }; existing=''; owned=0; if command -v pgrep >/dev/null 2>&1; then existing=$(pgrep -x frida-server | head -1 || true); fi; if [ -n "$existing" ]; then command -v lsof >/dev/null && lsof -nP -a -p "$existing" -iTCP:${String(remotePort)} -sTCP:LISTEN >/dev/null || { echo 'Existing frida-server endpoint is not verified for the requested port' >&2; exit 1; }; else REA_PROCESS_RUN_ID="$rea_token" nohup "$frida" -l 127.0.0.1:${String(remotePort)} >/tmp/rea-frida-server-${String(remotePort)}.log 2>&1 </dev/null & existing=$!; owned=1; sleep 1; fi; if [ "$owned" -eq 1 ]; then rea_identity=$(ps eww -p "$existing" -o command=) || exit 70; case " $rea_identity " in *" REA_PROCESS_RUN_ID=$rea_token "*) ;; *) exit 70 ;; esac; fi; if kill -0 "$existing" 2>/dev/null && command -v lsof >/dev/null && lsof -nP -a -p "$existing" -iTCP:${String(remotePort)} -sTCP:LISTEN >/dev/null; then printf 'path\\t%s\\n' "$frida"; printf 'pid\\t%s\\n' "$existing"; printf 'owned\\t%s\\n' "$owned"; exit 0; fi; cat /tmp/rea-frida-server-${String(remotePort)}.log 2>/dev/null || true; exit 1`;
     const started = await this.#runRemote(
       "run_ios_frida_script",
       deviceId,
@@ -1191,23 +1430,37 @@ export class IosProvider {
       command,
       signal,
       SSH_TIMEOUT_MS,
+      SSH_MAX_OUTPUT_BYTES,
+      true,
     );
-    if (!started.ok) return started;
-    const markers = new Map<string, string>();
-    for (const line of started.value.stdout.toString("utf8").split(/\r?\n/u)) {
-      const separator = line.indexOf("\t");
-      if (separator > 0)
-        markers.set(line.slice(0, separator), line.slice(separator + 1));
+    if (!started.ok)
+      return this.#remoteStartFailure(
+        owner,
+        started.error,
+        "start_ios_remote_helper",
+      );
+    owner.launchAcknowledged = started.value.exitCode !== 255;
+    if (started.value.exitCode !== 0)
+      return this.#remoteStartFailure(
+        owner,
+        new AnalysisProtocolError(
+          `Remote helper command exited ${String(started.value.exitCode)}: ${started.value.stderr.toString("utf8").slice(0, STDERR_EXCERPT_BYTES)}`,
+        ),
+        "start_ios_remote_helper",
+      );
+    let markers: Map<string, string>;
+    try {
+      markers = parseHelperMarkers(started.value.stdout);
+    } catch (cause) {
+      const retired = await this.#retireRemoteHelper(owner);
+      return retired.ok
+        ? err(asFailure("start_ios_remote_helper", cause, SSH_TIMEOUT_MS))
+        : retired;
     }
     const pid = Number(markers.get("pid"));
     const validPid = Number.isSafeInteger(pid) && pid > 0 ? pid : null;
-    if (validPid !== null && markers.get("owned") === "1")
-      this.#fridaServers.set(`${deviceId}:${String(remotePort)}`, {
-        deviceId,
-        remotePort,
-        remotePid: validPid,
-        user,
-      });
+    if (markers.get("owned") !== "1")
+      this.#remoteHelpers.delete(owner.runToken);
     return ok({
       path: markers.get("path") ?? null,
       pid: validPid,
@@ -1288,11 +1541,13 @@ export class IosProvider {
       return ok({ stdout: result.stdout, stderr: result.stderr, exitCode: 0 });
     } catch (cause) {
       const failure = execFileOutputFailure(cause);
-      if (failure?.killed === true)
+      if (failure?.outputTruncated || failure?.killed === true)
         return ok({
           stdout: Buffer.from(failure.stdout),
           stderr: Buffer.from(failure.stderr),
           exitCode: null,
+          stopReason: failure.outputTruncated ? "output_limit" : "duration",
+          outputTruncated: failure.outputTruncated,
         });
       if (typeof failure?.code === "number")
         return ok({
@@ -1307,15 +1562,59 @@ export class IosProvider {
     }
   }
 
+  async #stopTunnel(tunnel: Tunnel): Promise<void> {
+    const stopped = await tunnel.supervisor.stop();
+    if (stopped.status === "incomplete")
+      throw new ProviderCleanupError(
+        IOS_PROVIDER_IDENTITY.id,
+        [tunnel.key],
+        { reason: stopped.reason },
+        { operation: "close_ios_forward" },
+      );
+    if (this.#tunnels.get(tunnel.key) === tunnel)
+      this.#tunnels.delete(tunnel.key);
+  }
+
   async #ensureForward(
     deviceId: string,
     remotePort: number,
     signal?: AbortSignal,
   ): Promise<Tunnel> {
+    if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
     const key = `${deviceId}:${String(remotePort)}`;
+    const pending = this.#tunnelStarts.get(key);
+    if (pending !== undefined) {
+      const tunnel = await pending;
+      if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
+      return tunnel;
+    }
     const existing = this.#tunnels.get(key);
-    if (existing !== undefined && existing.process.exitCode === null)
+    if (
+      existing !== undefined &&
+      existing.ready &&
+      existing.supervisor.observedExit() === undefined &&
+      existing.startupFailure() === undefined
+    )
       return existing;
+    const started = (async () => {
+      if (existing !== undefined) await this.#stopTunnel(existing);
+      return this.#startForward(deviceId, remotePort, key, signal);
+    })();
+    this.#tunnelStarts.set(key, started);
+    try {
+      return await started;
+    } finally {
+      if (this.#tunnelStarts.get(key) === started)
+        this.#tunnelStarts.delete(key);
+    }
+  }
+
+  async #startForward(
+    deviceId: string,
+    remotePort: number,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<Tunnel> {
     const selection = this.#selection("iproxy");
     const server = createServer();
     await new Promise<void>((resolve, reject) => {
@@ -1329,32 +1628,73 @@ export class IosProvider {
     }
     const port = address.port;
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    const child = spawn(
-      selection.binary,
-      [`${String(port)}:${String(remotePort)}`, "-u", deviceId],
-      { stdio: ["ignore", "pipe", "pipe"] },
+    if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
+    const spawned = await spawnOwnedProviderProcess({
+      command: selection.binary,
+      arguments: [`${String(port)}:${String(remotePort)}`, "-u", deviceId],
+      runId: `rea-ios-forward-${randomUUID()}`,
+      hostEnvironment: this.#environment,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    let startupFailure: string | undefined;
+    const supervisor = new ProviderProcessSupervisor(
+      {
+        ...spawned,
+        ownsProcessLifetime: true,
+        cleanup:
+          spawned.cleanup ??
+          (() => cleanupOwnedProcessGroup(spawned.ownership)),
+      },
+      {
+        maxDiagnosticBytes: 64 * 1024,
+        onDiagnostic: (event) => {
+          if (event.type === "error") startupFailure = event.message;
+        },
+      },
     );
-    const tunnel = { key, remotePort, port, process: child };
+    const tunnel: Tunnel = {
+      key,
+      remotePort,
+      port,
+      supervisor,
+      startupFailure: () => startupFailure,
+      ready: false,
+    };
     this.#tunnels.set(key, tunnel);
     try {
-      await this.#waitForPort(port, child, signal);
+      await this.#waitForPort(port, tunnel, signal);
+      if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
+      tunnel.ready = true;
       return tunnel;
     } catch (cause) {
-      child.kill("SIGTERM");
-      this.#tunnels.delete(key);
+      try {
+        await this.#stopTunnel(tunnel);
+      } catch (cleanup) {
+        throw new ProviderCleanupError(
+          IOS_PROVIDER_IDENTITY.id,
+          [key],
+          { reason: "Forward startup and cleanup failed" },
+          {
+            operation: "start_ios_forward",
+            cause: new AggregateError([cause, cleanup]),
+          },
+        );
+      }
       throw cause;
     }
   }
 
   async #waitForPort(
     port: number,
-    child: ChildProcess,
+    tunnel: Tunnel,
     signal?: AbortSignal,
   ): Promise<void> {
-    const started = Date.now();
-    while (Date.now() - started < IPROXY_START_TIMEOUT_MS) {
+    const started = performance.now();
+    while (performance.now() - started < IPROXY_START_TIMEOUT_MS) {
       if (signal?.aborted) throw new AnalysisCancelledError("iproxy");
-      if (child.exitCode !== null)
+      const startupFailure = tunnel.startupFailure();
+      if (startupFailure !== undefined) throw new Error(startupFailure);
+      if (tunnel.supervisor.observedExit() !== undefined)
         throw new Error("iproxy exited before opening its local port");
       const connected = await new Promise<boolean>((resolve) => {
         const socket = connect({ host: "127.0.0.1", port });
@@ -1366,7 +1706,12 @@ export class IosProvider {
         socket.once("error", () => done(false));
         socket.setTimeout(250, () => done(false));
       });
-      if (connected) return;
+      if (
+        connected &&
+        tunnel.supervisor.observedExit() === undefined &&
+        tunnel.startupFailure() === undefined
+      )
+        return;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new AnalysisTimeoutError("iproxy", IPROXY_START_TIMEOUT_MS);
