@@ -13,6 +13,167 @@ const returnedValue = (getter: string, write = "box.v.x = 2;") =>
     "result",
   ).returnSites[0]?.value;
 
+describe("projected private getter receivers", () => {
+  it.each([
+    [
+      "destructured self field",
+      "shared",
+      "peer = this;",
+      "const { peer: self } = this; return self.#s;",
+      true,
+      "unknown",
+    ],
+    [
+      "unrelated private child",
+      "{ peer: shared }",
+      "peer = this;",
+      "const { peer: self } = this; return self.#s;",
+      true,
+      "literal",
+    ],
+    [
+      "read without write",
+      "shared",
+      "peer = this;",
+      "const { peer: self } = this; return self.#s;",
+      false,
+      "literal",
+    ],
+    [
+      "two self fields",
+      "shared",
+      "peer = this; next = this.peer;",
+      "const { next: self } = this; return self.#s;",
+      true,
+      "unknown",
+    ],
+    [
+      "nested receiver projection",
+      "shared",
+      "peer = this;",
+      "const { peer: { peer: self } } = this; return self.#s;",
+      true,
+      "unknown",
+    ],
+    [
+      "member receiver alias",
+      "shared",
+      "peer = this;",
+      "const self = this.peer.peer; return self.#s;",
+      true,
+      "unknown",
+    ],
+    [
+      "projected result suffix",
+      "{ child: shared }",
+      "peer = this;",
+      "const { peer: self } = this; return self.#s.child;",
+      true,
+      "unknown",
+    ],
+    [
+      "external receiver",
+      "shared",
+      "peer = external;",
+      "const { peer: self } = this; return self.#s;",
+      true,
+      "literal",
+    ],
+    [
+      "field receiver cycle",
+      "shared",
+      "peer = this.other; other = this.peer;",
+      "const { peer: self } = this; return self.#s;",
+      true,
+      "literal",
+    ],
+  ] as const)(
+    "keeps receiver and result paths separate for %s",
+    (_name, value, fields, getter, write, status) => {
+      const ir = analyzeJavaScriptSemantics(`export function result() {
+      const shared = { x: 1 };
+      class Box {
+        #s = ${value}; ${fields}
+        get v() { ${getter} }
+      }
+      const box = new Box();
+      ${write ? "box.v.x = 2;" : "const saved = box.v;"}
+      return shared.x;
+    }`);
+      expect(onlyCallable(ir, "result").returnSites[0]?.value).toMatchObject(
+        status === "literal" ? { status, value: 1 } : { status },
+      );
+    },
+  );
+});
+
+describe("private receiver field ownership", () => {
+  it("bounds growing receiver projections under cyclic class inheritance", () => {
+    const ir = analyzeJavaScriptSemantics(`export function result() {
+      const shared = { x: 1 };
+      class A extends B {
+        #s = shared;
+        peer = this.other.other;
+        get v() { const { peer: self } = this; return self.#s; }
+      }
+      class B extends A { other = this.peer.peer; }
+      new A().v.x = 2;
+      return shared.x;
+    }`);
+    expect(onlyCallable(ir, "result").returnSites[0]?.value).toMatchObject({
+      status: "literal",
+      value: 1,
+    });
+  }, 1000);
+
+  it.each([
+    [
+      "own static receiver",
+      "class Box { static #s=shared; static peer=this; static get v(){const {peer:self}=this;return self.#s;} } Box.v.x=2;",
+      "unknown",
+    ],
+    [
+      "inherited instance receiver",
+      "class Base {peer=this;} class Box extends Base {#s=shared;get v(){const {peer:self}=this;return self.#s;}} new Box().v.x=2;",
+      "unknown",
+    ],
+    [
+      "inherited static field retains its declaring class",
+      "class Base {static peer=this;} class Box extends Base {static #s=shared;static get v(){const {peer:self}=this;return self.#s;}} Box.v.x=2;",
+      "literal",
+    ],
+    [
+      "inherited static getter's own private field",
+      "class Base {static #s=shared;static peer=this;static get v(){const {peer:self}=this;return self.#s;}} class Box extends Base {} Box.v.x=2;",
+      "unknown",
+    ],
+    [
+      "a field that is not initialized yet",
+      "class Box {#s=shared;peer=this.later;later=this;get v(){const {peer:self}=this;return self.#s;}} new Box().v.x=2;",
+      "literal",
+    ],
+    [
+      "remaining getter projection after a captured field",
+      "class Box {#s=shared;peer=this;next=this.peer;later=this;get v(){const {next:{later:self}}=this;return self.#s;}} new Box().v.x=2;",
+      "unknown",
+    ],
+    [
+      "a replaced self field",
+      "class Box {#s=shared;peer=this;peer=external;get v(){const {peer:self}=this;return self.#s;}} new Box().v.x=2;",
+      "literal",
+    ],
+  ] as const)("respects %s", (_name, body, status) => {
+    const ir = analyzeJavaScriptSemantics(`export function result() {
+      const shared = { x: 1 };
+      ${body}
+      return shared.x;
+    }`);
+    expect(onlyCallable(ir, "result").returnSites[0]?.value).toMatchObject(
+      status === "literal" ? { status, value: 1 } : { status },
+    );
+  });
+});
+
 describe("getter-local receiver aliases (#2653)", () => {
   it.each([
     ["initialized alias", "const self = this; return self.s;"],

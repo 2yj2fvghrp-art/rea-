@@ -74,6 +74,7 @@ const instanceFieldReferences = (
   propertyName: string | null,
   path: PropertyPath,
   state: JavaScriptSemanticAnalysisState,
+  initializedBefore?: t.ClassProperty,
 ): {
   readonly references: readonly ReferencedValue[];
   readonly definiteNames: ReadonlySet<string>;
@@ -95,7 +96,15 @@ const instanceFieldReferences = (
     if (previous !== undefined && previous.size === excluded.size) continue;
     selections.set(current.klass, excluded);
     const shadowed = new Set(excluded);
-    for (const member of [...current.klass.body.body].reverse()) {
+    const before =
+      initializedBefore === undefined
+        ? -1
+        : current.klass.body.body.indexOf(initializedBefore);
+    const members =
+      before < 0
+        ? current.klass.body.body
+        : current.klass.body.body.slice(0, before);
+    for (const member of [...members].reverse()) {
       if (!t.isClassProperty(member) || member.static) continue;
       const key = semanticStaticPropertyKey(member.key, member.computed);
       if (key !== null && shadowed.has(key)) continue;
@@ -124,12 +133,15 @@ interface ClassPropertyLookup {
   readonly owner: t.ClassDeclaration | t.ClassExpression;
   readonly receiver?: t.ClassDeclaration | t.ClassExpression;
   readonly kind: "instance" | "static" | "prototype";
+  readonly fieldsOnly?: true;
+  readonly initializedBefore?: t.ClassProperty;
 }
 
 const classPropertyDescriptors = (
   klass: t.ClassDeclaration | t.ClassExpression,
   propertyName: string | null,
   kind: ClassPropertyLookup["kind"],
+  initializedBefore?: t.ClassProperty,
 ) => {
   const isStatic = kind === "static";
   const selectedGetters: t.ClassMethod[] = [];
@@ -139,7 +151,12 @@ const classPropertyDescriptors = (
     readonly index: number;
     readonly key: string | null;
   }[] = [];
+  const before =
+    initializedBefore === undefined
+      ? -1
+      : klass.body.body.indexOf(initializedBefore);
   klass.body.body.forEach((member, index) => {
+    if (before >= 0 && index >= before && t.isClassProperty(member)) return;
     if (
       (t.isClassMethod(member) ||
         (kind === "static" && t.isClassProperty(member))) &&
@@ -224,7 +241,13 @@ export const semanticClassPropertyReferences = (
   // constructors. They take precedence over every prototype descriptor.
   let instanceFields: ReadonlySet<string> = new Set();
   if (lookup.kind === "instance") {
-    const fields = instanceFieldReferences(root, propertyName, path, state);
+    const fields = instanceFieldReferences(
+      root,
+      propertyName,
+      path,
+      state,
+      lookup.initializedBefore,
+    );
     possibleResults.push(...fields.references);
     instanceFields = fields.definiteNames;
     if (propertyName !== null && instanceFields.has(propertyName))
@@ -238,11 +261,12 @@ export const semanticClassPropertyReferences = (
       klass,
       propertyName,
       lookup.kind,
+      lookup.initializedBefore,
     );
     for (const field of descriptors.fields)
       if (field.value != null)
         possibleResults.push({ node: field.value, path });
-    for (const getter of descriptors.getters) {
+    for (const getter of lookup.fieldsOnly ? [] : descriptors.getters) {
       const key = semanticStaticPropertyKey(getter.key, getter.computed);
       if (key !== null && instanceFields.has(key)) continue;
       possibleResults.push(
@@ -309,6 +333,102 @@ interface GetterInvocation {
     | t.ClassDeclaration
     | t.ClassExpression;
 }
+
+/** Follow only data fields whose initializers retain a class receiver. */
+const privateReceiverProjection = (
+  receiver: t.ClassDeclaration | t.ClassExpression,
+  owner: t.ClassDeclaration | t.ClassExpression,
+  path: PropertyPath,
+  isStatic: boolean,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  if (path.some((key) => key === null || typeof key === "object")) return false;
+  type Selection = { readonly key: string; readonly before?: t.ClassProperty };
+  const pending: {
+    receiver: typeof receiver;
+    path: readonly Selection[];
+    visits: ReadonlyMap<string, number>;
+  }[] = [
+    {
+      receiver,
+      path: path.map((key) => ({ key: String(key) })),
+      visits: new Map(),
+    },
+  ];
+  const seen = new Set<string>();
+  const declaringClass = (field: t.ClassProperty) => {
+    const body = state.parentsByNode.get(field);
+    return body === undefined ? undefined : state.parentsByNode.get(body);
+  };
+  for (let cursor = 0; cursor < pending.length; cursor++) {
+    const current = pending[cursor];
+    if (current === undefined) break;
+    const [selection, ...remaining] = current.path;
+    if (selection === undefined) {
+      if (!isStatic || current.receiver === owner) return true;
+      continue;
+    }
+    const origin = JSON.stringify([
+      current.receiver.start,
+      selection.key,
+      selection.before?.start,
+    ]);
+    const previous = current.visits.get(origin);
+    // Repeated fields may consume a finite getter path. An initializer cycle
+    // that preserves or grows it cannot establish another receiver identity.
+    if (previous !== undefined && previous <= current.path.length) continue;
+    const visits = new Map(current.visits).set(origin, current.path.length);
+    const identity = JSON.stringify([
+      current.receiver.start,
+      current.path.map(({ key, before }) => [key, before?.start]),
+    ]);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    const lookupOwner =
+      selection.before === undefined
+        ? current.receiver
+        : declaringClass(selection.before);
+    if (!t.isClass(lookupOwner)) continue;
+    for (const reference of semanticClassPropertyReferences(
+      {
+        owner: lookupOwner,
+        receiver: current.receiver,
+        kind: isStatic ? "static" : "instance",
+        fieldsOnly: true,
+        ...(selection.before === undefined
+          ? {}
+          : { initializedBefore: selection.before }),
+      },
+      [selection.key],
+      state,
+    )) {
+      const field = state.parentsByNode.get(reference.node);
+      if (!t.isClassProperty(field)) continue;
+      const fieldOwner = declaringClass(field);
+      if (!t.isClass(fieldOwner)) continue;
+      const projection: Selection[] = [];
+      let value = unwrapJavaScriptExpression(reference.node).node;
+      while (
+        t.isMemberExpression(value) ||
+        t.isOptionalMemberExpression(value)
+      ) {
+        const key = semanticStaticPropertyKey(value.property, value.computed);
+        if (key === null || t.isPrivateName(value.property)) break;
+        projection.unshift({ key, before: field });
+        value = unwrapJavaScriptExpression(value.object).node;
+      }
+      if (!t.isThisExpression(value)) continue;
+      // Instance fields retain the actual instance. Static field `this` belongs
+      // to its declaring class, even when a subclass inherits the field.
+      pending.push({
+        receiver: isStatic ? fieldOwner : current.receiver,
+        path: [...projection, ...remaining],
+        visits,
+      });
+    }
+  }
+  return false;
+};
 
 const getterResultReferences = (
   invocation: GetterInvocation,
@@ -394,6 +514,7 @@ const getterResultReferences = (
         const key = JSON.stringify([
           remaining,
           current.privateRead?.name,
+          current.privateRead?.path,
           current.escapes,
         ]);
         let cyclic = false;
@@ -442,18 +563,12 @@ const getterResultReferences = (
               !semanticReferenceSourcesInactive(initializer, state),
           ),
         ])
-          if (
-            current.privateRead !== undefined &&
-            initializer.projection.length > 0
-          )
-            retainPrivateRead();
-          else
-            pending.push({
-              ...current,
-              node: initializer.node,
-              path: [...initializer.projection, ...remaining],
-              aliases,
-            });
+          pending.push({
+            ...current,
+            node: initializer.node,
+            path: [...initializer.projection, ...remaining],
+            aliases,
+          });
         continue;
       }
     }
@@ -468,6 +583,19 @@ const getterResultReferences = (
         ownerNode = state.parentsByNode.get(ownerNode);
       if (ownerNode !== getter) continue;
       if (current.privateRead !== undefined && t.isClass(owner)) {
+        if (
+          !t.isClass(receiver) ||
+          !privateReceiverProjection(
+            receiver,
+            owner,
+            remaining,
+            isStatic,
+            state,
+          )
+        ) {
+          retainPrivateRead();
+          continue;
+        }
         for (const member of owner.body.body)
           if (
             t.isClassPrivateProperty(member) &&
@@ -475,7 +603,10 @@ const getterResultReferences = (
             member.key.id.name === current.privateRead.name &&
             member.value != null
           )
-            retain({ node: member.value, path: remaining });
+            retain({
+              node: member.value,
+              path: current.escapes ? [] : current.privateRead.path,
+            });
         continue;
       }
       for (const reference of t.isClass(receiver)
@@ -493,7 +624,10 @@ const getterResultReferences = (
       t.isMemberExpression(expression) ||
       t.isOptionalMemberExpression(expression)
     ) {
-      if (current.privateRead !== undefined) {
+      if (
+        current.privateRead !== undefined &&
+        t.isPrivateName(expression.property)
+      ) {
         retainPrivateRead();
         continue;
       }
@@ -501,6 +635,7 @@ const getterResultReferences = (
         pending.push({
           ...current,
           node: expression.object,
+          path: [],
           privateRead: {
             node: expression,
             name: expression.property.id.name,

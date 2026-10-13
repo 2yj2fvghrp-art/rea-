@@ -214,6 +214,9 @@ invalidate the earlier literal instead of claiming the getter executed or the
 new value is known. Straight-line alias reads retain their capture order;
 uncertain control flow remains conservative. A binding outside the getter or
 `this` in a nested ordinary function is not attributed to the getter's receiver.
+Private reads keep receiver projections separate from the private value's path.
+Receiver projections follow known data fields initialized from `this` or earlier
+self-referencing fields; static fields retain their declaring class identity.
 An alias cycle that repeatedly selects deeper children retains escape uncertainty
 at its recovered roots rather than claiming a fixed number of loop iterations.
 Nested callable returns are not assigned to their parent callable. Projected

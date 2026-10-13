@@ -21,6 +21,11 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "start: { child: { child: shared } }",
       ],
     ] as const;
+    const privateCases = [
+      ["privateProjection", "shared", true, "unknown"],
+      ["privateUnrelated", "{ peer: shared }", true, "literal"],
+      ["privateReadOnly", "shared", false, "literal"],
+    ] as const;
     await writeFile(
       join(root, "app.mjs"),
       cases
@@ -37,10 +42,28 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             return shared.x;
           }`,
         )
-        .join("\n"),
+        .join("\n") +
+        privateCases
+          .map(
+            ([name, value, write]) => `export function ${name}() {
+          const shared = { x: 1 };
+          class Box {
+            #s = ${value};
+            peer = this;
+            get v() { const { peer: self } = this; return self.#s; }
+          }
+          const box = new Box();
+          ${write ? "box.v.x = 2;" : "const saved = box.v;"}
+          return shared.x;
+        }`,
+          )
+          .join("\n"),
     );
     const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
-    for (const [name, , write] of cases) {
+    for (const [name, status] of [
+      ...cases.map(([name, , write]) => [name, write ? "unknown" : "literal"]),
+      ...privateCases.map(([name, , , status]) => [name, status]),
+    ]) {
       const observation = graph.nodes
         .flatMap(({ observations }) => observations)
         .find(
@@ -49,11 +72,12 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             properties.exported_name === name,
         );
       expect(observation, name).toBeDefined();
-      const status = write ? "unknown" : "literal";
       expect(observation?.properties.static_return_shapes).toMatchObject([
         {
           value_status: status,
-          fields: [{ path: "", state: status, value: write ? null : 1 }],
+          fields: [
+            { path: "", state: status, value: status === "unknown" ? null : 1 },
+          ],
         },
       ]);
     }
