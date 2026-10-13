@@ -11,7 +11,9 @@ import {
 import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
 import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 import {
+  isUnshadowedGlobal,
   resolveSemanticBindingState,
+  semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
   type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
@@ -240,7 +242,7 @@ function* indexViteAliasesSteps(
     if (cursor % 1024 === 0) yield;
     const node = producers[cursor];
     if (node === undefined) break;
-    for (const input of aliasProducerInputs(
+    for (const input of yield* aliasProducerInputsSteps(
       node,
       state,
       spreadFacts,
@@ -259,16 +261,19 @@ function* indexViteAliasesSteps(
   return aliases;
 }
 
-const aliasProducerInputs = (
+function* aliasProducerInputsSteps(
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
   spreadFacts: WeakMap<t.Node, SpreadCacheFact>,
   freshFacts: WeakMap<t.Node, boolean>,
-): readonly {
-  source: AliasVertex;
-  first: CacheKey;
-  copyKeepsCache?: boolean;
-}[] => {
+): Generator<
+  void,
+  readonly {
+    source: AliasVertex;
+    first: CacheKey;
+    copyKeepsCache?: boolean;
+  }[]
+> {
   const { root, members } = electronMemberPath(node);
   const first = members[0];
   if (t.isIdentifier(root)) {
@@ -282,7 +287,9 @@ const aliasProducerInputs = (
       copyKeepsCache: boolean;
     }[] = [];
     let overwritten = false;
+    let examined = 0;
     for (let index = root.properties.length - 1; index >= 0; index--) {
+      if (examined++ % 1024 === 0) yield;
       const property = root.properties[index];
       if (property === undefined) continue;
       if (t.isSpreadElement(property)) {
@@ -292,19 +299,57 @@ const aliasProducerInputs = (
           copyKeepsCache: !overwritten,
         });
         if (
-          spreadCacheFact(property.argument, spreadFacts, freshFacts) ===
-          "fresh"
+          (yield* spreadCacheFactSteps(
+            property.argument,
+            spreadFacts,
+            freshFacts,
+            state,
+          )) === "fresh"
         )
           overwritten = true;
       } else {
         const key = semanticStaticPropertyKey(property.key, property.computed);
-        if (
-          key === "f" &&
-          t.isObjectProperty(property) &&
-          freshCacheReplacement(property.value, freshFacts)
-        )
-          overwritten = true;
+        if (key === "f" && t.isObjectProperty(property)) {
+          if (
+            yield* freshCacheReplacementSteps(property.value, freshFacts, state)
+          ) {
+            overwritten = true;
+          } else {
+            inputs.push({ source: property.value, first });
+          }
+        }
       }
+    }
+    return inputs;
+  }
+  if (
+    t.isCallExpression(root) &&
+    t.isMemberExpression(root.callee) &&
+    isUnshadowedGlobal(root.callee.object, state, "Object") &&
+    semanticStaticPropertyKey(root.callee.property, root.callee.computed) ===
+      "assign"
+  ) {
+    const inputs: {
+      source: AliasVertex;
+      first: CacheKey;
+      copyKeepsCache: boolean;
+    }[] = [];
+    let overwritten = false;
+    let examined = 0;
+    for (let index = root.arguments.length - 1; index >= 1; index--) {
+      if (examined++ % 1024 === 0) yield;
+      const source = root.arguments[index];
+      if (source === undefined || t.isSpreadElement(source)) continue;
+      inputs.push({ source, first, copyKeepsCache: !overwritten });
+      if (
+        (yield* spreadCacheFactSteps(
+          source,
+          spreadFacts,
+          freshFacts,
+          state,
+        )) === "fresh"
+      )
+        overwritten = true;
     }
     return inputs;
   }
@@ -324,23 +369,94 @@ const aliasProducerInputs = (
       ? root.right
       : undefined;
   return source === undefined ? [] : [{ source, first }];
-};
+}
 
 type SpreadCacheFact = "fresh" | "possible" | "absent";
 
-const freshCacheReplacement = (
+function* freshCacheReplacementSteps(
   node: t.Node,
   facts: WeakMap<t.Node, boolean>,
-): boolean => {
-  const pending: { readonly node: t.Node; readonly finish: boolean }[] = [
-    { node, finish: false },
-  ];
+  state: JavaScriptSemanticAnalysisState,
+): Generator<void, boolean> {
+  const pending: {
+    readonly node: t.Node;
+    phase: "visit" | "alias" | "binding" | "container";
+    resultNode?: t.Node;
+    bindingId?: string;
+    children?: Generator<t.Node>;
+    expression?: t.ArrayExpression | t.ObjectExpression;
+    fresh?: boolean;
+  }[] = [{ node, phase: "visit" }];
+  const activeBindings = new Set<string>();
+  let examined = 0;
   while (pending.length > 0) {
-    const current = pending.pop();
-    if (current === undefined || facts.has(current.node)) continue;
+    if (examined++ % 1024 === 0) yield;
+    const current = pending.at(-1);
+    if (current === undefined) break;
+    if (current.phase === "alias" || current.phase === "binding") {
+      if (current.phase === "binding" && current.bindingId !== undefined)
+        activeBindings.delete(current.bindingId);
+      const fresh =
+        current.resultNode !== undefined &&
+        facts.get(current.resultNode) === true;
+      facts.set(current.node, fresh);
+      facts.set(unwrapJavaScriptExpression(current.node).node, fresh);
+      pending.pop();
+      continue;
+    }
+    if (current.phase === "container") {
+      const child = current.children?.next();
+      if (child === undefined || child.done) {
+        const fresh = current.fresh === true;
+        if (current.expression !== undefined)
+          facts.set(current.expression, fresh);
+        facts.set(current.node, fresh);
+        pending.pop();
+      } else if (facts.get(child.value) === false) {
+        current.fresh = false;
+      } else if (!facts.has(child.value)) {
+        pending.push({ node: child.value, phase: "visit" });
+      }
+      continue;
+    }
+    if (facts.has(current.node)) {
+      pending.pop();
+      continue;
+    }
     const expression = unwrapJavaScriptExpression(current.node).node;
     if (expression !== current.node && facts.has(expression)) {
       facts.set(current.node, facts.get(expression) ?? false);
+      pending.pop();
+      continue;
+    }
+    if (expression !== current.node) {
+      current.phase = "alias";
+      current.resultNode = expression;
+      pending.push({ node: expression, phase: "visit" });
+      continue;
+    }
+    if (t.isIdentifier(expression)) {
+      const binding = resolveSemanticBindingState(
+        state,
+        expression,
+        expression.name,
+      );
+      const initializer = semanticStableInitializer(binding, state);
+      if (
+        binding === undefined ||
+        initializer === undefined ||
+        activeBindings.has(binding.bindingId)
+      ) {
+        facts.set(current.node, false);
+        facts.set(expression, false);
+        pending.pop();
+        continue;
+      }
+      activeBindings.add(binding.bindingId);
+      current.phase = "binding";
+      current.bindingId = binding.bindingId;
+      current.resultNode = initializer.node;
+      pending.push({ node: initializer.node, phase: "visit" });
       continue;
     }
     if (
@@ -353,78 +469,84 @@ const freshCacheReplacement = (
     ) {
       facts.set(current.node, true);
       facts.set(expression, true);
+      pending.pop();
       continue;
     }
     if (!t.isArrayExpression(expression) && !t.isObjectExpression(expression)) {
       facts.set(current.node, false);
       facts.set(expression, false);
+      pending.pop();
       continue;
     }
-    if (
-      t.isObjectExpression(expression) &&
-      expression.properties.some(
-        (property) =>
-          !t.isSpreadElement(property) && !t.isObjectProperty(property),
-      )
-    ) {
-      facts.set(current.node, false);
-      facts.set(expression, false);
-      continue;
+    if (t.isObjectExpression(expression)) {
+      let unsupportedProperty = false;
+      for (const property of expression.properties) {
+        if (!t.isSpreadElement(property) && !t.isObjectProperty(property))
+          unsupportedProperty = true;
+        if (examined++ % 1024 === 0) yield;
+      }
+      if (unsupportedProperty) {
+        facts.set(current.node, false);
+        facts.set(expression, false);
+        pending.pop();
+        continue;
+      }
     }
-    if (!current.finish) {
-      pending.push({ node: current.node, finish: true });
-      for (const child of freshContainerValues(expression))
-        if (!facts.has(child)) pending.push({ node: child, finish: false });
-      continue;
-    }
-    const fresh = freshContainerValues(expression).every(
-      (child) => facts.get(child) === true,
-    );
-    facts.set(current.node, fresh);
-    facts.set(expression, fresh);
+    current.phase = "container";
+    current.expression = expression;
+    current.children = freshContainerValues(expression);
+    current.fresh = true;
   }
   return facts.get(node) === true;
-};
+}
 
-const freshContainerValues = (
+function* freshContainerValues(
   node: t.ArrayExpression | t.ObjectExpression,
-): readonly t.Node[] =>
-  t.isArrayExpression(node)
-    ? node.elements.flatMap((element) =>
-        element === null
-          ? []
-          : [t.isSpreadElement(element) ? element.argument : element],
-      )
-    : node.properties.flatMap((property) =>
-        t.isSpreadElement(property)
-          ? [property.argument]
-          : t.isObjectProperty(property)
-            ? [property.value]
-            : [],
-      );
+): Generator<t.Node> {
+  if (t.isArrayExpression(node)) {
+    for (const element of node.elements)
+      if (element !== null)
+        yield t.isSpreadElement(element) ? element.argument : element;
+    return;
+  }
+  for (const property of node.properties)
+    if (t.isSpreadElement(property)) yield property.argument;
+    else if (t.isObjectProperty(property)) yield property.value;
+}
 
 /** Read later literal spread keys once; unknown keys never prove lost ownership. */
-const spreadCacheFact = (
+function* spreadCacheFactSteps(
   node: t.Node,
   facts: WeakMap<t.Node, SpreadCacheFact>,
   freshFacts: WeakMap<t.Node, boolean>,
-): SpreadCacheFact => {
+  state: JavaScriptSemanticAnalysisState,
+): Generator<void, SpreadCacheFact> {
   const pending = [{ node, finish: false }];
+  let examined = 0;
   while (pending.length > 0) {
+    if (examined++ % 1024 === 0) yield;
     const current = pending.pop();
     if (current === undefined || facts.has(current.node)) continue;
     if (!t.isObjectExpression(current.node)) {
+      if (t.isIdentifier(current.node)) {
+        facts.set(current.node, "possible");
+        continue;
+      }
       facts.set(
         current.node,
-        freshCacheReplacement(current.node, freshFacts) ? "absent" : "possible",
+        (yield* freshCacheReplacementSteps(current.node, freshFacts, state))
+          ? "absent"
+          : "possible",
       );
       continue;
     }
     if (!current.finish) {
       pending.push({ ...current, finish: true });
-      for (const property of current.node.properties)
+      for (const property of current.node.properties) {
         if (t.isSpreadElement(property))
           pending.push({ node: property.argument, finish: false });
+        if (examined++ % 1024 === 0) yield;
+      }
       continue;
     }
     let result: SpreadCacheFact = "absent";
@@ -443,7 +565,11 @@ const spreadCacheFact = (
         if (key === "f") {
           result =
             t.isObjectProperty(property) &&
-            freshCacheReplacement(property.value, freshFacts)
+            (yield* freshCacheReplacementSteps(
+              property.value,
+              freshFacts,
+              state,
+            ))
               ? "fresh"
               : "possible";
           break;
@@ -453,7 +579,7 @@ const spreadCacheFact = (
     facts.set(current.node, result);
   }
   return facts.get(node) ?? "possible";
-};
+}
 
 const joinOwnership = (
   previous: CacheOwnership | undefined,

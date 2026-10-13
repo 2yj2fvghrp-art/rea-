@@ -270,10 +270,15 @@ const assignmentGuardedParameterDefault = (
   name: string,
   state: JavaScriptSemanticAnalysisState,
 ): LoweredParameterDefault | undefined => {
-  if (!t.isIfStatement(statement) || statement.alternate !== null)
-    return undefined;
-  const { test } = statement;
+  const test =
+    t.isIfStatement(statement) && statement.alternate === null
+      ? statement.test
+      : t.isExpressionStatement(statement) &&
+          t.isLogicalExpression(statement.expression, { operator: "&&" })
+        ? statement.expression.left
+        : undefined;
   if (
+    test === undefined ||
     !t.isBinaryExpression(test, { operator: "===" }) ||
     !t.isIdentifier(test.left, { name })
   )
@@ -281,13 +286,19 @@ const assignmentGuardedParameterDefault = (
   const exactUndefined = defaultUndefined(test.right, state);
   if (!exactUndefined && !t.isIdentifier(test.right, { name: "undefined" }))
     return undefined;
-  const assignment = t.isExpressionStatement(statement.consequent)
-    ? statement.consequent.expression
-    : t.isBlockStatement(statement.consequent) &&
-        statement.consequent.body.length === 1 &&
-        t.isExpressionStatement(statement.consequent.body[0])
-      ? statement.consequent.body[0].expression
+  const consequent = t.isIfStatement(statement)
+    ? statement.consequent
+    : t.isExpressionStatement(statement) &&
+        t.isLogicalExpression(statement.expression, { operator: "&&" })
+      ? statement.expression.right
       : undefined;
+  const assignment = t.isExpressionStatement(consequent)
+    ? consequent.expression
+    : t.isBlockStatement(consequent) &&
+        consequent.body.length === 1 &&
+        t.isExpressionStatement(consequent.body[0])
+      ? consequent.body[0].expression
+      : consequent;
   return t.isAssignmentExpression(assignment, { operator: "=" }) &&
     t.isIdentifier(assignment.left, { name })
     ? { fallback: assignment.right, uncertain: !exactUndefined }

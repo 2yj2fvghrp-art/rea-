@@ -45,6 +45,16 @@ const typescriptEs5 = String.raw`var __vite__mapDeps = function (i, m, d) {
 };
 __vite__mapDeps([0, 1, 2]);`;
 
+const typescriptEs5Minified = typescriptEs5
+  .replace(
+    "if (m === void 0) m = __vite__mapDeps;",
+    "m === void 0 && (m = __vite__mapDeps);",
+  )
+  .replace(
+    'if (d === void 0) d = m.f || (m.f = ["./caf\\u00e9.js", \'./nested\\/dep.js\', "./bracket].js"]);',
+    'd === void 0 && (d = m.f || (m.f = ["./caf\\u00e9.js", \'./nested\\/dep.js\', "./bracket].js"]));',
+  );
+
 const scenarios = [
   {
     file: "escaped.js",
@@ -58,6 +68,12 @@ const scenarios = [
   {
     file: "typescript-es5.js",
     source: typescriptEs5,
+    resolved: ["café.js", "nested/dep.js", "bracket].js"],
+    unknown: false,
+  },
+  {
+    file: "typescript-es5-minified.js",
+    source: typescriptEs5Minified,
     resolved: ["café.js", "nested/dep.js", "bracket].js"],
     unknown: false,
   },
@@ -346,6 +362,12 @@ const scenarios = [
       kept: true,
     },
     {
+      file: "spread-stable-replacement.js",
+      mutation:
+        '__vite__mapDeps([0]); const replacement = []; const copy = {...__vite__mapDeps, f: replacement}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
       file: "rest-copied-array.js",
       mutation:
         '__vite__mapDeps([0]); const {f: {...copy}} = __vite__mapDeps; copy[0] = "./last.js";',
@@ -378,6 +400,11 @@ const scenarios = [
       file: "getter-cache-write.js",
       mutation:
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, get f() { return __vite__mapDeps.f; }}; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "nested-getter-cache-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: {get cache() { return __vite__mapDeps.f; }}}; copy.f.cache[0] = "./last.js";',
     },
     {
       file: "regexp-override.js",
@@ -420,6 +447,24 @@ const scenarios = [
     source: mapDependencies('["./first.js"]', "[0]").replace(
       "__vite__mapDeps([0]);",
       '__vite__mapDeps([0]);\nconst {...copy} = __vite__mapDeps; copy.f.splice(0, 1, "./last.js");\n__vite__mapDeps([0]);',
+    ),
+    resolved: [],
+    unknown: true,
+  },
+  {
+    file: "explicit-cache-property.js",
+    source: mapDependencies('["./first.js"]', "[0]").replace(
+      "__vite__mapDeps([0]);",
+      '__vite__mapDeps([0]); const box = {f: __vite__mapDeps.f}; box.f[0] = "./last.js"; __vite__mapDeps([0]);',
+    ),
+    resolved: [],
+    unknown: true,
+  },
+  {
+    file: "object-assign-cache.js",
+    source: mapDependencies('["./first.js"]', "[0]").replace(
+      "__vite__mapDeps([0]);",
+      '__vite__mapDeps([0]); const copy = Object.assign({}, __vite__mapDeps); copy.f[0] = "./last.js"; __vite__mapDeps([0]);',
     ),
     resolved: [],
     unknown: true,
