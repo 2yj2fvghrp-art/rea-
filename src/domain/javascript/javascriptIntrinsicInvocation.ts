@@ -79,8 +79,18 @@ export const resolveJavaScriptIntrinsicInvocation = (
     expandJavaScriptInvocationArguments(node.arguments);
   let receiver: t.Node | undefined;
   let explicitReceiver = false;
+  let boundPrefixApplied = false;
   for (;;) {
     callee = unwrapJavaScriptExpression(callee).node;
+    if (t.isSequenceExpression(callee)) {
+      const finalExpression = callee.expressions.at(-1);
+      if (finalExpression === undefined) return undefined;
+      // The comma operator produces a value and erases the member receiver.
+      // An explicit receiver already supplied by an outer call remains intact.
+      explicitReceiver = true;
+      callee = finalExpression;
+      continue;
+    }
     if (visited.has(callee)) return undefined;
     visited.add(callee);
     let path = intrinsicPath(callee);
@@ -97,14 +107,23 @@ export const resolveJavaScriptIntrinsicInvocation = (
         );
         if (method === "call" || method === "apply") {
           const bound = boundIntrinsic(callee.object);
+          if (bound === undefined) return undefined;
+          if (explicitReceiver && !t.isExpression(receiver))
+            return { kind: "opaque", path: bound.path, arguments: undefined };
           if (
             bound !== undefined &&
             intrinsicReadChanged(callee, [...bound.path, method])
           )
             return { kind: "opaque", path: bound.path, arguments: undefined };
+          // Function.prototype.call/apply uses the outer explicit receiver
+          // as its callable, even when the member was read from a bound value.
+          const callable: t.Node | undefined = explicitReceiver
+            ? receiver
+            : callee.object;
+          if (!t.isExpression(callable)) return undefined;
           receiver = arguments_?.[0];
           explicitReceiver = true;
-          callee = callee.object;
+          callee = callable;
           arguments_ = invocationArguments(method, arguments_);
           continue;
         }
@@ -119,8 +138,37 @@ export const resolveJavaScriptIntrinsicInvocation = (
         bound.arguments === undefined
           ? undefined
           : [...bound.arguments, ...(arguments_ ?? [])];
+      boundPrefixApplied = bound.arguments !== undefined;
     }
     const method = path.length > 3 ? path.at(-1) : undefined;
+    if (method === "bind") {
+      const bound = boundIntrinsic(callee);
+      if (bound !== undefined)
+        return {
+          ...bound,
+          arguments:
+            bound.kind !== "known"
+              ? undefined
+              : boundPrefixApplied
+                ? arguments_
+                : bound.arguments === undefined
+                  ? undefined
+                  : [...bound.arguments, ...(arguments_ ?? [])],
+        };
+      const callable = explicitReceiver
+        ? receiver
+        : t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)
+          ? callee.object
+          : undefined;
+      if (!t.isExpression(callable))
+        return { kind: "opaque", path, arguments: undefined };
+      return {
+        kind: "known",
+        path: ["intrinsic", "Function", "prototype", "bind"],
+        receiver: callable,
+        arguments: arguments_,
+      };
+    }
     if (method === "call" || method === "apply") {
       // These properties hold generic function values. Their receiver selects
       // the callable; property-chain depth does not consume more arguments.
@@ -129,7 +177,14 @@ export const resolveJavaScriptIntrinsicInvocation = (
         : t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)
           ? callee.object
           : undefined;
-      if (!t.isExpression(callable)) return undefined;
+      // The callee resolves to an invocation member read but names no
+      // callable, as when an identifier aliases `Object.defineProperty.call`
+      // and is invoked bare. Such a call throws TypeError when no callable
+      // receiver exists, which static analysis cannot prove. An unexamined
+      // receiver is unknown effect, neither proof of no write nor a
+      // confirmed write.
+      if (!t.isExpression(callable))
+        return { kind: "opaque", path, arguments: undefined };
       callee = callable;
       receiver = arguments_?.[0];
       explicitReceiver = true;
