@@ -1,3 +1,4 @@
+import * as t from "@babel/types";
 import { expect, it } from "vitest";
 
 import {
@@ -134,8 +135,28 @@ new NativeWindow();
       },
     ],
   ]);
-  expect(electronStep.value).toEqual(
-    classifyParsedJavaScriptElectronBindings(parsed),
+  // Lexical-owner lookups are closures, so they are compared by their answers.
+  const { bindingId, reassigned, ...stepped } = electronStep.value;
+  const synchronous = classifyParsedJavaScriptElectronBindings(parsed);
+  const {
+    bindingId: synchronousBindingId,
+    reassigned: synchronousReassigned,
+    ...synchronousFacts
+  } = synchronous;
+  expect(stepped).toEqual(synchronousFacts);
+  const identifiers: t.Identifier[] = [];
+  traverseJavaScriptAst(parsed.program, {
+    enter: (node) => {
+      if (t.isIdentifier(node)) identifiers.push(node);
+    },
+  });
+  expect(
+    identifiers.map((node) => [bindingId(node), reassigned(node)]),
+  ).toEqual(
+    identifiers.map((node) => [
+      synchronousBindingId(node),
+      synchronousReassigned(node),
+    ]),
   );
 });
 
