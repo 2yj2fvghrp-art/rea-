@@ -9,16 +9,14 @@ import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
   signature,
-  type FieldCore,
+  signatureGenericArity,
   type ManagedCallEdge,
   type ManagedExportedType,
   type ManagedField,
   type ManagedFieldAccess,
   type ManagedMemberRef,
   type ManagedMethod,
-  type ManagedUserString,
-  type MemberRefCore,
-  type MethodCore,
+  type MemberCore,
   type TypeRange,
 } from "./ManagedMemberInspectorCore.js";
 import {
@@ -28,7 +26,6 @@ import {
   metadataCodedTokenInvalidReason,
   readMetadataBlob,
   readMetadataString,
-  readMetadataUserString,
 } from "./ManagedMetadataHeaps.js";
 import { readManagedValue } from "./ManagedReaderFailure.js";
 import { methodBody } from "./ManagedMethodBodyReader.js";
@@ -53,11 +50,11 @@ export const parseFields = (
   selected: SelectedTypeTokens = null,
 ): {
   readonly fields: readonly ManagedField[];
-  readonly core: ReadonlyMap<string, FieldCore>;
+  readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
 } => {
   const fields: ManagedField[] = [];
-  const core = new Map<string, FieldCore>();
+  const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(4);
   const ownerRow = readManagedValue(
@@ -80,7 +77,12 @@ export const parseFields = (
           : (readManagedValue(() => ownerRow(row), issues) ?? 0);
       const declared = ranges[owner - 1];
       const token = metadataToken(4, row);
-      core.set(token, { token, name });
+      core.set(token, {
+        token,
+        name,
+        declaringType: declared?.fullName ?? null,
+        kind: "field",
+      });
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
@@ -176,13 +178,14 @@ export const parseExportedTypes = (
 export const parseMemberRefs = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
+  typeName: (token: string | null) => string | null,
 ): {
   readonly refs: readonly ManagedMemberRef[];
-  readonly core: ReadonlyMap<string, MemberRefCore>;
+  readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
 } => {
   const refs: ManagedMemberRef[] = [];
-  const core = new Map<string, MemberRefCore>();
+  const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(10);
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
@@ -220,19 +223,29 @@ export const parseMemberRefs = (
               ? "MemberRef parent coded index 0x0 is null, but the Class column must reference a row"
               : `MemberRef parent coded index 0x${parentRaw.toString(16)} is invalid: ${parentReason}`,
         });
+      const parentToken = metadataCodedToken(
+        parentRaw,
+        3,
+        [2, 1, 26, 6, 27],
+        layout.rowCounts,
+      );
+      const parentName = typeName(parentToken);
+      const decoded = budgetedSignature(sig, layout);
       refs.push({
         token,
         row_offset: cursor.start,
-        parent_token: metadataCodedToken(
-          parentRaw,
-          3,
-          [2, 1, 26, 6, 27],
-          layout.rowCounts,
-        ),
+        parent_token: parentToken,
+        parent_name: parentName,
         name,
-        signature: budgetedSignature(sig, layout),
+        signature: decoded,
       });
-      core.set(token, { token, name });
+      core.set(token, {
+        token,
+        name,
+        declaringType: parentName,
+        kind: decoded.kind,
+        genericArity: signatureGenericArity(decoded),
+      });
     }, issues);
   }
   return { refs, core, issues };
@@ -254,11 +267,11 @@ export const parseMethods = ({
   selected = null,
 }: ParseMethodsInput): {
   readonly methods: readonly ManagedMethod[];
-  readonly core: ReadonlyMap<string, MethodCore>;
+  readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
 } => {
   const methods: ManagedMethod[] = [];
-  const core = new Map<string, MethodCore>();
+  const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
   const table = layout.table(6);
   const ownerRow = readManagedValue(
@@ -283,11 +296,13 @@ export const parseMethods = ({
           : (readManagedValue(() => ownerRow(row), issues) ?? 0);
       const declared = ranges[owner - 1];
       const token = metadataToken(6, row);
-      core.set(token, {
+      const member = {
         token,
         name,
         declaringType: declared?.fullName ?? null,
-      });
+        kind: "method",
+      } as const;
+      core.set(token, member);
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
@@ -296,6 +311,11 @@ export const parseMethods = ({
         layout.blob.size,
       );
       cursor.readIndex(layout.tableIndexSize(8));
+      const decoded = budgetedSignature(sig, layout);
+      core.set(token, {
+        ...member,
+        genericArity: signatureGenericArity(decoded),
+      });
       methods.push({
         token,
         row_offset: cursor.start,
@@ -305,7 +325,7 @@ export const parseMethods = ({
         rva,
         impl_flags: implFlags,
         flags,
-        signature: budgetedSignature(sig, layout),
+        signature: decoded,
         body: methodBody(
           bytes,
           pe,
@@ -319,85 +339,14 @@ export const parseMethods = ({
   return { methods, core, issues };
 };
 
-/** Bookkeeping per distinct ldstr token: its set entry and its sorted slot. */
-const USER_STRING_TOKEN_BYTES = 128;
-
-/** Decode each distinct #US literal an inspected method loads, in token order. */
-export const parseUserStrings = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  methods: readonly ManagedMethod[],
-): {
-  readonly userStrings: readonly ManagedUserString[];
-  readonly issues: readonly ManagedParseIssue[];
-} => {
-  const budget = managedDecodeBudget(layout);
-  const userStrings: ManagedUserString[] = [];
-  const issues: ManagedParseIssue[] = [];
-  const tokens = new Set<string>();
-  try {
-    // Only ldstr loads a literal; a malformed ldtoken can carry a 0x70 token.
-    for (const method of methods)
-      for (const { opcode, operand } of method.body.anchors)
-        if (opcode === "ldstr" && operand !== null && !tokens.has(operand)) {
-          budget.admitTransient(USER_STRING_TOKEN_BYTES, null);
-          tokens.add(operand);
-        }
-    // Tokens are fixed-width lowercase hex, so string order is token order.
-    const references: string[] = [];
-    for (const token of [...tokens].sort()) {
-      if (token.startsWith("0x70")) references.push(token);
-      // An operand from another table names no #US item, with or without
-      // the stream.
-      else
-        issues.push(
-          admitManagedProjection(
-            {
-              code: "invalid-heap-index",
-              scope: `metadata.#US:${token}`,
-              offset: null,
-              detail: "ldstr operand does not name an item inside #US",
-            },
-            budget,
-          ),
-        );
-    }
-    if (references.length > 0 && layout.userStrings === null) {
-      // A missing stream is one fact about the metadata, not one per token.
-      issues.push(
-        admitManagedProjection(
-          {
-            code: "missing-stream",
-            scope: "metadata.#US",
-            offset: null,
-            detail: `${String(references.length)} distinct ldstr operand(s) reference #US, but the metadata has no #US stream`,
-          },
-          budget,
-        ),
-      );
-      return { userStrings, issues };
-    }
-    for (const token of references) {
-      const failures: ManagedParseIssue[] = [];
-      readManagedValue(() => {
-        const { offset, value, issue } = readMetadataUserString(
-          bytes,
-          layout,
-          token,
-        );
-        if (issue !== null) failures.push(issue);
-        userStrings.push(
-          admitManagedProjection({ token, offset, value }, budget),
-        );
-      }, failures);
-      for (const failure of failures)
-        issues.push(admitManagedProjection(failure, budget));
-    }
-    return { userStrings, issues };
-  } finally {
-    budget.releaseTransient();
-  }
-};
+/**
+ * Member kinds each operand kind may name. A MemberRef whose signature does
+ * not decode keeps its name on calls, as before, but is never named a field.
+ */
+const NAMEABLE_KINDS = new Map<string, ReadonlySet<MemberCore["kind"]>>([
+  ["method", new Set(["method", "unknown"])],
+  ["field", new Set(["field"])],
+]);
 
 const targetKind = (token: string): ManagedCallEdge["target_kind"] =>
   token.startsWith("0x06")
@@ -408,11 +357,22 @@ const targetKind = (token: string): ManagedCallEdge["target_kind"] =>
         ? "method-spec"
         : "unknown";
 
+/** The member an operand names, if the operand kind can name that member's kind. */
+const namedTarget = (
+  members: ReadonlyMap<string, MemberCore>,
+  operandKind: string,
+  operand: string,
+): MemberCore | undefined => {
+  const member = members.get(operand);
+  return member !== undefined &&
+    NAMEABLE_KINDS.get(operandKind)?.has(member.kind) === true
+    ? member
+    : undefined;
+};
+
 export const edges = (
   methods: readonly ManagedMethod[],
-  methodCore: ReadonlyMap<string, MethodCore>,
-  fieldCore: ReadonlyMap<string, FieldCore>,
-  refCore: ReadonlyMap<string, MemberRefCore>,
+  members: ReadonlyMap<string, MemberCore>,
   budget: ManagedDecodeBudget,
 ): {
   readonly callEdges: readonly ManagedCallEdge[];
@@ -432,11 +392,10 @@ export const edges = (
     const caller = derives ? callerName(method) : method.name;
     for (const anchor of method.body.anchors) {
       if (anchor.opcode === "ldtoken") continue;
-      if (anchor.operand_kind === "method" && anchor.operand !== null) {
-        const named =
-          methodCore.get(anchor.operand)?.name ??
-          refCore.get(anchor.operand)?.name ??
-          null;
+      const { operand } = anchor;
+      if (operand === null) continue;
+      const target = namedTarget(members, anchor.operand_kind, operand);
+      if (anchor.operand_kind === "method") {
         // Each derived record is admitted before the graph grows further.
         callEdges.push(
           admitManagedProjection(
@@ -444,23 +403,25 @@ export const edges = (
               caller_token: method.token,
               caller,
               opcode: anchor.opcode,
-              target_token: anchor.operand,
-              target_kind: targetKind(anchor.operand),
-              target_name: named,
+              target_token: operand,
+              target_kind: targetKind(operand),
+              target_name: target?.name ?? null,
+              target_declaring_type: target?.declaringType ?? null,
             },
             budget,
           ),
         );
       }
-      if (anchor.operand_kind === "field" && anchor.operand !== null) {
+      if (anchor.operand_kind === "field") {
         fieldAccesses.push(
           admitManagedProjection(
             {
               method_token: method.token,
               method: caller,
               opcode: anchor.opcode,
-              field_token: anchor.operand,
-              field_name: fieldCore.get(anchor.operand)?.name ?? null,
+              field_token: operand,
+              field_name: target?.name ?? null,
+              field_declaring_type: target?.declaringType ?? null,
             },
             budget,
           ),
