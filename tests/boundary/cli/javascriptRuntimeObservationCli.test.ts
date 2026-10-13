@@ -61,7 +61,7 @@ describe("JavaScript runtime observation CLI parity", () => {
           "--runtime-kind",
           "node",
           "--observation-ms",
-          "10",
+          "100",
           "--json",
         ],
         environment,
@@ -86,7 +86,7 @@ describe("JavaScript runtime observation CLI parity", () => {
           inspector_endpoint: inspector.endpoint,
           target_id: inspector.targetId,
           runtime_kind: "node",
-          observation_ms: 10,
+          observation_ms: 100,
         }),
       );
       expect(direct.ok).toBe(true);
