@@ -91,6 +91,20 @@ and uninstall commands in `integrations/deepseek-harness/README.md`.
 Restart Harness after the bundle is installed. The old `rea setup --client dsh`
 home-level `rea-mcp` row overrides the bundle: migrate it before installing.
 
+
+**DeepSeek Harness Desktop (macOS):** the `web` commands above do **not**
+install into the Desktop `desktop` profile. In Desktop's **Plugins → Add
+plugin**, enter the **absolute path to the downloaded `.tgz`**, not the
+`https://github.com/xxxxxwater/rea` repository URL. The repository root is
+the build-required `rea-agents` CLI, which triggers
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`; allowing Git `prepare` scripts
+is **not** the remedy. Prepare the verified archive using
+`bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh`
+from a checkout, or follow the standalone Desktop recovery commands in
+`integrations/deepseek-harness/README.md`. The Desktop application provides
+its own plugin manager and CLI; a globally installed npm `dsh` may reject
+the reserved `desktop` profile.
+
 ### Ask your agent
 
 ```text

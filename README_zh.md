@@ -86,6 +86,19 @@ dsh --profile web --dump-config
 若原来使用 `rea setup --client dsh`，先备份并迁移旧的 `rea-mcp` 配置，
 避免全局配置覆盖新插件。
 
+
+**macOS DeepSeek Harness Desktop 安装修复：** 上面的命令针对 `web`
+Profile，不会安装到 Desktop 的 `desktop` Profile。请在 Desktop
+**「插件 → 添加插件」** 中粘贴下载后的**本地 `.tgz` 绝对路径**，
+**不要粘贴 `https://github.com/xxxxxwater/rea` 仓库网址**。
+仓库根目录属于需要构建的 `rea-agents` CLI，会触发
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`；无需修改 `allowBuilds`。
+从源码检出目录运行
+`bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh`
+即可下载并校验插件；不下载仓库也可按照
+`integrations/deepseek-harness/README.zh-CN.md` 的 Desktop 修复指令操作。
+Desktop 自带的插件管理器与 CLI 和普通 npm `dsh` 有区别。
+
 ### 询问智能体
 
 ```text

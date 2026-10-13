@@ -4,6 +4,57 @@
 截至 2026-10-13，npm 的 `@deepseek-ai/dsh@latest` 指向 `0.2.0-rc.2`，
 而上游 `master` 仍在快速迭代。安装 REA 时建议使用正式发布、版本固定的插件压缩包。
 
+## Desktop 修复：`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+
+错误若出现 `rea-agents@6.4.0` 和
+`https://codeload.github.com/xxxxxwater/rea/tar.gz/...`，表示
+Desktop 正在安装**整个 REA GitHub 仓库的 CLI**，不是 Harness 插件。
+根包需要 `prepare` 构建脚本，所以被 pnpm 的 `allowBuilds` 安全策略拒绝。
+**不要将 `rea-agents` 加入 `allowBuilds`**，也不要删除或重装 Desktop。
+
+在 macOS 终端执行（不用安装额外的 npm `dsh`）：
+
+```sh
+mkdir -p "$HOME/.dsh/plugin-packages"
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
+printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
+  | shasum -a 256 -c -
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+```
+
+校验显示 `OK` 后，打开 **DeepSeek Harness Desktop → 插件 → 添加插件**，
+粘贴最后打印的**本地 `.tgz` 文件绝对路径**进行安装，不要填
+`https://github.com/xxxxxwater/rea`，也不要直接填远程压缩包 URL。
+安装并启用 `dsh-rea-bundle` 后，完全退出并重新打开 Desktop。
+
+如果之前的失败安装已经将 Git 依赖写进
+`~/.dsh/profiles/desktop/package.json`，请先备份该 Profile，
+通过 Desktop 自带插件管理器**只删除误装的 `rea-agents` Git 依赖**，
+保留其他插件、`pnpm-lock.yaml` 和设置。
+如果安装失败时并未写入依赖，就不需要清理。
+此前执行过 `rea setup --client dsh` 的，还要检查
+`$DSH_HOME/cordis.patch.yml` 的旧 `rea-mcp` 配置；
+修改前备份，只移除旧的 REA 项，避免覆盖新插件。
+
+已下载仓库源码的用户，也可执行带摘要校验的安装准备脚本：
+
+```sh
+bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh
+```
+
+此脚本只下载、校验并打印本地安装路径，默认**不修改 Desktop Profile**。
+如果在 Desktop 菜单 **「管理 dsh 命令…」** 安装了该应用自带的
+`dsh`，完全退出 Desktop 后，也可执行：
+
+```sh
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+```
+
+注意：通过 npm 全局安装的普通 `dsh` 可能拒绝 `desktop`
+Profile（它只属于 Electron 应用）。遇到这种提示时改用应用内
+**「插件」** 页面，**不要执行 `dsh --profile desktop`**。
+
 ## 一键复制安装指令
 
 要求：Node.js `^22.19.0 || ^24.11.0 || >=26.0.0`，npm、pnpm，以及初次安装时的网络访问。
