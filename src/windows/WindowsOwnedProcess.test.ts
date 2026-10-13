@@ -358,6 +358,7 @@ describe("Windows output capture drain", () => {
         calls.filter((call) => call.operation === "process_poll"),
       ).toHaveLength(2);
       expect(child.stdout.destroyed).toBe(true);
+      expect(child.outputIncomplete).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -390,6 +391,7 @@ describe("Windows output capture drain", () => {
       expect(
         calls.filter((call) => call.operation === "process_poll"),
       ).toHaveLength(2);
+      expect(child.outputIncomplete).toBe(true);
     } finally {
       vi.useRealTimers();
     }

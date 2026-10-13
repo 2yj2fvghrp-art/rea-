@@ -307,6 +307,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #unblockOutput(stream: PassThrough): void {
+    if (stream.destroyed) this.#outputIncomplete = true;
     this.#blockedOutput.delete(stream);
     if (this.#blockedOutput.size === 0) this.#clearBlockedWake();
     this.#schedule(0);
