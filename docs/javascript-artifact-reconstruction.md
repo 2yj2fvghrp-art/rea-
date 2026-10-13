@@ -260,6 +260,12 @@ after the existing collection/configuration exclusions; excluded lookup keys do
 not become endpoints merely because they start with `?` or `#`. Original text,
 parameter ordering and fragments are preserved without choosing a base URL,
 decoding or trimming. This is explicit-shape recognition, not full URI validation.
+HTTP(S)/WebSocket scheme forms without authority slashes, such as
+`https:api.example.test/users`, are also recognized when WHATWG URL parsing
+succeeds without a base. Credential-free arguments retain their original
+spelling. Existing URL userinfo redaction still applies to captured-web findings;
+its safe fallback may normalize noncanonical URLs while preserving query
+parameters and fragments.
 Overloaded HTTP-method names with bare, encoded-prefix or leading-whitespace
 arguments keep their existing candidate classification; `fetch("login")` retains
 its syntax finding. These findings do not establish network execution. Dynamic receivers,

@@ -159,6 +159,12 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
     new Map().get("#lookup"); response.headers.get("#header-key");
     const config = vscode.workspace.getConfiguration("git"); config.get("?setting");
     config.get("#setting");
+    api.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
+    xhr.open(method, "ws:api.example.test/events"); api.get("https:");
+    new Map().get("https:api.example.test/map-key");
+    config.get("https:api.example.test/setting");
+    api.get("https:user:pass@api.example.test:443/a/../profile?x=a+b&x=two#part");
+    api.get("wss:user:pass@api.example.test:443/a/../events?x=a+b&x=two#part");
     form.get("passwordControl"); translate.get("ADDRESS_ADDED");
     cookie.put("token", value); request("POST", target);
     snackBar.open(message, "X");\n${'form.get("passwordControl");\n'.repeat(2_000)}`;
@@ -202,7 +208,11 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
       "?",
       "?page=2&tag=a&tag=b#section",
       "?view=1",
+      "https://api.example.test/profile?x=a+b&x=two#part",
+      "https:api.example.test/users?q=1&tag=a&tag=b#part",
       "login",
+      "ws:api.example.test/events",
+      "wss://api.example.test/events?x=a+b&x=two#part",
     ]);
     const candidates = result.inferences.filter(
       ({ kind }) => kind === "endpoint_candidate",
@@ -211,9 +221,14 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
       "ADDRESS_ADDED",
       "POST",
       "X",
+      "https:",
       "passwordControl",
       "token",
     ]);
+    expect(result.limitations).toContain(
+      'Endpoint candidates are deduplicated by script, value and detector; basis retains only the first matching source coordinate. They are not a complete call-site inventory or a runtime occurrence count. completeness.status="complete" describes examination of captured source, not a call-site census.',
+    );
+    expect(JSON.stringify(result)).not.toContain("user:pass");
     expect(
       candidates.every(
         ({ confidence, basis }) =>

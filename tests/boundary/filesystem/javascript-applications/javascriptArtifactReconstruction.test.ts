@@ -88,6 +88,7 @@ it("preserves graph commitments, endpoint certainty and export shapes when consu
     client.get("/api/profile");
     client.get("?page=2&tag=a&tag=b#section");
     client.get("#section");
+    client.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
     new Map().get("?lookup");
     new Map().get("#lookup");
   `,
@@ -251,6 +252,11 @@ const assertEndpointInterpretations = (
         confidence: "exact",
       },
       { value: "#section", state: "observed", confidence: "exact" },
+      {
+        value: "https:api.example.test/users?q=1&tag=a&tag=b#part",
+        state: "observed",
+        confidence: "exact",
+      },
     ]),
   );
   const candidateEdges = graph.edges.filter(

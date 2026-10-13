@@ -381,6 +381,14 @@ describe("web bundle explicit request reference forms", () => {
       "https://api.example.test/users?q=1#part",
       "ws://api.example.test/events",
       "wss://api.example.test/events",
+      "http:api.example.test/users",
+      "https:api.example.test/users?q=1&tag=a&tag=b#part",
+      "https:api.example.test:443/a/../b?x=a+b&x=two#part",
+      "ws:api.example.test/events",
+      "wss:api.example.test/events",
+      "HtTpS:/api.example.test/users",
+      String.raw`https:\api.example.test\users`,
+      "https://[invalid",
       "//api.example.test/users",
       "/api/users",
       "./users",
@@ -399,6 +407,15 @@ describe("web bundle explicit request reference forms", () => {
       "%23section",
       "%3Fpage=2",
       " #section",
+      " https:api.example.test/users",
+      "https:",
+      "http:?page=2",
+      "ws:#section",
+      "https:[invalid",
+      "https:api.example.test:99999",
+      "ftp:api.example.test/users",
+      "file:/users",
+      "data:text/plain,users",
     ];
     const source = `
       ${references.map((value) => `api.get(${JSON.stringify(value)});`).join("\n")}
@@ -406,10 +423,12 @@ describe("web bundle explicit request reference forms", () => {
       xhr.open(method, "?view=1");
       xhr.open(method, "#view=1");
       xhr.open("GET", "#literal=1");
+      xhr.open(method, "https:api.example.test/xhr");
       request("POST", target);
       snackBar.open(message, "X");
       new Map().get("?map-key");
       new Map().get("#map-key");
+      new Map().get("https:api.example.test/map-key");
       new Headers().delete("?header-key");
       new Headers().delete("#header-key");
       new URLSearchParams().get("?parameter-key");
@@ -419,6 +438,7 @@ describe("web bundle explicit request reference forms", () => {
       const config = vscode.workspace.getConfiguration("git");
       config.get("?setting");
       config.get("#setting");
+      config.get("https:api.example.test/setting");
       window.open(url, "?window-target");
       window.open(url, "#window-target");
       indexedDB.open(name, "?database-version");
@@ -426,7 +446,13 @@ describe("web bundle explicit request reference forms", () => {
       caches.open(name, "#cache-name");
       fs.open(path, "r");
     `;
-    const expected = [...references, "?view=1", "#view=1", "#literal=1"].sort();
+    const expected = [
+      ...references,
+      "?view=1",
+      "#view=1",
+      "#literal=1",
+      "https:api.example.test/xhr",
+    ].sort();
     const expectedCandidates = [...ambiguous, "POST", "X"].sort();
     const web = analyzeCapturedWebBundle(inspection(source));
     expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
@@ -559,6 +585,9 @@ describe("web bundle endpoint candidate classification", () => {
       status: "complete",
       parsed_scripts: 2,
     });
+    expect(result.limitations).toContain(
+      'Endpoint candidates are deduplicated by script, value and detector; basis retains only the first matching source coordinate. They are not a complete call-site inventory or a runtime occurrence count. completeness.status="complete" describes examination of captured source, not a call-site census.',
+    );
   });
 });
 
