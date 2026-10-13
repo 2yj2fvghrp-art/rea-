@@ -16,9 +16,8 @@ const isMcpMode =
 const isMcpDoctorMode = args[0] === "mcp" && args[1] === "doctor";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Node's Windows home lookup throws for an empty USERPROFILE rather than
-// consulting the account profile, and Incur resolves the home while it is
-// imported. Treat the empty selection as unset so every command can start.
+// Windows home lookup throws for an empty USERPROFILE. Dependencies resolve
+// home during import, before REA's own resolver can apply its account fallback.
 if (process.platform === "win32" && process.env.USERPROFILE === "") {
   delete process.env.USERPROFILE;
 }
