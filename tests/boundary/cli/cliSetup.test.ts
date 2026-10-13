@@ -336,7 +336,7 @@ describe("interactive setup completion", () => {
   );
 });
 
-describe("non-interactive setup in a terminal", () => {
+describe("non-interactive setup output", () => {
   it("renders a blocked dry-run plan before remediation and the no-mutation notice", async () => {
     const result = {
       status: "needs_human",
@@ -419,7 +419,9 @@ describe("non-interactive setup in a terminal", () => {
       access(join(home, ".codex", "config.toml")),
     ).rejects.toMatchObject({ code: "ENOENT" });
   }, 60_000);
+});
 
+describe("non-interactive setup in a terminal", () => {
   it("shows the dry-run plan without applying it", async () => {
     await withTerminalSetup(
       ["--dry-run", "--client", "codex", "--skill=false"],
