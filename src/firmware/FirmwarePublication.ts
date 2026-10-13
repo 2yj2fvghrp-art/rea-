@@ -36,23 +36,25 @@ const MAX_EXTRACTION_DEPTH = 10;
 
 const depthContinuation = (
   maxDepth: number,
-  hasUsableChild: boolean,
+  publishedChildPath: string | undefined,
 ): string =>
   maxDepth < MAX_EXTRACTION_DEPTH
     ? GAP_CONTINUATIONS["depth-limited"]
-    : hasUsableChild
-      ? "This extraction already ran at the lane's maximum depth. To continue below this path, rerun extract_firmware with path set to the published child extracted here (its files[].path entry under this task); a fresh run on that child restarts the depth budget."
+    : publishedChildPath !== undefined
+      ? `This extraction already ran at the lane's maximum depth. To continue, rerun extract_firmware with path set to the published child ${JSON.stringify(publishedChildPath)} and a fresh output directory; a fresh run on that child restarts the depth budget.`
       : `This extraction already ran at the lane's maximum depth, and no published child under this path is both nonempty and within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
 
 // A nested unknown chunk reruns only through its published child, and a
 // fresh firmware input must actually accept that child.
 const nestedUnknownContinuation = (
   inputPath: string,
-  size: number | undefined,
+  publishedFile: { readonly path: string; readonly size: number } | undefined,
 ): string => {
   const base = `This unknown chunk was carved from a nested extraction, so its range is relative to the published child at ${inputPath.slice("$output/".length)} under the output directory, not to the original input.`;
-  return size !== undefined && size > 0 && size <= FIRMWARE_LIMITS.inputBytes
-    ? `${base} Rerun extract_firmware with that published file as the input to evaluate the region.`
+  return publishedFile !== undefined &&
+    publishedFile.size > 0 &&
+    publishedFile.size <= FIRMWARE_LIMITS.inputBytes
+    ? `${base} Rerun extract_firmware with path ${JSON.stringify(publishedFile.path)} and a fresh output directory to evaluate the child-local region.`
     : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so extract_firmware cannot accept it as a fresh input; treat the region as unexamined.`;
 };
 
@@ -160,13 +162,14 @@ export const publishFirmwareExtraction = async (context: {
       diagnostics: context.normalized.diagnostics,
       extraction_gaps: extractionGaps(
         unpublished,
+        files,
         context.normalized,
         context.maxDepth,
       ),
       published_bytes: files.reduce((sum, file) => sum + file.size, 0),
     });
     context.signal.throwIfAborted();
-    await tree.commit();
+    await tree.commit(context.signal);
     return result;
   } catch (cause: unknown) {
     if (cause instanceof SafeOutputTreeCreationFailure) tree = cause.tree;
@@ -220,15 +223,6 @@ const dependencyExtractionGaps = (
       chunk,
     ]),
   );
-  // The owning multi-file stage names the extractor behind a task-wide
-  // dependency; chunk identity and ranges stay unset because the producer
-  // names no chunk.
-  const stageHandlers = new Map(
-    normalized.failed_extraction_stages.map(({ input_path, handler }) => [
-      input_path,
-      handler,
-    ]),
-  );
   return [
     ...normalized.chunk_missing_dependencies.flatMap(
       ({ input_path, provider_id, dependencies }): ExtractionGap[] => {
@@ -254,15 +248,30 @@ const dependencyExtractionGaps = (
         ];
       },
     ),
-    // A task-wide report ties the failure to the task, not to a region, so
-    // chunk identity and ranges stay unset; the producer names no chunk. The
-    // owning multi-file stage still names the extractor on the gap itself.
+    ...normalized.failed_extraction_stages
+      .filter(({ dependencies }) => dependencies.length > 0)
+      .map(
+        ({
+          input_path,
+          provider_id,
+          handler,
+          dependencies,
+        }): ExtractionGap => ({
+          kind: "missing-extractor-dependency",
+          input_path,
+          ...emptyGap,
+          handler,
+          provider_id,
+          dependencies: [...dependencies],
+          continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
+        }),
+      ),
+    // Standalone reports name only the task; do not borrow another stage's id.
     ...normalized.missing_dependencies.map(
       ({ input_path, dependencies }): ExtractionGap => ({
         kind: "missing-extractor-dependency",
         input_path,
         ...emptyGap,
-        handler: stageHandlers.get(input_path) ?? null,
         dependencies,
         continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
       }),
@@ -274,10 +283,16 @@ const extractionGaps = (
   unpublished: z.infer<
     typeof firmwareResultSchemas.extract_firmware
   >["unpublished_entries"],
+  files: readonly z.infer<
+    typeof firmwareResultSchemas.extract_firmware
+  >["files"][number][],
   normalized: ReturnType<typeof normalizeUnblobReport>,
   maxDepth: number,
 ): ExtractionGap[] => {
   const dependencyGaps: ExtractionGap[] = dependencyExtractionGaps(normalized);
+  const publishedFiles = new Map(
+    files.map((file) => [`$output/${file.relative_path}`, file]),
+  );
   const chunkGaps = (
     kind: ExtractionGap["kind"],
     matches: (chunk: (typeof normalized.chunks)[number]) => boolean,
@@ -296,7 +311,7 @@ const extractionGaps = (
         chunk.input_path.startsWith("$output/")
           ? nestedUnknownContinuation(
               chunk.input_path,
-              normalized.sizes.get(chunk.input_path),
+              publishedFiles.get(chunk.input_path),
             )
           : GAP_CONTINUATIONS[kind],
     }));
@@ -307,39 +322,40 @@ const extractionGaps = (
       JSON.stringify([input_path, provider_id]),
     ),
   );
-  const taskDependencyPaths = new Set(
-    normalized.missing_dependencies.map(({ input_path }) => input_path),
-  );
   // A depth ceiling can only be re-rooted through a published child that a
   // fresh firmware input could actually accept; the index is only needed
   // when a depth row will actually consult it.
   const ceilingReached =
     maxDepth >= MAX_EXTRACTION_DEPTH &&
     normalized.depth_limited_paths.length > 0;
-  const reRootablePaths = new Set<string>();
+  const reRootablePaths = new Map<string, string>();
   if (ceilingReached)
-    for (const [filePath] of normalized.files) {
-      const size = normalized.sizes.get(filePath) ?? 0;
+    for (const [filePath, file] of publishedFiles) {
+      const size = file.size;
       if (size <= 0 || size > FIRMWARE_LIMITS.inputBytes) continue;
       // The published file itself can re-root a fresh run; so can every
       // directory containing it.
       const segments = filePath.split("/");
       while (segments.length > 1) {
-        reRootablePaths.add(segments.join("/"));
+        const ancestor = segments.join("/");
+        if (reRootablePaths.has(ancestor)) break;
+        reRootablePaths.set(ancestor, file.path);
         segments.pop();
       }
     }
   const gaps: ExtractionGap[] = [
     ...dependencyGaps,
     ...normalized.failed_extraction_stages
-      .filter(({ input_path }) => !taskDependencyPaths.has(input_path))
-      .map(({ input_path, handler }): ExtractionGap => ({
+      .filter(({ dependencies }) => dependencies.length === 0)
+      .map(({ input_path, provider_id, handler }): ExtractionGap => ({
         kind: "extractor-failure",
         input_path,
         ...emptyGap,
         handler,
+        provider_id,
         dependencies: [],
-        continuation: GAP_CONTINUATIONS["extractor-failure"],
+        continuation:
+          "The producer retained this extraction stage's failure in diagnostics. Review the stage report and rerun extract_firmware on the same immutable input with a fresh output directory; this report establishes no byte-region ownership.",
       })),
     ...chunkGaps("unknown-chunk-handler", (chunk) => chunk.handler === null),
     ...chunkGaps("encrypted-chunk", (chunk) => chunk.encrypted === true),
@@ -362,7 +378,7 @@ const extractionGaps = (
       dependencies: [],
       continuation: depthContinuation(
         maxDepth,
-        reRootablePaths.has(input_path),
+        reRootablePaths.get(input_path),
       ),
     })),
     ...unpublished.map((entry): ExtractionGap => ({

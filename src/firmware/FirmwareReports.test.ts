@@ -129,11 +129,14 @@ describe("firmware producer boundaries", () => {
       ],
       context,
     );
-    expect(normalized.missing_dependencies).toEqual([
-      { input_path: "$output/rootfs", dependencies: ["sasquatch"] },
-    ]);
+    expect(normalized.missing_dependencies).toEqual([]);
     expect(normalized.failed_extraction_stages).toEqual([
-      { input_path: "$output/rootfs", handler: "squashfs" },
+      {
+        input_path: "$output/rootfs",
+        provider_id: "sq-id",
+        handler: "squashfs",
+        dependencies: ["sasquatch"],
+      },
     ]);
     expect(normalized.chunk_missing_dependencies).toEqual([]);
   });
@@ -454,7 +457,12 @@ describe("Unblob task derivation identities", () => {
       },
     ]);
     expect(normalized.failed_extraction_stages).toEqual([
-      { input_path: "$output/multi", handler: "multipart-firmware" },
+      {
+        input_path: "$input",
+        provider_id: "multi-id",
+        handler: "multipart-firmware",
+        dependencies: ["sasquatch"],
+      },
     ]);
   });
 });
@@ -509,7 +517,12 @@ describe("failed multi-file extraction stages", () => {
       context,
     );
     expect(normalized.failed_extraction_stages).toEqual([
-      { input_path: "$output/multi", handler: "multipart-firmware" },
+      {
+        input_path: "$output/multi",
+        provider_id: "multi-id",
+        handler: "multipart-firmware",
+        dependencies: [],
+      },
     ]);
     expect(normalized.missing_dependencies).toEqual([]);
   });

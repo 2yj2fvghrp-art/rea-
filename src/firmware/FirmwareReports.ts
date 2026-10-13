@@ -205,7 +205,12 @@ export const normalizeUnblobReport = (
   >();
   const sizes = new Map<string, number>();
   const depths: string[] = [];
-  const failedExtractionStages = new Map<string, string>();
+  const failedExtractionStages: {
+    input_path: string;
+    provider_id: string | null;
+    handler: string | null;
+    dependencies: readonly string[];
+  }[] = [];
   const diagnostics: JsonValue[] = [];
   const blobOrigins = new Map<string, BlobOrigin>();
   const addBlobOrigin = (
@@ -231,6 +236,7 @@ export const normalizeUnblobReport = (
     extraction_failed: boolean;
   }[] = [];
   const seen = new Set<string>();
+  const taskFailures = new Set<string>();
   const missingDependencies = new Map<string, Set<string>>();
   /** Dependencies reported by one chunk's extraction, keyed with its chunk id. */
   const chunkMissingDependencies = new Map<string, Set<string>>();
@@ -323,6 +329,18 @@ export const normalizeUnblobReport = (
         );
       noteMissingDependencies(path, [item]);
       if (
+        item.__typename__ === "ExtractorExecutionErrorReport" &&
+        !taskFailures.has(path)
+      ) {
+        taskFailures.add(path);
+        failedExtractionStages.push({
+          input_path: path,
+          provider_id: null,
+          handler: null,
+          dependencies: [],
+        });
+      }
+      if (
         item.__typename__ === "ChunkReport" ||
         item.__typename__ === "UnknownChunkReport"
       ) {
@@ -394,18 +412,16 @@ export const normalizeUnblobReport = (
               jsonValueSchema.parse(item),
             ),
           );
-          noteMissingDependencies(path, parsed.extraction_reports);
-          // The stage identity is kept so a failed multi-file extraction can
-          // surface as a recovery row even when no chunk carries the failure.
-          // The report names the blob it extracted; when a subtask carried
-          // that blob, the failure belongs to the child it produced.
-          const derivedChild = record.subtasks.find(
-            (child) => child.blob_id === parsed.id,
-          );
-          failedExtractionStages.set(
-            derivedChild === undefined ? path : logical(derivedChild.path),
-            parsed.handler_name,
-          );
+          // The report owns its failure and dependencies. A produced subtask
+          // is a derivation, not a new owner for the parent's report.
+          failedExtractionStages.push({
+            input_path: path,
+            provider_id: parsed.id,
+            handler: parsed.handler_name,
+            dependencies: uniqueSorted([
+              ...dependencyNames(parsed.extraction_reports),
+            ]),
+          });
         }
       }
     }
@@ -471,15 +487,15 @@ export const normalizeUnblobReport = (
     chunks,
     derivations,
     depth_limited_paths: depths.sort(),
-    failed_extraction_stages: [...failedExtractionStages.entries()]
-      .map(([input_path, handler]) => ({ input_path, handler }))
-      .sort((left, right) =>
-        left.input_path < right.input_path
-          ? -1
-          : left.input_path > right.input_path
-            ? 1
-            : 0,
-      ),
+    failed_extraction_stages: failedExtractionStages.sort((left, right) =>
+      `${left.input_path}\u0000${left.provider_id ?? ""}` <
+      `${right.input_path}\u0000${right.provider_id ?? ""}`
+        ? -1
+        : `${left.input_path}\u0000${left.provider_id ?? ""}` >
+            `${right.input_path}\u0000${right.provider_id ?? ""}`
+          ? 1
+          : 0,
+    ),
     diagnostics,
     missing_dependencies: [...missingDependencies.entries()]
       .map(([input_path, names]) => ({

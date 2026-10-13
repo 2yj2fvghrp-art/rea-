@@ -96,8 +96,8 @@ const chunk = z.strictObject({
   /** The producer reported extraction problems for this chunk. */
   extraction_failed: z.boolean(),
 });
-/** One explicit unextracted or retained-as-carved region, with the supported
- * continuation that uses already configured capabilities when one exists. */
+/** One unextracted region or failing task/stage, with a supported continuation
+ * using already configured capabilities when one exists. */
 export const extractionGap = z.strictObject({
   kind: z.enum([
     "missing-extractor-dependency",
@@ -111,6 +111,7 @@ export const extractionGap = z.strictObject({
   input_path: z.string(),
   relative_path: z.string().nullable(),
   handler: z.string().nullable(),
+  /** Reported chunk or multi-file stage identity; it does not imply a byte range. */
   provider_id: z.string().nullable(),
   range: range.nullable(),
   root_file_range: range.nullable(),
