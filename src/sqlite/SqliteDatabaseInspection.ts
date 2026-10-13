@@ -243,9 +243,17 @@ const readSchema = (
   }
   // A trigger stores its target as written in CREATE TRIGGER, which SQLite
   // resolves by ASCII case folding; report the stored table or view name.
-  const storedNames = new Map(
-    [...metadata.keys()].map((name) => [sqliteIdentifierKey(name), name]),
-  );
+  // A selected-table scan returns only the selected table's dependents, and
+  // other scopes fold stored names once, only when a spelling differs.
+  let foldedNames: Map<string, string> | undefined;
+  const triggerTable = (written: string): string => {
+    if (selectedName !== undefined) return selectedName;
+    if (metadata.has(written)) return written;
+    foldedNames ??= new Map(
+      [...metadata.keys()].map((name) => [sqliteIdentifierKey(name), name]),
+    );
+    return foldedNames.get(sqliteIdentifierKey(written)) ?? written;
+  };
   const unresolvedVirtualTables = [...metadata.values()]
     .filter((value) => value.type === "virtual" && value.ncol === 0)
     .map((value) => ({
@@ -376,9 +384,7 @@ const readSchema = (
     } else {
       const trigger = {
         name: value.name,
-        table:
-          storedNames.get(sqliteIdentifierKey(value.tbl_name)) ??
-          value.tbl_name,
+        table: triggerTable(value.tbl_name),
         ...(scope === "inventory" ? {} : { sql: value.sql }),
       };
       budget.retain(trigger);
