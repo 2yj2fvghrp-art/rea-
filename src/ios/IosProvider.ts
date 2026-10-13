@@ -73,6 +73,30 @@ const LOG_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const IPROXY_START_TIMEOUT_MS = 10_000;
 const STDERR_EXCERPT_BYTES = 512;
 
+const IOS_REQUIRED_TOOLS: Record<IosOperation, readonly IosToolName[]> = {
+  inspect_ios_toolchain: [
+    "idevice_id",
+    "ideviceinfo",
+    "idevicesyslog",
+    "ideviceinstaller",
+    "iproxy",
+    "ssh",
+  ],
+  list_ios_devices: ["idevice_id"],
+  inspect_ios_device: ["ideviceinfo"],
+  list_ios_apps: ["ideviceinstaller"],
+  list_ios_processes: ["idevicesyslog"],
+  read_ios_log: ["idevicesyslog"],
+  inspect_ios_process: ["iproxy", "ssh"],
+  pull_ios_file: ["iproxy", "ssh"],
+  run_ios_command: ["iproxy", "ssh"],
+  inspect_ios_runtime: ["iproxy", "ssh"],
+  attach_ios_debugserver: ["iproxy", "ssh"],
+  run_ios_lldb_command: ["iproxy", "ssh", "lldb"],
+  dump_ios_process_memory: ["iproxy", "ssh", "lldb"],
+  run_ios_frida_script: ["iproxy", "ssh", "frida"],
+};
+
 type IosProviderOptions = {
   readonly environment?: Readonly<Record<string, string | undefined>>;
 };
@@ -328,30 +352,7 @@ export class IosProvider {
       return err(new AnalysisCancelledError(request.operation));
     let toolchain: IosToolIdentity[];
     try {
-      const required: Record<IosOperation, readonly IosToolName[]> = {
-        inspect_ios_toolchain: [
-          "idevice_id",
-          "ideviceinfo",
-          "idevicesyslog",
-          "ideviceinstaller",
-          "iproxy",
-          "ssh",
-        ],
-        list_ios_devices: ["idevice_id"],
-        inspect_ios_device: ["ideviceinfo"],
-        list_ios_apps: ["ideviceinstaller"],
-        list_ios_processes: ["idevicesyslog"],
-        read_ios_log: ["idevicesyslog"],
-        inspect_ios_process: ["iproxy", "ssh"],
-        pull_ios_file: ["iproxy", "ssh"],
-        run_ios_command: ["iproxy", "ssh"],
-        inspect_ios_runtime: ["iproxy", "ssh"],
-        attach_ios_debugserver: ["iproxy", "ssh"],
-        run_ios_lldb_command: ["iproxy", "ssh", "lldb"],
-        dump_ios_process_memory: ["iproxy", "ssh", "lldb"],
-        run_ios_frida_script: ["iproxy", "ssh", "frida"],
-      };
-      const names = [...required[request.operation]];
+      const names = [...IOS_REQUIRED_TOOLS[request.operation]];
       if (
         names.includes("ssh") &&
         this.#environment[IOS_SSH_PASSWORD_ENV] !== undefined
@@ -1459,12 +1460,23 @@ export class IosProvider {
     }
     const pid = Number(markers.get("pid"));
     const validPid = Number.isSafeInteger(pid) && pid > 0 ? pid : null;
-    if (markers.get("owned") !== "1")
-      this.#remoteHelpers.delete(owner.runToken);
+    const ownershipMarker = markers.get("owned");
+    if (
+      validPid === null ||
+      (ownershipMarker !== "0" && ownershipMarker !== "1")
+    )
+      return this.#remoteStartFailure(
+        owner,
+        new AnalysisProtocolError(
+          "Frida did not report a valid process and ownership marker",
+        ),
+        "run_ios_frida_script",
+      );
+    if (ownershipMarker === "0") this.#remoteHelpers.delete(owner.runToken);
     return ok({
       path: markers.get("path") ?? null,
       pid: validPid,
-      owned: markers.get("owned") === "1",
+      owned: ownershipMarker === "1",
     });
   }
 
