@@ -76,33 +76,30 @@ manual MCP registration.
 
 ### DeepSeek Harness native plugin
 
-The current Harness CLI installs native bundles **per profile**. Install the
-published REA plugin archive; do not install the root CLI checkout as a bundle:
+**Desktop → Plugins → Add plugin:** paste the complete Git distribution URL
+below, **including the `#dsh-plugin-v0.2.0` tag**:
+
+```text
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+```
+
+The tag resolves to an independent, build-free `dsh-rea-bundle` package.
+The repository URL without this tag resolves to `rea-agents` on `main`,
+which is **not** a native Harness plugin and may fail with
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. Do not loosen pnpm `allowBuilds`.
+
+For the separate Web CLI profile:
 
 ```sh
-npm install --global @deepseek-ai/dsh@latest pnpm@11
-curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.0'
 dsh --profile web --dump-config
 ```
 
-Check the published SHA-256 and the full macOS/Linux installation, migration,
-and uninstall commands in `integrations/deepseek-harness/README.md`.
-Restart Harness after the bundle is installed. The old `rea setup --client dsh`
-home-level `rea-mcp` row overrides the bundle: migrate it before installing.
-
-**DeepSeek Harness Desktop (macOS):** the `web` commands above do **not**
-install into the Desktop `desktop` profile. In Desktop's **Plugins → Add
-plugin**, enter the **absolute path to the downloaded `.tgz`**, not the
-`https://github.com/xxxxxwater/rea` repository URL. The repository root is
-the build-required `rea-agents` CLI, which triggers
-`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`; allowing Git `prepare` scripts
-is **not** the remedy. Prepare the verified archive using
-`bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh`
-from a checkout, or follow the standalone Desktop recovery commands in
-`integrations/deepseek-harness/README.md`. The Desktop application provides
-its own plugin manager and CLI; a globally installed npm `dsh` may reject
-the reserved `desktop` profile.
+Alternatively, install the `dsh-rea-bundle-0.2.0.tgz` asset from the
+`dsh-v0.2.0` GitHub Release. The Desktop profile is app-managed, not the
+CLI's `web` profile. See
+`integrations/deepseek-harness/README.md` for migration, rollback,
+Desktop compatibility limits and troubleshooting.
 
 ### Ask your agent
 

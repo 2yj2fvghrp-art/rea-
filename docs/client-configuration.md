@@ -290,40 +290,53 @@ with `profile "desktop" is managed exclusively by the Electron application`.
 Use the Desktop Plugins UI or its app-bundled CLI, not `dsh --profile
 desktop` (which tries to boot the reserved profile).
 
-### Installable Harness bundle (recommended for current CLI)
+### Native DeepSeek Harness bundle — Desktop Git install
 
-The current CLI uses `dsh plugin --profile <name> add <archive>` and
-detects installable bundles through their `dsh.bundle` package manifest.
-For macOS/Linux, install the already-published REA `dsh-v0.1.0` archive:
+For a **direct install in Desktop → Plugins → Add plugin**, enter
+the **exact complete Git source**:
+
+```text
+https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.0
+```
+
+This immutable tag points to a separate root `dsh-rea-bundle` package
+with `dsh.bundle` metadata, ready-to-run JavaScript and no Git
+`prepare` script. Its `rea-agents@6.4.0` dependency resolves from
+the npm registry as a prebuilt runtime.
+
+Using just `https://github.com/xxxxxwater/rea` instead downloads the
+main repository's `rea-agents` CLI, not the plugin, and pnpm may
+report `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on Git dependencies.
+**Do not approve scripts or modify `allowBuilds` to fix a wrong URL.**
+
+Alternatively enter the Release's direct tarball address:
+
+```text
+https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+```
+
+Both install sources are recognized as Git/tarball install specs by the
+current Desktop plugin manager. Choose one, enable `dsh-rea-bundle`
+and fully restart Desktop. A CLI profile is separate; on a Web CLI
+installation use:
 
 ```sh
-npm install --global @deepseek-ai/dsh@latest pnpm@11
-curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
-dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.0'
 dsh --profile web --dump-config
 ```
 
-Unlike legacy `rea setup --client dsh`, the new bundle is installed into
-the selected profile. If the home patch already includes a `rea-mcp` row,
-back up `$DSH_HOME/cordis.patch.yml`, remove only that legacy row, and keep
-unrelated patches. Home-level settings have higher precedence.
+If the Desktop profile has a retained incorrect `rea-agents` Git
+dependency, back up `~/.dsh/profiles/desktop/package.json` and
+remove **only that dependency** with the Desktop plugin manager.
+Do not delete other installed plugins. If the legacy
+`rea setup --client dsh` wrote a home-level `rea-mcp` override,
+back up the home patch before removing just that outdated entry.
 
-The root REA repository is *not* itself the installable Harness package.
-A Git URL with a `#path:` fragment pointing at this monorepo's subdirectory
-is not an upstream-documented installation method and is not recommended.
-Use the verified release archive or the checkout directory after installing
-the plugin's own dependencies.
-
-For current macOS/Linux commands, local checkout development, CLI vs.
-Desktop profiles, updates and uninstall, read
-`integrations/deepseek-harness/README.md` or the Chinese
+More detail:
+`integrations/deepseek-harness/README.md` and
 `integrations/deepseek-harness/README.zh-CN.md`.
-
-To execute this fork's compiled REA instead of the pinned npm runtime,
-set `REA_DSH_ENTRYPOINT` to an absolute `scripts/rea.mjs` path in the
-Harness process environment. Desktop requires its own supported plugin
-installation path: `dsh --profile desktop` is not a valid CLI fallback.
+This Git/tarball pnpm install test does not replace real macOS Desktop
+GUI or paid-model API acceptance testing.
 
 ## Other client settings
 
