@@ -580,6 +580,47 @@ it("keeps intact fs/promises identity after deleting the fs.promises slot", () =
   ]);
 });
 
+it.each([
+  `import fs from 'node:fs'; fs.promises = { open() {} }; fs.promises.open('wrong');`,
+  `const fs = require('fs'); patch(fs.promises); require('fs/promises').open('wrong');`,
+  `const fs = require('fs'); patch(fs.promises); require('node:fs/promises').open('wrong');`,
+])("keeps replaced or escaped promises receivers unknown: %s", (source) => {
+  expect(analyzeJavaScriptSemantics(source).resourceOperations).toEqual([]);
+});
+
+it("follows final sequence expressions for direct built-in method calls", () => {
+  const ir = analyzeJavaScriptSemantics(`const fs = require('fs');
+    (0, fs.readFileSync)('kept'); fs.readFileSync = custom;
+    (0, fs.readFileSync)('wrong');`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
+it.each([
+  `import { env } from 'node:process'; patch(env); process.env.MODE;`,
+  `import { argv } from 'node:process'; patch(argv); process.argv[2];`,
+])(
+  "shares named process containers with their namespace aliases: %s",
+  (source) => {
+    expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
+      [],
+    );
+  },
+);
+
+it("retains uncertainty after a computed write to module's require delegate", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const key = 'require'; module[key] = replacement;
+    const fs = require('fs'); fs.readFileSync('wrong');`);
+  expect(ir.configurationOperations).toEqual([]);
+});
+
+it("retains a module namespace captured before its binding is reassigned", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`let fs = require('fs'); const saved = fs;
+    fs = {}; saved.readFileSync('kept');`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["kept"]);
+});
+
 it("does not let own fs probe calls hide later builtin reads", () => {
   const ir = analyzeJavaScriptSemantics(
     `const fs=require('fs'); fs.existsSync('probe'); fs.readFileSync('kept');`,

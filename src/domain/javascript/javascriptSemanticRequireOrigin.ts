@@ -86,6 +86,17 @@ const writesModuleRequire = (
         isModuleObject(root)
       )
         writes.push(node);
+      else if (
+        members.length === 0 &&
+        (t.isMemberExpression(target) ||
+          t.isOptionalMemberExpression(target)) &&
+        target.computed &&
+        semanticStaticPropertyKey(target.property, true) === null &&
+        isModuleObject(target.object)
+      )
+        // An unknown computed key may be "require"; retain uncertainty rather
+        // than treating this direct delegate write as a proven unrelated slot.
+        writes.push(node);
     }
     if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
       const invocation = interop.intrinsicInvocation(node);
@@ -330,6 +341,8 @@ export const semanticMutableBuiltinOrigin = <Key>(
   const specifier = origin.specifier.replace(/^node:/u, "");
   if (!MUTABLE_BUILTIN_DEFAULTS.has(specifier)) return undefined;
   if (path[0] === "default") return { specifier, path: path.slice(1) };
+  if (specifier === "process" && (path[0] === "env" || path[0] === "argv"))
+    return { specifier, path };
   return specifier === "fs" && path[0] === "promises"
     ? { specifier, path }
     : undefined;

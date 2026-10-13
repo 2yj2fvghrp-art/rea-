@@ -9,7 +9,10 @@ import {
   semanticMutableBuiltinOrigin,
 } from "./javascriptSemanticRequireOrigin.js";
 import type { JavaScriptModuleOrigin } from "./javascriptSemanticIr.js";
-import { evaluateSemanticProvenance } from "./javascriptSemanticValues.js";
+import {
+  evaluateSemanticProvenance,
+  evaluateSemanticProvenanceAtRead,
+} from "./javascriptSemanticValues.js";
 import {
   semanticPropertyPathKeyMatches,
   type JavaScriptSemanticPropertyPath,
@@ -157,6 +160,15 @@ export const builtinDataEffectMethod = (
   state: JavaScriptSemanticAnalysisState,
   specifiers: readonly string[],
 ): string | null => {
+  const expression = unwrapJavaScriptExpression(callee).node;
+  if (expression !== callee)
+    return builtinDataEffectMethod(expression, state, specifiers);
+  if (t.isSequenceExpression(expression)) {
+    const final = expression.expressions.at(-1);
+    return final === undefined
+      ? null
+      : builtinDataEffectMethod(final, state, specifiers);
+  }
   const required = semanticRequireOrigin(callee, state);
   if (required !== undefined) {
     const origin = builtinNamespaceOrigin(required.origin);
@@ -190,6 +202,29 @@ export const builtinDataEffectMethod = (
     return null;
   if (!t.isIdentifier(callee.object)) {
     const method = semanticStaticPropertyKey(callee.property, callee.computed);
+    const receiver = semanticBoundMemberPath(callee.object, state);
+    if (method !== null && receiver !== undefined) {
+      const provenance = evaluateSemanticProvenance(receiver.binding, state);
+      if (provenance.status === "module") {
+        const origin = builtinNamespaceOrigin(provenance.origins[0]);
+        if (
+          specifiers.some(
+            (specifier) =>
+              specifier.replace(/^node:/u, "") === origin.specifier,
+          )
+        )
+          return builtinBindingPath(
+            receiver.binding,
+            state,
+            specifiers,
+            callee,
+            [...receiver.path, method],
+            true,
+          )?.length === 0
+            ? method
+            : null;
+      }
+    }
     const source = semanticExpressionModuleOrigin(callee.object, state);
     if (method === null || source === undefined) return null;
     const origin = builtinNamespaceOrigin(source);
@@ -255,6 +290,31 @@ export const builtinDataEffectMethod = (
     : null;
 };
 
+const semanticBoundMemberPath = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+):
+  | {
+      readonly binding: JavaScriptSemanticBindingState;
+      readonly path: string[];
+    }
+  | undefined => {
+  const path: string[] = [];
+  let current = unwrapJavaScriptExpression(node).node;
+  while (
+    t.isMemberExpression(current) ||
+    t.isOptionalMemberExpression(current)
+  ) {
+    const key = semanticStaticPropertyKey(current.property, current.computed);
+    if (key === null || !t.isNode(current.object)) return undefined;
+    path.unshift(key);
+    current = unwrapJavaScriptExpression(current.object).node;
+  }
+  if (!t.isIdentifier(current)) return undefined;
+  const binding = resolveSemanticBindingState(state, current, current.name);
+  return binding === undefined ? undefined : { binding, path };
+};
+
 type BuiltinBindingMemo = Map<t.Node, Map<string, readonly string[] | null>>;
 
 const builtinBindingPath = (
@@ -266,9 +326,16 @@ const builtinBindingPath = (
   callableValue = false,
   visited: ReadonlySet<string> = new Set(),
   memo: BuiltinBindingMemo = new Map(),
+  provenanceCapture?: t.Identifier,
 ): readonly string[] | null => {
   if (binding === undefined) return null;
-  const key = JSON.stringify([binding.bindingId, selectedPath, callableValue]);
+  const key = JSON.stringify([
+    binding.bindingId,
+    selectedPath,
+    callableValue,
+    provenanceCapture?.start,
+    provenanceCapture?.end,
+  ]);
   let captured = memo.get(capture);
   if (captured?.has(key)) return captured.get(key) ?? null;
   if (visited.has(binding.bindingId)) return null;
@@ -285,6 +352,7 @@ const builtinBindingPath = (
     callableValue,
     visited,
     memo,
+    provenanceCapture,
   );
   captured.set(key, result);
   return result;
@@ -299,6 +367,7 @@ const computeBuiltinBindingPath = (
   callableValue = false,
   visited: ReadonlySet<string>,
   memo: BuiltinBindingMemo,
+  provenanceCapture?: t.Identifier,
 ): readonly string[] | null => {
   if (binding === undefined || visited.has(binding.bindingId)) return null;
   // Provenance identifies the module, independently of whether a selected slot
@@ -308,7 +377,9 @@ const computeBuiltinBindingPath = (
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
         !semanticTopLevelEffectFollowsCapture(
-          capture,
+          path.length === 0 && provenanceCapture !== undefined
+            ? provenanceCapture
+            : capture,
           node,
           state.parentsByNode,
         ),
@@ -327,7 +398,10 @@ const computeBuiltinBindingPath = (
     )
   )
     return null;
-  const provenance = evaluateSemanticProvenance(binding, state);
+  const provenance =
+    provenanceCapture === undefined
+      ? evaluateSemanticProvenance(binding, state)
+      : evaluateSemanticProvenanceAtRead(binding, provenanceCapture, state);
   if (provenance.status !== "module") return null;
   const { importedPath } = provenance.origins[0];
   const namespace = builtinNamespaceOrigin(provenance.origins[0]);
@@ -380,6 +454,7 @@ const computeBuiltinBindingPath = (
           callableValue,
           ancestors,
           memo,
+          node,
         );
         if (sourcePath === null) return null;
         // Normalize ESM default namespaces at their owner before projecting an alias.
@@ -719,21 +794,20 @@ export const isSemanticProcessObject = (
 ): boolean => {
   if (!t.isIdentifier(node)) return false;
   const binding = resolveSemanticBindingState(state, node, node.name);
+  const selected = key === undefined || key === null ? [family] : [family, key];
   if (binding === undefined)
     return (
       semanticGlobalProcessOrigin(node, state) !== undefined &&
-      !requiredModuleChanged(
-        "process",
-        [family, ...(key === undefined ? [] : [key])],
-        node,
-        state,
-      )
+      !requiredModuleChanged("process", selected, node, state)
     );
   return (
-    builtinBindingPath(binding, state, ["process", "node:process"], node, [
-      family,
-      ...(key === undefined ? [] : [key]),
-    ])?.length === 0
+    builtinBindingPath(
+      binding,
+      state,
+      ["process", "node:process"],
+      node,
+      selected,
+    )?.length === 0
   );
 };
 

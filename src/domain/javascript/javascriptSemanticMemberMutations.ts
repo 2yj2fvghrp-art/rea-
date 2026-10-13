@@ -65,7 +65,15 @@ export function* collectSemanticMemberMutationsSteps(
     effect: ValueEffect,
     node: t.Node | undefined,
   ): void => {
-    const identity = semanticRequireExportsIdentity(specifier, path);
+    // Passing fs.promises exposes the same cached object as fs/promises.
+    // Replacing/deleting fs.promises remains a write to the parent slot.
+    const identity =
+      effect === "escape" &&
+      specifier.replace(/^node:/u, "") === "fs" &&
+      path.length === 1 &&
+      path[0] === "promises"
+        ? { specifier: "fs/promises", path: [] }
+        : semanticRequireExportsIdentity(specifier, path);
     const key = JSON.stringify([
       "required",
       identity.specifier,
