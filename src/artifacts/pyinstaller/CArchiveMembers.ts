@@ -103,7 +103,14 @@ export const projectPyzContainer = (
         declaredSize: entry.uncompressedSize,
         compressedSize: entry.compressedSize,
         byteOffset,
-        limitations: [...limitations, archive.limitation],
+        encrypted,
+        limitations: [
+          ...limitations,
+          archive.limitation,
+          ...(encrypted
+            ? ["PYZ entries are encrypted and were not decoded."]
+            : []),
+        ],
         adapterKey: `carchive:${entry.name}`,
       }),
       read: {

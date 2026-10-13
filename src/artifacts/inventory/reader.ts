@@ -30,7 +30,7 @@ export const createReader = (
     case "asar":
       return new AsarArtifactReader(path);
     case "pyinstaller":
-      return new PyInstallerArtifactReader(path);
+      return new PyInstallerArtifactReader(path, rootSource);
     case "mach-o-universal":
       return process.platform === "darwin"
         ? new MachOSliceArtifactReader(path, environment, undefined, rootSource)

@@ -194,6 +194,10 @@ const onePyzEntry = (
         `PYZ table entry type ${String(typeCode)} is not a known module, package, data, or namespace code`,
       ),
     );
+  if (typeCode !== 3 && length === 0)
+    return err(
+      pyInstallerFailure("format", `PYZ entry ${name} has no compressed bytes`),
+    );
   if (
     length < 0 ||
     offset < 0 ||

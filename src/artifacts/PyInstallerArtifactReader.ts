@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import type { FileHandle } from "node:fs/promises";
+import { lstat, type FileHandle } from "node:fs/promises";
 
 import { artifactDecompressionBudgetBytes } from "../domain/artifactDecompressionBudget.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
@@ -7,6 +7,8 @@ import {
   NonRegularFileReadError,
   RegularFileAdmissionFailure,
   openRegularFile,
+  sameRegularFileState,
+  type StableRegularFileDescriptor,
 } from "../filesystem/RegularFile.js";
 import {
   ArtifactReaderFailure,
@@ -53,6 +55,8 @@ interface LoadedArchive {
 export class PyInstallerArtifactReader implements ArtifactReader {
   readonly format = "pyinstaller" as const;
   #owner: OwnedFileHandle | undefined;
+  #source: StableRegularFileDescriptor | undefined;
+  #closed = false;
   #loaded: Promise<LoadedArchive> | undefined;
   #budget = 0;
   #charged = 0;
@@ -60,7 +64,12 @@ export class PyInstallerArtifactReader implements ArtifactReader {
   readonly #members = new Map<string, PyInstallerMember>();
   readonly #openedPyzSizes = new Map<string, number>();
 
-  constructor(private readonly path: string) {}
+  constructor(
+    private readonly path: string,
+    source?: StableRegularFileDescriptor,
+  ) {
+    this.#source = source;
+  }
 
   /** Cookie facts. Empty until entries() has parsed the archive. */
   observedFacts(): readonly string[] {
@@ -69,6 +78,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
 
   async *entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry> {
     const loaded = await this.#load(signal);
+    await this.#verifySource();
     this.#members.clear();
     for (const member of loaded.members) {
       abortIfNeeded(signal);
@@ -102,9 +112,14 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         "format",
         `PyInstaller entry has no readable bytes: ${entry.path}`,
       );
-    return Readable.from(
-      await this.#inflateMember(read, stored.entry.adapterKey, signal),
+    await this.#verifySource();
+    const bytes = await this.#inflateMember(
+      read,
+      stored.entry.adapterKey,
+      signal,
     );
+    await this.#verifySource();
+    return Readable.from(bytes);
   }
 
   provenance(): readonly [] {
@@ -112,9 +127,10 @@ export class PyInstallerArtifactReader implements ArtifactReader {
   }
 
   async close(): Promise<void> {
-    if (this.#owner === undefined) return;
-    await this.#owner.close();
+    await this.#owner?.close();
     this.#owner = undefined;
+    this.#source = undefined;
+    this.#closed = true;
     this.#loaded = undefined;
     this.#members.clear();
     this.#openedPyzSizes.clear();
@@ -127,6 +143,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
 
   async #parse(signal?: AbortSignal): Promise<LoadedArchive> {
     const handle = await this.#openHandle(signal);
+    await this.#verifySource();
     const size = (await handle.stat()).size;
     this.#budget = artifactDecompressionBudgetBytes(size);
     const cookie = await this.#cookie(handle, size);
@@ -147,17 +164,25 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     for (const member of members)
       if (member.read?.kind === "carchive")
         this.#charge(member.read.header?.length ?? 0);
+    await this.#verifySource();
     this.#facts = cookieFacts(cookie);
     return { members };
   }
 
   async #openHandle(signal?: AbortSignal): Promise<FileHandle> {
+    if (this.#closed)
+      throw new ArtifactReaderFailure(
+        "unavailable",
+        "PyInstaller archive is closed",
+      );
+    if (this.#source !== undefined) return this.#source.handle;
     try {
       const handle = await openRegularFile(this.path, {
         symlinks: "reject",
         signal,
       });
       this.#owner = new OwnedFileHandle(handle);
+      this.#source = { handle, initial: await handle.stat() };
       return handle;
     } catch (cause: unknown) {
       if (cause instanceof RegularFileAdmissionFailure)
@@ -288,10 +313,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
       const remaining =
         previousSize ??
         this.#budget - this.#charged - (read.header?.length ?? 0);
-      const inflated =
-        read.compressed.length === 0
-          ? { ok: true as const, value: Buffer.alloc(0) }
-          : await inflateBounded(read.compressed, remaining);
+      const inflated = await inflateBounded(read.compressed, remaining);
       if (!inflated.ok) throw failure(inflated.error);
       if (previousSize === undefined) {
         this.#charge(inflated.value.length + (read.header?.length ?? 0));
@@ -302,7 +324,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         ? inflated.value
         : Buffer.concat([read.header, inflated.value]);
     }
-    const handle = this.#owner?.handle;
+    const handle = this.#source?.handle;
     if (handle === undefined)
       throw new ArtifactReaderFailure(
         "unavailable",
@@ -317,6 +339,27 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     return read.header === undefined
       ? bytes
       : Buffer.concat([read.header, bytes]);
+  }
+
+  async #verifySource(): Promise<void> {
+    const source = this.#source;
+    if (source === undefined)
+      throw new ArtifactReaderFailure(
+        "unavailable",
+        "PyInstaller archive is closed",
+      );
+    const [opened, currentPath] = await Promise.all([
+      source.handle.stat(),
+      lstat(this.path),
+    ]);
+    if (
+      !sameRegularFileState(source.initial, opened) ||
+      !sameRegularFileState(source.initial, currentPath)
+    )
+      throw new ArtifactReaderFailure(
+        "integrity",
+        `PyInstaller source changed during reading: ${this.path}`,
+      );
   }
 
   #charge(bytes: number): void {
