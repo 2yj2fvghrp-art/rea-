@@ -60,7 +60,7 @@ const specifiersIn = (text) =>
 // version. Prose that names the package ("the rea-agents package", "npx with
 // the rea-agents package") is not a package operand and passes.
 const packageCommand =
-  /(?:^|[\s`"'(;&|])(?:(npx|pnpx|bunx|bun\s+x)|(?:npm|pnpm|yarn|bun)(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+(?:(exec|x|dlx)|(install|i|add|global\s+add)))(?=\s)([^`\n;&|)]*)/gu;
+  /(?:^|[\s`"'(;&|])(?:(npx|pnpx|bunx|bun\s+x)|(npm|pnpm|yarn|bun)(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+(?:(exec|x|dlx)|(install|add|i|in|ins|inst|insta|instal|isnt|isnta|isntal|isntall|global\s+add)))(?=\s)([^`\n;&|)]*)/gu;
 // Parse quoted words once, before interpreting runner options and operands.
 const commandWords = (text) => {
   const words = [];
@@ -103,7 +103,8 @@ const valueOptions = new Set([
   "--loglevel",
   "--shell",
 ]);
-const packageOperands = (runs, operands, trailingOptions) => {
+const packageOperands = (kind, operands) => {
+  const runs = kind !== "install";
   const tokens = commandWords(operands);
   const packages = [];
   const positional = [];
@@ -125,13 +126,17 @@ const packageOperands = (runs, operands, trailingOptions) => {
     } else if (token === "-p" || token === "--package") {
       if (tokens[index + 1] !== undefined) packages.push(tokens[++index]);
       explicitPackage = true;
-    } else if (valueOptions.has(token)) index += 1;
+    } else if (
+      valueOptions.has(token) ||
+      (kind === "pnpm-runner" && token === "--reporter")
+    )
+      index += 1;
     else if (token.startsWith("-")) continue;
     else {
       positional.push(token);
       // npm exec parses its options even after the first command word;
       // npx and the other runners pass subsequent arguments to the command.
-      if (runs && !trailingOptions) break;
+      if (runs && kind !== "npm-exec") break;
     }
   }
   return runs
@@ -142,13 +147,23 @@ const packageOperands = (runs, operands, trailingOptions) => {
 };
 const commandPackagesIn = (text) =>
   [...text.replaceAll(/\\\r?\n/gu, " ").matchAll(packageCommand)]
-    .flatMap(([command, runner, execVerb, , operands]) =>
-      packageOperands(
-        runner !== undefined || execVerb !== undefined,
-        operands,
-        runner === undefined && /(?:^|[\s`"'(;&|])npm\s/u.test(command),
-      ),
-    )
+    .flatMap(([command, runner, manager, execVerb, installVerb, operands]) => {
+      if (
+        manager !== "npm" &&
+        installVerb !== undefined &&
+        !["install", "i", "add", "global add"].includes(installVerb)
+      )
+        return [];
+      const kind =
+        runner === undefined && execVerb === undefined
+          ? "install"
+          : /(?:^|[\s`"'(;&|])(?:pnpm|pnpx)\s/u.test(command)
+            ? "pnpm-runner"
+            : runner === undefined && /(?:^|[\s`"'(;&|])npm\s/u.test(command)
+              ? "npm-exec"
+              : "runner";
+      return packageOperands(kind, operands);
+    })
     .filter(
       (operand) => operand === packageName || operand.startsWith(packagePrefix),
     );

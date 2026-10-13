@@ -149,6 +149,13 @@ it.each([
   ["SKILL.md", "yarn dlx rea-agents doctor", "rea-agents"],
   ["SKILL.md", "bunx rea-agents doctor", "rea-agents"],
   ["SKILL.md", "npm install --global rea-agents", "rea-agents"],
+  ["SKILL.md", "npm in rea-agents", "rea-agents"],
+  ["SKILL.md", "npm isntall rea-agents", "rea-agents"],
+  [
+    "SKILL.md",
+    "pnpm dlx --reporter append-only rea-agents doctor",
+    "rea-agents",
+  ],
   ["SKILL.md", "npm install -- rea-agents", "rea-agents"],
   ["SKILL.md", "npm add -- other-package rea-agents", "rea-agents"],
   ["SKILL.md", "npm exec rea --package=rea-agents", "rea-agents"],
@@ -180,6 +187,8 @@ it.each([
 it.each([
   "Run `npx -y rea-agents@6.2.0 doctor --json`.",
   "Use rea-agents@6.2.0.",
+  "Run `pnpm dlx --reporter append-only rea-agents@6.2.0 doctor`.",
+  "Install `npm in rea-agents@6.2.0`.",
   "Use rea-agents@6.2.0, then inspect the target.",
   "Run `npm exec rea --package=rea-agents@6.2.0`.",
   'Run `npx --cache "./cache with spaces" -p=rea-agents@6.2.0 rea doctor`.',
