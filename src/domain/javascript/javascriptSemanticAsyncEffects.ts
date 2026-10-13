@@ -137,7 +137,10 @@ const collectEvent = (
   if (method === undefined) return;
   const kind = eventKind(method);
   const eventArgument = node.arguments[0];
-  const listenerArgument = node.arguments[1];
+  // Registration and removal name the listener in argument position 1. An
+  // emit passes its remaining arguments as data to listeners that already
+  // exist, so a dispatch has no listener of its own.
+  const listenerArgument = kind === "dispatch" ? undefined : node.arguments[1];
   const emitter = emitterIdentity(member.object, state);
   const eventName = dataEffectLiteralString(eventArgument);
   output.push({
