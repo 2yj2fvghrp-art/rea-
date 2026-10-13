@@ -27,6 +27,7 @@ const observationOperations: ReadonlySet<GhidraFunctionOperation> = new Set([
   "procedure_callers",
   "procedure_info",
   "procedure_pseudo_code",
+  "procedure_references",
   "read_function_instructions",
 ]);
 
@@ -117,6 +118,35 @@ describe("Ghidra function-analysis result values", () => {
       });
     },
   );
+
+  it("requires the function-observation envelope to carry SEH limitations for procedure_references", () => {
+    const output = {
+      procedure: ghidraFunctionIdentity(),
+      direction: "outgoing",
+      references: [ghidraReferenceEdge()],
+      reference_kinds_available: true,
+      unresolved_calls: [],
+    };
+    // A bare result is the pre-fix bridge shape; without the envelope
+    // an SEH handler outside the body reports no warning, so it must be rejected.
+    expect(
+      parseGhidraFunctionResult("procedure_references", output),
+    ).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisOutputError" },
+    });
+    const limitation =
+      "Ghidra Listing shows a Borland/Delphi SEH frame registration at 0x401000 (push 0x402000 followed by fs-segment stack chaining); the handler 0x402000 lies outside this procedure's body, so callees, strings, and cross-references may omit the handler region.";
+    expect(
+      parseGhidraFunctionResult("procedure_references", {
+        value: output,
+        limitations: [limitation],
+      }),
+    ).toEqual({
+      ok: true,
+      value: { value: output, limitations: [limitation] },
+    });
+  });
 });
 
 describe("Ghidra reference and value-flow completeness", () => {

@@ -1087,7 +1087,13 @@ public final class ReaGhidraBridge extends HeadlessScript {
             }
         }
         result.add("unresolved_calls", unresolvedCalls);
-        return result;
+        return functionObservation(
+            result,
+            functionBoundaryLimitations(
+                currentProgram.getListing().getInstructions(function.getBody(), true),
+                function
+            )
+        );
     }
 
     private JsonObject inspectNativeDataType(JsonObject params) throws Exception {
@@ -3383,12 +3389,14 @@ public final class ReaGhidraBridge extends HeadlessScript {
      * Win32 thread-information block), so anything else — including 16-bit
      * x86, where an operand-size prefix still yields a 32-bit immediate — is
      * reported as no registration. The triple must be address-consecutive and
-     * chain the same FS slot; anything looser is reported as no registration
-     * rather than risk a misleading handler warning.
+     * chain FS:[0], the exception-list head — any other slot (for example the
+     * FS:[0x18] TEB self-pointer) is not an SEH registration; anything looser
+     * is reported as no registration rather than risk a misleading handler
+     * warning.
      */
     private Address sehHandlerAddress(
             Instruction pushImmediate, Instruction pushSegment, Instruction moveSegment) {
-        if (!isX86_32BitMode()
+        if (!isWin32SehTarget()
                 || !isPushMnemonic(pushImmediate)
                 || pushImmediate.getNumOperands() != 1
                 || !isFsSegmentPush(pushSegment)
@@ -3398,7 +3406,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             return null;
         }
         String pushSlot = fsSegmentSlot(pushSegment, 0);
-        if (pushSlot == null || !pushSlot.equals(fsSegmentSlot(moveSegment, 0))) {
+        if (!"fs:[0]".equals(pushSlot) || !pushSlot.equals(fsSegmentSlot(moveSegment, 0))) {
             return null;
         }
         Object[] operands = pushImmediate.getOpObjects(0);
@@ -3407,22 +3415,52 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 || scalar.bitLength() != 32) {
             return null;
         }
-        // Resolve the immediate in the matched code's own address space: a
-        // function analyzed in an overlay space would otherwise be tested
-        // against — and cite — an unrelated default-space address.
-        return pushImmediate.getAddress().getAddressSpace()
-            .getAddress(scalar.getUnsignedValue());
+        // Resolve the handler through the operand's own references when they
+        // exist: the reference target carries the true address space, while
+        // the instruction's space is only a fallback guess.
+        return sehHandlerTarget(pushImmediate, scalar.getUnsignedValue());
     }
 
     /**
-     * Reports whether the analyzed program is 32-bit x86. Ghidra language IDs
-     * carry the address size as the third colon-separated field (for example
-     * {@code x86:LE:32:default}), so this excludes 16-bit and 64-bit x86
-     * inputs without relying on operand shapes that prefixes can distort.
+     * Resolves a pushed handler immediate to an address, preferring the
+     * immediate operand's Ghidra reference target (which carries the true
+     * address space) over the instruction's own space. Returns null when
+     * references disagree, so an ambiguous target is never manufactured into
+     * a definite handler address.
      */
-    private boolean isX86_32BitMode() {
+    private static Address sehHandlerTarget(Instruction pushImmediate, long value) {
+        Address target = null;
+        for (Reference reference : pushImmediate.getOperandReferences(0)) {
+            Address candidate = reference.getToAddress();
+            if (candidate.getOffset() != value) {
+                continue;
+            }
+            if (target != null && !target.equals(candidate)) {
+                return null;
+            }
+            target = candidate;
+        }
+        return target != null
+            ? target
+            : pushImmediate.getAddress().getAddressSpace().getAddress(value);
+    }
+
+    /**
+     * Reports whether the analyzed program can carry a Borland/Delphi SEH
+     * registration: 32-bit x86 code in a Portable Executable, where FS:[0]
+     * chains the Win32 thread-information block. Ghidra language IDs carry the
+     * address size as the third colon-separated field (for example {@code
+     * x86:LE:32:default}), which excludes 16-bit and 64-bit x86 inputs without
+     * relying on operand shapes that prefixes can distort — but the same
+     * language ID also covers 32-bit ELF and raw images, where FS:[0] is not
+     * an SEH chain, so the executable format must name the PE loader too.
+     */
+    private boolean isWin32SehTarget() {
         String[] fields = currentProgram.getLanguageID().getIdAsString().split(":");
-        return fields.length > 2 && fields[0].equals("x86") && fields[2].equals("32");
+        return fields.length > 2
+            && fields[0].equals("x86")
+            && fields[2].equals("32")
+            && currentProgram.getExecutableFormat().equals("Portable Executable (PE)");
     }
 
     private static boolean consecutiveInstructions(Instruction first, Instruction second) {
