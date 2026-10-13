@@ -9,6 +9,7 @@ import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
   signature,
+  signatureGenericArity,
   type ManagedCallEdge,
   type ManagedExportedType,
   type ManagedField,
@@ -243,6 +244,7 @@ export const parseMemberRefs = (
         name,
         declaringType: parentName,
         kind: decoded.kind,
+        genericArity: signatureGenericArity(decoded),
       });
     }, issues);
   }
@@ -294,12 +296,13 @@ export const parseMethods = ({
           : (readManagedValue(() => ownerRow(row), issues) ?? 0);
       const declared = ranges[owner - 1];
       const token = metadataToken(6, row);
-      core.set(token, {
+      const member = {
         token,
         name,
         declaringType: declared?.fullName ?? null,
         kind: "method",
-      });
+      } as const;
+      core.set(token, member);
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
@@ -308,6 +311,11 @@ export const parseMethods = ({
         layout.blob.size,
       );
       cursor.readIndex(layout.tableIndexSize(8));
+      const decoded = budgetedSignature(sig, layout);
+      core.set(token, {
+        ...member,
+        genericArity: signatureGenericArity(decoded),
+      });
       methods.push({
         token,
         row_offset: cursor.start,
@@ -317,7 +325,7 @@ export const parseMethods = ({
         rva,
         impl_flags: implFlags,
         flags,
-        signature: budgetedSignature(sig, layout),
+        signature: decoded,
         body: methodBody(
           bytes,
           pe,

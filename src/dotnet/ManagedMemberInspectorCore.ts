@@ -60,6 +60,12 @@ export interface MemberCore {
   readonly declaringType: string | null;
   /** Fields and methods by table; member references by decoded signature. */
   readonly kind: ManagedSignature["kind"];
+  /**
+   * Generic arity from the owner's decoded signature (see
+   * `signatureGenericArity`); absent when no owner decoded it, as for a
+   * MethodDef outside the type selection.
+   */
+  readonly genericArity?: number | null;
 }
 
 export interface ParsedInstruction {
@@ -786,14 +792,22 @@ export const methodGenericArity = (
   const budget = managedDecodeBudget(layout);
   budget.admitTransient(blob.length * 256, layout.blob.offset);
   try {
-    const decoded = decodeSignature(blob);
-    return decoded.kind === "method" && decoded.parse_status === "decoded"
-      ? (decoded.generic_parameter_count ?? 0)
-      : null;
+    return signatureGenericArity(decodeSignature(blob));
   } finally {
     budget.releaseTransient();
   }
 };
+
+/**
+ * Generic parameter count of a completely decoded method signature, 0 when it
+ * is not generic, or null for any other signature.
+ */
+export const signatureGenericArity = (
+  decoded: DecodedSignature,
+): number | null =>
+  decoded.kind === "method" && decoded.parse_status === "decoded"
+    ? (decoded.generic_parameter_count ?? 0)
+    : null;
 
 export const signature = (
   blob: Buffer,

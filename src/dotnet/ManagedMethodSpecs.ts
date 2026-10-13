@@ -104,12 +104,17 @@ const readMethodSpec = (
     { form: "instantiation", scope, offset: cursor.start },
   );
   if (generic === null) return;
-  if (!arities.has(generic))
+  // Prefer the arity the target's owner decoded; read the raw signature only
+  // for a target nothing decoded, such as a MethodDef outside the selection.
+  if (target?.genericArity === undefined && !arities.has(generic))
     arities.set(
       generic,
       methodGenericArity(layout, methodSignatureBlob(bytes, layout, generic)),
     );
-  const arity = arities.get(generic) ?? null;
+  const arity =
+    target?.genericArity === undefined
+      ? (arities.get(generic) ?? null)
+      : target.genericArity;
   if (arity !== types.length)
     throw managedFailure(
       "invalid-row",
