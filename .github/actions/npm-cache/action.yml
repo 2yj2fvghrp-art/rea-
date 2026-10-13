@@ -14,7 +14,7 @@ runs:
       shell: bash
       env:
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        LOCKFILES_HASH: ${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json', '.npmrc') }}
+        LOCKFILES_HASH: ${{ hashFiles('npm-shrinkwrap.json', '.npmrc') }}
       run: |
         cache_path="$(npm config get cache)"
         runtime_arch="$(node -p 'process.arch')"

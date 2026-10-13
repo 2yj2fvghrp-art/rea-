@@ -78,7 +78,7 @@ const writeTaskFixture = async (
     }),
   );
   await writeFile(
-    join(root, "package-lock.json"),
+    join(root, "npm-shrinkwrap.json"),
     JSON.stringify({
       name: "rea-static-task-cache-fixture",
       version: "1.0.0",
@@ -288,3 +288,38 @@ it("invalidates checker task hashes for Node, ignore, and VitePress config chang
       `${task} must ignore vitest.config.ts`,
     ).toBe(initial.get(task));
 });
+
+it.each(["compile", "typecheck"])(
+  "invalidates %s for JavaScript owners, declarations, and the authoritative lock",
+  async (task) => {
+    const root = await createTestTempDirectory("rea-mjs-cache-inputs-");
+    const cache = await createTestTempDirectory("rea-mjs-cache-store-");
+    await mkdir(join(root, "src/application"), { recursive: true });
+    await writeTaskFixture(root, [task], {
+      [task]: 'node -e "process.exit(0)"',
+    });
+    const owner = join(root, "src/application/PackageRunnerCommand.mjs");
+    const declaration = join(
+      root,
+      "src/application/PackageRunnerCommand.d.mts",
+    );
+    await writeFile(owner, "export const command = 1;\n");
+    await writeFile(declaration, "export declare const command: number;\n");
+    await workflowGit(root, ["init", "--quiet"]);
+    await workflowGit(root, ["add", "."]);
+    const initial = taskHash(root, task, cache);
+    expect(taskHash(root, task, cache)).toBe(initial);
+    await writeFile(owner, "export const command = 2;\n");
+    expect(taskHash(root, task, cache)).not.toBe(initial);
+    await writeFile(owner, "export const command = 1;\n");
+    await writeFile(declaration, "export declare const command: string;\n");
+    expect(taskHash(root, task, cache)).not.toBe(initial);
+    await writeFile(declaration, "export declare const command: number;\n");
+    expect(taskHash(root, task, cache)).toBe(initial);
+    const lockPath = join(root, "npm-shrinkwrap.json");
+    const lock = JSON.parse(await readFile(lockPath, "utf8"));
+    lock.packages["node_modules/fixture"] = { version: "1.0.0" };
+    await writeFile(lockPath, JSON.stringify(lock));
+    expect(taskHash(root, task, cache)).not.toBe(initial);
+  },
+);

@@ -25,6 +25,23 @@ export async function verifyPackagePack({ root, workspace }) {
   const packedManifest = JSON.parse(
     (await exec("tar", ["-xOf", tarball, "package/package.json"])).stdout,
   );
+  const packedLock = JSON.parse(
+    (await exec("tar", ["-xOf", tarball, "package/npm-shrinkwrap.json"]))
+      .stdout,
+  );
+  if (
+    packedManifest.overrides !== undefined ||
+    ![2, 3].includes(packedLock.lockfileVersion) ||
+    packedLock.version !== packedManifest.version ||
+    packedLock.packages?.[""].version !== packedManifest.version ||
+    JSON.stringify(packedLock.packages?.[""].dependencies) !==
+      JSON.stringify(packedManifest.dependencies) ||
+    JSON.stringify(packedLock.packages?.[""].optionalDependencies) !==
+      JSON.stringify(packedManifest.optionalDependencies)
+  )
+    throw new Error(
+      "package is not installable under the Claude plugin dependency policy",
+    );
   if (
     packedManifest.scripts?.postinstall !== undefined ||
     packedManifest.dependencies?.["node-pty"] !== undefined ||
@@ -41,6 +58,10 @@ export async function verifyPackagePack({ root, workspace }) {
   if (packedFiles.some((path) => path.startsWith("package/.agents/")))
     throw new Error(
       "package included authored skill sources instead of only the generated bundle",
+    );
+  if (packedFiles.some((path) => path.startsWith("package/src/")))
+    throw new Error(
+      "Packaged runtime must not masquerade as a source checkout",
     );
   if (packedFiles.some((path) => path.startsWith("package/.cache/")))
     throw new Error("package included development cache or test metadata");
@@ -59,6 +80,55 @@ export async function verifyPackagePack({ root, workspace }) {
   )
     throw new Error(
       "packaged skill metadata did not match the catalog shipped in the package",
+    );
+  for (const path of [
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+  ]) {
+    const manifest = JSON.parse(
+      (await exec("tar", ["-xOf", tarball, `package/${path}`])).stdout,
+    );
+    const serverConfig = path.startsWith(".codex")
+      ? JSON.parse(
+          (await exec("tar", ["-xOf", tarball, "package/.mcp.json"])).stdout,
+        )
+      : manifest;
+    const expectedArgs = [
+      `${path.startsWith(".claude") ? "${CLAUDE_PLUGIN_ROOT}/" : "./"}scripts/plugin-mcp-launcher.mjs`,
+      packedManifest.version,
+    ];
+    if (
+      manifest.version !== packedManifest.version ||
+      manifest.skills !== "./skills" ||
+      (path.startsWith(".codex")
+        ? manifest.mcpServers !== "./.mcp.json" ||
+          serverConfig.mcpServers?.rea?.cwd !== "." ||
+          serverConfig.mcpServers?.rea?.startup_timeout_sec !== 30
+        : false) ||
+      serverConfig.mcpServers?.rea?.command !== "node" ||
+      JSON.stringify(serverConfig.mcpServers?.rea?.args) !==
+        JSON.stringify(expectedArgs)
+    )
+      throw new Error(
+        `Packaged plugin ${path} does not match the exact runtime and canonical skill release`,
+      );
+  }
+  if (!packedFiles.includes("package/.mcp.json"))
+    throw new Error("Packaged Codex MCP server declaration is missing");
+  for (const path of [
+    "scripts/plugin-mcp-launcher.mjs",
+    "dist/application/PackageRunnerCommand.mjs",
+  ])
+    if (!packedFiles.includes(`package/${path}`))
+      throw new Error(
+        `Packaged plugin launcher dependency is missing: ${path}`,
+      );
+  if (
+    skill.includes(`${packedManifest.name}@latest`) ||
+    !skill.includes(`${packedManifest.name}@${packedManifest.version}`)
+  )
+    throw new Error(
+      "Packaged plugin skill recovery is not pinned to the shipped runtime",
     );
   if (
     packedFiles.some(

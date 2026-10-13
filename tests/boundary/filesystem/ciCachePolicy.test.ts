@@ -130,7 +130,7 @@ printf '%s\n' 'C:\Users\runner with spaces\AppData\Local\npm-cache'
       "${{ github.event.repository.default_branch }}",
     );
     expect(policy?.env?.LOCKFILES_HASH).toBe(
-      "${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json', '.npmrc') }}",
+      "${{ hashFiles('npm-shrinkwrap.json', '.npmrc') }}",
     );
     expect(policy?.run).toContain(
       'cache_key="npm-download-${RUNNER_OS}-${runtime_arch}-${LOCKFILES_HASH}"',

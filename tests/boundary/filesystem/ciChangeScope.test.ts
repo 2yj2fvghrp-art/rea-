@@ -634,7 +634,7 @@ it.each([
     { code: true, package: true, evm: true, browser: true },
   ],
   [
-    "package-lock.json",
+    "npm-shrinkwrap.json",
     { code: true, package: true, evm: true, browser: true },
   ],
   [

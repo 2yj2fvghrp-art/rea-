@@ -9,12 +9,12 @@
       "dependsOn": ["metadata:check"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/check-dependency-install.mjs",
         "scripts/clean-build-output.mjs",
         "scripts/bundle-runtime.mjs",
         "scripts/generate-package-metadata.mjs",
-        "src/**/*.ts",
+        "src/**/*.{ts,mjs,mts}",
         "!src/**/*.test.ts",
         "!src/**/*.fixture.ts",
         "tsconfig.json",
@@ -25,8 +25,8 @@
     "typecheck": {
       "inputs": [
         "package.json",
-        "package-lock.json",
-        "src/**/*.ts",
+        "npm-shrinkwrap.json",
+        "src/**/*.{ts,mjs,mts}",
         "tests/**/*.ts",
         "tsconfig.json",
         "tsconfig.build.json",
@@ -39,7 +39,7 @@
     "metadata:check": {
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-package-metadata.mjs",
         "scripts/lib/generated-file.mjs",
         ".agents/skills/reverse-engineer-anything/SKILL.md",
@@ -52,7 +52,7 @@
         ".gitignore",
         ".oxlintrc.json",
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "src/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "tests/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
@@ -73,7 +73,7 @@
         ".gitignore",
         ".oxlintrc.json",
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "src/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
         "tests/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
@@ -94,9 +94,9 @@
         ".gitignore",
         "knip.json",
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
-        "src/**/*.ts",
+        "src/**/*.{ts,mjs,mts}",
         "tests/**/*.ts",
         "tsconfig.json",
         "tsconfig.build.json",
@@ -109,7 +109,7 @@
         ".gitignore",
         ".jscpd.json",
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/ci/static-check-report.mjs",
         "src/**",
         "tests/**"
@@ -120,7 +120,7 @@
       "inputs": [
         "bridge/**/*.{java,py}",
         "scripts/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}",
-        "src/**/*.ts",
+        "src/**/*.{ts,mjs,mts}",
         "tests/**/*.ts"
       ]
     },
@@ -141,7 +141,7 @@
       ],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-*.mjs",
         "scripts/check-doc-facts.mjs",
         "scripts/lib/*.mjs",
@@ -172,7 +172,7 @@
       "dependsOn": ["compile"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-mcp-tool-catalog.mjs",
         "scripts/lib/generated-file.mjs"
       ],
@@ -182,7 +182,7 @@
       "dependsOn": ["compile"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-skill-metadata.mjs",
         "scripts/lib/generated-file.mjs",
         ".agents/skills/reverse-engineer-anything/**"
@@ -193,7 +193,7 @@
       "dependsOn": ["compile"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-product-catalog.mjs",
         "scripts/lib/**/*.mjs",
         ".oxfmtrc.json"
@@ -204,7 +204,7 @@
       "dependsOn": ["artifacts:skills"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-completion-ledger.mjs",
         "scripts/lib/generated-file.mjs",
         "scripts/verify/managed/**",
@@ -219,7 +219,7 @@
       "dependsOn": ["compile"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-error-schema.mjs",
         "scripts/lib/generated-file.mjs",
         "scripts/lib/format-generated-file.mjs",
@@ -231,7 +231,7 @@
       "dependsOn": ["artifacts:mcp-catalog"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-mcp-tool-catalog.mjs",
         "scripts/lib/generated-file.mjs",
         {
@@ -244,7 +244,7 @@
       "dependsOn": ["artifacts:managed-evidence"],
       "inputs": [
         "package.json",
-        "package-lock.json",
+        "npm-shrinkwrap.json",
         "scripts/generate-completion-ledger.mjs",
         "scripts/lib/generated-file.mjs",
         "scripts/verify/managed/**",
