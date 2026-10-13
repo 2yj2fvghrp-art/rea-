@@ -100,12 +100,14 @@ export const readGoPeImage = (bytes: Buffer): GoBinaryContainer => {
     const size = reader.u32(entry + 16);
     const offset = reader.u32(entry + 20);
     const characteristics = reader.u32(entry + 36);
+    // SizeOfRawData includes file-alignment padding. VirtualSize is the content.
+    const contentSize = virtualSize === 0 ? size : Math.min(virtualSize, size);
     if (sectionName.length > 0)
       sections.push(
         peImageSection({
           reader,
           name: sectionName,
-          size,
+          size: contentSize,
           offset,
           characteristics,
         }),

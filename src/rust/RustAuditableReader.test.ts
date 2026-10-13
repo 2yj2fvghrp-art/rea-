@@ -69,6 +69,35 @@ it("reports dependency cycles and keeps an omitted format version unknown", () =
   expect(parsed.root_package_index).toBeNull();
 });
 
+it("includes every package that participates in a dependency cycle", () => {
+  const parsed = section({
+    packages: [
+      { name: "a", version: "1", source: "local", dependencies: [1, 2] },
+      { name: "b", version: "1", source: "local", dependencies: [0] },
+      { name: "c", version: "1", source: "local", dependencies: [1] },
+    ],
+  });
+  expect(parsed.cyclic_dependency_indices).toEqual([0, 1, 2]);
+  const self = section({
+    packages: [{ name: "a", version: "1", source: "local", dependencies: [0] }],
+  });
+  expect(self.cyclic_dependency_indices).toEqual([0]);
+});
+
+it("finishes a long acyclic dependency chain", () => {
+  const count = 20_000;
+  const parsed = section({
+    packages: Array.from({ length: count }, (_, index) => ({
+      name: `p${index.toString(36)}`,
+      version: "1",
+      source: "local",
+      ...(index + 1 < count ? { dependencies: [index + 1] } : {}),
+    })),
+  });
+  expect(parsed.packages).toHaveLength(count);
+  expect(parsed.cyclic_dependency_indices).toEqual([]);
+});
+
 it("rejects out-of-range indices, multiple roots, and schema drift", () => {
   expect(() =>
     section({

@@ -66,6 +66,20 @@ it("reads a Mach-O __DATA,.dep-v0 section", () => {
   });
 });
 
+it("ignores PE file-alignment padding after the dependency content", () => {
+  const bytes = createRustImage({ format: "pe", includeRustc: false });
+  const payloadBytes = rustDependencyPayload().length;
+  const entry = 264;
+  expect(bytes.readUInt32LE(entry + 8)).toBe(payloadBytes);
+  bytes.writeUInt32LE(512, entry + 16);
+  const image = readRustBinaryImage(bytes);
+  expect(image.auditable_metadata).toMatchObject({
+    section_name: ".dep-v0",
+    section_bytes: payloadBytes,
+    packages,
+  });
+});
+
 it("returns null metadata when the dependency section is absent", () => {
   const image = readRustBinaryImage(
     createRustImage({ format: "elf", omitSection: true }),

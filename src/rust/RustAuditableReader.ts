@@ -275,33 +275,88 @@ const rootIndex = (packages: readonly RustPackage[]): number | null => {
   return roots[0] ?? null;
 };
 
+interface WalkFrame {
+  readonly index: number;
+  edge: number;
+}
+
+/** Indices in an SCC larger than one node, or in a one-node self-loop. */
 const cyclicIndices = (packages: readonly RustPackage[]): number[] => {
-  const color = packages.map(() => 0);
-  const stack: number[] = [];
+  const edges = packages.map((pkg) => pkg.dependencies);
+  const order = postorder(edges);
+  const reversed = reversedEdges(edges);
+  const seen = new Uint8Array(edges.length);
   const cyclic = new Set<number>();
-  const visit = (index: number): void => {
-    color[index] = 1;
-    stack.push(index);
-    for (const target of packages[index]?.dependencies ?? []) {
-      if (color[target] === 1) markCycle(stack, target, cyclic);
-      else if (color[target] === 0) visit(target);
-    }
-    stack.pop();
-    color[index] = 2;
-  };
-  for (let index = 0; index < packages.length; index += 1)
-    if (color[index] === 0) visit(index);
+  for (let cursor = order.length - 1; cursor >= 0; cursor -= 1) {
+    const start = order[cursor];
+    if (start === undefined || seen[start] === 1) continue;
+    const component = componentFrom(start, reversed, seen);
+    if (componentInCycle(component, edges))
+      for (const index of component) cyclic.add(index);
+  }
   return [...cyclic].sort((left, right) => left - right);
 };
 
-const markCycle = (
-  stack: readonly number[],
-  target: number,
-  cyclic: Set<number>,
-): void => {
-  const start = stack.indexOf(target);
-  for (let index = start; index < stack.length; index += 1) {
-    const value = stack[index];
-    if (value !== undefined) cyclic.add(value);
+const postorder = (edges: readonly (readonly number[])[]): number[] => {
+  const seen = new Uint8Array(edges.length);
+  const order: number[] = [];
+  for (let start = 0; start < edges.length; start += 1) {
+    if (seen[start] === 1) continue;
+    const stack: WalkFrame[] = [{ index: start, edge: 0 }];
+    seen[start] = 1;
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (frame === undefined) break;
+      const next = edges[frame.index]?.[frame.edge];
+      if (next === undefined) {
+        stack.pop();
+        order.push(frame.index);
+        continue;
+      }
+      frame.edge += 1;
+      if (seen[next] === 0) {
+        seen[next] = 1;
+        stack.push({ index: next, edge: 0 });
+      }
+    }
   }
+  return order;
+};
+
+const reversedEdges = (edges: readonly (readonly number[])[]): number[][] => {
+  const reversed = Array.from({ length: edges.length }, () => [] as number[]);
+  for (let from = 0; from < edges.length; from += 1)
+    for (const to of edges[from] ?? []) reversed[to]?.push(from);
+  return reversed;
+};
+
+const componentFrom = (
+  start: number,
+  reversed: readonly (readonly number[])[],
+  seen: Uint8Array,
+): number[] => {
+  const component: number[] = [];
+  const stack = [start];
+  seen[start] = 1;
+  while (stack.length > 0) {
+    const index = stack.pop();
+    if (index === undefined) break;
+    component.push(index);
+    for (const next of reversed[index] ?? []) {
+      if (seen[next] === 0) {
+        seen[next] = 1;
+        stack.push(next);
+      }
+    }
+  }
+  return component;
+};
+
+const componentInCycle = (
+  component: readonly number[],
+  edges: readonly (readonly number[])[],
+): boolean => {
+  if (component.length > 1) return true;
+  const only = component[0];
+  return only !== undefined && (edges[only]?.includes(only) ?? false);
 };
