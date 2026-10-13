@@ -898,10 +898,16 @@ it.each([
     "a UTF-16BE BOM",
     Buffer.concat([
       Buffer.from([0xfe, 0xff]),
-      Buffer.from(xmlKeyedArchive.replace('encoding="UTF-8"', 'encoding="UTF-16"'), "utf16le").swap16(),
+      Buffer.from(
+        xmlKeyedArchive.replace('encoding="UTF-8"', 'encoding="UTF-16"'),
+        "utf16le",
+      ).swap16(),
     ]),
   ],
-  ["leading comments", Buffer.from(`<!-- preface --><!-- second -->${xmlKeyedArchive}`)],
+  [
+    "leading comments",
+    Buffer.from(`<!-- preface --><!-- second -->${xmlKeyedArchive}`),
+  ],
   ["an XML declaration and doctype", Buffer.from(xmlKeyedArchive, "utf8")],
   [
     "a UTF-8 BOM and leading whitespace",
@@ -939,8 +945,16 @@ it.each([
 
 it.each([
   ["other XML", "state.xml", '<?xml version="1.0"?><svg/>'],
-  ["a different doctype name", "state.archive", '<!DOCTYPE plist-report><plist-report/>'],
-  ["an incomplete prefix comment", "state.archive", `<!--${"x".repeat(1020)}--><plist/>`],
+  [
+    "a different doctype name",
+    "state.archive",
+    "<!DOCTYPE plist-report><plist-report/>",
+  ],
+  [
+    "an incomplete prefix comment",
+    "state.archive",
+    `<!--${"x".repeat(1020)}--><plist/>`,
+  ],
   ["a JavaScript name", "bundle.js", '<plist version="1.0"><dict/></plist>'],
 ])(
   "does not classify %s as a property list by content",

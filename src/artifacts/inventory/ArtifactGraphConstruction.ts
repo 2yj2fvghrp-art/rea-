@@ -444,7 +444,8 @@ export const classifyArtifactBytes = (
   fileSize = prefix.length,
 ): ArtifactNode["format"] => {
   if (hasZipSignature(prefix)) return "zip";
-  if (hasBinaryPlistSignature(prefix) || hasXmlPlistSignature(prefix)) return "plist";
+  if (hasBinaryPlistSignature(prefix) || hasXmlPlistSignature(prefix))
+    return "plist";
   const fatFormat = classifyFatArtifact(prefix, fileSize);
   if (fatFormat !== null) return fatFormat;
   if (prefix.length >= 4) {
