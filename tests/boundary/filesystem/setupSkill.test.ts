@@ -339,6 +339,7 @@ describe("canonical skill transaction", () => {
       "android-applications.md",
       "runtime-observation.md",
       "evidence-workflows.md",
+      "quickbms.md",
     ]) {
       const installed = await readFile(
         join(dirname(destination), "references", reference),
@@ -394,6 +395,7 @@ describe("canonical skill transaction", () => {
       "references/evidence-workflows.md",
       "references/javascript-applications.md",
       "references/native-and-artifacts.md",
+      "references/quickbms.md",
       "references/runtime-observation.md",
     ];
     const records = await Promise.all(
