@@ -2,6 +2,10 @@
 
 **REL is our learning workspace built around the upstream [REA (Reverse Engineer Anything)](https://github.com/morluto/rea).** This is a fork-specific on-ramp, not a claim that we have rewritten the engine. Preserve upstream attribution, LICENSE, and THIRD_PARTY_NOTICES.md.
 
+## Simple mode: start here first
+
+Use [REL Simple Mode](rel/README.md) to choose a supported investigation workflow without learning all of REA. Start with `node rel.mjs demo` (preview only), run `node rel.mjs types`, or classify an authorized target with `node rel.mjs inspect TARGET`. Only our source-owned demo supports `--run` while we verify broader workflows.
+
 ## Goal
 
 Learn to answer a narrow question about authorized software with **evidence**, then test the explanation. Our first milestone is a repeatable, understandable **local investigation**, not a new agent or native-analysis provider.
@@ -61,4 +65,4 @@ Static relationships are **inferences, not proof of execution**. Observations, d
 
 ## Phase 2: verify the actual REA engine
 
-Follow [the real-analyzer exercise](experiments/rel-first-lab/REAL_ANALYZER.md). The fork-only workflow builds this repository, analyzes the same fictional program, and preserves full Evidence plus a readable report. **This is pending verification until a successful real-analyzer run is recorded**; the 11 sample checks alone do not establish it.
+Follow [the real-analyzer exercise](experiments/rel-first-lab/REAL_ANALYZER.md). The fork-only workflow builds this repository, analyzes the same fictional program, and preserves full Evidence plus a readable report. **A real-analyzer run passed on October 13, 2026.** See [verified findings](experiments/rel-first-lab/VERIFIED_RESULTS.md). The 11 sample checks alone did not establish that result; it was verified separately in GitHub Actions.

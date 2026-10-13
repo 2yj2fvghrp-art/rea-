@@ -6,6 +6,8 @@ on:
     paths:
       - "REL_START_HERE.md"
       - "experiments/rel-first-lab/**"
+      - "rel.mjs"
+      - "rel/**"
       - ".github/workflows/rel-first-lab.yml"
   workflow_dispatch:
 
@@ -28,10 +30,12 @@ jobs:
       - run: npm ci
       - name: Build local fork (not npm-published upstream)
         run: npm run build:cached
+      - name: Verify REL intake classification and execution boundaries
+        run: node --test rel/intake.test.mjs
       - name: Verify report fail-closed behavior
         run: node --test experiments/rel-first-lab/report.test.mjs
       - name: Run real REL/REA JavaScript analyzer
-        run: node experiments/rel-first-lab/run-real-analysis.mjs "$RUNNER_TEMP/rel-first-lab"
+        run: node rel.mjs demo --run --out "$RUNNER_TEMP/rel-first-lab"
       - name: Add verified report to GitHub job summary
         if: success()
         run: cat "$RUNNER_TEMP/rel-first-lab/REL_EVIDENCE_REPORT.md" >> "$GITHUB_STEP_SUMMARY"
