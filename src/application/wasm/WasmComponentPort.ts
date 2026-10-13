@@ -12,6 +12,8 @@ import type {
 /** Replaceable offline component decoder with no instantiation or execution authority. */
 export interface WasmComponentPort {
   readonly identity: ProviderIdentity;
+  /** Retry cleanup of read resources whose release failed. */
+  close?(): Promise<void>;
   inspect(
     input: InspectWasmComponentInput,
     options?: ExecutionOptions,

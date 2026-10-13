@@ -22,6 +22,10 @@ const OPERATION = "inspect_wasm_component";
 export class WasmComponentService {
   constructor(readonly provider: WasmComponentPort) {}
 
+  close(): Promise<void> {
+    return this.provider.close?.() ?? Promise.resolve();
+  }
+
   /** Decode one explicitly selected component without acquiring a binary session. */
   async inspect(
     rawInput: unknown,

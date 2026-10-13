@@ -290,6 +290,7 @@ export const createServer = (
   const webModuleTrace =
     options.webModuleTrace ?? createWebModuleTraceService(environment);
   const goBinary = options.goBinary ?? createGoBinaryService();
+  const wasmComponent = options.wasmComponent ?? createWasmComponentService();
   const peResources = createPeResourcesService();
   const webNetworkCapture =
     options.webNetworkCapture ?? createWebNetworkCaptureService(environment);
@@ -359,6 +360,7 @@ export const createServer = (
       webSourceLocation.close(),
       webModuleTrace.close(),
       goBinary.close(),
+      wasmComponent.close(),
       peResources.close(),
       webNetworkCapture.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
@@ -405,6 +407,7 @@ export const createServer = (
     withAdmittedAnalysis: analysisAdmission,
     artifactResources,
     goBinary,
+    wasmComponent,
     peResources,
     webNetworkCapture,
   };
@@ -537,6 +540,7 @@ const registerConfiguredAnalysisTools = (
     recordEvidence,
     withAdmittedAnalysis,
     goBinary,
+    wasmComponent,
     peResources,
     webNetworkCapture,
   }: ServerToolContext,
@@ -600,7 +604,7 @@ const registerConfiguredAnalysisTools = (
   );
   registerWasmComponentTool(
     server,
-    options.wasmComponent ?? createWasmComponentService(),
+    wasmComponent,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -703,6 +707,7 @@ const createSessionRecorders = (
 
 interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
   readonly goBinary: GoBinaryService;
+  readonly wasmComponent: WasmComponentService;
   readonly peResources: PeResourcesService;
   readonly webNetworkCapture: WebNetworkCaptureService;
   readonly artifactResources: ArtifactResourceScope;

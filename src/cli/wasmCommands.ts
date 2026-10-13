@@ -10,6 +10,7 @@ import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
 import { withCommandCancellation } from "./commandCancellation.js";
+import { finishAnalysisCommand } from "./finishAnalysisCommand.js";
 
 /** Resolve all caller-selected artifact paths through the shared workflow. */
 export const registerWasmCommands = (
@@ -60,7 +61,6 @@ export const registerWasmCommands = (
         }
       }),
   });
-  const components = createWasmComponentService();
   cli.command(CLI_COMMANDS.inspectWasmComponent, {
     description:
       "Decode an explicit local WebAssembly component without executing it",
@@ -68,14 +68,19 @@ export const registerWasmCommands = (
       path: z.string().describe("Local WebAssembly component"),
     }),
     run: ({ args }) =>
-      withCommandCancellation((signal) =>
-        logCliCommand(logger, CLI_COMMANDS.inspectWasmComponent, async () => {
-          const result = await components.inspect(
-            { path: resolve(args.path) },
-            { signal },
-          );
-          return result.ok ? result.value : projectAnalysisError(result.error);
-        }),
-      ),
+      withCommandCancellation(async (signal) => {
+        const service = createWasmComponentService();
+        return await logCliCommand(
+          logger,
+          CLI_COMMANDS.inspectWasmComponent,
+          async () =>
+            finishAnalysisCommand(
+              () => service.inspect({ path: resolve(args.path) }, { signal }),
+              service,
+              "wasm-component-binary",
+              "inspect_wasm_component",
+            ),
+        );
+      }),
   });
 };
