@@ -118,7 +118,7 @@ napi_value null(napi_env env);
 void set(napi_env env, napi_value object, const char* key, napi_value value);
 std::wstring wide(napi_env env, napi_value value);
 double numeric(napi_env env, napi_value value);
-std::vector<napi_value> array(napi_env env, napi_value value);
+std::vector<napi_value> array(napi_env env, napi_value value, uint32_t maximumLength = UINT32_MAX);
 napi_value wrap(napi_env env, std::unique_ptr<Resource> resource);
 Resource& resource(napi_env env, napi_value value, Kind kind);
 

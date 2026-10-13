@@ -115,3 +115,15 @@ it("does not invoke native capture for a malformed HWND", async () => {
     error: { _tag: "AnalysisInputError" },
   });
 });
+
+it("classifies malformed native replies as output failures", async () => {
+  const captured = await captureWindowsWindowScreenshot(
+    TARGET,
+    { pid: 42, window_handle: "0x1234" },
+    host({ capture: () => ({ pid: 42 }) }),
+  );
+  expect(captured).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisOutputError" },
+  });
+});

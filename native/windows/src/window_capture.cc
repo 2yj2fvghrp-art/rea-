@@ -331,7 +331,8 @@ std::wstring windowTitle(HWND window) {
 
 void validateWindowOwner(HWND window, DWORD expectedPid) {
   require(IsWindow(window) != FALSE, "Selected window no longer exists", L"", ERROR_INVALID_WINDOW_HANDLE);
-  const DWORD observedPid = GetWindowThreadProcessId(window, nullptr);
+  DWORD observedPid = 0;
+  require(GetWindowThreadProcessId(window, &observedPid) != 0, "Read selected window owner failed");
   require(observedPid == expectedPid, "Selected window belongs to a different process", L"",
           ERROR_ACCESS_DENIED);
 }

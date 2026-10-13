@@ -184,14 +184,12 @@ export const captureWindowsWindowScreenshot = async (
   if (options.signal?.aborted)
     return err(new AnalysisCancelledError(OPERATION));
 
-  let raw: z.infer<typeof rawCaptureSchema>;
+  let reply: unknown;
   try {
-    raw = rawCaptureSchema.parse(
-      host.capture(
-        input.data.pid,
-        input.data.window_handle,
-        input.data.max_dimension,
-      ),
+    reply = host.capture(
+      input.data.pid,
+      input.data.window_handle,
+      input.data.max_dimension,
     );
   } catch (cause) {
     return err(
@@ -203,6 +201,16 @@ export const captureWindowsWindowScreenshot = async (
       ),
     );
   }
+  const parsed = rawCaptureSchema.safeParse(reply);
+  if (!parsed.success)
+    return err(
+      new AnalysisOutputError(
+        OPERATION,
+        "Native capture returned malformed output.",
+        { cause: parsed.error },
+      ),
+    );
+  const raw = parsed.data;
   if (options.signal?.aborted)
     return err(new AnalysisCancelledError(OPERATION));
   if (
@@ -305,8 +313,9 @@ const hashExecutable = async (
   path: string,
   signal?: AbortSignal,
 ): Promise<ExecutableIdentity> => {
-  const canonicalPath = canonicalWindowsPath(await realpath(path));
-  const handle = await open(canonicalPath, "r");
+  const resolvedPath = await realpath(path);
+  const canonicalPath = canonicalWindowsPath(resolvedPath);
+  const handle = await open(resolvedPath, "r");
   try {
     const metadata = await handle.stat();
     if (metadata.size > MAX_EXECUTABLE_BYTES)
