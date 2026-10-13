@@ -64,11 +64,14 @@ The captured output keeps up to the first 4,096 bytes that each stream retained,
 each stream's retained byte count, and the exit code and signal. Retained text
 can end in U+FFFD where the budget cut a multi-byte character.
 
-These excerpts bound the returned diagnostic text. Whole-task token usage,
-elapsed time, CPU time, and peak process-family memory have not been measured
-for cold or warm workflows. The underlying error cause still retains the full
-captured subprocess snapshot, so the excerpt does not establish lower retained
-memory or faster analysis.
+These excerpts bound the returned diagnostic text. Measurements reported in
+[PR #2117](https://github.com/morluto/rea/pull/2117) cover warm Linux x64
+WABT 1.0.42 CLI workflows of elapsed time, CPU time, and peak
+process-family memory, including WABT children; those costs did not change
+outside measurement noise. Agent token usage and truly cold workflows remain
+unmeasured. The underlying error cause still retains the full captured
+subprocess snapshot, so the excerpt does not establish lower retained memory
+or faster analysis.
 All commands use existing owned-process cancellation and cleanup. Workspace
 cleanup failures remain explicit errors with resource paths.
 
