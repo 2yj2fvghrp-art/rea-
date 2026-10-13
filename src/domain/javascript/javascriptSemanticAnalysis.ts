@@ -914,10 +914,15 @@ const namespaceDeclarationScope = (
     declaration = parent;
     parent = state.parentsByNode.get(declaration);
   }
+  // Ambient namespaces export ordinary declarations by default, but TypeScript
+  // keeps import aliases private unless they are explicitly exported. Storing
+  // a bare ambient alias in the shared owner would let it shadow a same-named
+  // program binding in reopened blocks.
   if (
     (t.isExportNamedDeclaration(parent) &&
       parent.declaration === declaration) ||
-    ambientNamespaceContext(declaration, state)
+    (ambientNamespaceContext(declaration, state) &&
+      !t.isTSImportEqualsDeclaration(declaration))
   )
     return state.scopesById.get(scope.namespaceExportScopeId) ?? scope;
   return scope;
