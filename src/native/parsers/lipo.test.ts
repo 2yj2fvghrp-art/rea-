@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseLipoArchitectures } from "./lipo.js";
+import { parseLipoOutput } from "./lipo.js";
 
 const fatRecords = `fat_magic 0xcafebabe
 nfat_arch 2
@@ -22,7 +22,7 @@ architecture x86_64
 
 describe("lipo architecture facts", () => {
   it("normalizes symbolic CPU fields and arm64e capability bits", () => {
-    const architectures = parseLipoArchitectures(`Fat header in: /bin/ls
+    const { format, architectures } = parseLipoOutput(`Fat header in: /bin/ls
 fat_magic 0xcafebabe
 nfat_arch 2
 architecture x86_64
@@ -40,6 +40,7 @@ architecture arm64e
     size 89088
     align 2^14 (16384)
 `);
+    expect(format).toBe("fat");
     expect(architectures).toEqual([
       expect.objectContaining({
         name: "x86_64",
@@ -68,9 +69,9 @@ architecture arm64e
 
   it("keeps unknown symbolic CPU values as source text without a code", () => {
     expect(
-      parseLipoArchitectures(
+      parseLipoOutput(
         "architecture future\n cputype CPU_TYPE_FUTURE\n cpusubtype CPU_SUBTYPE_FUTURE\n offset 4096\n size 64\n align 2^12\n",
-      ),
+      ).architectures,
     ).toMatchObject([
       {
         cpu_type: "CPU_TYPE_FUTURE",
@@ -87,18 +88,18 @@ architecture arm64e
     ["0x0", 3],
   ])("applies printed x86_64 capabilities %s", (capabilities, code) => {
     expect(
-      parseLipoArchitectures(
+      parseLipoOutput(
         `architecture x86_64\n cpusubtype CPU_SUBTYPE_X86_64_ALL\n capabilities ${capabilities}\n`,
-      )[0]?.cpu_subtype_code,
+      ).architectures[0]?.cpu_subtype_code,
     ).toBe(code);
   });
 
   it("leaves the subtype code unknown when lipo prints no capabilities", () => {
     // macOS 26 lipo prints this blank line for LIB64 and plain x86_64 slices.
     expect(
-      parseLipoArchitectures(
+      parseLipoOutput(
         "architecture x86_64\n cputype CPU_TYPE_X86_64\n cpusubtype CPU_SUBTYPE_X86_ALL\n capabilities \n offset 16384\n",
-      ),
+      ).architectures,
     ).toMatchObject([
       {
         cpu_subtype: "CPU_SUBTYPE_X86_ALL",
@@ -122,11 +123,11 @@ describe("lipo FAT operand framing", () => {
     (path) => {
       const output = `Fat header in: ${path}\n${fatRecords}`;
 
-      expect(parseLipoArchitectures(output, path)).toEqual(
-        parseLipoArchitectures(fatRecords),
+      expect(parseLipoOutput(output, path)).toEqual(
+        parseLipoOutput(fatRecords),
       );
       expect(
-        parseLipoArchitectures(output, path).map(({ name }) => name),
+        parseLipoOutput(output, path).architectures.map(({ name }) => name),
       ).toEqual(["arm64", "x86_64"]);
     },
   );
@@ -135,23 +136,19 @@ describe("lipo FAT operand framing", () => {
     const path = "/fixture/first\r\narchitecture forged\r\n    size 64";
     const output = `Fat header in: ${path}\r\n${fatRecords.replaceAll("\n", "\r\n")}`;
 
-    expect(parseLipoArchitectures(output, path)).toEqual(
-      parseLipoArchitectures(fatRecords),
-    );
+    expect(parseLipoOutput(output, path)).toEqual(parseLipoOutput(fatRecords));
   });
 
   it("preserves ordinary FAT metadata with and without an operand", () => {
     const path = "/fixture/app";
     const output = `Fat header in: ${path}\n${fatRecords}`;
 
-    expect(parseLipoArchitectures(output, path)).toEqual(
-      parseLipoArchitectures(output),
-    );
+    expect(parseLipoOutput(output, path)).toEqual(parseLipoOutput(output));
   });
 
   it("does not require a FAT path header in captured fixtures", () => {
-    expect(parseLipoArchitectures(fatRecords, "/fixture/app")).toEqual(
-      parseLipoArchitectures(fatRecords),
+    expect(parseLipoOutput(fatRecords, "/fixture/app")).toEqual(
+      parseLipoOutput(fatRecords),
     );
   });
 
@@ -159,8 +156,8 @@ describe("lipo FAT operand framing", () => {
     const path = "/fixture/app-extra\narchitecture forged";
     const output = `Fat header in: ${path}\n${fatRecords}`;
 
-    expect(parseLipoArchitectures(output, "/fixture/app")).toEqual(
-      parseLipoArchitectures(output),
+    expect(parseLipoOutput(output, "/fixture/app")).toEqual(
+      parseLipoOutput(output),
     );
   });
 
@@ -168,21 +165,22 @@ describe("lipo FAT operand framing", () => {
     const path = "/fixture/\nFat header in: fake\narchitecture forged";
     const output = `Non-fat file: ${path} is architecture: arm64\n`;
 
-    expect(parseLipoArchitectures(output, path)).toEqual([
-      {
-        name: "arm64",
-        cpu_type: null,
-        cpu_subtype: null,
-        cpu_type_code: null,
-        cpu_subtype_code: null,
-        capabilities: null,
-        file_offset: null,
-        size: null,
-        alignment: null,
-      },
-    ]);
-    expect(parseLipoArchitectures(output, path)).toEqual(
-      parseLipoArchitectures(output),
-    );
+    expect(parseLipoOutput(output, path)).toEqual({
+      format: "thin",
+      architectures: [
+        {
+          name: "arm64",
+          cpu_type: null,
+          cpu_subtype: null,
+          cpu_type_code: null,
+          cpu_subtype_code: null,
+          capabilities: null,
+          file_offset: null,
+          size: null,
+          alignment: null,
+        },
+      ],
+    });
+    expect(parseLipoOutput(output, path)).toEqual(parseLipoOutput(output));
   });
 });

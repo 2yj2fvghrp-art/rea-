@@ -14,11 +14,16 @@ const architectureSchema = z.object({
 
 export type LipoArchitecture = z.infer<typeof architectureSchema>;
 
-/** Parse `lipo -detailed_info` into deterministic slice metadata. */
-export const parseLipoArchitectures = (
+interface LipoOutput {
+  readonly format: "thin" | "fat";
+  readonly architectures: LipoArchitecture[];
+}
+
+/** Parse `lipo -detailed_info` framing and deterministic slice metadata. */
+export const parseLipoOutput = (
   output: string,
   operandPath?: string,
-): LipoArchitecture[] => {
+): LipoOutput => {
   // The echoed FAT operand is one value, even when its pathname contains lines.
   if (operandPath !== undefined) {
     const header = `Fat header in: ${operandPath}`;
@@ -36,19 +41,22 @@ export const parseLipoArchitectures = (
       output,
     )?.[1];
   if (thinArchitecture !== undefined)
-    return [
-      architectureSchema.parse({
-        name: thinArchitecture,
-        cpu_type: null,
-        cpu_subtype: null,
-        cpu_type_code: null,
-        cpu_subtype_code: null,
-        capabilities: null,
-        file_offset: null,
-        size: null,
-        alignment: null,
-      }),
-    ];
+    return {
+      format: "thin",
+      architectures: [
+        architectureSchema.parse({
+          name: thinArchitecture,
+          cpu_type: null,
+          cpu_subtype: null,
+          cpu_type_code: null,
+          cpu_subtype_code: null,
+          capabilities: null,
+          file_offset: null,
+          size: null,
+          alignment: null,
+        }),
+      ],
+    };
   const architectures: LipoArchitecture[] = [];
   let current: Record<string, string> | undefined;
   const flush = (): void => {
@@ -99,7 +107,7 @@ export const parseLipoArchitectures = (
   flush();
   if (architectures.length === 0)
     throw new TypeError("lipo output contained no architectures");
-  return architectures;
+  return { format: "fat", architectures };
 };
 
 const integer = (value: string | undefined): number | null => {

@@ -39,6 +39,7 @@ describe.skipIf(process.platform !== "darwin")(
       ["load commands or symbols", "inspect-macho", FORGED_NAME],
       ["FAT architecture records", "inspect-macho", lipoName],
       ["FAT architecture inventory", "list-architectures", lipoName],
+      ["thin-file framing", "inspect-macho", "tool\nNon-fat file: forged"],
     ] as const) {
       cliTest(`does not read ${facts} from the file name`, async ({ cli }) => {
         const directory = await createTestTempDirectory("rea-native-cli-echo-");
