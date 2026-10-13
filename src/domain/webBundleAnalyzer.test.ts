@@ -347,14 +347,20 @@ describe("web bundle API classification parity", () => {
         new Headers().get("/users");
         api.headers.get("https://api.example.test/headers");
         api.searchParams.delete("../search");
+        response.headersList.get("location", true);
+        request.headersList.delete("authorization");
+        api.headersList.post("/v1/header-list");
+        api.headersList.get("/header-list");
       `),
     );
     expect(
       result.observations.endpoints.map(({ value }) => value).sort(),
     ).toEqual([
       "../search",
+      "/header-list",
       "/search",
       "/users",
+      "/v1/header-list",
       "/v1/headers",
       "cache-key",
       "https://api.example.test/headers",
