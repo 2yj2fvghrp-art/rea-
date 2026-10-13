@@ -32,6 +32,8 @@ const captureWithCacheResult = async (
                 ),
               )
             : Promise.resolve(cacheResult);
+        case "CacheStorage.requestEntries":
+          return Promise.resolve({ cacheDataEntries: [], returnCount: 0 });
         default:
           return Promise.reject(new Error(`Unexpected command: ${method}`));
       }
@@ -66,5 +68,17 @@ it.each([
     const value = await captureWithCacheResult(cacheResult);
     expect(value.cache_names).toEqual([]);
     expect(value.fingerprints_complete).toBe(complete);
+  },
+);
+
+it.each([false, true])(
+  "preserves valid cache evidence beside an unusable entry: %s",
+  async (mixed) => {
+    const cache = { cacheName: "fixture-cache", cacheId: "fixture-cache-id" };
+    const value = await captureWithCacheResult({
+      caches: mixed ? [cache, 5] : [cache],
+    });
+    expect(value.cache_names).toEqual(["fixture-cache"]);
+    expect(value.fingerprints_complete).toBe(!mixed);
   },
 );
