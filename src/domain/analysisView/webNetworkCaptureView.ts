@@ -103,11 +103,14 @@ const hasControl = (value: string, includeSpace: boolean): boolean => {
   }
   return false;
 };
+// An unpaired surrogate has no UTF-8 form, so no producer reported it as text.
+const LONE_SURROGATE = /\p{Cs}/u;
 const hostLike = (value: JsonValue, maxLength: number): boolean =>
   typeof value === "string" &&
   value.length <= maxLength &&
   !hasControl(value, true) &&
-  !/[@/\\]/u.test(value);
+  !/[@/\\]/u.test(value) &&
+  !LONE_SURROGATE.test(value);
 type NumericSidecar = WebNetworkCaptureRecord["numeric_literals"][number];
 type BinaryField = WebNetworkCaptureRecord["binary_fields"][number];
 const MITMPROXY_INTEGER_FIELDS = new Set(["port", "status_code"]);
@@ -177,6 +180,7 @@ const headlineShape = (field: string, value: JsonValue): boolean => {
         value.length <= MITMPROXY_PATH_MAX_LENGTH &&
         !hasControl(value, false) &&
         !value.includes("@") &&
+        !LONE_SURROGATE.test(value) &&
         (value === "*" ||
           (value.startsWith("/") &&
             !value.startsWith("//") &&
@@ -186,76 +190,163 @@ const headlineShape = (field: string, value: JsonValue): boolean => {
       return false;
   }
 };
-/** Shape checks run first, so the representation check only sees bounded values. */
-const mitmproxyHeadline = (
-  field: string,
-  value: JsonValue,
-  sidecars: readonly NumericSidecar[],
-  bytes: readonly BinaryField[],
-): boolean =>
-  headlineShape(field, value) &&
-  representationMatches(field, value, sidecars, bytes);
+/** Strict ancestors of a JSON pointer, from the root down. */
+const ancestorsOf = (pointer: string): string[] => {
+  const ancestors: string[] = [];
+  for (
+    let at = pointer.indexOf("/");
+    at !== -1;
+    at = pointer.indexOf("/", at + 1)
+  )
+    ancestors.push(pointer.slice(0, at));
+  return ancestors;
+};
+/** Add a pointer's strict ancestors, stopping at one already present (its own ancestors are too). */
+const addAncestors = (pointer: string, into: Set<string>): void => {
+  for (
+    let at = pointer.lastIndexOf("/");
+    at !== -1;
+    at = at === 0 ? -1 : pointer.lastIndexOf("/", at - 1)
+  ) {
+    const ancestor = pointer.slice(0, at);
+    if (into.has(ancestor)) return;
+    into.add(ancestor);
+  }
+};
+const groupByPointer = <T extends { readonly pointer: string }>(
+  facets: readonly T[],
+): Map<string, T[]> => {
+  const groups = new Map<string, T[]>();
+  for (const facet of facets) {
+    const group = groups.get(facet.pointer);
+    if (group === undefined) groups.set(facet.pointer, [facet]);
+    else group.push(facet);
+  }
+  return groups;
+};
 
+/** A record's facet coordinates, indexed once for every headline check. */
+type FacetIndex = {
+  readonly sidecars: ReadonlyMap<string, readonly NumericSidecar[]>;
+  readonly bytes: ReadonlyMap<string, readonly BinaryField[]>;
+  /** The producer held a number or bytes here. */
+  readonly scalars: ReadonlySet<string>;
+  /** A facet lies beneath: the producer held a container here. */
+  readonly containers: ReadonlySet<string>;
+  /**
+   * Withheld by a value redaction or a redacted byte descriptor; either facet
+   * withholds the value even when the other one is missing.
+   */
+  readonly withheld: ReadonlySet<string>;
+  /** The parent of an omitted property name; it hides no sibling values. */
+  readonly omittedNames: ReadonlySet<string>;
+};
+const indexFacets = (record: WebNetworkCaptureRecord): FacetIndex => {
+  const containers = new Set<string>();
+  const withheld = new Set<string>();
+  const omittedNames = new Set<string>();
+  for (const { pointer } of record.numeric_literals)
+    addAncestors(pointer, containers);
+  for (const { pointer, state } of record.binary_fields) {
+    addAncestors(pointer, containers);
+    if (state === "redacted") withheld.add(pointer);
+  }
+  for (const redaction of record.redactions) {
+    addAncestors(redaction.pointer, containers);
+    ("scope" in redaction ? omittedNames : withheld).add(redaction.pointer);
+  }
+  const sidecars = groupByPointer(record.numeric_literals);
+  const bytes = groupByPointer(record.binary_fields);
+  return {
+    sidecars,
+    bytes,
+    scalars: new Set([...sidecars.keys(), ...bytes.keys()]),
+    containers,
+    withheld,
+    omittedNames,
+  };
+};
+/**
+ * A value the record marks as redacted, or that lies under a redacted value,
+ * is never promoted even if it is still present (imported or caller-supplied
+ * Evidence). A scalar is also inconsistent when a numeric sidecar or byte
+ * descriptor sits on an ancestor (the producer held a scalar there) or any
+ * facet sits beneath it (the producer held a container at it).
+ */
+const usableScalar = (index: FacetIndex, pointer: string): boolean => {
+  const ancestors = ancestorsOf(pointer);
+  return (
+    !index.omittedNames.has(pointer) &&
+    !index.containers.has(pointer) &&
+    !index.withheld.has(pointer) &&
+    !ancestors.some(
+      (ancestor) => index.withheld.has(ancestor) || index.scalars.has(ancestor),
+    )
+  );
+};
 /**
  * The container format alone does not make a flow HTTP; its own type does,
- * when the producer supplied that type as text.
+ * when the producer supplied that type as text rather than a number or bytes.
  */
-const mitmproxyHttpFlow = (
-  format: string,
-  source: Readonly<Record<string, JsonValue>>,
-  producerText: (pointer: string) => boolean,
+const textualFlowType = (index: FacetIndex): boolean =>
+  usableScalar(index, "/type") && !index.scalars.has("/type");
+/** Shape checks run first, so the representation check only sees bounded values. */
+const mitmproxyHeadline = (
+  index: FacetIndex,
+  pointer: string,
+  field: string,
+  value: JsonValue,
 ): boolean =>
-  format === "mitmproxy" && source.type === "http" && producerText("/type");
+  usableScalar(index, pointer) &&
+  headlineShape(field, value) &&
+  representationMatches(
+    field,
+    value,
+    index.sidecars.get(pointer) ?? [],
+    index.bytes.get(pointer) ?? [],
+  );
+
+/** Copy one message side's headlines; mitmproxy fields need the record's facet index. */
+const selectHeadlines = (
+  fields: Readonly<Record<string, JsonValue>>,
+  key: string,
+  facets: FacetIndex | null,
+  selectedPointers: Set<string>,
+): Record<string, JsonValue> => {
+  const selected: Record<string, JsonValue> = {};
+  const candidates = [
+    ...HEADLINE_FIELDS.map((field) => [field, null] as const),
+    ...(facets === null ? [] : (MITMPROXY_HEADLINE_FIELDS[key] ?? [])).map(
+      (field) => [field, facets] as const,
+    ),
+  ];
+  for (const [field, index] of candidates) {
+    const value = fields[field];
+    if (
+      !Object.hasOwn(fields, field) ||
+      value === undefined ||
+      (index !== null &&
+        !mitmproxyHeadline(index, `/${key}/${field}`, field, value))
+    )
+      continue;
+    selected[field] = value;
+    selectedPointers.add(`/${key}/${field}`);
+  }
+  return selected;
+};
 
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
 const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
   const reported: Record<string, JsonValue> = {};
   const selectedPointers = new Set<string>();
-  const sidecarsAt = (pointer: string): readonly NumericSidecar[] =>
-    record.numeric_literals.filter((literal) => literal.pointer === pointer);
-  // A pointer the record marks as redacted, or that lies under a redacted
-  // value, is never promoted even if the value is still present (imported or
-  // caller-supplied Evidence). A property-name redaction only identifies the
-  // parent of an omitted key, so it hides no sibling values.
-  const covers = (coordinate: string, pointer: string): boolean =>
-    pointer === coordinate || pointer.startsWith(`${coordinate}/`);
-  // Producers mark excluded bytes with a redacted descriptor as well; either
-  // facet withholds the value even when the other one is missing.
-  const redacted = (pointer: string): boolean =>
-    record.redactions.some((redaction) =>
-      "scope" in redaction
-        ? redaction.pointer === pointer
-        : covers(redaction.pointer, pointer),
-    ) ||
-    record.binary_fields.some(
-      (field) => field.state === "redacted" && covers(field.pointer, pointer),
-    );
-  const bytesAt = (pointer: string): readonly BinaryField[] =>
-    record.binary_fields.filter((field) => field.pointer === pointer);
-  // A scalar is consistent only when no numeric sidecar or byte descriptor
-  // sits on an ancestor (the producer held a scalar there) and no facet sits
-  // beneath it (the producer held a container at it).
-  const usable = (pointer: string): boolean =>
-    !redacted(pointer) &&
-    ![...record.numeric_literals, ...record.binary_fields].some(
-      (facet) => facet.pointer !== pointer && covers(facet.pointer, pointer),
-    ) &&
-    ![
-      ...record.numeric_literals,
-      ...record.binary_fields,
-      ...record.redactions,
-    ].some(
-      (facet) => facet.pointer !== pointer && covers(pointer, facet.pointer),
-    );
-  // A numeric sidecar or a byte descriptor means the producer held a number
-  // or bytes there, whatever display text the record shows.
-  const producerText = (pointer: string): boolean =>
-    usable(pointer) &&
-    sidecarsAt(pointer).length === 0 &&
-    bytesAt(pointer).length === 0;
   if (source !== null) {
-    const mitmproxyHttp = mitmproxyHttpFlow(format, source, producerText);
+    const index =
+      format === "mitmproxy" && source.type === "http"
+        ? indexFacets(record)
+        : null;
+    const mitmproxyFacets =
+      index !== null && textualFlowType(index) ? index : null;
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
         reported[key] = source[key];
@@ -270,32 +361,12 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
         reported[key] = value;
         continue;
       }
-      const selected: Record<string, JsonValue> = {};
-      const candidates = [
-        ...HEADLINE_FIELDS.map((field) => [field, false] as const),
-        ...(mitmproxyHttp ? (MITMPROXY_HEADLINE_FIELDS[key] ?? []) : []).map(
-          (field) => [field, true] as const,
-        ),
-      ];
-      for (const [field, mitmproxy] of candidates) {
-        const fieldValue = fields[field];
-        if (
-          !Object.hasOwn(fields, field) ||
-          fieldValue === undefined ||
-          (mitmproxy &&
-            (!usable(`/${key}/${field}`) ||
-              !mitmproxyHeadline(
-                field,
-                fieldValue,
-                sidecarsAt(`/${key}/${field}`),
-                bytesAt(`/${key}/${field}`),
-              )))
-        )
-          continue;
-        selected[field] = fieldValue;
-        selectedPointers.add(`/${key}/${field}`);
-      }
-      reported[key] = selected;
+      reported[key] = selectHeadlines(
+        fields,
+        key,
+        mitmproxyFacets,
+        selectedPointers,
+      );
     }
   }
   return {

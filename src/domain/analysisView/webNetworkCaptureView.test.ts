@@ -739,6 +739,27 @@ it.each([
   },
 );
 
+it.each([
+  ["path", { method: "GET", path: "/\ud800" }, { method: "GET" }],
+  [
+    "host",
+    { method: "GET", host: "a\udc00.test", path: "/a" },
+    { method: "GET", path: "/a" },
+  ],
+])(
+  "keeps a mitmproxy %s with an unpaired surrogate out of the preview",
+  (_field, request, expected) => {
+    const reported = nativePreview("mitmproxy", request, {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+    }).items[0]?.reported;
+    expect(reported).toEqual({
+      type: "http",
+      request: expected,
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+    });
+  },
+);
+
 it("keeps an unpaired-surrogate path out despite replacement-character bytes", () => {
   const reported = nativePreview(
     "mitmproxy",
