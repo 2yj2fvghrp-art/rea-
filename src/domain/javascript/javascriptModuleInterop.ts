@@ -247,10 +247,39 @@ export const createSemanticModuleInterop = (
   ): boolean => {
     let current = unwrapJavaScriptExpression(node).node;
     let currentPath = path;
+    const aliases = new Set<string>();
     for (;;) {
+      current = unwrapJavaScriptExpression(current).node;
+      if (t.isSequenceExpression(current)) {
+        const value = current.expressions.at(-1);
+        if (value === undefined) return true;
+        current = value;
+        continue;
+      }
       const method = currentPath.at(-1);
       const invocationMethod =
         method === "bind" || method === "call" || method === "apply";
+      // Recover the member read at an alias initializer before examining its
+      // base capture. Copying a callable does not recapture its original owner.
+      if (invocationMethod && t.isIdentifier(current)) {
+        const binding = resolveSemanticBindingState(
+          state,
+          current,
+          current.name,
+        );
+        const initializer = semanticStableInitializer(binding, state);
+        if (
+          binding !== undefined &&
+          initializer !== undefined &&
+          initializer.projection.length === 0 &&
+          (initializer.node.end ?? Infinity) < (current.start ?? -1) &&
+          !aliases.has(binding.bindingId)
+        ) {
+          aliases.add(binding.bindingId);
+          current = initializer.node;
+          continue;
+        }
+      }
       if (
         invocationMethod &&
         (t.isMemberExpression(current) || t.isOptionalMemberExpression(current))
@@ -685,7 +714,11 @@ export const createSemanticModuleInterop = (
     retainWrite: (node: t.Node, path: readonly (string | null)[]) => {
       writes.push({
         scope: opaqueMutationPath(node).join("."),
-        offset: node.start ?? Infinity,
+        // Invocation effects happen after callee and argument evaluation.
+        offset:
+          (t.isCallExpression(node) || t.isOptionalCallExpression(node)
+            ? node.end
+            : node.start) ?? Infinity,
         path: path[0] === "opaque-intrinsic" ? ["intrinsic"] : path,
       });
     },

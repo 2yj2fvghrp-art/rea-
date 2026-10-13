@@ -143,6 +143,35 @@ describe("identifier-aliased intrinsic invocation members", () => {
     expect(result.electron.browser_windows).toEqual([]);
   });
 
+  it.each([
+    '(0, Object.defineProperty.call)(null,metadata,"x",{value:1});',
+    '(0, Object.defineProperty.apply)(null,[metadata,"x",{value:1}]);',
+  ])("does not reconstruct a receiver erased by a sequence: %s", (source) => {
+    expect(
+      invocationKinds(`const metadata = {}; ${source}`).invocations,
+    ).toEqual([expect.objectContaining({ kind: "opaque" })]);
+  });
+
+  it("retains a converted Electron window evaluated inside an opaque invocation's arguments", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      ${ROLLDOWN_MODULE_INTEROP}
+      const change = Object.defineProperty.call;
+      change(null, Object, "x", {value: new (__toESM(require("electron"), 1)).BrowserWindow({})});
+    `);
+    expect(result.electron.browser_windows).toHaveLength(1);
+  });
+
+  it("preserves a captured base through an invocation alias after global replacement", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const define = Object.defineProperty;
+      Object.defineProperty = replacement;
+      const change = define.call;
+      const metadata = {}; change.call(define,null,metadata,"x",{value:1});
+      ${CAPTURED_INTEROP} ${WINDOW}
+    `);
+    expect(result.electron.browser_windows).toHaveLength(1);
+  });
+
   it("limits a known invocation effect to its fresh target", () => {
     const source =
       'const metadata = {}; Object.defineProperty.call(null,metadata,"x",{value:1});';

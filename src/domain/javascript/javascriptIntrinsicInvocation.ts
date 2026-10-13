@@ -84,6 +84,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
     if (t.isSequenceExpression(callee)) {
       const finalExpression = callee.expressions.at(-1);
       if (finalExpression === undefined) return undefined;
+      // The comma operator produces a value and erases the member receiver.
+      // An explicit receiver already supplied by an outer call remains intact.
+      explicitReceiver = true;
       callee = finalExpression;
       continue;
     }
