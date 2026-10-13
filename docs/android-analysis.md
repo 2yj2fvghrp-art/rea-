@@ -279,3 +279,9 @@ refuses to overwrite a different existing file. APK/JAR files live under ignored
 `_reference/` and are excluded from package contents. The lane exercises actual
 REA CLI and MCP results with the real engine, separately from synthetic protocol
 regressions. It needs no Gradle build, emulator, Android SDK or Ghidra.
+
+Direct invoke sites retain exact DEX code-unit offsets separately from each
+containing node's unknown `dex_offset`. `direct_invokes_exhaustive: false`
+means instruction rows were bounded by the local bridge frame budget; `null`
+means the producer did not establish instruction coverage. Using-node totals
+and coverage do not imply complete instruction evidence.

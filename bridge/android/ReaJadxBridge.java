@@ -10,6 +10,7 @@ import jadx.api.plugins.input.insns.Opcode;
 import jadx.core.dex.info.MethodInfo;
 import jadx.core.dex.nodes.*;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
@@ -151,12 +152,37 @@ class ReaJadxBridge {
         "smali", true, List.of("static_initializer_disassembly"));
   }
 
+  // The local transport admits 8 MiB frames. Reserve 1 KiB for the fixed
+  // JSON-RPC/CallToolResult envelope and generated numeric request id, and
+  // account for JSON text being escaped again inside TextContent.
+  private static final int MAX_XREF_TEXT_BYTES = 8 * 1024 * 1024 - 1024;
+  private static int escapedJsonBytes(Object value) {
+    return JSON.toJson(JSON.toJson(value)).getBytes(StandardCharsets.UTF_8).length;
+  }
+  private static final class InvokeBudget {
+    long remaining;
+    InvokeBudget(long remaining) { this.remaining = Math.max(0, remaining); }
+    boolean admit(Map<String, Object> site) {
+      // Check a conservative two-layer escape bound before serialization.
+      long bound = 256;
+      for (Object value : site.values())
+        if (value instanceof String text) bound += 12L * text.length();
+      if (bound > remaining) return false;
+      long bytes = escapedJsonBytes(site) - 2L + 1L;
+      if (bytes > remaining) return false;
+      remaining -= bytes;
+      return true;
+    }
+  }
+  private record DirectInvokes(List<Map<String, Object>> sites, boolean exhaustive) {}
+
   /** Raw DEX invokes within one JADX using method; offsets are code units from its code start. */
-  private static List<Map<String, Object>> directInvokes(JavaMethod source, MethodInfo target) {
+  private static DirectInvokes directInvokes(JavaMethod source, MethodInfo target, InvokeBudget budget) {
     MethodNode node = source.getMethodNode();
     ICodeReader code = node.getCodeReader();
     if (code == null) return null;
     List<Map<String, Object>> sites = new ArrayList<>();
+    boolean[] exhaustive = {true};
     code.visitInstructions(insn -> {
       insn.decode();
       if (insn.getIndexType() != InsnIndexType.METHOD_REF) return;
@@ -165,14 +191,16 @@ class ReaJadxBridge {
       IMethodRef ref = insn.getIndexAsMethod();
       ref.load();
       if (!MethodInfo.fromRef(node.root(), ref).getRawFullId().equals(target.getRawFullId())) return;
-      sites.add(Map.of(
+      Map<String, Object> site = Map.of(
           "dex_entry", node.getInputFileName(),
           "source_raw_method_id", node.getMethodInfo().getRawFullId(),
           "dex_code_unit_offset", insn.getOffset(),
           "dex_method_index", insn.getIndex(),
-          "opcode", opcode.name()));
+          "opcode", opcode.name());
+      if (budget.admit(site)) sites.add(site);
+      else exhaustive[0] = false;
     });
-    return sites;
+    return new DirectInvokes(sites, exhaustive[0]);
   }
 
   private CallToolResult handle(String name, JsonObject args) {
@@ -226,9 +254,9 @@ class ReaJadxBridge {
     MethodInfo targetInfo = selectedMethod == null ? null : method(cls, selectedMethod).getMethodNode().getMethodInfo();
     List<Map<String, Object>> items = uses.stream().map(node -> {
       Map<String, Object> item = new LinkedHashMap<>(current.describeUsage(node, false));
-      if (targetInfo != null && node instanceof JavaMethod source) {
-        List<Map<String, Object>> sites = directInvokes(source, targetInfo);
-        if (sites != null) item.put("direct_invokes", sites);
+      if (targetInfo != null && node instanceof JavaMethod) {
+        item.put("direct_invokes", List.of());
+        item.put("direct_invokes_exhaustive", false);
       }
       return item;
     }).toList();
@@ -237,6 +265,19 @@ class ReaJadxBridge {
     if (selectedMethod != null) {
       result.put("overload_index", overloadIndex);
       result.put("reported_signature", selectedMethod.summary().get("signature"));
+    }
+    InvokeBudget budget = new InvokeBudget(MAX_XREF_TEXT_BYTES - escapedJsonBytes(result));
+    for (int index = 0; targetInfo != null && index < uses.size(); index++) {
+      if (!(uses.get(index) instanceof JavaMethod source)) continue;
+      DirectInvokes invokes = directInvokes(source, targetInfo, budget);
+      Map<String, Object> item = items.get(index);
+      if (invokes == null) {
+        item.remove("direct_invokes");
+        item.remove("direct_invokes_exhaustive");
+      } else {
+        item.put("direct_invokes", invokes.sites());
+        item.put("direct_invokes_exhaustive", invokes.exhaustive());
+      }
     }
     return json(result);
   }

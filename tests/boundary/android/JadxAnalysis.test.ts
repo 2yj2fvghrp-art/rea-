@@ -188,3 +188,117 @@ it("rejects an ambiguous method and a producer response for a different overload
     _tag: "AnalysisOutputError",
   });
 });
+
+const invokeSite = {
+  dex_entry: "classes.dex",
+  source_raw_method_id: "fixture.Other.caller()V",
+  dex_code_unit_offset: 0,
+  dex_method_index: 1,
+  opcode: "INVOKE_STATIC",
+};
+const traceWithReference = (fields: Record<string, unknown>) =>
+  analyzeJadxRequest(
+    {
+      json: (name) =>
+        Promise.resolve(
+          name === "get_class_summary"
+            ? summary
+            : {
+                target: "fixture.Target.choose",
+                overload_index: 0,
+                reported_signature: "choose(String): void",
+                total: 1,
+                count: 1,
+                resolve_line: false,
+                items: [
+                  {
+                    kind: "method",
+                    name: "caller",
+                    full_name: "fixture.Other.caller",
+                    containing_class: "fixture.Other",
+                    top_class: "fixture.Other",
+                    def_pos: 0,
+                    ...fields,
+                  },
+                ],
+              },
+        ),
+      text: () => Promise.reject(new Error("unexpected text call")),
+    },
+    {
+      operation: "trace_android_references",
+      input: {
+        path: "/fixture.apk",
+        class_name: "fixture.Target",
+        method_name: "choose",
+        overload_index: 0,
+      },
+    },
+    {} as never,
+    engine,
+  );
+
+it.each([
+  [{}, null],
+  [{ direct_invokes: [] }, []],
+])(
+  "preserves unavailable versus observed-empty invoke sites: %j",
+  async (fields, expected) => {
+    const result = await traceWithReference(fields as Record<string, unknown>);
+    expect(result).toMatchObject({
+      references: [{ direct_invokes: expected }],
+    });
+  },
+);
+
+it.each([
+  { ...invokeSite, dex_code_unit_offset: -1 },
+  {
+    dex_entry: "classes.dex",
+    source_raw_method_id: "fixture.Other.caller()V",
+    dex_code_unit_offset: 0,
+    dex_method_index: 1,
+  },
+])("rejects malformed direct invoke producer evidence: %j", async (site) => {
+  await expect(
+    traceWithReference({ direct_invokes: [site] }),
+  ).rejects.toThrow();
+});
+
+it("preserves bounded instruction coverage separately from using-node coverage", async () => {
+  const result = await traceWithReference({
+    direct_invokes: [invokeSite],
+    direct_invokes_exhaustive: false,
+  });
+  expect(result).toMatchObject({
+    coverage: "complete",
+    reference_unit: "using_node",
+    references: [
+      { direct_invokes: [invokeSite], direct_invokes_exhaustive: false },
+    ],
+  });
+});
+
+it("rejects malformed method descriptors at the Android adapter boundary", async () => {
+  const invalidSummary = {
+    ...summary,
+    methods: summary.methods.map((method) => ({
+      ...method,
+      dex_descriptor: "not-a-dex-descriptor",
+    })),
+  };
+  await expect(
+    analyzeJadxRequest(
+      {
+        json: () => Promise.resolve(invalidSummary),
+        text: () => Promise.reject(new Error("unexpected text call")),
+      },
+      {
+        operation: "inspect_android_class",
+        input: { path: "/fixture.apk", class_name: "fixture.Target" },
+      },
+      {} as never,
+      engine,
+    ),
+  ).rejects.toThrow();
+});

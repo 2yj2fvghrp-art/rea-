@@ -380,6 +380,7 @@ const traceReferences = async (
       source_line: null,
       dex_offset: null,
       direct_invokes: reference.direct_invokes ?? null,
+      direct_invokes_exhaustive: reference.direct_invokes_exhaustive ?? null,
     })),
     coverage: "complete",
     reference_unit: "using_node",

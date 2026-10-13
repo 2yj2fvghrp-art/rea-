@@ -87,6 +87,7 @@ export const jadxXrefsSchema = z.object({
       containing_class: z.string(),
       top_class: z.string(),
       def_pos: z.number().int(),
+      direct_invokes_exhaustive: z.boolean().optional(),
       direct_invokes: z
         .array(
           z.object({
