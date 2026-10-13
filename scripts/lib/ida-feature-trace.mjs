@@ -33,13 +33,20 @@ export function assertFeatureTrace(trace, procedure) {
 /**
  * Find a string that IDA maps outside every function. A string inside a
  * function chunk (inline data in code) is valid and skipped, so the strings are
- * tried in order. Returns its address, or undefined when no string qualifies.
+ * tried in order. Any other answer must be "not in a procedure": IDA lists only
+ * mapped strings, so an unmapped answer is a containment defect and fails the
+ * lane. Returns the address, or undefined when every string is inside a function.
  */
 export async function findMappedNonFunction(strings, resolveAt) {
   for (const { address } of strings) {
     const resolved = await resolveAt(address);
-    if (!resolved.found && resolved.reason === "not_in_procedure")
-      return address;
+    if (resolved.found) continue;
+    assert.equal(
+      resolved.reason,
+      "not_in_procedure",
+      `The listed string at ${address} resolved as ${resolved.reason}.`,
+    );
+    return address;
   }
   return undefined;
 }
