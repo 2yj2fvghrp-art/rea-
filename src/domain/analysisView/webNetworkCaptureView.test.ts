@@ -193,7 +193,11 @@ const nativePreview = (
     readonly response?: Readonly<Record<string, unknown>>;
     readonly producerType?: "integer" | "float";
     readonly flowType?: string | null;
-    readonly redactions?: readonly { pointer: string; reason: string }[];
+    readonly redactions?: readonly {
+      pointer: string;
+      reason: string;
+      scope?: string;
+    }[];
     readonly sidecars?: readonly {
       pointer: string;
       producer_type: string;
@@ -517,6 +521,45 @@ it("rejects a non-number integer headline without throwing", () => {
     type: "http",
     request: { method: "GET", path: "/a" },
     response: { http_version: "HTTP/1.1", reason: "OK" },
+  });
+});
+
+it.each([
+  ["the request", "/request", { method: "GET" }],
+  ["the record root", "", {}],
+] as const)(
+  "keeps mitmproxy headlines under a redacted %s out of the preview",
+  (_label, pointer, request) => {
+    const reported = nativePreview(
+      "mitmproxy",
+      { method: "GET", host: "secret", path: "/secret" },
+      {
+        response: { http_version: "HTTP/1.1", reason: "OK" },
+        redactions: [{ pointer, reason: "explicit-sensitive-value" }],
+      },
+    ).items[0]?.reported;
+    expect(JSON.stringify(reported)).not.toContain("secret");
+    expect(reported).toMatchObject({ request });
+  },
+);
+
+it("keeps sibling mitmproxy headlines next to an omitted property name", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", host: "example.test", path: "/a" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      redactions: [
+        {
+          pointer: "/request",
+          reason: "explicit-sensitive-value",
+          scope: "property-name",
+        },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toMatchObject({
+    request: { method: "GET", host: "example.test", path: "/a" },
   });
 });
 

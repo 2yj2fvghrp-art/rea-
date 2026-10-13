@@ -168,10 +168,17 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const selectedPointers = new Set<string>();
   const sidecarsAt = (pointer: string): readonly NumericSidecar[] =>
     record.numeric_literals.filter((literal) => literal.pointer === pointer);
-  // A pointer the record marks as redacted is never promoted, even if the
-  // value is still present (imported or caller-supplied Evidence).
+  // A pointer the record marks as redacted, or that lies under a redacted
+  // value, is never promoted even if the value is still present (imported or
+  // caller-supplied Evidence). A property-name redaction only identifies the
+  // parent of an omitted key, so it hides no sibling values.
   const redacted = (pointer: string): boolean =>
-    record.redactions.some((redaction) => redaction.pointer === pointer);
+    record.redactions.some((redaction) =>
+      "scope" in redaction
+        ? redaction.pointer === pointer
+        : pointer === redaction.pointer ||
+          pointer.startsWith(`${redaction.pointer}/`),
+    );
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
