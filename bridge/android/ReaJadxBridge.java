@@ -266,17 +266,19 @@ class ReaJadxBridge {
       result.put("overload_index", overloadIndex);
       result.put("reported_signature", selectedMethod.summary().get("signature"));
     }
-    InvokeBudget budget = new InvokeBudget(MAX_XREF_TEXT_BYTES - escapedJsonBytes(result));
-    for (int index = 0; targetInfo != null && index < uses.size(); index++) {
-      if (!(uses.get(index) instanceof JavaMethod source)) continue;
-      DirectInvokes invokes = directInvokes(source, targetInfo, budget);
-      Map<String, Object> item = items.get(index);
-      if (invokes == null) {
-        item.remove("direct_invokes");
-        item.remove("direct_invokes_exhaustive");
-      } else {
-        item.put("direct_invokes", invokes.sites());
-        item.put("direct_invokes_exhaustive", invokes.exhaustive());
+    if (targetInfo != null) {
+      InvokeBudget budget = new InvokeBudget(MAX_XREF_TEXT_BYTES - escapedJsonBytes(result));
+      for (int index = 0; index < uses.size(); index++) {
+        if (!(uses.get(index) instanceof JavaMethod source)) continue;
+        DirectInvokes invokes = directInvokes(source, targetInfo, budget);
+        Map<String, Object> item = items.get(index);
+        if (invokes == null) {
+          item.remove("direct_invokes");
+          item.remove("direct_invokes_exhaustive");
+        } else {
+          item.put("direct_invokes", invokes.sites());
+          item.put("direct_invokes_exhaustive", invokes.exhaustive());
+        }
       }
     }
     return json(result);
