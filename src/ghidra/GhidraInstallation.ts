@@ -700,8 +700,10 @@ const javaCheck = (
   if (observation !== undefined && "status" in observation) {
     const hasKnownMismatch =
       (observation.major !== null &&
+        Number.isSafeInteger(observation.major) &&
+        requirement.unresolved === null &&
         !ghidraJavaMajorAccepted(observation.major, requirement)) ||
-      observation.bits === 32 ||
+      (observation.bits !== null && observation.bits !== 64) ||
       observation.runtime === "jre";
     return installationCheck({
       name: "java",

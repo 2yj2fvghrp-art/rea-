@@ -298,6 +298,43 @@ describe("Ghidra incomplete Java observations", () => {
       });
     },
   );
+
+  it.each([
+    { name: "unparsed major", major: Number.NaN, bits: 64, min: 21, max: 25 },
+    { name: "unresolved bounds", major: 17, bits: 64, min: "latest", max: 25 },
+    { name: "known 16-bit runtime", major: 21, bits: 16, min: 21, max: 25 },
+    { name: "known 128-bit runtime", major: 21, bits: 128, min: 21, max: 25 },
+  ])(
+    "classifies incomplete Java evidence: $name",
+    ({ major, bits, min, max }) => {
+      const readText = () =>
+        `application.version=12.1.4\napplication.java.min=${min}\napplication.java.max=${max}\n`;
+      const incomplete: IncompleteGhidraJavaObservation = {
+        status: "incomplete",
+        issues: ["java.home"],
+        version: "21",
+        major,
+        home: "",
+        bits,
+      };
+      const result = inspectGhidraInstallation(
+        {
+          environment: {},
+          installDir: INSTALL,
+          platform: "linux",
+          architecture: "x64",
+        },
+        host({ readText, probeJava: () => incomplete }),
+      );
+      const code = name.startsWith("known ")
+        ? "unsupported_version"
+        : "version_unresolved";
+      expect(result.checks.find(({ name }) => name === "java")).toMatchObject({
+        status: "failed",
+        code,
+      });
+    },
+  );
 });
 
 describe("Ghidra installation rejection diagnostics", () => {
