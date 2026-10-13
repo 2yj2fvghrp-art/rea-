@@ -279,6 +279,7 @@ try {
     process.env.REA_ARM_OBJCOPY,
     "llvm-objcopy",
     "llvm-objcopy-21",
+    "objcopy",
   ].filter((candidate) => candidate !== undefined);
   const compiler = process.env.REA_ARM_CLANG ?? "clang";
   const v8Path = join(workspace, "arm-v8a.elf");
@@ -359,7 +360,9 @@ try {
     }
   }
   if (objcopyTool === undefined)
-    throw new Error("Missing prerequisite: llvm-objcopy (set REA_ARM_OBJCOPY)");
+    throw new Error(
+      "Missing prerequisite: llvm-objcopy or GNU objcopy (set REA_ARM_OBJCOPY)",
+    );
   await execute(
     objcopyTool,
     ["--remove-section", ".ARM.attributes", noAttributesPath],

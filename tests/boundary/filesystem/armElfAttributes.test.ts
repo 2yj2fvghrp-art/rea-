@@ -120,7 +120,11 @@ const ATTRIBUTES_OFFSET = 8192;
 
 const armFixture = (
   attributes: Buffer | null,
-  options: { truncatedTable?: boolean; stride?: number } = {},
+  options: {
+    headerSize?: number;
+    truncatedTable?: boolean;
+    stride?: number;
+  } = {},
 ): Buffer => {
   const sectionCount = attributes === null ? 1 : 2;
   const truncated = options.truncatedTable === true;
@@ -139,7 +143,7 @@ const armFixture = (
   bytes.writeUInt32LE(1, 20);
   bytes.writeUInt32LE(SECTION_TABLE_OFFSET, 32); // e_shoff
   bytes.writeUInt32LE(0x05000400, 36); // EABI5, hard float
-  bytes.writeUInt16LE(52, 40); // e_ehsize
+  bytes.writeUInt16LE(options.headerSize ?? 52, 40); // e_ehsize
   bytes.writeUInt16LE(options.stride ?? 40, 46); // e_shentsize
   bytes.writeUInt16LE(sectionCount, 48); // e_shnum
   if (attributes !== null) {
@@ -162,6 +166,13 @@ const resolveArm = async (bytes: Buffer) => {
     throw new Error("Expected a resolved ARM executable");
   return result.value;
 };
+
+it("preserves a valid extended ELF32 header during ARM attribute inspection", async () => {
+  const target = await resolveArm(
+    armFixture(V7_ATTRIBUTES, { headerSize: 56 }),
+  );
+  expect(target.arm).toMatchObject({ headerSize: 56, cpuArch: 10 });
+});
 
 it("reads Tag_CPU_arch v7 from a real attributes payload beyond the probe", async () => {
   const target = await resolveArm(armFixture(V7_ATTRIBUTES));

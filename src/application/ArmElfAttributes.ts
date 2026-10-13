@@ -342,7 +342,11 @@ export const readArmElfCpuArch = async (
     u32(bytes, 36) !== metadata.flags
   )
     return err("ARM ELF header no longer matches the resolved identity");
-  if (bytes[6] !== 1 || u32(bytes, 20) !== 1 || u16(bytes, 40) !== 52)
+  if (
+    bytes[6] !== 1 ||
+    u32(bytes, 20) !== 1 ||
+    u16(bytes, 40) !== metadata.headerSize
+  )
     return err("invalid ARM ELF32 version or header size");
   // Coverage limits belong to the attribute inspection, not target identity:
   // other providers may analyze the unchanged ARM ELF without this Ghidra pin.

@@ -65,6 +65,8 @@ export interface MipsElfMetadata extends ElfFamilyMetadata {
 export interface ArmElfMetadata {
   readonly elfClass: 32 | 64;
   readonly byteOrder: "little" | "big";
+  /** Declared ELF header extent, validated against the complete file by the owner. */
+  readonly headerSize: number;
   readonly type: number;
   readonly flags: number;
   /**

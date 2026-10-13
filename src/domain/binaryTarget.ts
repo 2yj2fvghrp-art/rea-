@@ -209,7 +209,7 @@ const parseElf = (
 ): Result<ExecutableMetadata, string> => {
   const fixedHeader = readElfFixedHeader(bytes, fileSize);
   if (!fixedHeader.ok) return fixedHeader;
-  const { elfClass, byteOrder } = fixedHeader.value;
+  const { elfClass, byteOrder, headerSize } = fixedHeader.value;
   const little = byteOrder === "little";
   const machine = little ? bytes.readUInt16LE(18) : bytes.readUInt16BE(18);
   const architecture = elfArchitecture(machine);
@@ -246,7 +246,7 @@ const parseElf = (
             format: "elf",
             architecture,
             availableArchitectures: [architecture],
-            arm: metadata,
+            arm: { ...metadata, headerSize },
           });
   }
   return ok({

@@ -65,6 +65,7 @@ const target = (change: Partial<ArmElfMetadata> = {}): BinaryTarget => ({
   arm: {
     elfClass: 32,
     byteOrder: "little",
+    headerSize: 52,
     type: 2,
     flags: 0x05000400,
     cpuArch: 10,
