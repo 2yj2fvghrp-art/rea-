@@ -62,10 +62,11 @@ interface Layout {
   readonly cpu: number;
   readonly offset: number;
   readonly size: number;
+  readonly alignmentExponent?: number;
 }
 
 const multiSliceLayout: readonly Layout[] = [
-  { cpu: 0x01000007, offset: 4096, size: 8480 },
+  { cpu: 0x01000007, offset: 4096, size: 8480, alignmentExponent: 12 },
   { cpu: 0x0100000c, offset: 16384, size: 33464 },
   { cpu: 0x00000007, offset: 65536, size: 33464 },
 ];
@@ -82,13 +83,12 @@ const largeUniversalTarget = async (
   const bytes = Buffer.alloc(total);
   bytes.writeUInt32BE(0xcafebabe, 0);
   bytes.writeUInt32BE(layout.length, 4);
-  layout.forEach(({ cpu, offset, size }, index) => {
+  layout.forEach(({ cpu, offset, size, alignmentExponent = 14 }, index) => {
     const entry = 8 + index * 20;
     bytes.writeUInt32BE(cpu, entry);
     bytes.writeUInt32BE(offset, entry + 8);
     bytes.writeUInt32BE(size, entry + 12);
-    // Every fixture offset is 4 KiB aligned, including the first at 4096.
-    bytes.writeUInt32BE(12, entry + 16);
+    bytes.writeUInt32BE(alignmentExponent, entry + 16);
     bytes.fill(0x11 * (index + 1), offset, offset + size);
     thinMach(0xfeedfacf, cpu).copy(bytes, offset);
   });
