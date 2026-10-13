@@ -59,6 +59,7 @@ interface MutableArtifactAnalysis<
   readonly jsonModules: JavaScriptJsonModuleObservation[];
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
   readonly sourceMaps: JavaScriptSourceMapObservation[];
+  readonly limitations: string[];
   visitedNodes: number;
   findings: number;
   modules: number;
@@ -337,6 +338,7 @@ const finalizeArtifactAnalysis = <
     limitations: [
       "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
       "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+      ...state.limitations,
       ...state.files.flatMap(
         ({ analysis_failure, application_projection_failure }) =>
           [analysis_failure, application_projection_failure].flatMap(
@@ -356,8 +358,18 @@ function* analyzeArtifactFileSteps<
   const { state } = context;
   if (classifyOutsideAnalysisScope(file, state)) return;
   addStructuredObservations(file, state);
-  if (file.kind === "html" && file.text.included)
-    state.htmlScripts.push(...parseHtmlScripts(file.path, file.text.value));
+  if (file.kind === "html" && file.text.included) {
+    const htmlScripts = parseHtmlScripts(file.path, file.text.value);
+    state.htmlScripts.push(...htmlScripts.observations);
+    if (htmlScripts.inlineScriptLocations.length > 0) {
+      const locations = htmlScripts.inlineScriptLocations.map(
+        ({ start }) => `${start.line}:${start.column + 1}`,
+      );
+      state.limitations.push(
+        `Inline script elements in ${file.path} were not analyzed (source locations: ${locations.join(", ")}).`,
+      );
+    }
+  }
   if (file.kind === "source-map") addSourceMap(file, context);
   if (file.kind !== "javascript" || !file.text.included) {
     state.files.push({ file, javascript: null, semantic: null });
@@ -444,6 +456,7 @@ const emptyArtifactAnalysis = <
   jsonModules: [],
   htmlScripts: [],
   sourceMaps: [],
+  limitations: [],
   visitedNodes: 0,
   findings: 0,
   modules: 0,
@@ -515,14 +528,22 @@ const unavailablePackage = (
 const parseHtmlScripts = (
   path: string,
   text: string,
-): JavaScriptHtmlScriptObservation[] => {
-  const { scripts, baseHref } = htmlArtifactReferences(text);
-  return scripts.map(({ scriptPath, startOffset, endOffset }) => ({
-    html_path: path,
-    script_path: scriptPath,
-    base_href: baseHref,
-    location: rangeForOffsets(text, startOffset, endOffset),
-  }));
+): {
+  readonly observations: JavaScriptHtmlScriptObservation[];
+  readonly inlineScriptLocations: readonly JavaScriptSourceRange[];
+} => {
+  const { scripts, inlineScripts, baseHref } = htmlArtifactReferences(text);
+  return {
+    observations: scripts.map(({ scriptPath, startOffset, endOffset }) => ({
+      html_path: path,
+      script_path: scriptPath,
+      base_href: baseHref,
+      location: rangeForOffsets(text, startOffset, endOffset),
+    })),
+    inlineScriptLocations: inlineScripts.map(({ startOffset, endOffset }) =>
+      rangeForOffsets(text, startOffset, endOffset),
+    ),
+  };
 };
 
 const parseSourceMap = (
