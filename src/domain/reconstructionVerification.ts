@@ -164,14 +164,14 @@ const evaluateClaim = (
     claim.dimension,
   );
   const relevantUnknowns = relatedUnknowns;
-  const status = classify(observed.status, limitations, relevantUnknowns);
+  const status = classify(observed, limitations, relevantUnknowns);
   const displayedUnknowns = relevantUnknowns;
   return reconstructionClaimResultSchema.parse({
     claim_id: claim.claim_id,
     kind: claim.kind,
     dimension: claim.dimension,
     status,
-    observed_status: observed.status,
+    observed_status: observed,
     comparison_evidence_id: comparison.evidence_id,
     left_evidence_ids: sides.left,
     right_evidence_ids: sides.right,
@@ -179,7 +179,7 @@ const evaluateClaim = (
     unknown_ids: displayedUnknowns.map(({ unknown_id: id }) => id),
     limitations: uniqueSorted([
       ...comparison.limitations,
-      ...observed.limitations,
+      ...observation.limitations,
       ...limitations,
       ...displayedUnknowns.map(
         ({ question }) => `Residual unknown: ${question}`,
