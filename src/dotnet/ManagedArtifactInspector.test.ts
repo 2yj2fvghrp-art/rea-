@@ -548,7 +548,7 @@ describe("managed implementation classification", () => {
     const bytes = buildManagedPeFixture({
       readyToRun: true,
       cliFlags: 0xc,
-      fieldName: "x".repeat(12 * 1024 * 1024),
+      references: ["x".repeat(12 * 1024 * 1024)],
     });
     const result = inspectManagedArtifactBytes(
       bytes,
