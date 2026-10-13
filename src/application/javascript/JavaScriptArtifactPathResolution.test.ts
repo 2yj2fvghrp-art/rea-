@@ -1893,21 +1893,40 @@ describe("TypeScript NodeNext emitted-extension resolution", () => {
       ).toMatchObject({ resolution_status: "resolved", resolved_path: target });
     },
   );
+});
+
+describe("TypeScript declaration fallback ownership", () => {
+  const container = "container";
 
   it.each([
     ["./dep.js", "src/dep.d.ts"],
     ["./cfg.mjs", "src/cfg.d.mts"],
     ["./legacy.cjs", "src/legacy.d.cts"],
   ] as const)(
-    "resolves %s to a declaration counterpart",
+    "retains %s as compile-time evidence without inventing a runtime target",
     (specifier, target) => {
       const files = fileMap([
         file("src/main.ts", container),
         file(target, container, "export const value = 1;"),
       ]);
+      for (const moduleKind of ["import", "require"] as const) {
+        expect(
+          resolve({
+            declaredPath: specifier,
+            sourcePath: "src/main.ts",
+            context: "module-specifier",
+            moduleKind,
+            files,
+          }),
+        ).toMatchObject({
+          resolution_status: "unavailable",
+          resolved_path: null,
+          candidate_path: target,
+        });
+      }
       expect(
         resolve({
-          declaredPath: specifier,
+          declaredPath: "./" + target.slice(4),
           sourcePath: "src/main.ts",
           context: "module-specifier",
           moduleKind: "import",
@@ -2251,13 +2270,14 @@ describe("present files outside the JavaScript projection", () => {
         context: "module-specifier",
         moduleKind,
         files: fileMap([file("main.js", "root")]),
-        unanalyzedFiles: new Map([
+        unanalyzedFiles: unanalyzedLookup([
           ["core.jsc", unanalyzed("core.jsc", "root")],
         ]),
       });
       expect(resolution).toMatchObject({
         resolution_status: "unavailable",
         resolved_path: null,
+        candidate_path: "core.jsc",
       });
       expect(resolution.limitations).toEqual([
         `core.jsc exists in the inventoried artifact container (sha256 ${"b".repeat(64)}, 7 bytes) but is not a JavaScript, JSON, HTML, source map, or native add-on file; its contents were not analyzed.`,
@@ -2273,11 +2293,29 @@ describe("present files outside the JavaScript projection", () => {
         context: "module-specifier",
         moduleKind: "require",
         files: fileMap([file("main.js", "root")]),
-        unanalyzedFiles: new Map([
+        unanalyzedFiles: unanalyzedLookup([
           ["core.jsc", unanalyzed("core.jsc", "nested")],
         ]),
       }),
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("does not admit an opaque-only dependency from another container", () => {
+    expect(
+      resolve({
+        declaredPath: "pkg/core.jsc",
+        sourcePath: "main.js",
+        context: "module-specifier",
+        moduleKind: "require",
+        files: fileMap([file("main.js", "root")]),
+        unanalyzedFiles: unanalyzedLookup([
+          [
+            "node_modules/pkg/core.jsc",
+            unanalyzed("node_modules/pkg/core.jsc", "nested"),
+          ],
+        ]),
+      }),
+    ).toMatchObject({ resolution_status: "external", resolved_path: null });
   });
 
   it("keeps a missing target not-found", () => {
@@ -2288,11 +2326,26 @@ describe("present files outside the JavaScript projection", () => {
         context: "module-specifier",
         moduleKind: "require",
         files: fileMap([file("main.js", "root")]),
-        unanalyzedFiles: new Map(),
+        unanalyzedFiles: unanalyzedLookup([]),
       }),
     ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
   });
 });
+
+const unanalyzedLookup = (
+  entries: readonly (readonly [string, JavaScriptUnanalyzedArtifactFile])[],
+) => {
+  const files = new Map(entries);
+  return {
+    get: (path: string) => files.get(path),
+    hasDirectory: (path: string, container: string | undefined) =>
+      [...files.values()].some(
+        (file) =>
+          file.path.startsWith(`${path}/`) &&
+          (container === undefined || file.container_sha256 === container),
+      ),
+  };
+};
 
 const resolve = (input: ResolveArtifactPathInput) =>
   resolveArtifactPathByContext(input);

@@ -11,7 +11,7 @@ import type { JavaScriptSourceRange } from "../../domain/javascript/javascriptSt
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
 import type {
   JavaScriptArtifactFile,
-  JavaScriptUnanalyzedArtifactFile,
+  JavaScriptUnanalyzedArtifactLookup,
   JavaScriptArtifactFileSet,
   JavaScriptArtifactFileKind,
 } from "../../domain/javascript/javascriptArtifactFiles.js";
@@ -35,11 +35,8 @@ export interface JavaScriptArtifactGraphContext {
   readonly analysis: JavaScriptModuleArtifactAnalysis;
   readonly root: ApplicationNode;
   readonly filesByPath: ReadonlyMap<string, JavaScriptArtifactFile>;
-  /** Present inventoried files the projection does not read, keyed by path. */
-  readonly unanalyzedFilesByPath: ReadonlyMap<
-    string,
-    JavaScriptUnanalyzedArtifactFile
-  >;
+  /** Borrowed inventory lookup for present files outside the source projection. */
+  readonly unanalyzedFiles: JavaScriptUnanalyzedArtifactLookup | undefined;
   readonly fileNodes: Map<string, ApplicationNode>;
   readonly assetNodes: Map<string, ApplicationNode>;
   readonly sourceModuleNodes: Map<string, ApplicationNode>;
@@ -72,6 +69,7 @@ export interface AstEdgeInput {
 
 /** Inferred static relationship edge values. */
 export interface InferenceEdgeInput extends AstEdgeInput {
+  readonly limitations?: readonly string[];
   readonly relation:
     | "imports"
     | "loads"
@@ -168,6 +166,9 @@ export const addStaticInferenceEdge = (
       range: input.range,
       operation: "map-static-relationship",
       coverage: input.coverage,
+      ...(input.limitations === undefined
+        ? {}
+        : { limitations: input.limitations }),
     }),
   });
 };
@@ -353,7 +354,7 @@ export const resolveArtifactPath = (
   specifier: string,
   sourcePath: string,
   files: ReadonlyMap<string, JavaScriptArtifactFile>,
-  moduleKind?: "import" | "require",
+  moduleKind?: "import" | "require" | "compiler-dependent",
 ): string | null =>
   resolveArtifactPathByContext({
     declaredPath: specifier,

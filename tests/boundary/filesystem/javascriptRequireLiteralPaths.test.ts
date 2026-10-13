@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative, sep } from "node:path";
 
@@ -179,4 +179,88 @@ describe("present require targets outside the JavaScript projection", () => {
       resolved_path: null,
     });
   });
+});
+
+describe("opaque inventory target consistency", () => {
+  it("keeps exact opaque files ahead of extension candidates in both graph paths", async () => {
+    const root = await createTestTempDirectory("rea-opaque-exact-");
+    await Promise.all([
+      writeFile(join(root, "main.cjs"), 'require("./core");'),
+      writeFile(join(root, "core"), "opaque"),
+      writeFile(join(root, "core.js"), "module.exports = 1;"),
+    ]);
+    const { graph } = await analyze(root);
+    const edges = graph.edges.filter(
+      ({ properties }) => properties.specifier === "./core",
+    );
+    expect(edges).toHaveLength(2);
+    for (const edge of edges)
+      expect(edge.properties).toMatchObject({
+        resolution_status: "unavailable",
+        resolved_path: null,
+        candidate_path: "core",
+      });
+  });
+
+  it("finds a nearest package containing only opaque files before ancestor fallbacks", async () => {
+    const root = await createTestTempDirectory("rea-opaque-package-");
+    await Promise.all([
+      mkdir(join(root, "src/node_modules/pkg"), { recursive: true }),
+      mkdir(join(root, "node_modules/pkg"), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(join(root, "src/main.cjs"), 'require("pkg/core.jsc");'),
+      writeFile(join(root, "src/node_modules/pkg/core.jsc"), "opaque"),
+      writeFile(
+        join(root, "node_modules/pkg/core.jsc.js"),
+        "module.exports = 1;",
+      ),
+    ]);
+    const { graph } = await analyze(root);
+    const edges = graph.edges.filter(
+      ({ properties }) => properties.specifier === "pkg/core.jsc",
+    );
+    expect(edges).toHaveLength(2);
+    for (const edge of edges)
+      expect(edge.properties).toMatchObject({
+        resolution_status: "unavailable",
+        resolved_path: null,
+        candidate_path: "src/node_modules/pkg/core.jsc",
+      });
+  });
+
+  it.each(["exports", "imports"] as const)(
+    "preserves %s package-map provenance for opaque selections",
+    async (mapKind) => {
+      const root = await createTestTempDirectory("rea-opaque-map-");
+      const directory = mapKind === "exports" ? "node_modules/pkg" : ".";
+      await mkdir(join(root, directory), { recursive: true });
+      const specifier = mapKind === "exports" ? "pkg" : "#core";
+      const target =
+        mapKind === "exports" ? "./core.jsc" : { "#core": "./core.jsc" };
+      await Promise.all([
+        writeFile(
+          join(root, "main.cjs"),
+          `require(${JSON.stringify(specifier)});`,
+        ),
+        writeFile(
+          join(root, directory, "package.json"),
+          JSON.stringify({ [mapKind]: target }),
+        ),
+        writeFile(join(root, directory, "core.jsc"), "opaque"),
+      ]);
+      const { graph } = await analyze(root);
+      const edge = graph.edges.find(
+        ({ properties }) =>
+          properties.module_link_kind === "require" &&
+          properties.specifier === specifier,
+      );
+      expect(edge?.properties.resolution_status).toBe("unavailable");
+      expect(edge?.evidence.limitations).toContainEqual(
+        expect.stringContaining(
+          `Package metadata ${directory === "." ? "" : directory + "/"}package.json, ${mapKind} target "./core.jsc":`,
+        ),
+      );
+    },
+  );
 });

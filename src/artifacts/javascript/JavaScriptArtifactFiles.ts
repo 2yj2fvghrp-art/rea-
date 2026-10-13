@@ -25,6 +25,7 @@ import type {
   JavaScriptArtifactFile,
   JavaScriptArtifactContainer,
   JavaScriptUnanalyzedArtifactFile,
+  JavaScriptUnanalyzedArtifactLookup,
   JavaScriptArtifactFileSet,
 } from "../../domain/javascript/javascriptArtifactFiles.js";
 
@@ -34,13 +35,6 @@ interface ExpectedFile {
   readonly bytes: number;
   readonly inventoryArtifactId: string;
   readonly kind: JavaScriptArtifactFileKind;
-}
-
-/** Inventoried regular file outside the relevant kinds; recorded, never read. */
-interface UnanalyzedFile {
-  readonly sha256: string;
-  readonly bytes: number;
-  readonly inventoryArtifactId: string;
 }
 
 interface ExpectedContainer {
@@ -54,8 +48,6 @@ interface ReadContext {
   readonly expectedContainers: ReadonlyMap<string, ExpectedContainer>;
   readonly registry: ArtifactPathRegistry;
   readonly files: JavaScriptArtifactFile[];
-  readonly unanalyzedExpected: ReadonlyMap<string, UnanalyzedFile>;
-  readonly unanalyzed: JavaScriptUnanalyzedArtifactFile[];
   readonly containers: JavaScriptArtifactContainer[];
   readonly signal: AbortSignal | undefined;
   readonly selectedPaths: ReadonlyMap<string, number> | undefined;
@@ -133,8 +125,6 @@ export const readJavaScriptArtifactFiles = async (
     expectedContainers: inventory.containers,
     registry: new ArtifactPathRegistry(),
     files: [],
-    unanalyzedExpected: inventory.unanalyzedFiles,
-    unanalyzed: [],
     containers: [],
     signal,
     selectedPaths,
@@ -151,8 +141,9 @@ export const readJavaScriptArtifactFiles = async (
   assertExpectedFilesWereVisited(expected, files);
   return {
     files,
-    unanalyzed_files: context.unanalyzed.sort((left, right) =>
-      compareUnicodeCodePoints(left.path, right.path),
+    unanalyzed_files: createUnanalyzedArtifactLookup(
+      snapshot,
+      context.containers,
     ),
     containers: context.containers.sort((left, right) =>
       compareUnicodeCodePoints(left.path, right.path),
@@ -258,18 +249,7 @@ const visitReader = async (
         continue;
       }
       const expected = context.expected.get(path);
-      if (expected === undefined) {
-        const unanalyzed = context.unanalyzedExpected.get(path);
-        if (unanalyzed !== undefined && entry.kind === "file")
-          context.unanalyzed.push({
-            path,
-            container_sha256: frame.containerSha256,
-            sha256: unanalyzed.sha256,
-            bytes: unanalyzed.bytes,
-            inventory_artifact_id: unanalyzed.inventoryArtifactId,
-          });
-        continue;
-      }
+      if (expected === undefined) continue;
       const text = await readText(context, {
         reader: frame.reader,
         entry,
@@ -402,13 +382,11 @@ const expectedInventory = (
   readonly files: ReadonlyMap<string, ExpectedFile>;
   readonly containers: ReadonlyMap<string, ExpectedContainer>;
   readonly unavailableFiles: ReadonlySet<string>;
-  readonly unanalyzedFiles: ReadonlyMap<string, UnanalyzedFile>;
 } => {
   const nodes = new Map(snapshot.nodes.map((node) => [node.artifact_id, node]));
   const files = new Map<string, ExpectedFile>();
   const containers = new Map<string, ExpectedContainer>();
   const unavailableFiles = new Set<string>();
-  const unanalyzedFiles = new Map<string, UnanalyzedFile>();
   for (const occurrence of snapshot.occurrences) {
     if (occurrence.logical_path === ".") continue;
     const isNestedAsar =
@@ -448,17 +426,7 @@ const expectedInventory = (
         },
       });
     const kind = relevantKind(occurrence.logical_path);
-    if (kind === undefined) {
-      // Keep the inventory identity so references can report present bytes
-      // as unanalyzed instead of absent. Nested ASARs are containers above.
-      if (!isNestedAsar)
-        unanalyzedFiles.set(occurrence.logical_path, {
-          sha256: node.sha256,
-          bytes: node.size,
-          inventoryArtifactId: node.artifact_id,
-        });
-      continue;
-    }
+    if (kind === undefined) continue;
     files.set(occurrence.logical_path, {
       path: occurrence.logical_path,
       sha256: node.sha256,
@@ -467,7 +435,78 @@ const expectedInventory = (
       kind,
     });
   }
-  return { files, containers, unavailableFiles, unanalyzedFiles };
+  return { files, containers, unavailableFiles };
+};
+
+const createUnanalyzedArtifactLookup = (
+  snapshot: ArtifactInventorySnapshot,
+  containers: readonly JavaScriptArtifactContainer[],
+): JavaScriptUnanalyzedArtifactLookup => {
+  const requested = new Map<
+    string,
+    JavaScriptUnanalyzedArtifactFile | undefined
+  >();
+  const directories = new Map<string, Map<string | undefined, boolean>>();
+  const containerFor = (path: string): string => {
+    let selected: JavaScriptArtifactContainer | undefined;
+    for (const container of containers)
+      if (
+        path.startsWith(`${container.path}/`) &&
+        (selected === undefined || container.path.length > selected.path.length)
+      )
+        selected = container;
+    return selected?.sha256 ?? snapshot.manifest.root_sha256;
+  };
+  const isOpaque = (occurrence: ArtifactOccurrence): boolean =>
+    occurrence.entry_kind === "file" &&
+    occurrence.artifact_id !== null &&
+    relevantKind(occurrence.logical_path) === undefined &&
+    !occurrence.logical_path.toLowerCase().endsWith(".asar");
+  return {
+    get(path) {
+      if (requested.has(path)) return requested.get(path);
+      const occurrence = snapshot.occurrences.find(
+        (entry) => entry.logical_path === path && isOpaque(entry),
+      );
+      const node =
+        occurrence === undefined
+          ? undefined
+          : snapshot.nodes.find(
+              (entry) => entry.artifact_id === occurrence.artifact_id,
+            );
+      const file =
+        node === undefined
+          ? undefined
+          : {
+              path,
+              container_sha256: containerFor(path),
+              sha256: node.sha256,
+              bytes: node.size,
+              inventory_artifact_id: node.artifact_id,
+            };
+      requested.set(path, file);
+      return file;
+    },
+    hasDirectory(path, containerSha256) {
+      let results = directories.get(path);
+      const previous = results?.get(containerSha256);
+      if (previous !== undefined) return previous;
+      const prefix = `${path}/`;
+      const present = snapshot.occurrences.some(
+        (entry) =>
+          entry.logical_path.startsWith(prefix) &&
+          isOpaque(entry) &&
+          (containerSha256 === undefined ||
+            containerFor(entry.logical_path) === containerSha256),
+      );
+      if (results === undefined) {
+        results = new Map();
+        directories.set(path, results);
+      }
+      results.set(containerSha256, present);
+      return present;
+    },
+  };
 };
 
 const readAll = async (
