@@ -285,6 +285,23 @@ as stale, and rerunning setup removes the flag to repair it. Native configuratio
 uses strict JSON; setup refuses comments, trailing commas and a BOM rather than
 writing a registration ZCode cannot load.
 
+## WorkBuddy
+
+For [WorkBuddy](https://www.workbuddy.cn/), setup registers `rea` in the
+top-level `mcpServers` table of the user-level `~/.workbuddy/mcp.json`. Entries
+carry `command`, `args`, and `env` (stdio, no transport discriminator), the same
+shape WorkBuddy uses for any local MCP server. WorkBuddy discovers personal
+skills from `~/.workbuddy/skills` (its user-level skill directory), so setup
+installs its skill copy there.
+
+Run `rea setup --client workbuddy --dry-run --json` to inspect the plan, then
+`rea setup --client workbuddy --yes --json` to approve it. Check the
+registration with `rea doctor --client workbuddy --json`. Restart WorkBuddy and
+trust the `rea` server in the custom connectors panel after setup. WorkBuddy
+loads `mcp.json` as strict JSON; an empty or missing file is created with the
+`rea` entry, and unrelated entries and formatting are preserved. Existing REA
+environment overrides are preserved when refreshing its command.
+
 ## DeepSeek Harness
 
 DeepSeek Harness registers MCP clients through a Cordis YAML patch sequence

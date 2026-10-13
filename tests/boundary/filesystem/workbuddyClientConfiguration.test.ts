@@ -1,0 +1,171 @@
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { clearClientLocationEnvironment } from "../../fixtures/clientEnvironment.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
+import {
+  installCanonicalSkill,
+  readInstalledSkillIdentity,
+} from "../../../src/application/SetupSkill.js";
+import { PRODUCT_IDENTITY } from "../../../src/identity.js";
+
+const skillSourceRoot = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "skills",
+  PRODUCT_IDENTITY.skillName,
+);
+
+const roots: string[] = [];
+beforeEach(clearClientLocationEnvironment);
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+const readWorkBuddyConfig = async (
+  home: string,
+): Promise<Record<string, unknown>> =>
+  JSON.parse(
+    await readFile(join(home, ".workbuddy", "mcp.json"), "utf8"),
+  ) as Record<string, unknown>;
+
+describe("WorkBuddy client configuration", () => {
+  it("registers rea in the top-level mcpServers table of ~/.workbuddy/mcp.json", async () => {
+    const home = await createTestTempDirectory("rea-workbuddy-");
+    roots.push(home);
+    const configPath = join(home, ".workbuddy", "mcp.json");
+    await mkdir(join(home, ".workbuddy"), { recursive: true });
+    await writeFile(configPath, '{"mcpServers":{}}');
+
+    const result = await configureClientConfiguration(
+      { name: "workbuddy", configPath, format: "json" },
+      {
+        HOPPER_LAUNCHER_PATH: "/Hopper Path",
+        GHIDRA_INSTALL_DIR: "/opt/ghidra",
+        JAVA_HOME: "/opt/jdk-21",
+      },
+      ["/abs/path/to/rea.mjs", "mcp"],
+    );
+    expect(result).toMatchObject({ status: "configured" });
+
+    const config = await readWorkBuddyConfig(home);
+    const rea = (config.mcpServers as Record<string, unknown>).rea as Record<
+      string,
+      unknown
+    >;
+    expect(rea).toBeDefined();
+    expect(rea.command).toBe("/abs/path/to/rea.mjs");
+    expect(rea.args).toEqual(["mcp"]);
+    expect((rea.env as Record<string, string>).GHIDRA_INSTALL_DIR).toBe(
+      "/opt/ghidra",
+    );
+    expect((rea.env as Record<string, string>).JAVA_HOME).toBe("/opt/jdk-21");
+  });
+
+  it("preserves unrelated servers and formatting when adding rea", async () => {
+    const home = await createTestTempDirectory("rea-workbuddy-keep-");
+    roots.push(home);
+    const configPath = join(home, ".workbuddy", "mcp.json");
+    await mkdir(join(home, ".workbuddy"), { recursive: true });
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          "already-there": {
+            command: "/usr/bin/other",
+            args: ["serve"],
+            env: {},
+          },
+        },
+      }),
+    );
+
+    expect(
+      await configureClientConfiguration(
+        { name: "workbuddy", configPath, format: "json" },
+        undefined,
+        ["/abs/path/to/rea.mjs", "mcp"],
+      ),
+    ).toMatchObject({ status: "configured" });
+
+    const config = await readWorkBuddyConfig(home);
+    const servers = config.mcpServers as Record<string, unknown>;
+    expect(servers["already-there"]).toEqual({
+      command: "/usr/bin/other",
+      args: ["serve"],
+      env: {},
+    });
+    expect((servers.rea as Record<string, unknown>).command).toBe(
+      "/abs/path/to/rea.mjs",
+    );
+  });
+
+  it("is idempotent: a second run reports unchanged and rewrites nothing", async () => {
+    const home = await createTestTempDirectory("rea-workbuddy-idem-");
+    roots.push(home);
+    const configPath = join(home, ".workbuddy", "mcp.json");
+    await mkdir(join(home, ".workbuddy"), { recursive: true });
+    await writeFile(configPath, '{"mcpServers":{}}');
+
+    const env = {
+      HOPPER_LAUNCHER_PATH: "/Hopper Path",
+      GHIDRA_INSTALL_DIR: "/opt/ghidra",
+      JAVA_HOME: "/opt/jdk-21",
+    };
+    const command = ["/abs/path/to/rea.mjs", "mcp"];
+    expect(
+      await configureClientConfiguration(
+        { name: "workbuddy", configPath, format: "json" },
+        env,
+        command,
+      ),
+    ).toMatchObject({ status: "configured" });
+
+    const first = await readFile(configPath, "utf8");
+    expect(
+      await configureClientConfiguration(
+        { name: "workbuddy", configPath, format: "json" },
+        env,
+        command,
+      ),
+    ).toEqual({ status: "unchanged" });
+    expect(await readFile(configPath, "utf8")).toBe(first);
+  });
+
+  it("installs the canonical REA skill into ~/.workbuddy/skills so the bundled workflow is available", async () => {
+    // The canonical skill is a build artifact generated by `npm run build`
+    // (artifacts:skills). When present, `rea setup --client workbuddy`
+    // installs it here; skip gracefully in checkouts that have not built it.
+    if (!existsSync(skillSourceRoot)) return;
+
+    const home = await createTestTempDirectory("rea-workbuddy-skill-");
+    roots.push(home);
+
+    const install = await installCanonicalSkill(home, ["workbuddy"]);
+    expect(install.ok).toBe(true);
+    if (install.ok) expect(install.value).toBe("installed");
+
+    const skillRoot = join(
+      home,
+      ".workbuddy",
+      "skills",
+      PRODUCT_IDENTITY.skillName,
+    );
+    const manifest = await readFile(join(skillRoot, "SKILL.md"), "utf8");
+    expect(
+      manifest.startsWith(`---\nname: ${PRODUCT_IDENTITY.skillName}\n`),
+    ).toBe(true);
+
+    const identity = await readInstalledSkillIdentity(home, ["workbuddy"]);
+    expect(identity?.canonical).toBe(true);
+  });
+});
