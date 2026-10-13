@@ -85,7 +85,8 @@ export const editHermesConfigurationYaml = (
   path: readonly string[],
   value: unknown,
 ): string => {
-  const document = parseHermesDocument(text);
+  // A plain Document, so a bare `---` root can be replaced by a new map.
+  const document: Document = parseHermesDocument(text);
   const root = document.contents;
   if (isScalar(root) && isEmptyYamlRoot(root)) {
     const map = document.createNode({});
