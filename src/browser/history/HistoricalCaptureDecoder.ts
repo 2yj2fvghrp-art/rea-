@@ -4,9 +4,9 @@ import {
   captureMemoryFailure,
 } from "./CaptureFailures.js";
 import {
-  HAR_CAPTURE_HEAP_ENFORCED,
-  HAR_CAPTURE_HEAP_LIMITS,
-  HAR_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES,
+  NODE_CAPTURE_HEAP_ENFORCED,
+  NODE_CAPTURE_HEAP_LIMITS,
+  NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES,
 } from "./CaptureRelease.js";
 import { projectAnalysisError } from "../../domain/analysisErrorProjection.js";
 import type { HistoricalCaptureFormatAdapter } from "./HistoricalCaptureFormatAdapter.js";
@@ -29,7 +29,7 @@ import { ProviderCleanupError } from "../../domain/providerCleanupError.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import {
   WEB_NETWORK_CAPTURE_LIMITS,
-  webNetworkCaptureSchema,
+  webNetworkCapturePayloadSchema,
   type InspectWebNetworkCaptureInput,
   type WebNetworkCapture,
 } from "../../domain/webNetworkCapture.js";
@@ -38,14 +38,11 @@ import { PrivateRuntimeRoot } from "../../process/PrivateRuntimeRoot.js";
 import { redactExplicitFailure } from "../../domain/explicitSensitiveFailure.js";
 
 const OPERATION = "inspect_web_network_capture";
-const decodedSchema = webNetworkCaptureSchema.omit({
-  artifact: true,
-  format: true,
-  runtime_attribution: true,
-  limitations: true,
-});
 const replySchema = z.discriminatedUnion("ok", [
-  z.strictObject({ ok: z.literal(true), value: decodedSchema }),
+  z.strictObject({
+    ok: z.literal(true),
+    value: webNetworkCapturePayloadSchema,
+  }),
   z.strictObject({
     ok: z.literal(false),
     reason: z.enum([
@@ -201,22 +198,37 @@ export class HistoricalCaptureDecoder {
           OPERATION,
           "Capture decoder changed the selected upstream profile identity.",
         );
-      result = ok({
-        ...reply.value,
+      const common = {
         artifact: {
           path: input.capture_path,
           sha256: snapshot.sha256,
           bytes: snapshot.bytes.length,
         },
-        format: input.format,
-        runtime_attribution: "unknown",
+
+        runtime_attribution: "unknown" as const,
         limitations: [
+          ...(adapter.limitations ?? []),
           "This is retained producer evidence, without live browser transaction IDs, scenario provenance, execution attribution or deployment authenticity. Recorded URLs are never fetched.",
           "Every record is decoded before selection; no partial success is returned on malformed input or a resource limit.",
           "Known authentication headers/cookies and explicitly marked literal values are excluded. Unknown extension names do not establish sensitivity.",
-          `A 32 MiB input, 96 MiB reply and 64-level nesting budget bound complete evidence. ${harMemoryLimitation()}; native decoding uses a 768 MiB Linux address-space limit. Each owned command has a 30-second deadline with independent cleanup.`,
+          `A 32 MiB input, 96 MiB reply and 64-level nesting budget bound complete evidence. ${nodeMemoryLimitation()}; mitmproxy decoding uses a 768 MiB Linux address-space limit. Each owned command has a 30-second deadline with independent cleanup.`,
         ],
-      });
+      };
+      if (input.format === "qlog") {
+        if (!("qlog" in reply.value))
+          throw new AnalysisOutputError(
+            OPERATION,
+            "Capture decoder omitted qlog transport facts.",
+          );
+        result = ok({ ...reply.value, ...common, format: "qlog" });
+      } else {
+        if ("qlog" in reply.value)
+          throw new AnalysisOutputError(
+            OPERATION,
+            "Capture decoder supplied inapplicable qlog transport facts.",
+          );
+        result = ok({ ...reply.value, ...common, format: input.format });
+      }
     } catch (cause: unknown) {
       result = err(
         redactExplicitFailure(
@@ -254,13 +266,13 @@ export class HistoricalCaptureDecoder {
   }
 }
 
-/** The HAR decoder runs on this executable; only Node.js enforces its V8 heap flags. */
-const harMemoryLimitation = (): string => {
-  if (HAR_CAPTURE_HEAP_ENFORCED)
-    return `HAR uses a ${String(HAR_CAPTURE_HEAP_LIMITS.oldGenerationMiB)} MiB Node old-generation heap`;
-  return HAR_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES === null
-    ? "HAR runs on Bun, which does not enforce REA's V8 heap flags"
-    : `HAR runs on Bun, which does not enforce REA's V8 heap flags, under a ${String(HAR_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES)}-byte Windows Job Object commit limit`;
+/** The Node capture decoder runs on this executable; only Node.js enforces its V8 heap flags. */
+const nodeMemoryLimitation = (): string => {
+  if (NODE_CAPTURE_HEAP_ENFORCED)
+    return `HAR/SAZ/qlog use a ${String(NODE_CAPTURE_HEAP_LIMITS.oldGenerationMiB)} MiB Node old-generation heap`;
+  return NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES === null
+    ? "HAR/SAZ/qlog run on Bun, which does not enforce REA's V8 heap flags"
+    : `HAR/SAZ/qlog run on Bun, which does not enforce REA's V8 heap flags, under a ${String(NODE_CAPTURE_PROCESS_MEMORY_LIMIT_BYTES)}-byte Windows Job Object commit limit`;
 };
 
 const replyFailureReason = (cause: unknown): string => {
