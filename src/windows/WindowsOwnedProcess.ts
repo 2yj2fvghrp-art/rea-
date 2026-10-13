@@ -68,6 +68,8 @@ export class WindowsOwnedProcess extends EventEmitter {
   #failure: string | undefined;
   #consecutivePollFailures = 0;
   #timer: NodeJS.Timeout | undefined;
+  #ownershipHold: NodeJS.Timeout | undefined;
+  #shutdownRequested = false;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
   #memoryLimitReached = false;
@@ -207,11 +209,18 @@ export class WindowsOwnedProcess extends EventEmitter {
           .number()
           .parse(this.#authority.call("process_alive", [this.#handle])) > 0
       );
-    return this.#closed
-      ? false
-      : z
-          .boolean()
-          .parse(this.#authority.call("process_terminate", [this.#handle]));
+    if (this.#closed) return false;
+    const signaled = z
+      .boolean()
+      .parse(this.#authority.call("process_terminate", [this.#handle]));
+    // Only an explicit termination decision may release the owner-exit guard.
+    // A failed observation alone must never close a kill-on-owner-close job.
+    this.#shutdownRequested = true;
+    if (this.#ownershipHold !== undefined) {
+      clearInterval(this.#ownershipHold);
+      this.#ownershipHold = undefined;
+    }
+    return signaled;
   }
 
   /** Terminate and verify that the entire job has settled before releasing it. */
@@ -257,7 +266,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   #schedule(delayMs = 25): void {
     if (this.#closed || this.#timer !== undefined) return;
     this.#timer = setTimeout(() => this.#poll(), delayMs);
-    if (this.#consecutivePollFailures > 0) this.#timer.unref();
+    if (this.#shutdownRequested) this.#timer.unref();
   }
 
   #poll(): void {
@@ -303,6 +312,10 @@ export class WindowsOwnedProcess extends EventEmitter {
       // retry restarts observation after persistent native failures.
       if (++this.#consecutivePollFailures < 3)
         this.#schedule(250 * 2 ** (this.#consecutivePollFailures - 1));
+      else if (!this.#shutdownRequested && this.#ownershipHold === undefined)
+        // Stop observation retries without allowing Node to abandon the live
+        // job. This reference does no polling; cleanup can restart observation.
+        this.#ownershipHold = setInterval(() => undefined, 2_147_483_647);
     }
   }
 
@@ -310,6 +323,10 @@ export class WindowsOwnedProcess extends EventEmitter {
     if (this.#closed) return;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#authority.call("process_close", [this.#handle]);
+    if (this.#ownershipHold !== undefined) {
+      clearInterval(this.#ownershipHold);
+      this.#ownershipHold = undefined;
+    }
     this.#closed = true;
     this.stdin?.destroy();
     this.stdout.end();

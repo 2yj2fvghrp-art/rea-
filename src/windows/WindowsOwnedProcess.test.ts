@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { WindowsNativeAuthority } from "./WindowsNativeLoader.js";
 import {
@@ -85,6 +85,20 @@ const authority = (
         if (observed instanceof Error) throw observed;
         return observed;
       }
+      if (operation === "process_terminate") {
+        polls.splice(
+          0,
+          polls.length,
+          options.jobMemoryLimit === true
+            ? {
+                ...settledPoll,
+                memoryLimitReached: false,
+                peakJobMemoryBytes: 0,
+              }
+            : settledPoll,
+        );
+        return true;
+      }
       if (operation === "process_close") return null;
       throw new Error(`Unmodeled native operation ${operation}`);
     },
@@ -158,10 +172,11 @@ describe("Windows Job Object memory limits", () => {
       expect(
         original.calls.some(({ operation }) => operation === "process_close"),
       ).toBe(false);
-      expect(vi.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(1);
       const closing = child.cleanup();
       await vi.advanceTimersByTimeAsync(25);
       expect(await closing).toEqual({ cleaned: true, signaled: true });
+      expect(vi.getTimerCount()).toBe(0);
       expect(
         original.calls.filter(({ operation }) => operation === "process_close"),
       ).toHaveLength(1);
@@ -212,6 +227,7 @@ describe("Windows Job Object memory limits", () => {
       ],
     });
     const child = launch(native);
+    onTestFinished(() => child.cleanup());
     const failure = once(child, "error");
     expect(calls[0]?.arguments_).toHaveLength(4);
     const [error] = await failure;
@@ -256,6 +272,7 @@ describe("Windows Job Object memory limits", () => {
       polls: [settledPoll],
     });
     const child = launch(native, LIMIT);
+    onTestFinished(() => child.cleanup());
     const [error] = await once(child, "error");
     expect(error).toBeInstanceOf(Error);
     expect(child.memoryLimitReached).toBe(false);
