@@ -91,9 +91,7 @@ interface ArtifactAnalysisContext<
 }
 
 /** Sources that name a global symbol registry key another source names. */
-const javascriptCompanionSources = (
-  fileSet: JavaScriptArtifactFileSet,
-) =>
+const javascriptCompanionSources = (fileSet: JavaScriptArtifactFileSet) =>
   globalSymbolRegistryCompanions(
     fileSet.files.flatMap((file) =>
       file.kind === "javascript" && file.text.included

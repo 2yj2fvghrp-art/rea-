@@ -100,7 +100,18 @@ export const collectElectronWrappedCallPaths = (
     links,
   });
   const linked = [...new Set([...links.values()].map((link) => link.resolver))];
-  const linkedDigests = new Map(linked.flatMap((other) => other.linkedSource === null ? [] : [[other.linkedSource.path, sha256Text(other.linkedSource.text)] as const]));
+  const linkedDigests = new Map(
+    linked.flatMap((other) =>
+      other.linkedSource === null
+        ? []
+        : [
+            [
+              other.linkedSource.path,
+              sha256Text(other.linkedSource.text),
+            ] as const,
+          ],
+    ),
+  );
   /** The linked source owning this syntax; null for this source. */
   const linkedSourceOf = (
     node: t.Node,
@@ -640,7 +651,13 @@ export const collectElectronWrappedCallPaths = (
               ? contextBridgeExposureArguments(path[2] ?? "", callArguments())
               : undefined;
           if (exposure)
-            bridge(node, exposure, branchContext, hasConditions(callee), calleeIdentity);
+            bridge(
+              node,
+              exposure,
+              branchContext,
+              hasConditions(callee),
+              calleeIdentity,
+            );
           else if (descriptor)
             ipc(
               node,
@@ -730,12 +747,11 @@ export const collectElectronWrappedCallPaths = (
       return;
     }
     if (t.isForOfStatement(node) && !node.await) {
+      walk(node.right, env, context);
       if (symbolicLoopHasExit(node)) {
         accumulator.unknownFindings += 1;
-        accumulator.electronCallPathLimitReached = true;
         return;
       }
-      walk(node.right, env, context);
       const iterable = resolver.evaluate(node.right, env);
       // Each element of an exact array is substituted into the loop body.
       const iterations =
@@ -768,7 +784,11 @@ export const collectElectronWrappedCallPaths = (
       const isolatedSeed = t.isStringLiteral(node.arguments[0])
         ? undefined
         : isolatedBridgeCall(node);
-      if (!t.isStringLiteral(node.arguments[0]) && isolatedSeed === undefined && !wrapperEntries.has(node))
+      if (
+        !t.isStringLiteral(node.arguments[0]) &&
+        isolatedSeed === undefined &&
+        !wrapperEntries.has(node)
+      )
         return;
       const env = isolatedSeed?.env ?? resolver.environmentAt(node);
       let context: PathContext = {
@@ -787,7 +807,17 @@ export const collectElectronWrappedCallPaths = (
         parent && !t.isFunction(parent);
         child = parent, parent = state.parentsByNode.get(child)
       ) {
-        if (t.isIfStatement(parent) || t.isConditionalExpression(parent)) {
+        if (
+          t.isForOfStatement(parent) &&
+          child !== parent.right &&
+          (parent.await || symbolicLoopHasExit(parent))
+        ) {
+          accumulator.unknownFindings += 1;
+          return;
+        } else if (
+          t.isIfStatement(parent) ||
+          t.isConditionalExpression(parent)
+        ) {
           if (child === parent.test) continue;
           const truth = symbolicTruth(resolver.evaluate(parent.test, env));
           const positive = child === parent.consequent;

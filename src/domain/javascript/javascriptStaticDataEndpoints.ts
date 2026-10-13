@@ -42,13 +42,16 @@ export const inspectDataEndpointNode = (
   }
   if (isFoldableData(node, parent)) {
     const value = staticConstantString(context.constants(node));
-    if (value !== undefined && addDataEndpoint(context, {
-      node,
-      value,
-      expression: sourceSlice(context.source, node),
-      mechanism: "folded-expression",
-      readAncestors,
-    })) {
+    if (
+      value !== undefined &&
+      addDataEndpoint(context, {
+        node,
+        value,
+        expression: sourceSlice(context.source, node),
+        mechanism: "folded-expression",
+        readAncestors,
+      })
+    ) {
       consumeValueNodes(context, node);
       return;
     }

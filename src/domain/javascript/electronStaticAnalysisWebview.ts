@@ -81,7 +81,8 @@ const collectWrites = (
   const names = new Map<string, ElectronWebviewAttachWrite["target"]>();
   const [, preferences, params] = handler.params;
   const bindingId = context.electron?.bindingId;
-  if (bindingId === undefined) return { writes: [], unknown: 1, preload: undefined };
+  if (bindingId === undefined)
+    return { writes: [], unknown: 1, preload: undefined };
   if (t.isIdentifier(preferences)) {
     const id = bindingId(preferences);
     if (id !== undefined) names.set(id, "web-preferences");
@@ -168,4 +169,3 @@ const writeTarget = (
     return { member: node.argument, operation: "delete", value: undefined };
   return undefined;
 };
-

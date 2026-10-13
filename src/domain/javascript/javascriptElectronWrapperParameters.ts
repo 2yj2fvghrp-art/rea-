@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { javascriptBindingAliasComponents } from "./javascriptBindingAliases.js";
 
 import type {
   ElectronApiIdentity,
@@ -237,6 +238,11 @@ export const createElectronWrapperParameters = (
   rootExport: (root: t.Node) => readonly string[] | undefined,
   memberWritten: ReadonlySet<string>,
 ) => {
+  const aliases = javascriptBindingAliasComponents(state);
+  const writtenBindings = new Set<string>();
+  for (const bindingId of memberWritten)
+    for (const alias of aliases.get(bindingId) ?? [bindingId])
+      writtenBindings.add(alias);
   const deferred: DeferredRoot[] = [];
   const parameters = new Map<string, WrapperParameter | null>();
   const callSites = new Map<string, t.CallExpression["arguments"][]>();
@@ -268,7 +274,8 @@ export const createElectronWrapperParameters = (
       if (!t.isIdentifier(root)) return;
       if (!members.every((member): member is string => member !== null)) return;
       const binding = resolveSemanticBindingState(state, root, root.name);
-      if (binding !== undefined && memberWritten.has(binding.bindingId)) return;
+      if (binding !== undefined && writtenBindings.has(binding.bindingId))
+        return;
       const local = semanticStableInitializer(binding, state);
       const alternatives =
         local?.projection.length === 0

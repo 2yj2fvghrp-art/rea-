@@ -52,7 +52,13 @@ export const symbolicLoopHasExit = (loop: t.ForOfStatement): boolean => {
     const node = pending.pop();
     if (node === undefined) break;
     if (t.isFunction(node)) continue;
-    if (t.isBreakStatement(node) || t.isContinueStatement(node) || t.isReturnStatement(node) || t.isThrowStatement(node)) return true;
+    if (
+      t.isBreakStatement(node) ||
+      t.isContinueStatement(node) ||
+      t.isReturnStatement(node) ||
+      t.isThrowStatement(node)
+    )
+      return true;
     pending.push(...childNodes(node));
   }
   return false;

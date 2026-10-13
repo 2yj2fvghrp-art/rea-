@@ -534,3 +534,14 @@ it("compares an object with nullish values but not with coerced primitives", () 
     ),
   ).toEqual([false, true, false, "unknown"]);
 });
+
+it.each([
+  `const o = { channel: 'app:' }; o.channel += 'open'; inspect(o.channel);`,
+  `const channels = ['a']; const alias = channels; alias.push('b'); inspect(channels);`,
+  `const channels = ['a']; const alias = channels; alias[key] = 'b'; inspect(channels);`,
+  `const channels = ['a']; const alias = channels; channels?.push?.('b'); inspect(alias);`,
+  `const o = {}; for (const k of ['a', 'b']) { o[k] = k; break; } inspect(o.b);`,
+  `const o = {}; for (const k of ['a', 'b']) { if (flag) continue; o[k] = k; } inspect(o.b);`,
+])("keeps unsupported writes and stopped iterations unknown: %s", (source) => {
+  expect(inspectOne(source).kind).toBe("unknown");
+});

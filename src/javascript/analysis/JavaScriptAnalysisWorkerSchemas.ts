@@ -249,7 +249,10 @@ const electron = z
               module_key: z.string().nullable(),
               module_runtime: z.string().nullable(),
               source_path: z.string().exactOptional(),
-              source_sha256: z.string().regex(/^[a-f0-9]{64}$/u).exactOptional(),
+              source_sha256: z
+                .string()
+                .regex(/^[a-f0-9]{64}$/u)
+                .exactOptional(),
             }),
           ),
           conditions: z.array(pathCondition),

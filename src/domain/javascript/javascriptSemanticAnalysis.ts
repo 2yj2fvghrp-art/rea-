@@ -533,7 +533,11 @@ export function* indexJavaScriptElectronIdentitySteps(
     },
   );
   collectedWrites = true;
-  const wrappers = createElectronWrapperParameters(state, rootExport, memberWritten);
+  const wrappers = createElectronWrapperParameters(
+    state,
+    rootExport,
+    memberWritten,
+  );
   const moduleOrigin = (node: t.Node): JavaScriptModuleOrigin | undefined => {
     const { root, members } = electronMemberPath(node);
     if (!members.every((member): member is string => member !== null))
@@ -591,7 +595,8 @@ export function* indexJavaScriptElectronIdentitySteps(
     if (intactExport(["electron", ...binding.path]))
       facts.set(root.start ?? -1, binding);
   return {
-    bindingId: (node) => resolveSemanticBindingState(state, node, node.name)?.bindingId,
+    bindingId: (node) =>
+      resolveSemanticBindingState(state, node, node.name)?.bindingId,
     callees: facts,
     apiObjects: resolveElectronApiObjects(
       state,

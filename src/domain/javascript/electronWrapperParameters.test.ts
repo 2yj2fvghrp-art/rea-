@@ -144,3 +144,16 @@ describe("Electron API identity through wrapper parameters", () => {
     ]);
   });
 });
+
+it.each([`deps.ipc = custom;`, `const alias = deps; alias.ipc = custom;`])(
+  "does not infer a replaced local dependency as Electron: %s",
+  (mutation) => {
+    const analysis = analyzeJavaScriptStaticSource(`
+    const electron = require('electron');
+    const deps = { ipc: electron.ipcMain };
+    ${mutation}
+    deps.ipc.handle('x', handler);
+  `);
+    expect(analysis.electron.ipc).toEqual([]);
+  },
+);

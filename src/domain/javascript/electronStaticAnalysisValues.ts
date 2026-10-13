@@ -1,6 +1,9 @@
 import * as t from "@babel/types";
 
-import { compositeKey, compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
+import {
+  compositeKey,
+  compareUnicodeCodePoints,
+} from "../unicodeCodePointOrder.js";
 import type {
   ElectronApiIdentity,
   ElectronStaticValue,
@@ -160,14 +163,29 @@ export const collectContextBridgeMembers = (
   const members = [...state.members.values()];
   return {
     status: t.isObjectExpression(node) ? "object-literal" : "object-binding",
-    members: [...new Set(members.filter((member) => !member.conditional).map((member) => member.segments.join(".")))].sort(compareUnicodeCodePoints),
-    conditional_members: [...new Set(members.filter((member) => member.conditional).map((member) => member.segments.join(".")))].sort(compareUnicodeCodePoints),
+    members: [
+      ...new Set(
+        members
+          .filter((member) => !member.conditional)
+          .map((member) => member.segments.join(".")),
+      ),
+    ].sort(compareUnicodeCodePoints),
+    conditional_members: [
+      ...new Set(
+        members
+          .filter((member) => member.conditional)
+          .map((member) => member.segments.join(".")),
+      ),
+    ].sort(compareUnicodeCodePoints),
     unknown: state.unknown,
   };
 };
 
 interface MemberState {
-  readonly members: Map<string, { readonly segments: readonly string[]; readonly conditional: boolean }>;
+  readonly members: Map<
+    string,
+    { readonly segments: readonly string[]; readonly conditional: boolean }
+  >;
   readonly expanded: Set<t.ObjectExpression>;
   unknown: number;
   readonly objects: ReadonlyMap<number, ElectronApiObject>;
@@ -196,7 +214,10 @@ const collectMembersAt = (
   if (prefix.length >= 8 || state.expanded.has(object)) {
     state.unknown += 1;
     for (const [key, member] of state.members)
-      if (member.segments.length > prefix.length + 1 && prefix.every((segment, index) => member.segments[index] === segment))
+      if (
+        member.segments.length > prefix.length + 1 &&
+        prefix.every((segment, index) => member.segments[index] === segment)
+      )
         state.members.delete(key);
     return;
   }
@@ -213,7 +234,9 @@ const collectMembersAt = (
     }
     const segments = [...prefix, name];
     for (const [key, member] of state.members)
-      if (segments.every((segment, index) => member.segments[index] === segment))
+      if (
+        segments.every((segment, index) => member.segments[index] === segment)
+      )
         state.members.delete(key);
     state.members.set(compositeKey(segments), { segments, conditional });
     const nested = t.isObjectProperty(property)
@@ -243,19 +266,27 @@ const collectSpread = (
     // An unknown replacement can change nested shapes, while existing own
     // top-level keys remain present after an object spread.
     for (const [key, member] of state.members)
-      if (member.segments.length > prefix.length + 1 && prefix.every((segment, index) => member.segments[index] === segment))
+      if (
+        member.segments.length > prefix.length + 1 &&
+        prefix.every((segment, index) => member.segments[index] === segment)
+      )
         state.members.delete(key);
     return;
   }
   if (branches.length === 1) {
     const object = objects[0];
-    if (object !== undefined) collectMembersAt(object, prefix, conditional, state);
+    if (object !== undefined)
+      collectMembersAt(object, prefix, conditional, state);
     return;
   }
   const alternatives: MemberState[] = [];
   for (const object of objects) {
     if (object === undefined) continue;
-    const branch: MemberState = { ...state, members: new Map(state.members), unknown: 0 };
+    const branch: MemberState = {
+      ...state,
+      members: new Map(state.members),
+      unknown: 0,
+    };
     collectMembersAt(object, prefix, conditional, branch);
     alternatives.push(branch);
     state.unknown += branch.unknown;
@@ -265,6 +296,12 @@ const collectSpread = (
     for (const [key, member] of branch.members)
       state.members.set(key, {
         segments: member.segments,
-        conditional: member.conditional || alternatives.some((alternative) => !alternative.members.has(key) || alternative.members.get(key)?.conditional === true),
+        conditional:
+          member.conditional ||
+          alternatives.some(
+            (alternative) =>
+              !alternative.members.has(key) ||
+              alternative.members.get(key)?.conditional === true,
+          ),
       });
 };

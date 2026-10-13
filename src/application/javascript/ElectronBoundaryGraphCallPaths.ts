@@ -157,7 +157,8 @@ export const addElectronCallPaths = (
             channel: transmission.finding.channel,
             pairing_basis: "unique-exact-literal-channel",
             resolution: "candidate",
-            handler_path: handler.finding.linked_operation?.source_path ?? to.file.path,
+            handler_path:
+              handler.finding.linked_operation?.source_path ?? to.file.path,
             conditions: to.path.conditions,
           },
           limitations: [
@@ -207,6 +208,9 @@ function sourceFileForStep(
   if (step.source_path === undefined) return file;
   const linked = context.filesByPath.get(step.source_path);
   if (linked === undefined || linked.sha256 !== step.source_sha256)
-    throw new AnalysisOutputError("analyze_javascript_application", "A linked Electron step does not match its retained source artifact.");
+    throw new AnalysisOutputError(
+      "analyze_javascript_application",
+      "A linked Electron step does not match its retained source artifact.",
+    );
   return linked;
 }

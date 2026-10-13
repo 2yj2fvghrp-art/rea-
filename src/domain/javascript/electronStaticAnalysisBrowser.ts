@@ -185,7 +185,10 @@ const inspectContextBridge = (
   const keyNode = argumentNode(exposure.apiKey);
   const apiNode = argumentNode(exposure.api);
   const key = electronStaticValue(context, keyNode);
-  const api = collectContextBridgeMembers(apiNode, context.electron?.apiObjects);
+  const api = collectContextBridgeMembers(
+    apiNode,
+    context.electron?.apiObjects,
+  );
   const worldId =
     exposure.worldId === null
       ? null

@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { javascriptBindingAliasComponents } from "./javascriptBindingAliases.js";
 import {
   readExactJavaScriptLiteral,
   semanticStaticPropertyKey,
@@ -24,7 +25,10 @@ import {
   indexJavaScriptElectronIdentitySteps,
   type JavaScriptElectronIdentity,
 } from "./javascriptSemanticAnalysis.js";
-import { symbolicLoopHasExit, symbolicLogicalRight } from "./javascriptSymbolicControlFlow.js";
+import {
+  symbolicLoopHasExit,
+  symbolicLogicalRight,
+} from "./javascriptSymbolicControlFlow.js";
 import {
   moduleFactory,
   modulePropertyName,
@@ -118,7 +122,9 @@ export class JavaScriptSymbolicBindings {
   readonly #electronIdentity: JavaScriptElectronIdentity;
   readonly #namespaceOwners = new Map<string, t.Function>();
   readonly #unsafeExports = new Set<string>();
-  readonly #aliasesByBinding = new Map<string, string[]>();
+  readonly #aliasComponents: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly #arrayAliasComponents = new WeakSet<ReadonlySet<string>>();
+  readonly #invalidatedAliasComponents = new WeakSet<ReadonlySet<string>>();
   readonly #bootstrapTables: Array<{
     readonly tableAliases: ReadonlySet<string>;
     readonly modules: Map<string, SymbolicValue>;
@@ -158,7 +164,19 @@ export class JavaScriptSymbolicBindings {
     this.#links = options.links ?? new Map();
     this.linkedSource = options.linkedSource ?? null;
     this.#electronIdentity = electronIdentity;
-    this.#indexBindingAliases();
+    this.#aliasComponents = javascriptBindingAliasComponents(state);
+    for (const binding of state.bindingsById.values()) {
+      const aliases = this.#aliasComponents.get(binding.bindingId);
+      if (
+        aliases !== undefined &&
+        binding.initializers.some((initializer) =>
+          t.isArrayExpression(
+            unwrapJavaScriptExpression(initializer.node).node,
+          ),
+        )
+      )
+        this.#arrayAliasComponents.add(aliases);
+    }
     this.#interop = createSemanticModuleInterop(state);
     traverseJavaScriptAst(program, {
       enter: (node) => {
@@ -170,29 +188,41 @@ export class JavaScriptSymbolicBindings {
     traverseJavaScriptAst(program, {
       enter: (node) => {
         if (t.isAssignmentExpression(node))
-          this.#indexWrite(node.left, node.operator === "=" ? node.right : node, node);
+          this.#indexWrite(
+            node.left,
+            node.operator === "=" ? node.right : node,
+            node,
+          );
         if (t.isUpdateExpression(node))
           this.#indexWrite(node.argument, node, node);
         if (t.isUnaryExpression(node, { operator: "delete" }))
           this.#indexWrite(node.argument, node, node);
         // Array literals are exact only while no in-place mutator can reach them.
-        if (
-          t.isCallExpression(node) &&
-          t.isMemberExpression(node.callee) &&
-          t.isIdentifier(node.callee.object) &&
-          ARRAY_MUTATORS.has(
-            semanticStaticPropertyKey(
-              node.callee.property,
-              node.callee.computed,
-            ) ?? "",
-          )
-        ) {
-          const binding = resolveSemanticBindingState(
-            state,
-            node.callee.object,
-            node.callee.object.name,
-          );
-          if (binding) for (const id of this.#aliasComponent(binding.bindingId)) this.#mutated.add(id);
+        if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+          const callee = unwrapJavaScriptExpression(node.callee).node;
+          if (
+            t.isMemberExpression(callee) ||
+            t.isOptionalMemberExpression(callee)
+          ) {
+            const receiver = unwrapJavaScriptExpression(callee.object).node;
+            if (
+              t.isIdentifier(receiver) &&
+              ARRAY_MUTATORS.has(
+                semanticStaticPropertyKey(callee.property, callee.computed) ??
+                  "",
+              )
+            ) {
+              const binding = resolveSemanticBindingState(
+                state,
+                receiver,
+                receiver.name,
+              );
+              if (binding !== undefined)
+                this.#invalidateAliases(
+                  this.#aliasComponent(binding.bindingId),
+                );
+            }
+          }
         }
         if (
           t.isCallExpression(node) &&
@@ -821,7 +851,10 @@ export class JavaScriptSymbolicBindings {
     }
     if (t.isSequenceExpression(node))
       return this.evaluate(node.expressions.at(-1), env);
-    if (t.isAssignmentExpression(node)) return node.operator === "=" ? this.evaluate(node.right, env) : symbolicUnknown("compound assignment depends on its prior value");
+    if (t.isAssignmentExpression(node))
+      return node.operator === "="
+        ? this.evaluate(node.right, env)
+        : symbolicUnknown("compound assignment depends on its prior value");
     if (t.isAwaitExpression(node)) return this.evaluate(node.argument, env);
     // Negation reads truthiness, which objects and functions also have.
     if (t.isUnaryExpression(node, { operator: "!" })) {
@@ -1608,16 +1641,7 @@ export class JavaScriptSymbolicBindings {
     const bootstrap = javascriptBootstrapAt(call, this.state);
     if (!bootstrap) return;
     const modules = new Map<string, SymbolicValue>();
-    const tableAliases = new Set([bootstrap.tableBindingId]);
-    const pendingAliases = [bootstrap.tableBindingId];
-    while (pendingAliases.length > 0) {
-      const source = pendingAliases.pop()!;
-      for (const alias of this.#aliasesByBinding.get(source) ?? [])
-        if (!tableAliases.has(alias)) {
-          tableAliases.add(alias);
-          pendingAliases.push(alias);
-        }
-    }
+    const tableAliases = this.#aliasComponent(bootstrap.tableBindingId);
     for (const property of bootstrap.table.properties) {
       const factory = moduleFactory(property);
       if (!factory) continue;
@@ -1699,41 +1723,21 @@ export class JavaScriptSymbolicBindings {
     });
   }
 
-  #indexBindingAliases(): void {
-    for (const binding of this.state.bindingsById.values()) {
-      const initializer = binding.initializers[0];
-      if (
-        !initializer ||
-        initializer.entryBody !== undefined ||
-        initializer.projection.length !== 0 ||
-        !t.isIdentifier(initializer.node)
-      )
-        continue;
-      const source = resolveSemanticBindingState(
-        this.state,
-        initializer.node,
-        initializer.node.name,
-      );
-      if (!source) continue;
-      const aliases = this.#aliasesByBinding.get(source.bindingId) ?? [];
-      aliases.push(binding.bindingId);
-      this.#aliasesByBinding.set(source.bindingId, aliases);
-      const sources = this.#aliasesByBinding.get(binding.bindingId) ?? [];
-      sources.push(source.bindingId);
-      this.#aliasesByBinding.set(binding.bindingId, sources);
-    }
+  #aliasComponent(bindingId: string): ReadonlySet<string> {
+    return this.#aliasComponents.get(bindingId) ?? new Set([bindingId]);
   }
 
-  #aliasComponent(bindingId: string): ReadonlySet<string> {
-    const found = new Set<string>();
-    const pending = [bindingId];
-    while (pending.length > 0) {
-      const id = pending.pop();
-      if (id === undefined || found.has(id)) continue;
-      found.add(id);
-      pending.push(...(this.#aliasesByBinding.get(id) ?? []));
-    }
-    return found;
+  #arrayAliasComponent(bindingId: string): ReadonlySet<string> | undefined {
+    const aliases = this.#aliasComponents.get(bindingId);
+    return aliases !== undefined && this.#arrayAliasComponents.has(aliases)
+      ? aliases
+      : undefined;
+  }
+
+  #invalidateAliases(aliases: ReadonlySet<string>): void {
+    if (this.#invalidatedAliasComponents.has(aliases)) return;
+    this.#invalidatedAliasComponents.add(aliases);
+    for (const id of aliases) this.#mutated.add(id);
   }
 
   #invalidateBootstrapTable(
@@ -1758,17 +1762,22 @@ export class JavaScriptSymbolicBindings {
 
   #indexWrite(target: t.Node, value: t.Node, site: t.Node): void {
     const path: string[] = [];
-    let root = target;
+    let root = unwrapJavaScriptExpression(target).node;
     let dynamic = false;
-    while (t.isMemberExpression(root)) {
+    while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
       const key = semanticStaticPropertyKey(root.property, root.computed);
       if (key === null) dynamic = true;
       else path.unshift(key);
-      root = root.object;
+      root = unwrapJavaScriptExpression(root.object).node;
     }
     if (dynamic && t.isIdentifier(root)) {
       const binding = resolveSemanticBindingState(this.state, root, root.name);
       if (!binding) return;
+      const arrayAliases = this.#arrayAliasComponent(binding.bindingId);
+      if (arrayAliases !== undefined) {
+        this.#invalidateAliases(arrayAliases);
+        return;
+      }
       const key =
         t.isAssignmentExpression(site, { operator: "=" }) &&
         t.isMemberExpression(target) &&
@@ -1788,13 +1797,7 @@ export class JavaScriptSymbolicBindings {
         );
       return;
     }
-    if (t.isIdentifier(root)) {
-      const binding = resolveSemanticBindingState(this.state, root, root.name);
-      const aliases = binding === undefined ? [] : [...this.#aliasComponent(binding.bindingId)];
-      if (path.length > 0 && aliases.some((id) => this.state.bindingsById.get(id)?.initializers.some((initializer) => t.isArrayExpression(initializer.node))))
-        for (const id of aliases) this.#mutated.add(id);
-      this.#addWrite(root, path, value, site);
-    }
+    if (t.isIdentifier(root)) this.#addWrite(root, path, value, site);
   }
 
   /** The enclosing `for...of` in the same function whose declaration binds this key. */
@@ -1838,7 +1841,10 @@ export class JavaScriptSymbolicBindings {
     const writes: (SymbolicMemberWrite & { readonly site: t.Node })[] = [];
     for (const write of this.#writes.get(bindingId) ?? []) {
       const key = write.path.length === 1 ? write.path[0] : undefined;
-      if (key === undefined || !t.isAssignmentExpression(write.site, { operator: "=" }))
+      if (
+        key === undefined ||
+        !t.isAssignmentExpression(write.site, { operator: "=" })
+      )
         return undefined;
       writes.push({ key, value: write.value, site: write.site });
     }
@@ -1916,6 +1922,11 @@ export class JavaScriptSymbolicBindings {
   ): void {
     const binding = resolveSemanticBindingState(this.state, root, root.name);
     if (!binding) return;
+    const arrayAliases =
+      path.length === 0
+        ? undefined
+        : this.#arrayAliasComponent(binding.bindingId);
+    if (arrayAliases !== undefined) this.#invalidateAliases(arrayAliases);
     const alias = this.#exportAliases.get(binding.bindingId);
     if (this.#moduleBindings.has(binding.bindingId) && path[0] !== "exports")
       return;

@@ -98,7 +98,10 @@ export const parseContentSecurityPolicy = (
     if (!DIRECTIVES.has(name) && requireMultiple) return undefined;
     directives.push({ name, sources });
   }
-  if (!directives.some(({ name }) => DIRECTIVES.has(name)) || (requireMultiple && directives.length < 2))
+  if (
+    !directives.some(({ name }) => DIRECTIVES.has(name)) ||
+    (requireMultiple && directives.length < 2)
+  )
     return undefined;
   return { directives, concerns: concerns(directives) };
 };
@@ -116,7 +119,11 @@ const concerns = (
     sources.some((source) => source.includes(DYNAMIC_SOURCE)),
   );
   for (const { name, sources } of effective) {
-    if (!SOURCE_LIST.test(name) || sources.some((source) => source.includes(DYNAMIC_SOURCE))) continue;
+    if (
+      !SOURCE_LIST.test(name) ||
+      sources.some((source) => source.includes(DYNAMIC_SOURCE))
+    )
+      continue;
     const lowered = sources.map((source) => source.toLowerCase());
     const nonceOrHash = lowered.some((source) =>
       /^'(?:nonce|sha256|sha384|sha512)-/u.test(source),
@@ -133,11 +140,17 @@ const concerns = (
       const missingAttribute = !names.has("script-src-attr");
       if (missingElement || missingAttribute)
         found.push({
-          directive: missingElement && missingAttribute ? "script-src" : missingElement ? "script-src-elem" : "script-src-attr",
+          directive:
+            missingElement && missingAttribute
+              ? "script-src"
+              : missingElement
+                ? "script-src-elem"
+                : "script-src-attr",
           source: null,
-          reason: missingElement && missingAttribute
-            ? "Neither script-src nor default-src is present, so scripts are unrestricted."
-            : `No ${missingElement ? "script-src-elem" : "script-src-attr"}, script-src or default-src restricts ${missingElement ? "script elements" : "script attributes"}.`,
+          reason:
+            missingElement && missingAttribute
+              ? "Neither script-src nor default-src is present, so scripts are unrestricted."
+              : `No ${missingElement ? "script-src-elem" : "script-src-attr"}, script-src or default-src restricts ${missingElement ? "script elements" : "script attributes"}.`,
         });
     }
     if (!names.has("object-src"))
