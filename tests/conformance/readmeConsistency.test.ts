@@ -60,6 +60,15 @@ describe("onboarding documentation product facts", () => {
       ).toEqual(english);
   });
 
+  it("keeps the fork README distinct from upstream release instructions", async () => {
+    const rel = await readFile(resolve("README.md"), "utf8");
+    const upstream = await readFile(resolve("UPSTREAM_REA_README.md"), "utf8");
+    expect(rel).toContain("# REL");
+    expect(rel).toContain("node rel.mjs demo");
+    expect(rel).toContain("rel/CONNECT_CODEX.md");
+    expect(upstream).toContain("# REA: Reverse Engineer Anything");
+  });
+
   it("preserves Persian joiners in links to GitHub-rendered headings", async () => {
     const persian = await readFile(resolve("docs/readme/README_fa.md"), "utf8");
     // Confirmed against GitHub's rendered README, which retains U+200C.
