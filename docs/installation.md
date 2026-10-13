@@ -143,11 +143,15 @@ Select the part you want to check:
 | One agent registration              | `rea doctor --client codex --json` (see [client IDs](#supported-agents)) |
 | Installed workflow instructions     | `rea doctor --skill --json`                                              |
 
-On Linux, static JavaScript/Electron analysis also requires a procps-compatible
-`ps` command on REA's `PATH` for process ownership inspection. If `ps` is
-missing or cannot perform that ownership check, install `procps` or put another
-procps-compatible `ps` earlier on `PATH`; otherwise analysis fails with a
-`capability_unavailable` error before launching a child process.
+### Linux owned-process prerequisite
+
+On Linux, workflows that launch an REA-owned child process require a
+procps-compatible `ps` command on REA's `PATH` so REA can inspect process
+ownership before launch. This applies across providers, including Ghidra,
+JADX, firmware tools, and JavaScript/Electron analysis. If `ps` is missing or
+cannot perform that ownership check, install `procps` or put another
+procps-compatible `ps` earlier on `PATH`; otherwise the workflow fails with a
+`capability_unavailable` error before launching the child process.
 
 A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `healthy` and the exit status. Other checks appear in `informational_checks`;
