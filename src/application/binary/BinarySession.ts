@@ -390,13 +390,15 @@ export class BinarySession
         return err(new AnalysisCancelledError("execute_rizin_command"));
 
       const activeAtDispatch = this.#active;
-      if (activeAtDispatch?.route.identity.id === "ghidra")
+      if (activeAtDispatch?.route.binding?.identity.id === "ghidra")
         return err(
           new AnalysisOutputError(
             "execute_rizin_command",
             "Close the active Ghidra session explicitly before an external mutation; rebinding would discard its ephemeral analysis edits.",
           ),
         );
+      const pendingCleanup = await this.#retryPendingCleanup();
+      if (!pendingCleanup.ok) return err(pendingCleanup.error);
       // Rizin commands are unrestricted: a hard link, symlink alias, plugin,
       // or command script can mutate the active file through another path.
       // Rebind every active session after the admitted call rather than infer

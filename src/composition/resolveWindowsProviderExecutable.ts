@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { waitForAbortable, ABORTED } from "../process/AbortablePromise.js";
 import { ProviderStartupDeadline } from "../process/ProviderDeadline.js";
 import {
+  AnalysisCapabilityUnavailableError,
   AnalysisCancelledError,
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
@@ -14,6 +15,12 @@ export const resolveWindowsProviderExecutable = async (
   options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<string> => {
   const root = win32.parse(executable).root;
+  if (root.startsWith("\\\\"))
+    throw new AnalysisCapabilityUnavailableError(
+      "windows-command-runner",
+      "resolve_provider_executable",
+      "Provider executables on network shares are unsupported; use a drive-local path.",
+    );
   if (win32.isAbsolute(executable) && root.length > 1) return executable;
   if (root !== "" || executable.includes("/") || executable.includes("\\"))
     return resolve(executable);
@@ -40,6 +47,7 @@ export const resolveWindowsProviderExecutable = async (
   try {
     for (const entry of pathEntries) {
       if (entry.length === 0) continue;
+      if (win32.parse(entry).root.startsWith("\\\\")) continue;
       for (const extension of extensions) {
         const candidate = resolve(entry, `${executable}${extension}`);
         // The captured PATH is Windows-formatted even when this resolver is unit-tested elsewhere.

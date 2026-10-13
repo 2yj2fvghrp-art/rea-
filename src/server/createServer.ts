@@ -518,6 +518,8 @@ export const createServer = (
         : { availabilityPolicy: availability.policy }),
       androidAnalysisAvailability: (signal) =>
         android.inspectAvailability(signal),
+      retryReverseEngineeringCleanup: () =>
+        reverseEngineering.retryCleanup("open_binary"),
       startedAt,
     });
   }

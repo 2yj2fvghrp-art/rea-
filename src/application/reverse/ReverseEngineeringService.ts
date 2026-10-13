@@ -353,6 +353,12 @@ export class ReverseEngineeringService {
     let completionStatus: "complete" | "unknown" = "complete";
     let failure: AnalysisError | undefined;
     let cleanupOwner: ProviderProcessSupervisor | undefined;
+    let launchReported = false;
+    const reportLaunch = (): void => {
+      if (launchReported) return;
+      launchReported = true;
+      onLaunched?.();
+    };
     try {
       const output = await this.#run(command, args, {
         env: {
@@ -363,10 +369,10 @@ export class ReverseEngineeringService {
         timeout: DEFAULT_TIMEOUT_MS,
         stopSignal: "SIGTERM",
         maxBuffer: MAX_COMBINED_OUTPUT_BYTES,
-        ...(onLaunched === undefined ? {} : { onLaunched }),
+        onLaunched: reportLaunch,
       });
       // Injected runners may only report completion, which also proves dispatch.
-      onLaunched?.();
+      reportLaunch();
       stdout = output.stdout;
       stderr = output.stderr;
       stdoutBytes = output.stdoutBytes ?? Buffer.byteLength(stdout);

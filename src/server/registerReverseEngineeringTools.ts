@@ -16,7 +16,10 @@ import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import type { ToolResultDelivery } from "./toolResult.js";
 import type { WithAdmittedAnalysis } from "./analysisAdmission.js";
 import { rizinInputSchema } from "../domain/reverseEngineering.js";
-import { AnalysisOutputError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisCapabilityUnavailableError,
+  AnalysisOutputError,
+} from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { Result } from "../domain/result.js";
 
@@ -78,6 +81,17 @@ export const registerReverseEngineeringTools = (
     toolRegistrationOptions(rizin),
     async (input, context: ServerContext) => {
       const parsed = rizinInputSchema.safeParse(input);
+      if (parsed.success && withAdmittedExternalMutation === undefined)
+        return deliverFailure(
+          new AnalysisCapabilityUnavailableError(
+            "fixed-analysis",
+            rizin.name,
+            "A fixed analysis source cannot be refreshed after an unrestricted external mutation.",
+          ),
+          rizin,
+          delivery,
+          recordEvidence,
+        );
       if (parsed.success && withAdmittedExternalMutation !== undefined) {
         const cleanup = await service.retryCleanup();
         if (!cleanup.ok)
