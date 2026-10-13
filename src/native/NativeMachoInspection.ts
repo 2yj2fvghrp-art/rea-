@@ -9,6 +9,10 @@ import {
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { NativeCommandCapture } from "./CommandRunner.js";
+import {
+  MACHO_ARCHITECTURE_POLICIES,
+  selectMachoArchitectureName,
+} from "./MachoArchitectureSelection.js";
 import { parseDyldSymbols } from "./parsers/dyldInfo.js";
 import { parseLipoArchitectures } from "./parsers/lipo.js";
 import { withoutEchoedPathHeader } from "./parsers/echoedPath.js";
@@ -79,8 +83,11 @@ export const inspectNativeMacho = async (
     );
   const selectedArchitecture =
     selection.status === "selected" ? selection.architecture : null;
-  for (const [tool, prefix] of REQUIRED_SLICE_COMMANDS) {
-    const captured = await context.run(
+  const runSliceCommand = ([tool, prefix]: readonly [
+    string,
+    readonly string[],
+  ]) =>
+    context.run(
       tool,
       [
         ...prefix,
@@ -89,20 +96,18 @@ export const inspectNativeMacho = async (
       ],
       context.signal,
     );
+  // Slice commands only read the selected artifact, so launch them together.
+  // Every launch settles before return; declared order fixes provenance and
+  // which failure is reported.
+  const [required, optional] = await Promise.all([
+    Promise.all(REQUIRED_SLICE_COMMANDS.map(runSliceCommand)),
+    runSliceCommand(OPTIONAL_VTOOL_COMMAND),
+  ]);
+  for (const captured of required) {
     if (!captured.ok) return err(captured.error);
     captures.push(captured.value);
   }
   const limitations: string[] = [];
-  const [tool, prefix] = OPTIONAL_VTOOL_COMMAND;
-  const optional = await context.run(
-    tool,
-    [
-      ...prefix,
-      ...selectedArchitectureArguments(tool, selectedArchitecture),
-      context.target.path,
-    ],
-    context.signal,
-  );
   if (optional.ok) captures.push(optional.value);
   else if (optional.error._tag === "AnalysisCapabilityUnavailableError")
     limitations.push(VTOOL_UNAVAILABLE_LIMITATION);
@@ -398,23 +403,22 @@ const selectArchitecture = (
   target: BinaryTarget,
   available: readonly string[],
 ): ArchitectureSelection => {
-  if (target.kind !== "executable" || target.availableArchitectures.length < 2)
+  // BinaryTarget lists CPU families and lipo lists slices. A universal file
+  // can hold several slices of one family (arm64e and arm64e.x1), and slice
+  // tools without -arch print every slice.
+  if (
+    target.kind !== "executable" ||
+    (target.availableArchitectures.length < 2 && available.length < 2)
+  )
     return { status: "unfiltered" };
   const normalized =
     target.architecture === "x86" ? "i386" : target.architecture;
-  if (available.includes(normalized))
-    return { status: "selected", architecture: normalized };
-  // BinaryTarget intentionally normalizes ARM64 CPU subtypes. Recover the
-  // concrete arm64e slice name from lipo before invoking slice-aware tools.
-  if (normalized === "arm64") {
-    const arm64e = available.find((architecture) => architecture === "arm64e");
-    if (arm64e !== undefined)
-      return { status: "selected", architecture: arm64e };
-    const variant = available.find((architecture) =>
-      /^arm64e\.[A-Za-z0-9_]+$/u.test(architecture),
-    );
-    if (variant !== undefined)
-      return { status: "selected", architecture: variant };
-  }
+  const policy = MACHO_ARCHITECTURE_POLICIES[target.architecture];
+  const selected =
+    policy === undefined
+      ? available.find((name) => name === normalized)
+      : selectMachoArchitectureName(policy, available);
+  if (selected !== undefined)
+    return { status: "selected", architecture: selected };
   return { status: "absent", architecture: normalized };
 };
