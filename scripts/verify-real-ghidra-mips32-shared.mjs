@@ -176,7 +176,19 @@ async function verifyFixture(byteOrder, softFloat) {
     assert.equal(coverage.rel32_local, 1, "Local REL32");
     assert.equal(coverage.rel32_defined, 1, "REL32 to an exported function");
     assert.equal(coverage.rel32_external, 1, "REL32 to an import");
-    assert.equal(coverage.tls, 2, "TLS DTPMOD32/DTPREL32 slots");
+    // Each slot is checked UNSUPPORTED with unchanged bytes by the oracle.
+    assert.equal(coverage.tls, 3, "TLS DTPMOD32/DTPREL32/TPREL32 slots");
+    assert.deepEqual(
+      [
+        ...new Set(
+          independent.relocations
+            .map((item) => item.type)
+            .filter((type) => type >= 38),
+        ),
+      ].sort((left, right) => left - right),
+      [38, 39, 47],
+      "Fixture declares every admitted TLS relocation type",
+    );
     assert.ok(coverage.got_defined > 0, "Global GOT entry for a definition");
     assert.ok(coverage.got_external >= 3, "Global GOT entries for imports");
     // Page entries for .text (zero in the file) and for the data segment.

@@ -335,7 +335,8 @@ address, or the lazy-binding stub address plus the offset for an imported
 function that has one, and local entries their original word plus the offset,
 zero included; TLS slots must stay `UNSUPPORTED` with unchanged bytes. The
 fixture covers a local, a defined and an undefined REL32 target, imported code
-and data, both local GOT page entries, and DTPMOD32/DTPREL32. The lane also
+and data, both local GOT page entries, general-dynamic DTPMOD32/DTPREL32 and
+initial-exec TPREL32. The lane also
 requires the entry function to name the static function called through the
 zero page entry and the import both through its GOT entry and through its REL32
 pointer, reach `__tls_get_addr`, and contain no FPU inputs, plus the committed
