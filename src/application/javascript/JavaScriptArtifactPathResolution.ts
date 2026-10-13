@@ -106,6 +106,25 @@ const encodePackageMetadataUrl = (path: string): URL =>
     path.split("/").map(encodeURIComponent).join("/"),
     PACKAGE_ARTIFACT_ROOT_URL,
   );
+// URL identity cannot represent lone UTF-16 surrogates. Preserve their exact
+// code units as WTF-8 escapes for structural comparisons only; a lookup must
+// still report the original base as unavailable.
+const encodeStructuralPackageSegment = (segment: string): string => {
+  let encoded = "";
+  for (const point of segment) {
+    const code = point.charCodeAt(0);
+    if (point.length === 1 && code >= 0xd800 && code <= 0xdfff)
+      encoded += [
+        0xe0 | (code >> 12),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f),
+      ]
+        .map((byte) => `%${byte.toString(16).toUpperCase()}`)
+        .join("");
+    else encoded += encodeURIComponent(point);
+  }
+  return encoded;
+};
 const packageMetadataUrl = (
   path: string,
 ): Result<
@@ -117,8 +136,9 @@ const packageMetadataUrl = (
   } catch (cause: unknown) {
     if (!(cause instanceof URIError)) throw cause;
     return err({
-      structuralUrl: encodePackageMetadataUrl(
-        Buffer.from(path, "utf8").toString("utf8"),
+      structuralUrl: new URL(
+        path.split("/").map(encodeStructuralPackageSegment).join("/"),
+        PACKAGE_ARTIFACT_ROOT_URL,
       ),
       limitation: `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
     });
@@ -131,6 +151,8 @@ interface PackageFileTarget {
   readonly url: URL;
   /** Structural validation remains possible when the inventory base has no URL identity. */
   readonly lookupLimitation?: string;
+  /** Final URL admission excludes an unrepresentable structural base. */
+  readonly encodedAdmissionPath?: string;
 }
 
 type CandidateResolution = {
@@ -687,8 +709,14 @@ const resolveLegacyEsmSubpath = (
     return unresolvedCandidate("rejected", [
       "The resolved candidate escapes the canonical artifact root.",
     ]);
+  const packageBase = new URL(
+    ".",
+    metadataUrl.ok ? metadataUrl.value : metadataUrl.error.structuralUrl,
+  ).pathname;
   const encodedPath = url.pathname.slice(
-    PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
+    !metadataUrl.ok && url.pathname.startsWith(packageBase)
+      ? packageBase.length
+      : PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
   );
   const rejected = rejectDeclaration(encodedPath);
   if (rejected !== null) return rejected;
@@ -763,9 +791,9 @@ const resolveExportTarget = (
         "The selected package URL contains encoded separator bytes.",
       ]),
     );
-  const encodedPath = target.url.pathname.slice(
-    PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
-  );
+  const encodedPath =
+    target.encodedAdmissionPath ??
+    target.url.pathname.slice(PACKAGE_ARTIFACT_ROOT_URL.pathname.length);
   const rejected = rejectDeclaration(encodedPath);
   if (rejected !== null) return withTargetSource(rejected);
   const decoded = decodeModuleUrlPath(encodedPath);
@@ -1194,7 +1222,12 @@ const selectPackageExport = (
     url: selected.url,
     ...(selected.lookupLimitation === undefined
       ? {}
-      : { lookupLimitation: selected.lookupLimitation }),
+      : {
+          lookupLimitation: selected.lookupLimitation,
+          ...(selected.encodedAdmissionPath === undefined
+            ? {}
+            : { encodedAdmissionPath: selected.encodedAdmissionPath }),
+        }),
   };
 };
 
@@ -1275,7 +1308,12 @@ const selectStringPackageTarget = (
     url,
     ...(metadataUrl.ok
       ? {}
-      : { lookupLimitation: metadataUrl.error.limitation }),
+      : {
+          lookupLimitation: metadataUrl.error.limitation,
+          encodedAdmissionPath: url.pathname.slice(
+            new URL(".", packageUrl).pathname.length,
+          ),
+        }),
   };
 };
 
