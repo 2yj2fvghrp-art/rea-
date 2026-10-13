@@ -409,7 +409,10 @@ const isConfigurationAccessorCall = (
       (t.isIdentifier(host)
         ? origin.importedPath.at(-1) === "workspace" ||
           initializer?.projection.at(-1) === "workspace"
-        : origin.importedPath.length === 0 || origin.importedPath[0] === "*"),
+        : origin.importedPath.length === 0 ||
+          (origin.importedPath.length === 1 &&
+            (origin.importedPath[0] === "*" ||
+              origin.importedPath[0] === "default"))),
   );
 };
 

@@ -323,6 +323,8 @@ describe("web bundle API classification parity", () => {
 
   it("keeps configuration setting reads out of endpoints in both analyzers", () => {
     const source = `
+      import vscodeDefault from "vscode";
+      vscodeDefault.workspace.getConfiguration("git").get("default-setting");
       vscode.workspace.getConfiguration("git").get("autofetch");
       workspace.getConfiguration("git").get("enabled", true);
       const config = vscode.workspace.getConfiguration("git");
