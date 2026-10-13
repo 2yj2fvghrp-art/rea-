@@ -103,8 +103,11 @@ metadata coverage while preserving the readable literal. Toolchain conventions
 can differ; this conformance observation does not establish runtime rejection.
 A missing `#US` stream is one stream-level issue; a malformed item is reported
 against its token. Either makes coverage partial, and readable literals remain.
-Normalized CIL digests do not include decoded values. Older member Evidence
-without `user_strings` reads as `null`: not examined.
+Normalized CIL digests do not include decoded values, and
+`compare_managed_members` does not compare literals: an unchanged method does
+not establish unchanged strings, and the comparison says so in its
+limitations. Older member Evidence without `user_strings` reads as `null`: not
+examined.
 
 ## Analysis objective
 

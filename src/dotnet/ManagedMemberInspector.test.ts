@@ -298,6 +298,9 @@ describe("managed user strings", () => {
     expect(body?.normalized_il_sha256).toBe(
       inspect({ ilBody }).methods[0]?.body.normalized_il_sha256,
     );
+    expect(comparisonLimitations(result, result)).toContain(
+      "ldstr literals are observed but not compared; normalized CIL keeps #US tokens rather than decoded text, so an unchanged method does not establish unchanged string literals.",
+    );
   });
 
   it("ignores a 0x70 token carried by an instruction other than ldstr", () => {
@@ -402,7 +405,11 @@ describe("managed user strings", () => {
     ).toBeNull();
 
     const { user_strings: _omitted, ...legacy } = inspect({});
-    expect(managedMemberInspectionSchema.parse(legacy).user_strings).toBeNull();
+    const parsed = managedMemberInspectionSchema.parse(legacy);
+    expect(parsed.user_strings).toBeNull();
+    expect(comparisonLimitations(parsed, inspect({}))).toContain(
+      "At least one managed member observation predates user-string inspection; its ldstr literals are unknown.",
+    );
   });
 });
 
