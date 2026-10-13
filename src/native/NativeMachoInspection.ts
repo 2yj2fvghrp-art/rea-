@@ -67,7 +67,10 @@ export const inspectNativeMacho = async (
   }
   const lipo = captures.find(({ tool }) => tool === "lipo");
   if (lipo === undefined) throw new TypeError("Missing lipo capture");
-  const architectures = parseLipoArchitectures(lipo.stdout);
+  const architectures = parseLipoArchitectures(
+    lipo.stdout,
+    context.target.path,
+  );
   const availableArchitectures = architectures.map(({ name }) => name);
   const selection = selectArchitecture(context.target, availableArchitectures);
   if (selection.status === "absent")

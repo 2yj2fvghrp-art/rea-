@@ -15,7 +15,20 @@ const architectureSchema = z.object({
 export type LipoArchitecture = z.infer<typeof architectureSchema>;
 
 /** Parse `lipo -detailed_info` into deterministic slice metadata. */
-export const parseLipoArchitectures = (output: string): LipoArchitecture[] => {
+export const parseLipoArchitectures = (
+  output: string,
+  operandPath?: string,
+): LipoArchitecture[] => {
+  // The echoed FAT operand is one value, even when its pathname contains lines.
+  if (operandPath !== undefined) {
+    const header = `Fat header in: ${operandPath}`;
+    if (output.startsWith(header)) {
+      if (output.startsWith("\r\n", header.length))
+        output = output.slice(header.length + 2);
+      else if (output.startsWith("\n", header.length))
+        output = output.slice(header.length + 1);
+    }
+  }
   // lipo echoes a thin file's pathname verbatim, including embedded newlines.
   // Match its final architecture field before splitting records into lines.
   const thinArchitecture =

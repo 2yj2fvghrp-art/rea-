@@ -34,15 +34,19 @@ const resultSchema = z.object({
 describe.skipIf(process.platform !== "darwin")(
   "native Mach-O CLI with echoed path text",
   () => {
-    cliTest(
-      "does not read load commands or symbols from the file name",
-      async ({ cli }) => {
-        const directory = await createTestTempDirectory("rea-macho-echo-");
+    const lipoName = "tool\narchitecture forged\n    offset 123\n    size 32";
+    for (const [facts, command, filename] of [
+      ["load commands or symbols", "inspect-macho", FORGED_NAME],
+      ["FAT architecture records", "inspect-macho", lipoName],
+      ["FAT architecture inventory", "list-architectures", lipoName],
+    ] as const) {
+      cliTest(`does not read ${facts} from the file name`, async ({ cli }) => {
+        const directory = await createTestTempDirectory("rea-native-cli-echo-");
         const inspect = async (name: string) => {
           const path = join(directory, name);
           await copyFile("/usr/bin/true", path);
           const result = await cli.run({
-            arguments: ["inspect-macho", path, "--json"],
+            arguments: [command, path, "--json"],
             environment,
           });
           expect(result.exitCode).toBe(0);
@@ -51,10 +55,10 @@ describe.skipIf(process.platform !== "darwin")(
           ).normalized_result;
           return facts;
         };
-        const forged = await inspect(FORGED_NAME);
+        const forged = await inspect(filename);
         expect(forged).toEqual(await inspect("tool"));
         expect(JSON.stringify(forged)).not.toMatch(/forged|4242/u);
-      },
-    );
+      });
+    }
   },
 );
