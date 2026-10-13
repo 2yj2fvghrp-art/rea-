@@ -225,13 +225,16 @@ describe("getters reached through unknown receiver keys", () => {
   });
 
   it("carries the active getter cycle guard through method-return widening", () => {
-    const value = resultValue(`class R {
+    const value = resultValue(`const shared = { x: 1 };
+    class R {
+      constructor() { this[k1] = { x: shared }; }
       method() { return this[k3].x; }
       get s() { return this.method(); }
       get a() { return this[k1].x; }
       get b() { return this[k2].y; }
     }
-    new R().a.x = 2;`);
+    new R().a.x = 2;
+    return shared.x;`);
     expect(value?.status).toBe("unknown");
   });
 });
