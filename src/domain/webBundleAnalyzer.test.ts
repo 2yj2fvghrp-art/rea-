@@ -657,3 +657,21 @@ it("keeps RPC lexical identity and bundled factory recognition in captured scrip
   ]);
   expect(result.completeness.status).toBe("complete");
 });
+
+describe("template import literals", () => {
+  it("keeps expression-free template strings", () => {
+    const result = analyzeCapturedWebBundle(
+      inspection(
+        'const lazy = import(`./lazy.js`); const dynamic = import(`./${"name"}.js`);',
+      ),
+    );
+    expect(result.observations.chunks.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "dynamic_import",
+          specifier: "./lazy.js",
+        }),
+      ]),
+    );
+  });
+});

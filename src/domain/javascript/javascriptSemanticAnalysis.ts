@@ -624,11 +624,12 @@ function* collectDefinitionsSteps(
         openedScopes.set(node, 1);
         parentScope = dynamicScope;
       }
-      bindOuterDeclaration(
-        node,
-        namespaceDeclarationScope(node, parentScope, state),
-        state,
-      );
+      if (t.isFunctionDeclaration(node) || t.isClassDeclaration(node))
+        bindOuterDeclaration(
+          node,
+          namespaceDeclarationScope(node, parentScope, state),
+          state,
+        );
       const nested = nestedScope(node, parent, parentScope, state);
       if (nested !== undefined) {
         stack.push(nested);
