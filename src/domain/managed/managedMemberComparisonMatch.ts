@@ -490,7 +490,7 @@ const observedBy =
  * the other side's selection stays one-sided, so a type selection never yields
  * a remap to a member of a type the other side did not inspect.
  */
-const matchObserved = <Item extends { readonly declaring_type: string | null }>(
+const matchObserved = <Item extends Declared>(
   left: readonly Item[],
   right: readonly Item[],
   sides: {
