@@ -1,7 +1,9 @@
 import { packetFieldsCatalogSchema } from "../../../src/domain/captures/packetFields.js";
 import { OwnedCommandFailure } from "../../../src/process/OwnedCommand.js";
 import { it, expect, onTestFinished } from "vitest";
-import { writeFile, readdir, chmod, symlink } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { writeFile, readdir, chmod, symlink, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readStableArtifact } from "../../../src/artifacts/readStableArtifact.js";
 import { TsharkCaptureProvider } from "../../../src/captures/TsharkCaptureProvider.js";
@@ -659,3 +661,107 @@ it("preserves discovery resource ownership through CLI shutdown retries", async 
     await f.service.close();
   }
 });
+
+it.each(["process", "workspace", "process-then-workspace"] as const)(
+  "reports only unresolved %s cleanup resources and retries their owner",
+  async (failure) => {
+    const directory = await createTestTempDirectory("rea-capture-retained-");
+    const root = join(directory, "workspace");
+    await mkdir(root);
+    const command = join(directory, "inert-tool");
+    const path = join(directory, "recording.pcap");
+    await writeFile(command, "inert fixture, never executed", { mode: 0o700 });
+    await writeFile(
+      path,
+      Buffer.from("d4c3b2a1020004000000000000000000ffff000001000000", "hex"),
+    );
+    let settled = false;
+    let processSettled = false;
+    let runId = "";
+    let cleanupCalls = 0;
+    let rootCloses = 0;
+    let launches = 0;
+    const provider = new TsharkCaptureProvider(
+      { REA_TSHARK_COMMAND: command, REA_TSHARK_PRLIMIT_COMMAND: command },
+      async (spawn) => {
+        launches++;
+        runId = spawn.runId;
+        const handle = Object.assign(new EventEmitter(), {
+          pid: 4242,
+          stdout: null,
+          stderr: null,
+          exitCode: 0,
+          signalCode: null,
+          kill: () => {
+            throw new Error("No process signals allowed");
+          },
+        });
+        setTimeout(() => handle.emit("close", 0, null), 0);
+        return {
+          process: handle,
+          ownership: { runId, leaderPid: 4242, processGroupId: 4242 },
+          cleanup: async () => {
+            cleanupCalls++;
+            return failure === "workspace" || processSettled || settled
+              ? { cleaned: true as const, signaled: false }
+              : {
+                  cleaned: false as const,
+                  reason: "fixture observation unavailable",
+                };
+          },
+        };
+      },
+      async () => ({
+        path: root,
+        close: async () => {
+          rootCloses++;
+          if (failure !== "process" && !settled)
+            throw new Error("workspace removal unavailable");
+        },
+      }),
+      "linux",
+      readStableArtifact,
+      async (limits) => limits,
+    );
+    const service = new PacketCaptureService(provider);
+    onTestFinished(async () => {
+      settled = true;
+      await service.close();
+    });
+    const result = await service.inspect({ path, fields: ["ip.addr"] });
+    if (result.ok) throw new Error("Expected cleanup failure");
+    const resources =
+      failure !== "workspace"
+        ? [runId, root, "pid:4242", "process-group:4242"]
+        : [root];
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "cleanup_incomplete",
+      details: { resources },
+    });
+    expect(launches).toBe(1);
+    expect(cleanupCalls).toBe(failure !== "workspace" ? 2 : 1);
+    expect(rootCloses).toBe(failure !== "workspace" ? 0 : 1);
+    await expect(service.close()).rejects.toMatchObject({
+      cleanupResources: resources,
+    });
+    expect(cleanupCalls).toBe(failure !== "workspace" ? 3 : 1);
+    if (failure === "process-then-workspace") {
+      processSettled = true;
+      await expect(service.close()).rejects.toMatchObject({
+        cleanupResources: [root],
+      });
+      expect(cleanupCalls).toBe(4);
+      expect(rootCloses).toBe(1);
+    }
+    settled = true;
+    await service.close();
+    expect(cleanupCalls).toBe(failure !== "workspace" ? 4 : 1);
+    expect(rootCloses).toBe(
+      failure === "process" ? 1 : failure === "workspace" ? 3 : 2,
+    );
+    await service.close();
+    expect(rootCloses).toBe(
+      failure === "process" ? 1 : failure === "workspace" ? 3 : 2,
+    );
+  },
+);

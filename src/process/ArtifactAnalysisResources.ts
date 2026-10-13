@@ -24,7 +24,7 @@ import {
 } from "./LinuxResourceLimits.js";
 import type { PrivateRuntimeRoot } from "./PrivateRuntimeRoot.js";
 import type { ProviderProcessSupervisor } from "./ProviderProcess.js";
-import { OwnedCommandFailure } from "./OwnedCommand.js";
+import { OwnedCommandFailure, ownedCommandResources } from "./OwnedCommand.js";
 
 export type ArtifactAnalysisRuntime = Pick<
   PrivateRuntimeRoot,
@@ -125,8 +125,19 @@ export class ArtifactAnalysisResources {
     });
   }
 
-  get pendingPaths(): readonly string[] {
-    return [...this.#pending.keys()].map((root) => root.path);
+  #resourcesFor(root: ArtifactAnalysisRuntime): readonly string[] {
+    // Recorded launch coordinates identify the retained owner; they do not
+    // establish that a process is alive or authorize signaling that PID.
+    const ownership = this.#pending.get(root)?.owner?.launch.ownership;
+    return ownership === undefined
+      ? [root.path]
+      : ownedCommandResources(ownership, root.path);
+  }
+
+  get #pendingResources(): readonly string[] {
+    return [...this.#pending.keys()].flatMap((root) =>
+      this.#resourcesFor(root),
+    );
   }
 
   async release(): Promise<void> {
@@ -143,7 +154,7 @@ export class ArtifactAnalysisResources {
       } catch (cause: unknown) {
         throw new ProviderCleanupError(
           this.providerId,
-          [root.path],
+          this.#resourcesFor(root),
           { reason: String(cause) },
           { operation: retained.operation, cause },
         );
@@ -239,7 +250,7 @@ export class ArtifactAnalysisResources {
       return err(
         new ProviderCleanupError(
           this.providerId,
-          this.pendingPaths,
+          this.#pendingResources,
           {
             reason: String(cause),
             previous_error: result.ok
