@@ -118,10 +118,9 @@ const describeCause = (
   cause: unknown,
   redact: (value: string, incomplete?: boolean) => string,
   depth = 0,
-  omitCommandOutcome = false,
 ): JsonValue => {
   if (cause instanceof Error) {
-    return describeErrorCause(cause, redact, depth, omitCommandOutcome);
+    return describeErrorCause(cause, redact, depth);
   }
   if (typeof cause === "string") {
     const message = boundedUtf8Text(redact(cause), MAX_CAUSE_MESSAGE_BYTES);
@@ -142,7 +141,6 @@ const describeErrorCause = (
   cause: Error,
   redact: (value: string, incomplete?: boolean) => string,
   depth: number,
-  omitCommandOutcome: boolean,
 ): JsonValue => {
   const message = boundedUtf8Text(
     redact(cause.message),
@@ -156,7 +154,7 @@ const describeErrorCause = (
     ...(message.truncated ? { message_truncated: true } : {}),
     ...causeCode(cause, redact),
     ...causeSignal(cause, redact),
-    ...(omitCommandOutcome ? {} : causeCommandOutcome(cause, redact)),
+    ...causeCommandOutcome(cause, redact),
     ...causeCompilerOutcome(cause, redact),
     ...causeLaunchOutcome(cause, redact),
     ...nestedErrorCause(cause, redact, depth),
@@ -274,6 +272,9 @@ const causeLaunchOutcome = (
             stderr: redact(output.stderr, output.stderr_truncated),
           })),
         };
+  // LaunchSupport owns its typed per-stream outcome on the nested cause.
+  // Other launch commands keep the generic outer launch envelope.
+  if (cause.cause instanceof GhidraLaunchSupportError) return launchSupport;
   const output = cause.capturedOutput;
   if (output === undefined) return launchSupport;
   const stdout = boundedUtf8Text(
@@ -319,12 +320,5 @@ const nestedErrorCause = (
 ): Record<string, JsonValue> => {
   if (!("cause" in cause)) return {};
   if (depth >= MAX_CAUSE_DEPTH) return { cause_truncated: true };
-  return {
-    cause: describeCause(
-      cause.cause,
-      redact,
-      depth + 1,
-      cause instanceof GhidraLaunchError && cause.capturedOutput !== undefined,
-    ),
-  };
+  return { cause: describeCause(cause.cause, redact, depth + 1) };
 };

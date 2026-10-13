@@ -183,9 +183,13 @@ describe.skipIf(process.platform === "win32")(
         const cause = failure.diagnostics.failure_cause;
         if (mode === "env-failure") {
           expect(cause).toMatchObject({
-            launch_outcome: {
-              exit_code: 3,
-              stderr: expect.stringContaining(`-envvars: ${warning}`),
+            cause: {
+              cause: { code: 3 },
+              command_outcome: {
+                stderr: expect.stringContaining(`-envvars: ${warning}`),
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
             },
           });
         } else {
@@ -200,9 +204,13 @@ describe.skipIf(process.platform === "win32")(
         }
         if (mode === "vm-failure")
           expect(cause).toMatchObject({
-            launch_outcome: {
-              exit_code: 3,
-              stderr: expect.stringContaining(`-vmargs: ${warning}`),
+            cause: {
+              cause: { code: 3 },
+              command_outcome: {
+                stderr: expect.stringContaining(`-vmargs: ${warning}`),
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
             },
           });
         if (mode === "vm-malformed")
@@ -231,10 +239,12 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(failure.diagnostics).toMatchObject({
         failure_cause: {
-          launch_outcome: {
-            outputTruncated: true,
-            truncated: true,
-            killed: true,
+          cause: {
+            command_outcome: {
+              outputTruncated: true,
+              stderrTruncated: true,
+              killed: true,
+            },
           },
         },
       });

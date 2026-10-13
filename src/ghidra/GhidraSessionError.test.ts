@@ -261,15 +261,19 @@ it("redacts capture-cut credentials and emits LaunchSupport streams once", () =>
   ).diagnostics;
   expect(diagnostics).toMatchObject({
     failure_cause: {
-      launch_outcome: {
-        stderr: "helper failed [REDACTED]",
-        killed: true,
-        outputTruncated: true,
+      cause: {
+        command_outcome: {
+          stderr: "helper failed [REDACTED]",
+          killed: true,
+          outputTruncated: true,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
       },
     },
   });
   const serialized = JSON.stringify(diagnostics);
   expect(serialized.split("unique helper output")).toHaveLength(2);
-  expect(serialized).not.toContain("command_outcome");
+  expect(serialized).not.toContain("launch_outcome");
   expect(serialized).not.toContain(token.slice(0, 21));
 });
