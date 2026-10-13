@@ -142,8 +142,8 @@ try {
   await mkdir(join(capture, "app/scripts"), { recursive: true });
   await copyFile(node, join(capture, "runtime/node.exe"));
   await copyFile(
-    join(directory, "runtime/launch.cjs"),
-    join(capture, "runtime/launch.cjs"),
+    join(directory, "runtime/launch.mjs"),
+    join(capture, "runtime/launch.mjs"),
   );
   await copyFile(join(directory, "rea.ps1"), join(capture, "rea.ps1"));
   await writeFile(
@@ -157,6 +157,9 @@ try {
     "",
     "中文",
     "literal !REA_PORTABLE_PROBE! and %REA_PORTABLE_PROBE%",
+    'slash\\"quote',
+    "line\nbreak",
+    "tab\tvalue",
   ];
   await assert.rejects(powershell(capture, capturedArgs), (cause) => {
     assert.equal(cause.code, 17);

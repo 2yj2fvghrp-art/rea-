@@ -124,8 +124,8 @@ await mkdir(join(output, "runtime"));
 for (const name of ["node.exe", "LICENSE"])
   await cp(join(runtime, name), join(output, "runtime", name));
 await cp(
-  join(root, "scripts/lib/portable-node-bootstrap.cjs"),
-  join(output, "runtime/launch.cjs"),
+  join(root, "scripts/lib/portable-node-bootstrap.mjs"),
+  join(output, "runtime/launch.mjs"),
 );
 await writeFile(
   join(output, "rea.cmd"),

@@ -88,6 +88,7 @@ export const SCOPES = {
     "src/application/Update.test.ts",
     "tests/process-global/updateMaintenance.test.ts",
     "tests/process-global/runnerCancellation.test.ts",
+    "tests/process-global/setupConfigurationRollback.test.ts",
     "tests/conformance/providers/ghidra/realGhidraWindowsWorkflow.test.ts",
     "tests/boundary/filesystem/directoryArtifactReaderOpen.test.ts",
     "tests/boundary/filesystem/javascriptPackagePrecedence.test.ts",

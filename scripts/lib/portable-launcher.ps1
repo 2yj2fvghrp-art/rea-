@@ -1,14 +1,14 @@
 # Use PowerShell's native boundary for CLI cwd, pipelines and interactive TTY.
 $ErrorActionPreference = 'Stop'
 $reaNode = Join-Path $PSScriptRoot 'runtime/node.exe'
-$reaArguments = @((Join-Path $PSScriptRoot 'runtime/launch.cjs')) + $args
+$reaArguments = @((Join-Path $PSScriptRoot 'runtime/launch.mjs')) + $args
 $reaQuotedArguments = @($reaArguments | ForEach-Object {
   '"' + (([string]$_ -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
 })
 # The dispatcher's two stdio modes need inherited handles: Windows PowerShell
 # buffers native-command input, which deadlocks a full-duplex MCP connection.
 # Do not bind script pipeline input: it would consume the protocol's stdin.
-if ($args.Count -eq 1 -and $args[0] -in @('mcp', '--mcp')) {
+if ($args.Count -eq 1 -and $args[0] -cin @('mcp', '--mcp')) {
   $reaStart = [System.Diagnostics.ProcessStartInfo]::new()
   $reaStart.FileName = $reaNode
   $reaStart.UseShellExecute = $false
