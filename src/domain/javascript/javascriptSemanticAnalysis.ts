@@ -552,6 +552,7 @@ const createState = (
     bindings: new Map(),
   };
   return {
+    program,
     staticImportResolutionMode,
     parentsByNode: new WeakMap(),
     scopes: [root],

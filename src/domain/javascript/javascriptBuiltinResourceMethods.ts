@@ -9,6 +9,3 @@ export const BUILTIN_RESOURCE_METHODS = {
 export const BUILTIN_RESOURCE_SPECIFIERS = Object.keys(
   BUILTIN_RESOURCE_METHODS,
 );
-export const BUILTIN_RESOURCE_ACQUIRE_METHODS = [
-  ...new Set(Object.values(BUILTIN_RESOURCE_METHODS).flat()),
-];

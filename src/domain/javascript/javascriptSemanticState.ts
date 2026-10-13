@@ -69,6 +69,7 @@ export interface JavaScriptSemanticScopeState {
 
 /** Shared state for semantic collection and evaluation. */
 export interface JavaScriptSemanticAnalysisState {
+  readonly program: t.Program;
   /** Effective loader for static imports in this source artifact. */
   readonly staticImportResolutionMode: JavaScriptModuleResolutionMode;
   readonly parentsByNode: WeakMap<t.Node, t.Node>;

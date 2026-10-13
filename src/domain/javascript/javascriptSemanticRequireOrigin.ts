@@ -26,6 +26,54 @@ const globalProcessReplacements = new WeakMap<
   JavaScriptSemanticAnalysisState,
   readonly (t.Node | undefined)[]
 >();
+const moduleRequireWrites = new WeakMap<
+  JavaScriptSemanticAnalysisState,
+  readonly t.Node[]
+>();
+
+const writesModuleRequire = (
+  state: JavaScriptSemanticAnalysisState,
+): readonly t.Node[] => {
+  const cached = moduleRequireWrites.get(state);
+  if (cached !== undefined) return cached;
+  const writes: t.Node[] = [];
+  const pending: t.Node[] = [state.program];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) break;
+    const target = t.isAssignmentExpression(node)
+      ? node.left
+      : t.isUpdateExpression(node) ||
+          t.isUnaryExpression(node, { operator: "delete" })
+        ? node.argument
+        : undefined;
+    if (target !== undefined) {
+      const members: string[] = [];
+      let root: t.Node = target;
+      while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
+        const key = semanticStaticPropertyKey(root.property, root.computed);
+        if (key === null) break;
+        members.unshift(key);
+        root = root.object;
+      }
+      if (
+        members[0] === "require" &&
+        t.isIdentifier(root, { name: "module" }) &&
+        resolveSemanticBindingState(state, root, "module") === undefined &&
+        !semanticResolutionBlocked(state, root, "module")
+      )
+        writes.push(node);
+    }
+    for (const key of t.VISITOR_KEYS[node.type] ?? []) {
+      const value = (node as unknown as Record<string, unknown>)[key];
+      if (Array.isArray(value)) {
+        for (const child of value) if (t.isNode(child)) pending.push(child);
+      } else if (t.isNode(value)) pending.push(value);
+    }
+  }
+  moduleRequireWrites.set(state, writes);
+  return writes;
+};
 
 /** Whether the original global process object can still own effects at this source site. */
 export const semanticOriginalGlobalProcessAt = (
@@ -69,6 +117,38 @@ export const semanticGlobalProcessOrigin = (
     ? { specifier: "node:process", importedPath: [], resolutionMode: "require" }
     : undefined;
 
+/** Resolve qualified global-object process references, preserving their selected path. */
+export const semanticGlobalProcessPathOrigin = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptModuleOrigin | undefined => {
+  const members: string[] = [];
+  let current = unwrapJavaScriptExpression(node).node;
+  while (
+    t.isMemberExpression(current) ||
+    t.isOptionalMemberExpression(current)
+  ) {
+    const key = semanticStaticPropertyKey(current.property, current.computed);
+    if (key === null) return undefined;
+    members.unshift(key);
+    current = unwrapJavaScriptExpression(current.object).node;
+  }
+  if (
+    !t.isIdentifier(current) ||
+    !["globalThis", "global", "window", "self"].includes(current.name) ||
+    resolveSemanticBindingState(state, current, current.name) !== undefined ||
+    semanticResolutionBlocked(state, current, current.name) ||
+    members[0] !== "process" ||
+    !semanticOriginalGlobalProcessAt(node, state)
+  )
+    return undefined;
+  return {
+    specifier: "node:process",
+    importedPath: members.slice(1),
+    resolutionMode: "require",
+  };
+};
+
 /** Recover an unshadowed literal require origin and its exact member path. */
 export const semanticRequireOrigin = (
   node: t.Node | null | undefined,
@@ -94,6 +174,17 @@ export const semanticRequireOrigin = (
   if (
     !t.isCallExpression(current) ||
     !t.isIdentifier(current.callee, { name: "require" })
+  )
+    return undefined;
+  if (
+    writesModuleRequire(state).some(
+      (write) =>
+        !semanticTopLevelEffectFollowsCapture(
+          current,
+          write,
+          state.parentsByNode,
+        ),
+    )
   )
     return undefined;
   if (

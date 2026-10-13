@@ -494,6 +494,8 @@ it.each([
   `globalThis.process.env = {}; const proc = require('process'); const value = proc.env.MODE;`,
   `const host = globalThis; host.process.env = {}; const proc = require('process'); const value = proc.env.MODE;`,
   `import * as procNs from 'node:process'; procNs.default.env = {}; const value = process.env.MODE;`,
+  `globalThis.process.env = { MODE: 'local' }; const proc = require('process'); const value = proc.env.MODE;`,
+  `const proc = require('process'); proc.env.MODE = 'local'; const value = proc.env.MODE;`,
 ])("shares writes through the original process object: %s", (source) => {
   expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
     [],
@@ -503,12 +505,63 @@ it.each([
 it.each([
   `const fs = require('fs'); const result = (fs.readFileSync('kept'), fs.readFileSync = custom);`,
   `const fs = require('fs'); const read = fs.readFileSync; const result = (read('kept'), fs.readFileSync = custom);`,
+  `const fs = require('fs'); consume(fs.readFileSync('before'), fs.readFileSync = custom);`,
 ])("retains reads before a later sequence operand: %s", (source) => {
   expect(
     analyzeJavaScriptSemantics(source).configurationOperations.map(
       ({ key }) => key,
     ),
   ).toEqual(["kept"]);
+});
+
+it("keeps process reads after an alias is reassigned away from the global", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`let host = globalThis; host = {process: {env: {}}};
+    host.process.env = {}; const proc = require('process'); const value = proc.env.MODE;`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["MODE"]);
+});
+
+it("rejects CommonJS require after the wrapper module replaces its delegate", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`module.require = () => ({ readFileSync() {} });
+    const fs = require('node:fs'); fs.readFileSync('unknown');`);
+  expect(ir.configurationOperations).toEqual([]);
+});
+
+it("preserves a saved promises object after deleting its parent export", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const fs = require('fs'); const fsp = fs.promises;
+    delete fs.promises; const handle = fsp.open('kept'); handle.close();`);
+  expect(
+    ir.resourceOperations.map(({ kind, method }) => ({ kind, method })),
+  ).toEqual([
+    { kind: "acquire", method: "open" },
+    { kind: "release", method: "close" },
+  ]);
+});
+
+it("does not infer network acquisition methods from another built-in", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `const { open } = require('node:net'); open();`,
+  );
+  expect(ir.resourceOperations).toEqual([]);
+});
+
+it("recognizes nested ESM namespace receivers as original built-ins", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`import * as ns from 'node:fs'; import fs from 'node:fs';
+    ns.default.readFileSync('first'); fs.readFileSync('second');`);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual([
+    "first",
+    "second",
+  ]);
+});
+
+it("tracks process objects passed through qualified global references", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`patch(globalThis.process); const proc = require('process');
+    const mode = proc.env.MODE;`);
+  expect(ir.configurationOperations).toEqual([]);
 });
 
 it("checks a saved child object's method when that function is selected", () => {

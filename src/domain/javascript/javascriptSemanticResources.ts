@@ -2,7 +2,7 @@ import * as t from "@babel/types";
 
 import {
   BUILTIN_RESOURCE_SPECIFIERS,
-  BUILTIN_RESOURCE_ACQUIRE_METHODS,
+  BUILTIN_RESOURCE_METHODS,
 } from "./javascriptBuiltinResourceMethods.js";
 import type {
   JavaScriptSemanticCallable,
@@ -132,16 +132,19 @@ const acquisitionMethod = (
   callee: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): JavaScriptSemanticResourceOperation["method"] | null => {
-  const method = builtinDataEffectMethod(
-    callee,
-    state,
-    BUILTIN_RESOURCE_SPECIFIERS,
-  );
-  return (
-    BUILTIN_RESOURCE_ACQUIRE_METHODS.find(
-      (candidate) => candidate === method,
-    ) ?? null
-  );
+  for (const specifier of BUILTIN_RESOURCE_SPECIFIERS) {
+    const method = builtinDataEffectMethod(callee, state, [specifier]);
+    if (
+      method !== null &&
+      (
+        BUILTIN_RESOURCE_METHODS[
+          specifier as keyof typeof BUILTIN_RESOURCE_METHODS
+        ] as readonly string[]
+      ).includes(method)
+    )
+      return method as JavaScriptSemanticResourceOperation["method"];
+  }
+  return null;
 };
 const resourceCandidateId = (candidate: ResourceCandidate): string =>
   `resource:acquire:${String(candidate.node.start ?? -1)}:${String(candidate.node.end ?? -1)}`;

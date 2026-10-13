@@ -195,9 +195,43 @@ export const builtinDataEffectMethod = (
     callee.object.name,
   );
   const method = semanticStaticPropertyKey(callee.property, callee.computed);
-  return method !== null &&
+  if (method === null) return null;
+  if (
     builtinBindingPath(binding, state, specifiers, callee, [method], true)
       ?.length === 0
+  )
+    return method;
+  const initializer = binding?.initializers[0];
+  if (
+    initializer === undefined ||
+    binding?.initializers.length !== 1 ||
+    (!t.isMemberExpression(initializer.node) &&
+      !t.isOptionalMemberExpression(initializer.node))
+  )
+    return null;
+  const provenance = evaluateSemanticProvenance(binding, state);
+  if (provenance.status !== "module") return null;
+  const origin = builtinNamespaceOrigin(provenance.origins[0]);
+  const selected = [...origin.importedPath, method];
+  return specifiers.some(
+    (specifier) => specifier.replace(/^node:/u, "") === origin.specifier,
+  ) &&
+    builtinBindingPath(
+      binding,
+      state,
+      specifiers,
+      initializer.node,
+      [method],
+      true,
+    )?.length === 0 &&
+    !requiredModuleChanged(
+      provenance.origins[0].specifier,
+      selected,
+      callee,
+      state,
+      true,
+      initializer.node,
+    )
     ? method
     : null;
 };
@@ -531,10 +565,20 @@ const requiredModuleChanged = (
   capture: t.Node,
   state: JavaScriptSemanticAnalysisState,
   callableValue = false,
+  savedObjectCapture?: t.Node,
 ): boolean => {
   const identity = semanticRequireExportsIdentity(specifier, selected);
   return builtinModuleEffects(identity.specifier, state).some(
     ({ path, node, kind }) =>
+      !(
+        savedObjectCapture !== undefined &&
+        path.length < identity.path.length &&
+        semanticTopLevelEffectFollowsCapture(
+          savedObjectCapture,
+          node,
+          state.parentsByNode,
+        )
+      ) &&
       affectsBuiltinPath(path, identity.path) &&
       !semanticTopLevelEffectFollowsCapture(
         capture,
@@ -573,10 +617,13 @@ const computeOriginalBuiltinReceiver = (
   const receiver = t.isIdentifier(callee.object)
     ? resolveSemanticBindingState(state, callee.object, callee.object.name)
     : undefined;
+  const evaluatedReceiver = evaluateSemanticExpression(callee.object, state);
   const provenance =
-    receiver === undefined
-      ? undefined
-      : evaluateSemanticProvenance(receiver, state);
+    evaluatedReceiver.status === "module"
+      ? evaluatedReceiver
+      : receiver === undefined
+        ? undefined
+        : evaluateSemanticProvenance(receiver, state);
   const sourceOrigin =
     provenance?.status === "module"
       ? provenance.origins[0]
@@ -626,17 +673,24 @@ export const isSemanticProcessObject = (
   node: t.Expression | t.Super,
   state: JavaScriptSemanticAnalysisState,
   family: "env" | "argv",
+  key?: string,
 ): boolean => {
   if (!t.isIdentifier(node)) return false;
   const binding = resolveSemanticBindingState(state, node, node.name);
   if (binding === undefined)
     return (
       semanticGlobalProcessOrigin(node, state) !== undefined &&
-      !requiredModuleChanged("process", [family], node, state)
+      !requiredModuleChanged(
+        "process",
+        [family, ...(key === undefined ? [] : [key])],
+        node,
+        state,
+      )
     );
   return (
     builtinBindingPath(binding, state, ["process", "node:process"], node, [
       family,
+      ...(key === undefined ? [] : [key]),
     ])?.length === 0
   );
 };

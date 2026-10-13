@@ -81,6 +81,56 @@ const sequencePrecedes = (
   return false;
 };
 
+/** Sibling call arguments are evaluated in source order as part of one expression. */
+const orderedCallArgumentPrecedes = (
+  left: t.Node,
+  right: t.Node,
+  parents: WeakMap<t.Node, t.Node>,
+): boolean => {
+  const positions = new Map<
+    t.CallExpression | t.OptionalCallExpression | t.NewExpression,
+    number
+  >();
+  let child = left;
+  for (
+    let parent = parents.get(child);
+    parent !== undefined;
+    parent = parents.get(child)
+  ) {
+    if (
+      t.isCallExpression(parent) ||
+      t.isOptionalCallExpression(parent) ||
+      t.isNewExpression(parent)
+    )
+      positions.set(
+        parent,
+        parent.arguments.findIndex((argument) => argument === child),
+      );
+    child = parent;
+  }
+  child = right;
+  for (
+    let parent = parents.get(child);
+    parent !== undefined;
+    parent = parents.get(child)
+  ) {
+    if (
+      t.isCallExpression(parent) ||
+      t.isOptionalCallExpression(parent) ||
+      t.isNewExpression(parent)
+    ) {
+      const before = positions.get(parent);
+      const after = parent.arguments.findIndex(
+        (argument) => argument === child,
+      );
+      if (before !== undefined && before >= 0 && after >= 0 && before !== after)
+        return before < after;
+    }
+    child = parent;
+  }
+  return false;
+};
+
 /** Order effects only in a non-repeating top-level activation. */
 export const semanticTopLevelEffectFollowsCapture = (
   capture: t.Node,
@@ -120,7 +170,8 @@ export const semanticTopLevelEffectFollowsCapture = (
         before.body === after.body &&
         before.index === after.index &&
         before.declaratorIndex === after.declaratorIndex &&
-        sequencePrecedes(capture, effect, parents)))
+        (sequencePrecedes(capture, effect, parents) ||
+          orderedCallArgumentPrecedes(capture, effect, parents))))
   );
 };
 

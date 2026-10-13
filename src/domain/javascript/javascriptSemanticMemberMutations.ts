@@ -3,6 +3,7 @@ import {
   semanticRequireOrigin,
   semanticRequireExportsIdentity,
   semanticGlobalProcessOrigin,
+  semanticGlobalProcessPathOrigin,
   semanticMutableBuiltinOrigin,
   semanticOriginalGlobalProcessAt,
 } from "./javascriptSemanticRequireOrigin.js";
@@ -170,6 +171,16 @@ export function* collectSemanticMemberMutationsSteps(
         );
         continue;
       }
+      const globalProcess = semanticGlobalProcessPathOrigin(expression, state);
+      if (globalProcess !== undefined) {
+        recordRequiredEffect(
+          globalProcess.specifier,
+          [...globalProcess.importedPath, ...current.path],
+          effect,
+          mutation,
+        );
+        continue;
+      }
       if (t.isIdentifier(expression)) {
         const binding = resolveSemanticBindingState(
           state,
@@ -331,7 +342,10 @@ export function* collectSemanticMemberMutationsSteps(
         const nested = new Set([...current.bindings, lifetime, captureKey]);
         // Returning a literal's receiver reaches that allocation, not the
         // binding's older values read while evaluating its initializer.
-        const origins: ReturnType<typeof semanticMutationInitializers> =
+        const origins: Pick<
+          JavaScriptSemanticBindingState,
+          "initializers" | "referenceInitializers" | "directOrigins"
+        > =
           current.ownerInitializer !== undefined
             ? {
                 initializers: binding.initializers.filter(
