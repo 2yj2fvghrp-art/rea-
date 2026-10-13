@@ -96,6 +96,80 @@ it("preserves unavailable storage-key coverage without requesting fingerprints",
 
 const validKey = { type: "string", value: "row-1" };
 
+it.each(["unavailable", "malformed"] as const)(
+  "compares shared complete values with %s cache inventory",
+  async (inventory) => {
+    let entries: unknown[][] = [["shared-key", "before"]];
+    const { capture } = await inspect({
+      ...(inventory === "unavailable"
+        ? { unsupportedMethods: ["CacheStorage.requestCacheNames"] }
+        : {}),
+      commandResult: (command) => {
+        if (command.method === "CacheStorage.requestCacheNames")
+          return { caches: [null] };
+        if (command.method === "DOMStorage.getDOMStorageItems")
+          return { entries };
+        return undefined;
+      },
+    });
+    const before = await capture();
+    const compare = (left: typeof before, right: typeof before) =>
+      compareWebCaptures(
+        compareWebCapturesInputSchema.parse({
+          before: { inspection: left },
+          after: { inspection: right },
+        }),
+      ).dimensions.storage;
+    expect(before.completeness.unavailable_sections).toContain("storage_keys");
+    expect(before.storage.fingerprints_complete).toBe(false);
+    expect(compare(before, await capture())).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+
+    entries = [["shared-key", "after"]];
+    const changed = await capture();
+    expect(changed.storage.usage_bytes).toBe(before.storage.usage_bytes);
+    expect(changed.storage.quota_bytes).toBe(before.storage.quota_bytes);
+    for (const [left, right] of [
+      [before, changed],
+      [changed, before],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "changed",
+        total_changes: 2,
+        changes: [
+          expect.objectContaining({ change: "modified" }),
+          expect.objectContaining({ change: "modified" }),
+        ],
+      });
+
+    const incompleteValues = structuredClone(changed);
+    for (const fingerprint of incompleteValues.storage.content_fingerprints)
+      if (["local_storage", "session_storage"].includes(fingerprint.scope))
+        fingerprint.complete = false;
+    expect(compare(before, incompleteValues)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+
+    // Missing or invalid peer values establish neither removal nor addition.
+    for (const partial of [[], [["shared-key", null]]]) {
+      entries = partial;
+      const incomplete = await capture();
+      for (const [left, right] of [
+        [before, incomplete],
+        [incomplete, before],
+      ] as const)
+        expect(compare(left, right)).toMatchObject({
+          status: "unknown",
+          total_changes: 0,
+          changes: [],
+        });
+    }
+  },
+);
+
 it.each(["key", "primaryKey"])(
   "requires IndexedDB %s identity evidence",
   async (field) => {
