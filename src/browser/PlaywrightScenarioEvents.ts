@@ -54,11 +54,11 @@ export class PlaywrightScenarioEvents {
   private readonly enabled: ReadonlySet<EventName>;
   private readonly secrets: BrowserScenarioSecrets;
   private readonly ownsContext: boolean;
-  private readonly pages = new Set<Page>();
+  private pages = new WeakSet<Page>();
   private readonly incompleteFamilies = new Set<EventName>();
   private readonly network: PlaywrightScenarioNetwork | undefined;
   private stopNetwork: (() => void) | undefined;
-  private readonly stopListeners: Array<() => void> = [];
+  private readonly stopListeners = new Map<object, Set<() => void>>();
   private sealed = false;
 
   constructor(options: EventCaptureOptions) {
@@ -77,7 +77,7 @@ export class PlaywrightScenarioEvents {
       const context = options.context ?? options.page.context();
       const onPage = (page: Page) => this.popup(page);
       context.on("page", onPage);
-      this.stopListeners.push(() => context.off("page", onPage));
+      this.retainListener(context, () => context.off("page", onPage));
     }
     if (this.enabled.has("network")) {
       const context = options.context ?? options.page.context();
@@ -141,8 +141,8 @@ export class PlaywrightScenarioEvents {
   async finish(): Promise<void> {
     this.stopNetwork?.();
     this.stopNetwork = undefined;
-    for (const stop of this.stopListeners.splice(0)) stop();
-    this.pages.clear();
+    for (const owner of this.stopListeners.keys()) this.releaseListeners(owner);
+    this.pages = new WeakSet<Page>();
     try {
       await this.network?.finish();
     } finally {
@@ -189,11 +189,34 @@ export class PlaywrightScenarioEvents {
     return this.sequence;
   }
 
+  private retainListener(owner: object, stop: () => void): void {
+    let stops = this.stopListeners.get(owner);
+    if (stops === undefined) {
+      stops = new Set();
+      this.stopListeners.set(owner, stops);
+    }
+    stops.add(stop);
+  }
+
+  private releaseListeners(owner: object): void {
+    const stops = this.stopListeners.get(owner);
+    this.stopListeners.delete(owner);
+    for (const stop of stops ?? []) stop();
+  }
+
   private observePage(page: Page): void {
+    if (this.enabled.size > 0) {
+      const onClose = () => {
+        this.releaseListeners(page);
+      };
+      page.on("close", onClose);
+      this.retainListener(page, () => page.off("close", onClose));
+    }
+
     if (this.enabled.has("console")) {
       const onConsole = (message: ConsoleMessage) => this.console(message);
       page.on("console", onConsole);
-      this.stopListeners.push(() => page.off("console", onConsole));
+      this.retainListener(page, () => page.off("console", onConsole));
     }
     if (this.enabled.has("page-errors")) {
       const onError = (error: Error) => {
@@ -205,12 +228,12 @@ export class PlaywrightScenarioEvents {
         });
       };
       page.on("pageerror", onError);
-      this.stopListeners.push(() => page.off("pageerror", onError));
+      this.retainListener(page, () => page.off("pageerror", onError));
     }
     if (this.enabled.has("websockets")) {
       const onWebSocket = (socket: WebSocket) => this.webSocket(socket);
       page.on("websocket", onWebSocket);
-      this.stopListeners.push(() => page.off("websocket", onWebSocket));
+      this.retainListener(page, () => page.off("websocket", onWebSocket));
     }
     if (this.enabled.has("frames")) {
       const onAttached = (frame: Frame) => this.frame("frame-attached", frame);
@@ -220,26 +243,26 @@ export class PlaywrightScenarioEvents {
       page.on("frameattached", onAttached);
       page.on("framedetached", onDetached);
       page.on("framenavigated", onNavigated);
-      this.stopListeners.push(() => page.off("frameattached", onAttached));
-      this.stopListeners.push(() => page.off("framedetached", onDetached));
-      this.stopListeners.push(() => page.off("framenavigated", onNavigated));
+      this.retainListener(page, () => page.off("frameattached", onAttached));
+      this.retainListener(page, () => page.off("framedetached", onDetached));
+      this.retainListener(page, () => page.off("framenavigated", onNavigated));
     }
     if (this.enabled.has("workers")) {
       const onWorker = (worker: Worker) => this.worker(worker);
       page.on("worker", onWorker);
-      this.stopListeners.push(() => page.off("worker", onWorker));
+      this.retainListener(page, () => page.off("worker", onWorker));
     }
     // Any selected family needs descendant discovery in shared contexts.
     // Popup lifecycle records remain gated on their own selector below.
     if (this.enabled.size > 0) {
       const onPopup = (popup: Page) => this.popup(popup);
       page.on("popup", onPopup);
-      this.stopListeners.push(() => page.off("popup", onPopup));
+      this.retainListener(page, () => page.off("popup", onPopup));
     }
     if (this.enabled.has("downloads")) {
       const onDownload = (download: Download) => this.download(download);
       page.on("download", onDownload);
-      this.stopListeners.push(() => page.off("download", onDownload));
+      this.retainListener(page, () => page.off("download", onDownload));
     }
   }
 
@@ -264,13 +287,16 @@ export class PlaywrightScenarioEvents {
       this.webSocketFrame("websocket-frame-sent", url, payload);
     const onReceived = ({ payload }: { payload: string | Buffer }) =>
       this.webSocketFrame("websocket-frame-received", url, payload);
-    const onClose = () => this.push({ kind: "websocket-closed", url });
+    const onClose = () => {
+      this.push({ kind: "websocket-closed", url });
+      this.releaseListeners(socket);
+    };
     socket.on("framesent", onSent);
     socket.on("framereceived", onReceived);
     socket.on("close", onClose);
-    this.stopListeners.push(() => socket.off("framesent", onSent));
-    this.stopListeners.push(() => socket.off("framereceived", onReceived));
-    this.stopListeners.push(() => socket.off("close", onClose));
+    this.retainListener(socket, () => socket.off("framesent", onSent));
+    this.retainListener(socket, () => socket.off("framereceived", onReceived));
+    this.retainListener(socket, () => socket.off("close", onClose));
   }
 
   private webSocketFrame(
@@ -319,9 +345,12 @@ export class PlaywrightScenarioEvents {
       name: null,
     };
     this.push({ kind: "worker-created", ...details });
-    const onClose = () => this.push({ kind: "worker-closed", ...details });
+    const onClose = () => {
+      this.push({ kind: "worker-closed", ...details });
+      this.releaseListeners(worker);
+    };
     worker.on("close", onClose);
-    this.stopListeners.push(() => worker.off("close", onClose));
+    this.retainListener(worker, () => worker.off("close", onClose));
   }
 
   private popup(page: Page): void {
@@ -347,7 +376,7 @@ export class PlaywrightScenarioEvents {
           name: null,
         });
       page.on("close", onClose);
-      this.stopListeners.push(() => page.off("close", onClose));
+      this.retainListener(page, () => page.off("close", onClose));
     }
     this.observePage(page);
   }
