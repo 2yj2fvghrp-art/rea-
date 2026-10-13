@@ -180,19 +180,19 @@ it("releases the timer and listener on dispose with a pending wait", async () =>
   }
 });
 
-// Retain the authored terminal-budget regression under the newer monotonic
-// expiry policy: an early timer has budget, an actual timeout has none.
-it("reports no remaining time after terminal expiry near the monotonic boundary", () => {
+// Preserve the terminal-budget regression under the monotonic expiry policy
+// and the re-arm contract for an early native timer callback.
+it("reports no remaining time after terminal expiry near the monotonic boundary", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
   const deadline = new ProviderStartupDeadline(40);
   try {
     now.mockReturnValue(1_039.6);
-    vi.advanceTimersByTime(40);
+    await vi.advanceTimersByTimeAsync(40);
     expect(deadline.signal.aborted).toBe(false);
     expect(deadline.remainingMs()).toBe(1);
     now.mockReturnValue(1_040);
-    vi.advanceTimersByTime(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(deadline.signal.aborted).toBe(true);
     expect(deadline.interruption).toBe("timeout");
     expect(deadline.remainingMs()).toBe(0);
