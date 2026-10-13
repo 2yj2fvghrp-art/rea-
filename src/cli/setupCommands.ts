@@ -293,6 +293,9 @@ const setupIsInteractive = (
   !options.yes &&
   !options.dryRun &&
   !formatExplicit &&
+  hasInteractiveTerminal();
+
+const hasInteractiveTerminal = (): boolean =>
   process.stdin.isTTY === true &&
   process.stdout.isTTY === true &&
   process.stderr.isTTY === true;

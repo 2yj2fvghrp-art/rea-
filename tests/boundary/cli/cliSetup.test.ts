@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { spawn } from "@lydell/node-pty";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { parse as parseYaml } from "yaml";
 
 import { CLIENT_LOCATION_ENVIRONMENT } from "../../fixtures/clientEnvironment.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -74,6 +75,61 @@ const clientStates = [
 ] as const;
 
 const agentActions = actions.filter(({ kind }) => kind !== "install_hopper");
+
+describe("TTY setup dry run", () => {
+  it("prints the plan and no-mutation notice for a TTY dry run", async () => {
+    const home = await createTestTempDirectory("rea-cli-setup-dry-run-");
+    const terminal = spawn(
+      process.execPath,
+      [
+        "scripts/rea.mjs",
+        "setup",
+        "--dry-run",
+        "--client",
+        "codex",
+        "--skill=false",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          REA_LOG_LEVEL: "silent",
+          NO_COLOR: "1",
+        },
+        name: "xterm-256color",
+        cols: 120,
+        rows: 40,
+      },
+    );
+    let output = "";
+    terminal.onData((data) => {
+      output += data;
+    });
+    const exitCode = await new Promise<number>((resolvePromise, reject) => {
+      const timeout = setTimeout(() => {
+        terminal.kill();
+        reject(new Error(`TTY dry run timed out after output:\n${output}`));
+      }, 15_000);
+      terminal.onExit(({ exitCode: code }) => {
+        clearTimeout(timeout);
+        resolvePromise(code);
+      });
+    });
+
+    expect(exitCode, output).toBe(0);
+    expect(output).toContain("CREATE  Codex");
+    expect(output).toContain(join(home, ".codex/config.toml"));
+    expect(output).toContain("Dry run: no changes were made.");
+    await expect(
+      access(join(home, ".codex/config.toml")),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+});
 
 describe("interactive setup journey", () => {
   it("shows detected and absent clients without preselecting detected clients", async () => {
@@ -281,6 +337,58 @@ describe("interactive setup completion", () => {
 });
 
 describe("non-interactive setup in a terminal", () => {
+  it.each([["--format", "json"], ["--json"]])(
+    "keeps explicitly structured terminal output free of human summaries: %s",
+    async (...format) => {
+      await withTerminalSetup(
+        ["--dry-run", "--client", "codex", "--skill=false", ...format],
+        ({ output, stderr, exitCode }) => {
+          expect(exitCode).toBe(0);
+          expect(stderr).toBe("");
+          expect(JSON.parse(output)).toMatchObject({
+            status: "planned",
+            appliedActions: [],
+          });
+        },
+        { captureStderr: true },
+      );
+    },
+    60_000,
+  );
+
+  it("returns a structured result when setup output is piped", async () => {
+    const home = await createTestTempDirectory("rea-setup-piped-");
+    const { stdout, stderr } = await execute(
+      process.execPath,
+      [
+        "scripts/rea.mjs",
+        "setup",
+        "--dry-run",
+        "--client",
+        "codex",
+        "--skill=false",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...isolatedClientEnvironment(),
+          HOME: home,
+          USERPROFILE: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          NO_COLOR: "1",
+        },
+      },
+    );
+    expect(stderr).toBe("");
+    expect(parseYaml(stdout)).toMatchObject({
+      status: "planned",
+      appliedActions: [],
+    });
+    await expect(
+      access(join(home, ".codex", "config.toml")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  }, 60_000);
+
   it("shows the dry-run plan without applying it", async () => {
     await withTerminalSetup(
       ["--dry-run", "--client", "codex", "--skill=false"],
@@ -374,6 +482,7 @@ interface TerminalSetupRun {
   readonly output: string;
   readonly exitCode: number;
   readonly home: string;
+  readonly stderr: string | undefined;
 }
 
 /** Drop the developer's client locations so setup resolves only the temporary home. */
@@ -387,6 +496,7 @@ interface TerminalSetupOptions {
   readonly prepare?: (home: string) => Promise<void>;
   /** Give setup a terminal stdout while leaving stdin redirected. */
   readonly redirectStdin?: boolean;
+  readonly captureStderr?: boolean;
 }
 
 /**
@@ -394,14 +504,20 @@ interface TerminalSetupOptions {
  * A direct pseudo-terminal would make stdin a terminal and start the
  * interactive journey instead.
  */
-const redirectedStdinLauncher = (args: readonly string[]): string =>
+const redirectedStdinLauncher = (
+  args: readonly string[],
+  stderrPath?: string,
+): string =>
   [
     'import { spawn } from "node:child_process";',
+    'import { openSync, closeSync } from "node:fs";',
+    `const stderr = ${stderrPath === undefined ? '"inherit"' : `openSync(${JSON.stringify(stderrPath)}, "wx")`};`,
     `const child = spawn(process.execPath, ${JSON.stringify(["scripts/rea.mjs", "setup", ...args])}, {`,
     "  cwd: process.cwd(),",
     "  env: process.env,",
-    '  stdio: ["ignore", "inherit", "inherit"],',
+    '  stdio: ["ignore", "inherit", stderr],',
     "});",
+    'if (typeof stderr === "number") closeSync(stderr);',
     'for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"]) {',
     "  process.on(signal, () => child.kill(signal));",
     "}",
@@ -415,6 +531,8 @@ const withTerminalSetup = async (
   options?: TerminalSetupOptions,
 ): Promise<void> => {
   const home = await createTestTempDirectory("rea-cli-setup-terminal-");
+  const stderrPath =
+    options?.captureStderr === true ? join(home, "setup.stderr") : undefined;
   try {
     await options?.prepare?.(home);
     const { output, exitCode } = await new Promise<{
@@ -424,8 +542,12 @@ const withTerminalSetup = async (
       let output = "";
       const terminal = spawn(
         process.execPath,
-        options?.redirectStdin === true
-          ? ["--input-type=module", "--eval", redirectedStdinLauncher(args)]
+        options?.redirectStdin === true || options?.captureStderr === true
+          ? [
+              "--input-type=module",
+              "--eval",
+              redirectedStdinLauncher(args, stderrPath),
+            ]
           : ["scripts/rea.mjs", "setup", ...args],
         {
           cwd: process.cwd(),
@@ -454,7 +576,15 @@ const withTerminalSetup = async (
         resolvePromise({ output, exitCode });
       });
     });
-    await assert({ output, exitCode, home });
+    await assert({
+      output,
+      exitCode,
+      home,
+      stderr:
+        stderrPath === undefined
+          ? undefined
+          : await readFile(stderrPath, "utf8"),
+    });
   } finally {
     await rm(home, { recursive: true, force: true });
   }
