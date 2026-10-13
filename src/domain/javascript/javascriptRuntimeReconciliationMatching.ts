@@ -51,6 +51,10 @@ interface CandidateIndex {
     string,
     readonly StaticRuntimeCandidate[]
   >;
+  readonly byNativeDeclarationPath: ReadonlyMap<
+    string,
+    readonly StaticRuntimeCandidate[]
+  >;
   readonly byLayerCategoryPath: ReadonlyMap<
     string,
     readonly StaticRuntimeCandidate[]
@@ -170,9 +174,16 @@ const candidatesWithLocation = (
   const located = new Map<string, LocatedCandidate>();
   for (const layer of layers)
     for (const mapping of mappedRuntimePaths(layer, entity))
-      for (const candidate of index.byLayerCategoryPath.get(
-        layerCategoryPathKey(layer.layerId, entity.staticKind, mapping.path),
-      ) ?? []) {
+      for (const candidate of [
+        ...(index.byLayerCategoryPath.get(
+          layerCategoryPathKey(layer.layerId, entity.staticKind, mapping.path),
+        ) ?? []),
+        ...(mapping.fileStyle === null
+          ? []
+          : (index.byNativeDeclarationPath.get(
+              `${mapping.fileStyle}\0${layerCategoryPathKey(layer.layerId, entity.staticKind, mapping.path)}`,
+            ) ?? [])),
+      ]) {
         const key = candidateKey(candidate);
         if (!located.has(key)) located.set(key, { candidate, mapping });
       }
@@ -189,6 +200,7 @@ const indexCandidates = (
 ): CandidateIndex => {
   const byCategoryDigest = new Map<string, StaticRuntimeCandidate[]>();
   const byLayerCategoryPath = new Map<string, StaticRuntimeCandidate[]>();
+  const byNativeDeclarationPath = new Map<string, StaticRuntimeCandidate[]>();
   for (const candidate of candidates) {
     for (const { sha256 } of candidate.digests)
       appendIndex(
@@ -202,8 +214,15 @@ const indexCandidates = (
         layerCategoryPathKey(candidate.layer.layerId, candidate.category, path),
         candidate,
       );
+    for (const style of ["posix", "windows"] as const)
+      for (const path of candidate.nativeDeclarationPaths[style])
+        appendIndex(
+          byNativeDeclarationPath,
+          `${style}\0${layerCategoryPathKey(candidate.layer.layerId, candidate.category, path)}`,
+          candidate,
+        );
   }
-  return { byCategoryDigest, byLayerCategoryPath };
+  return { byCategoryDigest, byLayerCategoryPath, byNativeDeclarationPath };
 };
 
 const appendIndex = (

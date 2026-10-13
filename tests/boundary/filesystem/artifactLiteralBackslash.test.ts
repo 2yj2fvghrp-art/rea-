@@ -166,3 +166,57 @@ it.skipIf(process.platform === "win32").each(["directory", "asar"] as const)(
     expect(semantic).toEqual(expect.arrayContaining(names));
   },
 );
+
+it.skipIf(process.platform === "win32").each(["directory", "asar"] as const)(
+  "resolves ordinary relative imports inside a literal POSIX directory from %s",
+  async (format) => {
+    const root = await createTestTempDirectory("rea-backslash-import-base-");
+    const source = join(root, "source");
+    const literal = "literal\\dir";
+    await mkdir(join(source, literal), { recursive: true });
+    await mkdir(join(source, "literal", "dir"), { recursive: true });
+    const body = "export const marker = 'literal';\n";
+    await writeFile(
+      join(source, literal, "a.js"),
+      "import { marker } from './b.js'; export { marker };\n",
+    );
+    await writeFile(join(source, literal, "b.js"), body);
+    await writeFile(
+      join(source, "literal", "dir", "b.js"),
+      "export const marker = 'decoy';\n",
+    );
+    const input = format === "directory" ? source : join(root, "input.asar");
+    if (format === "asar") await createPackage(source, input);
+    const result = await analyzeJavaScriptApplication({
+      input_path: input,
+      format,
+    });
+    if (!result.ok) throw result.error;
+    const parsed = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    const imports = parsed.graph.edges.filter(
+      ({ properties }) => properties.specifier === "./b.js",
+    );
+    expect(imports.length).toBeGreaterThan(0);
+    expect(imports.map(({ properties }) => properties.resolved_path)).toEqual(
+      imports.map(() => `${literal}/b.js`),
+    );
+    expect(parsed.graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          identity: {
+            strategy: "content-digest",
+            stability: "global-exact",
+            sha256: createHash("sha256").update(body).digest("hex"),
+          },
+          observations: expect.arrayContaining([
+            expect.objectContaining({
+              properties: expect.objectContaining({ path: `${literal}/b.js` }),
+            }),
+          ]),
+        }),
+      ]),
+    );
+  },
+);

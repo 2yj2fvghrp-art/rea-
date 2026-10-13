@@ -568,3 +568,181 @@ it.skipIf(process.platform === "win32")(
     expect(mapped("https://example.test/assets/%2e%2e/outside.js")).toEqual([]);
   },
 );
+
+const rendererCapture = (runtimeRoot: string, filePath: string) => {
+  const runtime = sourceFreeRuntime(runtimeRoot, "main.cjs");
+  const observation = electronPageInspectionSchema.parse(
+    runtime.normalized_result,
+  );
+  observation.target.file_path = filePath;
+  for (const frame of observation.frames) frame.file_path = filePath;
+  return createEvidence(undefined, runtime.provider, {
+    operation: runtime.operation,
+    predicateType: runtime.predicate_type,
+    parameters: runtime.parameters,
+    result: observation,
+    confidence: runtime.confidence,
+    authority: runtime.authority,
+  });
+};
+
+it.skipIf(process.platform === "win32")(
+  "interprets raw loadFile declarations using the captured native path format",
+  async () => {
+    const root = await createTestTempDirectory(
+      "rea-native-loadfile-declaration-",
+    );
+    await mkdir(join(root, "dist"));
+    await writeFile(join(root, "dist", "index.html"), "slash file");
+    await writeFile(join(root, "dist\\index.html"), "literal file");
+    await writeFile(
+      join(root, "main.cjs"),
+      `const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile(${JSON.stringify("dist\\index.html")});`,
+    );
+    const analysis = await analyzeFixture(root);
+    const reconcileTarget = (runtimeRoot: string, path: string) =>
+      reconcileInput({
+        static_layers: [
+          {
+            analysis,
+            role: "application",
+            runtime_mappings: [
+              { kind: "file-root", root: runtimeRoot, artifact_prefix: "" },
+            ],
+          },
+        ],
+        runtime_observations: [rendererCapture(runtimeRoot, path)],
+      }).reconciliations.find(({ entity_kind }) => entity_kind === "target");
+    // These Windows paths are recorded data, not native Windows execution.
+    expect(
+      reconcileTarget("C:\\runtime", "C:\\runtime\\dist\\index.html"),
+    ).toMatchObject({ status: "matched" });
+    expect(reconcileTarget(root, join(root, "dist\\index.html"))).toMatchObject(
+      { status: "matched" },
+    );
+    expect(
+      reconcileTarget(root, join(root, "dist", "index.html")),
+    ).toMatchObject({ status: "unmatched" });
+  },
+);
+
+it.skipIf(process.platform === "win32").each(["literal\\dir", "literal%5Cdir"])(
+  "maps a runtime root to the exact logical artifact prefix %j",
+  async (prefix) => {
+    const root = await createTestTempDirectory("rea-literal-artifact-prefix-");
+    await mkdir(join(root, prefix));
+    await writeFile(
+      join(root, prefix, "app.js"),
+      "export const marker = 42;\n",
+    );
+    const analysis = await analyzeFixture(root);
+    const result = reconcileInput({
+      static_layers: [
+        {
+          analysis,
+          role: "application",
+          runtime_mappings: [
+            { kind: "file-root", root: "/deployed", artifact_prefix: prefix },
+          ],
+        },
+      ],
+      runtime_observations: [sourceFreeRuntime("/deployed", "app.js")],
+    });
+    expect(
+      result.reconciliations.find(
+        ({ entity_kind }) => entity_kind === "script",
+      ),
+    ).toMatchObject({ status: "matched", basis: "operator-file-mapping" });
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "uses resolved artifact paths instead of a raw declaration alias",
+  async () => {
+    const root = await createTestTempDirectory("rea-resolved-loadfile-alias-");
+    const directory = "literal\\dir";
+    await mkdir(join(root, directory));
+    await writeFile(join(root, directory, "index.html"), "owned target");
+    await writeFile(join(root, "index.html"), "different target");
+    await writeFile(
+      join(root, directory, "main.cjs"),
+      "const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile('./index.html');",
+    );
+    const analysis = await analyzeFixture(root);
+    const reconcileTarget = (path: string) =>
+      reconcileInput({
+        static_layers: [{ analysis, role: "application" }],
+        runtime_observations: [rendererCapture(root, path)],
+      }).reconciliations.find(({ entity_kind }) => entity_kind === "target");
+    expect(reconcileTarget(join(root, directory, "index.html"))).toMatchObject({
+      status: "matched",
+    });
+    expect(reconcileTarget(join(root, "index.html"))).toMatchObject({
+      status: "unmatched",
+    });
+  },
+);
+
+it("rejects unsafe logical artifact prefixes without decoding literal names", async () => {
+  const root = await createTestTempDirectory("rea-prefix-admission-");
+  await writeFile(join(root, "app.js"), "export const marker = 42;\n");
+  const analysis = await analyzeFixture(root);
+  const accepts = (artifact_prefix: string) =>
+    reconcileJavaScriptRuntimeInputSchema.safeParse({
+      static_layers: [
+        {
+          analysis,
+          role: "application",
+          runtime_mappings: [
+            { kind: "file-root", root: "/deployed", artifact_prefix },
+          ],
+        },
+      ],
+      runtime_observations: [sourceFreeRuntime("/deployed", "app.js")],
+    }).success;
+  for (const prefix of [
+    "\0",
+    "/absolute",
+    ".",
+    "..",
+    "a/../b",
+    "a//b",
+    "a/",
+    "./a",
+  ])
+    expect(accepts(prefix), prefix).toBe(false);
+  for (const prefix of ["", "literal\\dir", "literal%5Cdir", "literal%2Fdir"])
+    expect(accepts(prefix), prefix).toBe(true);
+});
+
+it.skipIf(process.platform === "win32")(
+  "keeps a leading backslash declaration literal only for POSIX captures",
+  async () => {
+    const root = await createTestTempDirectory("rea-leading-loadfile-");
+    await writeFile(join(root, "\\index.html"), "literal target");
+    await writeFile(
+      join(root, "main.cjs"),
+      `const { BrowserWindow } = require('electron'); const win = new BrowserWindow(); win.loadFile(${JSON.stringify("\\index.html")});`,
+    );
+    const analysis = await analyzeFixture(root);
+    const reconcileTarget = (runtimeRoot: string, path: string) =>
+      reconcileInput({
+        static_layers: [
+          {
+            analysis,
+            role: "application",
+            runtime_mappings: [
+              { kind: "file-root", root: runtimeRoot, artifact_prefix: "" },
+            ],
+          },
+        ],
+        runtime_observations: [rendererCapture(runtimeRoot, path)],
+      }).reconciliations.find(({ entity_kind }) => entity_kind === "target");
+    expect(reconcileTarget(root, join(root, "\\index.html"))).toMatchObject({
+      status: "matched",
+    });
+    expect(
+      reconcileTarget("C:\\runtime", "C:\\runtime\\index.html"),
+    ).toMatchObject({ status: "unmatched" });
+  },
+);
