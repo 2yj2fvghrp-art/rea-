@@ -33,6 +33,8 @@ struct Failure : std::runtime_error {
   DWORD win32;
   std::wstring path;
   std::string constraint;
+  // Affirmative proof for a failed runtime-parent admission; omission is unknown.
+  bool runtimeDirectoryUnallocated = false;
   Failure(std::string constraint, std::wstring path = L"", DWORD code = GetLastError())
       : std::runtime_error(constraint), win32(code), path(std::move(path)),
         constraint(std::move(constraint)) {}
@@ -96,6 +98,10 @@ struct Runtime : Resource {
 };
 struct Process : Resource {
   Handle job, process, stdoutRead, stderrRead, stdinWrite;
+  // Present only for a job with a commit limit; receives the job's notifications.
+  Handle notifications;
+  ULONGLONG memoryLimit = 0;
+  bool memoryLimitReached = false;
   bool inputPending = false;
   DWORD pid = 0;
   Process() : Resource(Kind::Process) {}
@@ -125,9 +131,9 @@ napi_value filesystemCall(napi_env env, const std::wstring& operation,
                           const std::vector<napi_value>& args);
 std::unique_ptr<Process> spawnProcess(const std::wstring& command, const std::wstring& commandLine,
                                     const std::wstring& cwd, const std::vector<std::wstring>& environment,
-                                    bool protocolStdin = false);
+                                    bool protocolStdin = false, ULONGLONG memoryLimit = 0);
 napi_value processCall(napi_env env, const std::wstring& operation,
                        const std::vector<napi_value>& args);
-napi_value inspect(napi_env env);
+napi_value inspect(napi_env env, std::unique_ptr<Runtime>& probe);
 
 } // namespace rea

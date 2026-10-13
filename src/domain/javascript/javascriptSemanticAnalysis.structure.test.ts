@@ -38,10 +38,12 @@ describe("JavaScript semantic analysis: structure 1", () => {
     expect(origin(topLevelBinding(ir, "bus"))).toEqual({
       specifier: "electron",
       importedPath: ["ipcMain"],
+      resolutionMode: "require",
     });
     expect(origin(topLevelBinding(ir, "forwarded"))).toEqual({
       specifier: "electron",
       importedPath: ["ipcMain"],
+      resolutionMode: "require",
     });
     expect(topLevelBinding(ir, "assigned").provenance).toMatchObject({
       status: "ambiguous",
@@ -66,6 +68,7 @@ describe("JavaScript semantic analysis: structure 1", () => {
     expect(origin(innerBus)).toEqual({
       specifier: "./local-bus.js",
       importedPath: [],
+      resolutionMode: "require",
     });
     const shadow = onlyBinding(ir, "ipcRenderer");
     expect(shadow.provenance).toEqual({
@@ -111,28 +114,6 @@ describe("JavaScript semantic analysis: structure 1", () => {
       );
     },
   );
-
-  it("preserves unshadowed require origins through aliases and assignments", () => {
-    const ir = analyzeJavaScriptSemantics(`
-      const { ipcMain: bus } = require("electron");
-      const forwarded = bus;
-      let assigned;
-      assigned = require("electron").ipcMain;
-      { const require = localLoader; require("./local.js"); }
-    `);
-    for (const name of ["bus", "forwarded"])
-      expect(origin(topLevelBinding(ir, name))).toEqual({
-        specifier: "electron",
-        importedPath: ["ipcMain"],
-      });
-    expect(topLevelBinding(ir, "assigned").provenance).toMatchObject({
-      status: "ambiguous",
-      origins: [{ specifier: "electron", importedPath: ["ipcMain"] }],
-    });
-    expect(
-      ir.moduleLinks.filter(({ kind }) => kind === "require"),
-    ).toHaveLength(1);
-  });
 
   it("propagates literal, template, object, conditional, and destructured values", () => {
     const ir = analyzeJavaScriptSemantics(`
