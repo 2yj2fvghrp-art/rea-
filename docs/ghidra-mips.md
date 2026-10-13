@@ -111,7 +111,7 @@ MIPS header and ABI record facts are committed in the analysis profile so
 interpretation changes invalidate profile-bound snapshots. The support-lane
 identity is versioned independently of file identity. Evidence, lifecycle
 outputs and saved snapshots preserve the `mips` family. Hopper and IDA adapters
-do not implicitly gain MIPS support. Windows Ghidra P0 remains PE x86/x86-64 only.
+do not implicitly gain MIPS support. Windows Ghidra P0 admits native x86/x86-64/ARM/ARM64 PE targets; MIPS remains outside that boundary. ARM/ARM64 real Windows provider verification remains pending.
 
 ### Soft-float prototype
 

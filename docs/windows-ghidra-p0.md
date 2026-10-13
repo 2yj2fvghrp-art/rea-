@@ -21,8 +21,10 @@ additional permission flag or degraded mode is required.
 - the 25 read-only Ghidra inventory, memory, and function-analysis operations.
 
 Loaded memory reads and file offsets preserve Ghidra's observed source mappings.
-PE load-image inspection returns an explicit unsupported attestation status;
-independent load-image verification currently supports DOS MZ only. For x64 PE
+PE load-image inspection returns an explicit unsupported attestation status.
+Independent verification covers admitted DOS MZ, explicit COM, and explicit
+[raw-binary imports](raw-binary.md) on their supported hosts. This does not
+extend Windows P0 admission beyond native PE. For x64 PE
 NativeAOT RTR 9.1, the read-only snapshot parser can report metadata through
 `inspect_native_load_image` and `inspect_native_data_type` without a JAR or
 database mutation. A real Windows-host NativeAOT Ghidra run is still required
@@ -114,11 +116,14 @@ provider admits native x86, x86-64, ARM and ARM64 PE applications and DLLs and r
 architectures, managed images, and malformed headers. The original selected
 source coordinate is preserved for native admission. Ghidra's own PE loader
 selects the language from the PE machine field: ARM (`IMAGE_FILE_MACHINE_ARMNT`)
-imports as `ARM:LE:32:v8` (Thumb), ARM64/ARM64EC (`IMAGE_FILE_MACHINE_ARM64`) as
+imports as `ARM:LE:32:v8` (Thumb), ARM64 (`IMAGE_FILE_MACHINE_ARM64`) as
 `AARCH64:LE:64:v8A`. ARM/ARM64 admission is a bounded extension of the x86/x64
-lane; its real-provider acceptance uses source-built ARM64 PE fixtures through
-`npm run verify:ghidra` (see the MIPS precedent, morluto/rea#718) and remains
-pending until those fixtures and a real Windows-on-Arm Ghidra run are in place.
+lane. `npm run verify:ghidra:windows -- --arm64` and the additional `--dll`
+flag select handcrafted static ARM64 PE fixtures on a controlled Windows x64
+host; these fixtures are not compiler-produced source-built coverage. ARM64EC
+uses a distinct machine value (0xA641) and is not admitted. Real Windows Ghidra
+verification of this extension and compiler-produced ARM/ARM64 coverage remain
+pending; admission changes alone do not establish those provider claims.
 
 Admission opens and checks every path component without following a reparse
 point. It retains handles, verifies local NTFS semantics, and observes volume
@@ -157,8 +162,12 @@ the private runtime, isolating Ghidra preferences, logs, and caches.
 Process creation assigns a suspended child atomically to an owned Job Object.
 Membership and kill-on-owner-close policy are verified before resume.
 Breakaway is disabled. Only the child's default file owner is normalized;
-the caller token stays unchanged. Caller CPU affinity and priority are
-preserved. Close, cancellation, timeout, startup failure, and provider failure
+the caller token stays unchanged. Caller priority is preserved, and caller CPU
+affinity whenever the caller and the child share a processor group. A child that
+Windows places in another group keeps that group's default when the caller asked
+for no bound of its own; a caller pinned to fewer processors than its group
+holds is refused there rather than widened.
+Close, cancellation, timeout, startup failure, and provider failure
 terminate the job and verify all members have settled before runtime cleanup.
 Cleanup removes admitted objects by handle and unlinks reparse entries without
 following their targets. Abrupt owner death kills the job but can leave

@@ -49,6 +49,7 @@ import {
   CAPABILITIES,
   windowsP0Capabilities,
   GHIDRA_PROVIDER_IDENTITY,
+  WINDOWS_P0_NATIVE_PE_ARCHITECTURES,
 } from "./GhidraProviderCapabilities.js";
 import {
   createGhidraProviderClient,
@@ -66,6 +67,7 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "arm",
   "arm64",
   "mips",
+  "riscv",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless import. */
@@ -310,12 +312,7 @@ const inspectWindowsP0TargetSupport = (
       reason: "Windows Ghidra P0 accepts PE targets only.",
       diagnostics,
     };
-  if (
-    target.architecture !== "x86" &&
-    target.architecture !== "x86_64" &&
-    target.architecture !== "arm" &&
-    target.architecture !== "arm64"
-  )
+  if (!WINDOWS_P0_NATIVE_PE_ARCHITECTURES.includes(target.architecture))
     return {
       status: "unsupported",
       code: "architecture_unsupported",

@@ -11,6 +11,10 @@ import { GHIDRA_FUNCTION_OPERATIONS } from "./GhidraFunctionValues.js";
 import { GHIDRA_INVENTORY_OPERATIONS } from "./GhidraInventoryValues.js";
 import { GHIDRA_MUTATING_OPERATIONS } from "./GhidraSessionValues.js";
 
+/** Target architectures admitted by the Windows P0 native PE boundary. */
+export const WINDOWS_P0_NATIVE_PE_ARCHITECTURES: readonly string[] =
+  Object.freeze(["x86", "x86_64", "arm", "arm64"]);
+
 /** Public identity committed by every Ghidra-backed observation. */
 export const GHIDRA_PROVIDER_IDENTITY: ProviderIdentity = Object.freeze({
   id: "ghidra",
@@ -83,7 +87,7 @@ export const limitationsFor = (operation: string): readonly string[] => {
     case "inspect_native_load_image":
       return [
         ...common,
-        "Independent verification supports DOS MZ and explicitly selected COM, including measured COM entry context. Measured source mappings use inclusive end addresses and complete region digests; no target execution or project mutation occurs.",
+        "Independent verification covers admitted DOS MZ, explicitly selected COM with measured entry context, and caller-supplied raw-binary imports. Measured source mappings use inclusive end addresses and complete region digests; no target execution or project mutation occurs.",
       ];
     case "read_bytes":
       return [

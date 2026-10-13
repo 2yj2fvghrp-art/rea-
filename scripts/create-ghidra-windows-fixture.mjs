@@ -72,22 +72,18 @@ for (const architecture of ["x86_64", "x86", "arm64"]) {
 
     // EXE entry returns zero. DLL caller adds one to the callee's 42.
     if (arm) {
-      // AArch64: BL +0x10 to the callee; caller adds 1, entry returns 0.
-      // BL +0x10 = 0x94000004; ADD W0,W0,#1 = 0x11000400;
-      // MOVZ W0,#0 = 0x52800000; RET = 0xd65f03c0; MOVZ W0,#42 = 0x52800540.
-      bytes.set(
-        dll
-          ? [
-              0x04, 0x00, 0x00, 0x94, 0x00, 0x04, 0x00, 0x11, 0xc0, 0x03, 0x5f,
-              0xd6,
-            ]
-          : [
-              0x04, 0x00, 0x00, 0x94, 0x00, 0x00, 0x80, 0x52, 0xc0, 0x03, 0x5f,
-              0xd6,
-            ],
-        0x200,
-      );
-      bytes.set([0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6], 0x210);
+      // Preserve the caller's frame/link registers across BL. The callee
+      // starts at RVA 0x1020, outside the five-instruction caller.
+      const instructions = [
+        0xa9bf7bfd, // STP X29, X30, [SP, #-16]!
+        0x94000007, // BL +0x1c from RVA 0x1004 to RVA 0x1020
+        dll ? 0x11000400 : 0x52800000, // ADD W0,W0,#1 / MOV W0,#0
+        0xa8c17bfd, // LDP X29, X30, [SP], #16
+        0xd65f03c0, // RET
+      ];
+      for (const [index, instruction] of instructions.entries())
+        bytes.writeUInt32LE(instruction, 0x200 + index * 4);
+      bytes.set([0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6], 0x220);
     } else {
       bytes.set(
         dll
@@ -139,7 +135,10 @@ for (const architecture of ["x86_64", "x86", "arm64"]) {
               "41ffd0", // CALL R8: unknown target.
               "c3",
             ];
-      bytes.set(Buffer.from(referenceInstructions.join(""), "hex"), 0x220);
+      bytes.set(
+        Buffer.from(referenceInstructions.join(""), "hex"),
+        arm ? 0x230 : 0x220,
+      );
     }
 
     if (dll) {
@@ -155,7 +154,7 @@ for (const architecture of ["x86_64", "x86", "arm64"]) {
       bytes.writeUInt32LE(0x1088, exports + 32);
       bytes.writeUInt32LE(0x1090, exports + 36);
       bytes.writeUInt32LE(0x1000, 0x280);
-      bytes.writeUInt32LE(0x1010, 0x284);
+      bytes.writeUInt32LE(arm ? 0x1020 : 0x1010, 0x284);
       bytes.writeUInt32LE(0x1120, 0x288);
       bytes.writeUInt32LE(0x1140, 0x28c);
       bytes.writeUInt16LE(0, 0x290);
