@@ -3257,34 +3257,25 @@ public final class ReaGhidraBridge extends HeadlessScript {
     }
 
     private JsonObject decompilerCompleteness(DecompileResults results, String pseudocode, boolean assemblyAvailable) {
-        JsonArray warnings = new JsonArray();
+        var observation = ReaGhidraDecompilerWarnings.observe(pseudocode,
+            results == null ? null : results.getErrorMessage(), results != null, raw -> {
+                Address address = currentProgram.getAddressFactory().getAddress(raw);
+                return address == null ? null : canonicalAddress(address);
+            });
+        JsonArray warnings = GSON.toJsonTree(observation.warnings()).getAsJsonArray();
         JsonArray dropped = new JsonArray();
-        // These are reported warning comments, not independently proved unreachable code.
-        if (pseudocode != null) {
-            var comments = Pattern.compile("(?m)^\\s*/\\* WARNING: ([\\s\\S]*?)\\*/").matcher(pseudocode);
-            while (comments.find()) {
-                String text = comments.group(1).strip();
-                int index = warnings.size();
-                warnings.add(text);
-                var removed = Pattern.compile("Removing unreachable block \\(([^,]+),([^\\)]+)\\)").matcher(text);
-                if (removed.find()) {
-                    String space = removed.group(1).strip();
-                    Address address = currentProgram.getAddressFactory().getAddress(space + ":" + removed.group(2).strip());
-                    JsonObject block = new JsonObject();
-                    block.add("start", address == null ? JsonNull.INSTANCE : GSON.toJsonTree(canonicalAddress(address)));
-                    block.add("end", JsonNull.INSTANCE);
-                    block.addProperty("address_space", space);
-                    block.addProperty("reason", "unreachable");
-                    block.addProperty("warning_index", index);
-                    dropped.add(block);
-                }
-            }
+        for (var item : observation.droppedBlocks()) {
+            JsonObject block = new JsonObject();
+            block.add("start", item.start() == null ? JsonNull.INSTANCE : GSON.toJsonTree(item.start()));
+            block.add("end", JsonNull.INSTANCE);
+            block.addProperty("address_space", item.addressSpace());
+            block.addProperty("reason", "unreachable");
+            block.addProperty("warning_index", item.warningIndex());
+            dropped.add(block);
         }
-        String diagnostic = results == null ? null : results.getErrorMessage();
-        if (diagnostic != null && diagnostic.isBlank()) diagnostic = null;
+        String diagnostic = observation.diagnostic();
         JsonObject result = new JsonObject();
-        result.addProperty("status", results == null ? "unavailable" :
-            warnings.size() > 0 || diagnostic != null ? "warnings" : "no-warnings-reported");
+        result.addProperty("status", observation.status());
         result.addProperty("provenance", "ghidra-decompiler-warning-observations");
         result.addProperty("warning_count", warnings.size());
         result.add("warnings", warnings);

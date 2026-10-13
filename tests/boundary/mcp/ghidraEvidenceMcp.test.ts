@@ -50,7 +50,7 @@ it("preserves structured decompiler warnings through MCP Evidence and snapshot r
       decompiler_completeness: dossier.decompiler_completeness,
     });
     expect(evidence.analysis_profile?.parameters).toMatchObject({
-      decompiler_completeness: "ghidra-warning-observations-v1",
+      decompiler_completeness: "ghidra-warning-observations-v2",
     });
     const replay = await harness.session.execute(
       "analyze_function",

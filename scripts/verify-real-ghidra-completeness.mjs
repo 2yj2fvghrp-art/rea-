@@ -30,7 +30,12 @@ const source = fileURLToPath(
 const cli = fileURLToPath(new URL("./rea.mjs", import.meta.url));
 const target = join(root, "probe");
 try {
-  await execute(process.env.REA_CC ?? "cc", [source, "-o", target]);
+  await execute(process.env.REA_CC ?? "cc", [
+    source,
+    ...(process.platform === "linux" ? ["-fno-pie", "-no-pie"] : []),
+    "-o",
+    target,
+  ]);
   const digest = createHash("sha256")
     .update(await readFile(target))
     .digest("hex");

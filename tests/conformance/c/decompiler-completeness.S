@@ -6,6 +6,13 @@
 #endif
 .text
 .globl ENTRY
+#ifndef __APPLE__
+#ifdef __aarch64__
+.type ENTRY, %function
+#else
+.type ENTRY, @function
+#endif
+#endif
 ENTRY:
 #ifdef __aarch64__
     cmp w0, w0
@@ -25,4 +32,7 @@ ENTRY:
     ret
 #else
 #error This completeness fixture supports AArch64 and x86_64 hosts.
+#endif
+#ifndef __APPLE__
+.size ENTRY, .-ENTRY
 #endif
