@@ -15,6 +15,15 @@ export type WindowsNativeCapability =
       readonly reason: string;
       readonly proof: "not-proven" | "not-applicable";
       readonly retryable?: true;
+      readonly code:
+        | "unsupported_host"
+        | "runtime_missing"
+        | "runtime_unavailable";
+      readonly failureStage: Exclude<
+        WindowsNativeLoadResult,
+        { available: true }
+      >["failureStage"];
+      readonly remediation: string;
     };
 
 /** Security controls required before REA may claim Windows isolation. */
@@ -50,6 +59,7 @@ export type WindowsNativeReadiness =
 /** Interpret the loader's tagged failure without guessing from OS error text. */
 export const inspectWindowsNativeReadiness = (
   platform: NodeJS.Platform,
+  observation?: WindowsNativeLoadResult,
 ): WindowsNativeReadiness => {
   if (platform !== "win32")
     return {
@@ -60,7 +70,7 @@ export const inspectWindowsNativeReadiness = (
       code: "unsupported_host",
       remediation: "Use a Windows x64 host for Windows native controls.",
     };
-  const loaded = systemWindowsNativeAuthority();
+  const loaded = observation ?? systemWindowsNativeAuthority();
   if (loaded.available) return { available: true };
   const failureStage = loaded.failureStage;
   return {
@@ -100,6 +110,9 @@ export const windowsNativeCapabilities = (
         available: false,
         reason: readiness.reason,
         proof: readiness.proof,
+        code: readiness.code,
+        failureStage: readiness.failureStage,
+        remediation: readiness.remediation,
         ...(readiness.retryable === true ? { retryable: true as const } : {}),
       } as const);
   return {
