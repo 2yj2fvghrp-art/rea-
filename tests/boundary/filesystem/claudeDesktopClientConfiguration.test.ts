@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -311,6 +311,34 @@ describe("MSIX Claude Desktop registration lifecycle", () => {
     expect(await readJson(appDataConfig)).toEqual({
       mcpServers: { rea: reaEntry },
     });
+  });
+
+  it("retains an unrelated rea-named entry when the package view is unknown", async () => {
+    const { home, env, appDataConfig, container } = await windowsProfile();
+    await mkdir(container, { recursive: true });
+    const unrelated = { mcpServers: { rea: { command: "unrelated-server" } } };
+    await writeJson(appDataConfig, unrelated);
+    const result = await runUninstall(false, systemUninstallHost(home, undefined, env, "win32"));
+    expect(result.status).toBe("complete");
+    expect(await readJson(appDataConfig)).toEqual(unrelated);
+  });
+
+  it("blocks managed skill removal through redirected AppData before any removal", async () => {
+    const { home, env, appDataConfig, privateConfig } = await windowsProfile();
+    await writeJson(join(dirname(privateConfig), "Preferences"), {});
+    await mkdir(dirname(dirname(appDataConfig)), { recursive: true });
+    await symlink(dirname(privateConfig), dirname(appDataConfig), "dir");
+    const agents = join(env.APPDATA, "dsh", "agents");
+    const manifest = join(agents, "skills", "reverse-engineer-anything", "SKILL.md");
+    await mkdir(dirname(manifest), { recursive: true });
+    await writeFile(manifest, "---\nname: reverse-engineer-anything\n---\nmanaged fixture\n");
+    const environment = { ...env, DSH_AGENTS_HOME: agents };
+    const result = await runUninstall(false, systemUninstallHost(home, undefined, environment, "win32"));
+    expect(result.status).toBe("failed");
+    expect(result.items).toContainEqual(expect.objectContaining({
+      name: "skill", status: "failed", detail: expect.stringContaining("redirects its writes"),
+    }));
+    expect(await readFile(manifest, "utf8")).toContain("managed fixture");
   });
 
   it("removes REA from both the private copy and AppData on uninstall", async () => {

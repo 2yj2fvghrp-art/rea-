@@ -137,9 +137,15 @@ const processView = (
       ? [CONFIG_FILE]
       : fileSystem
           .readdir(privateDirectory)
-          .filter((name) =>
-            fileSystem.lstat(join(privateDirectory, name)).isFile(),
-          )
+          .filter((name) => {
+            try {
+              return fileSystem.lstat(join(privateDirectory, name)).isFile();
+            } catch (cause: unknown) {
+              // A candidate may vanish or become unreadable while listed.
+              void cause;
+              return false;
+            }
+          })
           .slice(0, PROCESS_VIEW_PROBES);
   } catch (cause: unknown) {
     // No private file can be listed, so no view can be compared.

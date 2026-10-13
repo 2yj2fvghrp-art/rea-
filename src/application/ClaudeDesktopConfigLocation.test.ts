@@ -106,6 +106,19 @@ describe("Claude Desktop MSIX process view", () => {
     );
   });
 
+  it("continues after a listed private file disappears", () => {
+    const fs = packagedFileSystem(
+      (path) => path === join(appDataDirectory, "Preferences") ? privatePreferences : path,
+      [privatePreferences],
+    );
+    const location = resolveWindowsClaudeDesktopLocation(home, env, {
+      ...fs,
+      readdir: (path) => path === privateDirectory
+        ? ["vanished", "Preferences"] : fs.readdir(path),
+    });
+    expect(location.ok && location.value.msixPackage?.processView).toBe("redirected");
+  });
+
   it("keeps the view unknown when the package has no private files", () => {
     const location = resolveWindowsClaudeDesktopLocation(
       home,
@@ -282,6 +295,24 @@ describe("writes from a redirected AppData view", () => {
     expect(blocker).not.toContain(codex);
     expect(blocker).toContain("Rerun setup from a terminal");
     expect(redirectedWriteBlocker(view, [codex], "setup")).toBeUndefined();
+  });
+
+  it("compares aliases through the existing parent of a new destination", () => {
+    const alias = join(home, "skill-alias");
+    const target = join(alias, "skills", "reverse-engineer-anything");
+    const blocker = redirectedWriteBlocker(view, [target], "uninstall", (path) => {
+      if (path === alias) return join(env.APPDATA, "dsh");
+      if (path.startsWith(`${alias}/`)) throw failure("ENOENT");
+      return path;
+    });
+    expect(blocker).toContain(target);
+    expect(blocker).toContain("Rerun uninstall");
+  });
+
+  it("keeps canonicalization failures visible instead of assuming a target is outside AppData", () => {
+    expect(redirectedWriteBlocker(view, [codex], "setup", () => {
+      throw failure("EACCES");
+    })).toContain("Cannot establish the MSIX write location");
   });
 
   it("allows every target without positive evidence of redirection", () => {

@@ -25,7 +25,11 @@ import {
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { dshDocument } from "./DshCordisPatch.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
-import { readRegularFileText } from "./RegularFileRead.js";
+import {
+  InvalidUtf8FileError,
+  RegularFileCleanupFailure,
+  readRegularFileText,
+} from "./RegularFileRead.js";
 import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import {
   appDataRedirection,
@@ -95,6 +99,7 @@ export interface UninstallHost {
   /** Report a configuration that cannot be read safely, before any removal. */
   inspectClient(client: SetupClient): Promise<UninstallItem | undefined>;
   removeClient(client: SetupClient): Promise<UninstallItem>;
+  inspectSkill?(): Promise<UninstallItem | undefined>;
   removeSkill(): Promise<UninstallItem>;
   purgeData(): Promise<readonly UninstallItem[]>;
   close?(): Promise<string | undefined>;
@@ -120,6 +125,8 @@ export const runUninstall = async (
       const blocking = await host.inspectClient(client);
       if (blocking !== undefined) blocked.push(blocking);
     }
+    const skillBlocker = await host.inspectSkill?.();
+    if (skillBlocker !== undefined) blocked.push(skillBlocker);
     const items: UninstallItem[] =
       blocked.length > 0
         ? [
@@ -214,6 +221,11 @@ export const systemUninstallHost = (
   // Set with the client list: the package view that redirects this
   // process's AppData writes, if any.
   let redirection: MsixPackageView | undefined;
+  const clientWriteBlocker = (client: SetupClient): string | undefined =>
+    registrationWriteBlocker(client, "uninstall") ??
+    redirectedWriteBlocker(redirection, [client.configPath], "uninstall");
+  const skillWriteBlocker = (path: string): string | undefined =>
+    redirectedWriteBlocker(redirection, [path], "uninstall");
   return {
     clients: () => {
       const clients = supportedClients(home, platform, environment);
@@ -231,19 +243,37 @@ export const systemUninstallHost = (
       const read = await readClientConfiguration(client, fileSystem);
       if (read.kind === "item")
         return read.item.status === "failed" ? read.item : undefined;
-      if (!registrationPresent(read.parsed)) return undefined;
+      const removal = clientRegistrationRemoval(read.parsed, client);
+      if (!removal.removeNative && !removal.removeLegacy) return undefined;
       // A removal the running package would revert, or redirect into its
       // private storage, would leave the registration in place.
-      const blocker =
-        registrationWriteBlocker(client, "uninstall") ??
-        redirectedWriteBlocker(redirection, [client.configPath], "uninstall");
+      const blocker = clientWriteBlocker(client);
       return blocker === undefined
         ? undefined
         : item(client.name, "failed", blocker);
     },
-    removeClient: (client) => removeClient(client, fileSystem),
+    removeClient: (client) => removeClient(client, fileSystem, () => clientWriteBlocker(client)),
+    inspectSkill: async () => {
+      for (const destination of skillDestinations(
+        home,
+        undefined,
+        environment,
+        platform,
+      )) {
+        const inspected = await inspectManagedSkill(
+          destination.path,
+          destination.client,
+          fileSystem,
+        );
+        if (inspected?.status === "failed") return inspected;
+        if (inspected !== undefined) continue;
+        const blocker = skillWriteBlocker(destination.path);
+        if (blocker !== undefined) return item("skill", "failed", blocker);
+      }
+      return undefined;
+    },
     removeSkill: () =>
-      removeManagedSkills(home, fileSystem, environment, platform),
+      removeManagedSkills(home, fileSystem, environment, platform, skillWriteBlocker),
     purgeData: () => purgeManagedData(join(home, ".rea"), fileSystem),
     close: async () => {
       try {
@@ -317,13 +347,17 @@ const readClientConfiguration = async (
   try {
     original = await fileSystem.readText(transactionPath);
   } catch (cause: unknown) {
+    const readFailure =
+      cause instanceof RegularFileCleanupFailure ? cause.cause : cause;
     return itemRead(
       isMissing(cause)
         ? item(client.name, "skipped", "Configuration does not exist.")
         : item(
             client.name,
             "failed",
-            "Configuration could not be read. Check file permissions, then rerun uninstall.",
+            readFailure instanceof InvalidUtf8FileError
+              ? "Configuration is not valid UTF-8 and was not changed. Repair it, then rerun uninstall."
+              : "Configuration could not be read. Check file permissions, then rerun uninstall.",
           ),
     );
   }
@@ -348,18 +382,35 @@ const itemRead = (result: UninstallItem): ClientConfigurationRead => ({
   item: result,
 });
 
+/** Share the exact ownership and applicability decision with preflight. */
+const clientRegistrationRemoval = (
+  parsed: ClientConfigurationDocument,
+  client: SetupClient,
+): { readonly removeNative: boolean; readonly removeLegacy: boolean } => {
+  const name = PRODUCT_IDENTITY.mcpServerKey;
+  if (parsed.dialect === "dsh" && dshDocument(parsed.document).hasUnknownStructure)
+    return { removeNative: false, removeLegacy: false };
+  return {
+    removeNative:
+      (parsed.dialect === "dsh" && dshDocument(parsed.document).carriesEntry) ||
+      (Object.hasOwn(parsed.servers, name) &&
+        isOwnedRegistration(parsed.servers[name], client)),
+    removeLegacy:
+      legacyClientServerPath(parsed, name) !== undefined &&
+      isOwnedRegistration(parsed.legacyServers[name], client),
+  };
+};
+
 const removeClient = async (
   client: SetupClient,
   fileSystem: UninstallFileSystem,
+  writeBlocker?: () => string | undefined,
 ): Promise<UninstallItem> => {
   const read = await readClientConfiguration(client, fileSystem);
   if (read.kind === "item") return read.item;
   const { transactionPath, original, parsed } = read;
   const name = PRODUCT_IDENTITY.mcpServerKey;
   const legacyPath = legacyClientServerPath(parsed, name);
-  const hasNative = Object.hasOwn(parsed.servers, name);
-  const carriesDshEntry =
-    parsed.dialect === "dsh" && dshDocument(parsed.document).carriesEntry;
   if (
     parsed.dialect === "dsh" &&
     dshDocument(parsed.document).hasUnknownStructure
@@ -371,18 +422,15 @@ const removeClient = async (
     );
   if (!registrationPresent(parsed))
     return item(client.name, "skipped", "REA registration is absent.");
-  const removeNative =
-    carriesDshEntry ||
-    (hasNative && isOwnedRegistration(parsed.servers[name], client));
-  const removeLegacy =
-    legacyPath !== undefined &&
-    isOwnedRegistration(parsed.legacyServers[name], client);
+  const { removeNative, removeLegacy } = clientRegistrationRemoval(parsed, client);
   if (!removeNative && !removeLegacy)
     return item(
       client.name,
       "retained",
       "The rea-named registration is not REA-owned.",
     );
+  const blocker = writeBlocker?.();
+  if (blocker !== undefined) return item(client.name, "failed", blocker);
   const remaining = { ...parsed.servers };
   if (removeNative) delete remaining[name];
   const document = withClientServers(
@@ -553,12 +601,13 @@ const removeManagedSkills = async (
   fileSystem: UninstallFileSystem,
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform,
+  writeBlocker?: (path: string) => string | undefined,
 ): Promise<UninstallItem> => {
   // Every destination shares one summary item, so each result is labeled by
   // the directory it refers to.
   const results = await Promise.all(
     skillDestinations(home, undefined, environment, platform).map(({ path }) =>
-      removeManagedSkill(path, path, fileSystem),
+      removeManagedSkill(path, path, fileSystem, writeBlocker),
     ),
   );
   const failed = results.find(({ status }) => status === "failed");
@@ -589,11 +638,11 @@ const removeManagedSkills = async (
   );
 };
 
-const removeManagedSkill = async (
+const inspectManagedSkill = async (
   path: string,
   name: string,
   fileSystem: UninstallFileSystem,
-): Promise<UninstallItem> => {
+): Promise<UninstallItem | undefined> => {
   let root: ManagedPathStats;
   try {
     root = await fileSystem.stat(path);
@@ -630,6 +679,20 @@ const removeManagedSkill = async (
   }
   if (!isManagedSkillManifest(content))
     return item(name, "retained", "Skill manifest is not REA-owned.");
+
+  return undefined;
+};
+
+const removeManagedSkill = async (
+  path: string,
+  name: string,
+  fileSystem: UninstallFileSystem,
+  writeBlocker?: (path: string) => string | undefined,
+): Promise<UninstallItem> => {
+  const inspection = await inspectManagedSkill(path, name, fileSystem);
+  if (inspection !== undefined) return inspection;
+  const blocker = writeBlocker?.(path);
+  if (blocker !== undefined) return item(name, "failed", blocker);
 
   const manifestName = "SKILL.md";
   const otherFiles = MANAGED_SKILL_FILES.filter(

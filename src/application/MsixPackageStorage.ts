@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { err, ok, type Result } from "../domain/result.js";
 
 /**
  * How one MSIX-packaged client reads its AppData configuration. A package
@@ -109,15 +110,57 @@ export const packagePrivateLauncherBlocker = (
  * started it, so writes under its virtualized roots land in that package's
  * private storage, which the targets' owners never read.
  */
+const canonicalDestination = (
+  path: string,
+  canonicalPath: (path: string) => string,
+): Result<string, { readonly path: string; readonly detail: string }> => {
+  let ancestor = path;
+  const missing: string[] = [];
+  while (true) {
+    try {
+      return ok(join(canonicalPath(ancestor), ...missing));
+    } catch (cause: unknown) {
+      if (
+        cause instanceof Error &&
+        "code" in cause &&
+        (cause.code === "ENOENT" || cause.code === "ENOTDIR") &&
+        dirname(ancestor) !== ancestor
+      ) {
+        missing.unshift(basename(ancestor));
+        ancestor = dirname(ancestor);
+        continue;
+      }
+      return err({
+        path,
+        detail: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }
+};
+
 export const redirectedWriteBlocker = (
   view: MsixPackageView | undefined,
   targets: readonly string[],
   operation: "setup" | "uninstall",
+  canonicalPath: (path: string) => string = realpathSync.native,
 ): string | undefined => {
-  if (view?.processView !== "redirected") return undefined;
-  const redirected = targets.filter((target) =>
-    view.virtualizedRoots.some((root) => pathWithin(target, root)),
-  );
+  if (view?.processView !== "redirected" || targets.length === 0)
+    return undefined;
+  const roots: string[] = [];
+  const redirected: string[] = [];
+  for (const root of view.virtualizedRoots) {
+    const resolved = canonicalDestination(root, canonicalPath);
+    if (!resolved.ok)
+      return `Cannot establish the MSIX write location for ${resolved.error.path}: ${resolved.error.detail}. Rerun ${operation} from a terminal that this app did not start.`;
+    roots.push(resolved.value);
+  }
+  for (const target of targets) {
+    const resolved = canonicalDestination(target, canonicalPath);
+    if (!resolved.ok)
+      return `Cannot establish the MSIX write location for ${resolved.error.path}: ${resolved.error.detail}. Rerun ${operation} from a terminal that this app did not start.`;
+    if (roots.some((root) => pathWithin(resolved.value, root)))
+      redirected.push(target);
+  }
   if (redirected.length === 0) return undefined;
   return `This process was started by MSIX package ${view.packageFamilyName}, which redirects its writes under ${view.virtualizedRoots.join(" and ")} into the package's private storage. Changes to ${redirected.join(", ")} would not reach the files other apps read. Rerun ${operation} from a terminal that this app did not start.`;
 };
