@@ -147,13 +147,14 @@ const evaluateClaim = (
     return source;
   });
   const functionSourceFacts = readValidatedSourceFacts(claim, sources);
-  const observed = selectObservation(claim, comparison);
+  const observation = comparisonObservation(claim, comparison);
+  const observed = observation.status;
   const limitations = [
     ...authorityLimitations(claim, sources, sides),
     ...sourceCallCoverageLimitations(
       claim,
       functionSourceFacts,
-      observed.status,
+      observation.hasIndependentFunctionChange === true,
     ),
   ];
   const relatedUnknowns = reconstructionClaimUnknowns(
@@ -243,12 +244,13 @@ const validateComparisonIdentity = (claim: Claim, evidence: Evidence): void => {
     throw new TypeError("Comparison Evidence identity or authority disagrees");
 };
 
-const selectObservation = (
+const comparisonObservation = (
   claim: Claim,
   evidence: Evidence,
 ): {
   readonly status: ObservedStatus;
   readonly limitations: readonly string[];
+  readonly hasIndependentFunctionChange?: boolean;
 } => {
   if (claim.kind === "behavioral") {
     const result = processCaptureComparisonSchema.parse(
@@ -275,16 +277,39 @@ const selectObservation = (
         limitations: result.dimensions.flatMap(
           ({ limitations }) => limitations,
         ),
+        // Historical overall changes can be caused only by incomplete call
+        // sets. Ignore that aggregate change when independently checking the
+        // source call-coverage limitations.
+        hasIndependentFunctionChange:
+          result.function_match.status === "mismatched" ||
+          (result.function_match.status === "matched" &&
+            result.dimensions.some(
+              (dimension) =>
+                dimension.dimension !== "calls" &&
+                dimension.status === "changed",
+            )),
       };
     const dimension = result.dimensions.find(
       (item) => item.dimension === claim.dimension,
     );
     if (dimension === undefined)
       throw new TypeError("Function comparison dimension missing");
+    if (
+      dimension.evidence_links.some(
+        (id) => !evidence.evidence_links.includes(id),
+      )
+    )
+      throw new TypeError(
+        "Function dimension cites Evidence outside comparison closure",
+      );
     return { status: dimension.status, limitations: dimension.limitations };
   }
   const result = artifactComparisonResultSchema.parse(
     evidence.normalized_result,
+  );
+  assertComparisonFindingLinks(
+    evidence,
+    result.changes.flatMap(({ evidence_links }) => evidence_links),
   );
   assertComparisonFindingLinks(
     evidence,
