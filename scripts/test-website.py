@@ -259,7 +259,7 @@ class WebsiteTranslationChecks(unittest.TestCase):
         for code in ("hi-latn", "hi-LATN", "hi-IN-Latn", "hi/Latn"):
             with self.subTest(code=code):
                 self.assertFalse(is_language_code(code))
-        hinglish = next(item for item in languages(ROOT) if item["readme"] == "README_hi-Latn.md")
+        hinglish = next(item for item in languages(ROOT) if item["readme"] == "docs/readme/README_hi-Latn.md")
         self.assertEqual(hinglish["code"], "hi-Latn")
         catalog = polib.pofile(ROOT / "website/locales/hi-Latn/messages.po")
         self.assertEqual(catalog.metadata["Language"], "hi-Latn")
@@ -274,7 +274,9 @@ class WebsiteTranslationChecks(unittest.TestCase):
             inventory = [item for item in languages(ROOT) if item["code"] in {"en", "zh-CN", "ar"}]
             (root / "website/locales/languages.json").write_text(json.dumps(inventory))
             for item in inventory:
-                (root / item["readme"]).write_text("# REA\n")
+                destination = root / item["readme"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("# REA\n")
             WEBSITE.sync_pages(root)
             extract_catalogs(root)
             yield root
