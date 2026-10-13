@@ -15,7 +15,6 @@ import {
   debugCompanionMatches,
   machoCommandSpan,
   readMachoUuidEntries,
-  type MachOUuidEntry,
 } from "../domain/machoDebugCompanion.js";
 
 /**
@@ -26,6 +25,21 @@ export interface SliceUuidEntry {
   readonly cpuType: number;
   readonly uuid: string | null;
 }
+
+/** Keep workflow resource refusal distinct from malformed candidate data. */
+interface MachOUuidReadFailure {
+  readonly kind: "resource-limit" | "invalid-image";
+  readonly reason: string;
+}
+
+const resourceLimit = (reason: string): MachOUuidReadFailure => ({
+  kind: "resource-limit",
+  reason,
+});
+const invalidImage = (reason: string): MachOUuidReadFailure => ({
+  kind: "invalid-image",
+  reason,
+});
 
 /** Bound on the bytes read to walk Mach-O headers and load commands. */
 const HEADER_READ_LIMIT = 64 * 1024;
@@ -81,10 +95,9 @@ const throwIfCancelled = (signal: AbortSignal | undefined): void => {
 };
 
 /**
- * Read a Mach-O image region sized by its declared load-command span rather
- * than a fixed ceiling: probe the header window, then extend to the declared
- * span when it exceeds the probe (bounded by the region and a format-derived
- * limit the span validator enforces).
+ * Read the declared Mach-O load-command span under explicit workflow memory
+ * and aggregate I/O budgets. These are resource bounds, not format limits.
+ * Check allocation size before extending the initial header probe.
  */
 const readUuidRegion = async (
   handle: FileHandle,
@@ -92,11 +105,15 @@ const readUuidRegion = async (
   length: number,
   ledger: TraversalLedger,
   signal: AbortSignal | undefined,
-): Promise<Result<Buffer, string>> => {
+): Promise<Result<Buffer, MachOUuidReadFailure>> => {
   throwIfCancelled(signal);
   const probeLength = Math.min(length, HEADER_READ_LIMIT);
   if (probeLength > TRAVERSAL_BUDGET_BYTES - ledger.spent)
-    return err("the Mach-O traversal exceeds the supported aggregate budget");
+    return err(
+      resourceLimit(
+        "the Mach-O traversal exceeds the supported aggregate budget",
+      ),
+    );
   const probe = Buffer.alloc(probeLength);
   const observed = await handle.read(probe, 0, probe.length, offset);
   throwIfCancelled(signal);
@@ -108,11 +125,17 @@ const readUuidRegion = async (
   const needed = span.value.start + span.value.size;
   if (needed > COMMAND_SPAN_LIMIT_BYTES)
     return err(
-      "the Mach-O declared load-command span exceeds the supported budget",
+      resourceLimit(
+        "the Mach-O declared load-command span exceeds the supported budget",
+      ),
     );
   if (needed <= probed.length || needed > length) return ok(probed);
   if (needed > TRAVERSAL_BUDGET_BYTES - ledger.spent)
-    return err("the Mach-O traversal exceeds the supported aggregate budget");
+    return err(
+      resourceLimit(
+        "the Mach-O traversal exceeds the supported aggregate budget",
+      ),
+    );
   throwIfCancelled(signal);
   const full = Buffer.alloc(needed);
   const reread = await handle.read(full, 0, full.length, offset);
@@ -136,10 +159,14 @@ interface TraversalLedger {
 const chargeTraversal = (
   ledger: TraversalLedger,
   bytes: number,
-): Result<null, string> => {
+): Result<null, MachOUuidReadFailure> => {
   ledger.spent += bytes;
   return ledger.spent > TRAVERSAL_BUDGET_BYTES
-    ? err("the Mach-O traversal exceeds the supported aggregate budget")
+    ? err(
+        resourceLimit(
+          "the Mach-O traversal exceeds the supported aggregate budget",
+        ),
+      )
     : ok(null);
 };
 
@@ -156,7 +183,7 @@ export const readMachoFileUuidEntries = async (
     readonly signal?: AbortSignal;
     readonly ledger?: TraversalLedger;
   } = {},
-): Promise<Result<SliceUuidEntry[], string>> => {
+): Promise<Result<SliceUuidEntry[], MachOUuidReadFailure>> => {
   const ledger = options.ledger ?? { spent: 0 };
   const signal = options.signal;
   const prefix = await readUuidRegion(handle, 0, fileSize, ledger, signal);
@@ -167,7 +194,10 @@ export const readMachoFileUuidEntries = async (
     magic === 0xcafebabf ||
     magic === 0xbebafeca ||
     magic === 0xbfbafeca;
-  if (!universal) return readMachoUuidEntries(prefix.value);
+  if (!universal) {
+    const read = readMachoUuidEntries(prefix.value);
+    return read.ok ? read : err(invalidImage(read.error));
+  }
   const wide = magic === 0xcafebabf || magic === 0xbfbafeca;
   // The architecture table follows the observed container byte order.
   const big = magic === 0xcafebabe || magic === 0xcafebabf;
@@ -175,11 +205,15 @@ export const readMachoFileUuidEntries = async (
     ? (position: number) => prefix.value.readUInt32BE(position)
     : (position: number) => prefix.value.readUInt32LE(position);
   if (prefix.value.length < 8)
-    return err("the universal Mach-O container header is truncated");
+    return err(
+      invalidImage("the universal Mach-O container header is truncated"),
+    );
   const count = read32(4);
   const entrySize = wide ? 32 : 20;
   if (count > 128 || 8 + count * entrySize > prefix.value.length)
-    return err("the universal Mach-O container table is truncated");
+    return err(
+      invalidImage("the universal Mach-O container table is truncated"),
+    );
   const entries: SliceUuidEntry[] = [];
   for (let index = 0; index < count; index += 1) {
     throwIfCancelled(signal);
@@ -202,7 +236,9 @@ export const readMachoFileUuidEntries = async (
         )
       : read32(entry + 12);
     if (sliceOffset > fileSize || sliceSize > fileSize - sliceOffset)
-      return err("a universal Mach-O slice is out of file bounds");
+      return err(
+        invalidImage("a universal Mach-O slice is out of file bounds"),
+      );
     const slice = await readUuidRegion(
       handle,
       sliceOffset,
@@ -212,7 +248,7 @@ export const readMachoFileUuidEntries = async (
     );
     if (!slice.ok) return slice;
     const read = readMachoUuidEntries(slice.value);
-    if (!read.ok) return read;
+    if (!read.ok) return err(invalidImage(read.error));
     // A slice without any LC_UUID keeps its place so first-of-family
     // selection cannot skip past it to a sibling.
     entries.push({ cpuType, uuid: read.value[0]?.uuid ?? null });
@@ -236,11 +272,13 @@ const digestOpenHandle = async (
   while (position < initial.size) {
     throwIfCancelled(signal);
     const observed = await handle.read(chunk, 0, chunk.length, position);
+    throwIfCancelled(signal);
     if (observed.bytesRead === 0) break;
     hash.update(chunk.subarray(0, observed.bytesRead));
     position += observed.bytesRead;
   }
   const opened = await handle.stat();
+  throwIfCancelled(signal);
   if (!sameRegularFileState(initial, opened))
     return err("the dSYM DWARF member changed while being read");
   return ok(hash.digest("hex"));
@@ -316,7 +354,7 @@ export const admitDebugCompanion = async (input: {
     input.targetSize,
     traversalOptions,
   );
-  if (!targetEntries.ok) return err({ reason: targetEntries.error });
+  if (!targetEntries.ok) return err({ reason: targetEntries.error.reason });
   // Mirror the target parser's FAT selection: the first slice of each CPU
   // family is the one REA imports — including when that slice declares no
   // LC_UUID, in which case a same-family sibling cannot lend its UUID.
@@ -352,7 +390,11 @@ export const admitDebugCompanion = async (input: {
         initial.size,
         traversalOptions,
       );
-      if (!memberEntries.ok) continue;
+      if (!memberEntries.ok) {
+        if (memberEntries.error.kind === "resource-limit")
+          return err({ reason: memberEntries.error.reason });
+        continue;
+      }
       const matched = debugCompanionMatches({
         executableUuids: selectedUuids,
         companionUuids: memberEntries.value
