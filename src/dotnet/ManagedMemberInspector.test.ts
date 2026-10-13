@@ -362,13 +362,14 @@ describe("managed user strings", () => {
   });
 
   it("retains readable literals beside malformed #US items", () => {
-    const { heap, tokens } = fixtureUserStringHeap(["ok", "bad"]);
-    const [ok, bad] = tokens as [string, string];
+    const { heap, tokens } = fixtureUserStringHeap(["ok", "bad", "worse"]);
+    const [ok, bad, worse] = tokens as [string, string, string];
     // "bad" encodes 7 bytes; an even length cannot end in the flag byte.
-    const badOffset = Number.parseInt(bad.slice(4), 16);
-    heap.writeUInt8(6, badOffset);
+    heap.writeUInt8(6, Number.parseInt(bad.slice(4), 16));
+    // 0xe0 is a reserved compressed-length prefix.
+    heap.writeUInt8(0xe0, Number.parseInt(worse.slice(4), 16));
     const result = inspect({
-      ilBody: ldstrBody([ok, bad, "0x70ffffff"]),
+      ilBody: ldstrBody([ok, bad, worse, "0x70ffffff"]),
       userStringHeap: heap,
     });
 
@@ -380,6 +381,7 @@ describe("managed user strings", () => {
       result.coverage.issues.map(({ code, scope }) => [code, scope]),
     ).toEqual([
       ["invalid-string", `metadata.#US:${bad}`],
+      ["invalid-string", `metadata.#US:${worse}`],
       ["invalid-heap-index", "metadata.#US:0x70ffffff"],
     ]);
   });

@@ -69,10 +69,17 @@ export class MetadataRowCursor {
   }
 }
 
+// Issue code and label for the heap item a compressed length prefixes.
+const PREFIXED_ITEMS = {
+  blob: { code: "invalid-blob", label: "Metadata blob" },
+  userString: { code: "invalid-string", label: "User string" },
+} as const;
+
 const compressedLength = (
   bytes: Buffer,
   offset: number,
   scope: string,
+  item: keyof typeof PREFIXED_ITEMS,
 ): { readonly length: number; readonly prefix: number } => {
   requireRange(bytes, offset, 1, scope);
   const first = bytes[offset] ?? 0;
@@ -96,9 +103,9 @@ const compressedLength = (
     };
   }
   throw managedFailure(
-    "invalid-blob",
+    PREFIXED_ITEMS[item].code,
     scope,
-    "Metadata blob uses a reserved compressed-length prefix",
+    `${PREFIXED_ITEMS[item].label} uses a reserved compressed-length prefix`,
     offset,
   );
 };
@@ -172,7 +179,7 @@ export const readMetadataBlob = (
       layout.blob.offset + Math.max(index, 0),
     );
   const start = layout.blob.offset + index;
-  const decoded = compressedLength(bytes, start, "metadata.#Blob");
+  const decoded = compressedLength(bytes, start, "metadata.#Blob", "blob");
   if (decoded.length > heapExtent)
     throw managedFailure(
       "invalid-blob",
@@ -218,7 +225,7 @@ export const readMetadataUserString = (
       token.startsWith("0x70") ? heap.offset + index : null,
     );
   const start = heap.offset + index;
-  const decoded = compressedLength(bytes, start, scope);
+  const decoded = compressedLength(bytes, start, scope, "userString");
   const content = start + decoded.prefix;
   if (content > heap.offset + heap.size - decoded.length)
     throw managedFailure(
