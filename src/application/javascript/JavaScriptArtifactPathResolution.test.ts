@@ -1318,6 +1318,29 @@ describe("package import alias resolution", () => {
     });
   });
 
+  it("keeps package import aliases available for runtime entrypoints", () => {
+    const files = aliasFiles({
+      "package.json": JSON.stringify({
+        imports: { "#worker": "./worker.js" },
+      }),
+      "main.cjs": "",
+      "worker.js": "",
+    });
+    expect(
+      resolve({
+        declaredPath: "#worker",
+        sourcePath: "main.cjs",
+        context: "module-specifier",
+        files,
+        runtimeEntrypoint: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "worker.js",
+      declared_path: "#worker",
+    });
+  });
+
   it("uses a nested package imports map rather than the application root", () => {
     const files = aliasFiles({
       "package.json": JSON.stringify({
@@ -2329,6 +2352,26 @@ describe("exact HTML resource resolution", () => {
 });
 
 describe("exact Electron runtime entrypoint resolution", () => {
+  it("accepts an exact extensionless Electron URL resource", () => {
+    const files = fileMap([
+      file("app/main.cjs", "root"),
+      file("app/renderer", "root"),
+      file("app/renderer.js", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./renderer",
+        sourcePath: "app/main.cjs",
+        context: "module-specifier",
+        files,
+        exactUrlResource: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/renderer",
+    });
+  });
+
   it("checks local paths exactly while preserving bare package lookup", () => {
     const files = fileMap([
       file("app/main.cjs", "root"),

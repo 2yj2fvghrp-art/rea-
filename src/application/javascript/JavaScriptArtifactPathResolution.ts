@@ -193,13 +193,6 @@ const conditionalResolution = (
 });
 
 const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
-  if (input.exactUrlResource) {
-    return resolvePath({
-      ...input,
-      context: "url-reference",
-      exactUrlResource: false,
-    });
-  }
   if (input.moduleKind === "compiler-dependent") {
     const imported = resolvePath({ ...input, moduleKind: "import" });
     const required = resolvePath({ ...input, moduleKind: "require" });
@@ -238,7 +231,6 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   // Package import keys are literal lookup identities, not artifact paths.
   // The selected target is admitted separately by resolveExportTarget.
   if (
-    !input.runtimeEntrypoint &&
     input.context === "module-specifier" &&
     input.declaredPath.startsWith("#")
   )
@@ -247,6 +239,13 @@ const resolvePath = (input: ResolveArtifactPathInput): CandidateResolution => {
   if (typeof candidate !== "string") return candidate;
   const confined = confineCandidate(candidate);
   if (typeof confined !== "string") return confined;
+  if (input.exactUrlResource)
+    return (
+      resolveFileCandidates(input, [confined]) ??
+      unresolvedCandidate("not-found", [
+        `The exact URL resource ${confined} was not found among the selected application files.`,
+      ])
+    );
   if (input.context === "html-reference" || input.context === "url-reference")
     return (
       resolveFileCandidates(input, [confined]) ??
