@@ -1,5 +1,7 @@
 # REA for DeepSeek Harness
 
+中文安装说明：`README.zh-CN.md`
+
 A native **installable Harness bundle** exposing REA's existing local MCP server
 as `mcp__rea__*` tools, using the current `dsh.bundle`/Cordis composition API.
 The full REA engine remains authoritative; this adapter has no second reverse-
@@ -12,34 +14,68 @@ engineering engine or parallel tool schema to keep synchronized.
 - Optional analysis engines (Ghidra, IDA, JADX, etc.) remain **bring-your-own**.
 - Permission to run locally installed code and to analyze the chosen target.
 
-## Install the bundle from this repository
+## Install: current DeepSeek Harness CLI (macOS / Linux)
 
-The installable package is in `integrations/deepseek-harness`, **not** the
-root REA CLI package:
+Use a published GitHub Release **tarball** for a reproducible, build-free
+install. As of 2026-10-13, npm's `@deepseek-ai/dsh@latest` dist-tag is
+`0.2.0-rc.2`; upstream `master` can be newer/experimental. This procedure
+uses the current `dsh plugin --profile <name> add ...` syntax and pins
+this repository's REA plugin to release `dsh-v0.1.0`.
+
+Prerequisites: a supported Node.js runtime, npm, network access on first
+installation, and `pnpm` for plugin management. The bundle does not install
+optional Ghidra, IDA or other analysis engines.
 
 ```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#path:integrations/deepseek-harness'
+# Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
+npm install --global @deepseek-ai/dsh@latest pnpm@11
+
+curl -fL --retry 3 --output dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
+printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
+
+dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
 dsh --profile web --dump-config
 dsh --profile web
 ```
 
-Pin an audited commit for a reproducible installation:
+The SHA-256 value above is the published GitHub release asset digest.
+Do not continue if checksum verification fails. `--dump-config` is
+a read-only **composition inspection**, not a successful live model-call test.
+It should show a `dsh-rea-bundle` layer and `rea-launcher` / `rea-mcp` rows.
+Restart your existing Harness process after installing.
+
+To inspect the CLI version and npm's current distribution tags:
 
 ```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#<COMMIT_SHA>&path:integrations/deepseek-harness'
+dsh --version
+npm view @deepseek-ai/dsh dist-tags --json
 ```
 
-Alternatively install a local checkout:
+### Install from a local checkout (development)
+
+This alternative is for a cloned repository, **not** a GitHub URL with an
+unverified subdirectory fragment. Linked packages keep their own
+`node_modules`, so install the adapter's dependency before linking:
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/rea/integrations/deepseek-harness
+git clone https://github.com/xxxxxwater/rea.git
+cd rea
+npm install --prefix integrations/deepseek-harness --ignore-scripts
+dsh plugin --profile web add "$(pwd)/integrations/deepseek-harness"
+dsh --profile web --dump-config
 ```
 
-The bundle ships build-free JavaScript. Its default server is the **upstream
-prebuilt** `rea-agents@6.4.0` npm dependency. Installing it does not build
-the complete REA source checkout or install Ghidra/IDA. A Git-source install
-of this small bundle therefore requires no build script allowance.
+To run the fork's compiled REA rather than the pinned npm runtime,
+follow the instructions in the next section.
 
+### Desktop versus CLI
+
+The commands above target the `web` **CLI profile**. A Desktop application
+manages its own installed profile; install the same `dsh-rea-bundle-0.1.0.tgz`
+through the Desktop application's supported plugin installer when available.
+Do **not** run `dsh --profile desktop` (that name is reserved).
+Native Desktop installation, including Intel macOS builds, needs validation
+in the actual Desktop client and is not established by CLI CI.
 ### Run this fork's REA implementation
 
 To run the code checked out from **xxxxxwater/rea** rather than upstream npm:
@@ -98,12 +134,24 @@ all unrelated configuration. Restart Harness. Keeping the same row ID avoids
 creating a second default `rea` MCP namespace, but the legacy row will hide
 this bundle until removed.
 
-## Check installation and uninstall
+## Verify, upgrade and uninstall
 
 ```sh
+# Inspect the effective profile without starting the app
 dsh --profile web --dump-config
+
+# Confirm the plugin is installed in this profile
+dsh plugin --profile web why dsh-rea-bundle
+
+# Uninstall the plugin and its bundle layer
 dsh plugin --profile web remove dsh-rea-bundle
 ```
+
+To upgrade the REA plugin, download the **new versioned release archive**
+and run `dsh plugin --profile web add /absolute/path/to/new-bundle.tgz`.
+Re-running `pnpm update` against an old local tarball cannot discover new
+GitHub Releases. To upgrade the Harness CLI, use
+`npm install --global @deepseek-ai/dsh@latest`, then restart it.
 
 The dump should identify the `dsh-rea-bundle` layer, `rea-launcher`
 and `rea-mcp`. If it identifies a home-patch override, migrate as above.
@@ -113,11 +161,10 @@ the fork checkout. Check target-engine prerequisites separately.
 
 ## Versioned GitHub release
 
-An independent `dsh-v*` release is published after contract tests and the
-latest Harness integration job succeed. The release attaches a build-free
-`dsh-rea-bundle-<version>.tgz` package. Download it and install with
-`dsh plugin --profile web add /absolute/path/to/bundle.tgz`. The root REA
-npm/MCP Registry release process remains separate and unchanged.
+GitHub Release `dsh-v0.1.0` is published with the build-free
+`dsh-rea-bundle-0.1.0.tgz` file. Later `dsh-v*` releases use separate,
+versioned archives. The root REA npm/MCP Registry release process remains
+separate and unchanged.
 
 ## Tests and verification scope
 

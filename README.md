@@ -74,6 +74,22 @@ Setup supports Claude Code, Codex, Cursor, Gemini CLI, Grok Build and
 [installation and setup](docs/installation.md) for provider configuration and
 manual MCP registration.
 
+### DeepSeek Harness native plugin
+
+The current Harness CLI installs native bundles **per profile**. Install the
+published REA plugin archive; do not install the root CLI checkout as a bundle:
+
+```sh
+npm install --global @deepseek-ai/dsh@latest pnpm@11
+curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
+dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+dsh --profile web --dump-config
+```
+
+Check the published SHA-256 and the full macOS/Linux installation, migration,
+and uninstall commands in `integrations/deepseek-harness/README.md`.
+Restart Harness after the bundle is installed. The old `rea setup --client dsh`
+home-level `rea-mcp` row overrides the bundle: migrate it before installing.
 ### Ask your agent
 
 ```text

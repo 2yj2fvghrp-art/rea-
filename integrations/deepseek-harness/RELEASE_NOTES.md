@@ -24,10 +24,16 @@ dsh plugin --profile web add /absolute/path/to/dsh-rea-bundle-0.1.0.tgz
 dsh --profile web --dump-config
 ```
 
-You can alternatively install and pin this repository's plugin subdirectory:
+The recommended installation is the published release tarball above; install
+the repository subdirectory from a **local checkout** only after installing
+its plugin dependencies. See the plugin guide for that development path.
+
+macOS/Linux users can also download and verify the artifact directly:
 
 ```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#path:integrations/deepseek-harness'
+curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
+printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
+dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
 ```
 
 Read the [plugin guide](https://github.com/xxxxxwater/rea/blob/main/integrations/deepseek-harness/README.md)

@@ -232,27 +232,40 @@ Harness integration, with live DeepSeek API compatibility remaining unverified.
 See the [Harness MCP guide](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/mcp/mcp-client/README.md)
 for its native configuration contract.
 
-### Installable Harness bundle (alternative to CLI setup)
+### Installable Harness bundle (recommended for current CLI)
 
-This repository also contains a build-free `dsh.bundle` plugin at
-[`integrations/deepseek-harness/`](../integrations/deepseek-harness/README.md).
-Its `rea-launcher` Cordis service resolves the packaged REA executable,
-and `rea-mcp` injects that service into Harness's native MCP client. Install
-with `dsh plugin --profile web add
-'github:xxxxxwater/rea#path:integrations/deepseek-harness'` and verify
-with `dsh --profile web --dump-config`. Unlike legacy `rea setup`, the
-new bundle is installed into a specific Harness profile.
+The current CLI uses `dsh plugin --profile <name> add <archive>` and
+detects installable bundles through their `dsh.bundle` package manifest.
+For macOS/Linux, install the already-published REA `dsh-v0.1.0` archive:
 
-If REA was already registered by CLI setup, the home patch's `rea-mcp`
-row overrides the new bundle row. Back up `$DSH_HOME/cordis.patch.yml`,
-remove only the legacy REA row, and keep all unrelated patches. For the
-fork's source checkout rather than the pinned upstream npm prebuilt server,
-build REA and set `REA_DSH_ENTRYPOINT` to its absolute
-`scripts/rea.mjs` path in the Harness host environment. The current CLI's
-reserved `desktop` profile cannot be treated as an ordinary CLI target.
-See the plugin guide for Desktop installation, complete migration and
-verification scope.
+```sh
+npm install --global @deepseek-ai/dsh@latest pnpm@11
+curl -fL -o dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
+printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
+dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+dsh --profile web --dump-config
+```
 
+Unlike legacy `rea setup --client dsh`, the new bundle is installed into
+the selected profile. If the home patch already includes a `rea-mcp` row,
+back up `$DSH_HOME/cordis.patch.yml`, remove only that legacy row, and keep
+unrelated patches. Home-level settings have higher precedence.
+
+The root REA repository is *not* itself the installable Harness package.
+A Git URL with a `#path:` fragment pointing at this monorepo's subdirectory
+is not an upstream-documented installation method and is not recommended.
+Use the verified release archive or the checkout directory after installing
+the plugin's own dependencies.
+
+For current macOS/Linux commands, local checkout development, CLI vs.
+Desktop profiles, updates and uninstall, read
+`integrations/deepseek-harness/README.md` or the Chinese
+`integrations/deepseek-harness/README.zh-CN.md`.
+
+To execute this fork's compiled REA instead of the pinned npm runtime,
+set `REA_DSH_ENTRYPOINT` to an absolute `scripts/rea.mjs` path in the
+Harness process environment. Desktop requires its own supported plugin
+installation path: `dsh --profile desktop` is not a valid CLI fallback.
 ## Other client settings
 
 For OpenCode, setup writes the V1 `mcp.rea` entry, which OpenCode V1 and V2
