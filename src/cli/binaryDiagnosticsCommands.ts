@@ -9,11 +9,12 @@ import {
 } from "../composition/binaryDiagnostics.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
-import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
 import { withCommandCancellation } from "./commandCancellation.js";
 import { inspectPeResourcesInputSchema } from "../domain/native/peResources.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { finishAnalysisCommand } from "./finishAnalysisCommand.js";
 
 /** Inspect operator-selected files through the same shared workflow as MCP. */
 export const registerBinaryDiagnosticsCommands = (
@@ -53,7 +54,6 @@ export const registerBinaryDiagnosticsCommands = (
         }),
       ),
   });
-  const pe = createPeResourcesService();
   cli.command(CLI_COMMANDS.inspectPeResources, {
     description:
       "Inspect PE resource identities, payload ranges, hashes and icon-group relationships",
@@ -63,19 +63,28 @@ export const registerBinaryDiagnosticsCommands = (
       maxEntries: inspectPeResourcesInputSchema.shape.max_entries,
     }),
     run: ({ args, options }) =>
-      withCommandCancellation((signal) =>
-        logCliCommand(logger, CLI_COMMANDS.inspectPeResources, async () => {
-          const result = await pe.inspect(
-            {
-              path: resolve(args.path),
-              max_file_bytes: options.maxFileBytes,
-              max_entries: options.maxEntries,
-            },
-            { signal },
-          );
-          return result.ok ? result.value : projectAnalysisError(result.error);
-        }),
-      ),
+      withCommandCancellation(async (signal) => {
+        const pe = createPeResourcesService();
+        return await logCliCommand(
+          logger,
+          CLI_COMMANDS.inspectPeResources,
+          async () =>
+            finishAnalysisCommand(
+              () =>
+                pe.inspect(
+                  {
+                    path: resolve(args.path),
+                    max_file_bytes: options.maxFileBytes,
+                    max_entries: options.maxEntries,
+                  },
+                  { signal },
+                ),
+              pe,
+              "rea-pe-resources",
+              "inspect_pe_resources",
+            ),
+        );
+      }),
   });
   const service = createBinaryLayoutService(environment);
   cli.command(CLI_COMMANDS.inspectBinaryLayout, {

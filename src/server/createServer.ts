@@ -9,6 +9,7 @@ import { wasmArtifactModule } from "../composition/wasm.js";
 import { registerWasmTools } from "./registerWasmTools.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
+import type { PeResourcesService } from "../application/binaryDiagnostics/PeResourcesService.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
 import { evmInterfaceModule } from "../composition/evm.js";
@@ -57,6 +58,7 @@ import { silentLogger } from "../logger.js";
 import type { Logger } from "pino";
 import { registerApplicationTools } from "./registerApplicationTools.js";
 import { registerArtifactTools } from "./registerArtifactTools.js";
+import { registerNativeTools } from "./registerNativeTools.js";
 import { registerBrowserScenarioTool } from "./registerBrowserScenarioTool.js";
 import { registerBrowserTools } from "./registerBrowserTools.js";
 import { registerWebScriptTool } from "./registerWebScriptTool.js";
@@ -110,8 +112,6 @@ import type { AdbDeviceAnalysisPort } from "../application/adb/AdbDeviceAnalysis
 import { AdbDeviceAnalysisService } from "../application/adb/AdbDeviceAnalysisService.js";
 import { createAdbDeviceAnalysisProvider } from "../composition/adb.js";
 import { registerManagedWorkflowTools } from "./registerManagedWorkflowTools.js";
-import { NATIVE_TOOL_CONTRACTS } from "../contracts/native/nativeToolContracts.js";
-import { registerEvidenceTools } from "./registerEvidenceTools.js";
 import { registerOfficialTools } from "./registerOfficialTools.js";
 import { registerGuidedPrompts } from "./registerPrompts.js";
 import { registerSessionTools } from "./registerSessionTools.js";
@@ -284,6 +284,10 @@ export const createServer = (
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const webModuleTrace =
     options.webModuleTrace ?? createWebModuleTraceService(environment);
+  const goBinary = options.goBinary ?? createGoBinaryService();
+  const peResources = createPeResourcesService();
+  const webNetworkCapture =
+    options.webNetworkCapture ?? createWebNetworkCaptureService(environment);
   const javascriptRecovery =
     options.javascriptRecovery ?? createJavaScriptRecoveryProvider(environment);
   const artifactResources = new ArtifactResourceScope();
@@ -349,6 +353,9 @@ export const createServer = (
       recordedCrash.close(),
       webSourceLocation.close(),
       webModuleTrace.close(),
+      goBinary.close(),
+      peResources.close(),
+      webNetworkCapture.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
       artifactResources.close(),
       firmwareAnalysis.close(),
@@ -392,6 +399,9 @@ export const createServer = (
     recordEvidenceWithUnknown,
     withAdmittedAnalysis: analysisAdmission,
     artifactResources,
+    goBinary,
+    peResources,
+    webNetworkCapture,
   };
   registerBinaryAnalysisTools(toolContext);
   registerFridaTools(
@@ -521,6 +531,9 @@ const registerConfiguredAnalysisTools = (
     evidenceById,
     recordEvidence,
     withAdmittedAnalysis,
+    goBinary,
+    peResources,
+    webNetworkCapture,
   }: ServerToolContext,
   android: AndroidAnalysisPort,
   wasmArtifact: Pick<WasmArtifactService, "inspect" | "close">,
@@ -561,14 +574,14 @@ const registerConfiguredAnalysisTools = (
   );
   registerPeResourcesTool(
     server,
-    createPeResourcesService(),
+    peResources,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
   );
   registerGoTools(
     server,
-    options.goBinary ?? createGoBinaryService(),
+    goBinary,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -633,7 +646,7 @@ const registerConfiguredAnalysisTools = (
   );
   registerWebNetworkCaptureTool(
     server,
-    options.webNetworkCapture ?? createWebNetworkCaptureService(environment),
+    webNetworkCapture,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -678,6 +691,9 @@ const createSessionRecorders = (
 });
 
 interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
+  readonly goBinary: GoBinaryService;
+  readonly peResources: PeResourcesService;
+  readonly webNetworkCapture: WebNetworkCaptureService;
   readonly artifactResources: ArtifactResourceScope;
   readonly server: EvidenceMcpServer;
   readonly session: BinarySessionPort | undefined;
@@ -729,7 +745,7 @@ const registerBinaryAnalysisTools = ({
     recordEvidence,
     withAdmittedAnalysis,
   };
-  registerEvidenceTools(server, NATIVE_TOOL_CONTRACTS, evidenceOptions);
+  registerNativeTools(server, { ...evidenceOptions, evidenceById });
   registerArtifactTools(server, { ...evidenceOptions, evidenceById });
   registerManagedTools(server, { ...evidenceOptions, evidenceById });
   if (session !== undefined)

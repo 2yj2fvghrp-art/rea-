@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { open, stat, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 import { byteEntropySchema } from "../../domain/native/byteEntropy.js";
 import { ByteEntropyService } from "./ByteEntropyService.js";
@@ -102,13 +102,59 @@ it("honors cancellation before and during streaming", async () => {
     await service.inspect({ path }, { signal: AbortSignal.abort() }),
   ).toMatchObject({ ok: false, error: { _tag: "AnalysisCancelledError" } });
   const controller = new AbortController();
-  const pending = service.inspect(
+  let reads = 0;
+  const streaming = new ByteEntropyService({
+    stat,
+    open: async (...args) => {
+      const file = await open(...args);
+      const read = file.read.bind(file);
+      vi.spyOn(file, "read").mockImplementation(async (...readArgs) => {
+        const result = await read(...readArgs);
+        reads += 1;
+        controller.abort();
+        return result;
+      });
+      return file;
+    },
+  });
+  const pending = streaming.inspect(
     { path, block_size: 256 },
     { signal: controller.signal },
   );
-  setTimeout(() => controller.abort(), 5);
   expect(await pending).toMatchObject({
     ok: false,
     error: { _tag: "AnalysisCancelledError" },
   });
+  expect(reads).toBe(1);
+});
+
+it("reports a changed artifact when its parent directory moves during streaming", async () => {
+  const root = await createTestTempDirectory("rea-entropy-moved-");
+  const path = join(root, "bytes");
+  await writeFile(path, Buffer.alloc(512));
+  let moved = false;
+  const service = new ByteEntropyService({
+    stat,
+    open: async (...args) => {
+      const file = await open(...args);
+      const read = file.read.bind(file);
+      vi.spyOn(file, "read").mockImplementation(async (...readArgs) => {
+        const result = await read(...readArgs);
+        if (!moved) {
+          moved = true;
+          await rename(root, `${root}-moved`);
+        }
+        return result;
+      });
+      return file;
+    },
+  });
+  try {
+    expect(await service.inspect({ path, block_size: 256 })).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisArtifactChangedError" },
+    });
+  } finally {
+    if (moved) await rename(`${root}-moved`, root);
+  }
 });

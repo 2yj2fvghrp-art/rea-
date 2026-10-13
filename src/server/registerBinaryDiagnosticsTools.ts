@@ -1,3 +1,4 @@
+import type { output } from "zod";
 import type { ByteEntropyService } from "../application/binaryDiagnostics/ByteEntropyService.js";
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
@@ -30,7 +31,7 @@ export const registerBinaryDiagnosticsTools = (
     {
       detail,
       ...request
-    }: { detail: "complete" | "summary"; [key: string]: unknown },
+    }: output<typeof layout.inputSchema> | output<typeof entropy.inputSchema>,
     signal: AbortSignal,
   ) =>
     runAdmittedToolOperation(

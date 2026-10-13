@@ -34,6 +34,13 @@ const invalid = (field: string, message: string) =>
 
 /** Offline byte observations shared by CLI and MCP, with one file-wide read. */
 export class ByteEntropyService {
+  constructor(
+    private readonly files: Pick<
+      typeof import("node:fs/promises"),
+      "open" | "stat"
+    > = { open, stat },
+  ) {}
+
   async inspect(
     rawInput: unknown,
     options?: ExecutionOptions,
@@ -52,10 +59,12 @@ export class ByteEntropyService {
       return err(
         invalid("path", "Expected an absolute filesystem path on this host."),
       );
+    let admitted = false;
     try {
-      const before = await stat(input.path, { bigint: true });
+      const before = await this.files.stat(input.path, { bigint: true });
       if (!before.isFile()) throw invalid("path", "Expected a regular file.");
-      const file = await open(
+      admitted = true;
+      const file = await this.files.open(
         input.path,
         constants.O_RDONLY | constants.O_NONBLOCK,
       );
@@ -125,7 +134,7 @@ export class ByteEntropyService {
         }
         if (
           !same(await file.stat({ bigint: true })) ||
-          !same(await stat(input.path, { bigint: true }))
+          !same(await this.files.stat(input.path, { bigint: true }))
         )
           throw changed();
         options?.signal?.throwIfAborted();
@@ -186,7 +195,16 @@ export class ByteEntropyService {
             }),
           );
         if (cause.code === "ENOENT" || cause.code === "ENOTDIR")
-          return err(invalid("path", "Selected file could not be found."));
+          return err(
+            admitted
+              ? new AnalysisArtifactChangedError(
+                  OPERATION,
+                  input.path,
+                  "Selected file path changed during entropy inspection.",
+                  { cause },
+                )
+              : invalid("path", "Selected file could not be found."),
+          );
       }
       return err(
         new AnalysisOutputError(
