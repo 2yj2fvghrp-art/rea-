@@ -33,6 +33,7 @@ import {
   IDA_LIMITATIONS,
   IDA_OPERATIONS,
   IDA_PROVIDER_IDENTITY,
+  idaProfileAdmits,
   type IdaOperation,
 } from "./IdaProviderCapabilities.js";
 import {
@@ -42,6 +43,7 @@ import {
   legacyMetadataSchema,
   modernHealthSchema,
   openDatabaseSchema,
+  rejectedOpenDatabaseSchema,
 } from "./IdaProtocolValues.js";
 import {
   idaFileDigest,
@@ -153,7 +155,9 @@ export class IdaSessionClient implements AnalysisClient {
   #openAttempted = false;
   #openCompleted = false;
   #blockingSessions: readonly UpstreamSession[] | undefined;
+  #openRejected = false;
   #callGraphAdvertised = false;
+  #surveyAdvertised = false;
   #initialIdentity: string | undefined;
   #metadata: JsonValue = null;
   #lifecycle: JsonValue[] = [];
@@ -224,6 +228,17 @@ export class IdaSessionClient implements AnalysisClient {
           "ida",
           operation,
           "This integration admits read-only analysis operations only.",
+        ),
+      );
+    if (
+      operation !== "health" &&
+      !idaProfileAdmits(operation, this.config.mode)
+    )
+      return err(
+        new AnalysisCapabilityUnavailableError(
+          "ida",
+          operation,
+          "This operation is available for the modern headless profile only.",
         ),
       );
     if (
@@ -301,6 +316,9 @@ export class IdaSessionClient implements AnalysisClient {
           ...(runner.relationshipCoverage === undefined
             ? {}
             : { relationshipCoverage: runner.relationshipCoverage }),
+          ...(runner.referencesTruncated !== undefined
+            ? { referencesTruncated: runner.referencesTruncated }
+            : {}),
           locations: [
             { kind: "artifact-path", path: this.target.path },
             ...runner.locations,
@@ -325,6 +343,8 @@ export class IdaSessionClient implements AnalysisClient {
         selectorOrigin: options?.selectorOrigin,
         x86Only: isX86OnlyTarget(this.target),
         callGraphAvailable: this.#callGraphAdvertised,
+        surveyAvailable: this.#surveyAdvertised,
+        admittedDocument: this.target.path,
       },
     );
   }
@@ -455,6 +475,7 @@ export class IdaSessionClient implements AnalysisClient {
   async #initialize(): Promise<void> {
     const tools = new Set(await this.connection.connect());
     this.#callGraphAdvertised = tools.has("callgraph");
+    this.#surveyAdvertised = tools.has("survey_binary");
     const expected =
       this.config.protocol === "native"
         ? nativeTools
@@ -482,6 +503,9 @@ export class IdaSessionClient implements AnalysisClient {
         preferred_session_id: this.#workspace.sessionId,
       });
       this.#openCompleted = true;
+      // A completed but malformed/positive open may still own a live Worker.
+      // Only an explicit producer rejection keeps the old no-worker branch.
+      this.#openRejected = rejectedOpenDatabaseSchema.safeParse(raw).success;
       this.#lifecycle.push(raw);
       const opened = openDatabaseSchema.parse(raw);
       if (
@@ -701,6 +725,14 @@ export class IdaSessionClient implements AnalysisClient {
           if (this.#database === undefined && blocked)
             throw new AnalysisProtocolError(
               "An unowned worker still uses the private workspace; it was retained.",
+            );
+          if (
+            this.#database === undefined &&
+            this.#openCompleted &&
+            !this.#openRejected
+          )
+            throw new AnalysisProtocolError(
+              "IDA open returned without a verified private worker binding. An empty session inventory does not prove that its Worker exited; the private workspace was retained.",
             );
         }
         if (this.#database !== undefined) {
