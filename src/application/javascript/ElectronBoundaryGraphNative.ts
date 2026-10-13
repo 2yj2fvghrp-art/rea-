@@ -57,6 +57,44 @@ const addNativeBinding = (input: NativeBindingInput): void => {
   });
   const resolved = resolution.resolved_path;
   const addon = resolved === null ? undefined : context.fileNodes.get(resolved);
+  const observations = [
+    {
+      label:
+        value.members.map(javascriptDisplayText).join(", ") || value.specifier,
+      properties: {
+        specifier: value.specifier,
+        binding_kind: value.binding_kind,
+        module_kind: value.module_kind,
+        type_only: value.type_only ?? null,
+        requested_members: value.members,
+        namespace_access: value.namespace_access ?? null,
+        dynamic_member_access: value.dynamic_member_access ?? null,
+        resolved_path: resolved,
+        resolution_status: resolution.resolution_status,
+        resolution_limitations: resolution.limitations,
+        ...artifactPathResolutionProperties(resolution),
+        native_export_verification: "not-performed",
+      },
+      evidence: astObservationEvidence({
+        sha256: file.sha256,
+        path: file.path,
+        range: value.location,
+        operation: "observe-native-addon-binding",
+        coverage,
+        limitations: [
+          "JavaScript syntax identifies requested member names; it does not prove that the native binary exports or implements them.",
+        ],
+      }),
+    },
+  ];
+  if (value.type_only !== false) {
+    context.accumulator.addNode({
+      kind: source.kind,
+      identity: source.identity,
+      observations,
+    });
+    return;
+  }
   const binding = context.accumulator.addNode({
     kind: "native-export",
     identity: electronObservationIdentity(
@@ -70,42 +108,10 @@ const addNativeBinding = (input: NativeBindingInput): void => {
         value.namespace_access ?? null,
         value.dynamic_member_access ?? null,
         electronRangeKey(value.location),
-        ...(value.type_only === true ? ["type-only"] : []),
       ]),
     ),
-    observations: [
-      {
-        label:
-          value.members.map(javascriptDisplayText).join(", ") ||
-          value.specifier,
-        properties: {
-          specifier: value.specifier,
-          binding_kind: value.binding_kind,
-          module_kind: value.module_kind,
-          type_only: value.type_only ?? null,
-          requested_members: value.members,
-          namespace_access: value.namespace_access ?? null,
-          dynamic_member_access: value.dynamic_member_access ?? null,
-          resolved_path: resolved,
-          resolution_status: resolution.resolution_status,
-          resolution_limitations: resolution.limitations,
-          ...artifactPathResolutionProperties(resolution),
-          native_export_verification: "not-performed",
-        },
-        evidence: astObservationEvidence({
-          sha256: file.sha256,
-          path: file.path,
-          range: value.location,
-          operation: "observe-native-addon-binding",
-          coverage,
-          limitations: [
-            "JavaScript syntax identifies requested member names; it does not prove that the native binary exports or implements them.",
-          ],
-        }),
-      },
-    ],
+    observations,
   });
-  if (value.type_only !== false) return;
   addElectronInferenceEdge(context, {
     source,
     target: binding,

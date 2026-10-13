@@ -7,6 +7,12 @@ import {
 } from "../unicodeCodePointOrder.js";
 import { stripQueryAndFragment } from "../artifactPathSyntax.js";
 import type { ElectronNativeAddonBindingFinding } from "./electronStaticAnalysisTypes.js";
+import {
+  isTypeOnlyExportDeclaration,
+  isTypeOnlyExportSpecifier,
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 import { addLocatedFinding } from "./javascriptStaticAnalysisFindings.js";
 import {
   argumentNode,
@@ -23,12 +29,6 @@ import {
   typescriptImportTypeRequest,
   typescriptImportEqualsRequest,
 } from "./typescriptImportResolutionMode.js";
-import {
-  isTypeOnlyImportDeclaration,
-  isTypeOnlyImportSpecifier,
-  isTypeOnlyExportDeclaration,
-  isTypeOnlyExportSpecifier,
-} from "./javascriptModuleDeclaration.js";
 
 interface NativeBindingInput {
   readonly context: JavaScriptFindingContext;
@@ -108,6 +108,7 @@ const inspectDeclaration = (
   const declarationTypeOnly = t.isImportDeclaration(node)
     ? isTypeOnlyImportDeclaration(node)
     : isTypeOnlyExportDeclaration(node);
+  // Keep erased syntax as type evidence; runtime requests consume only type_only: false.
   for (const typeOnly of [false, true]) {
     const specifiers = node.specifiers.filter(
       (specifier) =>

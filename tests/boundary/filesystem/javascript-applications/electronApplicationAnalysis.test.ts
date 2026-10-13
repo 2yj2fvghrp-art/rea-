@@ -103,10 +103,16 @@ describe("static Electron application analysis", () => {
     expect(
       graph.nodes
         .flatMap(({ kind, observations }) =>
-          kind === "native-export" ? observations : [],
+          kind === "javascript-asset" ? observations : [],
         )
         .filter(({ properties }) => properties.type_only === true),
     ).toHaveLength(3);
+    expect(
+      graph.nodes
+        .filter(({ kind }) => kind === "native-export")
+        .flatMap(({ observations }) => observations)
+        .every(({ properties }) => properties.type_only === false),
+    ).toBe(true);
   });
 
   it("maps Electron boundaries through bundler-renamed bindings", async () => {
@@ -205,7 +211,7 @@ it("keeps omitted native categories unknown through legacy worker decoding and g
     };
     const graph = buildJavaScriptArtifactGraph(snapshot, files, legacy);
     const observations = graph.nodes.flatMap(({ kind, observations }) =>
-      kind === "native-export" ? observations : [],
+      kind === "javascript-asset" ? observations : [],
     );
     expect(
       observations.filter(({ properties }) => properties.type_only === null),
@@ -213,6 +219,39 @@ it("keeps omitted native categories unknown through legacy worker decoding and g
     expect(
       observations.filter(({ properties }) => properties.type_only === true),
     ).toHaveLength(3);
+    expect(graph.nodes.filter(({ kind }) => kind === "native-export")).toEqual(
+      [],
+    );
+    for (const { file, javascript } of legacy.files) {
+      for (const finding of javascript?.electron.native_addon_bindings ?? []) {
+        const source = graph.nodes.find(
+          ({ kind, identity }) =>
+            kind === "javascript-asset" &&
+            identity.strategy === "content-digest" &&
+            identity.sha256 === file.sha256,
+        );
+        expect(source?.observations).toContainEqual(
+          expect.objectContaining({
+            properties: expect.objectContaining({
+              type_only: finding.type_only ?? null,
+              requested_members: finding.members,
+              native_export_verification: "not-performed",
+            }),
+            evidence: expect.objectContaining({
+              artifact: expect.objectContaining({ sha256: file.sha256 }),
+              location: {
+                available: true,
+                value: {
+                  kind: "source-range",
+                  source: file.path,
+                  ...finding.location,
+                },
+              },
+            }),
+          }),
+        );
+      }
+    }
     expect(
       graph.edges.filter(
         ({ evidence }) =>
