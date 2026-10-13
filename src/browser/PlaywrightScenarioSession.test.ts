@@ -188,6 +188,36 @@ it("stops attached navigation without storage and retries rejected policy cleanu
   expect(cleanup.close).toHaveBeenCalledTimes(1);
 });
 
+it("rejects an init script accepted by CDP when the live realm is unprotected", async () => {
+  const { page, cleanup } = fixture();
+  page.evaluate.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  const attached = browserScenarioSchema.parse({
+    ...scenario,
+    browser: {
+      mode: "connect",
+      cdp_endpoint: "http://127.0.0.1:9222",
+      target_id: "target",
+    },
+    environment: { service_workers: "block" },
+  });
+  await expect(
+    PlaywrightScenarioSession.open(attached, {}, {}),
+  ).rejects.toMatchObject({
+    reason: "target_not_allowed",
+  });
+  expect(
+    mocks.policySend.mock.calls.some(
+      ([method]) => method === "Page.addScriptToEvaluateOnNewDocument",
+    ),
+  ).toBe(true);
+  expect(
+    mocks.policySend.mock.calls.some(
+      ([method]) => method === "Page.removeScriptToEvaluateOnNewDocument",
+    ),
+  ).toBe(true);
+  expect(cleanup.close).toHaveBeenCalledTimes(1);
+});
+
 it("retains an owned script identifier after rejected removal", async () => {
   const { cleanup } = fixture();
   const attached = browserScenarioSchema.parse({
@@ -319,7 +349,7 @@ it("blocks new attached service-worker registration without removing existing re
   });
   const session = await PlaywrightScenarioSession.open(attached, {}, {});
 
-  expect(page.evaluate).toHaveBeenCalledTimes(2);
+  expect(page.evaluate).toHaveBeenCalledTimes(3);
   const injection = mocks.policySend.mock.calls.find(
     ([method]) => method === "Page.addScriptToEvaluateOnNewDocument",
   )?.[1];
@@ -400,7 +430,7 @@ it("waits for a pending registration installation before cancelled cleanup", asy
   expect(page.evaluate).toHaveBeenCalledTimes(1);
   releaseInstallation();
   await outcome;
-  expect(page.evaluate.mock.calls[1]?.[0]).toContain(
+  expect(page.evaluate.mock.calls.at(-1)?.[0]).toContain(
     "policy restoration could not be confirmed",
   );
   expect(mocks.policySend).toHaveBeenCalledWith(

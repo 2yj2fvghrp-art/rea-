@@ -87,6 +87,8 @@ export class PlaywrightScenarioServiceWorkers {
       throw new BrowserObservationError(OPERATION, "protocol_error");
     this.addTarget(id);
     await this.settle();
+    // CDP returns an identifier even when an init script throws in a realm.
+    await this.assertBlocked();
   }
 
   private addTarget(id: string): void {
@@ -178,11 +180,14 @@ export class PlaywrightScenarioServiceWorkers {
   async assertBlocked(): Promise<void> {
     if (this.#session !== undefined) await this.settle();
     for (const frame of this.page.frames()) {
-      let hasWorker: unknown;
+      let violatesPolicy: unknown;
       try {
-        hasWorker = await frame.evaluate(`(async () => {
+        violatesPolicy = await frame.evaluate(`(async () => {
           if (!("serviceWorker" in navigator)) return false;
           const serviceWorker = navigator.serviceWorker;
+          if (${this.#session !== undefined} &&
+              (!Object.hasOwn(serviceWorker.register, Symbol.for(${this.marker})) ||
+               typeof globalThis[${this.restoreKey}] !== "function")) return true;
           if (serviceWorker.controller !== null) return true;
           return (await serviceWorker.getRegistrations()).length > 0;
         })()`);
@@ -190,7 +195,7 @@ export class PlaywrightScenarioServiceWorkers {
         if (frame.isDetached()) continue;
         throw cause;
       }
-      if (hasWorker)
+      if (violatesPolicy)
         throw new BrowserObservationError(OPERATION, "target_not_allowed");
     }
   }

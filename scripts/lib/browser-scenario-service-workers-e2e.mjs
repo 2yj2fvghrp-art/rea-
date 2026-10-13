@@ -503,6 +503,7 @@ const verifyPolicyCleanup = async ({
     ),
     false,
   );
+  await verifyRejectedPolicyInstallation(page.context(), endpoint, origin);
   return {
     stalled_image_cancelled: true,
     stalled_frame_cancelled: true,
@@ -512,5 +513,73 @@ const verifyPolicyCleanup = async ({
     renderer_transition: true,
     navigation_during_restoration: true,
     caller_init_script_preserved: true,
+    failed_main_installation_rejected: true,
+    failed_iframe_installation_rejected: true,
+    replaced_iframe_policy_rejected: true,
   };
+};
+
+const verifyRejectedPolicyInstallation = async (context, endpoint, origin) => {
+  for (const realm of ["main", "existing-iframe", "new-iframe"]) {
+    const page = await context.newPage();
+    let policy;
+    try {
+      await page.goto(origin);
+      const cdp = await context.newCDPSession(page);
+      const { targetInfo } = await cdp.send("Target.getTargetInfo");
+      await cdp.detach();
+      policy = new PlaywrightScenarioServiceWorkers(
+        page,
+        endpoint,
+        targetInfo.targetId,
+      );
+      if (realm === "new-iframe") await policy.initialize();
+      let frame = page.mainFrame();
+      if (realm !== "main") {
+        const crossSite = origin.replace("127.0.0.1", "localhost");
+        await page.evaluate((url) => {
+          const child = document.createElement("iframe");
+          child.src = url;
+          document.body.append(child);
+        }, crossSite);
+        frame = page
+          .frames()
+          .find((candidate) => candidate.parentFrame() !== null);
+        assert.ok(frame);
+        await frame.waitForURL(crossSite, { waitUntil: "load" });
+      }
+      await frame.evaluate((replace) => {
+        const prototype = ServiceWorkerContainer.prototype;
+        const descriptor = Object.getOwnPropertyDescriptor(
+          prototype,
+          "register",
+        );
+        Object.defineProperty(prototype, "register", {
+          ...descriptor,
+          configurable: false,
+          ...(replace ? { value: function callerReplacement() {} } : {}),
+        });
+      }, realm === "new-iframe");
+      await assert.rejects(
+        realm === "new-iframe" ? policy.assertBlocked() : policy.initialize(),
+        (error) => error.reason === "target_not_allowed",
+      );
+      await policy.close();
+      assert.equal(
+        await frame.evaluate((replaced) => {
+          const register = navigator.serviceWorker.register;
+          return replaced
+            ? register.name === "callerReplacement"
+            : register.toString().includes("[native code]");
+        }, realm === "new-iframe"),
+        true,
+      );
+    } finally {
+      try {
+        await policy?.close();
+      } finally {
+        await page.close();
+      }
+    }
+  }
 };
