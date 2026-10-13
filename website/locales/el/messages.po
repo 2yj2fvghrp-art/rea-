@@ -7165,7 +7165,7 @@ msgstr "Ένα prompt."
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Ask your agent {ph0}in plain English.{ph1}"
-msgstr "Ρωτήστε τον agent σας {ph0}σε απλά αγγλικά.{ph1}"
+msgstr "Ρωτήστε τον agent σας {ph0}σε απλά λόγια.{ph1}"
 
 #. {ph0}: <span class="terminal-dots" aria-hidden="true" >
 #. {ph1}: <i>
