@@ -8,21 +8,6 @@ import {
 } from "./ManagedMetadataLayout.js";
 import { managedFailure } from "./ManagedReaderFailure.js";
 
-const requireRange = (
-  bytes: Buffer,
-  offset: number,
-  length: number,
-  scope: string,
-): void => {
-  if (offset < 0 || length < 0 || offset > bytes.length - length)
-    throw managedFailure(
-      "invalid-row",
-      scope,
-      `${scope} leaves the artifact byte range`,
-      offset >= 0 ? offset : null,
-    );
-};
-
 /** Cursor for checked fixed-width metadata row decoding. */
 export class MetadataRowCursor {
   #offset: number;
@@ -81,18 +66,28 @@ const compressedLength = (
   scope: string,
   item: keyof typeof PREFIXED_ITEMS,
 ): { readonly length: number; readonly prefix: number } => {
-  requireRange(bytes, offset, 1, scope);
+  const { code, label } = PREFIXED_ITEMS[item];
+  const requirePrefix = (size: number): void => {
+    if (offset < 0 || offset > bytes.length - size)
+      throw managedFailure(
+        code,
+        scope,
+        `${label} length prefix leaves the artifact byte range`,
+        offset >= 0 ? offset : null,
+      );
+  };
+  requirePrefix(1);
   const first = bytes[offset] ?? 0;
   if ((first & 0x80) === 0) return { length: first, prefix: 1 };
   if ((first & 0xc0) === 0x80) {
-    requireRange(bytes, offset, 2, scope);
+    requirePrefix(2);
     return {
       length: ((first & 0x3f) << 8) | (bytes[offset + 1] ?? 0),
       prefix: 2,
     };
   }
   if ((first & 0xe0) === 0xc0) {
-    requireRange(bytes, offset, 4, scope);
+    requirePrefix(4);
     return {
       length:
         (first & 0x1f) * 0x01_00_00_00 +
@@ -103,9 +98,9 @@ const compressedLength = (
     };
   }
   throw managedFailure(
-    PREFIXED_ITEMS[item].code,
+    code,
     scope,
-    `${PREFIXED_ITEMS[item].label} uses a reserved compressed-length prefix`,
+    `${label} uses a reserved compressed-length prefix`,
     offset,
   );
 };
