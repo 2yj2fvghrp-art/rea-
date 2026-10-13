@@ -47,6 +47,12 @@ const env = {
   REA_ANALYSIS_PROVIDER: "ghidra",
   REA_PROCESS_RUN_ID: run.run_id,
   GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR,
+  ...(process.env.GHIDRA_HEADLESS_MAXMEM
+    ? { GHIDRA_HEADLESS_MAXMEM: process.env.GHIDRA_HEADLESS_MAXMEM }
+    : {}),
+  ...(process.env.GHIDRA_MAXMEM
+    ? { GHIDRA_MAXMEM: process.env.GHIDRA_MAXMEM }
+    : {}),
   ...(process.env.JAVA_HOME ? { JAVA_HOME: process.env.JAVA_HOME } : {}),
 };
 const transport = new StdioClientTransport({
@@ -82,7 +88,43 @@ try {
   const instruction = await call("inspect_native_instruction", {
     address: "0x80010010",
   });
-  assert.match(JSON.stringify(instruction), /addiu/i);
+  assert.equal(instruction.status, "decoded");
+  assert.equal(instruction.mnemonic.toLowerCase(), "addiu");
+  assert.equal(instruction.bytes, "01008224");
+  assert.equal(instruction.length, 4);
+  assert.deepEqual(
+    instruction.operands.map((operand) =>
+      operand.components.map((component) => ({
+        kind: component.kind,
+        value: component.value,
+      })),
+    ),
+    [
+      [{ kind: "register", value: "v0" }],
+      [{ kind: "register", value: "a0" }],
+      [{ kind: "immediate", value: "0x1" }],
+    ],
+  );
+  const image = (await call("inspect_native_load_image")).observations;
+  const entryContext = image.entry_context.find(
+    (row) => BigInt(row.address) === 0x80010010n,
+  );
+  assert.ok(entryContext, "Entry register context was not observed");
+  assert.equal(
+    entryContext.registers.find((row) => row.name === "gp")?.value_hex,
+    "0x80010100",
+  );
+  assert.equal(
+    entryContext.registers.find((row) => row.name === "sp")?.value_hex,
+    "0x801ffff0",
+  );
+  const bss = image.mappings.find((row) => row.block === "psx_bss");
+  assert.ok(bss, "Declared BSS block was not observed");
+  assert.equal(BigInt(bss.start), 0x80010800n);
+  assert.equal(BigInt(bss.end), 0x8001083fn);
+  assert.equal(bss.length, 64);
+  assert.equal(bss.initialized, false);
+  assert.equal(bss.file_offset, null);
   const dossier = await call("analyze_function", { procedure: "0x80010010" });
   assert.ok(dossier.pseudocode.trim().length);
   await call("close_binary", { snapshot_path: snapshotPath });
@@ -153,8 +195,19 @@ try {
 } catch (cause) {
   failure = cause;
 } finally {
-  await client.close();
-  await transport.close();
+  for (const close of [() => client.close(), () => transport.close()]) {
+    try {
+      await close();
+    } catch (cause) {
+      failure =
+        failure === undefined
+          ? cause
+          : new AggregateError(
+              [failure, cause],
+              "Verification and cleanup failed",
+            );
+    }
+  }
 }
 
 const completed = await completeVerifierRun(run);

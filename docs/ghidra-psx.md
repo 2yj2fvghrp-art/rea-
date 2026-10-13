@@ -47,3 +47,7 @@ Evidence identity, snapshot replay, and unchanged source bytes. It installs
 nothing and executes no target code. macOS arm64, Ghidra 12.1.2 and JDK 26 were
 verified during implementation; other provider/host combinations are not
 established by that result. No commercial executable belongs in the fixture.
+
+The source extent is limited to the declared payload plus its 2048-byte header
+and padding through the final 2048-byte sector. Additional trailing sectors are
+rejected before hashing or creating the analysis snapshot.

@@ -1,5 +1,9 @@
 import { err, ok, type Result } from "./result.js";
 
+/** Exact signature shared by target resolution and artifact inventory. */
+export const hasPsxExeSignature = (bytes: Buffer): boolean =>
+  bytes.subarray(0, 8).equals(Buffer.from("PS-X EXE", "ascii"));
+
 /** Little-endian PS-X EXE declarations; these do not describe runtime overlays. */
 export interface PsxExeHeader {
   readonly entryPoint: number;
@@ -19,10 +23,7 @@ export const parsePsxExeHeader = (
   bytes: Buffer,
   fileSize: number,
 ): Result<PsxExeHeader, string> => {
-  if (
-    bytes.length < 0x800 ||
-    bytes.subarray(0, 8).toString("ascii") !== "PS-X EXE"
-  )
+  if (bytes.length < 0x800 || !hasPsxExeSignature(bytes))
     return err("truncated or invalid PS-X EXE header");
   const header: PsxExeHeader = {
     entryPoint: bytes.readUInt32LE(0x10),
@@ -42,6 +43,13 @@ export const parsePsxExeHeader = (
     0x800 + header.payloadSize > fileSize
   )
     return err("PS-X EXE payload is empty or extends beyond the file");
+  // PS-X EXEs are 2048-byte sectors: retain at most the final sector's padding.
+  const maximumSourceBytes =
+    Math.ceil((0x800 + header.payloadSize) / 0x800) * 0x800;
+  if (fileSize > maximumSourceBytes)
+    return err(
+      "PS-X EXE source exceeds the declared payload and final 2048-byte sector padding",
+    );
   const end = header.loadAddress + header.payloadSize;
   if (
     end > 0x100000000 ||

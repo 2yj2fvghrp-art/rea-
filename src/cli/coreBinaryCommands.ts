@@ -15,6 +15,7 @@ import type { CliInstance } from "./types.js";
 import { runCliJavaScriptApplicationAnalysis } from "./javascriptApplicationAnalysis.js";
 import { withCommandCancellation } from "./commandCancellation.js";
 import { javascriptApplicationOptions } from "../cliObservationOptions.js";
+import { AnalysisInputError } from "../domain/analysisErrorCore.js";
 
 /** Register provider-neutral binary overview and procedure CLI commands. */
 export const registerCoreBinaryCommands = (
@@ -51,6 +52,7 @@ const registerOverviewCommands = (
     }),
     options: overviewOptions.extend({
       integrityPolicy: javascriptApplicationOptions.shape.integrityPolicy,
+      sourcePath: javascriptApplicationOptions.shape.sourcePath,
     }),
     run: async ({ args, options }) => {
       // Route JavaScript targets exactly like analyze-javascript-application,
@@ -63,19 +65,35 @@ const registerOverviewCommands = (
               {
                 input_path: resolve(args.path),
                 integrity_policy: options.integrityPolicy,
+                ...(options.sourcePath === undefined
+                  ? {}
+                  : { source_paths: options.sourcePath }),
               },
               signal,
             ),
           ),
         );
-      return logCliCommand(logger, "analyze", () =>
-        runDirectAnalysis(
+      return logCliCommand(logger, "analyze", () => {
+        if (options.sourcePath !== undefined)
+          throw new AnalysisInputError(
+            "analyze_javascript_application",
+            undefined,
+            [
+              {
+                path: ["source_paths"],
+                reason: "invalid_value",
+                message:
+                  "Source selection requires the static JavaScript ASAR/directory analysis lane.",
+              },
+            ],
+          );
+        return runDirectAnalysis(
           args.path,
           "binary_overview",
           {},
           directAnalysisOptionsFromCli(logger, options),
-        ),
-      );
+        );
+      });
     },
   });
   cli.command(CLI_COMMANDS.inspect, {
@@ -119,6 +137,13 @@ const registerDecompileCommand = (
         .describe(
           "Procedure name or address; use --procedure=<value> for leading dashes",
         ),
+      "file-offset": z
+        .string()
+        .regex(/^0x[0-9a-fA-F]+$/u)
+        .optional()
+        .describe(
+          "Ghidra source-file byte offset; mapped internally to an analysis address",
+        ),
       snapshot: z
         .string()
         .min(1)
@@ -134,8 +159,17 @@ const registerDecompileCommand = (
           {
             procedure: resolveCliAnalysisSelector(
               args.address,
-              options.procedure,
-              "procedure",
+              options["file-offset"] === undefined
+                ? options.procedure
+                : resolveCliAnalysisSelector(
+                    options.procedure,
+                    `file-offset:${options["file-offset"]}`,
+                    "file-offset",
+                    "procedure_pseudo_code",
+                  ),
+              options["file-offset"] === undefined
+                ? "procedure"
+                : "file-offset",
               "procedure_pseudo_code",
             ),
           },

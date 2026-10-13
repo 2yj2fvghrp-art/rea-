@@ -65,3 +65,18 @@ describe("PS-X EXE declarations", () => {
     expect(result.value.bssSize).toBe(64);
   });
 });
+
+it("rejects high-bit signature aliases in both parsers and inventory", () => {
+  const bytes = fixture();
+  Buffer.from("d0d3add8a0c5d8c5", "hex").copy(bytes);
+  expect(parsePsxExeHeader(bytes, bytes.length).ok).toBe(false);
+  expect(parseExecutableHeader(bytes, "arm64").ok).toBe(false);
+});
+it("retains PS-X identity in artifact inventory and bounds unused trailing sectors", () => {
+  const bytes = fixture();
+  expect(parsePsxExeHeader(bytes, 4097).ok).toBe(false);
+  bytes.writeUInt32LE(1025, 0x1c);
+  expect(parsePsxExeHeader(bytes, 4096).ok).toBe(true);
+  expect(parsePsxExeHeader(bytes, 4097).ok).toBe(false);
+  expect(parsePsxExeHeader(bytes, 0x100000000).ok).toBe(false);
+});

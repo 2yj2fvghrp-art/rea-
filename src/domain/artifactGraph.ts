@@ -47,6 +47,7 @@ const artifactFormatSchema = z.enum([
   "mach-o-universal",
   "mach-o",
   "elf",
+  "psx-exe",
   "pe",
   "dos-mz",
   "dos-com",
@@ -73,6 +74,7 @@ const artifactContentFormatSchema = artifactFormatSchema.extract([
   "mach-o-universal",
   "mach-o",
   "elf",
+  "psx-exe",
   "pe",
   "dos-mz",
   "plist",
@@ -101,7 +103,7 @@ const artifactCommandSchema = z.object({
 export type ArtifactCommand = z.infer<typeof artifactCommandSchema>;
 
 /** One content-addressed application artifact in deterministic manifest order. */
-const artifactNodeSchema = z.object({
+export const artifactNodeSchema = z.object({
   artifact_id: artifactIdSchema,
   format: artifactContentFormatSchema,
   sha256: sha256Schema,
@@ -113,7 +115,7 @@ const artifactNodeSchema = z.object({
 });
 
 /** One path or virtual location where an artifact occurs in its parent. */
-const artifactOccurrenceSchema = z.object({
+export const artifactOccurrenceSchema = z.object({
   occurrence_id: occurrenceIdSchema,
   artifact_id: artifactIdSchema.nullable(),
   parent_occurrence_id: occurrenceIdSchema.nullable(),
@@ -159,7 +161,7 @@ export const integrityContradictionSchema = z.object({
  * Parent-child derivation relation between two content-addressed artifacts.
  * The child artifact and its logical path are those of the edge's occurrence.
  */
-const artifactEdgeSchema = z.object({
+export const artifactEdgeSchema = z.object({
   edge_id: edgeIdSchema,
   ordinal: z.number().int().min(0),
   parent_artifact_id: artifactIdSchema,
@@ -177,7 +179,7 @@ const artifactEdgeSchema = z.object({
 });
 
 /** Stable cryptographic commitment and counts for a complete artifact graph. */
-const artifactGraphManifestSchema = z.object({
+export const artifactGraphManifestSchema = z.object({
   manifest_id: manifestIdSchema,
   root_artifact_id: artifactIdSchema,
   root_sha256: sha256Schema,
@@ -188,6 +190,12 @@ const artifactGraphManifestSchema = z.object({
   edge_count: z.number().int().min(0),
 });
 
+/** Whether the inventory producer covered its modeled child-entry scope. */
+export const artifactInventoryCoverageSchema = z.enum(["complete", "partial"]);
+export type ArtifactInventoryCoverage = z.infer<
+  typeof artifactInventoryCoverageSchema
+>;
+
 /** Complete inventory observation containing the stable artifact graph. */
 export const artifactInventoryResultSchema = z.object({
   manifest: artifactGraphManifestSchema,
@@ -197,7 +205,18 @@ export const artifactInventoryResultSchema = z.object({
   provenance: z.array(artifactCommandSchema),
   integrity_contradictions: z.array(integrityContradictionSchema).default([]),
   limitations: z.array(z.string()),
+  /** Optional only for persisted inventory Evidence written before this field. */
+  coverage_status: artifactInventoryCoverageSchema.optional(),
 });
+
+/** Current inventory producers always classify the coverage they examined. */
+export const artifactInventoryOutputSchema =
+  artifactInventoryResultSchema.extend({
+    coverage_status: artifactInventoryCoverageSchema,
+  });
+export type ArtifactInventoryOutput = z.infer<
+  typeof artifactInventoryOutputSchema
+>;
 
 /** One safely materialized artifact beneath caller-approved output root. */
 const extractedArtifactSchema = z.object({
@@ -212,7 +231,7 @@ const extractedArtifactSchema = z.object({
 const artifactExtractionManifestSchema = z.object({
   extraction_id: extractionIdSchema,
   source_manifest_id: manifestIdSchema,
-  selected_occurrence_ids: z.array(occurrenceIdSchema).min(1),
+  selected_occurrence_ids: z.array(occurrenceIdSchema),
   files_sha256: sha256Schema,
   output_root_alias: z.literal("$OUTPUT_ROOT"),
 });
