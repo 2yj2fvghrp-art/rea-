@@ -7,7 +7,10 @@ import { artifactComparisonResultSchema } from "./artifactComparison.js";
 import { artifactInventoryResultSchema } from "./artifactGraph.js";
 import { uniqueSorted } from "./canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
-import { comparisonSourceEvidenceSides } from "./comparisonSourceEvidence.js";
+import {
+  comparisonSourceEvidenceSides,
+  assertComparisonFindingLinks,
+} from "./comparisonSourceEvidence.js";
 import { parseEvidence, type Evidence } from "./evidence.js";
 import { parseEvidenceBundle } from "./evidenceBundle.js";
 import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
@@ -262,6 +265,10 @@ const selectObservation = (
     const result = functionComparisonResultSchema.parse(
       evidence.normalized_result,
     );
+    assertComparisonFindingLinks(
+      evidence,
+      result.dimensions.flatMap(({ evidence_links }) => evidence_links),
+    );
     if (claim.dimension === "overall")
       return {
         status: result.status,
@@ -274,27 +281,15 @@ const selectObservation = (
     );
     if (dimension === undefined)
       throw new TypeError("Function comparison dimension missing");
-    if (
-      dimension.evidence_links.some(
-        (id) => !evidence.evidence_links.includes(id),
-      )
-    )
-      throw new TypeError(
-        "Function dimension cites Evidence outside comparison closure",
-      );
     return { status: dimension.status, limitations: dimension.limitations };
   }
   const result = artifactComparisonResultSchema.parse(
     evidence.normalized_result,
   );
-  if (
-    result.changes.some((item) =>
-      item.evidence_links.some((id) => !evidence.evidence_links.includes(id)),
-    )
-  )
-    throw new TypeError(
-      "Artifact change cites Evidence outside comparison closure",
-    );
+  assertComparisonFindingLinks(
+    evidence,
+    result.changes.flatMap(({ evidence_links }) => evidence_links),
+  );
   return { status: result.status, limitations: [] };
 };
 

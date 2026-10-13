@@ -6,7 +6,10 @@ import { z } from "zod";
 import { artifactComparisonResultSchema } from "./artifactComparison.js";
 import { uniqueSorted } from "./canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
-import { comparisonSourceEvidenceIds } from "./comparisonSourceEvidence.js";
+import {
+  comparisonSourceEvidenceIds,
+  assertComparisonFindingLinks,
+} from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
 import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
 import {
@@ -350,7 +353,7 @@ const parseStatic = (input: unknown): Evidence => {
     const result = artifactComparisonResultSchema.parse(
       evidence.normalized_result,
     );
-    assertNestedLinks(
+    assertComparisonFindingLinks(
       evidence,
       result.changes.flatMap(({ evidence_links: links }) => links),
     );
@@ -358,23 +361,12 @@ const parseStatic = (input: unknown): Evidence => {
     const result = functionComparisonResultSchema.parse(
       evidence.normalized_result,
     );
-    assertNestedLinks(
+    assertComparisonFindingLinks(
       evidence,
       result.dimensions.flatMap(({ evidence_links: links }) => links),
     );
   }
   return evidence;
-};
-
-const assertNestedLinks = (
-  evidence: Evidence,
-  nestedLinks: readonly string[],
-): void => {
-  const closure = new Set(evidence.evidence_links);
-  if (nestedLinks.some((evidenceId) => !closure.has(evidenceId)))
-    throw new TypeError(
-      "Comparison finding cites Evidence outside its top-level closure",
-    );
 };
 
 const parseRuntime = (input: unknown): Evidence => {
