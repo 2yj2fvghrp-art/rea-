@@ -888,6 +888,28 @@ describe("managed user string issues", () => {
     expect(parseUserStrings(heap, layout, [method]).issues).toHaveLength(64);
   });
 
+  it("marks user strings partial when a method body is not fully decoded", () => {
+    const { heap, tokens } = fixtureUserStringHeap(["ok", "later"]);
+    const [ok, later] = tokens as [string, string];
+    // ldstr "ok", then an undefined opcode before ldstr "later".
+    const il = Buffer.from([
+      0x72, 0, 0, 0, 0, 0x26, 0xfe, 0xff, 0x72, 0, 0, 0, 0, 0x26, 0x2a,
+    ]);
+    il.writeUInt32LE(Number.parseInt(ok, 16), 1);
+    il.writeUInt32LE(Number.parseInt(later, 16), 9);
+    const result = inspect({
+      ilBody: Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]),
+      userStringHeap: heap,
+    });
+
+    expect(result.methods[0]?.body.status).toBe("malformed");
+    expect(result.user_strings).toEqual({
+      state: "partial",
+      literals: [{ token: ok, offset: expect.any(Number), value: "ok" }],
+      issues: [],
+    });
+  });
+
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
     const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
     const [ok, quoted] = tokens as [string, string];

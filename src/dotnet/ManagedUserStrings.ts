@@ -19,12 +19,21 @@ import {
 
 type UserStringInventory = NonNullable<ManagedMemberInspection["user_strings"]>;
 
+/**
+ * Whether a method's anchors cover its whole body. A partial, malformed, or
+ * truncated body may hold ldstr instructions that were never observed.
+ */
+const bodyFullyDecoded = ({ body }: ManagedMethod): boolean =>
+  body.status === "absent" ||
+  (body.status === "present" && body.truncated_instructions === 0);
+
 /** The literals with their own coverage, which never enters member coverage. */
 const inventory = (
   literals: readonly ManagedUserString[],
   issues: readonly ManagedParseIssue[],
+  scanned: boolean,
 ): UserStringInventory => ({
-  state: issues.length === 0 ? "complete" : "partial",
+  state: issues.length === 0 && scanned ? "complete" : "partial",
   literals: [...literals],
   issues: [...uniqueManagedParseIssues(issues)],
 });
@@ -39,6 +48,7 @@ export const parseUserStrings = (
   methods: readonly ManagedMethod[],
 ): UserStringInventory => {
   const budget = managedDecodeBudget(layout);
+  const scanned = methods.every(bodyFullyDecoded);
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   const tokens = new Set<string>();
@@ -82,7 +92,7 @@ export const parseUserStrings = (
           budget,
         ),
       );
-      return inventory(userStrings, issues);
+      return inventory(userStrings, issues, scanned);
     }
     for (const token of references) {
       const failures: ManagedParseIssue[] = [];
@@ -100,7 +110,7 @@ export const parseUserStrings = (
       for (const failure of failures)
         issues.push(admitManagedProjection(failure, budget));
     }
-    return inventory(userStrings, issues);
+    return inventory(userStrings, issues, scanned);
   } finally {
     budget.releaseTransient();
   }
