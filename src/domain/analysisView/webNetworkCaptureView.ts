@@ -172,12 +172,18 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   // value, is never promoted even if the value is still present (imported or
   // caller-supplied Evidence). A property-name redaction only identifies the
   // parent of an omitted key, so it hides no sibling values.
+  const covers = (coordinate: string, pointer: string): boolean =>
+    pointer === coordinate || pointer.startsWith(`${coordinate}/`);
+  // Producers mark excluded bytes with a redacted descriptor as well; either
+  // facet withholds the value even when the other one is missing.
   const redacted = (pointer: string): boolean =>
     record.redactions.some((redaction) =>
       "scope" in redaction
         ? redaction.pointer === pointer
-        : pointer === redaction.pointer ||
-          pointer.startsWith(`${redaction.pointer}/`),
+        : covers(redaction.pointer, pointer),
+    ) ||
+    record.binary_fields.some(
+      (field) => field.state === "redacted" && covers(field.pointer, pointer),
     );
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])

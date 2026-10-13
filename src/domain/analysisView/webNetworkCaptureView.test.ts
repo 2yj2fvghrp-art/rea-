@@ -189,10 +189,12 @@ const nativePreview = (
     sidecars,
     flowType = "http",
     redactions = [],
+    binaryFields = [],
   }: {
     readonly response?: Readonly<Record<string, unknown>>;
     readonly producerType?: "integer" | "float";
     readonly flowType?: string | null;
+    readonly binaryFields?: readonly Record<string, unknown>[];
     readonly redactions?: readonly {
       pointer: string;
       reason: string;
@@ -245,7 +247,7 @@ const nativePreview = (
           request: { ...request, headers: [["Accept", "*/*"]] },
           response,
         },
-        binary_fields: [],
+        binary_fields: binaryFields,
         numeric_literals: literals,
         redactions,
         limitations: [],
@@ -542,6 +544,30 @@ it.each([
     expect(reported).toMatchObject({ request });
   },
 );
+
+it("keeps a mitmproxy headline with a redacted byte descriptor out of the preview", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", host: "example.test", path: "/secret" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      binaryFields: [
+        {
+          pointer: "/request/path",
+          representation: "producer-bytes",
+          state: "redacted",
+          content_base64: null,
+          bytes: null,
+          sha256: null,
+        },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toMatchObject({
+    request: { method: "GET", host: "example.test" },
+  });
+  expect(JSON.stringify(reported)).not.toContain("secret");
+});
 
 it("keeps sibling mitmproxy headlines next to an omitted property name", () => {
   const reported = nativePreview(
