@@ -163,16 +163,17 @@ const aeabiDeclarations = (
 ): AeabiDeclarations | null => {
   let cursor = start;
   let declarations = NO_AEABI_DECLARATIONS;
+  let allDeclarations = NO_AEABI_DECLARATIONS;
   let conflict = false;
   const disagrees = (
     scanned: Omit<AeabiDeclarations, "declarationConflict">,
   ): boolean =>
     (scanned.cpuArch !== null &&
-      declarations.cpuArch !== null &&
-      scanned.cpuArch !== declarations.cpuArch) ||
+      allDeclarations.cpuArch !== null &&
+      scanned.cpuArch !== allDeclarations.cpuArch) ||
     (scanned.cpuArchProfile !== null &&
-      declarations.cpuArchProfile !== null &&
-      scanned.cpuArchProfile !== declarations.cpuArchProfile);
+      allDeclarations.cpuArchProfile !== null &&
+      scanned.cpuArchProfile !== allDeclarations.cpuArchProfile);
   while (cursor < end) {
     const scope = readUleb128(section, cursor, end);
     if (scope === null || scope.value < 1 || scope.value > 3) return null;
@@ -190,6 +191,11 @@ const aeabiDeclarations = (
     if (scanned === null) return null;
     if (scanned.repeatedDeclarationConflicts || disagrees(scanned))
       conflict = true;
+    allDeclarations = {
+      cpuArch: scanned.cpuArch ?? allDeclarations.cpuArch,
+      cpuArchProfile: scanned.cpuArchProfile ?? allDeclarations.cpuArchProfile,
+      declarationConflict: conflict,
+    };
     if (scope.value === 1)
       declarations = {
         cpuArch: scanned.cpuArch ?? declarations.cpuArch,
@@ -222,7 +228,7 @@ const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
       return NO_AEABI_DECLARATIONS;
     const ownerEnd = skipAttributesString(section, cursor + 4, subsectionEnd);
     if (ownerEnd === null) return NO_AEABI_DECLARATIONS;
-    const owner = section.toString("ascii", cursor + 4, ownerEnd - 1);
+    const owner = section.toString("binary", cursor + 4, ownerEnd - 1);
     if (owner === "aeabi") {
       // Every public subsection must agree; a later declaration is a
       // conflict, not an overwrite of the first.
@@ -251,7 +257,9 @@ const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
     }
     cursor = subsectionEnd;
   }
-  return merged ?? NO_AEABI_DECLARATIONS;
+  return cursor === section.length
+    ? (merged ?? NO_AEABI_DECLARATIONS)
+    : NO_AEABI_DECLARATIONS;
 };
 
 /**
@@ -319,17 +327,29 @@ export const readArmElfCpuArch = async (
     return err("ARM ELF header no longer matches the resolved identity");
   if (bytes[6] !== 1 || u32(bytes, 20) !== 1 || u16(bytes, 40) !== 52)
     return err("invalid ARM ELF32 version or header size");
-  // Extended numbering needs a separate section-zero reader. Refuse it rather
-  // than silently treating an unexamined table as having no declarations.
+  // Coverage limits belong to the attribute inspection, not target identity:
+  // other providers may analyze the unchanged ARM ELF without this Ghidra pin.
   if (u16(bytes, 48) >= 0xff00)
-    return err("extended or reserved ARM ELF table numbering is unsupported");
+    return ok({
+      cpuArch: null,
+      cpuArchProfile: null,
+      limitations: [
+        "Extended or reserved ARM ELF table numbering is not inspected; attribute declarations remain unknown.",
+      ],
+    });
   const tableOffset = u32(bytes, 32);
   const count = u16(bytes, 48);
   const stride = u16(bytes, 46);
   const limitations: string[] = [];
   if (count === 0) {
     if (tableOffset !== 0)
-      return err("unsupported extended or inconsistent ARM section table");
+      return ok({
+        cpuArch: null,
+        cpuArchProfile: null,
+        limitations: [
+          "Extended ARM section numbering is not inspected; attribute declarations remain unknown.",
+        ],
+      });
     return ok({ cpuArch: null, cpuArchProfile: null, limitations });
   }
   // The exact ELF32 entry size bounds the table allocation by the header

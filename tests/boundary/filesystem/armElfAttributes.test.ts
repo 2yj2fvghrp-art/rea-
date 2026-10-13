@@ -286,10 +286,36 @@ it("reads conflicting ISA tags inside one File scope as no declaration", async (
   expect(target.arm.cpuArch).toBeNull();
 });
 
-it("reads a scoped declaration disagreeing with the File scope as no declaration", async () => {
-  const target = await resolveArm(armFixture(SCOPED_CONFLICT_ATTRIBUTES));
-  if (target.format !== "elf") throw new Error("Expected an ELF target");
-  expect(target.arm.cpuArch).toBeNull();
+it.each([
+  SCOPED_CONFLICT_ATTRIBUTES,
+  Buffer.concat([
+    SCOPED_CONFLICT_ATTRIBUTES.subarray(0, 11),
+    SCOPED_CONFLICT_ATTRIBUTES.subarray(28),
+    SCOPED_CONFLICT_ATTRIBUTES.subarray(11, 28),
+  ]),
+])(
+  "reconciles scoped declarations regardless of File-scope order",
+  async (attributes) => {
+    const target = await resolveArm(armFixture(attributes));
+    if (target.format !== "elf") throw new Error("Expected an ELF target");
+    expect(target.arm.cpuArch).toBeNull();
+  },
+);
+
+it("preserves ARM target identity when extended section coverage is unavailable", async () => {
+  const bytes = armFixture(V7_ATTRIBUTES);
+  bytes.writeUInt16LE(0, 48);
+  bytes.writeUInt32LE(2, SECTION_TABLE_OFFSET + 20);
+  const target = await resolveArm(bytes);
+  expect(target).toMatchObject({
+    architecture: "arm",
+    format: "elf",
+    arm: {
+      cpuArch: null,
+      cpuArchProfile: null,
+      limitations: [expect.stringContaining("Extended ARM section numbering")],
+    },
+  });
 });
 
 it("refuses a padded section-table entry size instead of allocating it", async () => {

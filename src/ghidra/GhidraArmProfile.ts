@@ -142,7 +142,11 @@ export const ghidraArmProfileParameters = (
 export const ghidraPinnedArmLanguage = (
   parameters: Readonly<Record<string, unknown>>,
 ): GhidraLanguageOverride | undefined => {
-  if (parameters.language_selection !== "provider-pinned-v1") return undefined;
+  if (
+    parameters.arm_support_lane !== "elf32-exec-le-eabi5-v7-pinned-v1" ||
+    parameters.language_selection !== "provider-pinned-v1"
+  )
+    return undefined;
   const languageId = parameters.language_id;
   const compilerSpecId = parameters.compiler_spec_id;
   if (typeof languageId !== "string" || typeof compilerSpecId !== "string")

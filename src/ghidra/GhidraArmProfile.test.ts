@@ -14,6 +14,10 @@ import {
   ghidraPinnedArmLanguage,
 } from "./GhidraArmProfile.js";
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
+import type { GhidraClientOptions } from "./GhidraClientTypes.js";
+import type { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
+import { GHIDRA_SESSION_CAPABILITIES } from "./GhidraSessionValues.js";
+import { ok } from "../domain/result.js";
 
 // Fake installation inspection tests admission/profile contracts, not Ghidra.
 const host: GhidraInstallationHost = {
@@ -148,4 +152,87 @@ describe("bounded Ghidra ARM admission", () => {
     const other = { language_selection: "configured-v1" };
     expect(ghidraPinnedArmLanguage(other)).toBeUndefined();
   });
+
+  it.each(["pinned", "override", "conflicting override"] as const)(
+    "binds ARM client import and readback for %s",
+    async (mode) => {
+      const plain = new GhidraProvider(config(), silentLogger, {}, host);
+      const selected = parseConfig({
+        GHIDRA_INSTALL_DIR: installDir,
+        ...(mode === "pinned"
+          ? {}
+          : {
+              REA_GHIDRA_LANGUAGE_ID: "ARM:LE:32:Cortex",
+              REA_GHIDRA_COMPILER_SPEC_ID: "default",
+            }),
+      });
+      if (!selected.ok) throw selected.error;
+      const observed: GhidraClientOptions[] = [];
+      const ghidra = new GhidraProvider(
+        selected.value,
+        silentLogger,
+        {},
+        host,
+        (options) => {
+          observed.push(options);
+          return {
+            start: () =>
+              Promise.resolve(
+                ok({
+                  name: "REA Ghidra bridge" as const,
+                  run_id: "11111111-1111-4111-8111-111111111111",
+                  profile_digest: options.profileDigest,
+                  provider: { id: "ghidra" as const, version: "12.1.4" },
+                  read_only: false,
+                  analysis_complete: true,
+                  analysis_timed_out: false,
+                  capabilities: [...GHIDRA_SESSION_CAPABILITIES],
+                  target: {
+                    name: "fixture.elf",
+                    language_id: options.expectedLanguageId!,
+                    compiler_spec_id: "default",
+                    image_base: "0x0",
+                    default_address_space: "ram",
+                    sha256: "a".repeat(64),
+                  },
+                }),
+              ),
+            callTool: () => Promise.resolve(ok(null)),
+            close: () => Promise.resolve(ok(null)),
+          };
+        },
+      );
+      const resolved = await (
+        mode === "conflicting override" ? plain : ghidra
+      ).resolveAnalysisProfile(target());
+      if (!resolved.ok || resolved.value.profile === null)
+        throw new Error("Expected ARM profile");
+      const client = ghidra.createClient(target(), resolved.value.profile);
+      try {
+        const health = await client.execute("health", {});
+        if (mode === "conflicting override") {
+          expect(health.ok).toBe(false);
+          expect(observed).toHaveLength(0);
+          return;
+        }
+        if (!health.ok) throw health.error;
+        const language =
+          mode === "pinned" ? "ARM:LE:32:v7" : "ARM:LE:32:Cortex";
+        expect(observed[0]?.expectedLanguageId).toBe(language);
+        expect(observed[0]?.expectedCompilerSpecId).toBe("default");
+        expect(
+          (observed[0]?.launcher as GhidraHeadlessLauncher).options
+            .languageOverride,
+        ).toEqual({ languageId: language, compilerSpecId: "default" });
+        expect(
+          health.value.limitations.some((value) => value.includes("lane pins")),
+        ).toBe(mode === "pinned");
+        expect(health.value.limitations).toEqual(
+          expect.arrayContaining([expect.stringContaining("float ABI")]),
+        );
+      } finally {
+        await client.close();
+      }
+    },
+  );
 });
