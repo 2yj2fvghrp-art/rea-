@@ -528,6 +528,36 @@ describe("headless IDA containment lookup failures", () => {
 });
 
 describe("headless IDA document identity", () => {
+  it("accepts an explicit admitted document and rejects an unknown one for the same operations", async () => {
+    const { client, target, producer } = await session();
+    try {
+      const admitted = await client.execute("resolve_containing_procedure", {
+        address: "0x4000",
+        document: target.path,
+      });
+      const unknownContainment = await client.execute(
+        "resolve_containing_procedure",
+        { address: "0x4000", document: "/somewhere/else" },
+      );
+      const unknownListing = await client.execute("list_documents", {
+        document: "/somewhere/else",
+      });
+
+      expect(admitted.ok, "the admitted program is accepted").toBe(true);
+      for (const rejected of [unknownContainment, unknownListing]) {
+        expect(rejected.ok).toBe(false);
+        if (!rejected.ok)
+          expect(rejected.error._tag).toBe("AnalysisInputError");
+      }
+      expect(
+        producer.calls.filter(({ name }) => name === "lookup_funcs"),
+        "only the admitted request reached upstream",
+      ).toHaveLength(1);
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  });
+
   it("lists the admitted path, not its source alias or the private copy", async () => {
     const { client, target, producer } = await session({
       sourcePath: "/Applications/Fixture.app",
