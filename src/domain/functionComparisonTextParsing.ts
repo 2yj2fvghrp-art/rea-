@@ -162,11 +162,17 @@ export const textAddressLocation = (
   const operandIndex = operandRanges.findIndex(
     ({ start, end }) => tokenInLine >= start && tokenInLine < end,
   );
+  const operandRange = operandRanges[operandIndex];
+  const directOperand =
+    operandRange === undefined
+      ? ""
+      : line.slice(operandRange.start, operandRange.end).trim();
   const isControlFlowTarget =
     /^(?:callq?|lcall|bl|blx|blr|jal|jalr|jmpq?|ljmp|j[a-z]+|b(?:\.[a-z]+)?|br|cbz|cbnz|tbz|tbnz|tbb|tbh)$/u.test(
       lowerMnemonic,
-    ) && operandIndex >= 0;
-  const operandRange = operandRanges[operandIndex];
+    ) &&
+    operandIndex === operandRanges.length - 1 &&
+    /^#?0x[0-9a-f]+$/iu.test(directOperand);
   const operandAddressOccurrences =
     operandRange === undefined
       ? 0
