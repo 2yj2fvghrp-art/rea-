@@ -76,7 +76,16 @@ const testCommand = (root: string, ...arguments_: string[]) =>
     ...arguments_,
   ]);
 
-describe("development test runner public CLI", () => {
+describe("development test runner exact selection", () => {
+  it.skipIf(process.platform !== "win32")(
+    "accepts the filesystem's case-insensitive file spelling",
+    async () => {
+      const root = await fixture();
+      await testCommand(root, "focused", "src/VALUE.test.ts");
+      expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+    },
+  );
+
   it.each(["local", "focused"])(
     "runs only the exact selected file in %s mode",
     async (mode) => {
@@ -137,6 +146,30 @@ describe("development test runner public CLI", () => {
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
   });
 
+  it("retains each configured project for the selected file", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "vitest.config.mjs"),
+      'export default { test: { projects: ["domain", "evaluation"].map(name => ({ test: { name, include: ["src/value.test.ts"] } })) } };\n',
+    );
+    const result = await testCommand(root, "focused", "src/value.test.ts");
+    expect(result.stdout).toMatch(/Test Files\s+2 passed/u);
+  });
+
+  it("fails a selected file with no tests even when a peer passes", async () => {
+    const root = await fixture();
+    await writeFile(join(root, "src", "empty.test.ts"), "export {};\n");
+    await expect(
+      testCommand(root, "focused", "src/value.test.ts", "src/empty.test.ts"),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("No test suite found"),
+    });
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+});
+
+describe("development test runner public CLI", () => {
   it("plans an exact local test without building", async () => {
     const root = await fixture();
     const { stdout } = await testCommand(
