@@ -30,6 +30,7 @@ import {
   type JavaScriptModuleSemanticIr,
 } from "../../../../src/domain/javascript/javascriptModuleSemanticIr.js";
 import type { JavaScriptStaticAnalysis } from "../../../../src/domain/javascript/javascriptStaticAnalysisTypes.js";
+import { analyzeJavaScriptStaticSource } from "../../../../src/domain/javascript/javascriptStaticAnalysis.js";
 import type { JavaScriptArtifactFile } from "../../../../src/domain/javascript/javascriptArtifactFiles.js";
 import { completeJavaScriptAnalysisSteps } from "../../../../src/application/javascript/JavaScriptAnalysisControl.js";
 import {
@@ -50,6 +51,46 @@ import {
 } from "../../../../src/domain/javascript/javascriptSemanticGraph.js";
 import { parseJavaScriptSemanticGraph } from "../../../../src/domain/javascript/javascriptSemanticGraphSerialization.js";
 import { writeJavaScriptArtifactFixture } from "../../../fixtures/javascriptArtifactApplication.js";
+
+it("admits producer v2 fingerprints across the worker schema and rejects v1", () => {
+  const facts =
+    analyzeJavaScriptStaticSource(`globalThis.webpackChunkApp.push([[1], {
+    17(module, exports) { const key = selectKey(); exports.read = value[key]; }
+  }]);`);
+  expect(facts.bundler_registrations[0]?.modules[0]).toMatchObject({
+    structural_fingerprint_algorithm: "babel-ast-v2",
+    structural_fingerprint_sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+  });
+  const wireFacts: unknown = JSON.parse(JSON.stringify(facts));
+  expect(javaScriptWorkerStaticAnalysisSchema.parse(wireFacts)).toEqual(facts);
+  const legacyFacts = {
+    ...facts,
+    bundler_registrations: facts.bundler_registrations.map((registration) => ({
+      ...registration,
+      modules: registration.modules.map((module) => ({
+        ...module,
+        structural_fingerprint_algorithm: "babel-ast-v1",
+      })),
+    })),
+  };
+  const rejected = javaScriptWorkerStaticAnalysisSchema.safeParse(legacyFacts);
+  expect(rejected.success).toBe(false);
+  if (rejected.success)
+    throw new Error("Legacy fingerprints unexpectedly admitted");
+  expect(rejected.error.issues).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        path: [
+          "bundler_registrations",
+          0,
+          "modules",
+          0,
+          "structural_fingerprint_algorithm",
+        ],
+      }),
+    ]),
+  );
+});
 
 it("reports file progress and honors cancellation before the next source", async () => {
   const root = await fixtureDirectory();
@@ -361,7 +402,7 @@ it("reconstructs package, Electron roles, Webpack/Rspack modules, and cross-laye
           expect.objectContaining({
             properties: expect.objectContaining({
               module_key: "1",
-              structural_fingerprint_algorithm: "babel-ast-v1",
+              structural_fingerprint_algorithm: "babel-ast-v2",
             }),
           }),
         ]),
