@@ -15,6 +15,23 @@ const ARM64E_X1 = { type: 0x0100000c, subtype: 0x8000000c } as const;
 const X86_64H = { type: 0x01000007, subtype: 8 } as const;
 
 describe("native Mach-O slice selection", () => {
+  it("preserves high-bit section-name bytes instead of ASCII-folding metadata names", () => {
+    const segment = Buffer.alloc(152);
+    segment.writeUInt32LE(0x19, 0);
+    segment.writeUInt32LE(segment.length, 4);
+    segment.writeUInt32LE(1, 64);
+    // `0xdf` becomes `_` under Buffer's ASCII decoder, falsely producing
+    // the known `__objc_classlist` name from a malformed high-bit byte.
+    Buffer.from("__objc_classlist", "ascii").copy(segment, 72);
+    segment[72] = 0xdf;
+    const layout = parseMachoLayout(
+      Buffer.from(machoImage({ commands: [segment] })),
+      "arm64",
+    );
+
+    expect(layout.sections[0]?.name).toBe("ß_objc_classlist");
+  });
+
   it("accepts a FAT slice whose table identity and embedded header agree", () => {
     const fat = fatImage([{ cpu: CPU.arm64, bytes: machoImage({}) }]);
     expect(parseMachoLayout(Buffer.from(fat), "arm64").segments).toEqual([]);
