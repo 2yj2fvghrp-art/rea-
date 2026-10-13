@@ -258,3 +258,17 @@ next match. Coverage can overlap between pages; do not sum it as unique memory.
 page. These blocks are never searched. Cancellation returns a typed error,
 discards the active Ghidra database, and does not return a successful partial page.
 Hopper byte search remains unavailable until its implementation is verified.
+
+### Decompiler warning observations and retained comparisons
+
+Dropped-block records preserve `reported_offset` even when an address cannot be
+resolved. Legacy records lacking this observation parse with `reported_offset:
+null`; new Ghidra records must supply it. A null canonical start does not erase
+the original warning token or imply an address range.
+
+Pseudocode comparisons require an explicit `no-warnings-reported` observation.
+Retained Evidence without warning metadata, from any producer, now yields
+`unknown` for pseudocode. Re-analyze with a producer recording these observations,
+or compare independently observed assembly. Do not infer warning coverage from
+missing metadata or label old Evidence warning-free. Ghidra interpretation v6
+and comparison producer revision 2 invalidate prior cached interpretations.

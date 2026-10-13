@@ -74,6 +74,7 @@ it("retains warning status in paged pseudocode and exposes exact completeness fa
         end: null,
         address_space: "ram",
         reason: "unreachable",
+        reported_offset: "0x401008",
         warning_index: 0,
       },
     ],

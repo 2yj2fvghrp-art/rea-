@@ -314,7 +314,7 @@ it.each([
     const provider = {
       id: "rea-function-comparison",
       name: "REA function comparison",
-      version: "1",
+      version: "2",
     };
     const observation = {
       operation: "compare_functions",

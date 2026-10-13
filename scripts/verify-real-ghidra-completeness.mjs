@@ -15,6 +15,7 @@ import {
   mcpTextValue,
 } from "./lib/mcp-verifier-results.mjs";
 import { parseEvidence } from "../dist/domain/evidence.js";
+import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 import { functionDossierSchema } from "../dist/domain/hopperValues.js";
 
 // Compile source-owned input and inspect it through the production CLI. Never execute it.
@@ -30,12 +31,28 @@ if (!process.env.GHIDRA_INSTALL_DIR || !process.env.JAVA_HOME)
     "Supply GHIDRA_INSTALL_DIR and JAVA_HOME; the verifier installs no tools.",
   );
 const execute = promisify(execFile);
+const run = createVerifierRun();
 const root = await mkdtemp(join(tmpdir(), "rea-ghidra-completeness-"));
 const source = fileURLToPath(
   new URL("../tests/conformance/c/decompiler-completeness.S", import.meta.url),
 );
 const cli = fileURLToPath(new URL("./rea.mjs", import.meta.url));
 const target = join(root, "probe");
+const env = {
+  PATH: process.env.PATH ?? "/usr/bin:/bin",
+  TMPDIR: root,
+  REA_ANALYSIS_PROVIDER: "ghidra",
+  REA_LOG_LEVEL: "silent",
+  REA_PROCESS_RUN_ID: run.run_id,
+  GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR,
+  JAVA_HOME: process.env.JAVA_HOME,
+  HOPPER_LAUNCHER_PATH: "/rea-unconfigured-deep-provider/hopper",
+};
+for (const setting of ["GHIDRA_HEADLESS_MAXMEM", "GHIDRA_MAXMEM"]) {
+  if (process.env[setting] !== undefined) env[setting] = process.env[setting];
+}
+let report;
+let primaryFailure;
 try {
   await execute(process.env.REA_CC ?? "cc", [
     source,
@@ -66,7 +83,7 @@ try {
       "--json",
     ],
     {
-      env: { ...process.env, REA_LOG_LEVEL: "silent" },
+      env,
       timeout: 240_000,
       maxBuffer: 32 * 1024 ** 2,
     },
@@ -83,6 +100,11 @@ try {
       (block) => block.start !== null && block.end === null,
     ),
   );
+  assert.ok(
+    observation.dropped_blocks.every(
+      (block) => typeof block.reported_offset === "string",
+    ),
+  );
   assert.match(dossier.pseudocode, /Removing unreachable block/u);
   assert.equal(observation.disassembly_available, true);
   assert.ok(
@@ -94,12 +116,7 @@ try {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cli, "mcp"],
-    env: {
-      ...process.env,
-      REA_ANALYSIS_PROVIDER: "ghidra",
-      REA_LOG_LEVEL: "silent",
-      TMPDIR: root,
-    },
+    env,
     stderr: "inherit",
   });
   const client = new Client({
@@ -221,26 +238,36 @@ try {
       .digest("hex"),
     digest,
   );
-  console.log(
-    JSON.stringify(
-      {
-        status: "passed",
-        provider: evidence.provider,
-        source_sha256: digest,
-        observation,
-        source_unchanged: true,
-        target_executed: false,
-        authored_warning_excluded: true,
-        authored_comments_retained: true,
-        workflow_warnings: "verified through MCP and Evidence",
-        batch_warning_limits: "verified per item and in Evidence",
-        annotation_warning_limits: "verified in Evidence",
-        paged_warning_views: "verified through production MCP",
-      },
-      null,
-      2,
-    ),
-  );
-} finally {
-  await rm(root, { recursive: true, force: true });
+  report = {
+    status: "passed",
+    provider: evidence.provider,
+    source_sha256: digest,
+    observation,
+    source_unchanged: true,
+    target_executed: false,
+    authored_warning_excluded: true,
+    authored_comments_retained: true,
+    workflow_warnings: "verified through MCP and Evidence",
+    batch_warning_limits: "verified per item and in Evidence",
+    annotation_warning_limits: "verified in Evidence",
+    paged_warning_views: "verified through production MCP",
+  };
+} catch (cause) {
+  primaryFailure = cause;
 }
+const completed = await completeVerifierRun(run);
+if (
+  completed.process_lineage.status !== "verified" ||
+  completed.process_lineage.descendants.length !== 0
+)
+  throw new Error(
+    `Cleanup unverified; retained diagnostic workspace: ${root}`,
+    { cause: primaryFailure },
+  );
+if (primaryFailure !== undefined)
+  throw new Error(
+    `Completeness verification failed; retained workspace: ${root}`,
+    { cause: primaryFailure },
+  );
+await rm(root, { recursive: true, force: true });
+console.log(JSON.stringify({ ...completed, ...report }, null, 2));

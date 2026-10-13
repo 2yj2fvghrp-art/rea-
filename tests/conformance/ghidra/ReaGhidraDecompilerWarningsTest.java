@@ -10,6 +10,7 @@ public final class ReaGhidraDecompilerWarningsTest {
         require(single.status().equals("warnings"), "single status");
         require(single.warnings().size() == 1 && single.droppedBlocks().size() == 1, "single counts");
         require(single.droppedBlocks().get(0).start().equals("0x10"), "canonical address");
+        require(single.droppedBlocks().get(0).reportedOffset().equals("0x0010"), "reported offset retained before normalization");
 
         var multiple = ReaGhidraDecompilerWarnings.observe(
             "  /* WARNING: Removing unreachable block (ram,0x10) */\n" +
@@ -30,6 +31,7 @@ public final class ReaGhidraDecompilerWarningsTest {
             "/* WARNING: Removing unreachable block (unknown,0xdead) */", null, true, value -> null);
         require(unresolved.droppedBlocks().get(0).start() == null, "failed lookup stays unknown");
         require(unresolved.droppedBlocks().get(0).addressSpace().equals("unknown"), "raw space retained");
+        require(unresolved.droppedBlocks().get(0).reportedOffset().equals("0xdead"), "unresolved offset retained");
 
         var quiet = ReaGhidraDecompilerWarnings.observe("return 7;", "  ", true, value -> null);
         require(quiet.status().equals("no-warnings-reported") && quiet.diagnostic() == null, "quiet observation");

@@ -72,6 +72,54 @@ it("lifts refreshed annotation dossier limitations into its Evidence boundary", 
   });
 });
 
+it("retains unresolved offsets and refuses missing offsets from new Ghidra wire records", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const block = {
+    start: null,
+    end: null,
+    address_space: "unknown",
+    reported_offset: "0xdead",
+    reason: "unreachable",
+    warning_index: 0,
+  };
+  const wire = {
+    ...dossier,
+    decompiler_completeness: {
+      status: "warnings",
+      provenance: "ghidra-decompiler-warning-observations",
+      warning_count: 1,
+      warnings: ["Removing unreachable block (unknown,0xdead)"],
+      diagnostic: null,
+      dropped_blocks: [block],
+      disassembly_available: true,
+    },
+  };
+  const parsed = parseFunctionValueFixture(
+    "analyze_function",
+    jsonValueSchema.parse(wire),
+  );
+  expect(parsed).toMatchObject({
+    ok: true,
+    value: { decompiler_completeness: { dropped_blocks: [block] } },
+  });
+  const legacy = {
+    ...wire,
+    decompiler_completeness: {
+      ...wire.decompiler_completeness,
+      dropped_blocks: [{ ...block, reported_offset: undefined }],
+    },
+  };
+  const retained = functionDossierSchema.parse(legacy);
+  expect(
+    retained.decompiler_completeness?.dropped_blocks[0]?.reported_offset,
+  ).toBeNull();
+  expect(
+    parseFunctionValueFixture(
+      "analyze_function",
+      jsonValueSchema.parse(retained),
+    ),
+  ).toMatchObject({ ok: false });
+});
 describe("Ghidra function-analysis result values", () => {
   it("keeps Ghidra producer provenance validation at the adapter boundary", () => {
     const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
@@ -102,6 +150,7 @@ describe("Ghidra function-analysis result values", () => {
           start: "0x401008",
           end: null,
           address_space: "ram",
+          reported_offset: "0x00401008",
           reason: "unreachable",
           warning_index: 0,
         },

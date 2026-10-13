@@ -232,7 +232,8 @@ const validateComparisonIdentity = (claim: Claim, evidence: Evidence): void => {
       ? !isProcessEvidenceProvider(evidence.provider)
       : evidence.provider.id !== expected.id ||
         evidence.provider.name !== expected.name ||
-        evidence.provider.version !== "1") ||
+        evidence.provider.version !==
+          (claim.kind === "structural-function" ? "2" : "1")) ||
     evidence.confidence !== "derived" ||
     evidence.authority !== "analyst-inference" ||
     evidence.subject !== null

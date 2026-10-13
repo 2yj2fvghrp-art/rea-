@@ -29,6 +29,7 @@ it("preserves structured decompiler warnings through MCP Evidence and snapshot r
         end: null,
         address_space: "ram",
         reason: "unreachable",
+        reported_offset: "0x401008",
         warning_index: 0,
       },
     ],
@@ -50,7 +51,7 @@ it("preserves structured decompiler warnings through MCP Evidence and snapshot r
       decompiler_completeness: dossier.decompiler_completeness,
     });
     expect(evidence.analysis_profile?.parameters).toMatchObject({
-      decompiler_completeness: "ghidra-warning-observations-v5",
+      decompiler_completeness: "ghidra-warning-observations-v6",
     });
     const replay = await harness.session.execute(
       "analyze_function",

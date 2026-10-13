@@ -300,6 +300,17 @@ const ghidraFunctionDossier = functionDossierSchema
   .strict()
   .superRefine((value, context) => {
     if (
+      value.decompiler_completeness.dropped_blocks.some(
+        (block) => block.reported_offset === null,
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Ghidra dropped-block observations must preserve reported offsets",
+      });
+
+    if (
       (value.swift_string_literals === undefined) !==
       (value.swift_string_literal_omissions === undefined)
     )

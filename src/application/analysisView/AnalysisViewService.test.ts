@@ -156,6 +156,7 @@ it("pages warning-heavy Evidence without repeating its complete warning limitati
     end: null,
     address_space: "ram",
     reason: "unreachable" as const,
+    reported_offset: `0x${(0x401000 + warning_index * 4).toString(16)}`,
     warning_index,
   }));
   dossier.decompiler_completeness = {

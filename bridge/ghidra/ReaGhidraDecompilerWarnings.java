@@ -5,7 +5,7 @@ import java.util.regex.Pattern;
 
 /** Pure producer parser, independent of Ghidra installation and JSON projection. */
 public final class ReaGhidraDecompilerWarnings {
-    public record DroppedBlock(String start, String addressSpace, int warningIndex) {}
+    public record DroppedBlock(String start, String addressSpace, String reportedOffset, int warningIndex) {}
     public record Observation(String status, List<String> warnings, String diagnostic,
                               List<DroppedBlock> droppedBlocks) {}
 
@@ -24,8 +24,9 @@ public final class ReaGhidraDecompilerWarnings {
                 var removed = Pattern.compile("Removing unreachable block \\(([^,]+),([^\\)]+)\\)").matcher(text);
                 while (removed.find()) {
                     String space = removed.group(1).strip();
-                    String address = resolveAddress.apply(space + ":" + removed.group(2).strip());
-                    dropped.add(new DroppedBlock(address, space, index));
+                    String offset = removed.group(2).strip();
+                    String address = resolveAddress.apply(space + ":" + offset);
+                    dropped.add(new DroppedBlock(address, space, offset, index));
                 }
             }
         }

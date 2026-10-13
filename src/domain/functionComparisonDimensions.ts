@@ -85,6 +85,13 @@ const facetLimitations = (
     return [
       "Decompiler warnings prevent a complete pseudocode comparison; inspect the original instructions.",
     ];
+  if (
+    dimension === "pseudocode" &&
+    snapshot.dossier.decompiler_completeness?.status !== "no-warnings-reported"
+  )
+    return [
+      "Decompiler warning coverage was not recorded or is unavailable; retained pseudocode cannot establish an unchanged complete observation.",
+    ];
   const { dossier } = snapshot;
   const fields = {
     identity: [],

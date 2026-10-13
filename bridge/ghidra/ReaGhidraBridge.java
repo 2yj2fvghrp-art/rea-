@@ -3278,6 +3278,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             block.add("start", item.start() == null ? JsonNull.INSTANCE : GSON.toJsonTree(item.start()));
             block.add("end", JsonNull.INSTANCE);
             block.addProperty("address_space", item.addressSpace());
+            block.addProperty("reported_offset", item.reportedOffset());
             block.addProperty("reason", "unreachable");
             block.addProperty("warning_index", item.warningIndex());
             dropped.add(block);

@@ -123,7 +123,7 @@ export const ARTIFACT_COMPARISON_PROVIDER = {
 export const FUNCTION_COMPARISON_PROVIDER = {
   id: "rea-function-comparison",
   name: "REA function comparison",
-  version: "1",
+  version: "2",
 } as const;
 
 /** Provider identity for deterministic Evidence bundle comparisons. */

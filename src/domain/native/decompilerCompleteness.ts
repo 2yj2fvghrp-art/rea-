@@ -13,6 +13,7 @@ export const decompilerCompletenessSchema = z
         start: z.string().min(1).nullable(),
         end: z.null(),
         address_space: z.string().min(1),
+        reported_offset: z.string().min(1).nullable().default(null),
         reason: z.literal("unreachable"),
         warning_index: z.number().int().nonnegative(),
       }),
