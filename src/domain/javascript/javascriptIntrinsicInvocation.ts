@@ -106,10 +106,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
         );
         if (method === "call" || method === "apply") {
           const bound = boundIntrinsic(callee.object);
+          if (bound === undefined) return undefined;
           if (explicitReceiver && !t.isExpression(receiver))
-            return bound === undefined
-              ? undefined
-              : { kind: "opaque", path: bound.path, arguments: undefined };
+            return { kind: "opaque", path: bound.path, arguments: undefined };
           if (
             bound !== undefined &&
             intrinsicReadChanged(callee, [...bound.path, method])
@@ -138,6 +137,30 @@ export const resolveJavaScriptIntrinsicInvocation = (
           : [...bound.arguments, ...(arguments_ ?? [])];
     }
     const method = path.length > 3 ? path.at(-1) : undefined;
+    if (method === "bind") {
+      const bound = boundIntrinsic(callee);
+      if (bound !== undefined)
+        return {
+          ...bound,
+          arguments:
+            bound.kind === "known" && bound.arguments !== undefined
+              ? [...bound.arguments, ...(arguments_ ?? [])]
+              : undefined,
+        };
+      const callable = explicitReceiver
+        ? receiver
+        : t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)
+          ? callee.object
+          : undefined;
+      if (!t.isExpression(callable))
+        return { kind: "opaque", path, arguments: undefined };
+      return {
+        kind: "known",
+        path: ["intrinsic", "Function", "prototype", "bind"],
+        receiver: callable,
+        arguments: arguments_,
+      };
+    }
     if (method === "call" || method === "apply") {
       // These properties hold generic function values. Their receiver selects
       // the callable; property-chain depth does not consume more arguments.

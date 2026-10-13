@@ -552,6 +552,8 @@ describe("Electron module interop generic invocations", () => {
     'Function.prototype.apply.apply(Object.defineProperty,[null,[Object,"create",{value:customCreate}]]);',
     'const change = Object.defineProperty.call.bind(Object.defineProperty); change(null,Object,"create",{value:customCreate});',
     'const change = Function.prototype.call.call.bind(Object.defineProperty,null,Object,"create"); change({value:customCreate});',
+    'const bind = Object.defineProperty.bind; const change = bind.call(Object.defineProperty,null,Object,"create"); change({value:customCreate});',
+    'const change = Object.defineProperty.bind(null,Object,"create"); const invoke = change.call; invoke.call(change,null,{value:customCreate});',
   ])("follows the callable receiver of a generic invocation: %s", (write) => {
     expect(
       analyzeJavaScriptStaticSource(
@@ -654,6 +656,16 @@ describe("Electron module interop bound mutators", () => {
         `const metadata = {}; ${write}\n${ROLLDOWN_MODULE_INTEROP}\n${IMPORT} ${WRAP} ${WINDOW}`,
       ).electron.browser_windows,
     ).toHaveLength(1);
+  });
+
+  it("does not treat an unrelated call property as Function.prototype.call", () => {
+    const analysis = analyzeJavaScriptStaticSource(`
+      const custom = {call: () => {}};
+      Reflect.apply(custom.call, Object.defineProperty, [null, Object, "create", {value: replacement}]);
+      ${ROLLDOWN_MODULE_INTEROP}
+      ${IMPORT} ${WRAP} ${WINDOW}
+    `);
+    expect(analysis.electron.browser_windows).toHaveLength(1);
   });
 });
 
