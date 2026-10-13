@@ -20,11 +20,13 @@ import {
 } from "../../../src/application/AppBundleExecutable.js";
 import {
   dosMz,
+  elf,
   fat,
   pe,
   thinMach,
 } from "../../../src/domain/binaryTarget.fixture.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { parseExecutableHeader } from "../../../src/domain/binaryTarget.js";
 import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
@@ -452,6 +454,44 @@ describe("binary target I/O: explicit kinds and executable headers", () => {
       },
     });
   });
+
+  it.each(["RSDS", "NB10"] as const)(
+    "reads bounded %s header debug records and rejects unfinished names",
+    async (type) => {
+      const directory = await createTestTempDirectory("rea-target-");
+      const path = join(directory, "header-symbols.exe");
+      const bytes = pe(0x8664, 64, 0x0002, false, {
+        type,
+        pdbPath: "header.pdb",
+      });
+      const optionalHeader = 64 + 24;
+      bytes.writeUInt32LE(512, optionalHeader + 60);
+      bytes.copy(bytes, 384, 512);
+      bytes.writeUInt32LE(384, optionalHeader + 112 + 6 * 8);
+      bytes.writeUInt32LE(412, 384 + 20);
+      bytes.writeUInt32LE(0, 384 + 24);
+      for (const complete of [true, false]) {
+        if (!complete) {
+          const dataSize = bytes.readUInt32LE(384 + 16);
+          bytes[412 + dataSize - 1] = 0x61;
+        }
+        await writeFile(path, bytes);
+        const resolved = await parseBinaryTarget(path, {
+          hostArchitecture: "x64",
+        });
+        const buffered = parseExecutableHeader(bytes, "x64");
+        if (!resolved.ok) throw resolved.error;
+        if (!buffered.ok) throw new Error(buffered.error);
+        for (const value of [resolved.value, buffered.value]) {
+          if (complete)
+            expect(value).toMatchObject({
+              codeView: { pdbPath: "header.pdb" },
+            });
+          else expect(value).not.toHaveProperty("codeView");
+        }
+      }
+    },
+  );
 
   it("extracts CodeView NB10 debug metadata from a PE target", async () => {
     const directory = await createTestTempDirectory("rea-target-");
@@ -905,3 +945,40 @@ describe("DOS binary target I/O", () => {
     });
   });
 });
+
+it.each([
+  [
+    "EI_VERSION",
+    (bytes: Buffer) => {
+      bytes[6] = 0;
+    },
+  ],
+  [
+    "e_version",
+    (bytes: Buffer) => {
+      bytes.writeUInt32LE(0, 20);
+    },
+  ],
+  [
+    "e_ehsize",
+    (bytes: Buffer) => {
+      bytes.writeUInt16LE(51, 40);
+    },
+  ],
+])(
+  "rejects an ELF with malformed %s during public target opening",
+  async (_name, corrupt) => {
+    const directory = await createTestTempDirectory("rea-invalid-elf-header-");
+    const path = join(directory, "invalid.elf");
+    const bytes = elf(1, 1, 3);
+    corrupt(bytes);
+    await writeFile(path, bytes);
+    expect(await parseBinaryTarget(path)).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "BinaryTargetError",
+        constraint: "file_format_rejected",
+      },
+    });
+  },
+);

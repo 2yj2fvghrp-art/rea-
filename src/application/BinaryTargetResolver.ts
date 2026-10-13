@@ -32,6 +32,7 @@ import {
 } from "../domain/rawBinary.js";
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
 import { observeMzWindowsHeader } from "../domain/dosMz.js";
+import { hasBinaryPlistSignature } from "../domain/apple/appleArchiveFormat.js";
 import {
   hasZipSignature,
   isZipPackageFormat,
@@ -299,7 +300,7 @@ const detectArtifactFormat = async (
     return zipPackageFormatForPath(lower) ?? "zip";
   }
   // Binary plists, including keyed archives, often use other extensions.
-  if (observed.bytesRead === 8 && magic.equals(Buffer.from("bplist00")))
+  if (hasBinaryPlistSignature(magic.subarray(0, observed.bytesRead)))
     return "plist";
   const named = namedArtifactFormat(lower);
   if (named !== undefined) return named;
@@ -572,8 +573,7 @@ const readPeCodeView = async (
 ): Promise<PeCodeViewRecord | undefined> => {
   throwIfTargetResolutionCancelled(signal);
   const debugDir = peDebugDirectoryEntry(optionalHeader);
-  if (debugDir === undefined || numberOfSections <= 0 || numberOfSections > 96)
-    return undefined;
+  if (debugDir === undefined || numberOfSections > 96) return undefined;
   const sectionTableOffset = peOffset + 24 + optionalHeaderSize;
   const sectionTableSize = numberOfSections * 40;
   const sectionTable = Buffer.alloc(sectionTableSize);
@@ -589,6 +589,8 @@ const readPeCodeView = async (
     debugDir.debugRva,
     sectionTable,
     numberOfSections,
+    debugDir.sizeOfHeaders,
+    Math.min(debugDir.debugSize, 4096),
   );
   if (debugFileOffset === undefined) return undefined;
   const maxDebugSize = Math.min(debugDir.debugSize, 4096);
@@ -615,6 +617,8 @@ const readPeCodeView = async (
         addressOfRawData,
         sectionTable,
         numberOfSections,
+        debugDir.sizeOfHeaders,
+        Math.min(sizeOfData, 4096),
       );
       if (mapped === undefined) continue;
       pointerToRawData = mapped;
