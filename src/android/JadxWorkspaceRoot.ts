@@ -49,6 +49,16 @@ const boundedWait = async <T>(
   }
 };
 
+/** A detached guardian retains native cleanup ownership without keeping its caller alive. */
+const releaseGuardianReferences = (
+  child: ChildProcessWithoutNullStreams,
+): void => {
+  child.stdin.destroy();
+  child.stdout.destroy();
+  child.stderr.destroy();
+  child.unref();
+};
+
 class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
   readonly #failure = new AbortController();
   readonly failureSignal = this.#failure.signal;
@@ -146,11 +156,20 @@ class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
       );
     } catch (cause) {
       child.stdin.end();
-      await boundedWait(
-        exit,
-        30000,
-        "Android workspace guardian did not settle after startup failure",
-      );
+      try {
+        await boundedWait(
+          exit,
+          30000,
+          "Android workspace guardian did not settle after startup failure",
+        );
+      } catch (cleanupFailure) {
+        throw new AggregateError(
+          [cause, cleanupFailure],
+          "Android workspace guardian startup and cleanup failed",
+        );
+      } finally {
+        releaseGuardianReferences(child);
+      }
       throw cause;
     }
   }
@@ -166,11 +185,17 @@ class WindowsJadxWorkspaceRoot implements JadxWorkspaceRoot {
 
   async #finish(): Promise<void> {
     this.#child.stdin.end();
-    const result = await boundedWait(
-      this.#exit,
-      120000,
-      `Android workspace guardian cleanup timed out for ${this.path}`,
-    );
+    let result: GuardianExit;
+    try {
+      result = await boundedWait(
+        this.#exit,
+        120000,
+        `Android workspace guardian cleanup timed out for ${this.path}`,
+      );
+    } catch (cause) {
+      releaseGuardianReferences(this.#child);
+      throw cause;
+    }
     if (result.error !== undefined || result.code !== 0)
       throw new Error(
         `Android workspace guardian cleanup failed for ${this.path}: ${result.error?.message ?? result.code ?? result.signal ?? "unknown"}; ${this.#diagnostics()}`,

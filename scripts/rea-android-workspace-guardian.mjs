@@ -11,18 +11,27 @@ if (process.platform !== "win32" || process.argv.length !== 3)
 // This process owns the native directory handle. Detached process creation
 // keeps it alive when the REA owner is terminated without running JS cleanup.
 const runtime = WindowsPrivateRuntime.create(process.argv[2], "rea-android-");
-process.stdout.write(
-  JSON.stringify({
-    path: runtime.observation.path,
-    volumeSerial: runtime.observation.volumeSerial,
-    fileId: runtime.observation.fileId,
-    privateDacl: runtime.observation.privateDacl,
-  }) + "\n",
-);
+const ready = await new Promise((resolve) => {
+  process.stdout.once("error", () => resolve(false));
+  process.stdout.write(
+    JSON.stringify({
+      path: runtime.observation.path,
+      volumeSerial: runtime.observation.volumeSerial,
+      fileId: runtime.observation.fileId,
+      privateDacl: runtime.observation.privateDacl,
+    }) + "\n",
+    (error) => resolve(error == null),
+  );
+});
 
-// The owner holds the write end of this pipe until its normal close or death.
-for await (const _ of process.stdin) {
-  // No commands are accepted; only EOF grants cleanup authority.
+// The owner holds the write end until close/death. A failed readiness pipe
+// also grants cleanup authority, including owner death during startup.
+if (ready) {
+  for await (const _ of process.stdin) {
+    // No commands are accepted; only EOF grants cleanup authority.
+  }
+} else {
+  process.stdin.destroy();
 }
 
 // A failed native walk retains the directory identity lease for a later retry.
