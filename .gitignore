@@ -23,6 +23,8 @@ env/
 *~
 
 # Local agent tooling
+.claude/settings.local.json
+.claude/worktrees/
 .codex/
 .devin/
 .factory/
