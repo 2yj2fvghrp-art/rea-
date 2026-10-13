@@ -384,6 +384,26 @@ describe("direct Electron Framework binary selection", () => {
     expect(report.artifact.resolved_path).toBe(binary);
   });
 
+  it("follows symlinks before parent segments in a selected binary path", async () => {
+    const { framework } = await frameworkFixture("rea-electron-fuses-parent-");
+    const versions = join(framework, "Versions");
+    await mkdir(join(versions, "nested", "B"), { recursive: true });
+    await mkdir(join(versions, "nested", "A"), { recursive: true });
+    await mkdir(join(versions, "A"), { recursive: true });
+    const binary = join(versions, "nested", "A", "Electron Framework");
+    await writeFile(binary, thinFuseImage(OBSIDIAN_FUSE_BYTES).bytes);
+    await writeFile(
+      join(versions, "A", "Electron Framework"),
+      sentinelFreeMacho(),
+    );
+    await symlink("nested/B", join(versions, "Current"));
+    const selected = `${versions}/Current/../A/Electron Framework`;
+    const report = await inspect(selected);
+    expect(report.artifact.selected_path).toBe(selected);
+    expect(report.artifact.resolved_path).toBe(binary);
+    expect(report.slices[0]?.sentinel_count).toBe(1);
+  });
+
   it("rejects a binary selected through a Versions/Current link that leaves the framework", async () => {
     const { app, framework } = await frameworkFixture(
       "rea-electron-fuses-direct-escape-",

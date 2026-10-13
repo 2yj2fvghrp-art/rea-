@@ -1,6 +1,6 @@
 import type { BigIntStats } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 import { isPathWithinRoot } from "../domain/localPath.js";
 
@@ -293,8 +293,11 @@ const frameworkRootOf = (path: string): string | null => {
 };
 
 const relativeInside = (root: string, path: string): string | null => {
-  if (!isPathWithinRoot(root, path)) return null;
-  const value = relative(root, path);
+  // Keep dot segments until resolveInside has followed preceding symlinks.
+  // Lexical normalization would select a different file for link/../ paths.
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (!path.startsWith(prefix)) return null;
+  const value = path.slice(prefix.length);
   return value === "" ? null : value.split(sep).join("/");
 };
 

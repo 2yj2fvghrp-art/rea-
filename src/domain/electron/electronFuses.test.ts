@@ -56,6 +56,35 @@ const slice = (
   sentinels,
 });
 
+it("validates implications across repeated FAT slices and rejects a false claim", () => {
+  const slices = Array.from({ length: 128 }, (_, index) => ({
+    ...slice(
+      Array.from({ length: 32 }, (_, offset) =>
+        sentinel(
+          offset * 64,
+          Array.from({ length: 8 }, () => ELECTRON_FUSE_STATE_BYTES.enabled),
+        ),
+      ),
+      index,
+    ),
+    size: 4096,
+  }));
+  const report = {
+    artifact: { ...artifact, bytes: 4096, format: "mach-o-universal" as const },
+    slices,
+    ...describeElectronFuseFindings(slices, "mach-o-universal"),
+  };
+  expect(electronFuseReportSchema.safeParse(report).success).toBe(true);
+  const last = report.runtime_implications.at(-1);
+  expect(last).toBeDefined();
+  expect(
+    electronFuseReportSchema.safeParse({
+      ...report,
+      runtime_implications: [{ ...last, outcome: "unknown" }],
+    }).success,
+  ).toBe(false);
+});
+
 describe("Electron fuse wire decoding", () => {
   it("keeps the 32-byte sentinel and version-1 names pinned", () => {
     expect(ELECTRON_FUSE_SENTINEL).toHaveLength(32);

@@ -324,21 +324,14 @@ const validateReportBounds = (
     for (const [sentinelIndex, sentinel] of slice.sentinels.entries())
       validateSentinel(slice, sentinel, sliceIndex, sentinelIndex, context);
   }
-  const expected = describeElectronFuseFindings(
-    report.slices,
-    report.artifact.format,
-  ).runtime_implications;
+  const expected = new Set(
+    describeElectronFuseFindings(
+      report.slices,
+      report.artifact.format,
+    ).runtime_implications.map(implicationKey),
+  );
   for (const [index, implication] of report.runtime_implications.entries()) {
-    if (
-      !expected.some(
-        (fact) =>
-          fact.slice_index === implication.slice_index &&
-          fact.sentinel_offset === implication.sentinel_offset &&
-          fact.subject === implication.subject &&
-          fact.fuse_index === implication.fuse_index &&
-          fact.outcome === implication.outcome,
-      )
-    )
+    if (!expected.has(implicationKey(implication)))
       context.addIssue({
         code: "custom",
         path: ["runtime_implications", index],
@@ -358,6 +351,15 @@ const validateReportBounds = (
       });
   }
 };
+
+const implicationKey = (fact: ElectronFuseImplication): string =>
+  JSON.stringify([
+    fact.slice_index,
+    fact.sentinel_offset,
+    fact.subject,
+    fact.fuse_index,
+    fact.outcome,
+  ]);
 
 const validateSentinel = (
   slice: ElectronFuseSlice,
