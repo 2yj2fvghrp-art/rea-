@@ -249,15 +249,20 @@ An installed `dsh-rea-bundle` dependency does not imply the bundle has
 been added to `~/.dsh/profiles/desktop/package.json`'s
 `dsh.profile.bundles`. The upstream plugin manager offers
 **Enable now** separately from install. If the installed bundle is not
-selected, `cordis.yml` will have no `rea-launcher` / `rea-mcp`, and
-the Desktop session will have no `mcp__rea__*` tools.
+selected, the Desktop session will have no `mcp__rea__*` tools.
+The stored `cordis.yml` is an empty loader root; it does not show the
+effective runtime composition.
 
 Use **Desktop → Plugins → Installed plugins → dsh-rea-bundle → Enable**
 and restart. If that UI control is unavailable, the
 [reviewable local-only activation script](../integrations/deepseek-harness/README.md#desktop-installed-the-bundle-but-did-not-activate-it)
 checks the installed files, backs up the manifest, then appends only
 the missing bundle name. It is opt-in; default mode only reports status.
-Run `--verify` after restart to check the generated Cordis file.
+The recovery helper is included in candidate 0.2.1 after qualification and
+publication; immutable 0.2.0 installations must use the Desktop enable UI.
+After restart, confirm live `mcp__rea__*` tool discovery. The helper's
+`--status` reports stored selection only; `--verify` reports runtime
+composition as unverified and exits nonzero.
 Do **not** reinstall the bundle, change pnpm `allowBuilds`, or erase the
 Desktop profile to fix a disabled bundle.
 

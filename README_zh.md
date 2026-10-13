@@ -89,8 +89,10 @@ Git 安装期构建脚本。不要输入不带标签的
 安装显示成功但**工具没有出现**时，还需要在
 **「插件 → 已安装插件 → dsh-rea-bundle」** 点开关启用。
 `dependencies` 有包名不代表 `dsh.profile.bundles` 已启用。
-如 UI 无法启用，使用[本机安全激活与验证脚本](integrations/deepseek-harness/README.zh-CN.md#desktop-已安装但没有启用修复-dshprofilebundles)；
-不会重新安装 REA 或修改其他插件。
+不可变的 0.2.0 发行包必须使用 Desktop 的启用开关。
+[本机激活辅助脚本](integrations/deepseek-harness/README.zh-CN.md#desktop-已安装但没有启用修复-dshprofilebundles)
+仅在候选版本 0.2.1 完成验证并发布后提供，0.2.0 不包含此脚本。
+启用并重启后，通过实际发现 `mcp__rea__*` 工具确认运行状态。
 
 普通 CLI 的 `web` Profile 与 Desktop 的 `desktop` Profile 分离；
 安装、旧 `rea-mcp` 配置迁移与排错详情见

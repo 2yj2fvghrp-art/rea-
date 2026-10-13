@@ -245,9 +245,10 @@ Two plugin rows are contributed to Harness composition:
 By default the bundle sets `REA_DSH_SCHEMA_PROFILE=compact`. This reduces
 model-facing schema bytes; REA still validates canonical full inputs. Set
 `REA_DSH_SCHEMA_PROFILE=full` in the Harness host environment to advertise
-full tool schemas. Unsupported values fail startup. Tool calls have a
-120-second deadline. To tune this, use a later profile-owned Cordis patch
-that restates the full `rea-mcp` config.
+full tool schemas. Unsupported values fail startup. `REA_DSH_TOOL_CALL_TIMEOUT_MS`
+sets the client deadline from 1 through 2147483647 milliseconds; the default
+is 2147483647 milliseconds (about 25 days). This is a finite client timer,
+not a guarantee that every analysis plus cleanup finishes within that time.
 
 Example Harness prompt:
 

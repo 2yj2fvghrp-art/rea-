@@ -98,9 +98,12 @@ dsh --profile web --dump-config
 After a successful install, **enable the bundle** in
 **Desktop → Plugins → Installed plugins → dsh-rea-bundle**.
 A dependency in `package.json` alone does **not** mean it is selected
-in `dsh.profile.bundles`. If the toggle is unavailable, the
-[local-only activation and verification script](integrations/deepseek-harness/README.md#desktop-installed-the-bundle-but-did-not-activate-it)
-backs up the Desktop profile without reinstalling REA or touching other plugins.
+in `dsh.profile.bundles`. The immutable 0.2.0 distributions require this
+Desktop enable switch. The
+[local activation helper](integrations/deepseek-harness/README.md#desktop-installed-the-bundle-but-did-not-activate-it)
+is included only in candidate 0.2.1 after qualification and publication; it
+is unavailable in 0.2.0. After enabling and restarting, confirm live
+`mcp__rea__*` tool discovery.
 
 Alternatively, install the `dsh-rea-bundle-0.2.0.tgz` asset from the
 `dsh-v0.2.0` GitHub Release. The Desktop profile is app-managed, not the
