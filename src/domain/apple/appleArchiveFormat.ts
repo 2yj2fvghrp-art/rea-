@@ -18,7 +18,7 @@ export const hasXmlPlistSignature = (bytes: Uint8Array): boolean => {
     text = new TextDecoder(
       utf16le ? "utf-16le" : utf16be ? "utf-16be" : "utf-8",
       { fatal: true },
-    ).decode(usable);
+    ).decode(usable, { stream: true });
   } catch {
     return false;
   }

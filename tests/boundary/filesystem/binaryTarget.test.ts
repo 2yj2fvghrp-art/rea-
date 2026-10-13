@@ -279,6 +279,50 @@ describe("binary target I/O: package classification", () => {
     });
   });
 
+  it.each(["utf8", "utf16le", "utf16be"] as const)(
+    "accepts XML plists when a Unicode character crosses the probe boundary (%s)",
+    async (encoding) => {
+      const directory = await createTestTempDirectory("rea-xml-boundary-");
+      const path = join(directory, "Model.archive");
+      let xml: Buffer;
+      if (encoding === "utf8") {
+        const prefix = Buffer.from('<?xml version="1.0"?><plist><string>');
+        xml = Buffer.concat([
+          prefix,
+          Buffer.alloc(4095 - prefix.length, 0x20),
+          Buffer.from("😀</string></plist>"),
+        ]);
+      } else {
+        const encodeUtf16 = (value: string): Buffer => {
+          const littleEndian = Buffer.from(value, "utf16le");
+          if (encoding === "utf16le") return littleEndian;
+          const bigEndian = Buffer.from(littleEndian);
+          for (let index = 0; index < bigEndian.length; index += 2)
+            [bigEndian[index], bigEndian[index + 1]] = [
+              bigEndian[index + 1]!,
+              bigEndian[index]!,
+            ];
+          return bigEndian;
+        };
+        const prefix = encodeUtf16(
+          '\ufeff<?xml version="1.0"?><plist><string>',
+        );
+        xml = Buffer.concat([
+          prefix,
+          encodeUtf16(" ".repeat((4094 - prefix.length) / 2)),
+          encodeUtf16("😀</string></plist>"),
+        ]);
+      }
+      await writeFile(path, xml);
+
+      const result = await parseBinaryTarget(path);
+      expect(result.ok && result.value).toMatchObject({
+        kind: "artifact",
+        format: "plist",
+      });
+    },
+  );
+
   it("does not trust a ZIP-family extension without ZIP magic", async () => {
     const directory = await createTestTempDirectory("rea-fake-archive-");
     const path = join(directory, "fake.zip");
