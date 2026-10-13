@@ -22,16 +22,33 @@ import {
   type JavaScriptWorkerMessage,
 } from "./JavaScriptAnalysisWorkerProtocol.js";
 
+/** Parent capacity offered after static facts were retained. */
+export interface JavaScriptWorkerSemanticAdmission {
+  /** Heap the parent can retain for module facts and the semantic graph. */
+  readonly resultBytes: number;
+  /** Serialized semantic-fact bytes this source may add to the Evidence. */
+  readonly graphBytes: number;
+  /** Unreserved Evidence bytes for required module facts and semantic facts. */
+  readonly evidenceBytes: number;
+}
+
 /** Trusted composition callback; this provider owns framing and temporary I/O. */
 export interface JavaScriptSourceWorkerAnalyzer {
   (
     file: JavaScriptArtifactFile,
-    nodeBudget: number,
+    nodeBudget: number | null,
     callbacks: {
       readonly phase: (
         phase: "parse" | "static" | "semantic" | "projection",
       ) => Promise<void>;
-      readonly checkpoint: (facts: JavaScriptStaticAnalysis) => Promise<number>;
+      /**
+       * Retain static facts and report the module-root bytes projection
+       * requires first; resolve the parent's offered semantic budgets.
+       */
+      readonly checkpoint: (
+        facts: JavaScriptStaticAnalysis,
+        semanticRootBytes: number,
+      ) => Promise<JavaScriptWorkerSemanticAdmission>;
     },
   ): Promise<{
     readonly module: JavaScriptModuleSemanticIr;
@@ -114,7 +131,7 @@ const analyzeJob = async (
       request.node_budget,
       {
         phase: async (phase) => send({ kind: "phase", id: request.id, phase }),
-        checkpoint: async (facts) => {
+        checkpoint: async (facts, semanticRootBytes) => {
           const value = javaScriptWorkerStaticAnalysisSchema.parse(facts);
           const text = JSON.stringify(value);
           const bytes = Buffer.byteLength(text);
@@ -137,6 +154,7 @@ const analyzeJob = async (
             id: request.id,
             bytes,
             sha256: createHash("sha256").update(text).digest("hex"),
+            semantic_root_bytes: semanticRootBytes,
           });
           const next = await requests.next();
           if (
@@ -153,7 +171,11 @@ const analyzeJob = async (
               "JavaScript worker admission names a different source job",
             );
           resultBudgetBytes = admission.semantic_result_budget_bytes;
-          return resultBudgetBytes;
+          return {
+            resultBytes: resultBudgetBytes,
+            graphBytes: admission.semantic_graph_bytes,
+            evidenceBytes: admission.evidence_available_bytes,
+          };
         },
       },
     );

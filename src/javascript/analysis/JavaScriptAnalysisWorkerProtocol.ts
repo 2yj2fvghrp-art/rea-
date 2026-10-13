@@ -18,7 +18,13 @@ export const JAVASCRIPT_ANALYSIS_WORKER_DEFAULTS = {
 /** Caller-selected artifact identity, separate from the decoded source-text digest. */
 export const javaScriptWorkerRequestSchema = z.strictObject({
   id: z.uuid(),
-  node_budget: z.number().int().min(0).max(JAVASCRIPT_SEMANTIC_NODE_MAXIMUM),
+  /** Caller-selected semantic node capacity offered to this source; null when none. */
+  node_budget: z
+    .number()
+    .int()
+    .min(0)
+    .max(JAVASCRIPT_SEMANTIC_NODE_MAXIMUM)
+    .nullable(),
   text_sha256: digestSchema,
   file: z.strictObject({
     path: z.string(),
@@ -35,6 +41,13 @@ export const javaScriptWorkerRequestSchema = z.strictObject({
 export const javaScriptWorkerAdmissionSchema = z.strictObject({
   id: z.uuid(),
   semantic_result_budget_bytes: z.number().int().nonnegative(),
+  /** Serialized semantic-fact bytes this source may add to the Evidence. */
+  semantic_graph_bytes: z.number().int().nonnegative(),
+  /**
+   * Unreserved Evidence bytes. Required application facts of the module are
+   * charged here; semantic facts receive what they leave, up to their share.
+   */
+  evidence_available_bytes: z.number().int().nonnegative(),
 });
 
 const identity = { id: z.uuid() };
@@ -56,6 +69,8 @@ export const javaScriptWorkerMessageSchema = z.discriminatedUnion("kind", [
     ...identity,
     bytes: z.number().int().nonnegative(),
     sha256: digestSchema,
+    /** Serialized module-root bytes projection admits before any fact. */
+    semantic_root_bytes: z.number().int().nonnegative(),
   }),
   z.strictObject({
     kind: z.literal("complete"),
