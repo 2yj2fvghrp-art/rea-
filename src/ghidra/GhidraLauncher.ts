@@ -835,8 +835,12 @@ export const copyExistingGhidraProject = async (
   signal?: AbortSignal,
 ): Promise<void> => {
   signal?.throwIfAborted();
-  const source = await lstat(sourcePath).catch(() => undefined);
-  if (source === undefined || !source.isDirectory() || source.isSymbolicLink())
+  const source = await lstat(sourcePath).catch((cause: unknown) => {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      throw new Error(`Existing Ghidra project directory does not exist: ${sourcePath}`, { cause });
+    throw cause;
+  });
+  if (!source.isDirectory() || source.isSymbolicLink())
     throw new Error(`Existing Ghidra project must be a regular directory: ${sourcePath}`);
   const entries = (await readdir(sourcePath)).filter((entry) =>
     ["rea-project.gpr", "rea-project.grez", "rea-project.rep"].includes(entry),
