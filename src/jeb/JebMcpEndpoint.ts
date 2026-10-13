@@ -3,8 +3,10 @@ import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { urlDeclaresQueryOrFragment } from "../domain/urlComponents.js";
 
+const JEB_MCP_ROUTE = "/mcp";
+
 /** Default JEB MCP endpoint documented by the engine's headless client. */
-export const DEFAULT_JEB_MCP_ENDPOINT = "http://127.0.0.1:8425/mcp";
+export const DEFAULT_JEB_MCP_ENDPOINT = `http://127.0.0.1:8425${JEB_MCP_ROUTE}`;
 
 /**
  * Normalize the caller-selected JEB MCP endpoint.
@@ -51,6 +53,13 @@ export const parseJebMcpEndpoint = (
     return err(
       new AnalysisInputError("jeb_mcp_endpoint", {
         cause: "JEB MCP endpoint query strings and fragments are not supported",
+      }),
+    );
+  if (url.pathname !== JEB_MCP_ROUTE && url.pathname !== `${JEB_MCP_ROUTE}/`)
+    return err(
+      new AnalysisInputError("jeb_mcp_endpoint", {
+        cause:
+          "JEB MCP endpoint path must be /mcp, with an optional trailing slash",
       }),
     );
   return ok(url);

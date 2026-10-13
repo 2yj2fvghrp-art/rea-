@@ -27,6 +27,8 @@ All four are read-only with respect to the target file; only `open_jeb_project` 
 
 ## Semantics
 
+- `REA_JEB_MCP_URL` must use the local MCP route `/mcp` or `/mcp/`. REA preserves an optional trailing slash and the selected scheme, literal loopback host, and port; other routes return a configuration error before connection construction. Engine availability is checked separately.
+
 - Paths in `open_jeb_project` are resolved by the JEB process, not by REA; REA does not require the artifact to exist locally.
 - The engine caps `list_units` pages at 100; a full page is reported as `coverage: "partial"` because more units may exist. An empty remainder is `complete` only when fewer units than requested were returned.
 - When `decompile_jeb_item` omits `unit_path`, the engine implicitly selects the project's first code unit; REA reports `unit_path: null` and a limitation instead of guessing the effective unit.
