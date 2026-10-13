@@ -26,6 +26,26 @@ export const isCliOperationFailure = (value: unknown): boolean => {
   return false;
 };
 
+/**
+ * Failure decision from the most recent logCliCommand call, awaiting output
+ * rendering. Commands with their own failure check (setup, update, uninstall)
+ * decide failure here; the streamed JSON writer consumes the decision so its
+ * envelope agrees with the exit code.
+ */
+let pendingCommandFailure: boolean | undefined;
+
+/** Publish the failure decision logCliCommand just applied to the exit code. */
+export const recordCliCommandFailureDecision = (failed: boolean): void => {
+  pendingCommandFailure = failed;
+};
+
+/** Consume the published failure decision, if a command published one. */
+export const takeCliCommandFailureDecision = (): boolean | undefined => {
+  const failed = pendingCommandFailure;
+  pendingCommandFailure = undefined;
+  return failed;
+};
+
 /** Log one CLI command with duration and a stable success or failure status. */
 export const logCliCommand = async <Value>(
   logger: Logger,
@@ -37,6 +57,7 @@ export const logCliCommand = async <Value>(
   try {
     const value = await execute();
     const failed = isCommandFailure?.(value) ?? isCliOperationFailure(value);
+    recordCliCommandFailureDecision(failed);
     logger[failed ? "error" : "info"](
       {
         command,
@@ -59,6 +80,7 @@ export const logCliCommand = async <Value>(
     );
     if (cause instanceof AnalysisError) {
       process.exitCode = 1;
+      recordCliCommandFailureDecision(true);
       return projectAnalysisError(cause);
     }
     throw cause;

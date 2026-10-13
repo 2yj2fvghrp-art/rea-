@@ -4,7 +4,10 @@ import type { Writable } from "node:stream";
 import { Cli, Filter } from "incur";
 
 import { parseCliOutputArguments } from "../cliOutput.js";
-import { isCliOperationFailure } from "../cliLogging.js";
+import {
+  isCliOperationFailure,
+  takeCliCommandFailureDecision,
+} from "../cliLogging.js";
 import { AnalysisResourceConstraintError } from "../domain/analysisErrorCore.js";
 import {
   projectAnalysisError,
@@ -167,10 +170,13 @@ export const createStreamedCliJsonOutput = (
         );
       }
       // The envelope's ok flag must agree with the process exit code, which
-      // logCliCommand derives from the unfiltered command value. A command
-      // failure therefore renders as { ok: false, error } instead of being
-      // wrapped in a success envelope.
-      const commandFailed = isCliOperationFailure(value);
+      // logCliCommand derives from the unfiltered command value. Prefer the
+      // failure decision the command itself recorded there: commands with a
+      // custom check (setup, update, uninstall) fail on values the shared
+      // classifier does not recognize. Fall back to the classifier when the
+      // writer is used without logCliCommand.
+      const commandFailed =
+        takeCliCommandFailureDecision() ?? isCliOperationFailure(value);
       const document = options.fullOutput
         ? commandFailed
           ? { ok: false, error: filtered, meta }
