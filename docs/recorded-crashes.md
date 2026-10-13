@@ -30,7 +30,8 @@ note interpretation; an unspecified OSABI alone does not prove OS origin.
 - Every exact Linux CORE PRSTATUS note as a separate recorded thread, with
   historical PID, signal and lossless uint64 registers bound to source bytes.
   Each supported note has exactly one interpretation; each thread contains the
-  complete 27-register ABI set, with names bound to their original ABI offsets.
+  complete ABI register set for its architecture (27 registers for amd64,
+  34 for AArch64), with names bound to their original ABI offsets.
   Physical note ranges cannot overlap or leave segment gaps. ELF and note headers
   are independently bound to the snapshot, including extended program counts.
 - Signed SIGINFO number/code/errno. Initially only SIGSEGV codes 1/2 establish the
