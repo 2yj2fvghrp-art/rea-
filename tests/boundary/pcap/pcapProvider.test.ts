@@ -246,8 +246,10 @@ it("reports relative configuration and missing capinfos as capability gaps", asy
       input: {},
     });
     if (result.ok) throw new Error("expected unavailable tools");
-    expect(projectAnalysisError(result.error).code).toBe(
-      "capability_unavailable",
+    const projected = projectAnalysisError(result.error);
+    expect(projected.code).toBe("capability_unavailable");
+    expect(projected.message).toContain(
+      "Supply Wireshark 4.x tshark and capinfos",
     );
   }
 });
