@@ -1,7 +1,6 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
   isScalar,
-  parse as parseYaml,
   parseDocument as parseYamlDocument,
   stringify as stringifyYaml,
   type Document as YamlDocument,
@@ -108,10 +107,18 @@ const isEmptyClientConfigurationText = (text: string): boolean =>
 // marker has a null scalar written as nothing. `null` and `~` are written out.
 const isEmptyYamlRoot = (root: YamlDocument["contents"]): boolean =>
   root === null ||
-  (isScalar(root) && root.value === null && root.source === "");
+  (isScalar(root) &&
+    root.value === null &&
+    root.source === "" &&
+    root.tag === undefined &&
+    root.anchor === undefined);
 
-const isEmptyYamlDocument = (text: string): boolean =>
-  isEmptyYamlRoot(parseYamlDocument(text).contents);
+const parseHermesYamlDocument = (text: string): YamlDocument => {
+  const document = parseYamlDocument(text);
+  const error = document.errors[0];
+  if (error !== undefined) throw error;
+  return document;
+};
 
 const parseDocument = (
   text: string,
@@ -130,11 +137,13 @@ const parseDocument = (
   // Hermes stores MCP servers in `mcp_servers` inside a YAML document. A
   // document of only comments or a bare `---` marker holds no settings. An
   // explicit `null` or `~` root is still rejected, as any other non-map is.
-  if (format === "hermes")
+  if (format === "hermes") {
+    const document = parseHermesYamlDocument(text);
     return requireObject(
-      isEmptyYamlDocument(text) ? {} : parseYaml(text),
+      isEmptyYamlRoot(document.contents) ? {} : document.toJS(),
       "The configuration root",
     );
+  }
   // ZCode loads nonempty native files with strict JSON.parse.
   if (format === "zcode")
     return requireObject(JSON.parse(text), "The configuration root");
@@ -1435,7 +1444,7 @@ const serializeHermesConfiguration = (
     typeof servers === "object" && servers !== null
       ? (servers as Record<string, unknown>)[PRODUCT_IDENTITY.mcpServerKey]
       : undefined;
-  const yamlDocument: YamlDocument = parseYamlDocument(originalText);
+  const yamlDocument = parseHermesYamlDocument(originalText);
   // A bare `---` document holds a null scalar, which takes no keys. Replace it
   // with a map that keeps the comments written after the marker.
   const root = yamlDocument.contents;
