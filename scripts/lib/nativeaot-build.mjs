@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+/** NativeAOT fixtures use native toolchains, not cross-compilation. */
+export function supportsNativeAotFixtureHost(platform, architecture) {
+  return architecture === "x64" && ["linux", "win32"].includes(platform);
+}
+
 /** Keep network recovery separate from compilation and preserve restore failures. */
 export async function buildNativeAotFixture(run, options) {
   const { dotnet, project, runtime, output } = options;

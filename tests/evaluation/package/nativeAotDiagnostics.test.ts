@@ -1,19 +1,27 @@
 import { execFile } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { expect, it } from "vitest";
 
-import { nativeAotCommandError } from "../../../scripts/lib/nativeaot-build.mjs";
+import {
+  nativeAotCommandError,
+  supportsNativeAotFixtureHost,
+} from "../../../scripts/lib/nativeaot-build.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const generator = fileURLToPath(
   new URL("../../../scripts/generate-nativeaot-fixtures.mjs", import.meta.url),
 );
 
-it.each(["restore", "publish"])(
+const supportedHost = supportsNativeAotFixtureHost(
+  process.platform,
+  process.arch,
+);
+
+it.skipIf(!supportedHost).each(["restore", "publish"])(
   "redacts authenticated feed URLs from the uncaught %s diagnostic",
   async (operation) => {
     const directory = await createTestTempDirectory(
@@ -74,6 +82,44 @@ require("node:module").syncBuiltinESMExports();
       expect(failure.stderr).toContain("failed after two attempts");
       expect(failure.stderr).toContain("[cause]");
     }
+  },
+);
+
+it.skipIf(supportedHost)(
+  "refuses unsupported fixture hosts before tooling or output creation",
+  async () => {
+    const directory = await createTestTempDirectory("rea-nativeaot-host-");
+    const hook = join(directory, "unexpected-child.cjs");
+    await writeFile(
+      hook,
+      `const child = require("node:child_process");
+child.spawnSync = () => { throw new Error("Unexpected fixture tooling invocation"); };
+require("node:module").syncBuiltinESMExports();
+`,
+      "utf8",
+    );
+    const failure = await promisify(execFile)(
+      process.execPath,
+      ["--require", hook, generator],
+      {
+        env: {
+          ...process.env,
+          REA_NATIVEAOT_FIXTURE_ROOT: join(directory, "output"),
+        },
+        timeout: 15_000,
+      },
+    ).then(
+      () => {
+        throw new Error("Expected unsupported fixture host refusal");
+      },
+      (error: { stderr: string; code: number }) => error,
+    );
+    expect(failure.code).toBe(1);
+    expect(failure.stderr).toContain("requires Linux or Windows x64");
+    expect(failure.stderr).not.toContain(
+      "Unexpected fixture tooling invocation",
+    );
+    expect(await readdir(directory)).toEqual(["unexpected-child.cjs"]);
   },
 );
 

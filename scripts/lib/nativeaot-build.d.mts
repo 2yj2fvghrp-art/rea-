@@ -1,3 +1,8 @@
+export function supportsNativeAotFixtureHost(
+  platform: string,
+  architecture: string,
+): boolean;
+
 export function buildNativeAotFixture(
   run: (command: string, args: string[]) => unknown,
   options: {

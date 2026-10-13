@@ -7,10 +7,11 @@ import { fileURLToPath } from "node:url";
 import {
   buildNativeAotFixture,
   nativeAotCommandError,
+  supportsNativeAotFixtureHost,
 } from "./lib/nativeaot-build.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-if (process.arch !== "x64" || !["linux", "win32"].includes(process.platform))
+if (!supportsNativeAotFixtureHost(process.platform, process.arch))
   throw new Error(
     "NativeAOT fixture lane requires Linux or Windows x64; it does not cross-compile NativeAOT.",
   );
