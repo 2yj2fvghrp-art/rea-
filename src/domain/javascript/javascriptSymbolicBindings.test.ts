@@ -438,3 +438,57 @@ it("propagates branch guards through object properties and function calls", () =
     ]);
   }
 });
+
+it("completes a loaded module at its earliest return past a very large array literal", () => {
+  const parsed = parseJavaScriptSource(`(() => {
+    const modules = {
+      4(module) {
+        module.exports = { table: [0] };
+        if (module) { return; }
+        return;
+      },
+      8(module, exports, load) { const dep = load(4); inspect(dep); }
+    };
+    function load(id) { const m = {exports:{}}; modules[id](m,m.exports,load); return m.exports; }
+    load(8);
+  })();`);
+  if (parsed === null) throw new Error("symbolic source fixture did not parse");
+  const arrays: t.ArrayExpression[] = [];
+  const bareReturns: t.ReturnStatement[] = [];
+  let inspectCall: t.CallExpression | undefined;
+  traverseJavaScriptAst(parsed.program, {
+    enter: (node) => {
+      if (t.isArrayExpression(node)) arrays.push(node);
+      if (t.isReturnStatement(node) && node.argument == null)
+        bareReturns.push(node);
+      if (
+        t.isCallExpression(node) &&
+        t.isIdentifier(node.callee, { name: "inspect" })
+      )
+        inspectCall = node;
+    },
+  });
+  // A node's child count follows the source. Expanding this many children into
+  // call arguments overflows the stack, which is not a memory limit.
+  for (const array of arrays)
+    array.elements = Array.from({ length: 1_000_000 }, () =>
+      t.numericLiteral(0),
+    );
+  const earliestReturn = bareReturns.toSorted(
+    (left, right) => (left.start ?? 0) - (right.start ?? 0),
+  )[0];
+  const inspected = inspectCall?.arguments[0];
+  if (earliestReturn === undefined || inspected === undefined)
+    throw new Error("symbolic source fixture is missing its probes");
+
+  const state = completeSemanticSteps(
+    indexJavaScriptBindingsSteps(parsed.program),
+  );
+  const resolver = new JavaScriptSymbolicBindings(state, parsed.program);
+  const namespace = symbolicVariants(resolver.evaluate(inspected)).find(
+    (variant) => variant.kind === "namespace",
+  );
+  if (namespace?.kind !== "namespace")
+    throw new Error("loaded module namespace missing");
+  expect(namespace.environment.completedAt).toBe(earliestReturn);
+});
