@@ -1,3 +1,4 @@
+import { redactCapturedTransportCredential } from "../process/ProviderDiagnosticRedaction.js";
 import { expect, it } from "vitest";
 
 import { DarwinProcessOwnershipInspectionError } from "../process/DarwinProcessRunTokenReader.js";
@@ -172,7 +173,6 @@ it("retains capture truncation separately from diagnostic output bounds", () => 
   const cause = Object.assign(new Error("stdout maxBuffer length exceeded"), {
     code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
     signal: null,
-    killed: true,
     stdout: "partial stdout",
     stderr: "",
   });
@@ -223,4 +223,53 @@ it("retains known cancellation output while final termination remains unknown", 
       },
     },
   });
+});
+
+it("redacts capture-cut credentials and emits LaunchSupport streams once", () => {
+  const token = "a".repeat(64);
+  const stderr = `helper failed ${token.slice(0, 21)}`;
+  const support = new GhidraLaunchSupportError(
+    "-envvars",
+    Object.assign(new Error("maxBuffer exceeded"), {
+      code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+      stdout: "unique helper output",
+      stderr,
+    }),
+  );
+  const launch = new GhidraLaunchError("launch failed", {
+    cause: support,
+    capturedOutput: {
+      stdout: "unique helper output",
+      stderr,
+      truncated: true,
+      killed: true,
+      outputTruncated: true,
+    },
+  });
+  const redact = (text: string, incomplete = false) => {
+    const bytes = Buffer.byteLength(text);
+    return redactCapturedTransportCredential(
+      { text, bytes, observedBytes: bytes + (incomplete ? 1 : 0) },
+      token,
+      "[REDACTED]",
+    );
+  };
+  const diagnostics = bindGhidraSessionFailure(() => ({}), redact)(
+    "start",
+    "launch failed",
+    launch,
+  ).diagnostics;
+  expect(diagnostics).toMatchObject({
+    failure_cause: {
+      launch_outcome: {
+        stderr: "helper failed [REDACTED]",
+        killed: true,
+        outputTruncated: true,
+      },
+    },
+  });
+  const serialized = JSON.stringify(diagnostics);
+  expect(serialized.split("unique helper output")).toHaveLength(2);
+  expect(serialized).not.toContain("command_outcome");
+  expect(serialized).not.toContain(token.slice(0, 21));
 });

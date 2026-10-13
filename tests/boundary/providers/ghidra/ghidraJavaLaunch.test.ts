@@ -231,8 +231,10 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(failure.diagnostics).toMatchObject({
         failure_cause: {
-          cause: {
-            command_outcome: { outputTruncated: true, stderrTruncated: true },
+          launch_outcome: {
+            outputTruncated: true,
+            truncated: true,
+            killed: true,
           },
         },
       });
