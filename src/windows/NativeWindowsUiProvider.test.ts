@@ -129,6 +129,8 @@ it("classifies malformed native replies as output failures", async () => {
 });
 
 it.each([
+  [2, "artifact_changed", "AnalysisArtifactChangedError"],
+  [3, "artifact_changed", "AnalysisArtifactChangedError"],
   [6, "artifact_changed", "AnalysisArtifactChangedError"],
   [13, "artifact_changed", "AnalysisArtifactChangedError"],
   [5, "window_owner_mismatch", "AnalysisInputError"],
@@ -169,5 +171,52 @@ it("does not commit a screenshot cancelled during final identity reads", async (
   expect(captured).toMatchObject({
     ok: false,
     error: { _tag: "AnalysisCancelledError" },
+  });
+});
+
+it.each([undefined, ""])(
+  "preserves pathless native permission refusals (%s)",
+  async (requestedPath) => {
+    const captured = await captureWindowsWindowScreenshot(
+      TARGET,
+      { pid: 42, window_handle: "0x1234" },
+      host({
+        capture: () => {
+          throw Object.assign(
+            new Error("Windows refused process/window access"),
+            {
+              win32Code: 5,
+              ...(requestedPath === undefined ? {} : { requestedPath }),
+            },
+          );
+        },
+      }),
+    );
+    expect(captured).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "AnalysisAccessDeniedError",
+        processWindow: { pid: 42, windowHandle: "0x1234" },
+      },
+    });
+  },
+);
+it("reports concurrent native capture admission as bounded capacity", async () => {
+  const captured = await captureWindowsWindowScreenshot(
+    TARGET,
+    { pid: 42, window_handle: "0x1234" },
+    host({
+      capture: () => {
+        throw { win32Code: 170 };
+      },
+    }),
+  );
+  expect(captured).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      resource: "capacity",
+      reportedLimits: { maximum_concurrent_captures: 1 },
+    },
   });
 });

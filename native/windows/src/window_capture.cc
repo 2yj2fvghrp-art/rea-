@@ -440,10 +440,13 @@ void checkCaptureCancellation(const CaptureControl& control) {
   require(!control.cancelled.load(), "Selected-window capture was cancelled", L"", ERROR_OPERATION_ABORTED);
 }
 
-Handle openCaptureExecutable(const std::wstring& path) {
+Handle openCaptureExecutable(const std::wstring& path, bool admittedTarget = false) {
   Handle file(CreateFileW(path.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
                           nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
-  require(file.valid(), "Open executable for window admission failed", path);
+  const DWORD code = GetLastError();
+  require(file.valid(), "Open executable for window admission failed", path, code,
+          admittedTarget && (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+            ? FailureKind::ArtifactChanged : FailureKind::Native);
   require(GetFileType(file.get()) == FILE_TYPE_DISK, "Executable is not a disk file", path,
           ERROR_NOT_SUPPORTED);
   return file;
@@ -504,7 +507,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   const std::wstring imagePath = processImagePath(process.get());
   // Read-only, non-write/delete-sharing handles pin the authorized file bytes
   // and identity through the paint request. No target handler runs first.
-  auto targetFile = openCaptureExecutable(targetPath);
+  auto targetFile = openCaptureExecutable(targetPath, true);
   auto processFile = openCaptureExecutable(imagePath);
   authorizeCaptureExecutable(targetFile.get(), processFile.get(), targetPath,
                              targetSha256, targetFileIdentity, control);
@@ -548,7 +551,13 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
           renderedWidth, renderedHeight, std::move(png)};
 }
 
+// One admitted capture bounds long WM_PRINT work across all JS clients/isolates.
+// No unbounded queue consumes the shared libuv pool.
+std::atomic_bool capturePending{false};
+
 struct CaptureWork {
+  bool admitted = false;
+  ~CaptureWork() { if (admitted) capturePending.store(false); }
   std::shared_ptr<CaptureControl> control = std::make_shared<CaptureControl>();
   napi_deferred deferred = nullptr;
   DWORD pid = 0;
@@ -644,6 +653,10 @@ napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args) 
   require(work->targetSha256.size() == 64 &&
           work->targetSha256.find_first_not_of(L"0123456789abcdef") == std::wstring::npos,
           "Active target SHA-256 is invalid", L"", ERROR_INVALID_PARAMETER);
+  bool expected = false;
+  require(capturePending.compare_exchange_strong(expected, true),
+          "Another selected-window capture is still active", L"", ERROR_BUSY);
+  work->admitted = true;
   napi_value completion;
   check(napi_create_promise(env, &work->deferred, &completion));
   auto retained = std::make_unique<std::shared_ptr<CaptureControl>>(work->control);

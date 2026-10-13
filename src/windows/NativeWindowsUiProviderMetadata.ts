@@ -1,3 +1,7 @@
+import {
+  systemWindowsNativeAuthority,
+  type WindowsNativeLoadResult,
+} from "./WindowsNativeLoader.js";
 import type {
   CapabilityDescriptor,
   ProviderIdentity,
@@ -11,14 +15,27 @@ export const NATIVE_WINDOWS_UI_PROVIDER_IDENTITY: ProviderIdentity =
     version: null,
   });
 
-/** Declare the narrow Windows-only facet without loading its native artifact. */
+/** Declare the narrow Windows-only facet from its inspected native artifact. */
 export const nativeWindowsUiCapabilities = (
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
+  load: () => WindowsNativeLoadResult = systemWindowsNativeAuthority,
 ): readonly CapabilityDescriptor[] => {
+  const loaded =
+    platform === "win32" && architecture === "x64" ? load() : undefined;
   const availability =
     platform === "win32" && architecture === "x64"
-      ? ({ available: true, reason: null } as const)
+      ? loaded?.available === true &&
+        loaded.authority.inspection.windowCapture === true
+        ? ({ available: true, reason: null } as const)
+        : ({
+            available: false,
+            availabilityCode: "runtime_missing",
+            reason:
+              loaded?.available === false
+                ? loaded.reason
+                : "The loaded Windows addon does not support selected-window capture; rebuild or install the matching native artifact.",
+          } as const)
       : ({
           available: false,
           availabilityCode: "unsupported_host",

@@ -8,7 +8,11 @@ import {
 } from "./WindowsNativeLoader.js";
 
 const fixture = (
-  capabilities: { protocolStdin?: boolean; jobMemoryLimit?: unknown } = {},
+  capabilities: {
+    protocolStdin?: boolean;
+    jobMemoryLimit?: unknown;
+    windowCapture?: unknown;
+  } = {},
 ) => {
   const bytes = Buffer.alloc(128);
   bytes.write("MZ");
@@ -62,6 +66,22 @@ const fixture = (
 };
 
 describe("packaged Windows native admission", () => {
+  it("retains capture support as an affirmative artifact observation", () => {
+    expect(
+      loadWindowsNativeAuthority(fixture({ windowCapture: true }).host),
+    ).toMatchObject({
+      available: true,
+      authority: { inspection: { windowCapture: true } },
+    });
+    const earlier = loadWindowsNativeAuthority(fixture().host);
+    if (!earlier.available) throw new Error(earlier.reason);
+    expect(earlier.authority.inspection.windowCapture).toBeUndefined();
+    expect(
+      loadWindowsNativeAuthority(fixture({ windowCapture: false }).host)
+        .available,
+    ).toBe(false);
+  });
+
   it.each([true, false])(
     "preserves protocol stdin capability %s alongside existing job controls",
     (protocolStdin) => {
@@ -139,6 +159,22 @@ describe("packaged Windows native admission", () => {
           readManifest: () => ({ ...value.manifest, [key]: "invalid" }),
         }).available,
       ).toBe(false);
+      expect(value.loads()).toBe(0);
+    },
+  );
+
+  it.each([
+    { signature: "MZ", offset: 0 },
+    { signature: "PE", offset: 64 },
+  ])(
+    "rejects digest-valid high-bit $signature lookalikes before loading",
+    ({ offset }) => {
+      const value = fixture();
+      value.bytes[offset] = (value.bytes[offset] ?? 0) | 0x80;
+      value.manifest.artifactSha256 = createHash("sha256")
+        .update(value.bytes)
+        .digest("hex");
+      expect(loadWindowsNativeAuthority(value.host).available).toBe(false);
       expect(value.loads()).toBe(0);
     },
   );

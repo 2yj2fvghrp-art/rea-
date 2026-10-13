@@ -102,6 +102,10 @@ const systemCaptureHost = (): WindowsWindowCaptureHost => ({
     let authority: ReturnType<typeof requireWindowsNativeAuthority>;
     try {
       authority = requireWindowsNativeAuthority();
+      if (authority.inspection.windowCapture !== true)
+        throw new Error(
+          "The loaded Windows addon does not support selected-window capture; rebuild or install the matching native artifact.",
+        );
     } catch (cause) {
       throw new AnalysisCapabilityUnavailableError(
         IDENTITY.id,
@@ -514,6 +518,19 @@ const captureFailure = (
       OPERATION,
       native.data.requestedPath,
       "EACCES",
+      { cause },
+    );
+  if (code === 5)
+    return new AnalysisAccessDeniedError(OPERATION, "", "EACCES", {
+      cause,
+      processWindow: { pid, windowHandle },
+    });
+  if (code === 170)
+    return new AnalysisResourceConstraintError(
+      OPERATION,
+      "capacity",
+      nativeFailureReason(cause),
+      { maximum_concurrent_captures: 1 },
       { cause },
     );
   if (code === 1460 || code === 258)
