@@ -69,7 +69,7 @@ jobs:
           ref: master
           path: harness-upstream
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
         with:
           package_json_file: harness-upstream/package.json
       - name: Build current upstream Harness
@@ -104,7 +104,7 @@ jobs:
 
   release-plugin:
     name: Publish standalone dsh-v plugin GitHub release
-    needs: [contract, native-harness]
+    needs: [contract, native-harness, direct-git-install]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'morluto/rea' && vars.REA_DSH_PUBLISH == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -191,7 +191,7 @@ jobs:
 
   direct-git-install:
     name: Test Desktop Add-plugin Git URL with pnpm
-    needs: release-plugin
+    needs: [contract, native-harness]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -204,18 +204,19 @@ jobs:
           node-version-file: .nvmrc
       - name: Read owned bundle version
         run: echo "REA_DSH_BUNDLE_VERSION=$(node -p 'require("./integrations/deepseek-harness/package.json").version')" >> "$GITHUB_ENV"
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47 # v4.0.0
         with:
           version: 11.0.0
       - name: Install the exact Desktop URL in a fresh empty profile
         env:
           REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/desktop-like-profile"
           cd "$RUNNER_TEMP/desktop-like-profile"
           printf '%s\n' '{"name":"test-desktop-install","private":true}' > package.json
-          pnpm add "https://github.com/${REPO}#dsh-plugin-v${REA_DSH_BUNDLE_VERSION}"
+          pnpm add "https://github.com/${REPO}#${COMMIT}:integrations/deepseek-harness"
           node - <<'NODE'
           const assert = require('node:assert/strict');
           const fs = require('node:fs');
@@ -229,7 +230,7 @@ jobs:
           const { createRequire } = require('node:module');
           const requireFromBundle = createRequire(fs.realpathSync('./node_modules/dsh-rea-bundle/launcher.mjs'));
           assert(fs.existsSync(requireFromBundle.resolve('rea-agents/scripts/rea.mjs')));
-          console.log('Desktop input Git URL installs dsh-rea-bundle without an allowBuilds exception');
+          console.log('Desktop Git install resolves the candidate commit before release publication');
           NODE
       - name: Report scope
         run: |

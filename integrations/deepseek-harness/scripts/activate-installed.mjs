@@ -8,6 +8,7 @@ import {
   constants,
   copyFileSync,
   existsSync,
+  lstatSync,
   readFileSync,
   renameSync,
   statSync,
@@ -42,6 +43,10 @@ function parseJson(path) {
 function inspect(profileDir) {
   const manifest = join(profileDir, "package.json");
   if (!existsSync(manifest)) fail("Desktop profile missing: " + manifest);
+  if (lstatSync(manifest).isSymbolicLink())
+    fail(
+      "Desktop profile manifest is a symlink; refusing to replace its identity",
+    );
   const original = readFileSync(manifest);
   const config = parseJson(manifest);
   const dependencies = config.dependencies;
@@ -75,7 +80,16 @@ function inspect(profileDir) {
   const patchPath = join(packageDir, "cordis.patch.yml");
   const patch = existsSync(patchPath) ? readFileSync(patchPath, "utf8") : "";
   const correctBundle =
-    pkg?.name === name && pkg?.dsh?.bundle?.patch === "./cordis.patch.yml";
+    pkg?.name === name &&
+    pkg?.dsh?.bundle?.patch === "./cordis.patch.yml" &&
+    pkg?.exports?.["./launcher"] === "./launcher.mjs" &&
+    (() => {
+      try {
+        return lstatSync(join(packageDir, "launcher.mjs")).isFile();
+      } catch {
+        return false;
+      }
+    })();
   const parsedPatch = parseReaCordisPatch(patch);
   const correctPatch = parsedPatch.ok;
   return {

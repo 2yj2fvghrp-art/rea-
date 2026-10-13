@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,9 +52,14 @@ function fixture(fn, options = {}) {
       JSON.stringify({
         name: "dsh-rea-bundle",
         version: "0.2.1",
+        exports: options.badLauncherExport
+          ? { ".": "./launcher.mjs" }
+          : { ".": "./launcher.mjs", "./launcher": "./launcher.mjs" },
         dsh: { bundle: { patch: "./cordis.patch.yml" } },
       }),
     );
+    if (!options.noLauncher)
+      writeFileSync(join(bundleDir, "launcher.mjs"), "export {};\n");
     writeFileSync(
       join(bundleDir, "cordis.patch.yml"),
       options.patch ??
@@ -117,7 +123,12 @@ test("activation preserves 35 entries, other dependencies and exact backup; is i
 });
 
 test("rejects missing dependency, invalid bundle, and malformed profile without writing", () => {
-  for (const options of [{ noDependency: true }, { badPackage: true }]) {
+  for (const options of [
+    { noDependency: true },
+    { badPackage: true },
+    { noLauncher: true },
+    { badLauncherExport: true },
+  ]) {
     fixture(({ manifest, profile, run }) => {
       const original = readFileSync(manifest);
       const outcome = run(["--activate"]);
@@ -129,6 +140,21 @@ test("rejects missing dependency, invalid bundle, and malformed profile without 
   fixture(({ manifest, profile, run }) => {
     writeFileSync(manifest, "{ corrupt");
     assert.notEqual(run(["--activate"]).status, 0);
+    assert.deepEqual(backups(profile), []);
+  });
+});
+
+test("activation refuses a symlinked profile manifest without replacing its link", () => {
+  fixture(({ manifest, profile, home, run }) => {
+    const target = join(home, "managed-package.json");
+    const original = readFileSync(manifest);
+    writeFileSync(target, original);
+    rmSync(manifest);
+    symlinkSync(target, manifest);
+    const outcome = run(["--activate"]);
+    assert.notEqual(outcome.status, 0);
+    assert.match(outcome.stderr, /manifest is a symlink/);
+    assert.equal(readFileSync(manifest, "utf8"), original.toString("utf8"));
     assert.deepEqual(backups(profile), []);
   });
 });

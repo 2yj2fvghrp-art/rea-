@@ -349,7 +349,7 @@ composition as unverified and exits nonzero.
 Do **not** reinstall the bundle, change pnpm `allowBuilds`, or erase the
 Desktop profile to fix a disabled bundle.
 
-### DeepSeek Harness Desktop: fix `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+### DeepSeek Harness Desktop: fix `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` after 0.2.1 publication
 
 **Cause.** If the error names `rea-agents@6.4.0` and downloads a Git archive
 like `https://codeload.github.com/morluto/rea/tar.gz/<commit>`, the
@@ -359,7 +359,10 @@ installable `dsh-rea-bundle` package. Root `rea-agents` has a Git
 policy, and the root package does not declare `dsh.bundle`. Do **not** add
 the root package to `allowBuilds`: it still would not be a Harness bundle.
 
-**Fix with the Desktop UI** (requires no pnpm or npm CLI installation):
+The following recovery procedure applies only after `dsh-v0.2.1` has been
+published and its archive and checksum assets are available. Do not run these
+commands while 0.2.1 remains an unpublished candidate. After publication, use
+the Desktop UI (no pnpm or npm CLI installation required):
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
