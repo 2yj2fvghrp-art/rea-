@@ -219,6 +219,14 @@ Receiver projections follow known data fields initialized from `this` or earlier
 self-referencing fields; static fields retain their declaring class identity.
 An alias cycle that repeatedly selects deeper children retains escape uncertainty
 at its recovered roots rather than claiming a fixed number of loop iterations.
+
+Writes through an object getter's returned receiver retain that uncertainty
+when the object is an array element, nested inside mixed object/array
+containers, or assigned to a previously declared identifier. Saving the getter
+result in an alias does not make its old field values immutable. Known array
+indices include holes; an element after a spread has only a minimum possible
+index. Unrelated properties and known array prefixes remain precise, and a
+getter read without a write does not invalidate the receiver's fields.
 Nested callable returns are not assigned to their parent callable. Projected
 graph observations carry source ranges but never source text.
 

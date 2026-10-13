@@ -15,6 +15,7 @@ import {
   semanticClassCandidates,
   semanticClassPropertyReferences,
   semanticObjectPropertyReferences,
+  type JavaScriptSemanticObjectReference,
 } from "./javascriptSemanticObjectReferences.js";
 import { semanticIterationSources } from "./javascriptSemanticIterationSources.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
@@ -99,8 +100,20 @@ export function* collectSemanticMemberMutationsSteps(
     effect: ValueEffect = "write",
     mutation?: t.Node,
     originAt: t.Node | undefined = mutation,
+    ownerInitializer?: t.Node,
   ): void => {
-    const pending = [{ node, path, bindings, originAt }];
+    const pending: (ReferencedValue & {
+      readonly bindings: ReadonlySet<string>;
+      readonly originAt: t.Node | undefined;
+    })[] = [
+      {
+        node,
+        path,
+        bindings,
+        originAt,
+        ...(ownerInitializer === undefined ? {} : { ownerInitializer }),
+      },
+    ];
     // Visit shallower alias traversals first so their exact prefixes suppress
     // longer loop paths before those paths enumerate every assignment order.
     for (let cursor = 0; cursor < pending.length; cursor++) {
@@ -133,6 +146,8 @@ export function* collectSemanticMemberMutationsSteps(
           binding.bindingId,
           current.originAt?.start,
           current.originAt?.end,
+          current.ownerInitializer?.start,
+          current.ownerInitializer?.end,
         ];
         const lifetime = JSON.stringify([...capture, current.path]);
         if (current.bindings.has(lifetime)) continue;
@@ -166,6 +181,7 @@ export function* collectSemanticMemberMutationsSteps(
             "escape",
             mutation,
             current.originAt,
+            current.ownerInitializer,
           );
           continue;
         }
@@ -196,6 +212,8 @@ export function* collectSemanticMemberMutationsSteps(
             mutation?.end,
             current.originAt?.start,
             current.originAt?.end,
+            current.ownerInitializer?.start,
+            current.ownerInitializer?.end,
           ]);
           const previous = selections.get(selectionIdentity);
           const excludedKeys =
@@ -221,6 +239,8 @@ export function* collectSemanticMemberMutationsSteps(
           mutation?.end,
           current.originAt?.start,
           current.originAt?.end,
+          current.ownerInitializer?.start,
+          current.ownerInitializer?.end,
         ]);
         let covering = coveringPaths.get(pathState);
         if (covering === undefined) {
@@ -236,6 +256,8 @@ export function* collectSemanticMemberMutationsSteps(
           mutation?.end,
           current.originAt?.start,
           current.originAt?.end,
+          current.ownerInitializer?.start,
+          current.ownerInitializer?.end,
         ]);
         if (recordedEffects.has(identity)) continue;
         // A recorded write invalidates the binding to a non-primitive value, so
@@ -249,10 +271,23 @@ export function* collectSemanticMemberMutationsSteps(
           value?.status === "literal" || value?.status === "union";
         recordedEffects.add(identity);
         const nested = new Set([...current.bindings, lifetime, captureKey]);
+        // Returning a literal's receiver reaches that allocation, not the
+        // binding's older values read while evaluating its initializer.
         const origins =
-          current.originAt === undefined
-            ? binding
-            : semanticMutationInitializers(binding, current.originAt, parents);
+          current.ownerInitializer !== undefined
+            ? {
+                initializers: binding.initializers.filter(
+                  ({ node }) => node === current.ownerInitializer,
+                ),
+                referenceInitializers: [],
+              }
+            : current.originAt === undefined
+              ? binding
+              : semanticMutationInitializers(
+                  binding,
+                  current.originAt,
+                  parents,
+                );
         if (!primitiveWrite) {
           if (effect === "escape")
             binding.escapedPaths.push({ path, node: mutation });
@@ -303,6 +338,7 @@ export function* collectSemanticMemberMutationsSteps(
               "escape",
               mutation,
               current.originAt,
+              value.ownerInitializer,
             );
           else if (value.iterableFallbackPath !== undefined)
             deferIterable({
@@ -377,6 +413,8 @@ export function* collectSemanticMemberMutationsSteps(
           binding === undefined ? null : binding.bindingId,
           binding === undefined ? node.name : null,
           pathKey,
+          value.ownerInitializer?.start,
+          value.ownerInitializer?.end,
         ]);
         if (leafIdentities.has(identity)) continue;
         leafIdentities.add(identity);
@@ -561,11 +599,8 @@ export function* collectSemanticMemberMutationsSteps(
   clearSemanticValueCaches(state);
 }
 
-interface ReferencedValue {
-  readonly node: t.Node;
-  readonly path: PropertyPath;
+interface ReferencedValue extends JavaScriptSemanticObjectReference {
   readonly iterableFallbackPath?: PropertyPath;
-  readonly escapes?: true;
 }
 
 interface IterableReference extends ReferencedValue {
