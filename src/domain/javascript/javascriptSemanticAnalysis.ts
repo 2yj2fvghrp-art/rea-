@@ -624,7 +624,11 @@ function* collectDefinitionsSteps(
         openedScopes.set(node, 1);
         parentScope = dynamicScope;
       }
-      bindOuterDeclaration(node, namespaceDeclarationScope(node, parentScope, state), state);
+      bindOuterDeclaration(
+        node,
+        namespaceDeclarationScope(node, parentScope, state),
+        state,
+      );
       const nested = nestedScope(node, parent, parentScope, state);
       if (nested !== undefined) {
         stack.push(nested);
@@ -781,12 +785,20 @@ const bindInnerDeclaration = (
 ): void => {
   if (t.isImportDeclaration(node)) bindImports(node, scope, state);
   else if (t.isTSImportEqualsDeclaration(node))
-    bindImportEquals(node, namespaceDeclarationScope(node, scope, state), state);
+    bindImportEquals(
+      node,
+      namespaceDeclarationScope(node, scope, state),
+      state,
+    );
   else if (t.isVariableDeclarator(node))
     bindPattern({
       pattern: node.id,
       initializer: node.init ?? null,
-      scope: semanticVariableScope(namespaceDeclarationScope(node, scope, state), parent, state),
+      scope: semanticVariableScope(
+        namespaceDeclarationScope(node, scope, state),
+        parent,
+        state,
+      ),
       state,
       mutable:
         parent !== null && t.isVariableDeclaration(parent)
@@ -900,7 +912,10 @@ const namespaceDeclarationScope = (
     declaration = parent;
     parent = state.parentsByNode.get(declaration);
   }
-  if (t.isExportNamedDeclaration(parent) && parent.declaration === declaration)
+  if (
+    (t.isTSImportEqualsDeclaration(declaration) && declaration.isExport) ||
+    (t.isExportNamedDeclaration(parent) && parent.declaration === declaration)
+  )
     return state.scopesById.get(scope.namespaceExportScopeId) ?? scope;
   return scope;
 };
@@ -925,24 +940,39 @@ const nestedScope = (
   if (kind === undefined) return undefined;
   let namespaceExportScopeId: string | undefined;
   if (t.isTSModuleBlock(node) && t.isTSModuleDeclaration(parent)) {
-    const name = t.isIdentifier(parent.id) ? parent.id.name : parent.id.value;
-    const parentOwner = namespaceDeclarationScope(parent, parentScope, state);
-    const key = JSON.stringify([parentOwner.scopeId, name]);
-    let exported = state.namespaceExportScopes.get(key);
-    if (exported === undefined) {
-      exported = {
-        scopeId: `${semanticScopeId("namespace", parent)}:exports`,
-        parentScopeId: parentOwner.scopeId,
-        kind: "namespace",
-        location: range(parent),
-        bindingsComplete: true,
-        bindings: new Map(),
-      };
-      state.namespaceExportScopes.set(key, exported);
-      state.scopes.push(exported);
-      state.scopesById.set(exported.scopeId, exported);
+    // Dotted declarations have no intermediate TSModuleBlock. Give every
+    // segment the same shared owner it would have in nested exported blocks.
+    const declarations = [parent];
+    let outer = parent;
+    let ancestor = state.parentsByNode.get(outer);
+    while (t.isTSModuleDeclaration(ancestor) && ancestor.body === outer) {
+      declarations.unshift(ancestor);
+      outer = ancestor;
+      ancestor = state.parentsByNode.get(outer);
     }
-    namespaceExportScopeId = exported.scopeId;
+    let owner = namespaceDeclarationScope(outer, parentScope, state);
+    for (const declaration of declarations) {
+      const name = t.isIdentifier(declaration.id)
+        ? declaration.id.name
+        : declaration.id.value;
+      const key = JSON.stringify([owner.scopeId, name]);
+      let exported = state.namespaceExportScopes.get(key);
+      if (exported === undefined) {
+        exported = {
+          scopeId: `${semanticScopeId("namespace", declaration)}:exports`,
+          parentScopeId: owner.scopeId,
+          kind: "namespace",
+          location: range(declaration),
+          bindingsComplete: true,
+          bindings: new Map(),
+        };
+        state.namespaceExportScopes.set(key, exported);
+        state.scopes.push(exported);
+        state.scopesById.set(exported.scopeId, exported);
+      }
+      owner = exported;
+    }
+    namespaceExportScopeId = owner.scopeId;
   }
   const scope: JavaScriptSemanticScopeState = {
     scopeId: semanticScopeId(kind, switchOwner ?? node),

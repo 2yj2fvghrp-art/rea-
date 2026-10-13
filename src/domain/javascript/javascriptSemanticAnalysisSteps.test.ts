@@ -216,7 +216,41 @@ namespace A { ipc.handle("ping", () => "pong"); void privateName; }`;
   if (parsed === null) throw new Error("Expected parsed TypeScript source");
   const ir = analyzeParsedJavaScriptSemantics(parsed);
   expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
-    source.indexOf('ipc.handle("ping"'), ["ipcMain"],
+    source.indexOf('ipc.handle("ping"'),
+    ["ipcMain"],
   ]);
-  expect(ir.references.find(({ name }) => name === "privateName")?.resolution).toBe("unbound");
+  expect(
+    ir.references.find(({ name }) => name === "privateName")?.resolution,
+  ).toBe("unbound");
+});
+
+it("shares export-import aliases across reopened namespace blocks", () => {
+  const source = `namespace N { export import electron = require("electron"); }
+namespace N { electron.ipcMain.handle("ping", () => "pong"); }`;
+  const parsed = parseJavaScriptSource(source, "export-import.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
+    source.indexOf('electron.ipcMain.handle("ping"'),
+    ["ipcMain"],
+  ]);
+});
+
+it("keeps dotted namespace owners distinct and joins equivalent declarations", () => {
+  const source = `import electron = require("electron");
+namespace A.B { export const ipc = electron.ipcMain; }
+namespace B { ipc.handle("unrelated", () => "pong"); }
+namespace A.B { ipc.handle("dotted", () => "pong"); }
+namespace A { export namespace B { ipc.handle("nested", () => "pong"); } }`;
+  const parsed = parseJavaScriptSource(source, "dotted-namespaces.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
+  expect(calls).not.toContainEqual([
+    source.indexOf('ipc.handle("unrelated"'),
+    ["ipcMain"],
+  ]);
+  for (const channel of ["dotted", "nested"])
+    expect(calls).toContainEqual([
+      source.indexOf(`ipc.handle("${channel}"`),
+      ["ipcMain"],
+    ]);
 });
