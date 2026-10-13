@@ -143,9 +143,11 @@ completes normally.
 A separately built `tests/fixtures/windows/processBoundary.cc` executable adds
 breakaway, caller/child token and environment semantics observations and an
 in-place ancestor reparse attempt. The lane skips all of them when the
-executable is absent, so CI cross-builds it in the same MinGW job that builds
-the artifact and passes it to every run. Build it locally with any Windows C++
-compiler, or the same way CI does, and pass its path:
+executable is absent, so both Windows workflows cross-build it in the same
+MinGW job that builds their artifact and pass it: the capability and package
+lane in `.github/workflows/ci.yml`, and the real Ghidra proof run in
+`.github/workflows/real-ghidra-windows.yml`. Build it locally with any Windows
+C++ compiler, or the same way they do, and pass its path:
 
 ```powershell
 node scripts/verify-windows-native.mjs . C:\fixtures\process-boundary.exe
