@@ -1,0 +1,410 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { expect, it } from "vitest";
+
+import {
+  readStaticCheckArtifact,
+  selectStaticCheckArtifact,
+} from "../../../scripts/ci/artifacts.mjs";
+import {
+  classifyFailure,
+  createGitHubApi,
+  reportCiFailures,
+} from "../../../scripts/ci/failure-report.mjs";
+
+const sha = (digit: string) => digit.repeat(40);
+const diagnostic = {
+  kind: "lint",
+  path: "src/example.ts",
+  code: "no-debugger",
+  message: "Unexpected debugger statement.",
+  severity: "error",
+} as const;
+const context = (
+  sourceSha: string,
+  taskHash = "a".repeat(16),
+  prHeadSha?: string,
+) => ({
+  version: 1 as const,
+  sourceSha,
+  ...(prHeadSha ? { prHeadSha } : {}),
+  sourceClean: true,
+  nodeVersion: "v24.18.0",
+  npmVersion: "11.16.0",
+  turboVersion: "2.11.7",
+  platform: "linux",
+  architecture: "x64",
+  taskHashes: { "lint:built": taskHash },
+});
+const run = (overrides: Record<string, unknown> = {}) => ({
+  id: 10,
+  run_attempt: 1,
+  status: "completed",
+  conclusion: "failure",
+  event: "pull_request",
+  path: ".github/workflows/ci.yml",
+  head_sha: sha("a"),
+  head_branch: "feature",
+  repository: { full_name: "owner/rea" },
+  pull_requests: [
+    { base: { sha: sha("b"), repo: { full_name: "owner/rea" } } },
+  ],
+  ...overrides,
+});
+const job = (overrides: Record<string, unknown> = {}) => ({
+  name: "Static checks",
+  status: "completed",
+  conclusion: "failure",
+  ...overrides,
+});
+
+it("attributes only an identical structured lint failure with matching task, context, ancestry, and source blob", () => {
+  const result = classifyFailure({
+    repository: "owner/rea",
+    defaultBranch: "main",
+    run: run(),
+    job: job(),
+    diagnostics: [diagnostic],
+    context: context(sha("a")),
+    mainRun: run({
+      id: 20,
+      event: "push",
+      head_sha: sha("c"),
+      head_branch: "main",
+      pull_requests: [],
+    }),
+    mainJob: job(),
+    mainDiagnostics: [diagnostic],
+    mainContext: context(sha("c")),
+    executionSourcesVerified: true,
+    ancestry: { status: "ahead", mergeBaseSha: sha("c") },
+    blobs: { "src/example.ts": true },
+  });
+  expect(result).toEqual({
+    classification: "matching-main-diagnostics",
+    reason:
+      "supported_diagnostics_match_failed_task_and_source_on_verified_main_ancestor",
+  });
+});
+
+it.each([
+  ["task hash", { mainContext: context(sha("c"), "b".repeat(16)) }],
+  ["dirty source", { context: { ...context(sha("a")), sourceClean: false } }],
+  [
+    "toolchain",
+    { mainContext: { ...context(sha("c")), turboVersion: "other" } },
+  ],
+  [
+    "source sha",
+    { context: context(sha("d")), executionSourcesVerified: false },
+  ],
+  [
+    "diagnostic",
+    { mainDiagnostics: [{ ...diagnostic, message: "different message" }] },
+  ],
+  ["content", { blobs: { "src/example.ts": false } }],
+  ["ancestry", { ancestry: { status: "diverged", mergeBaseSha: sha("e") } }],
+  ["canceled job", { job: job({ conclusion: "cancelled" }) }],
+  ["not a static job", { job: job({ name: "Test shard (1)" }) }],
+] as const)("does not attribute on mismatched %s", (_label, overrides) => {
+  const result = classifyFailure({
+    repository: "owner/rea",
+    defaultBranch: "main",
+    run: run(),
+    job: job(),
+    diagnostics: [diagnostic],
+    context: context(sha("a")),
+    mainRun: run({
+      id: 20,
+      event: "push",
+      head_sha: sha("c"),
+      head_branch: "main",
+      pull_requests: [],
+    }),
+    mainJob: job(),
+    mainDiagnostics: [diagnostic],
+    mainContext: context(sha("c")),
+    executionSourcesVerified: true,
+    ancestry: { status: "ahead", mergeBaseSha: sha("c") },
+    blobs: { "src/example.ts": true },
+    ...overrides,
+  });
+  expect(result.classification).toBe("unknown");
+});
+
+it("writes informational JSON and Markdown from the supplied manifest using only read API calls", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rea-ci-failure-test-"));
+  try {
+    const calls: string[] = [];
+    const manifest = {
+      repository: "owner/rea",
+      truncation: [],
+      coverage: { exhaustive: false },
+      runs: [
+        {
+          id: 10,
+          runAttempt: 1,
+          workflow: "CI",
+          conclusion: "failure",
+          status: "collected",
+        },
+        {
+          id: 11,
+          runAttempt: 1,
+          workflow: "CI",
+          conclusion: "success",
+          status: "collected",
+        },
+      ],
+    };
+    const failedRun = run();
+    const api = {
+      async getRun(_repository: string, id: number) {
+        calls.push(`run:${id}`);
+        return failedRun;
+      },
+      async getJobs(_repository: string, id: number) {
+        calls.push(`jobs:${id}`);
+        return [{ ...job(), run_id: id, run_attempt: 1 }];
+      },
+      async getStaticEvidence() {
+        calls.push("artifact");
+        return null;
+      },
+      async getAncestry() {
+        throw new Error("must not compare without evidence");
+      },
+      async getBlobIdentity() {
+        throw new Error("must not inspect blobs without evidence");
+      },
+    };
+    const report = await reportCiFailures({
+      repository: "owner/rea",
+      defaultBranch: "main",
+      batchManifest: manifest,
+      api: api as never,
+      outputDirectory: directory,
+    });
+    expect(calls).toEqual(["run:10", "jobs:10", "artifact"]);
+    expect(report).toMatchObject({
+      informationalOnly: true,
+      gateEffect: "none; this report never changes CI conclusions",
+      counts: { unknown: 1 },
+    });
+    const json = JSON.parse(
+      await readFile(join(directory, "report.json"), "utf8"),
+    );
+    const markdown = await readFile(join(directory, "report.md"), "utf8");
+    expect(json.failures[0]).toMatchObject({
+      classification: "unknown",
+      reason: "no_matching_verified_main_failure",
+    });
+    expect(markdown).toContain("Informational only");
+    expect(markdown).toContain("Unknown means evidence was incomplete");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("attributes a PR failure only after the injected API proves the identical main failure and blob", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rea-ci-main-proof-"));
+  try {
+    const mainSha = sha("c");
+    const prHeadSha = sha("a");
+    const mergeSha = sha("d");
+    const mainRun = run({
+      id: 20,
+      event: "push",
+      head_sha: mainSha,
+      head_branch: "main",
+      pull_requests: [],
+    });
+    const prRun = run({
+      head_sha: prHeadSha,
+      pull_requests: [
+        { base: { sha: mainSha, repo: { full_name: "owner/rea" } } },
+      ],
+    });
+    const evidence = (sourceSha: string, prHead?: string) => ({
+      context: context(sourceSha, undefined, prHead),
+      diagnostics: [diagnostic],
+    });
+    const api = {
+      async getRun(_repository: string, id: number) {
+        return id === 10 ? prRun : mainRun;
+      },
+      async getJobs(_repository: string, id: number) {
+        return [{ ...job(), run_id: id, run_attempt: 1 }];
+      },
+      async getStaticEvidence(
+        _repository: string,
+        selectedRun: { id: number },
+      ) {
+        return selectedRun.id === 10
+          ? evidence(mergeSha, prHeadSha)
+          : evidence(mainSha);
+      },
+      async verifyExecutionSource(
+        _repository: string,
+        selectedRun: { event: string; head_sha: string },
+        sourceContext: { sourceSha: string; prHeadSha?: string },
+      ) {
+        return selectedRun.event === "pull_request"
+          ? sourceContext.sourceSha === mergeSha &&
+              sourceContext.prHeadSha === selectedRun.head_sha
+          : sourceContext.sourceSha === selectedRun.head_sha;
+      },
+      async getAncestry() {
+        return { status: "ahead", mergeBaseSha: mainSha };
+      },
+      async getBlobIdentity() {
+        return { "src/example.ts": true };
+      },
+    };
+    const result = await reportCiFailures({
+      repository: "owner/rea",
+      defaultBranch: "main",
+      batchManifest: {
+        repository: "owner/rea",
+        runs: [
+          {
+            id: 10,
+            runAttempt: 1,
+            workflow: "CI",
+            conclusion: "failure",
+            status: "collected",
+          },
+          {
+            id: 20,
+            runAttempt: 1,
+            workflow: "CI",
+            conclusion: "failure",
+            status: "collected",
+          },
+        ],
+      },
+      api: api as never,
+      outputDirectory: directory,
+    });
+    expect(result.failures[0]).toMatchObject({
+      classification: "matching-main-diagnostics",
+      reason:
+        "supported_diagnostics_match_failed_task_and_source_on_verified_main_ancestor",
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("proves checkout merge parents in base-then-PR-head order and rejects false identities", async () => {
+  const baseSha = sha("b");
+  const headSha = sha("a");
+  const mergeSha = sha("c");
+  const prRun = run({
+    head_sha: headSha,
+    pull_requests: [
+      { base: { sha: baseSha, repo: { full_name: "owner/rea" } } },
+    ],
+  });
+  let parents = [baseSha, headSha];
+  const calls: string[] = [];
+  const api = createGitHubApi({
+    token: "fixture-token",
+    apiRequest: async (_method, endpoint) => {
+      calls.push(endpoint);
+      return {
+        sha: mergeSha,
+        parents: parents.map((parentSha) => ({ sha: parentSha })),
+      };
+    },
+  });
+  const mergeContext = context(mergeSha, undefined, headSha);
+  expect(
+    await api.verifyExecutionSource("owner/rea", prRun, mergeContext),
+  ).toBe(true);
+  expect(calls).toEqual([`repos/owner/rea/commits/${mergeSha}`]);
+
+  parents = [headSha, baseSha];
+  expect(
+    await api.verifyExecutionSource("owner/rea", prRun, mergeContext),
+  ).toBe(false);
+  expect(
+    await api.verifyExecutionSource("owner/rea", prRun, {
+      ...mergeContext,
+      prHeadSha: sha("e"),
+    }),
+  ).toBe(false);
+});
+
+it("uses static artifacts only when listing is complete, unique, and tied to this run attempt", () => {
+  const artifact = {
+    id: 12,
+    name: "static-check-reports",
+    expired: false,
+    workflow_run: { id: 10, head_sha: sha("a") },
+  };
+  const runRecord = { id: 10, head_sha: sha("a") };
+  expect(
+    selectStaticCheckArtifact(
+      { total_count: 1, artifacts: [artifact] },
+      runRecord,
+      1,
+    ),
+  ).toBe(artifact);
+  expect(
+    selectStaticCheckArtifact(
+      { total_count: 2, artifacts: [artifact] },
+      runRecord,
+      1,
+    ),
+  ).toBeNull();
+  expect(
+    selectStaticCheckArtifact(
+      { total_count: 2, artifacts: [artifact, artifact] },
+      runRecord,
+      1,
+    ),
+  ).toBeNull();
+  expect(
+    selectStaticCheckArtifact(
+      {
+        total_count: 1,
+        artifacts: [
+          { ...artifact, workflow_run: { id: 11, head_sha: sha("a") } },
+        ],
+      },
+      runRecord,
+      1,
+    ),
+  ).toBeNull();
+  expect(
+    selectStaticCheckArtifact(
+      { total_count: 1, artifacts: [artifact] },
+      runRecord,
+      2,
+    ),
+  ).toBeNull();
+});
+
+it("rejects artifact redirects that could send the bearer token to a non-HTTPS host", async () => {
+  const calls: string[] = [];
+  await expect(
+    readStaticCheckArtifact({
+      repository: "owner/rea",
+      artifactId: 12,
+      token: "fixture-token",
+      fetchImpl: (async (url: string | URL | Request) => {
+        calls.push(String(url));
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://untrusted.example/artifact.zip" },
+        });
+      }) as typeof fetch,
+    }),
+  ).rejects.toThrow("static_artifact_redirect_invalid");
+  expect(calls).toEqual([
+    "https://api.github.com/repos/owner/rea/actions/artifacts/12/zip",
+  ]);
+});
