@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -88,6 +88,9 @@ it.runIf(process.platform === "linux" && process.arch === "x64")(
     try {
       const failure: unknown = await verifyGhidraPrototypeDiagnostics({
         installation: { analyzeHeadlessPath: "controlled-test-producer" },
+        buildFixture: async ({ target }: { object: string; target: string }) => {
+          await writeFile(target, "mocked executable fixture");
+        },
       }).catch((cause: unknown) => cause);
       const { child, workspace, supervisor } = control;
       if (

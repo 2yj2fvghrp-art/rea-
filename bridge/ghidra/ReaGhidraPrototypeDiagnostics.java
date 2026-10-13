@@ -33,6 +33,7 @@ public final class ReaGhidraPrototypeDiagnostics {
     private static final int ENTRY_FACTS = 256;
     // Bound the aggregate forwarding evidence retained in one dossier.
     private static final int FORWARDING_EVIDENCE_BUDGET = 256;
+    private static final int CLEANUP_CHECK_BUDGET = 256;
 
     public static JsonObject inspect(Program program, Function function,
             FunctionPrototype prototype, TaskMonitor monitor,
@@ -194,22 +195,33 @@ public final class ReaGhidraPrototypeDiagnostics {
         JsonArray forwardingFacts = new JsonArray();
         Set<Address> forwardingAddresses = new HashSet<>();
         boolean forwardingLimited = false;
+        int cleanupChecks = 0;
+        boolean cleanupLimited = false;
         InstructionIterator instructions = program.getListing().getInstructions(function.getBody(), true);
         while (instructions.hasNext()) {
             monitor.checkCancelled();
             Instruction item = instructions.next();
-            if (isReturn(item) && knownAllocation) cleanupDiagnostic(item, null, stackEnd - 4, prototype, expectedCleanup, claim,
-                diagnostics, reportedReturns, addressText);
-            if (item.getFlowType().isJump() && !item.getFlowType().isConditional() && !item.getFlowType().isComputed()) {
-                Address[] targets = item.getFlows();
-                if (targets.length == 1 && !function.getBody().contains(targets[0])) {
-                    Instruction returned = epilogueReturn(program, function, targets[0], eax, false, monitor);
-                    if (returned != null) {
-                        if (knownAllocation) cleanupDiagnostic(returned, item, stackEnd - 4, prototype, expectedCleanup, claim,
+            boolean directJump = item.getFlowType().isJump() && !item.getFlowType().isComputed();
+            if (knownAllocation && (isReturn(item) || directJump)) {
+                if (cleanupChecks == CLEANUP_CHECK_BUDGET) cleanupLimited = true;
+                else {
+                    cleanupChecks++;
+                    if (isReturn(item) && !reportedReturns.contains(item.getAddress()))
+                        cleanupDiagnostic(item, null, stackEnd - 4, prototype, expectedCleanup, claim,
                             diagnostics, reportedReturns, addressText);
+                    if (directJump) {
+                        Address[] targets = item.getFlows();
+                        if (targets.length == 1 && !function.getBody().contains(targets[0])) {
+                            Instruction returned = epilogueReturn(program, function, targets[0], eax, false, monitor);
+                            if (returned != null) {
+                                if (!reportedReturns.contains(returned.getAddress()))
+                                    cleanupDiagnostic(returned, item, stackEnd - 4, prototype, expectedCleanup, claim,
+                                        diagnostics, reportedReturns, addressText);
+                            }
+                            else limitations.add("Shared epilogue or tail-call target from " + addressText.apply(item.getAddress()) +
+                                " could not be established within the bounded cleanup check.");
+                        }
                     }
-                    else limitations.add("Shared epilogue or tail-call target from " + addressText.apply(item.getAddress()) +
-                        " could not be established within the bounded cleanup check.");
                 }
             }
             DataType returnType = prototype.getReturnType();
@@ -249,6 +261,7 @@ public final class ReaGhidraPrototypeDiagnostics {
                 "EAX may be an incidental live register. Callee return semantics, caller data flow and the source return type require corroboration."));
         }
         if (forwardingLimited) limitations.add("Return-register forwarding reached its 256-fact evidence budget; remaining call paths or incoming references were not examined for forwarding. Cleanup checks retain their separate coverage.");
+        if (cleanupLimited) limitations.add("Return-cleanup checks reached their 256-candidate budget; remaining in-body returns and direct branches to shared epilogues were not examined.");
         return result;
     }
 

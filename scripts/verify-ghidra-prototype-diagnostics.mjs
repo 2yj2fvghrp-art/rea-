@@ -39,6 +39,23 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export async function verifyGhidraPrototypeDiagnostics({
   installation,
   entrypoint = defaultEntrypoint,
+  buildFixture = async ({ object, target }) => {
+    await exec(process.env.REA_AS ?? "as", [
+      "--32",
+      join(fixtureSources, "prototype-conflicts.S"),
+      "-o",
+      object,
+    ]);
+    await exec(process.env.REA_LD ?? "ld", [
+      "-m",
+      "elf_i386",
+      "-e",
+      "_start",
+      object,
+      "-o",
+      target,
+    ]);
+  },
 }) {
   assert.ok(
     process.platform === "linux" && process.arch === "x64",
@@ -58,21 +75,7 @@ export async function verifyGhidraPrototypeDiagnostics({
   let retainWorkspace = false;
   let verifierFinished = false;
   try {
-    await exec(process.env.REA_AS ?? "as", [
-      "--32",
-      join(fixtureSources, "prototype-conflicts.S"),
-      "-o",
-      object,
-    ]);
-    await exec(process.env.REA_LD ?? "ld", [
-      "-m",
-      "elf_i386",
-      "-e",
-      "_start",
-      object,
-      "-o",
-      target,
-    ]);
+    await buildFixture({ object, target });
     const targetDigest = digest(await readFile(target));
     const sourceDigests = [
       digest(await readFile(bridge)),
