@@ -99,6 +99,7 @@ const readUuidRegion = async (
     return err("the Mach-O traversal exceeds the supported aggregate budget");
   const probe = Buffer.alloc(probeLength);
   const observed = await handle.read(probe, 0, probe.length, offset);
+  throwIfCancelled(signal);
   const probed = probe.subarray(0, observed.bytesRead);
   const charged = chargeTraversal(ledger, observed.bytesRead);
   if (!charged.ok) return charged;
@@ -112,8 +113,10 @@ const readUuidRegion = async (
   if (needed <= probed.length || needed > length) return ok(probed);
   if (needed > TRAVERSAL_BUDGET_BYTES - ledger.spent)
     return err("the Mach-O traversal exceeds the supported aggregate budget");
+  throwIfCancelled(signal);
   const full = Buffer.alloc(needed);
   const reread = await handle.read(full, 0, full.length, offset);
+  throwIfCancelled(signal);
   const extended = chargeTraversal(ledger, reread.bytesRead);
   if (!extended.ok) return extended;
   return ok(full.subarray(0, reread.bytesRead));

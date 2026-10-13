@@ -66,3 +66,8 @@ flow.
 - The selected architecture slice of a universal target must be covered by a
   matching member UUID in the bundle; per-slice selection inside the bundle is
   not exposed.
+- Admission examines at most 16 DWARF directory entries, including entries
+  that are not regular files. The matched member may be at most 1 GiB.
+- UUID traversal buffers at most 16 MiB for one image's load commands and reads
+  at most 64 MiB across the target and all member candidates. These are resource
+  budgets for this analysis workflow, rather than Mach-O format limits.
