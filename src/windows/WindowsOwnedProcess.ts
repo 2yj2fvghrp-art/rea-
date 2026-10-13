@@ -74,6 +74,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   readonly #memoryLimitBytes: number | undefined;
   #memoryLimitReached = false;
   #peakJobMemoryBytes: number | undefined;
+  #outputIncomplete = false;
 
   constructor(
     command: string,
@@ -179,6 +180,11 @@ export class WindowsOwnedProcess extends EventEmitter {
   /** Latest observed peak job commit; undefined for an unlimited job. */
   get peakJobMemoryBytes(): number | undefined {
     return this.#peakJobMemoryBytes;
+  }
+
+  /** True when cleanup destroyed a backpressured stream before all output was observed. */
+  get outputIncomplete(): boolean {
+    return this.#outputIncomplete;
   }
 
   async #writeInput(chunk: unknown): Promise<void> {
@@ -307,6 +313,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #discardBlockedOutput(): void {
+    if (this.#blockedOutput.size > 0) this.#outputIncomplete = true;
     for (const stream of this.#blockedOutput) stream.destroy();
     this.#blockedOutput.clear();
     this.#clearBlockedWake();
@@ -358,7 +365,11 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #writeOutput(stream: PassThrough, bytes: Buffer): void {
-    if (bytes.length === 0 || stream.destroyed || stream.writableEnded) return;
+    if (bytes.length === 0 || stream.writableEnded) return;
+    if (stream.destroyed) {
+      this.#outputIncomplete = true;
+      return;
+    }
     if (stream.write(bytes)) return;
     this.#blockedOutput.add(stream);
     const unblock = () => {

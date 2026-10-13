@@ -60,6 +60,8 @@ export interface ProviderProcessHandle extends Pick<
   readonly signalCode: NodeJS.Signals | null;
   /** True once an enforced process memory limit reported an allocation failure. */
   readonly memoryLimitReached?: boolean;
+  /** True if a Windows backpressured stream was destroyed before output drained. */
+  readonly outputIncomplete?: boolean;
   kill(signal?: NodeJS.Signals | number): boolean;
   unref?(): void;
   ref?(): void;
@@ -110,6 +112,8 @@ export interface ProviderProcessSnapshot {
   readonly signal: NodeJS.Signals | null | undefined;
   /** Present only when the process tree reached its enforced memory limit. */
   readonly memoryLimitReached?: true;
+  /** Present when a provider stream was destroyed before all bytes were observed. */
+  readonly outputIncomplete?: true;
 }
 
 /** Resource-safe events emitted without imposing provider protocol semantics. */
@@ -318,6 +322,9 @@ export class ProviderProcessSupervisor {
       signal: this.#exitObservation?.signal,
       ...(this.launch.process.memoryLimitReached === true
         ? { memoryLimitReached: true }
+        : {}),
+      ...(this.launch.process.outputIncomplete === true
+        ? { outputIncomplete: true }
         : {}),
     };
   }
