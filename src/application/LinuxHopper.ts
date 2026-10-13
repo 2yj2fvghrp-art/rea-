@@ -249,6 +249,24 @@ export const installLinuxHopper = async (
 export const linuxHopperLauncherPath = (home: string): string =>
   join(home, ".local/share/rea/hopper/bin/Hopper");
 
+/**
+ * Ordered Linux Hopper launcher candidates shared by discovery (doctor) and
+ * runtime configuration, so both select the same launcher. The REA-managed
+ * install stays first; the legacy user-local install stays ahead of the newly
+ * discovered system-wide installs because the Linux adapter can only run the
+ * pinned builds — an existing launcher from REA's own setup outranks an
+ * arbitrary system build the adapter may reject as unsupported.
+ */
+export const linuxHopperLauncherCandidates = (
+  home: string,
+): readonly string[] => [
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  linuxHopperLauncherPath(home),
+  ...systemLinuxHopperLauncherCandidates.filter(
+    (candidate) => candidate !== REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  ),
+];
+
 /** Launcher path produced by the REA-managed Linux Hopper installation. */
 export const REA_MANAGED_LINUX_HOPPER_LAUNCHER = "/opt/hopper/bin/Hopper";
 

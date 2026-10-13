@@ -1,6 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
 
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -10,8 +9,8 @@ import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
 import {
   REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+  linuxHopperLauncherCandidates,
   linuxSharedLibrariesAvailable,
-  systemLinuxHopperLauncherCandidates,
 } from "../application/LinuxHopper.js";
 
 const DEFAULT_HOPPER_LAUNCHER_PATH =
@@ -22,9 +21,14 @@ const DEFAULT_HOPPER_LAUNCHER_PATH =
  * configuration and `rea doctor` select the same launcher: execute access
  * alone is not readiness. The path must be a regular file, and on Linux its
  * shared libraries must resolve under `ldd`. Fail closed: any probe error
- * means the candidate is not selected. Exported for tests.
+ * means the candidate is not selected. The linker probe runs under the
+ * caller-selected environment — the same environment execution launches
+ * Hopper with — so discovery and execution agree. Exported for tests.
  */
-export const executableAvailable = (path: string): boolean => {
+export const executableAvailable = (
+  path: string,
+  environment: Readonly<NodeJS.ProcessEnv> = process.env,
+): boolean => {
   try {
     accessSync(path, constants.X_OK);
     // A directory can pass X_OK; the launcher must be a regular file.
@@ -33,6 +37,7 @@ export const executableAvailable = (path: string): boolean => {
     const linked = execFileSync("ldd", [path], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      env: environment,
     });
     return linuxSharedLibrariesAvailable(linked);
   } catch {
@@ -44,17 +49,18 @@ export const executableAvailable = (path: string): boolean => {
 export const defaultHopperLauncherPath = (
   platform: NodeJS.Platform,
   homeDirectory: string,
-  executable: (path: string) => boolean = executableAvailable,
+  environment: Readonly<NodeJS.ProcessEnv> = process.env,
+  executable: (path: string) => boolean = (candidate) =>
+    executableAvailable(candidate, environment),
 ): string => {
   if (platform !== "linux") return DEFAULT_HOPPER_LAUNCHER_PATH;
-  // Search the same ordered system candidates as doctor discovery so both
-  // select the same launcher.
-  const system = systemLinuxHopperLauncherCandidates.find((candidate) =>
-    executable(candidate),
+  // Search the same ordered candidates as doctor discovery so both select
+  // the same launcher.
+  return (
+    linuxHopperLauncherCandidates(homeDirectory).find((candidate) =>
+      executable(candidate),
+    ) ?? REA_MANAGED_LINUX_HOPPER_LAUNCHER
   );
-  if (system !== undefined) return system;
-  const userLocal = join(homeDirectory, ".local/share/rea/hopper/bin/Hopper");
-  return executable(userLocal) ? userLocal : REA_MANAGED_LINUX_HOPPER_LAUNCHER;
 };
 
 /** Parse provider configuration and runtime prerequisites at the composition root. */
@@ -125,6 +131,7 @@ export const parseConfig = (
       defaultHopperLauncherPath(
         process.platform,
         homeDirectoryFromEnvironment(environment, process.platform),
+        environment,
       ),
     hopperStartupTimeoutMs: env.REA_HOPPER_STARTUP_TIMEOUT_MS,
     hopperTargetPath: env.HOPPER_TARGET_PATH,

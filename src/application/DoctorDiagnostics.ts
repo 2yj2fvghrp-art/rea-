@@ -3,6 +3,7 @@ import {
   supportsNodeVersion,
 } from "../domain/runtimeVersion.js";
 import {
+  linuxHopperLauncherCandidates,
   linuxHopperLauncherPath,
   supportsReaHost,
   systemLinuxHopperLauncherCandidates,
@@ -151,8 +152,16 @@ const findHopper = async (host: DoctorHost): Promise<string | undefined> => {
     host.configuredHopperPath === undefined
       ? [
           DEFAULT_HOPPER,
-          ...systemLinuxHopperLauncherCandidates,
-          linuxHopperLauncherPath(host.homeDirectory),
+          // On Linux the legacy user-local install stays ahead of the newly
+          // discovered system-wide installs: the Linux adapter can only run
+          // the pinned builds, so an existing launcher from REA's own setup
+          // outranks an arbitrary system build the adapter may reject.
+          ...(host.platform === "linux"
+            ? linuxHopperLauncherCandidates(host.homeDirectory)
+            : [
+                ...systemLinuxHopperLauncherCandidates,
+                linuxHopperLauncherPath(host.homeDirectory),
+              ]),
           ...(await host.manualHopperPaths()),
         ]
       : [host.configuredHopperPath];
