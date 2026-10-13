@@ -11,8 +11,9 @@
 .type rea_arm_probe_arm, %function
 rea_arm_probe_arm:
     mov r0, #42
+    push {r4, lr}
     bl rea_arm_probe_thumb
-    bx lr
+    pop {r4, pc}
 
 .thumb
 .p2align 1

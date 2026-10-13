@@ -87,7 +87,7 @@ try {
   const readelfAttributes = await execute(
     readelfCommand,
     ["-A", fixture.path],
-    { timeout: 30000 },
+    { env: { ...process.env, LC_ALL: "C" }, timeout: 30000 },
   );
   assert.match(
     readelfAttributes.stdout,
@@ -161,6 +161,7 @@ try {
       length: 4,
     });
     assert.equal(global.returned_bytes, 4);
+    assert.equal(global.bytes_hex, "07000000");
     const marker = await call("read_bytes", {
       address: independent.symbols.rea_arm_marker,
       length: Buffer.byteLength("rea-arm-source-owned-fixture\0"),
@@ -332,6 +333,7 @@ try {
     { timeout: 60000 },
   );
   const r5Attributes = await execute(readelfCommand, ["-A", r5Path], {
+    env: { ...process.env, LC_ALL: "C" },
     timeout: 30000,
   });
   assert.match(

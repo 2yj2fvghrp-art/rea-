@@ -135,6 +135,21 @@ const scanAeabiScope = (
   return { cpuArch, cpuArchProfile, repeatedDeclarationConflicts: conflict };
 };
 
+/** Skip a scope's NUL-terminated ULEB128 index list; the tags follow it. */
+const skipAeabiIndices = (
+  section: Buffer,
+  start: number,
+  end: number,
+): number | null => {
+  let cursor = start;
+  for (;;) {
+    const index = readUleb128(section, cursor, end);
+    if (index === null) return null;
+    if (index.value === 0) return index.next;
+    cursor = index.next;
+  }
+};
+
 /**
  * Walk one aeabi subsection's length-delimited scope blocks. File scopes carry
  * the primary declaration and must agree when repeated; Section and Symbol
@@ -164,7 +179,14 @@ const aeabiDeclarations = (
     if (scope.next + 4 > end) return null;
     const blockEnd = cursor + section.readUInt32LE(scope.next);
     if (blockEnd < scope.next + 4 || blockEnd > end) return null;
-    const scanned = scanAeabiScope(section, scope.next + 4, blockEnd);
+    // Section and Symbol scopes open with a NUL-terminated ULEB128
+    // index list naming the regions or symbols their tags apply to.
+    const tagsStart =
+      scope.value === 1
+        ? scope.next + 4
+        : skipAeabiIndices(section, scope.next + 4, blockEnd);
+    if (tagsStart === null) return null;
+    const scanned = scanAeabiScope(section, tagsStart, blockEnd);
     if (scanned === null) return null;
     if (scanned.repeatedDeclarationConflicts || disagrees(scanned))
       conflict = true;
@@ -182,12 +204,14 @@ const aeabiDeclarations = (
 /**
  * Parse an AEABI attributes payload: 'A', then subsections of a 4-byte
  * length, a NUL-terminated owner, and length-delimited scope blocks. Only
- * the public aeabi subsection declares the architecture; other owners and
- * every malformed or conflicting shape read back as no declaration.
+ * the public aeabi subsections declare the architecture and must agree;
+ * other owners and every malformed or conflicting shape read back as no
+ * declaration.
  */
 const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
   if (section.length < 2 || section[0] !== 0x41) return NO_AEABI_DECLARATIONS;
   let cursor = 1;
+  let merged: AeabiDeclarations | null = null;
   while (cursor + 4 <= section.length) {
     const subsectionEnd = cursor + section.readUInt32LE(cursor);
     if (
@@ -200,14 +224,34 @@ const armAttributesDeclarations = (section: Buffer): AeabiDeclarations => {
     if (ownerEnd === null) return NO_AEABI_DECLARATIONS;
     const owner = section.toString("ascii", cursor + 4, ownerEnd - 1);
     if (owner === "aeabi") {
+      // Every public subsection must agree; a later declaration is a
+      // conflict, not an overwrite of the first.
       const declarations = aeabiDeclarations(section, ownerEnd, subsectionEnd);
-      return declarations === null || declarations.declarationConflict
-        ? NO_AEABI_DECLARATIONS
-        : declarations;
+      if (declarations === null || declarations.declarationConflict)
+        return NO_AEABI_DECLARATIONS;
+      if (
+        merged !== null &&
+        ((merged.cpuArch !== null &&
+          declarations.cpuArch !== null &&
+          merged.cpuArch !== declarations.cpuArch) ||
+          (merged.cpuArchProfile !== null &&
+            declarations.cpuArchProfile !== null &&
+            merged.cpuArchProfile !== declarations.cpuArchProfile))
+      )
+        return NO_AEABI_DECLARATIONS;
+      merged =
+        merged === null
+          ? declarations
+          : {
+              cpuArch: declarations.cpuArch ?? merged.cpuArch,
+              cpuArchProfile:
+                declarations.cpuArchProfile ?? merged.cpuArchProfile,
+              declarationConflict: false,
+            };
     }
     cursor = subsectionEnd;
   }
-  return NO_AEABI_DECLARATIONS;
+  return merged ?? NO_AEABI_DECLARATIONS;
 };
 
 /**

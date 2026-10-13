@@ -530,14 +530,20 @@ export const createGhidraProviderClient = (input: {
     ...(target.kind === "executable" && target.architecture === "mips"
       ? (target.mips.limitations ?? [])
       : []),
-    // The pinned-language statements describe the provider pin, which a
-    // caller-selected override replaces; they stay out of those sessions.
+    // The pinned-language statement describes the provider pin, which a
+    // caller-selected override replaces; it stays out of those sessions.
     ...(pinnedLanguage === undefined
       ? []
       : [
           "The ARM lane pins the ARM:LE:32:v7 import language and checks it after import; Ghidra header auto-selection is not used for this admission.",
-          "ARM and Thumb-2 interworking is analyzed per instruction set state; the ELF float ABI declaration does not change the modeled calling convention.",
         ]),
+    ...(target.kind === "executable" &&
+    target.architecture === "arm" &&
+    target.format === "elf"
+      ? [
+          "ARM and Thumb-2 interworking is analyzed per instruction set state; the ELF float ABI declaration does not change the modeled calling convention.",
+        ]
+      : []),
     ...ghidraMipsRelocatableLimitations(target),
   ];
   const providerLimitations =

@@ -48,9 +48,13 @@ change the modeled calling convention.
 ## Verification
 
 `npm run verify:ghidra:arm` builds a source-owned freestanding fixture with
-Clang (`arm-linux-gnueabihf`, ARMv7-A, hard float) containing both an ARM-mode
-probe and a Thumb-2 interworked probe with fixed reviewable encodings, checks
-REA's ELF interpretation against GNU readelf, asserts the pinned language
-after import, decodes both instruction-set states, walks a snapshot round-trip,
-and proves typed refusals for legacy-EABI and BE8 header variants plus CLI/MCP
-parity. No third-party binary is analyzed and no target code is executed.
+Clang (`arm-linux-gnueabihf`, ARMv7-A, hard float, linked with `lld`)
+containing both an ARM-mode probe and a Thumb-2 interworked probe with fixed
+reviewable encodings, checks REA's ELF interpretation against GNU readelf
+(with `llvm-objcopy` or GNU `objcopy` building the attributes-stripped
+refusal variant), asserts the pinned language after import, decodes both
+instruction-set states, walks a snapshot round-trip, and proves typed
+refusals for legacy-EABI, BE8, v8-A, Realtime-profile, and stripped
+attributes variants plus CLI/MCP parity. No third-party binary is analyzed
+and no target code is executed. The build tools can be redirected with
+`REA_ARM_CLANG`, `REA_ARM_READELF`, and `REA_ARM_OBJCOPY`.
