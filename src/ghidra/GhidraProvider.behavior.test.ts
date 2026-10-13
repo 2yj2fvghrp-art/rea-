@@ -1683,7 +1683,10 @@ describe("Ghidra PDB coverage", () => {
 
 const executableTarget = (
   format: "mach-o" | "elf" | "pe",
-  architecture: Extract<BinaryTarget, { format: "pe" }>["architecture"],
+  architecture: Exclude<
+    Extract<BinaryTarget, { format: "pe" }>["architecture"],
+    "arm"
+  >,
 ): BinaryTarget =>
   format === "pe"
     ? peTarget(architecture)
@@ -1697,7 +1700,10 @@ const executableTarget = (
       };
 
 const peTarget = (
-  architecture: Extract<BinaryTarget, { format: "pe" }>["architecture"],
+  architecture: Exclude<
+    Extract<BinaryTarget, { format: "pe" }>["architecture"],
+    "arm"
+  >,
 ): Extract<BinaryTarget, { format: "pe" }> => ({
   path: "/tmp/fixture",
   sha256: "a".repeat(64),
