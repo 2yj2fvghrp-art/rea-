@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { artifactInventorySummaryViewResultSchema } from "../domain/analysisView/analysisView.js";
+import {
+  artifactInventorySummaryViewResultSchema,
+  machoSummaryViewResultSchema,
+  managedArtifactSummaryViewResultSchema,
+} from "../domain/analysisView/analysisView.js";
 import { evidenceBundleSummarySchema } from "../domain/evidenceRecordSummary.js";
 import { BINARY_ARCHITECTURES } from "../domain/binaryTargetTypes.js";
 import {
@@ -364,6 +368,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
       segment_count: z.number().int().min(0),
       procedure_count: z.number().int().min(0),
       string_count: z.number().int().min(0),
+      image_base: z.string().min(1).optional(),
     }),
   ),
   analyze_function: functionDossierOutput,
@@ -377,7 +382,9 @@ export const nativeOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
   observe_native_ui: evidenceResultOf(nativeUiResultSchema),
   capture_native_ui_scenario: evidenceResultOf(nativeUiResultSchema),
   observe_native_calls: evidenceResultOf(nativeCallObservationResultSchema),
-  inspect_macho: evidenceResultOf(inspectMachoSchema),
+  inspect_macho: evidenceResultOf(
+    z.union([inspectMachoSchema, machoSummaryViewResultSchema]),
+  ),
   inspect_signature: evidenceResultOf(inspectSignatureSchema),
   inspect_plist: evidenceResultOf(inspectPlistSchema),
   list_architectures: evidenceResultOf(listArchitecturesSchema),
@@ -401,7 +408,12 @@ export const artifactOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
 
 /** Exact Evidence schema for execution-free managed static analysis. */
 export const managedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
-  inspect_managed_artifact: evidenceResultOf(managedArtifactInspectionSchema),
+  inspect_managed_artifact: evidenceResultOf(
+    z.union([
+      managedArtifactInspectionSchema,
+      managedArtifactSummaryViewResultSchema,
+    ]),
+  ),
   inspect_managed_members: evidenceResultOf(managedMemberInspectionSchema),
   inspect_managed_native_boundaries: evidenceResultOf(
     managedNativeBoundaryInspectionSchema,
@@ -546,6 +558,8 @@ export const sessionOutputSchemas = {
     z.object({
       items: z.array(residualUnknownSchema),
       total: z.number().int().min(0),
+      offset: z.number().int().min(0),
+      next_offset: z.number().int().min(0).nullable(),
     }),
   ),
   record_unknown: lifecycleResultOf(residualUnknownSchema),

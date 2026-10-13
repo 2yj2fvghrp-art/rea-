@@ -17,6 +17,19 @@ const execute = promisify(execFile);
 const logicalPath = (root: string, path: string): string =>
   relative(root, path).split(sep).join("/");
 
+const requireSources = (
+  requests: readonly (readonly [string, string, string | null])[],
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    [...new Set(requests.map(([source]) => source))].map((source) => [
+      source,
+      requests
+        .filter(([path]) => path === source)
+        .map(([, specifier]) => `require(${JSON.stringify(specifier)});`)
+        .join("\n"),
+    ]),
+  );
+
 const expectResolution = (
   graph: JavaScriptApplicationGraph,
   source: string,
@@ -64,6 +77,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["main.cjs", "package/dep/.", "node_modules/package/dep/index.js"],
       ["parent/child/main.cjs", ".", "parent/child/index.js"],
       ["parent/child/main.cjs", "..", "parent/index.js"],
+      ["typed.cts", "./typed.js/.", "typed.js/index.js"],
     ] as const;
     await writeFixtureFiles(root, {
       "package.json": '{"type":"commonjs"}',
@@ -83,15 +97,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       "node_modules/package/dep.js": "module.exports = 'subpath file';",
       "node_modules/package/dep/index.js":
         "module.exports = 'subpath directory';",
-      ...Object.fromEntries(
-        ["main.cjs", "parent/child/main.cjs"].map((source) => [
-          source,
-          requests
-            .filter(([path]) => path === source)
-            .map(([, specifier]) => `require(${JSON.stringify(specifier)});`)
-            .join("\n"),
-        ]),
-      ),
+      "typed.ts": "module.exports = 'emitted source decoy';",
+      "typed.js/index.js": "module.exports = 'typed request directory';",
+      ...requireSources(requests),
     });
     for (const [source, specifier, expected] of requests) {
       const require = createRequire(join(root, source));
@@ -158,15 +166,7 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "module.exports = 'nested decoy';",
       [esmSource]:
         'import "shared"; console.log(JSON.stringify(import.meta.resolve("shared")));',
-      ...Object.fromEntries(
-        [...new Set(requests.map(([source]) => source))].map((source) => [
-          source,
-          requests
-            .filter(([path]) => path === source)
-            .map(([, specifier]) => `require(${JSON.stringify(specifier)});`)
-            .join("\n"),
-        ]),
-      ),
+      ...requireSources(requests),
     });
     for (const [source, specifier, expected] of requests)
       expect(
