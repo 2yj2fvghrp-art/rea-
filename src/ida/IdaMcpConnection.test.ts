@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createIdaMcpConnection,
@@ -191,7 +192,7 @@ describe("retained IDA diagnostic errors", () => {
     if (!(failure instanceof Error))
       throw new Error("Expected a malformed HTTP JSON failure");
     expect(failure.message).toBe(
-      "IDA MCP returned malformed HTTP JSON. Response body: Rejected [redacted transport credential]",
+      "IDA MCP returned malformed HTTP JSON. Response body: \nRejected ␟",
     );
     expect(inspectRetainedError(failure)).not.toContain("[[redacted");
     await connection.close();
@@ -240,3 +241,33 @@ describe("retained IDA diagnostic errors", () => {
     await connection.close();
   });
 });
+
+it.each([
+  {
+    code: SdkErrorCode.ClientHttpNotImplemented,
+    message: "Changed SDK context: fixture-secret",
+  },
+  {
+    code: SdkErrorCode.ClientHttpFailedToOpenStream,
+    message: "Error POSTing to endpoint: fixture-secret",
+  },
+])(
+  "does not infer owned body spans from an unknown SDK shape: $code / $message",
+  async ({ code, message }) => {
+    const connection = failingHttpConnection(
+      "fixture-secret",
+      new SdkHttpError(code, message, { status: 500, text: "fixture-secret" }),
+    );
+    try {
+      const failure = await connection
+        .connect()
+        .catch((cause: unknown) => cause);
+      if (!(failure instanceof Error)) throw new Error("Expected SDK failure");
+      expect(inspectRetainedError(failure)).not.toContain("fixture-secret");
+      expect(failure.message).toContain("[redacted transport credential]");
+      expect(failure.cause).toMatchObject({ code, data: { status: 500 } });
+    } finally {
+      await connection.close();
+    }
+  },
+);

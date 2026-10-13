@@ -1,4 +1,3 @@
-import { MIMEType } from "node:util";
 import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
 import { IdaDiagnosticResourceError } from "./IdaDiagnosticWriter.js";
 import { ChildProcess } from "node:child_process";
@@ -7,6 +6,7 @@ import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import {
   Client,
   ProtocolError,
+  SdkErrorCode,
   SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
@@ -17,6 +17,7 @@ import {
 import { z } from "zod";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
+import { err, ok, type Result } from "../domain/result.js";
 import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 
@@ -123,37 +124,92 @@ export const decodeIdaToolResult = (
 
 // Retain only producer-sanitized JSON diagnostics, never a native parser cause.
 class IdaHttpJsonError extends Error {
-  constructor(readonly text: string) {
-    super("IDA MCP returned malformed HTTP JSON.");
+  constructor(text: string, redactor: IdaDiagnosticRedactor) {
+    super(
+      redactor.text("IDA MCP returned malformed HTTP JSON. Response body: ") +
+        "\n" +
+        text,
+    );
   }
 }
 
 type IdaDiagnosticRedactor = ReturnType<typeof createIdaDiagnosticRedactor>;
 
-const diagnosticMediaType = (source: string): MIMEType | undefined => {
-  const essence =
-    /^[!#$%&'*+.^_`|~\dA-Za-z-]+\/[!#$%&'*+.^_`|~\dA-Za-z-]+/u.exec(source);
-  if (essence === null) return undefined;
-  const parameter =
-    /[ \t]*;[ \t]*([!#$%&'*+.^_`|~\dA-Za-z-]+)=([!#$%&'*+.^_`|~\dA-Za-z-]+|"(?:[\t !#-\[\]-~]|\\[\t -~])*")/uy;
-  const names = new Set<string>();
-  let cursor = essence[0].length;
-  while (!/^[ \t]*$/u.test(source.slice(cursor))) {
-    parameter.lastIndex = cursor;
-    const match = parameter.exec(source);
-    if (match === null) return undefined;
-    const name = match[1]!.toLowerCase();
-    if (names.has(name)) return undefined;
-    names.add(name);
-    cursor = parameter.lastIndex;
-  }
-  try {
-    return new MIMEType(source);
-  } catch {
-    return undefined;
-  }
-};
+type IdaContentType = Readonly<{
+  essence: string;
+  subtype: string;
+  charset: string | undefined;
+  parameters: ReadonlyMap<string, string>;
+}>;
 
+const httpQuotedOctet = (code: number): boolean =>
+  code === 9 ||
+  code === 32 ||
+  (code >= 33 && code <= 126) ||
+  (code >= 128 && code <= 255);
+
+/** Consume one complete RFC 9110 media type; never discard a malformed parameter. */
+const parseIdaContentType = (
+  text: string,
+): Result<IdaContentType, "malformed" | "ambiguous"> => {
+  let cursor = 0;
+  const token = new RegExp("[!#$%&'*+.^_`|~0-9A-Za-z-]+", "y");
+  const readToken = (): string | undefined => {
+    token.lastIndex = cursor;
+    const match = token.exec(text);
+    if (match === null) return undefined;
+    cursor = token.lastIndex;
+    return match[0];
+  };
+  const readOws = (): void => {
+    while (text[cursor] === " " || text[cursor] === "\t") cursor++;
+  };
+  const readQuoted = (): string | undefined => {
+    cursor++;
+    let value = "";
+    while (cursor < text.length) {
+      let code = text.charCodeAt(cursor++);
+      if (code === 34) return value;
+      if (code === 92) {
+        code = text.charCodeAt(cursor++);
+        if (!httpQuotedOctet(code)) return undefined;
+      } else if (!httpQuotedOctet(code)) return undefined;
+      value += String.fromCharCode(code);
+    }
+    return undefined;
+  };
+  readOws();
+  const type = readToken()?.toLowerCase();
+  if (type === undefined || text[cursor++] !== "/") return err("malformed");
+  const subtype = readToken()?.toLowerCase();
+  if (subtype === undefined) return err("malformed");
+  const parameters = new Map<string, string>();
+  let ambiguous = false;
+  while (true) {
+    readOws();
+    if (cursor === text.length) break;
+    if (text[cursor++] !== ";") return err("malformed");
+    readOws();
+    // RFC 9110 parameters admit an empty item after a semicolon.
+    if (cursor === text.length || text[cursor] === ";") continue;
+    const name = readToken()?.toLowerCase();
+    if (name === undefined || text[cursor++] !== "=") return err("malformed");
+    const value = text[cursor] === '"' ? readQuoted() : readToken();
+    if (value === undefined) return err("malformed");
+    // Repetition is ambiguous for this owner, even if both values agree.
+    // Keep parsing so syntax errors anywhere in the field cannot be discarded.
+    if (parameters.has(name)) ambiguous = true;
+    else parameters.set(name, value);
+  }
+  return ambiguous
+    ? err("ambiguous")
+    : ok({
+        essence: type + "/" + subtype,
+        subtype,
+        charset: parameters.get("charset"),
+        parameters,
+      });
+};
 const httpErrorBody = (
   response: Response,
   text: string,
@@ -163,17 +219,20 @@ const httpErrorBody = (
     "IDA MCP response body omitted: unsupported or unknown format or character encoding.";
   const contentType = response.headers.get("content-type");
   if (contentType === null) return omitted;
-  const mediaType = diagnosticMediaType(contentType);
-  if (mediaType === undefined) return omitted;
-  const charset = mediaType.params.get("charset")?.toLowerCase();
+  const mediaType = parseIdaContentType(contentType);
+  if (!mediaType.ok) return omitted;
+  const charset = mediaType.value.charset?.toLowerCase();
   if (
     charset !== undefined &&
     !["utf-8", "utf8", "us-ascii", "ascii"].includes(charset)
   )
     return omitted;
-  if (mediaType.subtype === "json" || mediaType.subtype.endsWith("+json"))
+  if (
+    mediaType.value.subtype === "json" ||
+    mediaType.value.subtype.endsWith("+json")
+  )
     return redactor.json(text);
-  if (mediaType.essence === "text/plain") return redactor.text(text);
+  if (mediaType.value.essence === "text/plain") return redactor.text(text);
   return omitted;
 };
 
@@ -203,6 +262,7 @@ const diagnosticFetch =
           // Parsing failure owns diagnostics even when the HTTP status succeeded.
           throw new IdaHttpJsonError(
             safeBody ?? httpErrorBody(response, text, redactor),
+            redactor,
           );
         }
       },
@@ -234,21 +294,26 @@ export const createIdaMcpConnection = (
     if (cause instanceof IdaDiagnosticResourceError) throw cause;
     let failure: Error;
     if (cause instanceof IdaHttpJsonError)
-      failure = new Error(`${cause.message} Response body: ${cause.text}`, {
-        cause,
-      });
+      failure = new Error(cause.message, { cause });
     else {
       const message =
         cause instanceof Error
           ? cause.message
           : "Unknown IDA MCP transport failure";
       const body = cause instanceof SdkHttpError ? cause.data.text : undefined;
-      // The fetch boundary already sanitized this body using its Content-Type.
-      // Never rescan replacement markers inside that owned body.
-      const safeMessage =
-        typeof body === "string" && body.length > 0 && message.includes(body)
-          ? message.split(body).map(redactor.text).join(body)
-          : redactor.text(message);
+      // Only the pinned SDK POST producer places this owned body at a known
+      // span. Equal substrings elsewhere remain untrusted SDK context.
+      const prefix = "Error POSTing to endpoint: ";
+      const ownedPostBody =
+        cause instanceof SdkHttpError &&
+        cause.code === SdkErrorCode.ClientHttpNotImplemented &&
+        typeof body === "string" &&
+        message === prefix + body;
+      // Normalized wire headers and supported decoded candidates have no LF.
+      // Separating owners prevents their concatenation from spelling a credential.
+      const safeMessage = ownedPostBody
+        ? redactor.text(prefix) + "\n" + body
+        : redactor.text(message);
       failure = new Error(safeMessage, {
         cause: retainedTransportCause(cause, safeMessage),
       });

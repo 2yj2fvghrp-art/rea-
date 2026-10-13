@@ -37,6 +37,7 @@ export class IdaDiagnosticResourceError extends AnalysisResourceConstraintError 
 export const writeIdaDiagnostic = (
   text: string,
   matches: Iterable<IdaDiagnosticMatch>,
+  replacement: string = IDA_REDACTION_MARKER,
 ): string => {
   function* parts(): Generator<string> {
     let cursor = 0;
@@ -58,14 +59,14 @@ export const writeIdaDiagnostic = (
       }
       if (pending !== undefined) {
         yield account(text.slice(cursor, pending.start));
-        yield account(IDA_REDACTION_MARKER);
+        yield account(replacement);
         cursor = pending.end;
       }
       pending = match;
     }
     if (pending !== undefined) {
       yield account(text.slice(cursor, pending.start));
-      yield account(IDA_REDACTION_MARKER);
+      yield account(replacement);
       cursor = pending.end;
     }
     yield account(text.slice(cursor));

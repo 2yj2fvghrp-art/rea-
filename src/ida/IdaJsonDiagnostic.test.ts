@@ -156,7 +156,7 @@ describe("IDA JSON diagnostic source preservation", () => {
   it("replaces adjacent matches once without rescanning the marker", () => {
     expect(
       forCredential("redacted").json(String.raw`"redacted\u0072edacted"`),
-    ).toBe(`"${marker}${marker}"`);
+    ).toBe('"␟␟"');
   });
 
   it("handles unquoted JSON fragments while retaining ordinary text semantics", () => {
@@ -269,5 +269,52 @@ describe("IDA diagnostic output resource bounds", () => {
       IdaDiagnosticResourceError,
     );
     expect(consumed).toBeLessThan(10);
+  });
+});
+
+describe("overlapping raw and decoded JSON credential spans", () => {
+  const overlappingMarker = "␟";
+  const overlappingRedactor = () =>
+    createIdaDiagnosticRedactor({
+      url: "http://127.0.0.1:12345/mcp",
+      headers: { Authorization: "Custom X]", Cookie: "a=]SECRET" },
+      mode: "attached",
+      timeoutMs: 1000,
+    });
+  it.each([
+    String.raw`{"reason":"X]SECRET","n":1.00e+03}`,
+    String.raw`{"reason":"X\u005dSECRET","n":1.00e+03}`,
+  ])("unions decoded overlaps before monotone source mapping: %s", (source) => {
+    expect(overlappingRedactor().json(source)).toBe(
+      '{"reason":"' + overlappingMarker + '","n":1.00e+03}',
+    );
+  });
+  it.each(["X]SECRET", String.raw`X\u005dSECRET`])(
+    "unions raw/recovered overlaps in a malformed document: %s",
+    (source) => {
+      expect(
+        overlappingRedactor().json("Rejected " + source + " at /caller/input"),
+      ).toBe("Rejected " + overlappingMarker + " at /caller/input");
+    },
+  );
+  it("maps a merged overlap containing an escaped surrogate pair", () => {
+    const encoded = Buffer.from("fixture-user:😀X]", "utf8").toString("base64");
+    const redactor = createIdaDiagnosticRedactor({
+      url: "http://127.0.0.1:12345/mcp",
+      headers: { Authorization: "Basic " + encoded, Cookie: "a=]SECRET" },
+      mode: "attached",
+      timeoutMs: 1000,
+    });
+    expect(
+      redactor.json(
+        String.raw`{"reason":"\ud83d\ude00X\u005dSECRET","context":"kept"}`,
+      ),
+    ).toBe('{"reason":"' + overlappingMarker + '","context":"kept"}');
+  });
+  it("unions dense escaped decoded overlaps lazily", () => {
+    const source = '"' + String.raw`\u0041`.repeat(4096) + '"';
+    const result = forCredential("AA").json(source);
+    expect(result.length).toBe(marker.length + 2);
+    expect(result).toBe('"' + marker + '"');
   });
 });

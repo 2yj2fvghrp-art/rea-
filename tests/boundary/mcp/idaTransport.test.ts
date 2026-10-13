@@ -67,6 +67,7 @@ type IdaTransportFixtureOptions = {
     readonly data?: JsonValue;
   };
   readonly toolStatus?: number;
+  readonly toolStatusText?: string;
   readonly toolContentType?: string;
   readonly toolResponseBody?: string | Buffer;
   readonly configurationHeaders?: Readonly<Record<string, string>>;
@@ -79,6 +80,7 @@ const fixture = async ({
   resourceResponseText,
   toolRpcError,
   toolStatus = 200,
+  toolStatusText,
   toolContentType = "application/json",
   toolResponseBody,
   configurationHeaders = { Authorization: "Bearer transport-fixture-secret" },
@@ -165,6 +167,8 @@ const fixture = async ({
                     structuredContent: { result: [], _output_truncated: true },
                   }
                 : { content: [], structuredContent: { observed: true } };
+    if (input.method === "tools/call" && toolStatusText !== undefined)
+      response.statusMessage = toolStatusText;
     response.writeHead(input.method === "tools/call" ? toolStatus : 200, {
       "Content-Type":
         input.method === "tools/call" ? toolContentType : "application/json",
@@ -814,15 +818,9 @@ it("redacts a JSON-RPC error exactly once after successful HTTP delivery", async
   if (!(failure instanceof Error))
     throw new Error("Expected the SDK to reject the JSON-RPC error");
   expect(failure.cause).toBeInstanceOf(ProtocolError);
-  expect(
-    failure.message.endsWith(
-      "[redacted transport credential] at /caller/input",
-    ),
-  ).toBe(true);
-  expect(
-    failure.message.match(/\[redacted transport credential\]/gu),
-  ).toHaveLength(1);
-  expect(failure.message).not.toContain("[[redacted");
+  expect(failure.message.endsWith("␟ at /caller/input")).toBe(true);
+  expect(failure.message.match(/␟/gu)).toHaveLength(1);
+  expect(failure.message).not.toContain("redacted");
 });
 
 it.each([
@@ -1024,4 +1022,232 @@ it("retains successfully parsed analysis values despite unsupported declared cha
   });
   await connection.connect();
   expect(await connection.call("first", {})).toEqual({ observed });
+});
+
+it.each(
+  [200, 500].flatMap((toolStatus) =>
+    [
+      "application/json; charset = utf-16",
+      "application/json; charset\t=utf-16le",
+      "application/json; charset=utf-8; CHARSET=utf-16le",
+      'application/json; note="unterminated; charset=utf-16le',
+    ].map((toolContentType) => ({ toolStatus, toolContentType })),
+  ),
+)(
+  "omits encoded diagnostic bytes when Content-Type is incomplete or ambiguous: HTTP $toolStatus $toolContentType",
+  async ({ toolStatus, toolContentType }) => {
+    const credential = "mime-fixture-secret";
+    const { connection } = await fixture({
+      configurationHeaders: { Cookie: "session=" + credential },
+      toolStatus,
+      toolContentType,
+      toolResponseBody: Buffer.from(
+        '{"reason":"' + credential + '"}',
+        "utf16le",
+      ),
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error))
+      throw new Error("Expected malformed Content-Type failure");
+    expect(failure.message).toMatch(/body.*omitted|omitted.*body/iu);
+    expect(
+      inspect(failure, { depth: null, showHidden: true }).replaceAll(
+        "\\x00",
+        "",
+      ),
+    ).not.toContain(credential);
+  },
+);
+
+it.each([
+  "application/json; charset=",
+  'application/json; charset="utf-8',
+  'application/json; charset="utf-8"junk',
+  "application/json; note=a,b",
+  "application/json; note=a; NOTE=b",
+  "text/plain; charset = utf-16",
+])(
+  "omits error bodies whose whole Content-Type is invalid or conflicting: %s",
+  async (toolContentType) => {
+    const { connection } = await fixture({
+      toolStatus: 500,
+      toolContentType,
+      toolResponseBody: "untrusted /caller/body",
+    });
+    await connection.connect();
+    await expect(connection.call("first", {})).rejects.toThrow(
+      /body.*omitted|omitted.*body/iu,
+    );
+  },
+);
+
+it.each([
+  "application/json",
+  'Application/Problem+JSON\t; Note="a; charset=utf-16"; ChArSeT="UTF-8"',
+  String.raw`application/json; charset="utf\-8"; note="escaped\"quote; slash\\"`,
+  'application/json; note=""; charset=utf-8;',
+  "application/json;; ;charset=utf-8;",
+  "text/plain; note=caller; charset=utf8",
+])(
+  "retains safe producer diagnostics for complete legal Content-Type: %s",
+  async (toolContentType) => {
+    const credential = "mime-fixture-secret";
+    const reason = "Rejected " + credential + " at /caller/input";
+    const { connection } = await fixture({
+      configurationHeaders: { Cookie: "session=" + credential },
+      toolStatus: 500,
+      toolContentType,
+      toolResponseBody: toolContentType.startsWith("text/plain")
+        ? reason
+        : JSON.stringify({ reason }),
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error)) throw new Error("Expected upstream error");
+    expect(failure.message).toContain(
+      "Rejected [redacted transport credential] at /caller/input",
+    );
+    expect(failure.message).not.toContain("omitted");
+    expect(failure.message).not.toContain(credential);
+  },
+);
+
+it.each(["endpoint", ""])(
+  "redacts the complete SDK context when the trusted body repeats its text: %s",
+  async (toolResponseBody) => {
+    const credential = "Error POSTing to endpoint";
+    const { connection } = await fixture({
+      toolStatus: 500,
+      toolContentType: "text/plain",
+      configurationHeaders: { Authorization: "Custom " + credential },
+      toolResponseBody,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error)) throw new Error("Expected HTTP failure");
+    expect(failure.message).toBe(
+      "[redacted transport credential]: \n" + toolResponseBody,
+    );
+    expect(failure.cause).toMatchObject({ data: { status: 500 } });
+    expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+      credential,
+    );
+  },
+);
+
+it("keeps a sanitized plain HTTP body intact without exempting matching status text", async () => {
+  const { connection } = await fixture({
+    toolStatus: 500,
+    toolStatusText: "abcXdef",
+    toolContentType: "text/plain",
+    configurationHeaders: {
+      Authorization: "Custom abcXdef",
+      Cookie: "token=redacted",
+    },
+    toolResponseBody: "X redacted at /caller/input",
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error)) throw new Error("Expected HTTP failure");
+  expect(failure.message).toContain("X ␟ at /caller/input");
+  expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+    "abcXdef",
+  );
+});
+
+it("keeps SDK context and the owned body separate when joining them would form a credential", async () => {
+  const credential = "endpoint: public";
+  const { connection } = await fixture({
+    toolStatus: 500,
+    toolContentType: "text/plain",
+    configurationHeaders: { Authorization: "Custom " + credential },
+    toolResponseBody: "public",
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error)) throw new Error("Expected HTTP failure");
+  expect(failure.message).toContain("endpoint: \npublic");
+  expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+    credential,
+  );
+});
+
+it("keeps owned HTTP JSON failure context separate from the sanitized body", async () => {
+  const credential = "Response body: public";
+  const { connection } = await fixture({
+    configurationHeaders: { Authorization: "Custom " + credential },
+    toolResponseBody: "public",
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error))
+    throw new Error("Expected malformed JSON failure");
+  expect(failure.message).toContain("Response body: \npublic");
+  expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+    credential,
+  );
+});
+
+it.each(["tool rejection", "HTTP rejection", "malformed HTTP JSON"] as const)(
+  "redacts overlapping credential spans through the SDK: %s",
+  async (source) => {
+    const reason = "Rejected X]SECRET at /caller/input";
+    const { connection } = await fixture({
+      configurationHeaders: { Authorization: "Custom X]", Cookie: "a=]SECRET" },
+      ...(source === "tool rejection"
+        ? {
+            toolResult: {
+              isError: true,
+              content: [{ type: "text", text: reason }],
+            },
+          }
+        : {
+            toolStatus: source === "HTTP rejection" ? 500 : 200,
+            toolResponseBody:
+              String.raw`{"reason":"Rejected X]SECRET at /caller/input"` +
+              (source === "HTTP rejection" ? "}" : ",x"),
+          }),
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error))
+      throw new Error("Expected producer failure");
+    expect(failure.message).toContain("at /caller/input");
+    const retained = inspect(failure, { depth: null, showHidden: true });
+    expect(retained).not.toContain("SECRET");
+    expect(retained).not.toContain("X]");
+  },
+);
+
+it("does not introduce a credential at a redaction-marker boundary in a real HTTP failure", async () => {
+  const { connection } = await fixture({
+    toolStatus: 500,
+    toolContentType: "text/plain",
+    configurationHeaders: { Authorization: "Custom X", Cookie: "a=]SECRET" },
+    toolResponseBody: "Rejected XSECRET at /caller/input",
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error)) throw new Error("Expected HTTP failure");
+  expect(failure.message).toContain("SECRET at /caller/input");
+  expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+    "]SECRET",
+  );
 });

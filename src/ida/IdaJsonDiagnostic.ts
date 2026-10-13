@@ -1,6 +1,7 @@
 import { constants } from "node:buffer";
 import { createScanner, type ScanError, type SyntaxKind } from "jsonc-parser";
 import {
+  IDA_REDACTION_MARKER,
   IdaDiagnosticResourceError,
   writeIdaDiagnostic,
   type IdaDiagnosticMatch,
@@ -183,6 +184,7 @@ function* mergeMatches(
 export const redactIdaJsonDiagnostic = (
   text: string,
   matches: Matches,
+  replacement: string = IDA_REDACTION_MARKER,
 ): string => {
   let validDocument = false;
   try {
@@ -197,5 +199,6 @@ export const redactIdaJsonDiagnostic = (
       literalMatches(text, matches, validDocument),
       decodedMatches(text, matches),
     ),
+    replacement,
   );
 };

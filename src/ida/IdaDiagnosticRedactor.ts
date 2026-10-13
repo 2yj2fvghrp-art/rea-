@@ -1,9 +1,11 @@
 import { redactIdaJsonDiagnostic } from "./IdaJsonDiagnostic.js";
 import {
+  IDA_REDACTION_MARKER,
   writeIdaDiagnostic,
   type IdaDiagnosticMatch,
 } from "./IdaDiagnosticWriter.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
+import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 
 // Diagnostic text is bounded before decoding or replacement expansion.
 export const IDA_DIAGNOSTIC_SOURCE_BYTES = 64 * 1024;
@@ -102,6 +104,35 @@ const cookiePayloads = (header: string): readonly string[] =>
     return [value, payload];
   });
 
+/** Choose one marker for this credential owner, including replacement boundaries. */
+const redactionMarker = (secrets: readonly string[]): string => {
+  // Crossing either edge of the default marker requires a square bracket.
+  // A credential wholly inside the marker must also be excluded.
+  if (
+    secrets.every(
+      (secret) =>
+        !secret.includes("[") &&
+        !secret.includes("]") &&
+        !IDA_REDACTION_MARKER.includes(secret),
+    )
+  )
+    return IDA_REDACTION_MARKER;
+  const characters = new Set<string>();
+  for (const secret of secrets)
+    for (const character of secret) characters.add(character);
+  // A graphic scalar absent from every credential cannot contain or connect
+  // a credential, and can be written verbatim inside a JSON string.
+  const graphic = /[\p{L}\p{N}\p{P}\p{S}]/u;
+  for (let point = 0x241f; point <= 0x10ffff; point++) {
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    const character = String.fromCodePoint(point);
+    if (graphic.test(character) && !characters.has(character)) return character;
+  }
+  throw new AnalysisProtocolError(
+    "Configured IDA credentials leave no available diagnostic redaction character.",
+  );
+};
+
 /** Own configured credential interpretation for all IDA error diagnostics. */
 export const createIdaDiagnosticRedactor = (
   config: IdaConfiguration,
@@ -131,22 +162,40 @@ export const createIdaDiagnosticRedactor = (
     const unchanged = boundedDiagnostic((message) => message);
     return { text: unchanged, json: unchanged };
   }
-  const pattern = new RegExp(
-    secrets
-      .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
-      .join("|"),
-    "gu",
-  );
+  const replacement = redactionMarker(secrets);
+  const alternatives = secrets
+    .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+    .join("|");
+  // Look ahead at each source position; a global consuming match loses overlap.
+  // Longest-first alternatives cover every shorter match at the same position.
+  const pattern = new RegExp("(?=(" + alternatives + "))", "gu");
   const matches = function* (value: string): Iterable<IdaDiagnosticMatch> {
-    for (const match of value.matchAll(pattern))
-      yield { start: match.index, end: match.index + match[0].length };
+    let pending: IdaDiagnosticMatch | undefined;
+    for (const match of value.matchAll(pattern)) {
+      const credential = match[1];
+      if (credential === undefined || credential.length === 0)
+        throw new AnalysisProtocolError(
+          "IDA diagnostic matching omitted its credential span.",
+        );
+      const span = { start: match.index, end: match.index + credential.length };
+      if (pending !== undefined && span.start < pending.end) {
+        pending = {
+          start: pending.start,
+          end: Math.max(pending.end, span.end),
+        };
+      } else {
+        if (pending !== undefined) yield pending;
+        pending = span;
+      }
+    }
+    if (pending !== undefined) yield pending;
   };
   return {
     text: boundedDiagnostic((message) =>
-      writeIdaDiagnostic(message, matches(message)),
+      writeIdaDiagnostic(message, matches(message), replacement),
     ),
     json: boundedDiagnostic((message) =>
-      redactIdaJsonDiagnostic(message, matches),
+      redactIdaJsonDiagnostic(message, matches, replacement),
     ),
   };
 };
