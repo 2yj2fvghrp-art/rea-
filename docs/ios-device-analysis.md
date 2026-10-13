@@ -6,6 +6,13 @@ for an analyst-owned, jailbroken device such as a Dopamine 2 rootless/root-hide
 phone. REA never installs a jailbreak, starts a device, or stores SSH
 credentials.
 
+On macOS, SSH-backed operations also require a working Swift compiler and macOS
+SDK for REA's process-ownership helper. Install Apple's Command Line Tools (for
+example, run `xcode-select --install` yourself) or select an existing compatible
+Xcode toolchain, then confirm `xcrun --find swiftc` and `xcrun --show-sdk-path`
+succeed. REA does not install or upgrade Xcode, Swift, or an SDK. A caller-selected
+direct compiler uses `REA_DARWIN_SWIFTC_PATH` and `SDKROOT` as documented in [process ownership setup](process-capture.md); both must be absolute paths.
+
 Set the password in the process environment when password authentication is
 needed:
 
@@ -35,7 +42,11 @@ LLDB and memory-read operations own the complete attach/use/cleanup lifetime.
 New remote helpers are registered before SSH starts and receive a unique run
 token. Devices must support observing that token through `ps eww`; otherwise
 helper launch is refused. Cleanup signals only token-identified children and
-retains unresolved ownership for a later retry. If SSH startup was interrupted,
+retains unresolved ownership for a later retry. Helper logs are written inside
+an exclusively created mode-0700 device directory, removed only after helper
+termination is confirmed. Failed directory cleanup retains the same owner.
+Concurrent callers share provider-owned startup; canceling one caller cancels
+only its wait, while provider shutdown cancels and awaits outstanding startups. If SSH startup was interrupted,
 remote launch completion remains unknown even when a current token scan is empty;
 REA reports incomplete cleanup rather than treating that scan as proof of absence.
 This lane still requires a

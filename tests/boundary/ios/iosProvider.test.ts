@@ -12,6 +12,10 @@ const scenario = vi.hoisted(() => ({
   controller: undefined as AbortController | undefined,
   cleanupCalls: 0,
   cleanupFails: false,
+  forwardGate: undefined as Promise<void> | undefined,
+  forwardStarted: undefined as (() => void) | undefined,
+  spawnSignals: [] as (AbortSignal | undefined)[],
+  directoryCleanupFails: false,
 }));
 
 vi.mock("../../../src/ios/IosConfiguration.js", async (original) => {
@@ -65,6 +69,9 @@ vi.mock("../../../src/process/ProviderProcess.js", async (original) => {
       options: Parameters<typeof actual.spawnOwnedProviderProcess>[0],
     ) => {
       scenario.spawnCount += 1;
+      scenario.spawnSignals.push(options.signal);
+      scenario.forwardStarted?.();
+      await scenario.forwardGate;
       if (scenario.spawnCount === scenario.failForward)
         throw new Error("Forward launch failed");
       const process = Object.assign(new EventEmitter(), {
@@ -124,6 +131,15 @@ vi.mock("../../../src/process/ExecFileOutput.js", async (original) => {
           stdout: "line\n",
           stderr: "",
         });
+      if (script.includes("rmdir ")) {
+        if (scenario.directoryCleanupFails)
+          throw Object.assign(new Error("directory busy"), {
+            code: 1,
+            stdout: "",
+            stderr: "directory busy",
+          });
+        return result();
+      }
       if (script.includes("kill -TERM")) {
         scenario.cleanupCalls += 1;
         return result();
@@ -138,7 +154,7 @@ vi.mock("../../../src/process/ExecFileOutput.js", async (original) => {
           });
         }
         return result(
-          "status\tattached\npath\t/usr/bin/debugserver\npid\t42\n",
+          "directory_created\t1\nstatus\tattached\npath\t/usr/bin/debugserver\npid\t42\n",
         );
       }
       if (script.includes("frida=$(command -v")) {
@@ -150,7 +166,9 @@ vi.mock("../../../src/process/ExecFileOutput.js", async (original) => {
             stderr: "",
           });
         }
-        return result("path\t/usr/bin/frida-server\npid\t43\nowned\t1\n");
+        return result(
+          "directory_created\t1\npath\t/usr/bin/frida-server\npid\t43\nowned\t1\n",
+        );
       }
       if (script.includes("REA_PROBE_"))
         return result(
@@ -184,6 +202,10 @@ beforeEach(() => {
   scenario.controller = undefined;
   scenario.cleanupCalls = 0;
   scenario.cleanupFails = false;
+  scenario.forwardGate = undefined;
+  scenario.forwardStarted = undefined;
+  scenario.spawnSignals = [];
+  scenario.directoryCleanupFails = false;
 });
 
 it("lists USB devices without probing unrelated optional tools", async () => {
@@ -286,7 +308,7 @@ it.each([
       { signal: scenario.controller.signal },
     );
     expect(response.ok).toBe(false);
-    if (!response.ok)
+    if (!response.ok && operation === "run_ios_frida_script")
       expect(response.error).toMatchObject({ cleanupIncomplete: true });
     await expect(provider.close()).rejects.toMatchObject({
       cleanupIncomplete: true,
@@ -398,3 +420,75 @@ it("reports Frida output overflow without claiming a timeout or complete coverag
     await provider.close();
   }
 });
+
+it("lets a caller cancel its wait without canceling another caller's shared forward", async () => {
+  let release!: () => void;
+  scenario.forwardGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const began = new Promise<void>((resolve) => {
+    scenario.forwardStarted = resolve;
+  });
+  const controller = new AbortController();
+  const provider = new IosProvider({ environment: {} });
+  const service = new IosDeviceAnalysisService(provider);
+  const input = { device_id: "device-udid", command: "id" };
+  try {
+    const first = service.execute("run_ios_command", input, {
+      signal: controller.signal,
+    });
+    await began;
+    const second = service.execute("run_ios_command", input);
+    controller.abort();
+    const canceled = await first;
+    expect(canceled.ok).toBe(false);
+    expect(scenario.spawnSignals[0]?.aborted).toBe(false);
+    release();
+    expect((await second).ok).toBe(true);
+    expect(scenario.spawnCount).toBe(1);
+  } finally {
+    release();
+    await provider.close();
+  }
+});
+
+it.each([
+  {
+    operation: "attach_ios_debugserver" as const,
+    input: { device_id: "device-udid", pid: 123 },
+  },
+  {
+    operation: "run_ios_frida_script" as const,
+    input: { device_id: "device-udid", pid: 123, script: "console.log(1)" },
+  },
+])(
+  "owns private remote logs and retains failed directory cleanup for $operation",
+  async ({ operation, input }) => {
+    const provider = new IosProvider({ environment: {} });
+    const response = await new IosDeviceAnalysisService(provider).execute(
+      operation,
+      input,
+    );
+    expect(response.ok).toBe(true);
+    const launch = scenario.calls
+      .map((call) => call.args.at(-1) ?? "")
+      .find((script) => script.includes("nohup"))!;
+    expect(launch).toContain("umask 077; rea_dir=");
+    expect(launch).toContain('mkdir "$rea_dir" || {');
+    expect(launch).toContain("exit 73; }");
+    expect(launch).toContain('log="$rea_dir/helper.log"');
+    expect(launch).not.toContain("/tmp/rea-debugserver-");
+    expect(launch).not.toContain("/tmp/rea-frida-server-");
+    scenario.directoryCleanupFails = true;
+    await expect(provider.close()).rejects.toMatchObject({
+      cleanupIncomplete: true,
+    });
+    scenario.directoryCleanupFails = false;
+    await provider.close();
+    expect(
+      scenario.calls.some((call) =>
+        call.args.at(-1)?.includes('rmdir "$rea_dir"'),
+      ),
+    ).toBe(true);
+  },
+);
