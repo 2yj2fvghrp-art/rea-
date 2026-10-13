@@ -101,6 +101,8 @@ interface UpstreamSession {
   readonly owned: boolean | null;
   /** Last inventoried input binding; null until upstream reports it. */
   readonly input_path: string | null;
+  /** Last inventoried activity; null before upstream reports it. */
+  readonly is_active: boolean | null;
 }
 
 /** A failed cleanup retains its private workspace and reports the remaining resource. */
@@ -125,15 +127,16 @@ class IdaCleanupError extends ProviderAdapterError {
               upstream_sessions: {
                 state: "unverified",
                 sessions: sessions.map(
-                  ({ session_id, backend, owned, input_path }) => ({
+                  ({ session_id, backend, owned, input_path, is_active }) => ({
                     session_id,
                     backend,
                     owned,
                     input_path,
+                    is_active,
                   }),
                 ),
                 reason:
-                  "Release of upstream sessions matching the requested session ID or private input was not confirmed; input_path preserves the last observed binding and is null when no inventory has reported it. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; owned is null when no inventory has reported ownership; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
+                  "Release of upstream sessions matching the requested session ID or private input was not confirmed; input_path preserves the last observed binding and is null when no inventory has reported it. is_active preserves registry activity and is null when unknown; it does not establish process liveness. A worker outlives its supervisor and may keep running until it finishes and reaches its idle timeout; exiting REA does not stop it. A gui session belongs to an IDA instance REA does not control. An empty session_id means upstream reported none; owned is null when no inventory has reported ownership; an empty list means the requested worker's close was confirmed but no inventory has identified any remaining session.",
               },
             }),
       },
@@ -637,7 +640,12 @@ export class IdaSessionClient implements AnalysisClient {
    */
   #unreleasedSessions(): readonly UpstreamSession[] | undefined {
     if (this.#blockingSessions !== undefined) return this.#blockingSessions;
-    if (!this.#openAttempted || this.#workspace === undefined) return undefined;
+    if (
+      !this.#openAttempted ||
+      this.#workspace === undefined ||
+      this.#openRejected
+    )
+      return undefined;
     return this.#databaseCloseCompleted
       ? []
       : [
@@ -646,6 +654,7 @@ export class IdaSessionClient implements AnalysisClient {
             backend: "worker",
             owned: null,
             input_path: null,
+            is_active: null,
           },
         ];
   }
@@ -665,12 +674,15 @@ export class IdaSessionClient implements AnalysisClient {
   ): boolean {
     this.#blockingSessions =
       entries.length > 0
-        ? entries.map(({ session_id, backend, owned, input_path }) => ({
-            session_id,
-            backend,
-            owned,
-            input_path,
-          }))
+        ? entries.map(
+            ({ session_id, backend, owned, input_path, is_active }) => ({
+              session_id,
+              backend,
+              owned,
+              input_path,
+              is_active,
+            }),
+          )
         : undefined;
     return entries.length > 0;
   }
@@ -715,16 +727,18 @@ export class IdaSessionClient implements AnalysisClient {
               entry.session_id === workspace.sessionId &&
               sameIdaHostPath(entry.input_path, workspace.inputPath),
           )?.session_id;
-          // Every same-input session, including the requested worker, stays
-          // reported until a later successful inventory confirms release.
+          // Same-input peers and requested-ID conflicts remain evidence until
+          // a later successful inventory confirms their release.
           const blocked = this.#recordBlockingSessions(
-            inventory.sessions.filter((entry) =>
-              sameIdaHostPath(entry.input_path, workspace.inputPath),
+            inventory.sessions.filter(
+              (entry) =>
+                entry.session_id === workspace.sessionId ||
+                sameIdaHostPath(entry.input_path, workspace.inputPath),
             ),
           );
           if (this.#database === undefined && blocked)
             throw new AnalysisProtocolError(
-              "An unowned worker still uses the private workspace; it was retained.",
+              "A registered session still matches the requested ID or private input without a verified private worker binding; the workspace was retained.",
             );
           if (
             this.#database === undefined &&
