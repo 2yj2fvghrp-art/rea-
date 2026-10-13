@@ -5,12 +5,42 @@ import {
   projectHierarchy,
   uniqueControl,
   XML_BYTES,
+  actionPoints,
 } from "./hierarchy.mjs";
 
 const node = (attributes = "", children = "") =>
   `<node package="com.rea.ui.probe" content-desc="target" enabled="true" bounds="[0,10][100,40]" ${attributes}>${children}</node>`;
 const parse = (body) =>
   projectHierarchy(`<hierarchy rotation="0">${body}</hierarchy>`);
+
+test("action points respect the live display and original control bounds", () => {
+  const display = { width: 1080, height: 2400 };
+  for (const bounds of [
+    "[-100,10][-20,40]",
+    "[1080,0][1120,40]",
+    "[0,2400][40,2440]",
+  ]) {
+    const control = parse(`<node bounds="${bounds}"/>`).value.nodes[0];
+    assert.equal(actionPoints(control, display, "tap").ok, false);
+    assert.equal(actionPoints(control, display, "swipe").ok, false);
+    assert.equal(control.attributes.bounds, bounds);
+  }
+  const control = parse(node()).value.nodes[0];
+  assert.deepEqual(actionPoints(control, display, "tap").value, [
+    { x: 50, y: 25 },
+  ]);
+  // A 30px control cannot support the former fixed 80px offsets.
+  assert.deepEqual(actionPoints(control, display, "swipe").value, [
+    { x: 50, y: 32 },
+    { x: 50, y: 17 },
+  ]);
+  assert.equal(
+    actionPoints(control, { width: null, height: 2400 }, "tap").ok,
+    false,
+  );
+  const tiny = parse('<node bounds="[0,0][10,1]"/>').value.nodes[0];
+  assert.equal(actionPoints(tiny, display, "swipe").ok, false);
+});
 
 test("accepts the real UIAutomator stream footer and refuses truncated output", () => {
   assert.equal(

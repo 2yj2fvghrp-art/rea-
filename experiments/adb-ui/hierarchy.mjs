@@ -130,3 +130,50 @@ export function uniqueControl(snapshot, packageName, description) {
     return { ok: false, error: { kind: "unusable-control", id: node.id } };
   return { ok: true, value: node };
 }
+
+/** Derive points without changing source bounds; both rectangles must contain them. */
+export function actionPoints(control, display, action) {
+  const invalid = (reason) => ({
+    ok: false,
+    error: { kind: "invalid-action-points", reason },
+  });
+  if (
+    ![display?.width, display?.height].every(
+      (value) => Number.isInteger(value) && value > 0 && value <= 2147483647,
+    )
+  )
+    return invalid("Display dimensions are unresolved");
+  const bounds = control.bounds;
+  if (!bounds || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+    return invalid("Control bounds are unusable");
+  const x = Math.floor((bounds.left + bounds.right) / 2);
+  let points;
+  if (action === "tap")
+    points = [{ x, y: Math.floor((bounds.top + bounds.bottom) / 2) }];
+  else if (action === "swipe") {
+    const inset = Math.floor((bounds.bottom - bounds.top) / 4);
+    points = [
+      { x, y: bounds.bottom - 1 - inset },
+      { x, y: bounds.top + inset },
+    ];
+    if (points[0].y <= points[1].y)
+      return invalid("Control is too short for an upward swipe");
+  } else return invalid("Unsupported action");
+  if (
+    points.some(
+      ({ x, y }) =>
+        !Number.isInteger(x) ||
+        !Number.isInteger(y) ||
+        x < 0 ||
+        y < 0 ||
+        x >= display.width ||
+        y >= display.height ||
+        x < bounds.left ||
+        x >= bounds.right ||
+        y < bounds.top ||
+        y >= bounds.bottom,
+    )
+  )
+    return invalid("Action point is outside the selected control or display");
+  return { ok: true, value: points };
+}
