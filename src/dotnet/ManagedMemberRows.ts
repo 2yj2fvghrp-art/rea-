@@ -269,16 +269,31 @@ export const parseMethods = ({
   readonly methods: readonly ManagedMethod[];
   readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
+  /** Rows that produced no method but may belong to a selected type. */
+  readonly unscannedRows: number;
 } => {
   const methods: ManagedMethod[] = [];
   const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
+  let unscannedRows = 0;
   const table = layout.table(6);
   const ownerRow = readManagedValue(
     () => memberDeclaringTypeRowLookup(bytes, layout, 6),
     issues,
   );
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
+    // The owner is read first: a failed row hides a selected body only when
+    // its owner is selected or unknown.
+    const owner =
+      ownerRow === undefined
+        ? undefined
+        : readManagedValue(() => ownerRow(row), issues);
+    const declared = owner === undefined ? undefined : ranges[owner - 1];
+    const mayBeSelected =
+      selected === null ||
+      owner === undefined ||
+      isSelected(selected, declared);
+    const produced = methods.length;
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 6, row);
       const rva = cursor.readUInt32();
@@ -290,11 +305,6 @@ export const parseMethods = ({
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
-      const owner =
-        ownerRow === undefined
-          ? 0
-          : (readManagedValue(() => ownerRow(row), issues) ?? 0);
-      const declared = ranges[owner - 1];
       const token = metadataToken(6, row);
       const member = {
         token,
@@ -335,8 +345,9 @@ export const parseMethods = ({
         ),
       });
     }, issues);
+    if (mayBeSelected && methods.length === produced) unscannedRows += 1;
   }
-  return { methods, core, issues };
+  return { methods, core, issues, unscannedRows };
 };
 
 /**

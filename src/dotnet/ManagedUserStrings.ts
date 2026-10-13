@@ -47,13 +47,13 @@ export const parseUserStrings = (
   layout: ManagedMetadataLayout,
   parsed: {
     readonly methods: readonly ManagedMethod[];
-    /** Method-row failures; such a row may be an in-scope, unscanned body. */
-    readonly issues: readonly ManagedParseIssue[];
+    /** Rows that produced no method but may belong to a selected type. */
+    readonly unscannedRows: number;
   },
 ): UserStringInventory => {
   const { methods } = parsed;
   const budget = managedDecodeBudget(layout);
-  const scanned = parsed.issues.length === 0 && methods.every(bodyFullyDecoded);
+  const scanned = parsed.unscannedRows === 0 && methods.every(bodyFullyDecoded);
   const userStrings: ManagedUserString[] = [];
   const issues: ManagedParseIssue[] = [];
   const tokens = new Set<string>();

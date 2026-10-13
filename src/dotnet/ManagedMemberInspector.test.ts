@@ -5,7 +5,12 @@ import {
   ManagedDecodeBudget,
   managedDecodeBudget,
 } from "./ManagedDecodeBudget.js";
-import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
+import {
+  metadataRowOffset,
+  readManagedMetadataLayout,
+  type ManagedMetadataLayout,
+} from "./ManagedMetadataLayout.js";
+import { readManagedPeLayout } from "./ManagedPeReader.js";
 import { edges } from "./ManagedMemberRows.js";
 import { parseUserStrings } from "./ManagedUserStrings.js";
 import { signature, type ManagedMethod } from "./ManagedMemberInspectorCore.js";
@@ -708,7 +713,7 @@ describe("managed user strings", () => {
     expect(() =>
       parseUserStrings(Buffer.alloc(0), layout, {
         methods: [method],
-        issues: [],
+        unscannedRows: 0,
       }),
     ).toThrow(ManagedReaderFailure);
   });
@@ -889,7 +894,8 @@ describe("managed user string issues", () => {
     } as unknown as ManagedMethod;
 
     expect(
-      parseUserStrings(heap, layout, { methods: [method], issues: [] }).issues,
+      parseUserStrings(heap, layout, { methods: [method], unscannedRows: 0 })
+        .issues,
     ).toHaveLength(64);
   });
 
@@ -950,22 +956,63 @@ describe("managed user string scan completeness", () => {
     });
   });
 
+  it.each([
+    ["outside", 1, "complete"],
+    ["inside", 2, "partial"],
+  ])(
+    "judges an unreadable method row %s the selection by its owner",
+    (_where, badRow, state) => {
+      const bytes = buildManagedPeFixture({
+        additionalEmptyTypes: 1,
+        methodRowCount: 2,
+      });
+      const cli = readManagedPeLayout(bytes);
+      if (cli.cli === null) throw new Error("fixture has no CLI header");
+      const { rva, size } = cli.cli.metadata;
+      const layout = readManagedMetadataLayout(
+        bytes,
+        cli.rvaToOffset(rva, size, "cli.metadata"),
+        size,
+      );
+      const write = (offset: number, width: number, value: number) =>
+        width === 2
+          ? bytes.writeUInt16LE(value, offset)
+          : bytes.writeUInt32LE(value, offset);
+      // Fixture.Program's methods now start at row 2, so Fixture.Empty0 owns row 1.
+      write(
+        metadataRowOffset(layout, 2, 2) +
+          4 +
+          2 * layout.stringIndexSize +
+          layout.codedIndexSize("TypeDefOrRef") +
+          layout.tableIndexSize(4),
+        layout.tableIndexSize(6),
+        2,
+      );
+      // An out-of-range name index makes that method row unreadable.
+      write(
+        metadataRowOffset(layout, 6, badRow) + 8,
+        layout.stringIndexSize,
+        0xffff,
+      );
+      const result = inspectManagedMembersBytes(
+        bytes,
+        managedPeFixtureTarget(bytes),
+        { typeNames: ["Fixture.Program"] },
+      );
+
+      expect(result.user_strings?.state).toBe(state);
+    },
+  );
+
   it("marks user strings partial when an inspected method row was not read", () => {
     const layout = {
       userStrings: { name: "#US", offset: 0, size: 1 },
     } as unknown as ManagedMetadataLayout;
     // The omitted row's body, and any ldstr in it, was never scanned.
-    const omitted = {
-      code: "invalid-heap-index",
-      scope: "metadata.MethodDef:0x06000002",
-      offset: null,
-      detail: "String heap index is outside #Strings",
-    } as const;
-
     expect(
       parseUserStrings(Buffer.from([0]), layout, {
         methods: [],
-        issues: [omitted],
+        unscannedRows: 1,
       }),
     ).toEqual({ state: "partial", literals: [], issues: [] });
   });
