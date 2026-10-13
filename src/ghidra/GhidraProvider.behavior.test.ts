@@ -214,7 +214,7 @@ describe("Ghidra raw-binary profile", () => {
       compiler_spec_id: "default",
       entry_point: "0x8001",
       language_selection: "caller-supplied-v1",
-      load_image_evidence: "independent-raw-mapping-context-v3",
+      load_image_evidence: "independent-raw-mapping-context-v4",
     });
     expect(
       ghidra

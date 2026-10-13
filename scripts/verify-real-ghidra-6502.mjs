@@ -92,7 +92,11 @@ try {
   assert.equal(opened.entry_point, "0x8001");
   const status = await call("binary_session");
   const image = evidence(await call("inspect_native_load_image"), sha256);
-  assert.equal(image.normalized_result.status, "verified");
+  assert.equal(
+    image.normalized_result.status,
+    "verified",
+    JSON.stringify(image.normalized_result),
+  );
   assert.equal(image.normalized_result.architecture, "6502");
   assert.equal(image.normalized_result.base_address, "0x8001");
   assert.equal(image.normalized_result.language_id, "6502:LE:16:default");
@@ -211,7 +215,11 @@ try {
       await call("inspect_native_load_image"),
       lowSha256,
     );
-    assert.equal(lowImage.normalized_result.status, "verified");
+    assert.equal(
+      lowImage.normalized_result.status,
+      "verified",
+      JSON.stringify(lowImage.normalized_result),
+    );
     assert.equal(lowImage.normalized_result.base_address, lowEntry);
     assert.equal(lowImage.normalized_result.file_bytes, lowBytes.length);
     const fileMappings =

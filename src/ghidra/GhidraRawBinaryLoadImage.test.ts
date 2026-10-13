@@ -9,23 +9,65 @@ describe("raw-binary Ghidra language binding", () => {
     expect(ghidraRawBinaryLanguage("x86")).toEqual({
       languageId: "x86:LE:32:default",
       compilerSpecId: "gcc",
+      defaultAddressSpace: "ram",
     });
     expect(ghidraRawBinaryLanguage("x86_64")).toEqual({
       languageId: "x86:LE:64:default",
       compilerSpecId: "gcc",
+      defaultAddressSpace: "ram",
     });
     expect(ghidraRawBinaryLanguage("arm")).toEqual({
       languageId: "ARM:LE:32:v7",
       compilerSpecId: "default",
+      defaultAddressSpace: "ram",
     });
     expect(ghidraRawBinaryLanguage("arm64")).toEqual({
       languageId: "AARCH64:LE:64:v8A",
       compilerSpecId: "default",
+      defaultAddressSpace: "ram",
     });
   });
 });
 
 describe("raw-binary mapped-block state", () => {
+  it.each(["RAM", "ram"])(
+    "requires the bound 6502 address space for %s observations",
+    (space) => {
+      const f = fixtureRawBinaryLoadImage();
+      const target = {
+        ...f.target,
+        architecture: "6502" as const,
+        availableArchitectures: ["6502" as const],
+        entryPoint: "0x8001",
+        entryPointSource: "0x8001",
+      };
+      f.observation.language_id = "6502:LE:16:default";
+      f.observation.default_address_space = space;
+      f.observation.entry_points = [target.entryPoint];
+      const mapping = f.observation.mappings[0];
+      if (mapping === undefined)
+        throw new Error("Missing source mapping fixture");
+      mapping.start = target.entryPoint;
+      mapping.end = "0x8004";
+      mapping.address_space = space;
+      expect(
+        attestGhidraRawBinaryLoadImage(f.snapshot, target, f.observation),
+      ).toMatchObject({
+        ok: true,
+        value: {
+          status: space === "RAM" ? "verified" : "mismatch",
+          checks: expect.arrayContaining([
+            expect.objectContaining({
+              name: "default_address_space",
+              expected: "RAM",
+              observed: space,
+              matched: space === "RAM",
+            }),
+          ]),
+        },
+      });
+    },
+  );
   it.each([
     ["initialized", false],
     ["loaded", false],

@@ -374,7 +374,11 @@ export const attestGhidraRawBinaryLoadImage = (
   );
   // BinaryLoader's block base is independent of the Program image base.
   check("image_base", "0x0", observations.image_base);
-  check("default_address_space", "ram", observations.default_address_space);
+  check(
+    "default_address_space",
+    language.defaultAddressSpace,
+    observations.default_address_space,
+  );
   check("source_file_count", 1, observations.source_files.length);
   check("source_file_size", snapshot.bytes, source?.size ?? null);
   check("original_file_sha256", target.sha256, source?.original_sha256 ?? null);
