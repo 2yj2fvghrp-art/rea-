@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { supportedClients } from "./SupportedClients.js";
 
-const HOME = "/home/test";
+const HOME = resolve("/home/test");
 
 const dshClient = (env: Readonly<NodeJS.ProcessEnv>) =>
   supportedClients(HOME, "linux", env).find(({ name }) => name === "dsh");
 
 describe("supportedClients: dsh empty-overwrite handling", () => {
   it("places the dsh patch under $DSH_HOME when set to a real directory", () => {
-    const explicit = "/opt/profile";
+    const explicit = resolve("/opt/profile");
     const result = dshClient({ DSH_HOME: explicit });
 
-    expect(result?.configPath).toBe(join("/opt/profile", "cordis.patch.yml"));
-    expect(result?.markerPath).toBe("/opt/profile");
+    expect(result?.configPath).toBe(join(explicit, "cordis.patch.yml"));
+    expect(result?.markerPath).toBe(explicit);
   });
 
   it("falls back to ~/.dsh when DSH_HOME is unset", () => {
@@ -39,11 +39,12 @@ describe("supportedClients: dsh empty-overwrite handling", () => {
     expect(result?.markerPath).toBe(join(HOME, ".dsh"));
   });
 
-  it("trims a whitespace-padded DSH_HOME before using it", () => {
-    const explicit = "/opt/profile";
+  it("preserves whitespace in a nonblank DSH_HOME while resolving it", () => {
+    const explicit = resolve("/opt/profile");
     const result = dshClient({ DSH_HOME: `  ${explicit}  ` });
 
-    expect(result?.configPath).toBe(join(explicit, "cordis.patch.yml"));
-    expect(result?.markerPath).toBe(explicit);
+    const selected = resolve(`  ${explicit}  `);
+    expect(result?.configPath).toBe(join(selected, "cordis.patch.yml"));
+    expect(result?.markerPath).toBe(selected);
   });
 });
