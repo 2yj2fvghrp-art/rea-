@@ -390,7 +390,8 @@ type ProcessCapture = Omit<
   | "arguments"
 >;
 
-const failureCapture = (
+/** Bound one command's output for failure diagnostics, keeping observed byte totals. */
+export const failureCapture = (
   capture: ProcessCapture,
   truncated: boolean,
 ): NativeCommandFailureCapture => {
