@@ -245,6 +245,31 @@ describe("managed CIL decoding", () => {
   });
 });
 
+const exactWidthOperandCases = [
+  ["wide variable", [0xfe, 0x09], [0x01, 0x00], "variable", "1"],
+  ["int32 constant", [0x20], [0x01, 0x00, 0x00, 0x00], "constant", "1"],
+  [
+    "int64 constant",
+    [0x21],
+    [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    "constant",
+    "1",
+  ],
+  ["float32 constant", [0x22], [0x00, 0x00, 0x00, 0x80], "constant", "-0"],
+  [
+    "float64 constant",
+    [0x23],
+    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+    "constant",
+    "-0",
+  ],
+  ["long branch", [0x38], [0x00, 0x00, 0x00, 0x00], "branch", "5"],
+  ["method token", [0x28], [0x01, 0x00, 0x00, 0x00], "method", "0x00000001"],
+  ["type token", [0x71], [0x02, 0x00, 0x00, 0x00], "type", "0x00000002"],
+  ["string token", [0x72], [0x03, 0x00, 0x00, 0x00], "string", "0x00000003"],
+  ["field token", [0x7b], [0x04, 0x00, 0x00, 0x00], "field", "0x00000004"],
+] as const;
+
 describe("managed operand extent diagnostics", () => {
   it.each([
     [[0x20], 0, "Instruction ldc.i4 at IL offset 0 leaves method body"],
@@ -338,30 +363,7 @@ describe("managed operand extent diagnostics", () => {
   // into the leaves-method-body diagnostic and these value assertions catch it.
   // The -0 constants keep the floating-point sign fix covered through this same
   // path.
-  it.each([
-    ["wide variable", [0xfe, 0x09], [0x01, 0x00], "variable", "1"],
-    ["int32 constant", [0x20], [0x01, 0x00, 0x00, 0x00], "constant", "1"],
-    [
-      "int64 constant",
-      [0x21],
-      [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-      "constant",
-      "1",
-    ],
-    ["float32 constant", [0x22], [0x00, 0x00, 0x00, 0x80], "constant", "-0"],
-    [
-      "float64 constant",
-      [0x23],
-      [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
-      "constant",
-      "-0",
-    ],
-    ["long branch", [0x38], [0x00, 0x00, 0x00, 0x00], "branch", "5"],
-    ["method token", [0x28], [0x01, 0x00, 0x00, 0x00], "method", "0x00000001"],
-    ["type token", [0x71], [0x02, 0x00, 0x00, 0x00], "type", "0x00000002"],
-    ["string token", [0x72], [0x03, 0x00, 0x00, 0x00], "string", "0x00000003"],
-    ["field token", [0x7b], [0x04, 0x00, 0x00, 0x00], "field", "0x00000004"],
-  ] as const)(
+  it.each(exactWidthOperandCases)(
     "decodes a %s operand at exactly its declared width",
     (_label, opcode, operand, operandKind, value) => {
       expect(fatBody(Buffer.from([...opcode, ...operand]))).toMatchObject({
