@@ -4,7 +4,10 @@ import { join, posix } from "node:path";
 export async function portableDependencies(root, lock, platform, architecture) {
   const platformMismatch = (entry) =>
     !matchesPlatform(entry.os, platform) ||
-    !matchesPlatform(entry.cpu, architecture);
+    !matchesPlatform(entry.cpu, architecture) ||
+    // Windows has no libc. npm rejects supplied libc selectors there, even
+    // negative-only, `any`, or empty lists that would match another selector.
+    (platform === "win32" && Boolean(entry.libc));
   const present = new Set();
   for (const [path, entry] of Object.entries(lock.packages)) {
     if (!path || entry.dev) continue;

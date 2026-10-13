@@ -6,6 +6,7 @@ export interface PortableLockEntry {
   optionalDependencies?: Record<string, string>;
   os?: string | string[];
   cpu?: string | string[];
+  libc?: string | string[];
 }
 export function portableDependencies(
   root: string,

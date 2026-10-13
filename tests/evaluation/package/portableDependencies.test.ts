@@ -146,6 +146,12 @@ it.each([
   { os: "!darwin", cpu: "x64", applies: true },
   { os: "!win32", applies: false },
   { os: ["any", "linux"], applies: false },
+  { libc: ["glibc"], applies: false },
+  { libc: "musl", applies: false },
+  { libc: ["!musl"], applies: false },
+  { libc: ["any"], applies: false },
+  { libc: [], applies: false },
+  { libc: "", applies: true },
 ])(
   "checks missing native packages using npm selectors: %j",
   async ({ applies, ...selectors }) => {
