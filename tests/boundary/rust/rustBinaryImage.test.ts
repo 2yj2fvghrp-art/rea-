@@ -6,7 +6,10 @@ import {
   rustDependencyPayload,
 } from "../../fixtures/rust/image.js";
 import { readRustBinaryImage } from "../../../src/rust/RustBinaryImage.js";
-import { RustAuditableFormatFailure } from "../../../src/rust/RustAuditableReader.js";
+import {
+  RustAuditableFormatFailure,
+  RustAuditableResourceFailure,
+} from "../../../src/rust/RustAuditableReader.js";
 
 const packages = [
   {
@@ -109,4 +112,20 @@ it("does not read SHT_NOBITS dependency sections as stored bytes", () => {
     return;
   }
   expect(metadata).toBeNull();
+});
+
+it("refuses read-only data with more distinct rustc paths than it retains", () => {
+  const bytes = createRustImage({ format: "elf", omitSection: true });
+  // Without .dep-v0 the read-only section header is the second one, at 384.
+  // Section names end before byte 800, so the hash block starts there.
+  bytes.writeBigUInt64LE(800n, 384 + 24);
+  bytes.writeBigUInt64LE(3296n, 384 + 32);
+  bytes.fill(0, 800);
+  for (let index = 0; index < 65; index += 1) {
+    const hash = index.toString(16).padStart(40, "0");
+    bytes.write(`/rustc/${hash}/`, 800 + index * 48, "latin1");
+  }
+  expect(() => readRustBinaryImage(bytes)).toThrow(
+    RustAuditableResourceFailure,
+  );
 });

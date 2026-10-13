@@ -16,6 +16,8 @@ import {
 
 const RUSTC_PREFIX = Buffer.from("/rustc/");
 const HASH_BYTES = 40;
+/** One toolchain normally leaves one hash; a small cap bounds retained output. */
+const MAX_RUSTC_HASHES = 64;
 
 /** Container identity plus optional dependency metadata and inferred rustc commits. */
 export interface RustBinaryImage {
@@ -107,20 +109,40 @@ const rustcCommit = (
 ): RustBinaryImage["rustc_commit"] => {
   const hashes: { hash: string; file_offset: number }[] = [];
   const seen = new Set<string>();
-  for (const section of sections) {
-    if (!section.read_only) continue;
-    collectHashes(bytes, section, seen, hashes);
-  }
+  // Overlapping declared sections are scanned once, so total work stays
+  // bounded by the file size however many sections reference a range.
+  for (const range of mergedReadOnlyRanges(sections))
+    collectHashes(bytes, range, seen, hashes);
   return hashes.length === 0 ? null : { evidence_kind: "inferred", hashes };
+};
+
+const mergedReadOnlyRanges = (
+  sections: readonly GoImageSection[],
+): { readonly offset: number; readonly end: number }[] => {
+  const ranges = sections
+    .filter((section) => section.read_only && section.size > 0)
+    .map((section) => ({
+      offset: section.offset,
+      end: section.offset + section.size,
+    }))
+    .sort((left, right) => left.offset - right.offset);
+  const merged: { offset: number; end: number }[] = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last !== undefined && range.offset <= last.end)
+      last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
 };
 
 const collectHashes = (
   bytes: Buffer,
-  section: GoImageSection,
+  range: { readonly offset: number; readonly end: number },
   seen: Set<string>,
   hashes: { hash: string; file_offset: number }[],
 ): void => {
-  const region = bytes.subarray(section.offset, section.offset + section.size);
+  const region = bytes.subarray(range.offset, range.end);
   let cursor = 0;
   while (cursor < region.length) {
     const at = region.indexOf(RUSTC_PREFIX, cursor);
@@ -128,8 +150,13 @@ const collectHashes = (
     const start = at + RUSTC_PREFIX.length;
     const hash = hashAt(region, start);
     if (hash !== null && !seen.has(hash)) {
+      if (seen.size >= MAX_RUSTC_HASHES)
+        throw new RustAuditableResourceFailure(
+          MAX_RUSTC_HASHES,
+          `Read-only data contains more than ${MAX_RUSTC_HASHES} distinct rustc commit paths.`,
+        );
       seen.add(hash);
-      hashes.push({ hash, file_offset: section.offset + at });
+      hashes.push({ hash, file_offset: range.offset + at });
     }
     cursor = at + 1;
   }
