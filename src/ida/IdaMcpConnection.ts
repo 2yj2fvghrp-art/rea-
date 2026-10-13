@@ -65,10 +65,12 @@ export const decodeIdaToolResult = (
   const blocks = result.content.flatMap((block) =>
     block.type === "text" && block.text !== undefined ? [block.text] : [],
   );
-  if (result.isError === true)
-    throw new AnalysisProtocolError(
-      `IDA MCP tool failed: ${blocks.join("\n")}`,
-    );
+  if (result.isError === true) {
+    const reason = blocks.join("\n");
+    throw new AnalysisProtocolError(`IDA MCP tool failed: ${reason}`, {
+      diagnostics: { reason },
+    });
+  }
   if (result._meta?.ida_mcp?.output_truncated === true)
     throw new AnalysisProtocolError(
       `IDA MCP truncated its output; the preview cannot establish a complete observation. ${result._meta.ida_mcp.download_hint ?? "Use the upstream output download workflow to retrieve the full result."}`,

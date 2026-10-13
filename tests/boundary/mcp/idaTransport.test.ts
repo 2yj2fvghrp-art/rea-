@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
+import { AnalysisProtocolError } from "../../../src/domain/analysisErrorCore.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { createIdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 import type { IdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 
@@ -19,7 +21,17 @@ const requestSchema = z.object({
     .passthrough()
     .optional(),
 });
-const fixture = async (redirectUrl?: string, cycle = false, native = false) => {
+const fixture = async ({
+  redirectUrl,
+  cycle = false,
+  native = false,
+  toolError,
+}: {
+  readonly redirectUrl?: string;
+  readonly cycle?: boolean;
+  readonly native?: boolean;
+  readonly toolError?: string;
+} = {}) => {
   const methods: string[] = [];
   const headers: (string | undefined)[] = [];
   const server = createServer(async (request, response) => {
@@ -87,17 +99,22 @@ const fixture = async (redirectUrl?: string, cycle = false, native = false) => {
                   },
                 ],
               }
-            : native
+            : toolError !== undefined
               ? {
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify([{ observed: true }]),
-                    },
-                  ],
-                  structuredContent: { result: [], _output_truncated: true },
+                  isError: true,
+                  content: [{ type: "text", text: toolError }],
                 }
-              : { content: [], structuredContent: { observed: true } };
+              : native
+                ? {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify([{ observed: true }]),
+                      },
+                    ],
+                    structuredContent: { result: [], _output_truncated: true },
+                  }
+                : { content: [], structuredContent: { observed: true } };
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, result }));
   });
@@ -150,13 +167,13 @@ it("uses the pinned SDK for a local Streamable HTTP handshake, paged discovery, 
 
 it("rejects redirects instead of forwarding transport credentials to another endpoint", async () => {
   const destination = await fixture();
-  const { connection } = await fixture(destination.url);
+  const { connection } = await fixture({ redirectUrl: destination.url });
   await expect(connection.connect()).rejects.toThrow();
   expect(destination.headers).toEqual([]);
 });
 
 it("rejects nonterminating SDK pagination instead of returning a partial tool catalog", async () => {
-  const { connection, methods } = await fixture(undefined, true);
+  const { connection, methods } = await fixture({ cycle: true });
   await expect(connection.connect()).rejects.toThrow(
     "pagination did not terminate",
   );
@@ -166,7 +183,7 @@ it("rejects nonterminating SDK pagination instead of returning a partial tool ca
 });
 
 it("reads native metadata resources and complete JSON text through the real SDK transport", async () => {
-  const { connection, methods } = await fixture(undefined, false, true);
+  const { connection, methods } = await fixture({ native: true });
   expect(await connection.connect()).toEqual(["first", "second"]);
   expect(await connection.call("first", {})).toEqual([{ observed: true }]);
   expect(await connection.readResource?.("ida://idb/metadata")).toMatchObject({
@@ -176,3 +193,30 @@ it("reads native metadata resources and complete JSON text through the real SDK 
   await expect(connection.readResource?.("ida://other")).rejects.toThrow();
   expect(methods).toContain("resources/read");
 });
+
+it.each([false, true])(
+  "preserves an upstream tool rejection through SDK transport and public error projection (native: %s)",
+  async (native) => {
+    const reason =
+      "Invalid params: unexpected parameters: ['offset', 'max_lines']";
+    const { connection } = await fixture({ native, toolError: reason });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {
+        addr: "0x1000",
+        offset: 0,
+        max_lines: 100,
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(failure).toBeInstanceOf(AnalysisProtocolError);
+    if (!(failure instanceof AnalysisProtocolError))
+      throw new Error(
+        "Expected the upstream rejection to remain a protocol error",
+      );
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "unreadable_output",
+      details: { diagnostics: { reason } },
+    });
+  },
+);
