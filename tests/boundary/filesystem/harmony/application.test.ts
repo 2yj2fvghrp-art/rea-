@@ -162,7 +162,7 @@ describe("HarmonyOS packaging boundaries", () => {
   it("claims the FA model only from config.json", async () => {
     const path = await writeApplicationZip("rea-harmony-fa-", "Legacy.hap", [
       { path: "config.json", content: '{"app":{}}' },
-      { path: "assets/js/default.js", content: "legacy();" },
+      { path: "assets/js/default.ts", content: "legacy();" },
       { path: "assets/entry/resources.index", content: "resource index" },
       {
         path: "assets/entry/resources/base/element/strings.json",

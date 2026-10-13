@@ -219,7 +219,10 @@ const runtimeFamilies = (all: readonly Component[]) => {
   if (paths.some((path) => path.endsWith(".abc") || path.endsWith(".pa")))
     families.add("ark");
   if (all.some(({ format }) => format === "elf")) families.add("native");
-  if (paths.some((path) => /\.(?:m?js|cjs)$/.test(path)))
+  if (
+    all.some(({ format }) => format === "javascript-bundle") ||
+    paths.some((path) => /\.(?:m?js|cjs)$/.test(path))
+  )
     families.add("javascript");
   for (const { path } of all) {
     const convention = nativeRuntimeConvention(path);

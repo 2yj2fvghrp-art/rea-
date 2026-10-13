@@ -93,6 +93,10 @@ describe("directory inspection probes", () => {
         "main.js": "export const value = 1;",
         "vendor/helper.exe": pe,
       });
+      await writeTree(bundle, {
+        "Contents/MacOS/Fixture": MACH_O_64,
+        "Contents/Info.plist": INFO_PLIST,
+      });
       await mkdir(join(bundle, "Contents/Resources"), { recursive: true });
       await createPackageWithOptions(
         source,
@@ -107,8 +111,9 @@ describe("directory inspection probes", () => {
               "analyze_javascript_application",
               "inspect_managed_artifact",
               "open_binary",
+              "inspect_plist",
             ]
-          : ["analyze_javascript_application"],
+          : ["analyze_javascript_application", "open_binary", "inspect_plist"],
       );
     },
   );
