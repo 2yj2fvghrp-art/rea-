@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseConfig } from "../config/parseConfig.js";
 import type {
   ArmElfMetadata,
@@ -16,7 +19,7 @@ import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 const host: GhidraInstallationHost = {
   platform: "linux",
   architecture: "x64",
-  readText: () => "application.version=12.1.4\n",
+  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
   probeJava: () => ({
     version: "21.0.11",
@@ -26,9 +29,20 @@ const host: GhidraInstallationHost = {
     runtime: "jdk",
   }),
 };
-const parsed = parseConfig({ GHIDRA_INSTALL_DIR: "/ghidra" });
-if (!parsed.ok) throw parsed.error;
-const config = parsed.value;
+// Main now verifies the installation directory exists on the host, so the
+// admission tests point at a real temporary directory.
+let installDir = "";
+beforeAll(async () => {
+  installDir = await mkdtemp(join(tmpdir(), "rea-ghidra-arm-admission-"));
+});
+afterAll(async () => {
+  await rm(installDir, { recursive: true, force: true });
+});
+const config = () => {
+  const parsed = parseConfig({ GHIDRA_INSTALL_DIR: installDir });
+  if (!parsed.ok) throw parsed.error;
+  return parsed.value;
+};
 const target = (change: Partial<ArmElfMetadata> = {}): BinaryTarget => ({
   path: "/fixture.elf",
   sha256: "a".repeat(64),
@@ -49,7 +63,7 @@ const target = (change: Partial<ArmElfMetadata> = {}): BinaryTarget => ({
 
 describe("bounded Ghidra ARM admission", () => {
   it("admits a verified armhf header with a pinned 32-bit v7 language", async () => {
-    const ghidra = new GhidraProvider(config, silentLogger, {}, host);
+    const ghidra = new GhidraProvider(config(), silentLogger, {}, host);
     expect(ghidra.inspectTargetSupport(target()).status).toBe("supported");
     const resolved = await ghidra.resolveAnalysisProfile(target());
     if (!resolved.ok) throw resolved.error;
@@ -102,7 +116,7 @@ describe("bounded Ghidra ARM admission", () => {
   ] satisfies [Partial<ArmElfMetadata>, string][])(
     "refuses an unverified ARM interpretation %j",
     async (change, reason) => {
-      const ghidra = new GhidraProvider(config, silentLogger, {}, host);
+      const ghidra = new GhidraProvider(config(), silentLogger, {}, host);
       const value = target(change);
       expect(ghidra.inspectTargetSupport(value)).toMatchObject({
         status: "unsupported",

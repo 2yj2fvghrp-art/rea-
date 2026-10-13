@@ -124,9 +124,7 @@ async function verifyFixture(byteOrder, kernelModule) {
   });
   const call = async (name, args = {}) =>
     requireMcpOperationResult(
-      await client.callTool({ name, arguments: args }, undefined, {
-        timeout: 180000,
-      }),
+      await client.callTool({ name, arguments: args }, { timeout: 180000 }),
       name,
     );
   try {
@@ -163,6 +161,7 @@ async function verifyFixture(byteOrder, kernelModule) {
     });
     assert.equal(coverage.unplaced, 0, "Fixture references an empty section");
     assert.ok(coverage.shared_hi16, "No HI16 shared by several LO16s");
+    assert.ok(coverage.multiple_hi16, "No LO16 resolved several pending HI16s");
     assert.ok(coverage.lo16_carry, "No LO16 >= 0x8000 forced a HI16 carry");
     assert.ok(coverage.external_code, "No external code relocation");
     assert.ok(coverage.external_data, "No external data relocation");
