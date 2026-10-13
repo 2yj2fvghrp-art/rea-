@@ -12,10 +12,10 @@
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](../mcp-contracts.md#generated-catalog)
 [![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
-[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../LICENSE)
+[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 [![Discord](https://img.shields.io/discord/1556595354999332884?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/GkcryMnJDM)
 
-<a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&utm_medium=badge&utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
+<a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
 
 **[Website](https://rea.tools/el/) · [Guides](https://rea.tools/el/guides/) · [Showcases](https://rea.tools/el/showcase/)**
 
@@ -25,7 +25,7 @@
 
 <br />
 
-<img src="docs/assets/rea-hopper-analysis.png" alt="Το REA εκκινεί τη γέφυρα ανάλυσής του μέσα στο Hopper κατά την εξέταση ενός εγγενούς δυαδικού αρχείου" width="1200" />
+<img src="../../docs/assets/rea-hopper-analysis.png" alt="Το REA εκκινεί τη γέφυρα ανάλυσής του μέσα στο Hopper κατά την εξέταση ενός εγγενούς δυαδικού αρχείου" width="1200" />
 
 <br /><br />
 
@@ -33,7 +33,7 @@
 <tr>
 <td align="center" width="360">
   <a href="https://discord.gg/GkcryMnJDM">
-    <img src="docs/assets/discord.svg" height="42" alt="Discord" /><br />
+    <img src="../../docs/assets/discord.svg" height="42" alt="Discord" /><br />
     <strong>Γίνετε μέλος της κοινότητας αντίστροφης μηχανικής</strong>
   </a><br />
   <sub>Discord · Ερωτήσεις και Απαντήσεις · Επίδειξη έργων</sub>
@@ -122,9 +122,9 @@ npx rea-agents@latest setup
 
 Ο πράκτοράς σας καλεί το REA μέσω MCP για να εξετάσει τον στόχο και να ιχνηλατήσει τον σχετικό κώδικα. Το REA επιστρέφει ευρήματα μαζί με τα στοιχεία τους. Ο πράκτορας τα χρησιμοποιεί για να κάνει διευκρινιστικές ερωτήσεις, να εξηγήσει τη συμπεριφορά ή να γράψει και να ελέγξει μια υλοποίηση. Οι εντολές CLI χρησιμοποιούν τις ίδιες ροές εργασίας.
 
-![Ροή έρευνας REA: ο πράκτοράς σας ρωτά για έναν τοπικό στόχο, το REA τον εξετάζει και τον ιχνηλατεί χρησιμοποιώντας εργαλεία ανάλυσης, και ο πράκτορας χρησιμοποιεί τον κώδικα που επιστράφηκε, τις αναφορές και τα άγνωστα στοιχεία για να εξηγήσει, να υλοποιήσει και να ελέγξει.](../website/public/assets/figures/rea-investigation-flow.svg)
+![Ροή έρευνας REA: ο πράκτοράς σας ρωτά για έναν τοπικό στόχο, το REA τον εξετάζει και τον ιχνηλατεί χρησιμοποιώντας εργαλεία ανάλυσης, και ο πράκτορας χρησιμοποιεί τον κώδικα που επιστράφηκε, τις αναφορές και τα άγνωστα στοιχεία για να εξηγήσει, να υλοποιήσει και να ελέγξει.](../../website/public/assets/figures/rea-investigation-flow.svg)
 
-[Ανοίξτε το σχήμα σε πλήρες μέγεθος](../website/public/assets/figures/rea-investigation-flow.svg).
+[Ανοίξτε το σχήμα σε πλήρες μέγεθος](../../website/public/assets/figures/rea-investigation-flow.svg).
 
 <a id="current-status"></a>
 
@@ -263,7 +263,7 @@ npx rea-agents@latest setup
 - [Κατάλογος εργαλείων](../mcp-contracts.md#generated-catalog): παραγόμενη απογραφή εργαλείων, παροχέων και εντολών CLI.
 - [Οδικός χάρτης](../roadmap.md): προγραμματισμένη εργασία και ιχνηλάτες δυνατοτήτων.
 
-Αναφέρετε τρωτά σημεία μέσω [SECURITY.md](SECURITY.md).
+Αναφέρετε τρωτά σημεία μέσω [SECURITY.md](../../SECURITY.md).
 
 ## Ιστορικό αστεριών
 
@@ -271,17 +271,17 @@ npx rea-agents@latest setup
 
 Ευχαριστούμε όλους όσοι χρησιμοποιούν το REA, αναφέρουν σφάλματα, ζητούν λειτουργίες, δοκιμάζουν κατασκευές και συνεισφέρουν διορθώσεις.
 
-<a href="https://www.star-history.com/?repos=morluto%2Frea&type=date">
+<a href="https://www.star-history.com/?repos=morluto%2Frea&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto%2Frea&amp;type=date&amp;theme=dark&amp;legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto%2Frea&amp;type=date" />
-    <img alt="Ιστορικό αστεριών του REA στο GitHub" src="https://api.star-history.com/chart?repos=morluto%2Frea&amp;type=date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date&amp;theme=dark&amp;legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
+    <img alt="Ιστορικό αστεριών του REA στο GitHub" src="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
   </picture>
 </a>
 
 ## Αποποίηση ευθύνης
 
-Δείτε το [DISCLAIMER.md](DISCLAIMER.md) για οδηγίες υπεύθυνης χρήσης.
+Δείτε το [DISCLAIMER.md](../../DISCLAIMER.md) για οδηγίες υπεύθυνης χρήσης.
 
 Το REA προορίζεται για νόμιμη έρευνα, εκπαίδευση, διαλειτουργικότητα, διατήρηση λογισμικού και ανάλυση λογισμικού που σας ανήκει ή για το οποίο έχετε εξουσιοδότηση να εξετάσετε.
 
@@ -293,15 +293,15 @@ applicable licenses.
 
 Θα θέλαμε τη βοήθειά σας με το REA! [Ανοίξτε ένα issue](https://github.com/morluto/rea/issues) για να αναφέρετε ένα σφάλμα ή να προτείνετε μια λειτουργία, ή [στείλτε ένα pull request](https://github.com/morluto/rea/pulls) για να βελτιώσετε τον κώδικα ή την τεκμηρίωση.
 
-Δείτε το [CONTRIBUTING.md](../CONTRIBUTING.md) για τη ρύθμιση και τους ελέγχους ανάπτυξης, τη [δοκιμή](../testing.md) για τα μονοπάτια επαλήθευσης και τον [χάρτη αρχιτεκτονικής](../architecture.mermaid) για τη δομή του έργου.
+Δείτε το [CONTRIBUTING.md](../../CONTRIBUTING.md) για τη ρύθμιση και τους ελέγχους ανάπτυξης, τη [δοκιμή](../testing.md) για τα μονοπάτια επαλήθευσης και τον [χάρτη αρχιτεκτονικής](../architecture.mermaid) για τη δομή του έργου.
 
 ## Άδεια χρήσης
 
-[MIT](../LICENSE)
+[MIT](../../LICENSE)
 
 REA-authored code is licensed under MIT. Third-party material retains its own
 licenses and copyright notices; see
-[Third-party notices](../THIRD_PARTY_NOTICES.md) for the dependency inventory,
+[Third-party notices](../../THIRD_PARTY_NOTICES.md) for the dependency inventory,
 preserved license texts, and external-tool terms.
 
 **You must legally obtain and be authorized to use commercial tools**, including

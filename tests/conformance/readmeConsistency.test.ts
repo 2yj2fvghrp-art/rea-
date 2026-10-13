@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { PRODUCT_IDENTITY } from "../../src/identity.js";
@@ -58,6 +58,28 @@ describe("onboarding documentation product facts", () => {
         shellExamples(await readFile(resolve(path), "utf8")),
         path,
       ).toEqual(english);
+  });
+
+  it("keeps repository-relative links in translated readmes on existing paths", async () => {
+    const inventory = JSON.parse(
+      await readFile(resolve("website/locales/languages.json"), "utf8"),
+    ) as { code: string; readme: string }[];
+    for (const { readme } of inventory) {
+      const content = await readFile(resolve(readme), "utf8");
+      const links = [
+        ...content.matchAll(/\]\(([^)\s]+)\)/gu),
+        ...content.matchAll(/\b(?:src|href)="([^"]+)"/gu),
+      ].map((match) => match[1] ?? "");
+      for (const link of links) {
+        if (/^[a-z][a-z\d+.-]*:/iu.test(link) || link.startsWith("/") || link.startsWith("#"))
+          continue;
+        const target = decodeURIComponent(link.split(/[?#]/u, 1)[0] || ".");
+        await expect(
+          access(resolve(dirname(resolve(readme)), target)),
+          `${readme}: ${link}`,
+        ).resolves.toBeUndefined();
+      }
+    }
   });
 
   it("preserves Persian joiners in links to GitHub-rendered headings", async () => {
