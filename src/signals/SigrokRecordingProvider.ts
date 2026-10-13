@@ -134,7 +134,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
     let result: Result<AnalysisExecution, AnalysisError>;
     try {
       if (options?.signal?.aborted) throw new AnalysisCancelledError(operation);
-      await this.#resources.release(operation);
+      await this.#resources.release();
       if (this.platform !== "linux")
         throw new Error(
           "Signal decoding requires Linux with util-linux prlimit and REA_SIGROK_COMMAND so expanded recordings are processed under an enforced address-space limit.",
@@ -173,7 +173,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
       ];
       phase = "workspace";
       root = await this.createRuntime();
-      this.#resources.retain(root, undefined);
+      this.#resources.retain(root, undefined, operation);
       const snapshotPath = join(root.path, "recording");
       const execute = async (args: readonly string[]) => {
         const output = await runOwnedCommand(
@@ -371,7 +371,7 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
         cause instanceof OwnedCommandFailure &&
         cause.cleanupOwner !== undefined
       )
-        this.#resources.retain(root, cause.cleanupOwner);
+        this.#resources.retain(root, cause.cleanupOwner, operation);
       result = err(
         this.#failure(
           cause,

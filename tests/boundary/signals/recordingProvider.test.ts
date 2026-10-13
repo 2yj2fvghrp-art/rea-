@@ -559,7 +559,13 @@ it("retains completed discovery when cleanup fails, then retries before acceptin
     },
   });
   await f.service.inspectDecoders({});
+  await f.service.decode({ path: f.path, decoders: "uart" });
   expect(f.calls()).toBe(2);
+  for (let attempt = 0; attempt < 2; attempt++)
+    await expect(f.service.close()).rejects.toMatchObject({
+      operation: "inspect_signal_decoders",
+      cleanupIncomplete: true,
+    });
   f.allowCleanup();
   await f.service.close();
 });
