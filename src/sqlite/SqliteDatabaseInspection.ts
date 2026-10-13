@@ -241,10 +241,6 @@ const readSchema = (
       metadata.set(value.name, value);
     }
   }
-  // Refuse an inexact selection before the case-folded scan below can expand
-  // the declarations stored under another spelling.
-  if (selectedName !== undefined && !metadata.has(selectedName))
-    throw missingSelectedTable(selectedName);
   // A trigger stores its target as written in CREATE TRIGGER, which SQLite
   // resolves by ASCII case folding; report the stored table or view name.
   const storedNames = new Map(
@@ -256,6 +252,27 @@ const readSchema = (
       name: value.name,
       prefix: sqliteIdentifierKey(`${value.name}_`),
     }));
+  const shadowParentOf = (
+    name: string,
+    listed: z.output<typeof tableRow>,
+  ): (typeof unresolvedVirtualTables)[number] | undefined =>
+    listed.type === "table"
+      ? unresolvedVirtualTables.find((parent) =>
+          sqliteIdentifierKey(name).startsWith(parent.prefix),
+        )
+      : undefined;
+  const selected =
+    selectedName === undefined ? undefined : metadata.get(selectedName);
+  if (selectedName !== undefined && selected === undefined)
+    throw missingSelectedTable(selectedName);
+  // NOCASE folds only ASCII letters, as SQLite does when it resolves the
+  // table named by an index or trigger. Fold only for an ordinary table whose
+  // rows can be selected; a selection refused later keeps the exact filter,
+  // so its failure does not depend on declarations under another spelling.
+  const foldDependents =
+    selectedName !== undefined &&
+    selected?.type === "table" &&
+    shadowParentOf(selectedName, selected) === undefined;
   const schema: SqliteDatabase["schema"] = {
     scope,
     completeness: "complete",
@@ -267,11 +284,10 @@ const readSchema = (
   // Raw bytes preserve text without hex expansion; avoid sorter records that
   // duplicate large names or definitions beyond SQLite's native record limit.
   const declaration = scope === "inventory" ? "" : ", CAST(sql AS BLOB) AS sql";
-  // NOCASE folds only ASCII letters, as SQLite does when it resolves the
-  // table named by an index or trigger. The selected table itself must still
-  // match exactly before rows are read.
   const selection =
-    scope === "selected_table" ? " WHERE tbl_name = ? COLLATE NOCASE" : "";
+    scope === "selected_table"
+      ? ` WHERE tbl_name = ? COLLATE ${foldDependents ? "NOCASE" : "BINARY"}`
+      : "";
   const statement = db.prepare(
     `SELECT type, CAST(name AS BLOB) AS name, CAST(tbl_name AS BLOB) AS tbl_name, rootpage${declaration} FROM main.sqlite_schema${selection}`,
   );
@@ -297,13 +313,7 @@ const readSchema = (
           "format",
           `SQLite schema/table inventory mismatch: ${value.name}`,
         );
-      const identifier = sqliteIdentifierKey(value.name);
-      const possibleShadowParent =
-        listed.type === "table"
-          ? unresolvedVirtualTables.find((parent) =>
-              identifier.startsWith(parent.prefix),
-            )
-          : undefined;
+      const possibleShadowParent = shadowParentOf(value.name, listed);
       const table: SqliteDatabase["schema"]["tables"][number] = {
         name: value.name,
         ...(scope === "inventory" ? {} : { sql: value.sql }),

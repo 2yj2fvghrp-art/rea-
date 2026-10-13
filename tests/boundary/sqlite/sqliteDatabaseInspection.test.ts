@@ -164,21 +164,36 @@ it("attributes triggers declared with another ASCII case to the stored table nam
   ]);
 });
 
-it("refuses a differently cased table before expanding the stored table's declarations", async () => {
-  const path = await createDatabase(`
-    CREATE TABLE Users(id INTEGER PRIMARY KEY);
-    CREATE TRIGGER expanded AFTER INSERT ON Users BEGIN /*${"\u0001".repeat(3 * 1024 * 1024)}*/ SELECT 1; END;
-  `);
-  expect(() =>
-    inspectSqliteDatabaseSnapshot(path, { path, table: "users" }),
-  ).toThrowError(
-    expect.objectContaining({
-      reason: "selection",
-      message:
-        "Selected ordinary table does not exist with that exact name: users",
-    }),
-  );
-});
+it.each([
+  {
+    selection: "a differently cased table",
+    schema: "CREATE TABLE Users(id INTEGER PRIMARY KEY)",
+    trigger: "AFTER INSERT ON Users",
+    table: "users",
+  },
+  {
+    selection: "an exact view",
+    schema: "CREATE VIEW Recent AS SELECT 1 AS id",
+    trigger: "INSTEAD OF INSERT ON recent",
+    table: "Recent",
+  },
+])(
+  "refuses $selection before expanding declarations under another spelling",
+  async ({ schema, trigger, table }) => {
+    const path = await createDatabase(`
+      ${schema};
+      CREATE TRIGGER expanded ${trigger} BEGIN /*${"\u0001".repeat(3 * 1024 * 1024)}*/ SELECT 1; END;
+    `);
+    expect(() =>
+      inspectSqliteDatabaseSnapshot(path, { path, table }),
+    ).toThrowError(
+      expect.objectContaining({
+        reason: "selection",
+        message: `Selected ordinary table does not exist with that exact name: ${table}`,
+      }),
+    );
+  },
+);
 
 it.each(["UTF-8", "UTF-16le", "UTF-16be"])(
   "preserves exact %s schema text when decoding native bytes",
