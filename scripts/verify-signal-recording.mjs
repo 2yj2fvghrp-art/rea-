@@ -280,7 +280,7 @@ try {
     { query: "uart" },
     { limit: 1 },
     { offset: 1, limit: 2 },
-    { decoder: "uart", query: "baud" },
+    { decoder: "uart", query: "BaUd" },
     { decoder: "uart", offset: 50, limit: null },
     { query: "rea_no_such_decoder" },
   ]) {
@@ -309,7 +309,9 @@ try {
     if (input.decoder) {
       const matched = nativeHelp
         .map((text, i) => ({ line_number: i + 1, text }))
-        .filter(({ text }) => text.toLowerCase().includes(input.query ?? ""));
+        .filter(({ text }) =>
+          text.toLowerCase().includes((input.query ?? "").toLowerCase()),
+        );
       assert.deepEqual(
         report.help_lines,
         matched.slice(
