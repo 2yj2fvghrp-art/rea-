@@ -321,7 +321,8 @@ const escapedClassValues = (
     seenClasses.add(klass);
     for (const member of klass.body.body) {
       if (
-        (t.isClassProperty(member) || t.isClassPrivateProperty(member)) &&
+        (t.isClassPrivateProperty(member) ||
+          (lookup.kind === "static" && t.isClassProperty(member))) &&
         member.static === (lookup.kind === "static") &&
         member.value != null
       )
@@ -345,6 +346,36 @@ const escapedClassValues = (
     if (seen.has(node)) continue;
     seen.add(node);
     if (t.isThisExpression(node) || t.isSuper(node)) continue;
+    if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+      const callee = unwrapJavaScriptExpression(node.callee).node;
+      if (
+        t.isMemberExpression(callee) ||
+        t.isOptionalMemberExpression(callee)
+      ) {
+        const receiver = unwrapJavaScriptExpression(callee.object).node;
+        const methodName = semanticStaticPropertyKey(
+          callee.property,
+          callee.computed,
+        );
+        if (
+          (t.isThisExpression(receiver) || t.isSuper(receiver)) &&
+          methodName !== null
+        )
+          for (const candidate of classes)
+            for (const member of candidate.body.body)
+              if (
+                t.isClassMethod(member) &&
+                member.kind === "method" &&
+                member.static === (lookup.kind === "static") &&
+                semanticStaticPropertyKey(member.key, member.computed) ===
+                  methodName
+              )
+                for (const {
+                  node: result,
+                } of semanticCallableResultExpressions(member))
+                  if (result !== null) expressions.push(result);
+      }
+    }
     if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
       // Widening the receiver's data values covers every selected descendant.
       // `this` and private fields have already been resolved by the class pass.

@@ -326,6 +326,8 @@ export const createJavaScriptSemanticGraphProjection = (
         const key = `${coverage.artifact_sha256}\u0000${coverage.module_path}`;
         const lost =
           (measured.get(key)?.facts ?? 0) < (before.get(key)?.facts ?? 0);
+        if (lost && coverage.status === "unavailable")
+          unavailableBudgetTruncatedFiles += 1;
         const updated = {
           ...coverage,
           retained_graph_bytes: measured.get(key)?.bytes ?? 0,
