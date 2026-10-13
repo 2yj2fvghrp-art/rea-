@@ -219,7 +219,11 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
             "Installed Allegrex content changed since profile resolution; reopen the target to resolve a fresh profile.",
           );
       }
-      await createGhidraRuntimeDirectories(paths, platform);
+      await createGhidraRuntimeDirectories(
+        paths,
+        platform,
+        this.options.analyzeHeadlessPath,
+      );
       const seedPath =
         this.options.analysisSeeds === undefined
           ? undefined
@@ -724,7 +728,14 @@ const ghidraRuntimePaths = (runtimeRoot: string) => ({
 const createGhidraRuntimeDirectories = async (
   paths: ReturnType<typeof ghidraRuntimePaths>,
   platform: NodeJS.Platform,
+  analyzeHeadlessPath: string,
 ): Promise<void> => {
+  const installRoot =
+    platform === "win32"
+      ? win32.dirname(win32.dirname(analyzeHeadlessPath))
+      : dirname(dirname(analyzeHeadlessPath));
+  const releaseDirectory =
+    platform === "win32" ? win32.basename(installRoot) : basename(installRoot);
   if (platform === "win32") {
     const runtime = windowsPrivateRuntime(dirname(paths.projectRoot));
     for (const path of [
@@ -736,6 +747,8 @@ const createGhidraRuntimeDirectories = async (
       paths.dataRoot,
     ])
       runtime.mkdir(basename(path));
+    runtime.mkdir(win32.join("config", "ghidra"));
+    runtime.mkdir(win32.join("config", "ghidra", releaseDirectory));
     return;
   }
   await Promise.all(
@@ -748,6 +761,10 @@ const createGhidraRuntimeDirectories = async (
       paths.dataRoot,
     ].map((path) => mkdir(path, { recursive: true, mode: 0o700 })),
   );
+  await mkdir(join(paths.configRoot, "ghidra", releaseDirectory), {
+    recursive: true,
+    mode: 0o700,
+  });
 };
 
 const writeGhidraRuntimeFile = async (

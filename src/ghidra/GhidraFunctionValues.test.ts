@@ -94,24 +94,20 @@ describe("Ghidra function-analysis result values", () => {
   });
 
   it.each(["procedure_callees", "procedure_callers"] as const)(
-    "requires the function-observation envelope to carry terminal-call limitations for %s",
+    "parses the call-site address list without a function-observation envelope for %s",
     (operation) => {
-      // A bare address list is the pre-fix bridge shape; without the envelope
-      // a truncated function body reports no warning, so it must be rejected.
-      expect(parseGhidraFunctionResult(operation, ["0x2000"])).toMatchObject({
-        ok: false,
-        error: { _tag: "AnalysisOutputError" },
+      expect(parseGhidraFunctionResult(operation, ["0x2000"])).toEqual({
+        ok: true,
+        value: { value: ["0x2000"], limitations: [] },
       });
-      const limitation =
-        "Ghidra Listing reports a terminal call at 0x401000 to 0x402000 abort; fallthrough is excluded by Ghidra's flow model.";
       expect(
         parseGhidraFunctionResult(operation, {
           value: ["0x2000"],
-          limitations: [limitation],
+          limitations: [],
         }),
-      ).toEqual({
-        ok: true,
-        value: { value: ["0x2000"], limitations: [limitation] },
+      ).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisOutputError" },
       });
     },
   );
