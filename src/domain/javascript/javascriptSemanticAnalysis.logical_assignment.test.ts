@@ -44,6 +44,22 @@ describe("JavaScript semantic analysis: logical assignment", () => {
     },
   );
 
+  it.each([
+    ["let", "||="],
+    ["let", "??="],
+    ["var", "||="],
+    ["var", "??="],
+  ])(
+    "keeps an uninitialized %s local exact after %s",
+    (declaration, operator) => {
+      const { binding, returned } = observe(
+        `function read() { ${declaration} x; x ${operator} 2; return x; }`,
+      );
+      expect(binding).toEqual({ status: "literal", value: 2 });
+      expect(returned).toEqual({ status: "literal", value: 2 });
+    },
+  );
+
   it("keeps an unconditional parameter assignment exact", () => {
     const { binding, returned } = observe(
       "function read(x) { x = 2; return x; }",
