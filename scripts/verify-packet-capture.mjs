@@ -93,9 +93,11 @@ const source = pcap(1, [
 const bluetoothSource = pcap(187, [Buffer.from("01030c00", "hex")]);
 let cases = 0;
 const discoveryMeasurements = [];
-const inheritedAddressSpace = (
-  await readFile("/proc/self/limits", "utf8")
-).match(/^Max address space\s+(\S+)\s+(\S+)\s+bytes$/m);
+const inheritedAddressSpace = (await readFile("/proc/self/limits", "utf8"))
+  .split("\n")
+  .find((line) => line.startsWith("Max address space "))
+  ?.trim()
+  .match(/^Max address space\s+(\S+)\s+(\S+)\s+bytes$/u);
 assert.ok(inheritedAddressSpace);
 const expectedAddressSpace = Math.min(
   1073741824,
