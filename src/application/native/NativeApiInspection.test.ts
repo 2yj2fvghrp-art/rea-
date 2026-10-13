@@ -7,12 +7,16 @@ import { projectNativeApiInspection } from "./NativeApiInspection.js";
 import { createWorkflowEvidence } from "../WorkflowEvidence.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
 
-it("keeps decompiler warnings inline and in API workflow Evidence", () => {
+it.each([
+  "ghidra-decompiler-warning-observations",
+  "independent-warning-producer",
+])("keeps %s warnings inline and in API workflow Evidence", (provenance) => {
   const base = functionDossierSchema.parse(ghidraFunctionDossier());
   const dossier = functionDossierSchema.parse({
     ...base,
     decompiler_completeness: {
       ...base.decompiler_completeness,
+      provenance,
       status: "warnings",
       warning_count: 1,
       warnings: ["Removing unreachable block (ram,0x401020)"],
@@ -36,8 +40,8 @@ it("keeps decompiler warnings inline and in API workflow Evidence", () => {
   });
   expect(evidence.limitations).toEqual(
     expect.arrayContaining([
-      "Ghidra pseudocode warning: Removing unreachable block (ram,0x401020)",
-      "Ghidra decompiler diagnostic: Incomplete type recovery",
+      "Decompiler warning: Removing unreachable block (ram,0x401020)",
+      "Decompiler diagnostic: Incomplete type recovery",
     ]),
   );
 });

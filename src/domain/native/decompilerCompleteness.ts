@@ -4,7 +4,7 @@ import { z } from "zod";
 export const decompilerCompletenessSchema = z
   .strictObject({
     status: z.enum(["warnings", "no-warnings-reported", "unavailable"]),
-    provenance: z.literal("ghidra-decompiler-warning-observations"),
+    provenance: z.string().min(1),
     warning_count: z.number().int().nonnegative(),
     warnings: z.array(z.string().min(1)),
     diagnostic: z.string().min(1).nullable(),
@@ -41,11 +41,11 @@ export const decompilerObservationLimitations = (
   if (observation === undefined) return [];
   return [
     ...(observation.status === "unavailable"
-      ? ["Ghidra decompiler output is unavailable for this function."]
+      ? ["Decompiler output is unavailable for this function."]
       : []),
-    ...observation.warnings.map((text) => `Ghidra pseudocode warning: ${text}`),
+    ...observation.warnings.map((text) => `Decompiler warning: ${text}`),
     ...(observation.diagnostic === null
       ? []
-      : [`Ghidra decompiler diagnostic: ${observation.diagnostic}`]),
+      : [`Decompiler diagnostic: ${observation.diagnostic}`]),
   ];
 };

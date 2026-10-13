@@ -139,13 +139,12 @@ it("retains warnings for the seed and a reached callee in trace unknowns and wor
       {
         procedure: "0x1000",
         address: null,
-        reason:
-          "Ghidra pseudocode warning: Removing unreachable block (ram,0x1010)",
+        reason: "Decompiler warning: Removing unreachable block (ram,0x1010)",
       },
       {
         procedure: "0x2000",
         address: null,
-        reason: "Ghidra decompiler diagnostic: Callee decompiler diagnostic",
+        reason: "Decompiler diagnostic: Callee decompiler diagnostic",
       },
     ]),
   );
@@ -159,8 +158,8 @@ it("retains warnings for the seed and a reached callee in trace unknowns and wor
   });
   expect(evidence.limitations).toEqual(
     expect.arrayContaining([
-      "0x1000: Ghidra pseudocode warning: Removing unreachable block (ram,0x1010)",
-      "0x2000: Ghidra decompiler diagnostic: Callee decompiler diagnostic",
+      "0x1000: Decompiler warning: Removing unreachable block (ram,0x1010)",
+      "0x2000: Decompiler diagnostic: Callee decompiler diagnostic",
     ]),
   );
 });

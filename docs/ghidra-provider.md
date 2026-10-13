@@ -167,6 +167,11 @@ dossier's separate `comments` field and annotation readback; warning-shaped text
 there cannot create a dropped-block observation. Native API inspection and value
 traces preserve decompiler warnings/diagnostics as inline unknowns and limitations,
 including reached callees, and the composed workflow Evidence retains them.
+Batch decompilation also preserves provider limitations on each item, including
+empty-output failures, and qualifies its Evidence with the observed procedure
+address (or original selector when procedure identity is unavailable). The shared
+completeness contract retains producer provenance without requiring a particular
+engine; the Ghidra adapter validates its own producer identifier.
 
 Function extents and instruction completeness refer to Ghidra's analyzed body.
 An inferred no-return call can terminate that body before subsequent bytes.

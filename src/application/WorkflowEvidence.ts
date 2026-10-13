@@ -55,6 +55,7 @@ const nativeWorkflowLimitations = (
   operation: AnalysisOperation,
   result: JsonValue,
 ): readonly string[] => {
+  if (operation === "batch_decompile") return batchProcedureLimitations(result);
   if (operation === "inspect_native_api") {
     const parsed = nativeApiInspectionResultSchema.safeParse(result);
     return parsed.success ? parsed.data.limitations : [];
@@ -64,6 +65,40 @@ const nativeWorkflowLimitations = (
     return parsed.success ? parsed.data.limitations : [];
   }
   return [];
+};
+
+const batchProcedureLimitations = (result: JsonValue): string[] => {
+  if (
+    result === null ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    !Array.isArray(result.items)
+  )
+    return [];
+  const limitations: string[] = [];
+  for (const item of result.items) {
+    if (
+      item === null ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.address !== "string" ||
+      !Array.isArray(item.limitations)
+    )
+      continue;
+    const procedure = item.procedure;
+    const address =
+      procedure !== null &&
+      typeof procedure === "object" &&
+      !Array.isArray(procedure) &&
+      procedure.status === "resolved" &&
+      typeof procedure.address === "string"
+        ? procedure.address
+        : item.address;
+    for (const limitation of item.limitations)
+      if (typeof limitation === "string")
+        limitations.push(`${address}: ${limitation}`);
+  }
+  return [...new Set(limitations)];
 };
 
 const batchProcedureLocations = (result: JsonValue): EvidenceLocation[] => {

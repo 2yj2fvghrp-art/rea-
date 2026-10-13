@@ -291,7 +291,11 @@ const ghidraFunctionDossier = functionDossierSchema
     }),
     native_api: ghidraNativeApiBoundary,
     native_value_flow: ghidraNativeValueFlow,
-    decompiler_completeness: decompilerCompletenessSchema,
+    decompiler_completeness: decompilerCompletenessSchema.refine(
+      ({ provenance }) =>
+        provenance === "ghidra-decompiler-warning-observations",
+      "Ghidra warning observations require Ghidra producer provenance",
+    ),
   })
   .strict()
   .superRefine((value, context) => {

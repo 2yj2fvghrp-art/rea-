@@ -44,6 +44,22 @@ const parseFunctionValueFixture = (
 };
 
 describe("Ghidra function-analysis result values", () => {
+  it("keeps Ghidra producer provenance validation at the adapter boundary", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    const foreign = functionDossierSchema.parse({
+      ...dossier,
+      decompiler_completeness: {
+        ...dossier.decompiler_completeness,
+        provenance: "independent-warning-producer",
+      },
+    });
+    expect(
+      parseFunctionValueFixture(
+        "analyze_function",
+        jsonValueSchema.parse(foreign),
+      ),
+    ).toMatchObject({ ok: false });
+  });
   it("preserves decompiler warning locations and rejects inconsistent counts", () => {
     const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
     dossier.decompiler_completeness = {

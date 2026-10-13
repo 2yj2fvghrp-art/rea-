@@ -134,6 +134,27 @@ try {
       await call("analyze_function", { procedure }),
     );
     assert.equal(warned.decompiler_completeness.status, "warnings");
+    const batchRaw = await invoke("batch_decompile", {
+      addresses: [procedure, cleanProcedure],
+    });
+    const batch = requireMcpEvidenceResult(batchRaw, "batch_decompile");
+    assert.ok(
+      batch.items[0].limitations.some((text) =>
+        text.includes("Removing unreachable block"),
+      ),
+    );
+    assert.ok(
+      batch.items[1].limitations.every(
+        (text) => !text.includes("Removing unreachable block"),
+      ),
+    );
+    assert.ok(
+      JSON.parse(mcpTextValue(batchRaw)).limitations.some(
+        (text) =>
+          text.startsWith(`${procedure}:`) &&
+          text.includes("Removing unreachable block"),
+      ),
+    );
     for (const name of ["inspect_native_api", "trace_native_values"]) {
       const raw = await invoke(name, { procedure });
       const result = requireMcpEvidenceResult(raw, name);
@@ -187,6 +208,7 @@ try {
         authored_warning_excluded: true,
         authored_comments_retained: true,
         workflow_warnings: "verified through MCP and Evidence",
+        batch_warning_limits: "verified per item and in Evidence",
       },
       null,
       2,
