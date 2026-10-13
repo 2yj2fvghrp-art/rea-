@@ -205,3 +205,62 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     );
   },
 );
+
+cliTest.for(["CLI", "stdio MCP"] as const)(
+  "resolves package mains that name the artifact root through %s",
+  async (surface, { cli }) => {
+    const mains = ["../..", "../../", "../../."];
+    const names = mains.map((_, index) => `root-main-${index}`);
+    const requires = names.map((name) => `require("${name}")`);
+    for (const rootIndex of ["index.js", "index.json", null]) {
+      const root = await createTestTempDirectory("rea-package-main-root-");
+      const importOptions =
+        rootIndex === "index.json" ? ', { with: { type: "json" } }' : "";
+      const imports = names.map(
+        (name) =>
+          `import("${name}"${importOptions}).then(module => module.default)`,
+      );
+      const files: Record<string, string> = {
+        "package.json": '{"type":"commonjs"}',
+        "entry.cjs": requires.join(";\n"),
+        "entry.mjs": names.map((name) => `import "${name}";`).join("\n"),
+        ".js": 'module.exports = ".js decoy";',
+        ".json": '".json decoy"',
+        "control.cjs": `console.log(JSON.stringify([${requires.join(",")}]));`,
+        "control.mjs": `console.log(JSON.stringify(await Promise.all([${imports.join(",")}])));`,
+      };
+      if (rootIndex !== null)
+        files[rootIndex] =
+          rootIndex === "index.js"
+            ? 'module.exports = "index.js";'
+            : '"index.json"';
+      for (const [index, main] of mains.entries()) {
+        const directory = `node_modules/${names[index]}`;
+        files[`${directory}/package.json`] = JSON.stringify({ main });
+        files[`${directory}/index.js`] =
+          `module.exports = "${directory}/index.js";`;
+      }
+      await writeFixtureFiles(root, files);
+      const expected = names.map(
+        (name) => rootIndex ?? `node_modules/${name}/index.js`,
+      );
+      for (const filename of ["control.cjs", "control.mjs"])
+        expect(await runNodeJsonControl(root, filename)).toEqual(expected);
+
+      const { graph } = await analyzeJavaScriptDirectory(surface, cli, root);
+      const relationships = graph.edges
+        .filter(({ relation }) => relation === "imports")
+        .map(({ properties }) => properties);
+      for (const kind of ["require", "import"])
+        for (const [index, name] of names.entries())
+          expect(relationships).toContainEqual(
+            expect.objectContaining({
+              module_link_kind: kind,
+              specifier: name,
+              resolved_path: expected[index],
+              resolution_status: "resolved",
+            }),
+          );
+    }
+  },
+);

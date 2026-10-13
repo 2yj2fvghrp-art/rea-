@@ -1045,8 +1045,12 @@ const resolveNodePackageMain = (
 ): CandidateResolution => {
   const normalizedMain = mainPath.replace(/\/$/u, "");
   for (const suffix of NODE_PACKAGE_MAIN_SUFFIXES) {
+    const isDirectoryIndex = suffix.startsWith("/");
+    if (normalizedMain === "" && !isDirectoryIndex) continue;
     const selected = resolveFileCandidates(input, [
-      posix.normalize(`${normalizedMain}${suffix}`),
+      isDirectoryIndex
+        ? posix.join(normalizedMain, suffix.slice(1))
+        : posix.normalize(`${normalizedMain}${suffix}`),
     ]);
     if (selected === null) continue;
     if (input.moduleKind === "require") return selected;
