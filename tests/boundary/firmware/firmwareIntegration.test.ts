@@ -334,7 +334,32 @@ it("retains a task dependency failure when the producer names no executable", as
       range: null,
       root_file_range: null,
       dependencies: [],
-      continuation: expect.stringContaining("unnamed missing executable"),
+      continuation: expect.stringContaining("identity is unavailable"),
+    },
+  ]);
+});
+
+it("preserves an unnamed dependency failure on its owning chunk", async () => {
+  const fixture = await firmwareFixture("unnamed-chunk-dependency");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  expect(gapsWithContinuations(normalized)).toEqual([
+    {
+      kind: "missing-extractor-dependency",
+      input_path: "$input",
+      relative_path: null,
+      handler: "gzip",
+      provider_id: "gzip-id",
+      range: { offset: 0, length: 18 },
+      root_file_range: { offset: 0, length: 18 },
+      dependencies: [],
+      continuation: expect.stringContaining("identity is unavailable"),
     },
   ]);
 });
@@ -362,6 +387,12 @@ it("routes a nested unknown chunk through its published child", async () => {
         ),
       }),
     ]),
+  );
+  expect(gapsWithContinuations(normalized)[0]?.continuation).toContain(
+    "only if Binwalk is configured with REA_BINWALK_COMMAND",
+  );
+  expect(gapsWithContinuations(normalized)[0]?.continuation).toContain(
+    "unavailable without configured Binwalk",
   );
 });
 

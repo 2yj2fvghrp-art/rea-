@@ -328,12 +328,15 @@ if (args.includes("--version")) {
             handler_name: "gzip",
             is_encrypted: false,
             extraction_reports:
-              mode === "dependency"
+              mode === "dependency" || mode === "unnamed-chunk-dependency"
                 ? [
                     {
                       __typename__: "ExtractorDependencyNotFoundReport",
                       severity: "ERROR",
-                      dependencies: ["sasquatch"],
+                      dependencies:
+                        mode === "unnamed-chunk-dependency"
+                          ? []
+                          : ["sasquatch"],
                     },
                   ]
                 : [],

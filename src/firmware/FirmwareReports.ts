@@ -210,6 +210,7 @@ export const normalizeUnblobReport = (
     provider_id: string | null;
     handler: string | null;
     dependencies: readonly string[];
+    kind: "missing-extractor-dependency" | "extractor-failure";
   }[] = [];
   const diagnostics: JsonValue[] = [];
   const blobOrigins = new Map<string, BlobOrigin>();
@@ -240,28 +241,28 @@ export const normalizeUnblobReport = (
   const missingDependencies = new Map<string, Set<string>>();
   /** Dependencies reported by one chunk's extraction, keyed with its chunk id. */
   const chunkMissingDependencies = new Map<string, Set<string>>();
-  const dependencyNames = (reports: readonly unknown[]): readonly string[] => {
+  const dependencyNames = (
+    reports: readonly unknown[],
+  ): readonly string[] | null => {
     const names = new Set<string>();
+    let reported = false;
     for (const item of reports) {
       const parsed = missingDependency.safeParse(item);
       if (!parsed.success) continue;
+      reported = true;
       for (const name of parsed.data.dependencies)
         if (name !== "") names.add(name);
     }
-    return [...names];
+    return reported ? [...names] : null;
   };
   const noteMissingDependencies = (
     path: string,
     reports: readonly unknown[],
   ): void => {
     const names = dependencyNames(reports);
-    // An accepted dependency report is a definite failure even when the
-    // producer did not name an executable. Keep that task fact with [] names.
-    if (
-      names.length === 0 &&
-      !reports.some((item) => missingDependency.safeParse(item).success)
-    )
-      return;
+    // null means no accepted failure; [] means a definite dependency failure
+    // whose executable identity the producer left unavailable.
+    if (names === null) return;
     const known = missingDependencies.get(path) ?? new Set<string>();
     for (const name of names) known.add(name);
     missingDependencies.set(path, known);
@@ -272,7 +273,7 @@ export const normalizeUnblobReport = (
     reports: readonly unknown[],
   ): void => {
     const names = dependencyNames(reports);
-    if (names.length === 0) return;
+    if (names === null) return;
     const key = JSON.stringify([path, chunkId]);
     const known = chunkMissingDependencies.get(key) ?? new Set<string>();
     for (const name of names) known.add(name);
@@ -344,6 +345,7 @@ export const normalizeUnblobReport = (
           provider_id: null,
           handler: null,
           dependencies: [],
+          kind: "extractor-failure",
         });
       }
       if (
@@ -420,13 +422,16 @@ export const normalizeUnblobReport = (
           );
           // The report owns its failure and dependencies. A produced subtask
           // is a derivation, not a new owner for the parent's report.
+          const dependencies = dependencyNames(parsed.extraction_reports);
           failedExtractionStages.push({
             input_path: path,
             provider_id: parsed.id,
             handler: parsed.handler_name,
-            dependencies: uniqueSorted([
-              ...dependencyNames(parsed.extraction_reports),
-            ]),
+            dependencies: uniqueSorted(dependencies ?? []),
+            kind:
+              dependencies === null
+                ? "extractor-failure"
+                : "missing-extractor-dependency",
           });
         }
       }

@@ -136,6 +136,7 @@ describe("firmware producer boundaries", () => {
         provider_id: "sq-id",
         handler: "squashfs",
         dependencies: ["sasquatch"],
+        kind: "missing-extractor-dependency",
       },
     ]);
     expect(normalized.chunk_missing_dependencies).toEqual([]);
@@ -209,6 +210,83 @@ describe("firmware producer boundaries", () => {
         input_path: "$input",
         provider_id: "gzip-id",
         dependencies: ["sasquatch"],
+      },
+    ]);
+  });
+});
+
+describe("firmware dependency failures with unavailable identities", () => {
+  it.each([{ dependencies: [] }, { dependencies: ["", ""] }])(
+    "retains unnamed chunk dependency ownership ($dependencies)",
+    ({ dependencies }) => {
+      const record = root();
+      const normalized = normalizeUnblobReport(
+        [
+          {
+            ...record,
+            reports: [
+              ...record.reports.filter(
+                (item) => item.__typename__ !== "UnknownChunkReport",
+              ),
+              {
+                ...nestedDependencyChunk("gzip-id", 0),
+                extraction_reports: [
+                  {
+                    __typename__: "ExtractorDependencyNotFoundReport",
+                    severity: "ERROR",
+                    dependencies,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        context,
+      );
+      expect(normalized.missing_dependencies).toEqual([]);
+      expect(normalized.chunk_missing_dependencies).toEqual([
+        {
+          input_path: "$input",
+          provider_id: "gzip-id",
+          dependencies: [],
+        },
+      ]);
+    },
+  );
+  it("retains the missing-dependency reason on an unnamed multi-file stage", () => {
+    const record = root();
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...record,
+          reports: [
+            ...record.reports,
+            {
+              __typename__: "MultiFileReport",
+              id: "multi-id",
+              handler_name: "multipart-firmware",
+              name: "parts",
+              paths: [],
+              extraction_reports: [
+                {
+                  __typename__: "ExtractorDependencyNotFoundReport",
+                  severity: "ERROR",
+                  dependencies: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      context,
+    );
+    expect(normalized.failed_extraction_stages).toEqual([
+      {
+        input_path: "$input",
+        provider_id: "multi-id",
+        handler: "multipart-firmware",
+        dependencies: [],
+        kind: "missing-extractor-dependency",
       },
     ]);
   });
@@ -467,6 +545,7 @@ describe("Unblob task derivation identities", () => {
         provider_id: "multi-id",
         handler: "multipart-firmware",
         dependencies: ["sasquatch"],
+        kind: "missing-extractor-dependency",
       },
     ]);
   });
@@ -527,6 +606,7 @@ describe("failed multi-file extraction stages", () => {
         provider_id: "multi-id",
         handler: "multipart-firmware",
         dependencies: [],
+        kind: "extractor-failure",
       },
     ]);
     expect(normalized.missing_dependencies).toEqual([]);

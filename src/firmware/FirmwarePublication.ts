@@ -19,7 +19,7 @@ const GAP_CONTINUATIONS: Record<ExtractionGap["kind"], string> = {
   "missing-extractor-dependency":
     "REA installs nothing. Add the named dependency to your own environment and rerun extract_firmware on the same immutable input with a fresh output_directory to re-evaluate the affected region; otherwise it stays unextracted.",
   "unknown-chunk-handler":
-    "Run inspect_firmware_regions on the same input for signature hypotheses, or select a materially narrower range with extract_firmware and a fresh output_directory; the region is not decoded content.",
+    "If Binwalk is configured with REA_BINWALK_COMMAND, run inspect_firmware_regions on the same input for signature hypotheses. Without configured Binwalk that inspection is unavailable. Alternatively, select a materially narrower range with extract_firmware and a fresh output_directory; the region is not decoded content.",
   "encrypted-chunk":
     "No static extraction continues past encryption; treat the region as unexamined rather than empty or corrupt.",
   "extractor-failure":
@@ -31,7 +31,7 @@ const GAP_CONTINUATIONS: Record<ExtractionGap["kind"], string> = {
 };
 
 const UNNAMED_DEPENDENCY_CONTINUATION =
-  "REA installs nothing. Review the retained dependency diagnostic to identify the unnamed missing executable. After configuring it in your own environment, rerun extract_firmware on the same immutable input with a fresh output_directory; the affected task remains unextracted.";
+  "The producer reported a missing extractor dependency without naming it; its identity is unavailable in this evidence. No specific installation or rerun can be prescribed from this report. Retain the gap as unextracted unless additional provider evidence establishes the dependency. REA installs nothing.";
 
 import { FIRMWARE_LIMITS } from "./FirmwareRelease.js";
 
@@ -58,7 +58,7 @@ const nestedUnknownContinuation = (
   return publishedFile !== undefined &&
     publishedFile.size > 0 &&
     publishedFile.size <= FIRMWARE_LIMITS.inputBytes
-    ? `${base} Run inspect_firmware_regions with path ${JSON.stringify(publishedFile.path)} for signature hypotheses on that child; repeating the same whole-child extraction with unchanged handlers would not advance analysis.`
+    ? `${base} Run inspect_firmware_regions with path ${JSON.stringify(publishedFile.path)} for signature hypotheses on that child only if Binwalk is configured with REA_BINWALK_COMMAND. This inspection step is unavailable without configured Binwalk; retain the region as unexamined. Repeating the same whole-child extraction with unchanged handlers would not advance analysis.`
     : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so inspect_firmware_regions cannot accept it as a fresh input; treat the region as unexamined.`;
 };
 
@@ -258,7 +258,7 @@ const dependencyExtractionGaps = (
       },
     ),
     ...normalized.failed_extraction_stages
-      .filter(({ dependencies }) => dependencies.length > 0)
+      .filter(({ kind }) => kind === "missing-extractor-dependency")
       .map(
         ({
           input_path,
@@ -273,7 +273,9 @@ const dependencyExtractionGaps = (
           provider_id,
           dependencies: [...dependencies],
           continuation_id: continuation(
-            GAP_CONTINUATIONS["missing-extractor-dependency"],
+            dependencies.length > 0
+              ? GAP_CONTINUATIONS["missing-extractor-dependency"]
+              : UNNAMED_DEPENDENCY_CONTINUATION,
           ),
         }),
       ),
@@ -378,7 +380,7 @@ const extractionGaps = (
   const gaps: ExtractionGap[] = [
     ...dependencyGaps,
     ...normalized.failed_extraction_stages
-      .filter(({ dependencies }) => dependencies.length === 0)
+      .filter(({ kind }) => kind === "extractor-failure")
       .map(({ input_path, provider_id, handler }): ExtractionGap => ({
         kind: "extractor-failure",
         input_path,

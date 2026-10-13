@@ -109,13 +109,15 @@ build's source revision, so that field remains unknown.
   A multi-file stage retains its reported ID and handler with unknown byte ranges;
   a standalone task failure keeps unavailable stage identity null. Rows retain exact dependency names from
   the producer's missing-dependency reports; an accepted report with no names
-  remains a failure with unknown dependencies. Each row's `continuation_id`
+  remains a failure with unknown dependencies; no executable identity or specific installation step is inferred. Each row's `continuation_id`
   references one instruction in `extraction_continuations`, so many regions
   share recovery prose without losing any region identity. Instructions use
   already configured capabilities where one exists. Every extraction rerun
   requires a fresh absent `output_directory`, preserving the prior evidence.
   Nested unknown chunks use `inspect_firmware_regions` on the actual published
-  child rather than repeating the same extraction with unchanged handlers. A listed gap does not
+  child rather than repeating the same extraction with unchanged handlers.
+  Inspection requires separately configured Binwalk (`REA_BINWALK_COMMAND`);
+  without it, the inspection step is unavailable and the region remains unexamined. A listed gap does not
   mean the target is corrupt or that a retained region is empty; REA installs
   nothing.
 - The destination must be absent, absolute, with an existing parent. Publication
