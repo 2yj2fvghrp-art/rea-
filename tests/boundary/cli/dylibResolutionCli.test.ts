@@ -180,14 +180,17 @@ describe("trace-dylib-resolution CLI", () => {
       // A root below a symlinked directory that points outside the bundle.
       const outside = await createTestTempDirectory("rea-dylib-outside-");
       await writeFiles(outside, { Tool: machoImage({}) });
-      await symlink(outside, join(app, "Contents/Linked"));
+      await symlink(outside, join(app, "Contents/Linked"), "dir");
       for (const [root, reason, message] of [
         ["../outside", "invalid_format", "Use a normalized path"],
         ["Contents/Info.plist", "invalid_value", "is not a Mach-O image"],
         [
           "Contents/Linked/Tool",
           "invalid_value",
-          "resolves outside the analyzed root",
+          // Windows link text is outside the POSIX dyld path representation.
+          process.platform === "win32"
+            ? "is not a regular file in the analyzed root"
+            : "resolves outside the analyzed root",
         ],
       ] as const) {
         await expectRootInputError(cli, { app, root, reason, message });
@@ -378,7 +381,8 @@ cliTest(
   },
 );
 
-describe.skipIf(process.getuid?.() === 0)(
+// This permission fixture requires POSIX mode bits and a non-root caller.
+describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "trace-dylib-resolution permissions",
   () => {
     cliTest(
@@ -486,8 +490,8 @@ cliTest(
     ] as const) {
       const app = await fixtureApp();
       await writeFiles(app, {
-        "Contents/MacOS/App": fatImage(
-          [CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
+        "Contents/MacOS/App": fatImage([
+          ...[CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
             const setting = settings[index];
             return {
               cpu,
@@ -500,7 +504,10 @@ cliTest(
               }),
             };
           }),
-        ),
+          // Target admission needs a host-compatible slice; the trace below
+          // explicitly selects both same-named arm64e slices.
+          { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+        ]),
       });
       const result = await cli.run({
         arguments: [
@@ -508,6 +515,8 @@ cliTest(
           app,
           "--root",
           "Contents/MacOS/App",
+          "--architecture",
+          "arm64e",
           "--json",
         ],
         environment: ENVIRONMENT,
