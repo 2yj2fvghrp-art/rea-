@@ -4,9 +4,8 @@ import type {
   ComponentIndexSpaces,
   IndexOrigin,
 } from "./WasmComponentIndexSpaces.js";
+import { WasmComponentLimitExceeded } from "./WasmComponentReader.js";
 
-/** Bounds export-of-export chains, which validation would reject if cyclic. */
-const MAX_EXPORT_HOPS = 64;
 /**
  * Bindings of lowered functions to core imports can grow multiplicatively.
  * At roughly 170 bytes each, more than this exceeds the 8 MiB inline budget.
@@ -22,32 +21,84 @@ export const createRelationshipBudget = (): RelationshipBudget => ({
   remaining: MAX_CORE_IMPORT_BINDINGS,
 });
 
-/** The complete relationship facts would exceed the inline output budget. */
-export class WasmComponentRelationshipLimit extends Error {
-  constructor() {
-    super(
-      `Canonical lower bindings exceed ${String(MAX_CORE_IMPORT_BINDINGS)} entries`,
-    );
-    this.name = "WasmComponentRelationshipLimit";
-  }
-}
-
 type CoreBinding = DecodedComponent["lowers"][number]["satisfies"][number];
+type Defining = { readonly index: number; readonly origin: IndexOrigin };
 
-/** Follow export re-aliases back to the entry that defined the index. */
-const definingEntry = (
+/**
+ * Walk an index chain once per index, caching every index on the path.
+ * `step` returns the next index, or a final value; repeated indices end the
+ * walk as unresolved instead of looping.
+ */
+const memoizedWalk = <T>(
+  step: (index: number) => { readonly next: number } | { readonly done: T },
+): ((index: number) => T | undefined) => {
+  const resolved = new Map<number, T | undefined>();
+  return (start) => {
+    const path: number[] = [];
+    const visiting = new Set<number>();
+    let current = start;
+    let result: T | undefined;
+    for (;;) {
+      if (resolved.has(current)) {
+        result = resolved.get(current);
+        break;
+      }
+      if (visiting.has(current)) break;
+      visiting.add(current);
+      path.push(current);
+      const outcome = step(current);
+      if ("done" in outcome) {
+        result = outcome.done;
+        break;
+      }
+      current = outcome.next;
+    }
+    for (const index of path) resolved.set(index, result);
+    return result;
+  };
+};
+
+/** Follow export re-aliases back to the entry that defined an index. */
+const definingResolver = (
   spaces: ComponentIndexSpaces,
   sort: ComponentSort,
-  index: number,
-): { readonly index: number; readonly origin: IndexOrigin } | undefined => {
-  let current = index;
-  for (let hop = 0; hop < MAX_EXPORT_HOPS; hop += 1) {
-    const origin = spaces.origin(sort, current);
-    if (origin === undefined) return undefined;
-    if (origin.kind !== "export") return { index: current, origin };
-    current = origin.of;
-  }
-  return undefined;
+): ((index: number) => Defining | undefined) =>
+  memoizedWalk<Defining | undefined>((index) => {
+    const origin = spaces.origin(sort, index);
+    if (origin === undefined) return { done: undefined };
+    if (origin.kind === "export") return { next: origin.of };
+    return { done: { index, origin } };
+  });
+
+/**
+ * Resolve a core function aliased out of inline-export core instances to the
+ * index that defines it, such as a lowered function or a module export alias.
+ */
+const coreFuncResolver = (
+  spaces: ComponentIndexSpaces,
+): ((index: number) => number | undefined) => {
+  const inlineExports = new Map<number, Map<string, number> | undefined>();
+  const exportsOf = (instance: number): Map<string, number> | undefined => {
+    if (inlineExports.has(instance)) return inlineExports.get(instance);
+    const origin = spaces.origin("core instance", instance);
+    const named =
+      origin?.kind === "core-inline-exports"
+        ? new Map(
+            origin.exports
+              .filter(({ sort }) => sort === "core func")
+              .reverse()
+              .map(({ name, index }) => [name, index] as const),
+          )
+        : undefined;
+    inlineExports.set(instance, named);
+    return named;
+  };
+  return memoizedWalk<number>((index) => {
+    const origin = spaces.origin("core func", index);
+    if (origin?.kind !== "alias-core-export") return { done: index };
+    const next = exportsOf(origin.instance)?.get(origin.name);
+    return next === undefined ? { done: index } : { next };
+  });
 };
 
 const append = <K, V>(map: Map<K, V[]>, key: K, value: V): void => {
@@ -94,12 +145,12 @@ const moduleInterfaces = (component: DecodedComponent): ModuleInterfaces => {
 /** Component export names of each defining function index. */
 const exportNamesByFunc = (
   component: DecodedComponent,
-  spaces: ComponentIndexSpaces,
+  definingFunc: (index: number) => Defining | undefined,
 ): Map<number, string[]> => {
   const names = new Map<number, string[]>();
   for (const { target, name } of component.exports) {
     if (target.sort !== "func") continue;
-    const defining = definingEntry(spaces, "func", target.index);
+    const defining = definingFunc(target.index);
     if (defining !== undefined) append(names, defining.index, name);
   }
   return names;
@@ -109,6 +160,7 @@ const exportNamesByFunc = (
 const coreImportBindings = (
   component: DecodedComponent,
   interfaces: ModuleInterfaces,
+  canonicalCoreFunc: (index: number) => number | undefined,
   budget: RelationshipBudget,
 ): ((coreFunc: number) => CoreBinding[]) => {
   const providers = new Map<number, { instance: number; name: string }[]>();
@@ -120,12 +172,12 @@ const coreImportBindings = (
     const index = instance.index;
     if (index === null) continue;
     if (instance.kind === "inline-exports") {
-      for (const exported of instance.exports)
-        if (exported.sort === "core func")
-          append(providers, exported.index, {
-            instance: index,
-            name: exported.name,
-          });
+      for (const exported of instance.exports) {
+        if (exported.sort !== "core func") continue;
+        const defining = canonicalCoreFunc(exported.index);
+        if (defining !== undefined)
+          append(providers, defining, { instance: index, name: exported.name });
+      }
     } else
       for (const argument of instance.args)
         append(consumers, argument.instance, {
@@ -139,7 +191,11 @@ const coreImportBindings = (
     for (const provider of providers.get(coreFunc) ?? [])
       for (const consumer of consumers.get(provider.instance) ?? []) {
         budget.remaining -= 1;
-        if (budget.remaining < 0) throw new WasmComponentRelationshipLimit();
+        if (budget.remaining < 0)
+          throw new WasmComponentLimitExceeded(
+            "lower-bindings",
+            MAX_CORE_IMPORT_BINDINGS,
+          );
         const declared = interfaces.imports.get(consumer.module);
         bindings.push({
           core_instance: consumer.instance,
@@ -159,8 +215,9 @@ const coreImportBindings = (
 const coreSource = (
   spaces: ComponentIndexSpaces,
   interfaces: ModuleInterfaces,
-  coreFunc: number,
+  coreFunc: number | undefined,
 ): DecodedComponent["lifts"][number]["core_source"] => {
+  if (coreFunc === undefined) return null;
   const origin = spaces.origin("core func", coreFunc);
   if (origin?.kind !== "alias-core-export") return null;
   const instance = spaces.origin("core instance", origin.instance);
@@ -176,14 +233,15 @@ const coreSource = (
 };
 
 const componentSource = (
-  spaces: ComponentIndexSpaces,
+  definingFunc: (index: number) => Defining | undefined,
+  definingInstance: (index: number) => Defining | undefined,
   func: number,
 ): DecodedComponent["lowers"][number]["component_source"] => {
-  const defining = definingEntry(spaces, "func", func);
+  const defining = definingFunc(func);
   if (defining?.origin.kind === "import")
     return { kind: "import", name: defining.origin.name };
   if (defining?.origin.kind !== "alias-export") return null;
-  const instance = definingEntry(spaces, "instance", defining.origin.instance);
+  const instance = definingInstance(defining.origin.instance);
   return {
     kind: "instance-export",
     instance: defining.origin.instance,
@@ -195,17 +253,26 @@ const componentSource = (
 
 /**
  * Trace each canonical lift to the core export it wraps, and each lower to
- * its component source and the core imports it is bound to. Lookup tables
- * keep the work linear; unknown index spaces leave facts null or empty.
+ * its component source and the core imports it is bound to. Memoized
+ * resolvers and lookup tables keep the work linear; unknown index spaces
+ * leave facts null or empty.
  */
 export const resolveCanonRelationships = (
   component: DecodedComponent,
   spaces: ComponentIndexSpaces,
   budget: RelationshipBudget,
 ): Pick<DecodedComponent, "lifts" | "lowers"> => {
+  const definingFunc = definingResolver(spaces, "func");
+  const definingInstance = definingResolver(spaces, "instance");
+  const canonicalCoreFunc = coreFuncResolver(spaces);
   const interfaces = moduleInterfaces(component);
-  const exportedAs = exportNamesByFunc(component, spaces);
-  const bindingsOf = coreImportBindings(component, interfaces, budget);
+  const exportedAs = exportNamesByFunc(component, definingFunc);
+  const bindingsOf = coreImportBindings(
+    component,
+    interfaces,
+    canonicalCoreFunc,
+    budget,
+  );
   const lifts: DecodedComponent["lifts"] = [];
   const lowers: DecodedComponent["lowers"] = [];
   for (const [position, canon] of component.canons.entries()) {
@@ -220,7 +287,11 @@ export const resolveCanonRelationships = (
         func,
         core_func: canon.core_func,
         type: canon.type,
-        core_source: coreSource(spaces, interfaces, canon.core_func),
+        core_source: coreSource(
+          spaces,
+          interfaces,
+          canonicalCoreFunc(canon.core_func),
+        ),
         exported_as: func === null ? [] : (exportedAs.get(func) ?? []),
       });
     }
@@ -230,7 +301,11 @@ export const resolveCanonRelationships = (
         canon: position,
         func: canon.func,
         core_func: coreFunc,
-        component_source: componentSource(spaces, canon.func),
+        component_source: componentSource(
+          definingFunc,
+          definingInstance,
+          canon.func,
+        ),
         satisfies: coreFunc === null ? [] : bindingsOf(coreFunc),
       });
     }

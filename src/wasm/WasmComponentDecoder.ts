@@ -24,6 +24,7 @@ import {
 } from "./WasmComponentDefinitions.js";
 import { decodeCustomSection } from "./WasmComponentNames.js";
 import {
+  DecodeItemBudget,
   WasmComponentFormatFailure,
   WasmComponentReader,
 } from "./WasmComponentReader.js";
@@ -112,6 +113,7 @@ interface DecodeState {
   readonly notDecoded: WasmComponentDecoding["notDecoded"];
   readonly signal: AbortSignal | undefined;
   readonly relationships: RelationshipBudget;
+  readonly items: DecodeItemBudget;
   sectionsSinceYield: number;
 }
 
@@ -218,6 +220,7 @@ export const decodeWasmComponent = async (
     notDecoded: [],
     signal,
     relationships: createRelationshipBudget(),
+    items: new DecodeItemBudget(),
     sectionsSinceYield: 0,
   };
   await decodeComponentAt(state, {
@@ -264,9 +267,11 @@ const decodeComponentAt = async (
     state.bytes,
     placement.range.start + 8,
     placement.range.end,
+    state.items,
   );
   while (!reader.atEnd) {
     await checkpoint(state);
+    state.items.take(1);
     const id = reader.byte("section id");
     const section = reader.sub(reader.u32("section size"), "section");
     await decodeRecordedSection(context, id, section);
@@ -338,7 +343,12 @@ const decodeCoreModuleSection: SectionDecoder = (
     range,
     sha256: sha256(state.bytes, range),
     core_version: coreModuleVersion(state.bytes, range.start, range.end),
-    interface: decodeCoreModuleInterface(state.bytes, range.start, range.end),
+    interface: decodeCoreModuleInterface(
+      state.bytes,
+      range.start,
+      range.end,
+      state.items,
+    ),
   });
 };
 

@@ -12,13 +12,15 @@ import {
   section,
   u32,
   vec,
+  vecOf,
   withPreamble,
 } from "./WasmComponentBinary.fixture.js";
-import { WasmComponentFormatFailure } from "./WasmComponentReader.js";
 import {
-  MAX_CORE_IMPORT_BINDINGS,
-  WasmComponentRelationshipLimit,
-} from "./WasmComponentRelationships.js";
+  MAX_DECODED_ITEMS,
+  WasmComponentFormatFailure,
+  WasmComponentLimitExceeded,
+} from "./WasmComponentReader.js";
+import { MAX_CORE_IMPORT_BINDINGS } from "./WasmComponentRelationships.js";
 
 const failureOf = async (bytes: Uint8Array) => {
   try {
@@ -337,8 +339,8 @@ describe("decodeWasmComponent resource bounds", () => {
     const decoded = await decodeWasmComponent(
       component(
         section(10, vec([...externName("f"), 0x01, ...u32(0)])),
-        section(8, vec(...lifts)),
-        section(11, vec(...exports)),
+        section(8, vecOf(lifts)),
+        section(11, vecOf(exports)),
       ),
     );
     const [root] = decoded.components;
@@ -365,10 +367,99 @@ describe("decodeWasmComponent resource bounds", () => {
         component(
           section(10, vec([...externName("f"), 0x01, ...u32(0)])),
           section(8, vec([0x01, 0x00, ...u32(0), ...vec()])),
-          section(2, vec([0x01, ...vec(...names)], ...instantiations)),
+          section(2, vecOf([[0x01, ...vecOf(names)], ...instantiations])),
         ),
       ),
-    ).rejects.toBeInstanceOf(WasmComponentRelationshipLimit);
+    ).rejects.toMatchObject({
+      name: "WasmComponentLimitExceeded",
+      limit: "lower-bindings",
+    });
+  });
+
+  it("charges vector entries before decoding them", async () => {
+    const count = MAX_DECODED_ITEMS + 1;
+    await expect(
+      decodeWasmComponent(
+        component(
+          section(7, [
+            ...u32(count),
+            ...Array.from({ length: count }, () => 0x7f),
+          ]),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(WasmComponentLimitExceeded);
+  });
+
+  it("decodes a core module with 150,000 exports", async () => {
+    const exports = Array.from({ length: 150_000 }, () => [
+      ...name("e"),
+      0x00,
+      0x00,
+    ]);
+    const decoded = await decodeWasmComponent(
+      component(section(1, coreModule(section(7, vecOf(exports))))),
+    );
+    expect(decoded.components[0]?.core_modules[0]?.interface).toMatchObject({
+      status: "decoded",
+    });
+    expect(
+      decoded.components[0]?.core_modules[0]?.interface.exports,
+    ).toHaveLength(150_000);
+  });
+});
+
+describe("decodeWasmComponent relationship resolution", () => {
+  it("binds a lowered function re-exported through an inline-export alias", async () => {
+    const decoded = await decodeWasmComponent(
+      component(
+        section(
+          1,
+          coreModule(
+            section(2, vec([...name("env"), ...name("y"), 0x00, 0x00])),
+          ),
+        ),
+        section(10, vec([...externName("f"), 0x01, ...u32(0)])),
+        section(8, vec([0x01, 0x00, ...u32(0), ...vec()])),
+        section(2, vec([0x01, ...vec([...name("x"), 0x00, ...u32(0)])])),
+        section(6, vec([0x00, 0x00, 0x01, ...u32(0), ...name("x")])),
+        section(
+          2,
+          vec(
+            [0x01, ...vec([...name("y"), 0x00, ...u32(1)])],
+            [0x00, ...u32(0), ...vec([...name("env"), 0x12, ...u32(1)])],
+          ),
+        ),
+      ),
+    );
+    expect(decoded.components[0]?.lowers[0]?.satisfies).toEqual([
+      {
+        core_instance: 2,
+        core_module: 0,
+        import_module: "env",
+        import_name: "y",
+        declared_by_module: true,
+      },
+    ]);
+  });
+
+  it("follows export chains longer than any fixed hop limit", async () => {
+    const chain = Array.from({ length: 100 }, (_, index) => [
+      ...externName(`e${String(index)}`),
+      0x01,
+      ...u32(index),
+      0x00,
+    ]);
+    const decoded = await decodeWasmComponent(
+      component(
+        section(10, vec([...externName("f"), 0x01, ...u32(0)])),
+        section(11, vecOf(chain)),
+        section(8, vec([0x01, 0x00, ...u32(100), ...vec()])),
+      ),
+    );
+    expect(decoded.components[0]?.lowers[0]?.component_source).toEqual({
+      kind: "import",
+      name: "f",
+    });
   });
 });
 

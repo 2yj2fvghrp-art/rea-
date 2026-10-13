@@ -14,6 +14,38 @@ export class WasmComponentFormatFailure extends Error {
   }
 }
 
+/** A decode-wide resource limit was reached before its facts were built. */
+export class WasmComponentLimitExceeded extends Error {
+  constructor(
+    readonly limit: "decoded-items" | "lower-bindings",
+    readonly maximum: number,
+  ) {
+    super(
+      `${limit === "decoded-items" ? "Decoded entries" : "Canonical lower bindings"} exceed ${String(maximum)}`,
+    );
+    this.name = "WasmComponentLimitExceeded";
+  }
+}
+
+/**
+ * Every decoded vector entry and section becomes at least one reported fact,
+ * and each serializes to more than 16 bytes, so more than this many could
+ * not fit the 8 MiB inline result anyway.
+ */
+export const MAX_DECODED_ITEMS = 524_288;
+
+/** Entries one decode may still create, shared by every reader it uses. */
+export class DecodeItemBudget {
+  #remaining = MAX_DECODED_ITEMS;
+
+  /** Reserve entries before decoding them. */
+  take(count: number): void {
+    this.#remaining -= count;
+    if (this.#remaining < 0)
+      throw new WasmComponentLimitExceeded("decoded-items", MAX_DECODED_ITEMS);
+  }
+}
+
 /** Names are length-prefixed bytes, so a leading U+FEFF is kept, not stripped. */
 const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -25,6 +57,7 @@ export class WasmComponentReader {
     private readonly bytes: Uint8Array,
     start: number,
     readonly end: number,
+    readonly budget: DecodeItemBudget,
   ) {
     this.#offset = start;
   }
@@ -143,7 +176,7 @@ export class WasmComponentReader {
   /** Reader limited to the next `length` bytes, which this reader skips. */
   sub(length: number, context: string): WasmComponentReader {
     const { start, end } = this.range(length, context);
-    return new WasmComponentReader(this.bytes, start, end);
+    return new WasmComponentReader(this.bytes, start, end, this.budget);
   }
 
   /** Vector length bounded by the bytes that could encode its elements. */
@@ -152,6 +185,7 @@ export class WasmComponentReader {
     const count = this.u32(`${context} count`);
     if (count > this.end - this.#offset)
       throw this.malformed(`${context} count exceeds its remaining bytes`, at);
+    this.budget.take(count);
     return count;
   }
 

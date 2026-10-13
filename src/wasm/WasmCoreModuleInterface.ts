@@ -3,6 +3,7 @@ import { readWasmPreamble } from "../domain/wasm/wasmPreamble.js";
 import {
   WasmComponentFormatFailure,
   WasmComponentReader,
+  type DecodeItemBudget,
 } from "./WasmComponentReader.js";
 import { decodeCoreExternType } from "./WasmCoreTypes.js";
 
@@ -70,6 +71,7 @@ export const decodeCoreModuleInterface = (
   bytes: Uint8Array,
   start: number,
   end: number,
+  budget: DecodeItemBudget,
 ): CoreModuleInterface => {
   const version = coreModuleVersion(bytes, start, end);
   if (version !== 1)
@@ -85,15 +87,17 @@ export const decodeCoreModuleInterface = (
   const imports: CoreModuleInterface["imports"] = [];
   const exports: CoreModuleInterface["exports"] = [];
   try {
-    const reader = new WasmComponentReader(bytes, start + 8, end);
+    const reader = new WasmComponentReader(bytes, start + 8, end, budget);
     while (!reader.atEnd) {
       const id = reader.byte("core section id");
       const section = reader.sub(
         reader.u32("core section size"),
         "core section",
       );
-      if (id === IMPORT_SECTION) imports.push(...decodeImports(section));
-      else if (id === EXPORT_SECTION) exports.push(...decodeExports(section));
+      if (id === IMPORT_SECTION)
+        for (const entry of decodeImports(section)) imports.push(entry);
+      else if (id === EXPORT_SECTION)
+        for (const entry of decodeExports(section)) exports.push(entry);
     }
   } catch (cause: unknown) {
     if (!(cause instanceof WasmComponentFormatFailure)) throw cause;

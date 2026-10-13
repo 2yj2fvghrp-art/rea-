@@ -28,10 +28,15 @@ export const name = (text: string): number[] => {
   return [...u32(bytes.length), ...bytes];
 };
 
-export const vec = (...items: readonly (readonly number[])[]): number[] => [
-  ...u32(items.length),
-  ...items.flat(),
-];
+/** `vec(T)` from an array, without spreading entries into call arguments. */
+export const vecOf = (items: readonly (readonly number[])[]): number[] => {
+  const bytes = u32(items.length);
+  for (const item of items) for (const byte of item) bytes.push(byte);
+  return bytes;
+};
+
+export const vec = (...items: readonly (readonly number[])[]): number[] =>
+  vecOf(items);
 
 export const section = (id: number, payload: readonly number[]): number[] => [
   id,

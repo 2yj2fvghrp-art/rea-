@@ -21,11 +21,10 @@ import {
   type WasmComponent,
 } from "../domain/wasm/wasmComponent.js";
 import { decodeWasmComponent } from "./WasmComponentDecoder.js";
-import { WasmComponentFormatFailure } from "./WasmComponentReader.js";
 import {
-  MAX_CORE_IMPORT_BINDINGS,
-  WasmComponentRelationshipLimit,
-} from "./WasmComponentRelationships.js";
+  WasmComponentFormatFailure,
+  WasmComponentLimitExceeded,
+} from "./WasmComponentReader.js";
 
 /** Bundled decoder identity; the admitted grammar is pinned separately. */
 export const WASM_COMPONENT_PROVIDER_IDENTITY = {
@@ -48,12 +47,14 @@ const failureFor = (
 ): AnalysisError => {
   if (cause instanceof AnalysisError) return cause;
   if (isAbort(cause, signal)) return new AnalysisCancelledError(OPERATION);
-  if (cause instanceof WasmComponentRelationshipLimit)
+  if (cause instanceof WasmComponentLimitExceeded)
     return new AnalysisResourceConstraintError(
       OPERATION,
-      "transport",
-      `Canonical lower bindings for ${path} exceed ${String(MAX_CORE_IMPORT_BINDINGS)} entries, so the complete result would exceed the inline output budget; no partial success is returned.`,
-      { maximum_bindings: MAX_CORE_IMPORT_BINDINGS },
+      "memory",
+      `${cause.message} for ${path}, so the complete result would exceed the inline output budget; no partial success is returned.`,
+      cause.limit === "decoded-items"
+        ? { maximum_decoded_entries: cause.maximum }
+        : { maximum_lower_bindings: cause.maximum },
       { cause },
     );
   if (cause instanceof WasmComponentFormatFailure)
