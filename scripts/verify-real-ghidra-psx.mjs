@@ -210,7 +210,23 @@ try {
   }
 }
 
-const completed = await completeVerifierRun(run);
+let completed;
+try {
+  completed = await completeVerifierRun(run);
+} catch (cause) {
+  throw new Error(
+    `PS-X verification cleanup failed; retained workspace: ${workspace}`,
+    {
+      cause:
+        failure === undefined
+          ? cause
+          : new AggregateError(
+              [failure, cause],
+              "Verification and process-lineage completion failed",
+            ),
+    },
+  );
+}
 if (
   completed.process_lineage.status !== "verified" ||
   completed.process_lineage.descendants.length !== 0
