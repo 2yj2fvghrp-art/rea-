@@ -17,7 +17,7 @@ it
   .runIf(process.platform === "linux")
   .each(["demo helper", "alternate launcher"])(
   "rejects a reparented %s without signaling it",
-  async (mode) => {
+  async (mode, context) => {
     const runId = randomUUID();
     const childCode =
       "process.title = 'Xvfb'; setInterval(() => {}, 1000); process.send('ready');";
@@ -32,7 +32,22 @@ it
     }
     // A rejection must come from the fixture we are about to launch. An
     // existing Xvfb would otherwise mask a broken executable-identity check.
-    await assertCleanLinuxHopperRuntime(alternateMode ? [launcher] : []);
+    try {
+      await assertCleanLinuxHopperRuntime(alternateMode ? [launcher] : []);
+    } catch (cause) {
+      // Shared runners may deny inspection of a caller-owned /proc entry.
+      // Keep the verifier fail-closed; do not claim a process-free host.
+      if (
+        cause !== null &&
+        typeof cause === "object" &&
+        "code" in cause &&
+        (cause.code === "EACCES" || cause.code === "EPERM")
+      ) {
+        context.skip("Linux runner does not permit complete process inspection");
+        return;
+      }
+      throw cause;
+    }
     const command = alternateMode ? alternate : process.execPath;
     const arguments_ = alternateMode ? ["30"] : ["-e", childCode];
     const parentCode = `
