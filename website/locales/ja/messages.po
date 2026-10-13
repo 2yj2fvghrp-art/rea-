@@ -13855,10 +13855,12 @@ msgstr "提供された例*{ph0}とnpm*コーディングエージェント · L
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
 
-#. {ph0}: <code>procps</code>
-#. {ph1}: <code>ps</code>
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <span translate="no">Node.js</span>
+#. {ph2}: <code>procps</code>
+#. {ph3}: <code>ps</code>
 #: website/public/get-started/index.html:202
 #, python-brace-format
 msgctxt "page:get-started/index.html"
-msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
-msgstr "Linux では、REA は {ph0} 互換の {ph1} コマンドを使って、JavaScript とネイティブのプロバイダー起動を監視します。"
+msgid "You'll need {ph0} 22 (22.19+), 24 (24.11+) or 26+. npm comes with {ph1}. On Linux, REA uses a {ph2}-compatible {ph3} command to supervise JavaScript and native provider launches."
+msgstr "{ph0} 22 (22.19+)、24 (24.11+) または 26+ が必要です。npm は {ph1} に付属しています。Linux では、REA は {ph2} 互換の {ph3} コマンドを使って、JavaScript とネイティブのプロバイダー起動を監視します。"

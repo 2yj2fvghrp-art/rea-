@@ -14855,10 +14855,12 @@ msgstr ""
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
 
-#. {ph0}: <code>procps</code>
-#. {ph1}: <code>ps</code>
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <span translate="no">Node.js</span>
+#. {ph2}: <code>procps</code>
+#. {ph3}: <code>ps</code>
 #: website/public/get-started/index.html:202
 #, python-brace-format
 msgctxt "page:get-started/index.html"
-msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
-msgstr "W systemie Linux REA używa polecenia {ph1} zgodnego z {ph0}, aby nadzorować uruchamianie dostawców JavaScript i natywnych."
+msgid "You'll need {ph0} 22 (22.19+), 24 (24.11+) or 26+. npm comes with {ph1}. On Linux, REA uses a {ph2}-compatible {ph3} command to supervise JavaScript and native provider launches."
+msgstr "Potrzebujesz {ph0} 22 (22.19+), 24 (24.11+) lub 26+. npm jest dołączony do {ph1}. W systemie Linux REA używa polecenia {ph3} zgodnego z {ph2}, aby nadzorować uruchamianie dostawców JavaScript i natywnych."

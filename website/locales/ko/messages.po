@@ -13866,10 +13866,12 @@ msgstr "제공된 예·{ph0}및npm·코딩의 에이전트 · Linux의 {ph1}"
 #~ msgid "{ph0}Angle and velocity · source excerpt{ph1}"
 #~ msgstr ""
 
-#. {ph0}: <code>procps</code>
-#. {ph1}: <code>ps</code>
+#. {ph0}: <span translate="no">Node.js</span>
+#. {ph1}: <span translate="no">Node.js</span>
+#. {ph2}: <code>procps</code>
+#. {ph3}: <code>ps</code>
 #: website/public/get-started/index.html:202
 #, python-brace-format
 msgctxt "page:get-started/index.html"
-msgid "On Linux, REA uses a {ph0}-compatible {ph1} command to supervise JavaScript and native provider launches."
-msgstr "Linux에서 REA는 JavaScript 및 네이티브 공급자 실행을 감독하기 위해 {ph0} 호환 {ph1} 명령을 사용합니다."
+msgid "You'll need {ph0} 22 (22.19+), 24 (24.11+) or 26+. npm comes with {ph1}. On Linux, REA uses a {ph2}-compatible {ph3} command to supervise JavaScript and native provider launches."
+msgstr "{ph0} 22(22.19+), 24(24.11+) 또는 26+가 필요합니다. npm은 {ph1}에 포함되어 있습니다. Linux에서 REA는 JavaScript 및 네이티브 공급자 실행을 감독하기 위해 {ph2} 호환 {ph3} 명령을 사용합니다."
