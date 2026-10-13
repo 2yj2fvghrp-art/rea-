@@ -41,12 +41,21 @@ export const boundedViewMessages = (
   values: readonly string[],
   parentEvidenceId: string,
   field: "limitations" | "unknowns",
+  required: readonly string[] = [],
 ): string[] => {
-  const unique = uniqueSorted(values);
+  const priority = uniqueSorted(required);
+  const unique = uniqueSorted([...priority, ...values]);
   if (unique.length <= ANALYSIS_VIEW_MESSAGE_LIMIT) return unique;
-  const omitted = unique.length - ANALYSIS_VIEW_MESSAGE_LIMIT;
+  // Structural coverage facts must survive bulk limitation overflow. Retain
+  // them first, then use the remaining slots for canonically ordered messages.
+  const retained = new Set(priority.slice(0, ANALYSIS_VIEW_MESSAGE_LIMIT));
+  for (const value of unique) {
+    if (retained.size === ANALYSIS_VIEW_MESSAGE_LIMIT) break;
+    retained.add(value);
+  }
+  const omitted = unique.length - retained.size;
   return [
-    ...unique.slice(0, ANALYSIS_VIEW_MESSAGE_LIMIT),
-    `${String(omitted)} additional ${field} omitted from this view; the complete list remains in parent Evidence ${parentEvidenceId} (get_evidence_bundle or export_evidence_bundle).`,
+    ...uniqueSorted([...retained]),
+    `${String(omitted)} additional ${field} omitted from this view; consult source parent Evidence ${parentEvidenceId} for the complete list (the caller-supplied record, or its retaining session).`,
   ];
 };
