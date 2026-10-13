@@ -10,6 +10,7 @@ import { PlaywrightScenarioServiceWorkers } from "../../dist/browser/PlaywrightS
 import { createBrowserScenarioProvider } from "../../dist/composition/browserScenario.js";
 import { browserScenarioSchema } from "../../dist/domain/browserScenario.js";
 import { runScenarioCli } from "./browser-scenario-verifier.mjs";
+import { verifyScenarioPolicySetup } from "./browser-scenario-service-worker-setup-e2e.mjs";
 
 const startSite = async () => {
   let otherOrigin;
@@ -504,6 +505,12 @@ const verifyPolicyCleanup = async ({
     false,
   );
   await verifyRejectedPolicyInstallation(page.context(), endpoint, origin);
+  const setup = await verifyScenarioPolicySetup(
+    endpoint,
+    targetId,
+    origin,
+    page,
+  );
   return {
     stalled_image_cancelled: true,
     stalled_frame_cancelled: true,
@@ -514,13 +521,15 @@ const verifyPolicyCleanup = async ({
     navigation_during_restoration: true,
     caller_init_script_preserved: true,
     failed_main_installation_rejected: true,
+    failed_accessor_installation_rejected: true,
     failed_iframe_installation_rejected: true,
     replaced_iframe_policy_rejected: true,
+    setup,
   };
 };
 
 const verifyRejectedPolicyInstallation = async (context, endpoint, origin) => {
-  for (const realm of ["main", "existing-iframe", "new-iframe"]) {
+  for (const realm of ["main", "accessor", "existing-iframe", "new-iframe"]) {
     const page = await context.newPage();
     let policy;
     try {
@@ -535,7 +544,7 @@ const verifyRejectedPolicyInstallation = async (context, endpoint, origin) => {
       );
       if (realm === "new-iframe") await policy.initialize();
       let frame = page.mainFrame();
-      if (realm !== "main") {
+      if (realm === "existing-iframe" || realm === "new-iframe") {
         const crossSite = origin.replace("127.0.0.1", "localhost");
         await page.evaluate((url) => {
           const child = document.createElement("iframe");
@@ -548,18 +557,29 @@ const verifyRejectedPolicyInstallation = async (context, endpoint, origin) => {
         assert.ok(frame);
         await frame.waitForURL(crossSite, { waitUntil: "load" });
       }
-      await frame.evaluate((replace) => {
+      await frame.evaluate((kind) => {
         const prototype = ServiceWorkerContainer.prototype;
         const descriptor = Object.getOwnPropertyDescriptor(
           prototype,
           "register",
         );
+        if (kind === "accessor") {
+          const original = descriptor.value;
+          Object.defineProperty(prototype, "register", {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get: () => original,
+          });
+          return;
+        }
         Object.defineProperty(prototype, "register", {
           ...descriptor,
           configurable: false,
-          ...(replace ? { value: function callerReplacement() {} } : {}),
+          ...(kind === "new-iframe"
+            ? { value: function callerReplacement() {} }
+            : {}),
         });
-      }, realm === "new-iframe");
+      }, realm);
       await assert.rejects(
         realm === "new-iframe" ? policy.assertBlocked() : policy.initialize(),
         (error) => error.reason === "target_not_allowed",

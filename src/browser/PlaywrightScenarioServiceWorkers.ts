@@ -6,6 +6,7 @@ import type { Page } from "playwright-core";
 import { browserObservationEndpointSchema } from "../domain/browserObservation.js";
 import { BrowserObservationError } from "../domain/browserObservationError.js";
 import { CdpConnection } from "./CdpConnection.js";
+import { withCdpDiscoveryDeadline } from "./CdpEndpoint.js";
 import {
   attachCdpTargetSession,
   openCdpEndpoint,
@@ -41,6 +42,7 @@ export class PlaywrightScenarioServiceWorkers {
   #released = false;
   #detached = false;
   #removeListener: (() => void) | undefined;
+  #setup = new AbortController();
 
   constructor(
     private readonly page: Page,
@@ -53,22 +55,43 @@ export class PlaywrightScenarioServiceWorkers {
   }
 
   private async install(): Promise<void> {
-    await this.assertBlocked();
-    const opened = await openCdpEndpoint(
-      browserObservationEndpointSchema.parse(this.endpoint),
+    this.#session = await withCdpDiscoveryDeadline(
       OPERATION,
+      this.#setup.signal,
+      async (signal) => {
+        await withPlaywrightExecutionBoundary(
+          () => this.assertBlocked(),
+          undefined,
+          signal,
+        );
+        const opened = await openCdpEndpoint(
+          browserObservationEndpointSchema.parse(this.endpoint),
+          OPERATION,
+          signal,
+        );
+        const target = opened.discovery.targets.find(
+          ({ id }) => id === this.targetId,
+        );
+        if (target === undefined) {
+          await opened.connection?.close();
+          throw new BrowserObservationError(OPERATION, "target_not_found");
+        }
+        const connection =
+          opened.connection ??
+          (await CdpConnection.connect(
+            opened.discovery.webSocket.url,
+            OPERATION,
+            signal,
+          ));
+        return await attachCdpTargetSession(
+          connection,
+          target,
+          OPERATION,
+          signal,
+        );
+      },
     );
-    const target = opened.discovery.targets.find(
-      ({ id }) => id === this.targetId,
-    );
-    if (target === undefined) {
-      await opened.connection?.close();
-      throw new BrowserObservationError(OPERATION, "target_not_found");
-    }
-    const connection =
-      opened.connection ??
-      (await CdpConnection.connect(opened.discovery.webSocket.url, OPERATION));
-    this.#session = await attachCdpTargetSession(connection, target, OPERATION);
+    const connection = this.#session.connection;
     this.#removeListener = connection.onEvent((event) => {
       if (
         event.method === "Target.attachedToTarget" &&
@@ -88,7 +111,11 @@ export class PlaywrightScenarioServiceWorkers {
     this.addTarget(id);
     await this.settle();
     // CDP returns an identifier even when an init script throws in a realm.
-    await this.assertBlocked();
+    await withPlaywrightExecutionBoundary(
+      () => this.assertBlocked(),
+      undefined,
+      this.#setup.signal,
+    );
   }
 
   private addTarget(id: string): void {
@@ -202,6 +229,8 @@ export class PlaywrightScenarioServiceWorkers {
 
   close(stopLoading = false): Promise<void> {
     this.#closed = true;
+    // Abort discovery/handshakes and reads, never an already-sent page mutation.
+    this.#setup.abort();
     const restoration = (this.#restoration ??= this.restore(stopLoading));
     void restoration.then(
       () => {

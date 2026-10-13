@@ -388,6 +388,47 @@ it("retains the attached connection when registration restoration fails", async 
   await expect(session.close()).resolves.toBe("disconnected-external");
 });
 
+it("cancels a stalled policy preflight without allowing late setup", async () => {
+  const { cleanup, page } = fixture();
+  let release: () => void = () => undefined;
+  let entered: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  page.evaluate.mockImplementationOnce(async () => {
+    entered();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return false;
+  });
+  const cancellation = new AbortController();
+  const opening = PlaywrightScenarioSession.open(
+    browserScenarioSchema.parse({
+      ...scenario,
+      browser: {
+        mode: "connect",
+        cdp_endpoint: "http://127.0.0.1:9222",
+        target_id: "target",
+      },
+      environment: { service_workers: "block" },
+    }),
+    {},
+    { signal: cancellation.signal },
+  );
+  const outcome = expect(opening).rejects.toMatchObject({
+    _tag: "AnalysisCancelledError",
+  });
+  await started;
+  cancellation.abort();
+  await outcome;
+  expect(cleanup.close).toHaveBeenCalledTimes(1);
+  expect(cleanup.close.mock.calls[0]).toHaveLength(1);
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(mocks.policySend).not.toHaveBeenCalled();
+});
+
 it("waits for a pending registration installation before cancelled cleanup", async () => {
   const { cleanup, page } = fixture();
   let releaseInstallation: () => void = () => undefined;

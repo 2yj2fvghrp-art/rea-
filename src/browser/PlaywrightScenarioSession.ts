@@ -276,7 +276,6 @@ export class PlaywrightScenarioSession implements BrowserScenarioSessionPort {
             events === undefined
               ? undefined
               : () => events?.finish() ?? Promise.resolve(),
-            options.signal,
           );
         } catch (failure: unknown) {
           browserFailure = { cause: failure };
