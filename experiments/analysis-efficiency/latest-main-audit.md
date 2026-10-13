@@ -50,3 +50,17 @@ disappeared, even when the narrower payload-exit observation is verified.
 Raw records, binaries and model traces stay in the private lab outside Git.
 Heavy work remains serial under the unchanged one-CPU, 3 GiB early-stop / 4 GiB
 hard memory, no-swap and host-availability guards.
+
+## Main advanced during the experiment
+
+Main subsequently advanced to `a2d8b94dd50dab8d966239dd63ab84718aa8b4b4`,
+adding native Fiddler SAZ parsing. Its web-network capture contract already
+offers opt-in summary and retained capture pages, archive-member coordinates
+and exact exposed encoded bytes. It decodes all records before ordinal
+selection and rejects malformed/oversized inputs without partial success.
+Measure real public SAZ artifacts using these controls before adding another
+API or changing decoding or credential-redaction semantics. SAZ performance
+remains unverified in this Flutter continuation.
+
+The Flutter cohorts keep their original frozen runtime; subsequent integration
+onto this newer main does not relabel earlier measurement receipts.

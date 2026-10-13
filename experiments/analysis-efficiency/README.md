@@ -11,6 +11,10 @@ Follow-up: [latest-main capability audit](latest-main-audit.md) records the
 Flutter, SQLite, TShark and sigrok priorities and the first shipped Dart AOT
 baseline, preserving existing controls before introducing another selector.
 
+Follow-up: [Dart AOT summary and retained string pools](flutter-aot-summary.md)
+records real LocalSend delivery pairs and old Evidence continuation, preserving
+ABI selection, snapshot identity, original lower bounds and partial coverage.
+
 Follow-up: [native PE/DOS entry views and real model verification](native-entry-views.md)
 records the post-merge native continuation, including a small-function case where
 four selected replies cost more bytes than the complete dossier.
