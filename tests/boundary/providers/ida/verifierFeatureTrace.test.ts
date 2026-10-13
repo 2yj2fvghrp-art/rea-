@@ -198,7 +198,7 @@ describe("the real IDA lane's mapped non-function probe", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("skips a string that resolves as unmapped, since it proves no mapped data", async () => {
+  it("rejects a listed string that resolves as unmapped, since IDA cannot list an unmapped address", async () => {
     await expect(
       findMappedNonFunction(
         [{ address: "0x4000" }, { address: "0x3000" }],
@@ -207,6 +207,6 @@ describe("the real IDA lane's mapped non-function probe", () => {
           "0x3000": data,
         }),
       ),
-    ).resolves.toBe("0x3000");
+    ).rejects.toThrow();
   });
 });
