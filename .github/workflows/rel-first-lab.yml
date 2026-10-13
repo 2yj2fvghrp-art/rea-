@@ -6,6 +6,7 @@ on:
     paths:
       - "REL_START_HERE.md"
       - "experiments/rel-first-lab/**"
+      - "experiments/rel-visual-lab/**"
       - "rel.mjs"
       - "rel/**"
       - ".codex/**"
@@ -34,6 +35,8 @@ jobs:
       - run: npm ci
       - name: Build local fork (not npm-published upstream)
         run: npm run build:cached
+      - name: Test beginner visual lab and loopback-only server
+        run: node --test rel/lab-server.test.mjs
       - name: Verify actual Codex-facing MCP server discovery
         run: node --test rel/codex-mcp.test.mjs
       - name: Verify REL intake classification and execution boundaries
