@@ -87,3 +87,53 @@ it.each([
     );
   },
 );
+
+it.each([
+  {
+    dataModel: undefined,
+    bitness: "bitness unknown",
+    code: "version_unresolved",
+  },
+  { dataModel: "32", bitness: "32-bit", code: "unsupported_version" },
+])(
+  "reports a probe with data model $dataModel as $bitness",
+  async ({ dataModel, bitness, code }) => {
+    const root = await createTestTempDirectory("rea-java-bitness-");
+    const javaHome = join(root, "jdk");
+    const installDir = join(root, "ghidra");
+    await mkdir(join(installDir, "Ghidra"), { recursive: true });
+    await writeFile(
+      join(installDir, "Ghidra", "application.properties"),
+      `application.version=${SUPPORTED_GHIDRA_VERSION}\napplication.java.min=21\n`,
+    );
+    await mkdir(join(javaHome, "bin"), { recursive: true });
+    await writeFile(
+      join(
+        javaHome,
+        "bin",
+        process.platform === "win32" ? "javac.exe" : "javac",
+      ),
+      "compiler presence fixture",
+      { mode: 0o755 },
+    );
+    mockSpawnSync.mockReturnValue({
+      stdout: "",
+      stderr: `    java.version = 21.0.11\n    java.home = ${javaHome}\n${dataModel === undefined ? "" : `    sun.arch.data.model = ${dataModel}\n`}    java.vm.name = OpenJDK 64-Bit Server VM\n`,
+      status: 0,
+    });
+
+    const inspection = inspectGhidraInstallation({
+      environment: {},
+      installDir,
+      javaHome,
+    });
+
+    expect(inspection.checks.find(({ name }) => name === "java")).toMatchObject(
+      {
+        status: "failed",
+        code,
+        detail: expect.stringContaining(`21.0.11; ${bitness}; JDK;`),
+      },
+    );
+  },
+);

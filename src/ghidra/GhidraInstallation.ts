@@ -232,7 +232,8 @@ export interface GhidraJavaObservation {
   readonly version: string;
   readonly major: number;
   readonly home: string;
-  readonly bits: number;
+  /** Data-model bitness; null when the probe did not report it. */
+  readonly bits: number | null;
   readonly runtime: "jdk" | "jre";
   readonly vmName?: string;
 }
@@ -667,17 +668,17 @@ const javaCheck = (
 ): GhidraInstallationCheck => {
   const requirement = ghidraJavaRequirement(properties);
   const range = ghidraJavaRangeLabel(requirement);
-  const supported =
+  const otherwiseSupported =
     observation !== undefined &&
     ghidraJavaMajorAccepted(observation.major, requirement) &&
-    observation.bits === 64 &&
     observation.runtime === "jdk";
+  const supported = otherwiseSupported && observation.bits === 64;
   const detail =
     observation === undefined
       ? requirement.unresolved === null
         ? command
         : `${command}; ${requirement.unresolved}`
-      : `${observation.version}; ${String(observation.bits)}-bit; ${observation.runtime === "jdk" ? "JDK" : "runtime only"}; ${observation.home}; accepted ${range}`;
+      : `${observation.version}; ${observation.bits === null ? "bitness unknown" : `${String(observation.bits)}-bit`}; ${observation.runtime === "jdk" ? "JDK" : "runtime only"}; ${observation.home}; accepted ${range}`;
   return installationCheck({
     name: "java",
     passed: supported,
@@ -686,7 +687,9 @@ const javaCheck = (
         ? "version_unresolved"
         : observation === undefined
           ? "runtime_missing"
-          : "unsupported_version",
+          : otherwiseSupported && observation.bits === null
+            ? "version_unresolved"
+            : "unsupported_version",
     detail,
     remediation: javaRemediation(requirement, configuredHome, range),
   });
@@ -772,10 +775,11 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
     const version = javaProperty(output, "java.version");
     const home = javaProperty(output, "java.home");
     const vmName = javaProperty(output, "java.vm.name");
-    const bits = Number.parseInt(
-      javaProperty(output, "sun.arch.data.model") ?? "0",
-      10,
-    );
+    const dataModel = javaProperty(output, "sun.arch.data.model");
+    const bits =
+      dataModel !== null && /^[0-9]+$/u.test(dataModel)
+        ? Number(dataModel)
+        : null;
     if (version === null || home === null) return undefined;
     return {
       version,
