@@ -76,7 +76,7 @@ internal static class Program
 
         try
         {
-            using var ownerJob = LauncherJobObject.AssignCurrentProcess();
+            LauncherJobObject.AssignCurrentProcess();
             using var process = new Process { StartInfo = startInfo };
             var standardOutput = new StringBuilder();
             var standardError = new StringBuilder();

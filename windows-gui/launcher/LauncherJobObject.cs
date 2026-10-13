@@ -1,24 +1,22 @@
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 
 namespace Rea.WindowsGui.Launcher
 {
-    public sealed class LauncherJobObject : IDisposable
+    public static class LauncherJobObject
     {
         private const uint JobObjectExtendedLimitInformation = 9;
         private const uint JobObjectLimitKillOnJobClose = 0x2000;
-        private readonly SafeJobHandle _handle;
+        private static IntPtr _processLifetimeHandle;
 
-        private LauncherJobObject(SafeJobHandle handle)
+        public static void AssignCurrentProcess()
         {
-            _handle = handle;
-        }
+            if (_processLifetimeHandle != IntPtr.Zero)
+            {
+                return;
+            }
 
-        public static LauncherJobObject AssignCurrentProcess()
-        {
             var rawHandle = CreateJobObject(IntPtr.Zero, null);
             if (rawHandle == IntPtr.Zero)
             {
@@ -28,13 +26,12 @@ namespace Rea.WindowsGui.Launcher
                 );
             }
 
-            var handle = new SafeJobHandle(rawHandle);
             try
             {
                 var limits = new JobObjectExtendedLimitInformationData();
                 limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
                 if (!SetInformationJobObject(
-                    handle,
+                    rawHandle,
                     JobObjectExtendedLimitInformation,
                     ref limits,
                     (uint)Marshal.SizeOf(typeof(JobObjectExtendedLimitInformationData))
@@ -46,7 +43,7 @@ namespace Rea.WindowsGui.Launcher
                     );
                 }
 
-                if (!AssignProcessToJobObject(handle, GetCurrentProcess()))
+                if (!AssignProcessToJobObject(rawHandle, GetCurrentProcess()))
                 {
                     throw new Win32Exception(
                         Marshal.GetLastWin32Error(),
@@ -54,31 +51,14 @@ namespace Rea.WindowsGui.Launcher
                     );
                 }
 
-                return new LauncherJobObject(handle);
+                // Keep the raw handle open until the OS tears down this process.
+                // Closing a kill-on-close job while its owner is running would kill the owner.
+                _processLifetimeHandle = rawHandle;
             }
             catch
             {
-                handle.Dispose();
+                CloseHandle(rawHandle);
                 throw;
-            }
-        }
-
-        public void Dispose()
-        {
-            _handle.Dispose();
-        }
-
-        private sealed class SafeJobHandle : SafeHandleZeroOrMinusOneIsInvalid
-        {
-            public SafeJobHandle(IntPtr handle)
-                : base(true)
-            {
-                SetHandle(handle);
-            }
-
-            protected override bool ReleaseHandle()
-            {
-                return CloseHandle(handle);
             }
         }
 
@@ -123,14 +103,14 @@ namespace Rea.WindowsGui.Launcher
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetInformationJobObject(
-            SafeJobHandle job,
+            IntPtr job,
             uint informationClass,
             ref JobObjectExtendedLimitInformationData information,
             uint informationLength
         );
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool AssignProcessToJobObject(SafeJobHandle job, IntPtr process);
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetCurrentProcess();
