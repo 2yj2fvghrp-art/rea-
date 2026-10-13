@@ -417,9 +417,13 @@ describe("web bundle configuration and navigation parity", () => {
         .observations.endpoints.map(({ value }) => value)
         .sort(),
     ).toEqual(expected);
+    // Static analysis also reports path-like getConfiguration arguments as
+    // data values; only request endpoints are compared with the web bundle.
     expect(
       analyzeJavaScriptStaticSource(source)
-        .endpoints.map(({ value }) => value)
+        .endpoints.flatMap(({ kind, value }) =>
+          kind === "data" ? [] : [value],
+        )
         .sort(),
     ).toEqual(expected);
   });
