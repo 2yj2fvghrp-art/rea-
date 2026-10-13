@@ -62,7 +62,7 @@ export const parsePsxExeHeader = (
     header.entryPoint % 4 !== 0 ||
     header.loadAddress % 4 !== 0 ||
     header.entryPoint < header.loadAddress ||
-    header.entryPoint >= end
+    header.entryPoint + 4 > end
   )
     return err(
       "PS-X EXE entry must be aligned and lie inside the aligned loaded payload",

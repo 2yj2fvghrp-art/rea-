@@ -584,11 +584,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
             JsonObject context = new JsonObject();
             context.addProperty("address", canonicalAddress(entry));
             JsonArray registers = new JsonArray();
-            for (String name : new String[] { "CS", "DS", "ES", "SS", "gp", "sp" }) {
+            for (String name : new String[] { "CS", "DS", "ES", "SS", "gp", "sp", "fp" }) {
                 Register register = currentProgram.getRegister(name);
+                if (register == null && name.equals("fp")) register = currentProgram.getRegister("s8");
                 if (register == null) continue;
                 JsonObject row = new JsonObject();
-                row.addProperty("name", name);
+                row.addProperty("name", register.getName());
                 BigInteger value = currentProgram.getProgramContext().getValue(register, entry, false);
                 row.add("value_hex", value == null ? JsonNull.INSTANCE : GSON.toJsonTree("0x" + value.toString(16)));
                 registers.add(row);

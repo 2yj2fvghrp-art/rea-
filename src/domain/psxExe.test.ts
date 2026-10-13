@@ -80,3 +80,13 @@ it("retains PS-X identity in artifact inventory and bounds unused trailing secto
   expect(parsePsxExeHeader(bytes, 4097).ok).toBe(false);
   expect(parsePsxExeHeader(bytes, 0x100000000).ok).toBe(false);
 });
+
+it.each([1, 2, 3, 1025])(
+  "rejects an entry shorter than one instruction with payload %i",
+  (payload) => {
+    const bytes = fixture();
+    bytes.writeUInt32LE(payload, 0x1c);
+    bytes.writeUInt32LE(0x80010000 + (payload === 1025 ? 1024 : 0), 0x10);
+    expect(parsePsxExeHeader(bytes, bytes.length).ok).toBe(false);
+  },
+);

@@ -118,6 +118,11 @@ try {
     entryContext.registers.find((row) => row.name === "sp")?.value_hex,
     "0x801ffff0",
   );
+  assert.equal(
+    entryContext.registers.find((row) => row.name === "fp" || row.name === "s8")
+      ?.value_hex,
+    "0x801ffff0",
+  );
   const bss = image.mappings.find((row) => row.block === "psx_bss");
   assert.ok(bss, "Declared BSS block was not observed");
   assert.equal(BigInt(bss.start), 0x80010800n);

@@ -46,8 +46,14 @@ public final class ReaGhidraPreparePsx extends GhidraScript {
         }
         Address entry = toAddr(values[2]);
         // A zero stack base leaves the BIOS/caller stack unchanged, hence unknown here.
-        if (values[4] != 0)
-            currentProgram.getProgramContext().setValue(currentProgram.getRegister("sp"), entry, entry, BigInteger.valueOf(values[4] + values[5]));
+        if (values[4] != 0) {
+            BigInteger stack = BigInteger.valueOf(values[4] + values[5]);
+            var frame = currentProgram.getRegister("fp");
+            if (frame == null) frame = currentProgram.getRegister("s8");
+            if (frame == null) throw new IllegalStateException("MIPS frame-pointer register is unavailable");
+            currentProgram.getProgramContext().setValue(currentProgram.getRegister("sp"), entry, entry, stack);
+            currentProgram.getProgramContext().setValue(frame, entry, entry, stack);
+        }
         currentProgram.getProgramContext().setValue(currentProgram.getRegister("gp"), entry, entry, BigInteger.valueOf(values[3]));
         addEntryPoint(entry);
         disassemble(entry);
