@@ -19,6 +19,7 @@ afterEach(async () => {
 const fixture = async (
   mode: "attached" | "headless" = "attached",
   timeoutMs = 1000,
+  protocol?: "native",
 ) => {
   const { root, target } = await createIdaTarget();
   roots.push(root);
@@ -29,6 +30,7 @@ const fixture = async (
       args: [],
       env: {},
       mode,
+      ...(protocol === undefined ? {} : { protocol }),
       timeoutMs,
       workspaceRoot: root,
     },
@@ -698,6 +700,23 @@ describe("headless IDA non-busy health payloads", () => {
 });
 
 describe("IDA compatibility profile mismatch", () => {
+  it("reports the native profile for an incompatible catalog", async () => {
+    const { producer, client } = await fixture("attached", 1000, "native");
+    producer.tools = [];
+    const result = await client.execute("health", {});
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected incompatible native catalog");
+    expect(projectAnalysisError(result.error).details).toMatchObject({
+      diagnostics: {
+        mode: "attached",
+        expected_profile: "native",
+        missing_tools: expect.arrayContaining(["decompile"]),
+      },
+    });
+    expect(producer.calls).toEqual([]);
+    expect((await client.close()).ok).toBe(true);
+  });
+
   it("names every missing tool so the caller can identify the upstream profile", async () => {
     const { producer, client } = await fixture("headless");
     producer.tools = [
