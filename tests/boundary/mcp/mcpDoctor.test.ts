@@ -199,6 +199,25 @@ describe("mcp doctor full-output envelope", () => {
       },
     });
   }, 30_000);
+
+  it("wraps a healthy diagnostic report in the requested envelope", async () => {
+    const full = await runProductionMcpDoctorCli(
+      ["--json", "--full-output"],
+      {
+        dispatcherPath: resolve("scripts/rea.mjs"),
+        packageRoot: process.cwd(),
+      },
+    );
+    expect(full.exitCode).toBe(0);
+    const envelope = JSON.parse(full.output) as Record<string, unknown>;
+    expect(envelope.ok).toBe(true);
+    expect(envelope).not.toHaveProperty("error");
+    expect(envelope.data).toMatchObject({ healthy: true });
+    expect(envelope.meta).toEqual({
+      command: "mcp doctor",
+      duration: expect.stringMatching(/^\d+ms$/u),
+    });
+  }, 60_000);
 });
 
 const waitForExit = async (pid: number): Promise<void> => {
